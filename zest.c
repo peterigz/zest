@@ -1,5 +1,6 @@
 #include "zest.h"
 #define TLOC_IMPLEMENTATION
+#define TLOC_OUTPUT_ERROR_MESSAGES
 #include "2loc.h"
 
 const char *zest__vulkan_error(VkResult errorCode)
@@ -59,14 +60,16 @@ void zest_Start() {
 void zest__initialise_device() {
 	zest__create_instance();
 	zest__setup_validation();
-
-	//zest__pick_physical_device();
+	zest__pick_physical_device();
 
 	//zest__create_logical_device();
 
 	//zest__set_limit_data();
 }
 
+/*
+Functions that create a vulkan device
+*/
 void zest__create_instance() {
 	if (ZEST_ENABLE_VALIDATION_LAYER) {
 		zest_assert(zest__check_validation_layer_support());
@@ -116,8 +119,12 @@ void zest__create_instance() {
 	ZEST_VK_CHECK_RESULT(result);
 
 	zest__free(available_extensions);
-	//CreateWindowSurface(Device->window);
+	zest__create_window_surface(ZestApp->window);
 
+}
+
+void zest__create_window_surface(zest_window* window) {
+	ZEST_VK_CHECK_RESULT(glfwCreateWindowSurface(ZestDevice->instance, window->window_handle, zest_null, &window->surface));
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback( VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
@@ -209,6 +216,168 @@ zest_bool zest__check_validation_layer_support() {
 	return 1;
 }
 
+void zest__pick_physical_device() {
+	zest_uint device_count = 0;
+	vkEnumeratePhysicalDevices(ZestDevice->instance, &device_count, zest_null);
+
+	assert(device_count);		//Failed to find GPUs with Vulkan support!
+
+	zest__array(devices, VkPhysicalDevice, device_count);
+	vkEnumeratePhysicalDevices(ZestDevice->instance, &device_count, devices);
+
+	ZestDevice->physical_device = VK_NULL_HANDLE;
+	for (int i = 0; i != device_count; ++i) {
+		if (zest__is_device_suitable(devices[i])) {
+			ZestDevice->physical_device = devices[i];
+			ZestDevice->msaa_samples = zest__get_max_useable_sample_count();
+			break;
+		}
+	}
+
+	zest_assert(ZestDevice->physical_device != VK_NULL_HANDLE);	//Unable to find suitable GPU
+
+	// Store Properties features, limits and properties of the physical Device for later use
+	// Device properties also contain limits and sparse properties
+	vkGetPhysicalDeviceProperties(ZestDevice->physical_device, &ZestDevice->properties);
+	// Features should be checked by the examples before using them
+	vkGetPhysicalDeviceFeatures(ZestDevice->physical_device, &ZestDevice->features);
+	// Memory properties are used regularly for creating all kinds of buffers
+	vkGetPhysicalDeviceMemoryProperties(ZestDevice->physical_device, &ZestDevice->memory_properties);
+
+	//Print out the memory available
+	for (int i = 0; i != ZestDevice->memory_properties.memoryHeapCount; ++i) {
+		//std::cout << Device->memory_properties.memoryHeaps[i].flags << " - " << Device->memory_properties.memoryHeaps[i].size << std::endl;
+	}
+
+	zest__free(devices);
+}
+
+zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device) {
+	zest_queue_family_indices indices = zest__find_queue_families(physical_device);
+
+	zest_bool extensions_supported = zest__check_device_extension_support(physical_device);
+
+	zest_bool swap_chain_adequate = 0;
+	if (extensions_supported) {
+		ZestDevice->swap_chain_support_details = zest__query_swap_chain_support(physical_device);
+		swap_chain_adequate = ZestDevice->swap_chain_support_details.formats_count && ZestDevice->swap_chain_support_details.present_modes_count;
+	}
+
+	VkPhysicalDeviceFeatures supportedFeatures;
+	vkGetPhysicalDeviceFeatures(physical_device, &supportedFeatures);
+
+	return zest__family_is_complete(&indices) && extensions_supported && swap_chain_adequate && supportedFeatures.samplerAnisotropy && supportedFeatures.wideLines;
+}
+
+zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device) {
+	zest_queue_family_indices indices;
+
+	zest_uint queue_family_count = 0;
+	vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, zest_null);
+
+	zest__array(queue_families, VkQueueFamilyProperties, queue_family_count);
+	vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families);
+
+	int i = 0;
+	zest_bool compute_found = 0;
+	for (int f = 0; f != queue_family_count; ++f) {
+		if (queue_families[f].queueCount > 0 && queue_families[f].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+			zest__set_graphics_family(&indices, i);
+		}
+
+		if ((queue_families[f].queueFlags & VK_QUEUE_COMPUTE_BIT) && ((queue_families[f].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0)) {
+			zest__set_compute_family(&indices, i);
+			compute_found = 1;
+		}
+
+		VkBool32 present_support = VK_FALSE;
+		vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, ZestApp->window->surface, &present_support);
+
+		if (queue_families[f].queueCount > 0 && present_support) {
+			zest__set_present_family(&indices, i);
+		}
+
+		if (zest__family_is_complete(&indices)) {
+			break;
+		}
+
+		i++;
+	}
+
+	i = 0;
+	if (!compute_found) {
+		for (int f = 0; f != queue_family_count; ++f) {
+			if (queue_families[f].queueFlags & VK_QUEUE_COMPUTE_BIT) {
+				zest__set_compute_family(&indices, i);
+			}
+			i++;
+		}
+	}
+
+	zest__free(queue_families);
+	return indices;
+}
+
+zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device) {
+	zest_uint extension_count;
+	vkEnumerateDeviceExtensionProperties(physical_device, zest_null, &extension_count, zest_null);
+
+	zest__array(available_extensions, VkExtensionProperties, extension_count);
+	vkEnumerateDeviceExtensionProperties(physical_device, zest_null, &extension_count, available_extensions);
+
+	zest_uint required_extensions_found = 0;
+	for (int i = 0; i != extension_count; ++i) {
+		for (int e = 0; e != zest__required_extension_names_count; ++e) {
+			if (strcmp(available_extensions[i].extensionName, zest_required_extensions[e]) == 0) {
+				required_extensions_found++;
+			}
+		}
+	}
+
+	return required_extensions_found >= zest__required_extension_names_count;
+}
+
+zest_swap_chain_support_details zest__query_swap_chain_support(VkPhysicalDevice physical_device) {
+	zest_swap_chain_support_details details;
+
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, ZestApp->window->surface, &details.capabilities);
+
+	vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestApp->window->surface, &details.formats_count, zest_null);
+
+	if (details.formats_count != 0) {
+		details.formats = zest__allocate(sizeof(VkSurfaceFormatKHR) * details.formats_count);
+		vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestApp->window->surface, &details.formats_count, details.formats);
+	}
+
+	vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestApp->window->surface, &details.present_modes_count, zest_null);
+
+	if (details.present_modes_count != 0) {
+		details.present_modes = zest__allocate(sizeof(VkPresentModeKHR) * details.present_modes_count);
+		vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestApp->window->surface, &details.present_modes_count, details.present_modes);
+	}
+
+	return details;
+}
+
+VkSampleCountFlagBits zest__get_max_useable_sample_count() {
+	VkPhysicalDeviceProperties physical_device_properties;
+	vkGetPhysicalDeviceProperties(ZestDevice->physical_device, &physical_device_properties);
+
+	VkSampleCountFlags counts = zest__Min(physical_device_properties.limits.framebufferColorSampleCounts, physical_device_properties.limits.framebufferDepthSampleCounts);
+	if (counts & VK_SAMPLE_COUNT_64_BIT) { return VK_SAMPLE_COUNT_64_BIT; }
+	if (counts & VK_SAMPLE_COUNT_32_BIT) { return VK_SAMPLE_COUNT_32_BIT; }
+	if (counts & VK_SAMPLE_COUNT_16_BIT) { return VK_SAMPLE_COUNT_16_BIT; }
+	if (counts & VK_SAMPLE_COUNT_8_BIT) { return VK_SAMPLE_COUNT_8_BIT; }
+	if (counts & VK_SAMPLE_COUNT_4_BIT) { return VK_SAMPLE_COUNT_4_BIT; }
+	if (counts & VK_SAMPLE_COUNT_2_BIT) { return VK_SAMPLE_COUNT_2_BIT; }
+
+	return VK_SAMPLE_COUNT_1_BIT;
+}
+
+/*
+End of Device creation functions
+*/
+
 void zest__initialise_app() {
 	memset(ZestApp, 0, sizeof(zest_app));
 	ZestApp->update_callback = 0;
@@ -231,7 +400,11 @@ void zest__initialise_app() {
 }
 
 void zest__destroy() {
+	vkDestroySurfaceKHR(ZestDevice->instance, ZestApp->window->surface, zest_null);
+	glfwDestroyWindow(ZestApp->window->window_handle);
+	glfwTerminate();
 	zest_destroy_debug_messenger();
+	//vkDestroyDevice(ZestDevice->logical_device, zest_null);
 	vkDestroyInstance(ZestDevice->instance, zest_null);
 	free(ZestDevice->memory_pools[0]);
 }
@@ -270,8 +443,9 @@ zest_window* zest__create_window(int x, int y, int width, int height, zest_bool 
 	window->window_height = height;
 
 	window->window_handle = glfwCreateWindow(width, height, title, 0, 0);
-	if (!maximised)
+	if (!maximised) {
 		glfwSetWindowPos(window->window_handle, x, y);
+	}
 	glfwSetWindowUserPointer(window->window_handle, ZestApp);
 	glfwSetKeyCallback(window->window_handle, zest__keyboard_input_callback);
 	glfwSetScrollCallback(window->window_handle, zest__mouse_scroll_callback);
@@ -320,7 +494,6 @@ void zest__main_loop() {
 //Testing
 
 int main() {
-	printf("I ran!");
 
 	zest_Initialise();
 	zest_Start();

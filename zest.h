@@ -29,10 +29,14 @@
 #define zest__free(memory) tloc_Free(ZestDevice->allocator, memory)
 #endif
 
+//Helper macros
+#define zest__Min(a, b) (((a) < (b)) ? (a) : (b))
+#define zest__Max(a, b) (((a) > (b)) ? (a) : (b))
+
 #ifndef zest__allocate
 #define zest__allocate(size) tloc_Allocate(ZestDevice->allocator, size)
 #endif
-#define zest__array(name, type, count) type *name = zest__allocate(sizeof(type) * count)
+#define zest__array(name, type, count) type *name = zest__allocate(zest__Max(sizeof(type) * count, tloc__MINIMUM_BLOCK_SIZE))
 
 #define zest_null 0
 #define zest__vk_create_info(name, type) type name; memset(&name, 0, sizeof(type))
@@ -84,7 +88,32 @@ typedef enum zest_app_flags {
 
 enum zest__constants {
 	zest__validation_layer_count = 1,
+	zest__required_extension_names_count = 1,
 };
+
+//Private structs with inline functions
+typedef struct zest_queue_family_indices {
+	zest_uint graphics_family;
+	zest_uint present_family;
+	zest_uint compute_family;
+
+	zest_bool graphics_set;
+	zest_bool present_set;
+	zest_bool compute_set;
+} zest_queue_family_indices;
+
+static inline void zest__set_graphics_family(zest_queue_family_indices *family, zest_uint v) { family->graphics_family = v; family->graphics_set = 1; }
+static inline void zest__set_present_family(zest_queue_family_indices *family, zest_uint v) { family->present_family = v; family->present_set = 1; }
+static inline void zest__set_compute_family(zest_queue_family_indices *family, zest_uint v) { family->compute_family = v; family->compute_set = 1; }
+static inline zest_bool zest__family_is_complete(zest_queue_family_indices *family) { return family->graphics_set && family->present_set && family->compute_set; }
+
+typedef struct zest_swap_chain_support_details {
+	VkSurfaceCapabilitiesKHR capabilities;
+	VkSurfaceFormatKHR *formats;
+	zest_uint formats_count;
+	VkPresentModeKHR *present_modes;
+	zest_uint present_modes_count;
+} zest_swap_chain_support_details;
 
 //structs
 typedef struct zest_window {
@@ -113,6 +142,7 @@ typedef struct zest_device {
 	VkDevice logical_device;
 	VkDebugUtilsMessengerEXT debug_messenger;
 	VkSampleCountFlagBits msaa_samples;
+	zest_swap_chain_support_details swap_chain_support_details;
 	VkPhysicalDeviceProperties properties;
 	VkPhysicalDeviceFeatures features;
 	VkPhysicalDeviceMemoryProperties memory_properties;
@@ -173,8 +203,13 @@ typedef struct zest_app {
 
 static zest_device *ZestDevice = 0;
 static zest_app *ZestApp = 0;
+
 static const char* zest_validation_layers[zest__validation_layer_count] = {
 	"VK_LAYER_KHRONOS_validation"
+};
+
+static const char* zest_required_extensions[zest__required_extension_names_count] = {
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
 //User API functions
@@ -193,11 +228,17 @@ void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
 //Device set up 
 void zest__create_instance();
+void zest__create_window_surface(zest_window* window);
 void zest__setup_validation();
 static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
 VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
 void zest_destroy_debug_messenger();
 void zest__pick_physical_device();
+zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device);
+zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device);
+zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
+zest_swap_chain_support_details zest__query_swap_chain_support(VkPhysicalDevice physical_device);
+VkSampleCountFlagBits zest__get_max_useable_sample_count();
 void zest__create_logical_device();
 void zest__set_limit_data();
 zest_bool zest__check_validation_layer_support();
