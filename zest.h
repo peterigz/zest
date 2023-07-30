@@ -19,6 +19,37 @@
 #define ZEST_API
 #endif
 
+#ifndef _DEBUG
+#define ZEST_ENABLE_VALIDATION_LAYER 0
+#else
+#define ZEST_ENABLE_VALIDATION_LAYER 1
+#endif
+
+#ifndef zest__free
+#define zest__free(memory) tloc_Free(ZestDevice->allocator, memory)
+#endif
+
+#ifndef zest__allocate
+#define zest__allocate(size) tloc_Allocate(ZestDevice->allocator, size)
+#endif
+#define zest__array(name, type, count) type *name = zest__allocate(sizeof(type) * count)
+
+#define zest_null 0
+#define zest__vk_create_info(name, type) type name; memset(&name, 0, sizeof(type))
+
+//For error checking vulkan commands
+#define ZEST_VK_CHECK_RESULT(f)																				\
+	{																										\
+		VkResult res = (f);																					\
+		if (res != VK_SUCCESS)																				\
+		{																									\
+			printf("Fatal : VkResult is \" %s \" in %s at line %i\n", zest__vulkan_error(res), __FILE__, __LINE__);	\
+			assert(res == VK_SUCCESS);																		\
+		}																									\
+	}
+
+const char *zest__vulkan_error(VkResult errorCode);
+
 typedef unsigned int zest_uint;
 typedef size_t zest_size;
 typedef unsigned int zest_bool;
@@ -50,6 +81,10 @@ typedef enum zest_app_flags {
 	zest_app_flag_record_input  =			1 << 5,
 	zest_app_flag_enable_console =			1 << 6
 } zest_app_flags;
+
+enum zest__constants {
+	zest__validation_layer_count = 1,
+};
 
 //structs
 typedef struct zest_window {
@@ -138,6 +173,9 @@ typedef struct zest_app {
 
 static zest_device *ZestDevice = 0;
 static zest_app *ZestApp = 0;
+static const char* zest_validation_layers[zest__validation_layer_count] = {
+	"VK_LAYER_KHRONOS_validation"
+};
 
 //User API functions
 ZEST_API void zest_Initialise();
@@ -152,5 +190,17 @@ void zest__main_loop();
 void zest__keyboard_input_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 void zest__mouse_scroll_callback(GLFWwindow* window, double offset_x, double offset_y);
 void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
+
+//Device set up 
+void zest__create_instance();
+void zest__setup_validation();
+static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
+VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
+void zest_destroy_debug_messenger();
+void zest__pick_physical_device();
+void zest__create_logical_device();
+void zest__set_limit_data();
+zest_bool zest__check_validation_layer_support();
+const char** zest__get_required_extensions(zest_uint *extension_count);
 
 #endif // ! ZEST_RENDERER
