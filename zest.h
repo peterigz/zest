@@ -2,8 +2,8 @@
 #ifndef  ZEST_RENDERER_H
 #define ZEST_RENDERER_H
 
-#include "vulkan.h"
-#include "glfw3.h"
+#include <vulkan/vulkan.h>
+#include <GLFW/glfw3.h>
 #include "2loc.h"
 #include <stdio.h>
 

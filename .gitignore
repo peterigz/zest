@@ -399,3 +399,4 @@ FodyWeavers.xsd
 *.vcxproj
 *.filters
 libs/*
+.DS_Store

@@ -1,6 +1,6 @@
 #include "zest.h"
 #define TLOC_IMPLEMENTATION
-#include "2loc.h"
+#include "../2loc/2loc.h"
 
 void zest_Initialise() {
 	void *memory_pool = malloc(tloc__MEGABYTE(128));
