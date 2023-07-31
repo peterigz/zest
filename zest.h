@@ -227,21 +227,21 @@ void zest__mouse_scroll_callback(GLFWwindow* window, double offset_x, double off
 void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
 //Device set up 
-void zest__create_instance();
+void zest__create_instance(void);
 void zest__create_window_surface(zest_window* window);
-void zest__setup_validation();
+void zest__setup_validation(void);
 static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
 VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
-void zest_destroy_debug_messenger();
-void zest__pick_physical_device();
+void zest_destroy_debug_messenger(void);
+void zest__pick_physical_device(void);
 zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device);
 zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device);
 zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
 zest_swap_chain_support_details zest__query_swap_chain_support(VkPhysicalDevice physical_device);
-VkSampleCountFlagBits zest__get_max_useable_sample_count();
-void zest__create_logical_device();
-void zest__set_limit_data();
-zest_bool zest__check_validation_layer_support();
+VkSampleCountFlagBits zest__get_max_useable_sample_count(void);
+void zest__create_logical_device(void);
+void zest__set_limit_data(void);
+zest_bool zest__check_validation_layer_support(void);
 const char** zest__get_required_extensions(zest_uint *extension_count);
 
 #endif // ! ZEST_RENDERER

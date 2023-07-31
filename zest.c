@@ -70,7 +70,7 @@ void zest__initialise_device() {
 /*
 Functions that create a vulkan device
 */
-void zest__create_instance() {
+void zest__create_instance(void) {
 	if (ZEST_ENABLE_VALIDATION_LAYER) {
 		zest_assert(zest__check_validation_layer_support());
 	}
@@ -143,7 +143,7 @@ VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMess
 	}
 }
 
-void zest_destroy_debug_messenger() {
+void zest_destroy_debug_messenger(void) {
 	if (ZestDevice->debug_messenger != VK_NULL_HANDLE) {
 		PFN_vkDestroyDebugUtilsMessengerEXT destroyDebugUtilsMessenger =
 			(PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(ZestDevice->instance, "vkDestroyDebugUtilsMessengerEXT");
@@ -154,7 +154,7 @@ void zest_destroy_debug_messenger() {
 	}
 }
 
-void zest__setup_validation() {
+void zest__setup_validation(void) {
 	if (!ZEST_ENABLE_VALIDATION_LAYER) return;
 
 	zest__vk_create_info(create_info, VkDebugUtilsMessengerCreateInfoEXT);
@@ -188,7 +188,7 @@ const char** zest__get_required_extensions(zest_uint *extension_count) {
 	return extensions;
 }
 
-zest_bool zest__check_validation_layer_support() {
+zest_bool zest__check_validation_layer_support(void) {
 	zest_uint layer_count;
 	vkEnumerateInstanceLayerProperties(&layer_count, zest_null);
 
@@ -359,7 +359,7 @@ zest_swap_chain_support_details zest__query_swap_chain_support(VkPhysicalDevice 
 	return details;
 }
 
-VkSampleCountFlagBits zest__get_max_useable_sample_count() {
+VkSampleCountFlagBits zest__get_max_useable_sample_count(void) {
 	VkPhysicalDeviceProperties physical_device_properties;
 	vkGetPhysicalDeviceProperties(ZestDevice->physical_device, &physical_device_properties);
 
@@ -378,7 +378,7 @@ VkSampleCountFlagBits zest__get_max_useable_sample_count() {
 End of Device creation functions
 */
 
-void zest__initialise_app() {
+void zest__initialise_app(void) {
 	memset(ZestApp, 0, sizeof(zest_app));
 	ZestApp->update_callback = 0;
 	ZestApp->current_elapsed = 0;
@@ -399,7 +399,7 @@ void zest__initialise_app() {
 	ZestApp->window = zest__create_window(50, 50, 800, 600, 0, "Zest");
 }
 
-void zest__destroy() {
+void zest__destroy(void) {
 	vkDestroySurfaceKHR(ZestDevice->instance, ZestApp->window->surface, zest_null);
 	glfwDestroyWindow(ZestApp->window->window_handle);
 	glfwTerminate();
@@ -462,7 +462,7 @@ zest_window* zest__create_window(int x, int y, int width, int height, zest_bool 
 	return window;
 }
 
-void zest__main_loop() {
+void zest__main_loop(void) {
 	while (!glfwWindowShouldClose(ZestApp->window->window_handle)) {
 
 		//VK_CHECK_RESULT(vkWaitForFences(Device->logical_device, 1, &Renderer->fif_fence[Device->current_fif], VK_TRUE, UINT64_MAX));
@@ -493,7 +493,7 @@ void zest__main_loop() {
 
 //Testing
 
-int main() {
+int main(void) {
 
 	zest_Initialise();
 	zest_Start();
