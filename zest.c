@@ -61,10 +61,8 @@ void zest__initialise_device() {
 	zest__create_instance();
 	zest__setup_validation();
 	zest__pick_physical_device();
-
-	//zest__create_logical_device();
-
-	//zest__set_limit_data();
+	zest__create_logical_device();
+	zest__set_limit_data();
 }
 
 /*
@@ -84,23 +82,23 @@ void zest__create_instance(void) {
 	app_info.apiVersion = VK_API_VERSION_1_0;
 	ZestDevice->api_version = app_info.apiVersion;
 
-	zest__vk_create_info(createInfo, VkInstanceCreateInfo);
-	createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-	createInfo.pApplicationInfo = &app_info;
-	createInfo.flags = 0;
-	createInfo.pNext = 0;
+	zest__vk_create_info(create_info, VkInstanceCreateInfo);
+	create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+	create_info.pApplicationInfo = &app_info;
+	create_info.flags = 0;
+	create_info.pNext = 0;
 
 	zest_uint extension_count = 0;
 	const char** extensions = zest__get_required_extensions(&extension_count);
-	createInfo.enabledExtensionCount = extension_count;
-	createInfo.ppEnabledExtensionNames = extensions;
+	create_info.enabledExtensionCount = extension_count;
+	create_info.ppEnabledExtensionNames = extensions;
 
 	if (ZEST_ENABLE_VALIDATION_LAYER) {
-		createInfo.enabledLayerCount = (zest_uint)zest__validation_layer_count;
-		createInfo.ppEnabledLayerNames = zest_validation_layers;
+		create_info.enabledLayerCount = (zest_uint)zest__validation_layer_count;
+		create_info.ppEnabledLayerNames = zest_validation_layers;
 	}
 	else {
-		createInfo.enabledLayerCount = 0;
+		create_info.enabledLayerCount = 0;
 	}
 
 	zest_uint extension_property_count = 0;
@@ -114,7 +112,7 @@ void zest__create_instance(void) {
 		printf("\t%s\n", available_extensions[i].extensionName);
 	}
 
-	VkResult result = vkCreateInstance(&createInfo, zest_null, &ZestDevice->instance);
+	VkResult result = vkCreateInstance(&create_info, zest_null, &ZestDevice->instance);
 
 	ZEST_VK_CHECK_RESULT(result);
 
@@ -374,6 +372,93 @@ VkSampleCountFlagBits zest__get_max_useable_sample_count(void) {
 	return VK_SAMPLE_COUNT_1_BIT;
 }
 
+void zest__create_logical_device(void) {
+	zest_queue_family_indices indices = zest__find_queue_families(ZestDevice->physical_device);
+
+	VkDeviceQueueCreateInfo queue_create_infos[3];
+	zest_uint unique_queue_families[3] = { indices.graphics_family, indices.present_family, indices.compute_family };
+	unique_queue_families[0] = indices.graphics_family;
+	unique_queue_families[1] = indices.graphics_family == indices.present_family ? indices.compute_family : indices.present_family;
+	unique_queue_families[2] = unique_queue_families[1] == indices.compute_family ? ZEST_INVALID : indices.compute_family;
+	if (unique_queue_families[0] == unique_queue_families[1]) {
+		unique_queue_families[1] = ZEST_INVALID;
+	}
+
+	float graphics_queue_priority[2] = { 0.f, 1.0f };
+	float queue_priority = 1.0f;
+	zest_uint queue_create_count = 0;
+	for (int i = 0; i != 3; ++i) {
+		if (unique_queue_families[i] == ZEST_INVALID) {
+			break;
+		}
+		zest__vk_create_info(queue_create_info, VkDeviceQueueCreateInfo);
+		queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queue_create_info.queueFamilyIndex = unique_queue_families[i];
+		if (unique_queue_families[i] == indices.graphics_family) {
+			queue_create_info.queueCount = 2;
+			queue_create_info.pQueuePriorities = graphics_queue_priority;
+		}
+		else {
+			queue_create_info.queueCount = 1;
+			queue_create_info.pQueuePriorities = &queue_priority;
+		}
+		queue_create_infos[i] = queue_create_info;
+		queue_create_count++;
+	}
+
+	zest__vk_create_info(device_features, VkPhysicalDeviceFeatures);
+	device_features.samplerAnisotropy = VK_TRUE;
+	device_features.wideLines = VK_TRUE;
+	//device_features.dualSrcBlend = VK_TRUE;
+	//device_features.vertexPipelineStoresAndAtomics = VK_TRUE;
+	zest__vk_create_info(device_features_12, VkPhysicalDeviceVulkan12Features);
+	device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+	device_features_12.bufferDeviceAddress = VK_TRUE;
+
+	zest__vk_create_info(create_info, VkDeviceCreateInfo);
+	create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+	create_info.pEnabledFeatures = &device_features;
+	create_info.queueCreateInfoCount = queue_create_count;
+	create_info.pQueueCreateInfos = queue_create_infos;
+	create_info.enabledExtensionCount = zest__required_extension_names_count;
+	create_info.ppEnabledExtensionNames = zest_required_extensions;
+	if (ZestDevice->api_version == VK_API_VERSION_1_2) {
+		create_info.pNext = &device_features_12;
+	}
+
+	if (ZEST_ENABLE_VALIDATION_LAYER) {
+		create_info.enabledLayerCount = zest__validation_layer_count;
+		create_info.ppEnabledLayerNames = zest_validation_layers;
+	}
+	else {
+		create_info.enabledLayerCount = 0;
+	}
+
+	ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, zest_null, &ZestDevice->logical_device));
+
+	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->graphics_queue);
+	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 1, &ZestDevice->one_time_graphics_queue);
+	vkGetDeviceQueue(ZestDevice->logical_device, indices.present_family, 0, &ZestDevice->present_queue);
+	vkGetDeviceQueue(ZestDevice->logical_device, indices.compute_family, 0, &ZestDevice->compute_queue);
+
+	ZestDevice->graphics_queue_family_index = indices.graphics_family;
+	ZestDevice->present_queue_family_index = indices.present_family;
+	ZestDevice->compute_queue_family_index = indices.compute_family;
+
+	zest__vk_create_info(cmd_info_pool, VkCommandPoolCreateInfo);
+	cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	cmd_info_pool.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
+	cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, zest_null, &ZestDevice->command_pool));
+}
+
+void zest__set_limit_data() {
+	VkPhysicalDeviceProperties physicalDeviceProperties;
+	vkGetPhysicalDeviceProperties(ZestDevice->physical_device, &physicalDeviceProperties);
+
+	ZestDevice->max_image_size = physicalDeviceProperties.limits.maxImageDimension2D;
+}
+
 /*
 End of Device creation functions
 */
@@ -404,7 +489,8 @@ void zest__destroy(void) {
 	glfwDestroyWindow(ZestApp->window->window_handle);
 	glfwTerminate();
 	zest_destroy_debug_messenger();
-	//vkDestroyDevice(ZestDevice->logical_device, zest_null);
+	vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->command_pool, zest_null);
+	vkDestroyDevice(ZestDevice->logical_device, zest_null);
 	vkDestroyInstance(ZestDevice->instance, zest_null);
 	free(ZestDevice->memory_pools[0]);
 }

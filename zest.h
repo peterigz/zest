@@ -25,6 +25,8 @@
 #define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
+#define ZEST_INVALID 0xFFFFFFFF
+
 #ifndef zest__free
 #define zest__free(memory) tloc_Free(ZestDevice->allocator, memory)
 #endif
