@@ -34,7 +34,7 @@
 #define zest__Max(a, b) (((a) > (b)) ? (a) : (b))
 
 #ifndef zest__allocate
-#define zest__allocate(size) tloc_Allocate(ZestDevice->allocator, size)
+#define zest__allocate(size) tloc_Allocate(ZestDevice->allocator, zest__Max(size, tloc__MINIMUM_BLOCK_SIZE))
 #endif
 #define zest__array(name, type, count) type *name = zest__allocate(zest__Max(sizeof(type) * count, tloc__MINIMUM_BLOCK_SIZE))
 

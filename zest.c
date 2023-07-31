@@ -216,7 +216,7 @@ zest_bool zest__check_validation_layer_support() {
 	return 1;
 }
 
-void zest__pick_physical_device() {
+void zest__pick_physical_device(void) {
 	zest_uint device_count = 0;
 	vkEnumeratePhysicalDevices(ZestDevice->instance, &device_count, zest_null);
 
@@ -266,7 +266,7 @@ zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device) {
 	VkPhysicalDeviceFeatures supportedFeatures;
 	vkGetPhysicalDeviceFeatures(physical_device, &supportedFeatures);
 
-	return zest__family_is_complete(&indices) && extensions_supported && swap_chain_adequate && supportedFeatures.samplerAnisotropy && supportedFeatures.wideLines;
+	return zest__family_is_complete(&indices) && extensions_supported && swap_chain_adequate && supportedFeatures.samplerAnisotropy;
 }
 
 zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device) {
