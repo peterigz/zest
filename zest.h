@@ -35,10 +35,11 @@
 #define zest__Min(a, b) (((a) < (b)) ? (a) : (b))
 #define zest__Max(a, b) (((a) > (b)) ? (a) : (b))
 
-#ifndef zest__allocate
-#define zest__allocate(size) tloc_Allocate(ZestDevice->allocator, zest__Max(size, tloc__MINIMUM_BLOCK_SIZE))
+#ifndef zest__reallocate
+#define zest__allocate(size) tloc_Allocate(ZestDevice->allocator, size)
+#define zest__reallocate(ptr, size) tloc_Reallocate(ZestDevice->allocator, ptr, size)
 #endif
-#define zest__array(name, type, count) type *name = zest__allocate(zest__Max(sizeof(type) * count, tloc__MINIMUM_BLOCK_SIZE))
+#define zest__array(name, type, count) type *name = zest__reallocate(0, sizeof(type) * count)
 
 #define zest_null 0
 #define zest__vk_create_info(name, type) type name; memset(&name, 0, sizeof(type))
@@ -57,8 +58,13 @@
 const char *zest__vulkan_error(VkResult errorCode);
 
 typedef unsigned int zest_uint;
+typedef int zest_index;
+typedef unsigned long long zest_ull;
+typedef zest_ull zest_key;
 typedef size_t zest_size;
 typedef unsigned int zest_bool;
+#define zest_true 1
+#define zest_false 0
 
 //Callback typedefs
 typedef void(*zest_keyboard_input_callback)(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -214,20 +220,172 @@ static const char* zest_required_extensions[zest__required_extension_names_count
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
-//User API functions
-ZEST_API void zest_Initialise();
-ZEST_API void zest_Start();
+// --Quick and dirty dynamic array
+typedef struct zest_vec {
+	zest_uint current_size;
+	zest_uint capacity;
+} zest_vec;
 
-void zest__initialise_app();
-void zest__initialise_device();
-void zest__destroy();
-zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char*);
-void zest__create_window_surface(zest_window*);
-void zest__main_loop();
-void zest__keyboard_input_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
-void zest__mouse_scroll_callback(GLFWwindow* window, double offset_x, double offset_y);
-void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
+enum {
+	zest__VEC_HEADER_OVERHEAD = sizeof(zest_vec)
+};
 
+#define zest__vec_header(T) ((zest_vec*)T - 1)
+inline void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { if (T && new_capacity <= zest__vec_header(T)->capacity) return T; void* new_data = zest__reallocate((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); ((zest_vec*)(new_data))->capacity = new_capacity; return T; }
+inline zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
+#define zest_vec_bump(T) zest__vec_header(T)->current_size++;
+#define zest_vec_clip(T) zest__vec_header(T)->current_size--;
+#define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
+#define zest_vec(T, name) T *name = zest_null
+#define zest_vec_empty(T) (zest__vec_header(T)->current_size == 0)
+#define zest_vec_size(T) (zest__vec_header(T)->current_size)
+#define zest_vec_capacity(T) (zest__vec_header(T)->capacity)
+#define zest_vec_size_in_bytes(T) (zest__vec_header(T)->current_size * sizeof(*T))
+#define zest_vec_front(T) (T[0])
+#define zest_vec_back(T) (T[zest__vec_header(T)->current_size - 1])
+#define zest_vec_end(T) (&(T[zest_vec_size(T)]))
+#define zest_vec_clear(T) (zest__vec_header(T)->current_size = 0)
+#define zest_vec_free(T) (zest__free(zest__vec_header(T)), T = zest_null)
+#define zest_vec_resize(T, new_size) if(zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); zest__vec_header(T)->current_size = new_size
+#define zest_vec_push(T, value) zest_vec_grow(T); (T)[zest__vec_header(T)->current_size++] = value 
+#define zest_vec_pop(T) (zest__vec_header(T)->current_size--, T[zest__vec_header(T)->current_size])
+#define zest_vec_insert(T, location, value) { ptrdiff_t offset = location - T; zest_vec_grow(T); if(offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T) }
+#define zest_vec_erase(T, location) { zest_assert(T && location >= T && location < zest_vec_end(T)); ptrdiff_t offset = location - T; memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); }
+#define zest_foreach_i(T) int i = 0; i != zest_vec_size(T); ++i 
+#define zest_foreach_j(T) int j = 0; j != zest_vec_size(T); ++j 
+#define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k 
+// --end of quick and dirty dynamic array
+
+// --Quick and dirty hasher, converted to c from Stephen Brumme's XXHash code
+/*
+	MIT License Copyright (c) 2018 Stephan Brumme
+	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+	The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.  */
+#define zest__PRIME1 11400714785074694791ULL
+#define zest__PRIME2 14029467366897019727ULL
+#define zest__PRIME3 1609587929392839161ULL
+#define zest__PRIME4 9650029242287828579ULL
+#define zest__PRIME5 2870177450012600261ULL
+
+enum { zest__HASH_MAX_BUFFER_SIZE = 31 + 1 };
+
+typedef struct zest_hasher {
+	zest_ull      state[4];
+	unsigned char buffer[zest__HASH_MAX_BUFFER_SIZE];
+	zest_ull      buffer_size;
+	zest_ull      total_length;
+} zest_hasher;
+
+static inline zest_ull zest__hash_rotate_left(zest_hasher *hasher, zest_ull x, unsigned char bits) { return (x << bits) | (x >> (64 - bits)); }
+static inline zest_ull zest__hash_process_single(zest_hasher *hasher, zest_ull previous, zest_ull input) { return zest__hash_rotate_left(hasher, previous + input * zest__PRIME2, 31) * zest__PRIME1; }
+static inline void zest__hasher_process(zest_hasher *hasher, void* data, zest_ull *state0, zest_ull *state1, zest_ull *state2, zest_ull *state3) { const zest_ull* block = (const zest_ull*)data; *state0 = zest__hash_process_single(hasher, *state0, block[0]); *state1 = zest__hash_process_single(hasher, *state1, block[1]); *state2 = zest__hash_process_single(hasher, *state2, block[2]); *state3 = zest__hash_process_single(hasher, *state3, block[3]); }
+static inline zest_bool zest__hasher_add(zest_hasher *hasher, void* input, zest_ull length)
+{
+	if (!input || length == 0) return zest_false;
+
+	hasher->total_length += length;
+	unsigned char* data = (unsigned char*)input;
+
+	if (hasher->buffer_size + length < zest__HASH_MAX_BUFFER_SIZE)
+	{
+		while (length-- > 0)
+			hasher->buffer[hasher->buffer_size++] = *data++;
+		return zest_true;
+	}
+
+	const unsigned char* stop = data + length;
+	const unsigned char* stopBlock = stop - zest__HASH_MAX_BUFFER_SIZE;
+
+	if (hasher->buffer_size > 0)
+	{
+		while (hasher->buffer_size < zest__HASH_MAX_BUFFER_SIZE)
+			hasher->buffer[hasher->buffer_size++] = *data++;
+
+		zest__hasher_process(hasher, hasher->buffer, &hasher->state[0], &hasher->state[1], &hasher->state[2], &hasher->state[3]);
+	}
+
+	zest_ull s0 = hasher->state[0], s1 = hasher->state[1], s2 = hasher->state[2], s3 = hasher->state[3];
+	while (data <= stopBlock)
+	{
+		zest__hasher_process(hasher, data, &s0, &s1, &s2, &s3);
+		data += 32;
+	}
+	hasher->state[0] = s0; hasher->state[1] = s1; hasher->state[2] = s2; hasher->state[3] = s3;
+
+	hasher->buffer_size = stop - data;
+	for (zest_ull i = 0; i < hasher->buffer_size; i++)
+		hasher->buffer[i] = data[i];
+
+	return zest_true;
+}
+
+static inline zest_ull zest__get_hash(zest_hasher *hasher)
+{
+	zest_ull result;
+	if (hasher->total_length >= zest__HASH_MAX_BUFFER_SIZE)
+	{
+		result = zest__hash_rotate_left(hasher, hasher->state[0], 1) +
+			zest__hash_rotate_left(hasher, hasher->state[1], 7) +
+			zest__hash_rotate_left(hasher, hasher->state[2], 12) +
+			zest__hash_rotate_left(hasher, hasher->state[3], 18);
+		result = (result ^ zest__hash_process_single(hasher, 0, hasher->state[0])) * zest__PRIME1 + zest__PRIME4;
+		result = (result ^ zest__hash_process_single(hasher, 0, hasher->state[1])) * zest__PRIME1 + zest__PRIME4;
+		result = (result ^ zest__hash_process_single(hasher, 0, hasher->state[2])) * zest__PRIME1 + zest__PRIME4;
+		result = (result ^ zest__hash_process_single(hasher, 0, hasher->state[3])) * zest__PRIME1 + zest__PRIME4;
+	}
+	else
+	{
+		result = hasher->state[2] + zest__PRIME5;
+	}
+
+	result += hasher->total_length;
+	const unsigned char* data = hasher->buffer;
+	const unsigned char* stop = data + hasher->buffer_size;
+	for (; data + 8 <= stop; data += 8)
+		result = zest__hash_rotate_left(hasher, result ^ zest__hash_process_single(hasher, 0, *(zest_ull*)data), 27) * zest__PRIME1 + zest__PRIME4;
+	if (data + 4 <= stop)
+	{
+		result = zest__hash_rotate_left(hasher, result ^ (*(uint32_t*)data) * zest__PRIME1, 23) * zest__PRIME2 + zest__PRIME3;
+		data += 4;
+	}
+	while (data != stop)
+		result = zest__hash_rotate_left(hasher, result ^ (*data++) * zest__PRIME5, 11) * zest__PRIME1;
+	result ^= result >> 33;
+	result *= zest__PRIME2;
+	result ^= result >> 29;
+	result *= zest__PRIME3;
+	result ^= result >> 32;
+	return result;
+}
+inline void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
+
+//The only command you need for the hasher
+inline zest_key zest_Hash(zest_hasher *hasher, void* input, zest_ull length, zest_ull seed) { zest__hash_initialise(hasher, seed); zest__hasher_add(hasher, input, length); return (zest_key)zest__get_hash(hasher); }
+//-- End of hashing
+
+// --Begin quick and dirty hash map
+typedef struct {
+	zest_key key;
+	zest_index index;
+} zest_hash_pair;
+
+#ifndef ZEST_HASH_SEED
+#define ZEST_HASH_SEED 0xABCDEF99
+#endif
+zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key) { zest_hash_pair *first = map; zest_hash_pair *last = map ? zest_vec_end(map) : 0; size_t count = (size_t)(last - first); while (count > 0) { size_t count2 = count >> 1; zest_hash_pair* mid = first + count2; if (mid->key < key) { first = ++mid; count -= count2 + 1; } else { count = count2; } } return first; }
+void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { for (zest_foreach_i(map)) { if (map[i].index < index) continue; map[i].index--; } }
+zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
+#define zest_map_hash(hash_map, name) zest_Hash(&hash_map.hasher, name, strlen(name), ZEST_HASH_SEED) 
+#define zest_hash_map(T) typedef struct { zest_hasher hasher; zest_hash_pair *map; T *data; }
+#define zest_map_valid_name(hash_map, name) (zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
+#define zest_map_set_index(hash_map, key, value) zest_hash_pair *it = zest__lower_bound(hash_map.map, key); if(!hash_map.map || it == zest_vec_end(hash_map.map) || it->key != key) { zest_vec_push(hash_map.data, value); zest_hash_pair new_pair; new_pair.key = key; new_pair.index = zest_vec_size(hash_map.data) - 1; zest_vec_insert(hash_map.map, it, new_pair); } else {hash_map.data[it->index] = value;}
+#define zest_map_insert(hash_map, name, value) { zest_key key = zest_map_hash(hash_map, name); zest_map_set_index(hash_map, key, value) }
+#define zest_map_at(hash_map, name) &hash_map.data[zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name))]
+#define zest_map_remove(hash_map, name) {zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_erase(hash_map.data, &hash_map.data[index]); zest__map_realign_indexes(hash_map.map, index); }
+// --End quick and dirty hash map
+
+//--Internal functions
 //Device set up 
 void zest__create_instance(void);
 void zest__create_window_surface(zest_window* window);
@@ -245,5 +403,22 @@ void zest__create_logical_device(void);
 void zest__set_limit_data(void);
 zest_bool zest__check_validation_layer_support(void);
 const char** zest__get_required_extensions(zest_uint *extension_count);
+//end device setup functions
+
+//App initialise functions
+void zest__initialise_app();
+void zest__initialise_device();
+void zest__destroy();
+zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char*);
+void zest__create_window_surface(zest_window*);
+void zest__main_loop();
+void zest__keyboard_input_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
+void zest__mouse_scroll_callback(GLFWwindow* window, double offset_x, double offset_y);
+void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
+//-- end of internal functions
+
+//User API functions
+ZEST_API void zest_Initialise();
+ZEST_API void zest_Start();
 
 #endif // ! ZEST_RENDERER

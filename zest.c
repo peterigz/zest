@@ -48,8 +48,8 @@ void zest_Initialise() {
 	ZestDevice->memory_pools[0] = memory_pool;
 	ZestDevice->memory_pool_count = 0;
 	ZestDevice->allocator = allocator;
-	zest__initialise_app();
-	zest__initialise_device();
+	//zest__initialise_app();
+	//zest__initialise_device();
 }
 
 void zest_Start() {
@@ -577,12 +577,53 @@ void zest__main_loop(void) {
 	}
 }
 
-//Testing
-
 int main(void) {
 
 	zest_Initialise();
-	zest_Start();
+	zest_vec(zest_uint, T);
+	zest_vec_push(T, 0);
+	zest_vec_push(T, 1);
+	zest_vec_push(T, 2);
+	zest_vec_push(T, 3);
+	zest_uint *loc = &T[1];
+	zest_vec_insert(T, loc, 5);
+	zest_vec_erase(T, &T[1]);
+
+	//zest_uint test = zest_vec_pop(T);
+
+	zest_vec *vec = zest__vec_header(T);
+	if (!zest_vec_empty(T)) {
+		printf("size: %i, size in bytes: %zu, capacity: %i\n", zest_vec_size(T), zest_vec_size_in_bytes(T), zest_vec_capacity(T));
+	}
+	for (zest_foreach_i(T)) {
+		printf("%i: %i\n", i, T[i]);
+	}
+	zest_vec_resize(T, 20);
+	printf("size: %i, size in bytes: %zu, capacity: %i\n", zest_vec_size(T), zest_vec_size_in_bytes(T), zest_vec_capacity(T));
+	zest_vec_free(T);
+
+	zest_hasher hasher;
+	zest_key hash = zest_Hash(&hasher, "Hash this", 9, 0);
+	printf("hash: %zu\n", zest_Hash(&hasher, "the key", strlen("the key"), 0));
+	printf("hash: %zu\n", zest_Hash(&hasher, "another key", strlen("another key"), 0));
+	printf("hash: %zu\n", zest_Hash(&hasher, "some other key", strlen("some other key"), 0));
+
+	zest_hash_map(zest_uint) hash_map;
+	hash_map my_hash_map = {0};
+	zest_map_insert(my_hash_map, "the key", 777);
+	zest_map_insert(my_hash_map, "another key", 222);
+	zest_map_insert(my_hash_map, "some other key", 333);
+	zest_map_insert(my_hash_map, "the key 2", 111);
+	zest_map_remove(my_hash_map, "another key");
+	for (zest_foreach_i(my_hash_map.data)) {
+		printf("%i: %i, %i\n", i, my_hash_map.data[i], zest_vec_size(my_hash_map.data));
+	}
+	printf("%i \n", *zest_map_at(my_hash_map, "the key 2"));
+	if (!zest_map_valid_name(my_hash_map, "bad name")) {
+		printf("not a valid name\n");
+	}
+
+	//zest_Start();
 
 	return 0;
 }
