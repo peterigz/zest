@@ -2,13 +2,22 @@
 #ifndef  ZEST_RENDERER_H
 #define ZEST_RENDERER_H
 
+#ifdef _WIN32
+#define WIN_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
+#define NOMINMAX
+#include <windows.h>
+#endif
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include "2loc.h"
 #include <stdio.h>
 
 #ifndef ZEST_MAX_FIF
-#define ZEST_MAX_FIF
+#define ZEST_MAX_FIF 2
+#endif
+
+#ifndef ZEST_MAX_BUFFERS_PER_ALLOCATOR
+#define ZEST_MAX_BUFFERS_PER_ALLOCATOR 64
 #endif
 
 #ifndef zest_assert
@@ -26,6 +35,7 @@
 #endif
 
 #define ZEST_INVALID 0xFFFFFFFF
+#define ZEST_U32_MAX_VALUE ((uint32_t)-1)
 
 #ifndef zest__free
 #define zest__free(memory) tloc_Free(ZestDevice->allocator, memory)
@@ -42,7 +52,7 @@
 #define zest__array(name, type, count) type *name = zest__reallocate(0, sizeof(type) * count)
 
 #define zest_null 0
-#define zest__vk_create_info(name, type) type name; memset(&name, 0, sizeof(type))
+#define zest__vk_create_info(name, type) type name = {0}
 
 //For error checking vulkan commands
 #define ZEST_VK_CHECK_RESULT(f)																				\
@@ -85,6 +95,7 @@ typedef enum zest_create_flags {
 } zest_create_flags;
 
 typedef enum zest_app_flags {
+	zest_app_flag_none =					0,
 	zest_app_flag_suspend_rendering =		1 << 0,
 	zest_app_flag_show_fps_in_title =		1 << 1,
 	zest_app_flag_shift_pressed =			1 << 2,
@@ -98,6 +109,42 @@ enum zest__constants {
 	zest__validation_layer_count = 1,
 	zest__required_extension_names_count = 1,
 };
+
+typedef enum {
+	zest_buffer_flag_none = 0,
+	zest_buffer_flag_read_only = 1 << 0,
+	zest_buffer_flag_is_fif = 1 << 1
+} zest_buffer_flags;
+
+typedef enum {
+	zest_render_viewport_type_scale_with_window,
+	zest_render_viewport_type_fixed
+} zest_render_viewport_type;
+
+typedef enum {
+	zest_setup_context_type_none,
+	zest_setup_context_type_command_queue,
+	zest_setup_context_type_render_pass,
+	zest_setup_context_type_draw_routine,
+	zest_setup_context_type_layer,
+	zest_setup_context_type_compute
+} zest_setup_context_type;
+
+typedef enum {
+	zest_renderer_flag_enable_multisampling =					1 << 0,
+	zest_renderer_flag_schedule_recreate_textures =				1 << 1,
+	zest_renderer_flag_schedule_change_vsync =					1 << 2,
+	zest_renderer_flag_schedule_rerecord_final_render_buffer =	1 << 3,
+	zest_renderer_flag_drawing_loop_running =					1 << 4,
+	zest_renderer_flag_msaa_toggled =							1 << 5,
+	zest_renderer_flag_vsync_enabled =							1 << 6,
+	zest_renderer_flag_disable_default_uniform_update =			1 << 7,
+} zest_renderer_flags;
+
+typedef enum {
+	zest_buffer_flag_none =										1 << 0,
+	zest_buffer_flag_is_fif =									1 << 1,
+} zest_buffer_flags;
 
 //Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -115,111 +162,6 @@ static inline void zest__set_present_family(zest_queue_family_indices *family, z
 static inline void zest__set_compute_family(zest_queue_family_indices *family, zest_uint v) { family->compute_family = v; family->compute_set = 1; }
 static inline zest_bool zest__family_is_complete(zest_queue_family_indices *family) { return family->graphics_set && family->present_set && family->compute_set; }
 
-typedef struct zest_swap_chain_support_details {
-	VkSurfaceCapabilitiesKHR capabilities;
-	VkSurfaceFormatKHR *formats;
-	zest_uint formats_count;
-	VkPresentModeKHR *present_modes;
-	zest_uint present_modes_count;
-} zest_swap_chain_support_details;
-
-//structs
-typedef struct zest_window {
-	GLFWwindow *window_handle;
-	VkSurfaceKHR surface;
-	zest_uint window_width;
-	zest_uint window_height;
-	zest_bool framebuffer_resized;
-	zest_create_flags flags;
-} zest_window;
-
-typedef struct zest_device {
-	zest_uint api_version;
-	zest_uint use_labels_address_bit;
-	zest_uint current_fif;
-	zest_uint max_fif;
-	zest_uint max_image_size;
-	zest_uint graphics_queue_family_index;
-	zest_uint present_queue_family_index;
-	zest_uint compute_queue_family_index;
-	void *memory_pools[32];
-	zest_uint memory_pool_count;
-	tloc_allocator *allocator;
-	VkInstance instance;
-	VkPhysicalDevice physical_device;
-	VkDevice logical_device;
-	VkDebugUtilsMessengerEXT debug_messenger;
-	VkSampleCountFlagBits msaa_samples;
-	zest_swap_chain_support_details swap_chain_support_details;
-	VkPhysicalDeviceProperties properties;
-	VkPhysicalDeviceFeatures features;
-	VkPhysicalDeviceMemoryProperties memory_properties;
-	VkQueue present_queue;
-	VkQueue graphics_queue;
-	VkQueue one_time_graphics_queue;
-	VkQueue compute_queue;
-	VkCommandPool command_pool;
-	PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
-	VkFormat color_format;
-} zest_device;
-
-typedef struct zest_create_info {
-	int screen_width, screen_height;					//Default width and height of the window that you open
-	int screen_x, screen_y;								//Default position of the window
-	int virtual_width, virtual_height;					//The virtial width/height of the viewport
-	VkFormat color_format;								//Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
-
-	//The starting sizes of various buffers. Whilst these will be resized as necessary, they are best set to a size so they have enough space and do not need to be resized at all.
-	//Set output_memory_usage_on_exit to true so that you can determine the sizes as you develop your application
-	//All values are the size in bytes
-} zest_create_info;
-
-typedef struct zest_app {
-	zest_create_info create_info;
-
-	void(*update_callback)(float, void*);
-	void *data;
-
-	zest_window *window;
-
-	float current_elapsed;
-	float update_time;
-	float render_time;
-	float frame_timer;
-
-	double mouse_x;
-	double mouse_y;
-	double mouse_wheel_v;
-	double mouse_wheel_h;
-	double mouse_delta_x;
-	double mouse_delta_y;
-	double last_mouse_x;
-	double last_mouse_y;
-	double virtual_mouse_x;
-	double virtual_mouse_y;
-
-	zest_uint frame_count;
-	zest_uint last_fps;
-
-	zest_uint default_layer_index;
-	zest_uint default_command_queue_index;
-	zest_uint default_render_commands_index;
-	zest_uint default_font_index;
-
-	zest_app_flags flags;
-} zest_app;
-
-static zest_device *ZestDevice = 0;
-static zest_app *ZestApp = 0;
-
-static const char* zest_validation_layers[zest__validation_layer_count] = {
-	"VK_LAYER_KHRONOS_validation"
-};
-
-static const char* zest_required_extensions[zest__required_extension_names_count] = {
-	VK_KHR_SWAPCHAIN_EXTENSION_NAME
-};
-
 // --Quick and dirty dynamic array
 typedef struct zest_vec {
 	zest_uint current_size;
@@ -231,7 +173,6 @@ enum {
 };
 
 #define zest__vec_header(T) ((zest_vec*)T - 1)
-inline void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { if (T && new_capacity <= zest__vec_header(T)->capacity) return T; void* new_data = zest__reallocate((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); ((zest_vec*)(new_data))->capacity = new_capacity; return T; }
 inline zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
 #define zest_vec_bump(T) zest__vec_header(T)->current_size++;
 #define zest_vec_clip(T) zest__vec_header(T)->current_size--;
@@ -239,14 +180,15 @@ inline zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_ca
 #define zest_vec(T, name) T *name = zest_null
 #define zest_vec_empty(T) (zest__vec_header(T)->current_size == 0)
 #define zest_vec_size(T) (zest__vec_header(T)->current_size)
+#define zest_vec_last_index(T) (zest__vec_header(T)->current_size - 1)
 #define zest_vec_capacity(T) (zest__vec_header(T)->capacity)
 #define zest_vec_size_in_bytes(T) (zest__vec_header(T)->current_size * sizeof(*T))
 #define zest_vec_front(T) (T[0])
 #define zest_vec_back(T) (T[zest__vec_header(T)->current_size - 1])
 #define zest_vec_end(T) (&(T[zest_vec_size(T)]))
-#define zest_vec_clear(T) (zest__vec_header(T)->current_size = 0)
+#define zest_vec_clear(T) if(T) zest__vec_header(T)->current_size = 0
 #define zest_vec_free(T) (zest__free(zest__vec_header(T)), T = zest_null)
-#define zest_vec_resize(T, new_size) if(zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); zest__vec_header(T)->current_size = new_size
+#define zest_vec_resize(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); zest__vec_header(T)->current_size = new_size
 #define zest_vec_push(T, value) zest_vec_grow(T); (T)[zest__vec_header(T)->current_size++] = value 
 #define zest_vec_pop(T) (zest__vec_header(T)->current_size--, T[zest__vec_header(T)->current_size])
 #define zest_vec_insert(T, location, value) { ptrdiff_t offset = location - T; zest_vec_grow(T); if(offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T) }
@@ -279,8 +221,8 @@ typedef struct zest_hasher {
 
 static inline zest_ull zest__hash_rotate_left(zest_hasher *hasher, zest_ull x, unsigned char bits) { return (x << bits) | (x >> (64 - bits)); }
 static inline zest_ull zest__hash_process_single(zest_hasher *hasher, zest_ull previous, zest_ull input) { return zest__hash_rotate_left(hasher, previous + input * zest__PRIME2, 31) * zest__PRIME1; }
-static inline void zest__hasher_process(zest_hasher *hasher, void* data, zest_ull *state0, zest_ull *state1, zest_ull *state2, zest_ull *state3) { const zest_ull* block = (const zest_ull*)data; *state0 = zest__hash_process_single(hasher, *state0, block[0]); *state1 = zest__hash_process_single(hasher, *state1, block[1]); *state2 = zest__hash_process_single(hasher, *state2, block[2]); *state3 = zest__hash_process_single(hasher, *state3, block[3]); }
-static inline zest_bool zest__hasher_add(zest_hasher *hasher, void* input, zest_ull length)
+static inline void zest__hasher_process(zest_hasher *hasher, const void* data, zest_ull *state0, zest_ull *state1, zest_ull *state2, zest_ull *state3) { zest_ull* block = (zest_ull*)data; *state0 = zest__hash_process_single(hasher, *state0, block[0]); *state1 = zest__hash_process_single(hasher, *state1, block[1]); *state2 = zest__hash_process_single(hasher, *state2, block[2]); *state3 = zest__hash_process_single(hasher, *state3, block[3]); }
+static inline zest_bool zest__hasher_add(zest_hasher *hasher, const void* input, zest_ull length)
 {
 	if (!input || length == 0) return zest_false;
 
@@ -361,7 +303,8 @@ static inline zest_ull zest__get_hash(zest_hasher *hasher)
 inline void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
 
 //The only command you need for the hasher
-inline zest_key zest_Hash(zest_hasher *hasher, void* input, zest_ull length, zest_ull seed) { zest__hash_initialise(hasher, seed); zest__hasher_add(hasher, input, length); return (zest_key)zest__get_hash(hasher); }
+inline zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed) { zest__hash_initialise(hasher, seed); zest__hasher_add(hasher, input, length); return (zest_key)zest__get_hash(hasher); }
+static zest_hasher *ZestHasher = 0;
 //-- End of hashing
 
 // --Begin quick and dirty hash map
@@ -376,16 +319,500 @@ typedef struct {
 zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key) { zest_hash_pair *first = map; zest_hash_pair *last = map ? zest_vec_end(map) : 0; size_t count = (size_t)(last - first); while (count > 0) { size_t count2 = count >> 1; zest_hash_pair* mid = first + count2; if (mid->key < key) { first = ++mid; count -= count2 + 1; } else { count = count2; } } return first; }
 void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { for (zest_foreach_i(map)) { if (map[i].index < index) continue; map[i].index--; } }
 zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
-#define zest_map_hash(hash_map, name) zest_Hash(&hash_map.hasher, name, strlen(name), ZEST_HASH_SEED) 
-#define zest_hash_map(T) typedef struct { zest_hasher hasher; zest_hash_pair *map; T *data; }
+#define zest_map_hash(hash_map, name) zest_Hash(&ZestHasher, name, strlen(name), ZEST_HASH_SEED) 
+#define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(&ZestHasher, ptr, size, ZEST_HASH_SEED) 
+#define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; }
 #define zest_map_valid_name(hash_map, name) (zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
+#define zest_map_valid_key(hash_map, key) (zest__map_get_index(hash_map.map, key) != -1)
+#define zest_map_valid_hash(hash_map, ptr, size) (zest__map_get_index(hash_map.map, zest_map_hash_ptr(hash_map, ptr, size)) != -1)
 #define zest_map_set_index(hash_map, key, value) zest_hash_pair *it = zest__lower_bound(hash_map.map, key); if(!hash_map.map || it == zest_vec_end(hash_map.map) || it->key != key) { zest_vec_push(hash_map.data, value); zest_hash_pair new_pair; new_pair.key = key; new_pair.index = zest_vec_size(hash_map.data) - 1; zest_vec_insert(hash_map.map, it, new_pair); } else {hash_map.data[it->index] = value;}
 #define zest_map_insert(hash_map, name, value) { zest_key key = zest_map_hash(hash_map, name); zest_map_set_index(hash_map, key, value) }
+#define zest_map_insert_key(hash_map, key, value) { zest_map_set_index(hash_map, key, value) }
+#define zest_map_insert_with_ptr_hash(hash_map, ptr, size, value) { zest_key key = zest_map_hash_ptr(hash_map, ptr, size); zest_map_set_index(hash_map, key, value) }
 #define zest_map_at(hash_map, name) &hash_map.data[zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name))]
+#define zest_map_at_key(hash_map, key) &hash_map.data[zest__map_get_index(hash_map.map, key)]
 #define zest_map_remove(hash_map, name) {zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_erase(hash_map.data, &hash_map.data[index]); zest__map_realign_indexes(hash_map.map, index); }
+#define zest_map_last_index(hash_map) (zest__vec_header(hash_map.data)->current_size - 1)
+#define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data);
+#define zest_map_foreach_i(hash_map) zest_foreach_i(hash_map.data)
 // --End quick and dirty hash map
 
+// --Vulkan Buffer Management
+typedef struct {
+	VkImageUsageFlags image_usage_flags;
+	VkBufferUsageFlags usage_flags;					//The usage state_flags of the memory block. 
+	VkMemoryPropertyFlags property_flags;
+	zest_buffer_flags flags;
+	VkDeviceSize alignment;
+	zest_uint memoryTypeBits;
+} zest_buffer_info;
+
+//A simple buffer struct for creating and mapping GPU memory
+typedef struct {
+	VkBuffer buffer;
+	VkDeviceMemory memory;
+	VkDeviceSize size;
+	VkDeviceSize alignment;
+	VkImageUsageFlags usage_flags;
+	VkMemoryPropertyFlags property_flags;
+	VkDescriptorBufferInfo descriptor;
+	zest_uint memory_type_index;
+	void* mapped;
+	const char *name;
+} zest_device_memory_pool;
+
+typedef struct {
+	VkBufferUsageFlags usage_flags;					//The usage state_flags of the memory block. 
+	VkMemoryPropertyFlags property_flags;			//The property state_flags of the memory block.	
+	tloc_allocator *allocator;
+	zest_device_memory_pool *memory_pools;
+} zest_buffer_allocator;
+
+typedef struct {
+	VkDeviceSize size;
+	VkDeviceSize memory_offset;
+	zest_device_memory_pool *memory_pool;
+} zest_buffer;
+// --End Vulkan Buffer Management
+
+typedef struct {
+	VkSurfaceCapabilitiesKHR capabilities;
+	VkSurfaceFormatKHR *formats;
+	zest_uint formats_count;
+	VkPresentModeKHR *present_modes;
+	zest_uint present_modes_count;
+} zest_swapchain_support_details;
+
+typedef struct {
+	GLFWwindow *window_handle;
+	VkSurfaceKHR surface;
+	zest_uint window_width;
+	zest_uint window_height;
+	zest_bool framebuffer_resized;
+	zest_create_flags flags;
+} zest_window;
+
+typedef struct {
+	zest_uint api_version;
+	zest_uint use_labels_address_bit;
+	zest_uint current_fif;
+	zest_uint max_fif;
+	zest_uint max_image_size;
+	zest_uint graphics_queue_family_index;
+	zest_uint present_queue_family_index;
+	zest_uint compute_queue_family_index;
+	void *memory_pools[32];
+	zest_uint memory_pool_count;
+	tloc_allocator *allocator;
+	VkInstance instance;
+	VkPhysicalDevice physical_device;
+	VkDevice logical_device;
+	VkDebugUtilsMessengerEXT debug_messenger;
+	VkSampleCountFlagBits msaa_samples;
+	zest_swapchain_support_details swapchain_support_details;
+	VkPhysicalDeviceProperties properties;
+	VkPhysicalDeviceFeatures features;
+	VkPhysicalDeviceMemoryProperties memory_properties;
+	VkQueue present_queue;
+	VkQueue graphics_queue;
+	VkQueue one_time_graphics_queue;
+	VkQueue compute_queue;
+	VkCommandPool command_pool;
+	PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
+	VkFormat color_format;
+} zest_device;
+
+typedef struct {
+	int screen_width, screen_height;					//Default width and height of the window that you open
+	int screen_x, screen_y;								//Default position of the window
+	int virtual_width, virtual_height;					//The virtial width/height of the viewport
+	VkFormat color_format;								//Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
+	VkDescriptorPoolSize *pool_counts;					//You can define descriptor pool counts here.
+
+	//The starting sizes of various buffers. Whilst these will be resized as necessary, they are best set to a size so they have enough space and do not need to be resized at all.
+	//Set output_memory_usage_on_exit to true so that you can determine the sizes as you develop your application
+	//All values are the size in bytes
+} zest_create_info;
+
+typedef struct {
+	zest_create_info create_info;
+
+	void(*update_callback)(float, void*);
+	void *data;
+
+	zest_window *window;
+
+	float current_elapsed;
+	float update_time;
+	float render_time;
+	float frame_timer;
+
+	double mouse_x;
+	double mouse_y;
+	double mouse_wheel_v;
+	double mouse_wheel_h;
+	double mouse_delta_x;
+	double mouse_delta_y;
+	double last_mouse_x;
+	double last_mouse_y;
+	double virtual_mouse_x;
+	double virtual_mouse_y;
+
+	zest_uint frame_count;
+	zest_uint last_fps;
+
+	zest_uint default_layer_index;
+	zest_uint default_command_queue_index;
+	zest_uint default_render_commands_index;
+	zest_uint default_font_index;
+
+	zest_app_flags flags;
+} zest_app;
+
+typedef struct {
+	zest_bool initialised;					//Set to true once AddCopyCommand has been run at least once
+	zest_bool source_is_fif;
+	zest_bool target_is_fif;
+	zest_index source_buffer_id;			//The id of the source memory allocation (cpu visible staging buffer)
+	zest_index target_buffer_id;			//The id of the target memory allocation that we're uploading to (device local buffer)
+	VkBufferCopy *buffer_copies;			//List of vulkan copy info commands to upload staging buffers to the gpu each frame
+} zest_buffer_uploader;
+
+typedef struct {
+	VkSemaphore present_complete;
+	VkSemaphore render_complete;
+} zest_semaphores;
+
+typedef struct {
+	zest_index buffer_id;						//The index to the memory allocation within fif_buffers
+	zest_index range_id;						//The index to the range within the memory allocation
+	zest_buffer_flags flags;					//Currently you can only flag the memory as readonly
+} zest_buffer_id;
+
+typedef struct {
+	VkImage image;
+	zest_image_allocation_id allocation_id;
+	VkImageView view;
+	VkFormat format;
+} zest_frame_buffer_attachment;
+
+typedef struct {
+	uint32_t width, height;
+	VkFormat format;
+	VkFramebuffer frame_buffer;
+	zest_frame_buffer_attachment color_buffer, depth_buffer, resolve_buffer;
+	VkSampler sampler;
+	zest_bool initialised;
+} zest_frame_buffer;
+
+//Struct to store all the necessary data for a render pass
+typedef struct {
+	int width, height;
+	VkFramebuffer frame_buffer;
+	zest_frame_buffer_attachment color, depth;
+	zest_index render_pass;
+	VkSampler sampler;
+	VkDescriptorImageInfo descriptor;
+	VkCommandBuffer command_buffer;
+	VkDescriptorSetLayout descriptor_layout;
+	VkDescriptorSet descriptor_set;
+	VkDescriptorSet descriptor_set_aa;
+	VkPipeline pipeline;
+	VkPipelineLayout pipeline_layout;
+} zest_render_pass_data;
+
+typedef struct FinalRenderPushConstants {
+	float ScreenRes[2];			//the current size of the window/resolution
+} zest_final_render_push_constants;
+
+//command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects and also 
+typedef struct {
+	const char *name;
+	VkCommandPool command_pool;										//The command pool for command buffers
+	VkCommandBuffer command_buffer[ZEST_MAX_FIF];					//A vulkan command buffer for each frame in flight
+	VkSemaphore *fif_incoming_semaphores[ZEST_MAX_FIF];				//command queues need to be synchronises with other command queues and the swap chain so...
+	VkSemaphore *fif_outgoing_semaphores[ZEST_MAX_FIF];				//an array of incoming and outgoing (wait and signal) semaphores are maintained for this purpose
+	VkPipelineStageFlags *fif_stage_flags[ZEST_MAX_FIF];			//Stage state_flags relavent to the semaphores
+	zest_uint *render_commands;										//A list of render commandsj indexes - mostly these will be render passes that are recorded to the command buffer
+	zest_uint *compute_items;										//Compute items to be recorded to the command buffer
+	zest_index index_in_renderer;									//A self reference of the index in the Renderer storage array for command queues
+	zest_index present_semaphore_index;								//An index to the semaphore representing the swap chain if required. (command queues don't necessarily have to wait for the swap chain)
+} zest_command_queue;
+
+typedef struct {
+	VkRenderPass render_pass;
+	const char *name;
+} zest_render_pass;
+
+typedef struct QulkanDescriptorSetLayout {
+	VkDescriptorSetLayout descriptor_layout;
+	const char *name;
+} zest_descriptor_set_layout;
+
+//Pipeline create template to setup the creation of a pipeline. Create this first and then use it with MakePipelineTemplate or SetPipelineTemplate to create a PipelineTemplate which you can then customise
+//further if needed before calling CreatePipeline
+typedef struct {
+	VkRect2D viewport;
+	zest_index descriptorSetLayout;
+	VkPushConstantRange *pushConstantRange;
+	VkRenderPass renderPass;
+	VkVertexInputAttributeDescription *attributeDescriptions;
+	VkVertexInputBindingDescription *bindingDescriptions;
+	VkVertexInputBindingDescription bindingDescription;
+	VkDynamicState *dynamicStates;
+	zest_bool no_vertex_input;
+	const char *vertShaderFile;
+	const char *fragShaderFile;
+	const char *vertShaderFunctionName;
+	const char *fragShaderFunctionName;
+	VkPrimitiveTopology topology;
+} zest_pipeline_template_create_info;
+
+//Pipeline template is used with CreatePipeline to create a vulkan pipeline. Use PipelineTemplate() or SetPipelineTemplate with PipelineTemplateCreateInfo to create a PipelineTemplate
+typedef struct {
+	VkPipelineShaderStageCreateInfo vertShaderStageInfo;
+	VkPipelineShaderStageCreateInfo fragShaderStageInfo;
+	VkShaderModule vertShaderCode;
+	VkShaderModule fragShaderCode;
+	VkPipelineVertexInputStateCreateInfo vertexInputInfo;
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly;
+	VkViewport viewport;
+	VkRect2D scissor;
+	VkPipelineViewportStateCreateInfo viewportState;
+	VkPipelineRasterizationStateCreateInfo rasterizer;
+	VkPipelineMultisampleStateCreateInfo multisampling;
+	VkPipelineDepthStencilStateCreateInfo depthStencil;
+	VkPipelineColorBlendAttachmentState colorBlendAttachment;
+	VkPipelineColorBlendStateCreateInfo colorBlending;
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo;
+	VkPushConstantRange pushConstantRange;
+	VkPipelineDynamicStateCreateInfo dynamicState;
+	VkRenderPass renderPass;
+
+	const char *vertShaderFile;
+	const char *fragShaderFile;
+} zest_pipeline_template;
+
+//A pipeline set is all of the necessary things required to setup and maintain a pipeline
+typedef struct {
+	zest_pipeline_template_create_info create_info;								//A copy of the create info and template is stored so that they can be used to update the pipeline later for any reason (like the swap chain is recreated)
+	zest_pipeline_template pipeline_template;
+	zest_index descriptor_layout;												//An index for the descriptor layout being used which is stored in the Renderer. Layouts can be reused an shared between pipelines
+	VkDescriptorSet descriptor_set[ZEST_MAX_FIF];								//Descriptor sets are only stored here for certain pipelines like non textured drawing or the final render pipelines for render targets in the swap chain
+	VkPipeline pipeline;														//The vulkan handle for the pipeline
+	VkPipelineLayout pipeline_layout;											//The vulkan handle for the pipeline layout
+	zest_uint uniforms;															//Number of uniform buffers in the pipeline, usually 1 or 0
+	zest_uint push_constant_size;												//Size of the push constant struct if it uses one
+	zest_uint *textures;														//A reference to the textures used by the pipeline - only used by final render, not even sure if it's needed.
+	VkWriteDescriptorSet *descriptor_writes[ZEST_MAX_FIF];						//Descriptor writes for creating the descriptor sets - is this needed here? only for certain pipelines, textures store their own
+	const char *name;															//Name for the pipeline just for labelling it when listing all the renderer objects in debug
+	void(*rebuild_pipeline_function)(void*);									//Override the function to rebuild the pipeline when the swap chain is recreated
+	zest_bool is_render_target_pipeline;										//True if this pipeline is used for the final render of a render target to the swap chain
+	zest_bool match_swapchain_view_extent_on_rebuild;							//True if the pipeline should update it's view extent when the swap chain is recreated (the window is resized)
+} zest_pipeline_set;
+
+typedef struct {
+	zest_index command_queue_index;
+	zest_index render_pass_index;
+	zest_index draw_routine_index;
+	zest_index layer_index;
+	zest_index compute_index;
+	zest_setup_context_type type;
+} zest_command_setup_context ;
+
+static inline void zest__reset_command_setup_context(zest_command_setup_context *context) {
+	context->command_queue_index = -1;
+	context->render_pass_index = -1;
+	context->draw_routine_index = -1;
+	context->layer_index = -1;
+	context->type = zest_setup_context_type_none;
+}
+
+//A draw routine is used to actually draw things to the render target. Qulkan provides Layers that have a set of draw commands for doing this or you can develop your own
+//By settting the callbacks and data pointers in the draw routine
+typedef struct {
+	const char *name;
+	zest_index cq_index;														//The index of the render queue that this draw routine is within
+	zest_index cq_render_pass_index;											//The index of the render pass within the command queue of this draw routine
+	zest_index routine_id;														//The index of the draw routine within the renderer
+	int draw_index;																//The user index of the draw routine. Use this to index the routine in your own lists. For Qulkan layers, this is used to hold the index of the layer in the renderer
+	zest_index *command_queues;													//A list of the render queues that this draw routine belongs to
+	void *data;																	//Pointer to some user data
+	void(*update_buffers_callback)(void *draw_routine, zest_buffer_uploader *index_upload, zest_buffer_uploader *vertex_upload, zest_buffer_uploader *storage_upload);		//The callback used to update and upload the buffers before rendering
+	void(*draw_callback)(void *draw_routine);						//draw callback called by the render target when rendering
+	void(*update_resolution_callback)(void *draw_routine);			//Callback used when the window size changes
+	void(*clean_up_callback)(void *draw_routine);					//Clean up function call back called when the draw routine is deleted
+} zest_draw_routine;
+
+//Every command queue will have either one or more render passes (unless it's purely for compute shading). Render pass contains various data for drawing things during the render pass.
+//These can be draw routines that you can use to draw various things to the screen. You can set the render_pass_function to whatever you need to record the command buffer. See existing render pass functions such as:
+//RenderDrawRoutine, RenderRenderTarget and RenderTargetToSwapChain.
+typedef struct {
+	VkFramebuffer(*get_frame_buffer)(void *item);
+	void(*render_pass_function)(void *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
+	zest_index *draw_routines;
+	zest_index *render_targets;
+	VkRect2D viewport;
+	zest_render_viewport_type viewport_type;
+	float viewport_scale[2];
+	zest_index render_pass;
+	float cls_color[4];
+	int render_target_index;
+	const char *name;
+} zest_command_queue_draw;
+
+//In addition to render passes, you can also run compute shaders by adding this struct to the list of compute items in the command queue
+typedef struct {
+	void(*compute_function)(void *item);			//Call back function which will have the vkcommands the dispatch the compute shader task
+	zest_index *compute_routines;										//List of QulkanCompute indexes so multiple compute shaders can be run in the same compute item
+	const char *name;
+} zest_command_queue_compute;
+
+zest_hash_map(zest_command_queue) zest_map_command_queues;
+zest_hash_map(zest_render_pass) zest_map_render_passes;
+zest_hash_map(zest_descriptor_set_layout) zest_map_descriptor_layouts;
+zest_hash_map(zest_pipeline_set) zest_map_pipeline_sets;
+zest_hash_map(zest_command_queue_draw) zest_map_command_queue_render_passes;
+zest_hash_map(zest_command_queue_compute) zest_map_command_queue_computes;
+zest_hash_map(zest_draw_routine) zest_map_draw_routines;
+zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
+//zest_hash_map(QulkanLayer) layers;
+//zest_hash_map(QulkanRenderTarget) render_targets;
+//zest_hash_map(QulkanTexture) textures;
+//zest_hash_map(QulkanFont) fonts;
+//zest_hash_map(QulkanUniformBuffer) uniform_buffers;
+zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
+
+typedef struct {
+	VkFormat swapchain_image_format;
+	VkExtent2D swapchain_extent;
+	VkSwapchainKHR swapchain;
+
+	VkCommandPool present_command_pool;
+	//CommandQueue empty_queue;
+
+	//Frames in flight storage
+	VkFence fif_fence[ZEST_MAX_FIF];
+
+	zest_semaphores semaphores[ZEST_MAX_FIF];
+
+	//VkFence> images_in_flight_fences;
+	VkPipelineStageFlags *stage_flags[ZEST_MAX_FIF];
+	VkSemaphore *renderer_incoming_semaphores[ZEST_MAX_FIF];
+	zest_buffer_id standard_uniform_buffer_id;
+
+	VkImage *swapchain_images;
+	VkImageView *swapchain_image_views;
+	VkFramebuffer *swapchain_frame_buffers;
+
+	zest_buffer *image_resource_buffer;
+	zest_buffer *depth_resource_buffer;
+	zest_frame_buffer *framebuffer;
+	VkCommandBuffer *present_command_buffers;
+
+	zest_render_pass_data final_render_pass;
+	zest_final_render_push_constants push_constants;
+	VkDescriptorBufferInfo view_buffer_info[ZEST_MAX_FIF];
+
+	zest_map_buffer_allocators buffer_allocators;									//For non frame in flight buffers
+
+	//Context data
+	VkCommandBuffer current_command_buffer;
+	//CommandQueue *current_command_queue;
+	//CommandQueueDraw *current_render_pass;
+	//CommandQueueCompute *current_compute_routine;
+
+	//General Storage
+	zest_map_command_queues command_queues;
+	zest_map_render_passes render_passes;
+	zest_map_descriptor_layouts descriptor_layouts;
+	zest_map_pipeline_sets pipeline_sets;
+	zest_map_command_queue_render_passes command_queue_render_passes;
+	zest_map_command_queue_computes command_queue_computes;
+	zest_map_draw_routines draw_routines;
+	//zest_map_layers layers;
+	//zest_map_render_targets render_targets;
+	//zest_map_textures textures;
+	//zest_map_fonts fonts;
+	//zest_map_uniform_buffers uniform_buffers;
+	zest_map_descriptor_sets descriptor_sets;
+
+	zest_index *frame_queues;
+	VkDescriptorPool descriptor_pool;
+	zest_command_setup_context setup_context;
+
+	void *user_uniform_data;
+	void(*update_uniform_buffer_callback)(void *user_uniform_data);							//Function callback where you can update a uniform buffer
+
+	zest_index *free_layers;
+	zest_index *free_drawroutines;
+
+	zest_index current_rt_index;
+	zest_index root_rt_index;
+	zest_index *render_target_recreate_queue;
+	zest_index *rt_sampler_refresh_queue[ZEST_MAX_FIF];
+	zest_index *texture_refresh_queue[ZEST_MAX_FIF];
+	zest_index *texture_reprocess_queue[ZEST_MAX_FIF];
+	uint32_t current_frame;
+
+	//Flags
+	zest_renderer_flags flags;
+} zest_renderer;
+
+static zest_device *ZestDevice = 0;
+static zest_app *ZestApp = 0;
+static zest_renderer *ZestRenderer = 0;
+
+static const char* zest_validation_layers[zest__validation_layer_count] = {
+	"VK_LAYER_KHRONOS_validation"
+};
+
+static const char* zest_required_extensions[zest__required_extension_names_count] = {
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
+
 //--Internal functions
+inline void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { if (T && new_capacity <= zest__vec_header(T)->capacity) return T; void* new_data = zest__reallocate((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); ((zest_vec*)(new_data))->capacity = new_capacity; return T; }
+
+//Buffer Management
+VkResult zest__bind_memory(zest_device_memory_pool *memory_allocation, VkDeviceSize offset);
+VkResult zest__map_memory(zest_device_memory_pool *memory_allocation, VkDeviceSize size, VkDeviceSize offset);
+void zest__unmap_memory(zest_device_memory_pool *memory_allocation);
+void zest__destroy_memory(zest_device_memory_pool *memory_allocation);
+VkResult zest__flush_memory(zest_device_memory_pool *memory_allocation, VkDeviceSize size, VkDeviceSize offset);
+zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image);
+//End Buffer Management
+
+//Renderer functions
+void zest__initialise_renderer(void);
+void zest__create_swapchain(void);
+VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *availableFormats);
+VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_modes, zest_bool use_vsync);
+VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
+void zest__cleanup_swapchain(void);
+void zest__cleanup_renderer(void);
+void zest__add_push_constant(zest_pipeline_template_create_info *create_info, VkPushConstantRange push_constant);
+void zest__add_draw_routine(zest_command_queue_draw *command_queue_draw, zest_draw_routine *draw_routine);
+void zest__create_swapchain_image_views(void);
+void zest__make_standard_render_passes(void);
+zest_uint zest__add_render_pass(const char *name, VkRenderPass render_pass);
+zest_buffer *zest__create_depth_resources(void);
+// --End Renderer functions
+
+// --General Helper Functions
+VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels, VkImageViewType viewType, uint32_t layerCount);
+zest_buffer *zest__create_image(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage image);
+VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout final_layout, VkAttachmentLoadOp load_op);
+VkFormat zest__find_depth_format(void);
+VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features);
+// --End General Helper Functions
+
+// --Buffer allocation funcitons
+void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer, const char *name);
+void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer);
+zest_image_allocation_id zest__allocate_image(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags);
+// --End Buffer allocation funcitons
+
 //Device set up 
 void zest__create_instance(void);
 void zest__create_window_surface(zest_window* window);
@@ -397,12 +824,13 @@ void zest__pick_physical_device(void);
 zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device);
 zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device);
 zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
-zest_swap_chain_support_details zest__query_swap_chain_support(VkPhysicalDevice physical_device);
+zest_swapchain_support_details zest__query_swapchain_support(VkPhysicalDevice physical_device);
 VkSampleCountFlagBits zest__get_max_useable_sample_count(void);
 void zest__create_logical_device(void);
 void zest__set_limit_data(void);
 zest_bool zest__check_validation_layer_support(void);
 const char** zest__get_required_extensions(zest_uint *extension_count);
+zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
 //end device setup functions
 
 //App initialise functions
