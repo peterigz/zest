@@ -739,8 +739,8 @@ void zest__initialise_renderer() {
 
 	ZestRenderer->depth_resource_buffer = zest__create_depth_resources();
 	zest__create_frame_buffers();
+	zest__create_sync_objects();
 	/*
-	CreateSyncObjects();
 	Renderer->push_constants.ScreenRes.x = 1.f / Renderer->swapchain_extent.width;
 	Renderer->push_constants.ScreenRes.y = 1.f / Renderer->swapchain_extent.height;
 
@@ -914,13 +914,13 @@ void zest__cleanup_renderer() {
 	zest_map_clear(ZestRenderer->descriptor_layouts);
 
 
-	//for (EachFrameInFlight) {
-		//vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->semaphores[i].present_complete, zest_null);
+	for (zest_eachframeinflight_i) {
+		vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->semaphores[i].present_complete, zest_null);
 		//vkDestroyFence(ZestDevice->logical_device, ZestRenderer->fif_fence[i], zest_null);
 		//for (auto &buffer : fif_buffers[i]) {
 			//buffer.CleanUp();
 		//}
-	//}
+	}
 
 	for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
 		for (zest_foreach_j(ZestRenderer->buffer_allocators.data[i].memory_pools)) {
@@ -999,6 +999,21 @@ void zest__create_frame_buffers() {
 VkRenderPass zest_get_render_pass(zest_index index) {
 	zest_assert(zest_map_valid_index(ZestRenderer->render_passes, index));	//Not a valid index
 	return *zest_map_at_index(ZestRenderer->render_passes, index).render_pass;
+}
+
+void zest__create_sync_objects() {
+
+	VkSemaphoreCreateInfo semaphore_info = { 0 };
+	semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+	VkFenceCreateInfo fence_info = { 0 };
+	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+	for (zest_eachframeinflight_i) {
+		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, zest_null, &ZestRenderer->semaphores[i].present_complete));
+	}
+
 }
 
 // --General Helper Functions

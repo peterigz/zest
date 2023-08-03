@@ -52,7 +52,8 @@
 #define zest__array(name, type, count) type *name = zest__reallocate(0, sizeof(type) * count)
 
 #define zest_null 0
-#define zest__vk_create_info(name, type) type name = {0}
+#define zest__vk_create_info(name, type) type name = {0} //Todo: remove this
+#define zest_eachframeinflight_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
 
 //For error checking vulkan commands
 #define ZEST_VK_CHECK_RESULT(f)																				\
@@ -795,8 +796,9 @@ void zest__create_swapchain_image_views(void);
 void zest__make_standard_render_passes(void);
 zest_uint zest__add_render_pass(const char *name, VkRenderPass render_pass);
 zest_buffer *zest__create_depth_resources(void);
-void zest__create_frame_buffers();
+void zest__create_frame_buffers(void);
 VkRenderPass zest_get_render_pass(zest_index index);
+void zest__create_sync_objects(void);
 // --End Renderer functions
 
 // --General Helper Functions
