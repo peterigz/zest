@@ -696,7 +696,9 @@ zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info
 		else {
 			zest__create_image_memory_pool(tloc__MEGABYTE(128), image, buffer_info->property_flags, &buffer_pool);
 		}
-		zest__map_memory(&buffer_pool, VK_WHOLE_SIZE, 0);
+		if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+			zest__map_memory(&buffer_pool, VK_WHOLE_SIZE, 0);
+		}
 		zest_vec_push(buffer_allocator.memory_pools, buffer_pool);
 		tloc_size size_of_allocator = tloc_AllocatorSize() + (sizeof(zest_buffer) * ZEST_MAX_BUFFERS_PER_ALLOCATOR);
 		buffer_allocator.allocator = zest__reallocate(buffer_allocator.allocator, size_of_allocator);
@@ -716,7 +718,12 @@ zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info
 		buffer->memory_offset = previous_buffer->memory_offset + previous_buffer->size;
 		buffer->memory_pool = previous_buffer->memory_pool;
 		buffer->size = tloc__align_size_up(size, buffer->memory_pool->alignment);
-		buffer->data = (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset);
+		if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+			buffer->data = (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset);
+		}
+		else {
+			buffer->data = zest_null;
+		}
 		if (buffer->memory_offset + buffer->size > buffer->memory_pool->size) {
 			//Pool has run out of space, add a new one if we can
 			zest_device_memory_pool buffer_pool;
@@ -724,7 +731,12 @@ zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info
 			zest_vec_push(buffer_allocator->memory_pools, buffer_pool);
 			buffer->memory_pool = &zest_vec_back(buffer_allocator->memory_pools);
 			buffer->memory_offset = 0;
-			buffer->data = (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset);
+			if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+				buffer->data = (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset);
+			}
+			else {
+				buffer->data = zest_null;
+			}
 		}
 	}
 
@@ -752,8 +764,8 @@ void zest__initialise_renderer() {
 
 	zest_update_uniform_buffer(zest_null);
 
+	zest__create_renderer_command_pools();
 	/*
-	CreateRendererCommandPools();
 	CreateDescriptorPool(pool_sizes);
 	MakeStandardDescriptorLayouts();
 	PrepareStandardPipelines();
@@ -941,7 +953,7 @@ void zest__cleanup_renderer() {
 	//}
 	//ZestRenderer->empty_queue.CleanUp();
 
-	//vkDestroyCommandPool(ZestDevice->logical_device, ZestRenderer->present_command_pool, VK_NULL_HANDLE);
+	vkDestroyCommandPool(ZestDevice->logical_device, ZestRenderer->present_command_pool, VK_NULL_HANDLE);
 }
 
 void zest__create_swapchain_image_views() {
@@ -1052,16 +1064,12 @@ zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer *buffer
 	return zest_map_get_index_by_name(ZestRenderer->uniform_buffers, name);
 }
 
-zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { 
-	zest_assert(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); 
-}
-
-zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { 
-	zest_assert(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); 
-}
-
-zest_bool zest_UniformBufferExists(const char *name) { 
-	return zest_map_valid_name(ZestRenderer->uniform_buffers, name); 
+void zest__create_renderer_command_pools() {
+	VkCommandPoolCreateInfo cmdPoolInfo = { 0 };
+	cmdPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	cmdPoolInfo.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
+	cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmdPoolInfo, zest_null, &ZestRenderer->present_command_pool));
 }
 
 // --General Helper Functions

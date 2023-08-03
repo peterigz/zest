@@ -915,6 +915,7 @@ void zest__create_sync_objects(void);
 zest_index zest_create_uniform_buffer(const char *name, zest_size uniform_struct_size);
 zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer *buffer);
 void zest_update_uniform_buffer(void *user_uniform_data);
+void zest__create_renderer_command_pools();
 // --End Renderer functions
 
 // --General Helper Functions
@@ -978,6 +979,9 @@ ZEST_API inline uint32_t zest_ScreenWidth() { return ZestApp->window->window_wid
 ZEST_API inline uint32_t zest_ScreenHeight() { return ZestApp->window->window_height; }
 ZEST_API inline float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
 ZEST_API inline float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
+ZEST_API inline zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { zest_assert(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); }
+ZEST_API inline zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { zest_assert(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); }
+ZEST_API inline zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
 #ifdef _WIN32
 zest_millisecs zest_Millisecs() { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
 zest_microsecs zest_Microsecs() { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
