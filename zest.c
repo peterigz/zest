@@ -194,7 +194,7 @@ zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags prop
 	VkPhysicalDeviceMemoryProperties memory_properties;
 	vkGetPhysicalDeviceMemoryProperties(ZestDevice->physical_device, &memory_properties);
 
-	for (uint32_t i = 0; i < memory_properties.memoryTypeCount; i++) {
+	for (zest_uint i = 0; i < memory_properties.memoryTypeCount; i++) {
 		if ((typeFilter & (1 << i)) && (memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
 			return i;
 		}
@@ -766,10 +766,10 @@ void zest__initialise_renderer(zest_create_info *create_info) {
 
 	zest__create_renderer_command_pools();
 	zest__create_descriptor_pools(create_info->pool_counts);
-	/*
-	MakeStandardDescriptorLayouts();
+	zest__make_standard_descriptor_layouts();
 	PrepareStandardPipelines();
 
+	/*
 	VkFenceCreateInfo fence_info{};
 	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -791,7 +791,7 @@ void zest__create_swapchain() {
 	ZestRenderer->swapchain_image_format = surfaceFormat.format;
 	ZestRenderer->swapchain_extent = extent;
 
-	uint32_t image_count = swapchain_support.capabilities.minImageCount + 1;
+	zest_uint image_count = swapchain_support.capabilities.minImageCount + 1;
 
 	if (swapchain_support.capabilities.maxImageCount > 0 && image_count > swapchain_support.capabilities.maxImageCount) {
 		image_count = swapchain_support.capabilities.maxImageCount;
@@ -924,9 +924,9 @@ void zest__cleanup_renderer() {
 	//}
 	zest_map_clear(ZestRenderer->draw_routines);
 
-	//for (auto layout : ZestRenderer->descriptor_layouts.data) {
-		//vkDestroyDescriptorSetLayout(ZestDevice->logical_device, layout.descriptor_layout, zest_null);
-	//}
+	for (zest_map_foreach_i(ZestRenderer->descriptor_layouts)) {
+		vkDestroyDescriptorSetLayout(ZestDevice->logical_device, ZestRenderer->descriptor_layouts.data[i].descriptor_layout, zest_null);
+	}
 	zest_map_clear(ZestRenderer->descriptor_layouts);
 
 
@@ -1119,8 +1119,95 @@ void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes) {
 	ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_info, zest_null, &ZestRenderer->descriptor_pool));
 }
 
+void zest__make_standard_descriptor_layouts() {
+	zest_AddDescriptorLayout("Standard 1 uniform 1 sampler", zest_CreateDescriptorSetLayout(1, 1, 0));
+	zest_AddDescriptorLayout("Polygon layout (no sampler)", zest_CreateDescriptorSetLayout(1, 0, 0));
+	zest_AddDescriptorLayout("Render target layout", zest_CreateDescriptorSetLayout(0, 1, 0));
+	zest_AddDescriptorLayout("Ribbon 2d layout", zest_CreateDescriptorSetLayout(1, 0, 1));
+}
+
+zest_index zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout) {
+	zest_descriptor_set_layout l;
+	l.name = name;
+	l.descriptor_layout = layout;
+	zest_map_insert(ZestRenderer->descriptor_layouts, name, l);
+	return zest_map_last_index(ZestRenderer->descriptor_layouts);
+}
+
+VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers) {
+	VkDescriptorSetLayoutBinding *bindings = 0;
+
+	for (int c = 0; c != uniforms; ++c) {
+		zest_vec_push(bindings, zest_CreateUniformLayoutBinding(c));
+	}
+
+	for (int c = 0; c != samplers; ++c) {
+		zest_vec_push(bindings, zest_CreateSamplerLayoutBinding(c + uniforms));
+	}
+
+	for (int c = 0; c != storage_buffers; ++c) {
+		zest_vec_push(bindings, zest_CreateStorageLayoutBinding(c + samplers + uniforms));
+	}
+
+	VkDescriptorSetLayout layout = zest_CreateDescriptorSetLayoutWithBindings(bindings);
+	zest_vec_free(bindings);
+	return layout;
+}
+
+VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDescriptorSetLayoutBinding *bindings) {
+	zest_assert(bindings);	//must have bindings to create the layout
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = { 0 };
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.bindingCount = (zest_uint)zest_vec_size(bindings);
+	layoutInfo.pBindings = bindings;
+
+	VkDescriptorSetLayout layout;
+
+	ZEST_VK_CHECK_RESULT(vkCreateDescriptorSetLayout(ZestDevice->logical_device, &layoutInfo, zest_null, &layout) != VK_SUCCESS);
+
+	return layout;
+}
+
+VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint binding) {
+
+	VkDescriptorSetLayoutBinding viewLayoutBinding = { 0 };
+	viewLayoutBinding.binding = binding;
+	viewLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	viewLayoutBinding.descriptorCount = 1;
+	viewLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	viewLayoutBinding.pImmutableSamplers = zest_null; 
+
+	return viewLayoutBinding;
+}
+
+VkDescriptorSetLayoutBinding zest_CreateSamplerLayoutBinding(zest_uint binding) {
+
+	VkDescriptorSetLayoutBinding samplerLayoutBinding = { 0 };
+	samplerLayoutBinding.binding = binding;
+	samplerLayoutBinding.descriptorCount = 1;
+	samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	samplerLayoutBinding.pImmutableSamplers = zest_null;
+	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	return samplerLayoutBinding;
+}
+
+VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding) {
+
+	VkDescriptorSetLayoutBinding storage_layout_binding = { 0 };
+	storage_layout_binding.binding = binding;
+	storage_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	storage_layout_binding.descriptorCount = 1;
+	storage_layout_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	storage_layout_binding.pImmutableSamplers = zest_null;
+
+	return storage_layout_binding;
+
+}
+
 // --General Helper Functions
-VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, uint32_t mip_levels, VkImageViewType view_type, uint32_t layer_count) {
+VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, zest_uint mip_levels, VkImageViewType view_type, zest_uint layer_count) {
 	VkImageViewCreateInfo viewInfo = { 0 };
 	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 	viewInfo.image = image;
@@ -1138,7 +1225,7 @@ VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspec
 	return image_view;
 }
 
-zest_buffer *zest__create_image(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image) {
+zest_buffer *zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image) {
 	VkImageCreateInfo image_info = {0};
 	image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -1169,7 +1256,7 @@ zest_buffer *zest__create_image(uint32_t width, uint32_t height, uint32_t mipLev
 	return buffer;
 }
 
-void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels, uint32_t layerCount) {
+void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount) {
 	VkCommandBuffer command_buffer = zest__begin_single_time_commands();
 
 	VkImageMemoryBarrier barrier = { 0 };

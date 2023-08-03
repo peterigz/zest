@@ -917,6 +917,7 @@ zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer *buffer
 void zest_update_uniform_buffer(void *user_uniform_data);
 void zest__create_renderer_command_pools();
 void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes);
+void zest__make_standard_descriptor_layouts();
 // --End Renderer functions
 
 // --General Helper Functions
@@ -975,6 +976,12 @@ ZEST_API void zest_Start();
 ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
+ZEST_API zest_index zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
+VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers);
+ZEST_API VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint binding);
+ZEST_API VkDescriptorSetLayoutBinding zest_CreateSamplerLayoutBinding(zest_uint binding);
+ZEST_API VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding);
+ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDescriptorSetLayoutBinding *bindings);
 
 //Inline API functions
 ZEST_API inline zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
