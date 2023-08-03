@@ -141,11 +141,6 @@ typedef enum {
 	zest_renderer_flag_disable_default_uniform_update =			1 << 7,
 } zest_renderer_flags;
 
-typedef enum {
-	zest_buffer_flag_none =										1 << 0,
-	zest_buffer_flag_is_fif =									1 << 1,
-} zest_buffer_flags;
-
 //Private structs with inline functions
 typedef struct zest_queue_family_indices {
 	zest_uint graphics_family;
@@ -319,11 +314,12 @@ typedef struct {
 zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key) { zest_hash_pair *first = map; zest_hash_pair *last = map ? zest_vec_end(map) : 0; size_t count = (size_t)(last - first); while (count > 0) { size_t count2 = count >> 1; zest_hash_pair* mid = first + count2; if (mid->key < key) { first = ++mid; count -= count2 + 1; } else { count = count2; } } return first; }
 void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { for (zest_foreach_i(map)) { if (map[i].index < index) continue; map[i].index--; } }
 zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
-#define zest_map_hash(hash_map, name) zest_Hash(&ZestHasher, name, strlen(name), ZEST_HASH_SEED) 
-#define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(&ZestHasher, ptr, size, ZEST_HASH_SEED) 
+#define zest_map_hash(hash_map, name) zest_Hash(ZestHasher, name, strlen(name), ZEST_HASH_SEED) 
+#define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ZestHasher, ptr, size, ZEST_HASH_SEED) 
 #define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; }
-#define zest_map_valid_name(hash_map, name) (zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
-#define zest_map_valid_key(hash_map, key) (zest__map_get_index(hash_map.map, key) != -1)
+#define zest_map_valid_name(hash_map, name) (hash_map.map && zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
+#define zest_map_valid_key(hash_map, key) (hash_map.map && zest__map_get_index(hash_map.map, key) != -1)
+#define zest_map_valid_index(hash_map, index) (hash_map.map && (zest_uint)index < zest_vec_size(hash_map.data))
 #define zest_map_valid_hash(hash_map, ptr, size) (zest__map_get_index(hash_map.map, zest_map_hash_ptr(hash_map, ptr, size)) != -1)
 #define zest_map_set_index(hash_map, key, value) zest_hash_pair *it = zest__lower_bound(hash_map.map, key); if(!hash_map.map || it == zest_vec_end(hash_map.map) || it->key != key) { zest_vec_push(hash_map.data, value); zest_hash_pair new_pair; new_pair.key = key; new_pair.index = zest_vec_size(hash_map.data) - 1; zest_vec_insert(hash_map.map, it, new_pair); } else {hash_map.data[it->index] = value;}
 #define zest_map_insert(hash_map, name, value) { zest_key key = zest_map_hash(hash_map, name); zest_map_set_index(hash_map, key, value) }
@@ -331,10 +327,12 @@ zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pa
 #define zest_map_insert_with_ptr_hash(hash_map, ptr, size, value) { zest_key key = zest_map_hash_ptr(hash_map, ptr, size); zest_map_set_index(hash_map, key, value) }
 #define zest_map_at(hash_map, name) &hash_map.data[zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name))]
 #define zest_map_at_key(hash_map, key) &hash_map.data[zest__map_get_index(hash_map.map, key)]
+#define zest_map_at_index(hash_map, index) &hash_map.data[index]
 #define zest_map_remove(hash_map, name) {zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_erase(hash_map.data, &hash_map.data[index]); zest__map_realign_indexes(hash_map.map, index); }
 #define zest_map_last_index(hash_map) (zest__vec_header(hash_map.data)->current_size - 1)
 #define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data);
 #define zest_map_foreach_i(hash_map) zest_foreach_i(hash_map.data)
+#define zest_map_foreach_j(hash_map) zest_foreach_j(hash_map.data)
 // --End quick and dirty hash map
 
 // --Vulkan Buffer Management
@@ -491,7 +489,7 @@ typedef struct {
 
 typedef struct {
 	VkImage image;
-	zest_image_allocation_id allocation_id;
+	zest_buffer *buffer;
 	VkImageView view;
 	VkFormat format;
 } zest_frame_buffer_attachment;
@@ -797,20 +795,25 @@ void zest__create_swapchain_image_views(void);
 void zest__make_standard_render_passes(void);
 zest_uint zest__add_render_pass(const char *name, VkRenderPass render_pass);
 zest_buffer *zest__create_depth_resources(void);
+void zest__create_frame_buffers();
+VkRenderPass zest_get_render_pass(zest_index index);
 // --End Renderer functions
 
 // --General Helper Functions
 VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels, VkImageViewType viewType, uint32_t layerCount);
-zest_buffer *zest__create_image(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage image);
+zest_buffer *zest__create_image(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
+void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels, uint32_t layerCount);
 VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout final_layout, VkAttachmentLoadOp load_op);
 VkFormat zest__find_depth_format(void);
+zest_bool zest__has_stencil_format(VkFormat format);
 VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features);
+VkCommandBuffer zest__begin_single_time_commands(void);
+void zest__end_single_time_commands(VkCommandBuffer command_buffer);
 // --End General Helper Functions
 
 // --Buffer allocation funcitons
 void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer, const char *name);
 void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer);
-zest_image_allocation_id zest__allocate_image(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags);
 // --End Buffer allocation funcitons
 
 //Device set up 
