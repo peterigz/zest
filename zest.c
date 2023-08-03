@@ -37,7 +37,7 @@ const char *zest__vulkan_error(VkResult errorCode)
 	}
 }
 
-void zest_Initialise() {
+void zest_Initialise(zest_create_info *info) {
 	void *memory_pool = malloc(tloc__MEGABYTE(128));
 
 	zest_assert(memory_pool);	//unable to allocate initial memory pool
@@ -53,7 +53,7 @@ void zest_Initialise() {
 	ZestDevice->allocator = allocator;
 	zest__initialise_app();
 	zest__initialise_device();
-	zest__initialise_renderer();
+	zest__initialise_renderer(info);
 }
 
 void zest_Start() {
@@ -745,7 +745,7 @@ zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info
 // --End Vulkan Buffer Management
 
 // --Renderer and related functions
-void zest__initialise_renderer() {
+void zest__initialise_renderer(zest_create_info *create_info) {
 	memset(ZestRenderer, 0, sizeof(zest_renderer));
 	zest__create_swapchain();
 	zest__create_swapchain_image_views();
@@ -765,8 +765,8 @@ void zest__initialise_renderer() {
 	zest_update_uniform_buffer(zest_null);
 
 	zest__create_renderer_command_pools();
+	zest__create_descriptor_pools(create_info->pool_counts);
 	/*
-	CreateDescriptorPool(pool_sizes);
 	MakeStandardDescriptorLayouts();
 	PrepareStandardPipelines();
 
@@ -1072,6 +1072,53 @@ void zest__create_renderer_command_pools() {
 	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmdPoolInfo, zest_null, &ZestRenderer->present_command_pool));
 }
 
+void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes) {
+	if (zest_vec_empty(pool_sizes)) {
+		VkDescriptorPoolSize pool_size;
+		pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLER;
+		pool_size.descriptorCount = 10;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		pool_size.descriptorCount = 100;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+		pool_size.descriptorCount = 10;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		pool_size.descriptorCount = 10;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+		pool_size.descriptorCount = 10;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+		pool_size.descriptorCount = 10;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		pool_size.descriptorCount = 100;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		pool_size.descriptorCount = 10;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+		pool_size.descriptorCount = 10;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+		pool_size.descriptorCount = 10;
+		zest_vec_push(pool_sizes, pool_size);
+		pool_size.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+		pool_size.descriptorCount = 10;
+		zest_vec_push(pool_sizes, pool_size);
+	}
+
+	VkDescriptorPoolCreateInfo pool_info = { 0 };
+	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	pool_info.poolSizeCount = (zest_uint)(zest_vec_size(pool_sizes));
+	pool_info.pPoolSizes = pool_sizes;
+	pool_info.maxSets = 100;
+
+	ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_info, zest_null, &ZestRenderer->descriptor_pool));
+}
+
 // --General Helper Functions
 VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, uint32_t mip_levels, VkImageViewType view_type, uint32_t layer_count) {
 	VkImageViewCreateInfo viewInfo = { 0 };
@@ -1305,6 +1352,20 @@ void zest__end_single_time_commands(VkCommandBuffer command_buffer) {
 
 	vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->command_pool, 1, &command_buffer);
 }
+
+zest_create_info zest_CreateInfo() {
+	zest_create_info create_info = {
+		.screen_width = 1280, 
+		.screen_height = 768,			
+		.screen_x = 0, 
+		.screen_y = 50,
+		.virtual_width = 1280, 
+		.virtual_height = 768,
+		.color_format = VK_FORMAT_R8G8B8A8_UNORM,
+		.pool_counts = zest_null
+	};
+	return create_info;
+}
 // --End General Helper Functions
 
 // --Buffer allocation funcitons
@@ -1350,7 +1411,8 @@ void zest__main_loop(void) {
 
 int main(void) {
 
-	zest_Initialise();
+	zest_create_info create_info = zest_CreateInfo();
+	zest_Initialise(&create_info);
 
 	zest_vec(zest_uint, T);
 	zest_vec_push(T, 0);

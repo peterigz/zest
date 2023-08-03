@@ -37,9 +37,6 @@
 #define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
-#define ZEST_INVALID 0xFFFFFFFF
-#define ZEST_U32_MAX_VALUE ((uint32_t)-1)
-
 #ifndef zest__free
 #define zest__free(memory) tloc_Free(ZestDevice->allocator, memory)
 #endif
@@ -80,8 +77,11 @@ typedef zest_ull zest_microsecs;
 typedef zest_ull zest_key;
 typedef size_t zest_size;
 typedef unsigned int zest_bool;
+
 #define zest_true 1
 #define zest_false 0
+#define ZEST_INVALID 0xFFFFFFFF
+#define ZEST_U32_MAX_VALUE ((zest_uint)-1)
 
 //Callback typedefs
 typedef void(*zest_keyboard_input_callback)(GLFWwindow* window, int key, int scancode, int action, int mods);
@@ -180,7 +180,7 @@ inline zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_ca
 #define zest_vec_clip(T) zest__vec_header(T)->current_size--;
 #define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
 #define zest_vec(T, name) T *name = zest_null
-#define zest_vec_empty(T) (zest__vec_header(T)->current_size == 0)
+#define zest_vec_empty(T) (!T || zest__vec_header(T)->current_size == 0)
 #define zest_vec_size(T) (zest__vec_header(T)->current_size)
 #define zest_vec_last_index(T) (zest__vec_header(T)->current_size - 1)
 #define zest_vec_capacity(T) (zest__vec_header(T)->capacity)
@@ -290,7 +290,7 @@ static inline zest_ull zest__get_hash(zest_hasher *hasher)
 		result = zest__hash_rotate_left(hasher, result ^ zest__hash_process_single(hasher, 0, *(zest_ull*)data), 27) * zest__PRIME1 + zest__PRIME4;
 	if (data + 4 <= stop)
 	{
-		result = zest__hash_rotate_left(hasher, result ^ (*(uint32_t*)data) * zest__PRIME1, 23) * zest__PRIME2 + zest__PRIME3;
+		result = zest__hash_rotate_left(hasher, result ^ (*(zest_uint*)data) * zest__PRIME1, 23) * zest__PRIME2 + zest__PRIME3;
 		data += 4;
 	}
 	while (data != stop)
@@ -526,7 +526,7 @@ typedef struct {
 	VkFormat color_format;
 } zest_device;
 
-typedef struct {
+typedef struct zest_create_info {
 	int screen_width, screen_height;					//Default width and height of the window that you open
 	int screen_x, screen_y;								//Default position of the window
 	int virtual_width, virtual_height;					//The virtial width/height of the viewport
@@ -595,7 +595,7 @@ typedef struct {
 } zest_frame_buffer_attachment;
 
 typedef struct {
-	uint32_t width, height;
+	zest_uint width, height;
 	VkFormat format;
 	VkFramebuffer frame_buffer;
 	zest_frame_buffer_attachment color_buffer, depth_buffer, resolve_buffer;
@@ -865,7 +865,7 @@ typedef struct {
 	zest_index *rt_sampler_refresh_queue[ZEST_MAX_FIF];
 	zest_index *texture_refresh_queue[ZEST_MAX_FIF];
 	zest_index *texture_reprocess_queue[ZEST_MAX_FIF];
-	uint32_t current_frame;
+	zest_uint current_frame;
 
 	//Flags
 	zest_renderer_flags flags;
@@ -896,7 +896,7 @@ zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info
 //End Buffer Management
 
 //Renderer functions
-void zest__initialise_renderer(void);
+void zest__initialise_renderer(zest_create_info *create_info);
 void zest__create_swapchain(void);
 VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *availableFormats);
 VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_modes, zest_bool use_vsync);
@@ -916,12 +916,13 @@ zest_index zest_create_uniform_buffer(const char *name, zest_size uniform_struct
 zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer *buffer);
 void zest_update_uniform_buffer(void *user_uniform_data);
 void zest__create_renderer_command_pools();
+void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes);
 // --End Renderer functions
 
 // --General Helper Functions
-VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels, VkImageViewType viewType, uint32_t layerCount);
-zest_buffer *zest__create_image(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
-void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, uint32_t mipLevels, uint32_t layerCount);
+VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
+zest_buffer *zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
+void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount);
 VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout final_layout, VkAttachmentLoadOp load_op);
 VkFormat zest__find_depth_format(void);
 zest_bool zest__has_stencil_format(VkFormat format);
@@ -968,15 +969,16 @@ void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
 //-- end of internal functions
 
 //User API functions
-ZEST_API void zest_Initialise();
+ZEST_API zest_create_info zest_CreateInfo();
+ZEST_API void zest_Initialise(zest_create_info *info);
 ZEST_API void zest_Start();
 ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 
 //Inline API functions
-ZEST_API inline uint32_t zest_ScreenWidth() { return ZestApp->window->window_width; }
-ZEST_API inline uint32_t zest_ScreenHeight() { return ZestApp->window->window_height; }
+ZEST_API inline zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
+ZEST_API inline zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
 ZEST_API inline float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
 ZEST_API inline float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
 ZEST_API inline zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { zest_assert(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); }
@@ -986,7 +988,7 @@ ZEST_API inline zest_bool zest_UniformBufferExists(const char *name) { return ze
 zest_millisecs zest_Millisecs() { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
 zest_microsecs zest_Microsecs() { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
 #else
-zest_millisecs zest_Millisecs() { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); uint32_t m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
+zest_millisecs zest_Millisecs() { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_uint m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
 zest_microsecs zest_Microsecs() { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
 #endif
 #endif // ! ZEST_POCKET_RENDERER
