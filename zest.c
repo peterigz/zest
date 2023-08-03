@@ -51,7 +51,7 @@ void zest_Initialise(zest_create_info *info) {
 	ZestDevice->memory_pools[0] = memory_pool;
 	ZestDevice->memory_pool_count = 0;
 	ZestDevice->allocator = allocator;
-	zest__initialise_app();
+	zest__initialise_app(info);
 	zest__initialise_device();
 	zest__initialise_renderer(info);
 }
@@ -480,7 +480,7 @@ void zest__set_limit_data() {
 End of Device creation functions
 */
 
-void zest__initialise_app(void) {
+void zest__initialise_app(zest_create_info *create_info) {
 	memset(ZestApp, 0, sizeof(zest_app));
 	ZestApp->update_callback = 0;
 	ZestApp->current_elapsed = 0;
@@ -498,7 +498,7 @@ void zest__initialise_app(void) {
 	ZestApp->virtual_mouse_x = 0;
 	ZestApp->virtual_mouse_y = 0;
 
-	ZestApp->window = zest__create_window(50, 50, 800, 600, 0, "Zest");
+	ZestApp->window = zest__create_window(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, 0, "Zest");
 }
 
 void zest__destroy(void) {
@@ -767,18 +767,16 @@ void zest__initialise_renderer(zest_create_info *create_info) {
 	zest__create_renderer_command_pools();
 	zest__create_descriptor_pools(create_info->pool_counts);
 	zest__make_standard_descriptor_layouts();
-	PrepareStandardPipelines();
+	zest__prepare_standard_pipelines();
 
-	/*
-	VkFenceCreateInfo fence_info{};
+	VkFenceCreateInfo fence_info = { 0 };
 	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-	for (EachFrameInFlight) {
-		VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_info, nullptr, &ZestRenderer->fif_fence[i]));
+	for (zest_eachframeinflight_i) {
+		ZEST_VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_info, zest_null, &ZestRenderer->fif_fence[i]));
 	}
 
-	CreateFinalRenderCommandBuffer();
-	*/
+	zest__create_final_render_command_buffer();
 }
 
 void zest__create_swapchain() {
@@ -898,12 +896,23 @@ void zest__cleanup_swapchain() {
 	vkDestroySwapchainKHR(ZestDevice->logical_device, ZestRenderer->swapchain, zest_null);
 }
 
+void zest__destroy_pipeline_set(zest_pipeline_set *p) {
+	vkDestroyPipeline(ZestDevice->logical_device, p->pipeline, zest_null);
+	vkDestroyPipelineLayout(ZestDevice->logical_device, p->pipeline_layout, zest_null);
+}
+
+void zest__cleanup_pipelines() {
+	for (zest_map_foreach_i(ZestRenderer->pipeline_sets)) {
+		zest__destroy_pipeline_set(&ZestRenderer->pipeline_sets.data[i]);
+	}
+}
+
 void zest__cleanup_renderer() {
 	zest__cleanup_swapchain();
 	vkDestroyDescriptorPool(ZestDevice->logical_device, ZestRenderer->descriptor_pool, zest_null);
 
-	//CleanUpPipelines();
-	//ZestRenderer->pipeline_sets.Clear();
+	zest__cleanup_pipelines();
+	zest_map_clear(ZestRenderer->pipeline_sets);
 
 	//CleanUpTextures();
 
@@ -932,10 +941,7 @@ void zest__cleanup_renderer() {
 
 	for (zest_eachframeinflight_i) {
 		vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->semaphores[i].present_complete, zest_null);
-		//vkDestroyFence(ZestDevice->logical_device, ZestRenderer->fif_fence[i], zest_null);
-		//for (auto &buffer : fif_buffers[i]) {
-			//buffer.CleanUp();
-		//}
+		vkDestroyFence(ZestDevice->logical_device, ZestRenderer->fif_fence[i], zest_null);
 	}
 
 	for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
@@ -1002,7 +1008,7 @@ void zest__create_frame_buffers() {
 			frame_buffer_info.attachmentCount = 2;
 			frame_buffer_info.pAttachments = attachments;
 			frame_buffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-			frame_buffer_info.renderPass = zest_get_render_pass(ZestRenderer->final_render_pass.render_pass);
+			frame_buffer_info.renderPass = zest_GetRenderPassByIndex(ZestRenderer->final_render_pass.render_pass);
 			frame_buffer_info.width = ZestRenderer->swapchain_extent.width;
 			frame_buffer_info.height = ZestRenderer->swapchain_extent.height;
 			frame_buffer_info.layers = 1;
@@ -1010,11 +1016,6 @@ void zest__create_frame_buffers() {
 			ZEST_VK_CHECK_RESULT(vkCreateFramebuffer(ZestDevice->logical_device, &frame_buffer_info, zest_null, &ZestRenderer->swapchain_frame_buffers[i]));
 
 	}
-}
-
-VkRenderPass zest_get_render_pass(zest_index index) {
-	zest_assert(zest_map_valid_index(ZestRenderer->render_passes, index));	//Not a valid index
-	return *zest_map_at_index(ZestRenderer->render_passes, index).render_pass;
 }
 
 void zest__create_sync_objects() {
@@ -1206,7 +1207,449 @@ VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding) 
 
 }
 
+zest_pipeline_set zest_CreatePipelineSet() {
+	zest_pipeline_set pipeline_set = {
+		.create_info = {0},
+		.pipeline_template = {0},
+		.descriptor_layout = {0},
+		.pipeline = VK_NULL_HANDLE,
+		.pipeline_layout = VK_NULL_HANDLE,
+		.uniforms = 1,
+		.push_constant_size = 0,
+		.textures = 0,
+		.rebuild_pipeline_function = zest_null,
+		.flags = zest_pipeline_set_flag_none,
+	};
+	return pipeline_set;
+}
+
+zest_pipeline_template_create_info zest_CreatePipelineTemplateCreateInfo(void) {
+	zest_pipeline_template_create_info create_info = {
+		.vertShaderFunctionName = "main",
+		.fragShaderFunctionName = "main",
+		.descriptorSetLayout = {0},
+		.no_vertex_input = zest_false,
+		.attributeDescriptions = 0,
+		.bindingDescription = 0,
+		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+	};
+	zest_vec_push(create_info.dynamicStates, VK_DYNAMIC_STATE_VIEWPORT);
+	zest_vec_push(create_info.dynamicStates, VK_DYNAMIC_STATE_SCISSOR);
+	create_info.viewport.offset.x = 0;
+	create_info.viewport.offset.y = 0;
+	return create_info;
+}
+
+VkPipelineColorBlendAttachmentState zest_AdditiveBlendState() {
+	VkPipelineColorBlendAttachmentState color_blend_attachment;
+	color_blend_attachment.blendEnable = VK_TRUE;
+	color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+	color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+	return color_blend_attachment;
+}
+
+VkPipelineColorBlendAttachmentState zest_AlphaOnlyBlendState() {
+	VkPipelineColorBlendAttachmentState color_blend_attachment;
+	color_blend_attachment.blendEnable = VK_TRUE;
+	color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_A_BIT;
+	color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+	color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+	return color_blend_attachment;
+}
+
+VkPipelineColorBlendAttachmentState zest_AlphaBlendState() {
+	VkPipelineColorBlendAttachmentState color_blend_attachment;
+	color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	color_blend_attachment.blendEnable = VK_TRUE;
+	color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+	color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+	return color_blend_attachment;
+}
+
+VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendState() {
+	VkPipelineColorBlendAttachmentState color_blend_attachment;
+	color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	color_blend_attachment.blendEnable = VK_TRUE;
+	color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+	color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+	return color_blend_attachment;
+}
+
+VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendStateForSwap() {
+	VkPipelineColorBlendAttachmentState color_blend_attachment;
+	color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	color_blend_attachment.blendEnable = VK_TRUE;
+	color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+	color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+	return color_blend_attachment;
+}
+
+VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState() {
+	VkPipelineColorBlendAttachmentState color_blend_attachment;
+	color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	color_blend_attachment.blendEnable = VK_TRUE;
+	color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+	color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+	color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+	return color_blend_attachment;
+}
+
+VkPipelineColorBlendAttachmentState zest_ImGuiBlendState() {
+	VkPipelineColorBlendAttachmentState color_blend_attachment;
+	color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	color_blend_attachment.blendEnable = VK_TRUE;
+	color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+	color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+	return color_blend_attachment;
+}
+
+void zest_SetPipelineTemplate(zest_pipeline_template *pipeline_template, zest_pipeline_template_create_info *create_info) {
+	pipeline_template->vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+	pipeline_template->vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	pipeline_template->vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	pipeline_template->vertShaderStageInfo.pName = create_info->vertShaderFunctionName;
+
+	pipeline_template->fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	pipeline_template->fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	pipeline_template->fragShaderStageInfo.pName = create_info->fragShaderFunctionName;
+
+	pipeline_template->vertShaderFile = create_info->vertShaderFile;
+	pipeline_template->fragShaderFile = create_info->fragShaderFile;
+
+	pipeline_template->inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	pipeline_template->inputAssembly.topology = create_info->topology;
+	pipeline_template->inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+	if (!create_info->no_vertex_input) {
+		if (zest_vec_empty(create_info->bindingDescriptions)) {
+			pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = 1;
+			pipeline_template->vertexInputInfo.pVertexBindingDescriptions = &create_info->bindingDescription;
+		}
+		else {
+			pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = (zest_uint)zest_vec_size(create_info->bindingDescriptions);
+			pipeline_template->vertexInputInfo.pVertexBindingDescriptions = create_info->bindingDescriptions;
+		}
+		pipeline_template->vertexInputInfo.vertexAttributeDescriptionCount = (zest_uint)zest_vec_size(create_info->attributeDescriptions);
+		pipeline_template->vertexInputInfo.pVertexAttributeDescriptions = create_info->attributeDescriptions;
+	}
+
+	pipeline_template->viewport.x = 0.0f;
+	pipeline_template->viewport.y = 0.0f;
+	pipeline_template->viewport.width = (float)create_info->viewport.extent.width;
+	pipeline_template->viewport.height = (float)create_info->viewport.extent.height;
+	pipeline_template->viewport.minDepth = 0.0f;
+	pipeline_template->viewport.maxDepth = 1.0f;
+
+	pipeline_template->scissor = create_info->viewport;
+
+	pipeline_template->viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	pipeline_template->viewportState.viewportCount = 1;
+	pipeline_template->viewportState.pViewports = &pipeline_template->viewport;
+	pipeline_template->viewportState.scissorCount = 1;
+	pipeline_template->viewportState.pScissors = &pipeline_template->scissor;
+
+	pipeline_template->rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	pipeline_template->rasterizer.depthClampEnable = VK_FALSE;
+	pipeline_template->rasterizer.rasterizerDiscardEnable = VK_FALSE;
+	pipeline_template->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	pipeline_template->rasterizer.lineWidth = 1.0f;
+	pipeline_template->rasterizer.cullMode = VK_CULL_MODE_NONE;
+	pipeline_template->rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	pipeline_template->rasterizer.depthBiasEnable = VK_FALSE;
+
+	pipeline_template->multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	pipeline_template->multisampling.sampleShadingEnable = VK_FALSE;
+	pipeline_template->multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+	pipeline_template->depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	pipeline_template->depthStencil.depthTestEnable = VK_TRUE;
+	pipeline_template->depthStencil.depthWriteEnable = VK_TRUE;
+	pipeline_template->depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+	pipeline_template->depthStencil.depthBoundsTestEnable = VK_FALSE;
+	pipeline_template->depthStencil.stencilTestEnable = VK_FALSE;
+
+	pipeline_template->colorBlendAttachment = zest_AlphaBlendState();
+
+	pipeline_template->colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	pipeline_template->colorBlending.logicOpEnable = VK_FALSE;
+	pipeline_template->colorBlending.logicOp = VK_LOGIC_OP_COPY;
+	pipeline_template->colorBlending.attachmentCount = 1;
+	pipeline_template->colorBlending.pAttachments = &pipeline_template->colorBlendAttachment;
+	pipeline_template->colorBlending.blendConstants[0] = 0.0f;
+	pipeline_template->colorBlending.blendConstants[1] = 0.0f;
+	pipeline_template->colorBlending.blendConstants[2] = 0.0f;
+	pipeline_template->colorBlending.blendConstants[3] = 0.0f;
+
+	pipeline_template->pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipeline_template->pipelineLayoutInfo.setLayoutCount = 1;
+	pipeline_template->pipelineLayoutInfo.pSetLayouts = zest_GetDescriptorSetLayoutByIndex(create_info->descriptorSetLayout);
+
+	if (!zest_vec_empty(create_info->pushConstantRange)) {
+		pipeline_template->pipelineLayoutInfo.pPushConstantRanges = create_info->pushConstantRange;
+		pipeline_template->pipelineLayoutInfo.pushConstantRangeCount = zest_vec_size(create_info->pushConstantRange);
+	}
+
+	pipeline_template->renderPass = create_info->renderPass;
+
+	pipeline_template->dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	pipeline_template->dynamicState.dynamicStateCount = (zest_uint)(zest_vec_size(create_info->dynamicStates));
+	pipeline_template->dynamicState.pDynamicStates = create_info->dynamicStates;
+	pipeline_template->dynamicState.flags = 0;
+}
+
+ZEST_API void zest_BuildPipeline(zest_pipeline_set *pipeline) {
+	ZEST_VK_CHECK_RESULT(vkCreatePipelineLayout(ZestDevice->logical_device, &pipeline->pipeline_template.pipelineLayoutInfo, zest_null, &pipeline->pipeline_layout));
+
+	if (!pipeline->pipeline_template.vertShaderFile || !pipeline->pipeline_template.fragShaderFile) {
+		zest_assert(0);		//You must specify a vertex and frag shader file to load
+	}
+	char *vert_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.vertShaderFile, zest_false);
+	char *frag_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.fragShaderFile, zest_false);
+
+	zest_assert(vert_shader_code);		//Failed to load the shader file, make sure it exists at the location
+	zest_assert(frag_shader_code);		//Failed to load the shader file, make sure it exists at the location
+
+	VkShaderModule vert_shader_module = zest_CreateShaderModule(vert_shader_code);
+	VkShaderModule frag_shader_module = zest_CreateShaderModule(frag_shader_code);
+
+	zest_vec_free(vert_shader_code);
+	zest_vec_free(frag_shader_code);
+
+	pipeline->pipeline_template.vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	pipeline->pipeline_template.vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
+	pipeline->pipeline_template.vertShaderStageInfo.pName = pipeline->create_info.vertShaderFunctionName;
+
+	pipeline->pipeline_template.fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	pipeline->pipeline_template.fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
+	pipeline->pipeline_template.fragShaderStageInfo.pName = pipeline->create_info.fragShaderFunctionName;
+
+	VkPipelineShaderStageCreateInfo shaderStages[2] = { pipeline->pipeline_template.vertShaderStageInfo, pipeline->pipeline_template.fragShaderStageInfo };
+
+	VkGraphicsPipelineCreateInfo pipeline_info = { 0 };
+	pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipeline_info.stageCount = 2;
+	pipeline_info.pStages = shaderStages;
+	pipeline_info.pVertexInputState = &pipeline->pipeline_template.vertexInputInfo;
+	pipeline_info.pInputAssemblyState = &pipeline->pipeline_template.inputAssembly;
+	pipeline_info.pViewportState = &pipeline->pipeline_template.viewportState;
+	pipeline_info.pRasterizationState = &pipeline->pipeline_template.rasterizer;
+	pipeline_info.pMultisampleState = &pipeline->pipeline_template.multisampling;
+	pipeline_info.pColorBlendState = &pipeline->pipeline_template.colorBlending;
+	pipeline_info.pDepthStencilState = &pipeline->pipeline_template.depthStencil;
+	pipeline_info.layout = pipeline->pipeline_layout;
+	pipeline_info.renderPass = pipeline->pipeline_template.renderPass;
+	pipeline_info.subpass = 0;
+	pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
+	if (pipeline->pipeline_template.dynamicState.dynamicStateCount) {
+		pipeline_info.pDynamicState = &pipeline->pipeline_template.dynamicState;
+	}
+
+	ZEST_VK_CHECK_RESULT(vkCreateGraphicsPipelines(ZestDevice->logical_device, VK_NULL_HANDLE, 1, &pipeline_info, zest_null, &pipeline->pipeline));
+
+	vkDestroyShaderModule(ZestDevice->logical_device, frag_shader_module, zest_null);
+	vkDestroyShaderModule(ZestDevice->logical_device, vert_shader_module, zest_null);
+}
+
+void zest_MakePipelineTemplate(zest_pipeline_set *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info *create_info) {
+	zest_assert(zest_map_valid_index(ZestRenderer->descriptor_layouts, pipeline->descriptor_layout));	//Must be a valid descriptor layout index in the pipeline
+
+	if (!pipeline->flags & zest_pipeline_set_flag_is_render_target_pipeline)
+		create_info->renderPass = render_pass;
+	pipeline->create_info.viewport.extent = zest_GetSwapChainExtent();
+
+	zest_SetPipelineTemplate(&pipeline->pipeline_template, create_info);
+	pipeline->pipeline_template.multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+	if (&pipeline->create_info != create_info)
+		pipeline->create_info = *create_info;
+}
+
+VkShaderModule zest_CreateShaderModule(char *code) {
+	VkShaderModuleCreateInfo create_info = { 0 };
+	create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	create_info.codeSize = zest_vec_size(code);
+	create_info.pCode = (zest_uint*)(code);
+
+	VkShaderModule shader_module;
+	ZEST_VK_CHECK_RESULT(vkCreateShaderModule(ZestDevice->logical_device, &create_info, zest_null, &shader_module));
+
+	return shader_module;
+}
+
+void zest__prepare_standard_pipelines() {
+	VkRenderPass render_pass = zest_GetStandardRenderPass();
+
+	//Final Render Pipelines
+	zest_uint final_render_index = zest_AddPipeline("pipeline_final_render");
+	zest_pipeline_set *final_render = zest_PipelineByIndex(final_render_index);
+
+	final_render->create_info = zest_CreatePipelineTemplateCreateInfo();
+	final_render->create_info.viewport.extent = zest_GetSwapChainExtent();
+	VkPushConstantRange final_render_pushconstant_range;
+	final_render_pushconstant_range.offset = 0;
+	final_render_pushconstant_range.size = sizeof(zest_final_render_push_constants);
+	final_render_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	zest_vec_push(final_render->create_info.pushConstantRange, final_render_pushconstant_range);
+	final_render->create_info.renderPass = zest_GetRenderPassByIndex(ZestRenderer->final_render_pass.render_pass);
+	final_render->create_info.no_vertex_input = zest_true;
+	final_render->create_info.vertShaderFile = "spv/swap.spv";
+	final_render->create_info.fragShaderFile = "spv/swap.spv";
+	final_render->uniforms = 0;
+	final_render->flags = zest_pipeline_set_flag_is_render_target_pipeline;
+	final_render->descriptor_layout = zest_map_get_index_by_name(ZestRenderer->descriptor_layouts, "Standard 1 uniform 1 sampler");
+	final_render->create_info.descriptorSetLayout = final_render->descriptor_layout;
+
+	zest_MakePipelineTemplate(final_render, render_pass, &final_render->create_info);
+	final_render->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	final_render->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
+
+	final_render->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendStateForSwap();
+
+	zest_BuildPipeline(final_render);
+}
+
+void zest__create_final_render_command_buffer() {
+	zest_vec_resize(ZestRenderer->present_command_buffers, zest_vec_size(ZestRenderer->swapchain_frame_buffers));
+
+	VkCommandBufferAllocateInfo alloc_info = { 0 };
+	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	alloc_info.commandPool = ZestRenderer->present_command_pool;
+	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	alloc_info.commandBufferCount = zest_vec_size(ZestRenderer->present_command_buffers);
+
+	ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, ZestRenderer->present_command_buffers))
+
+	VkClearValue clear_values[2] = {
+		[0].color = { 0 },
+		[1].depthStencil = { .depth = 1.0f, .stencil = 0 }
+	};
+
+	for (zest_foreach_i(ZestRenderer->present_command_buffers)) {
+		VkCommandBufferBeginInfo begin_info = { 0 };
+		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+		begin_info.pInheritanceInfo = zest_null; // Optional
+
+		ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(ZestRenderer->present_command_buffers[i], &begin_info));
+
+		VkRenderPassBeginInfo render_pass_info = { 0 };
+		render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		render_pass_info.renderPass = zest_GetRenderPassByIndex(ZestRenderer->final_render_pass.render_pass);
+		render_pass_info.framebuffer = ZestRenderer->swapchain_frame_buffers[i];
+		render_pass_info.renderArea.offset.x = 0;
+		render_pass_info.renderArea.offset.y = 0;
+		render_pass_info.renderArea.extent = ZestRenderer->swapchain_extent;
+
+		render_pass_info.clearValueCount = 2;
+		render_pass_info.pClearValues = clear_values;
+
+		vkCmdBeginRenderPass(ZestRenderer->present_command_buffers[i], &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+		VkViewport view = zest_CreateViewport((float)ZestRenderer->swapchain_extent.width, (float)ZestRenderer->swapchain_extent.height, 0.f, 1.f);
+		VkRect2D scissor = zest_CreateRect2D(ZestRenderer->swapchain_extent.width, ZestRenderer->swapchain_extent.height, 0, 1);
+		vkCmdSetViewport(ZestRenderer->present_command_buffers[i], 0, 1, &view);
+		vkCmdSetScissor(ZestRenderer->present_command_buffers[i], 0, 1, &scissor);
+
+		VkDeviceSize offsets[] = { 0 };
+
+		vkCmdEndRenderPass(ZestRenderer->present_command_buffers[i]);
+
+		ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(ZestRenderer->present_command_buffers[i]));
+	}
+}
+
+void zest__rerecord_final_render_command_buffer() {
+	VkClearValue clear_values[2] = {
+		[0].color = { 0 },
+		[1].depthStencil = { .depth = 1.0f, .stencil = 0 }
+	};
+
+	for (zest_foreach_i(ZestRenderer->present_command_buffers)) {
+
+		VkCommandBufferBeginInfo begin_info = { 0 };
+		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+		begin_info.pInheritanceInfo = zest_null; // Optional
+
+		ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(ZestRenderer->present_command_buffers[i], &begin_info));
+
+		VkRenderPassBeginInfo render_pass_info = { 0 };
+		render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		render_pass_info.renderPass = zest_GetRenderPassByIndex(ZestRenderer->final_render_pass.render_pass);
+		render_pass_info.framebuffer = ZestRenderer->swapchain_frame_buffers[i];
+		render_pass_info.renderArea.offset.x = 0;
+		render_pass_info.renderArea.offset.y = 0;
+		render_pass_info.renderArea.extent = ZestRenderer->swapchain_extent;
+
+		render_pass_info.clearValueCount = 2;
+		render_pass_info.pClearValues = clear_values;
+
+		vkCmdBeginRenderPass(ZestRenderer->present_command_buffers[i], &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+		VkViewport view = zest_CreateViewport((float)ZestRenderer->swapchain_extent.width, (float)ZestRenderer->swapchain_extent.height, 0.f, 1.f);
+		VkRect2D scissor = zest_CreateRect2D(ZestRenderer->swapchain_extent.width, ZestRenderer->swapchain_extent.height, 0, 0);
+		vkCmdSetViewport(ZestRenderer->present_command_buffers[i], 0, 1, &view);
+		vkCmdSetScissor(ZestRenderer->present_command_buffers[i], 0, 1, &scissor);
+
+		VkDeviceSize offsets[] = { 0 };
+
+		vkCmdEndRenderPass(ZestRenderer->present_command_buffers[i]);
+
+		ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(ZestRenderer->present_command_buffers[i]));
+	}
+}
+// --End Renderer functions
+
 // --General Helper Functions
+VkViewport zest_CreateViewport(float width, float height, float minDepth, float maxDepth) {
+	VkViewport viewport = { 0 };
+	viewport.width = width;
+	viewport.height = height;
+	viewport.minDepth = minDepth;
+	viewport.maxDepth = maxDepth;
+	return viewport;
+}
+
+VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY) {
+	VkRect2D rect2D = { 0 };
+	rect2D.extent.width = width;
+	rect2D.extent.height = height;
+	rect2D.offset.x = offsetX;
+	rect2D.offset.y = offsetY;
+	return rect2D;
+}
+
 VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, zest_uint mip_levels, VkImageViewType view_type, zest_uint layer_count) {
 	VkImageViewCreateInfo viewInfo = { 0 };
 	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1368,17 +1811,17 @@ VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout fina
 	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
 	VkAttachmentDescription attachments[2] = { color_attachment, depth_attachment };
-	VkRenderPassCreateInfo renderPassInfo = {0};
-	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = 2;
-	renderPassInfo.pAttachments = attachments;
-	renderPassInfo.subpassCount = 1;
-	renderPassInfo.pSubpasses = &subpass;
-	renderPassInfo.dependencyCount = 1;
-	renderPassInfo.pDependencies = &dependency;
+	VkRenderPassCreateInfo render_pass_info = {0};
+	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	render_pass_info.attachmentCount = 2;
+	render_pass_info.pAttachments = attachments;
+	render_pass_info.subpassCount = 1;
+	render_pass_info.pSubpasses = &subpass;
+	render_pass_info.dependencyCount = 1;
+	render_pass_info.pDependencies = &dependency;
 
 	VkRenderPass render_pass;
-	ZEST_VK_CHECK_RESULT(vkCreateRenderPass(ZestDevice->logical_device, &renderPassInfo, zest_null, &render_pass));
+	ZEST_VK_CHECK_RESULT(vkCreateRenderPass(ZestDevice->logical_device, &render_pass_info, zest_null, &render_pass));
 
 	return render_pass;
 }
@@ -1452,6 +1895,48 @@ zest_create_info zest_CreateInfo() {
 		.pool_counts = zest_null
 	};
 	return create_info;
+}
+
+char* zest_ReadEntireFile(const char *file_name, zest_bool terminate) {
+	char* buffer = 0;
+	FILE *file;
+	errno_t err;
+	err = fopen_s(&file, file_name, "rb");
+	if (err != 0 || file == NULL) {
+		return buffer;
+	}
+
+	// file invalid? fseek() fail?
+	if (file == NULL || fseek(file, 0, SEEK_END)) {
+		fclose(file);
+		return buffer;
+	}
+
+	long length = ftell(file);
+	rewind(file);
+	// Did ftell() fail?  Is the length too long?
+	if (length == -1 || (unsigned long)length >= SIZE_MAX) {
+		fclose(file);
+		return buffer;
+	}
+
+	if (terminate) {
+		zest_vec_resize(buffer, (zest_uint)length + 1);
+	}
+	else {
+		zest_vec_resize(buffer, (zest_uint)length);
+	}
+	if (buffer == 0 || fread(buffer, 1, length, file) != length) {
+		zest_vec_free(buffer);
+		fclose(file);
+		return buffer;
+	}
+	if (terminate) {
+		buffer[length] = '\0';
+	}
+
+	fclose(file);
+	return buffer;
 }
 // --End General Helper Functions
 

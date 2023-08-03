@@ -57,13 +57,12 @@
 #define zest_eachframeinflight_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
 
 //For error checking vulkan commands
-#define ZEST_VK_CHECK_RESULT(f)																				\
+#define ZEST_VK_CHECK_RESULT(res)																			\
 	{																										\
-		VkResult res = (f);																					\
 		if (res != VK_SUCCESS)																				\
 		{																									\
 			printf("Fatal : VkResult is \" %s \" in %s at line %i\n", zest__vulkan_error(res), __FILE__, __LINE__);	\
-			assert(res == VK_SUCCESS);																		\
+			zest_assert(res == VK_SUCCESS);																		\
 		}																									\
 	}
 
@@ -147,6 +146,12 @@ typedef enum {
 	zest_renderer_flag_vsync_enabled =							1 << 6,
 	zest_renderer_flag_disable_default_uniform_update =			1 << 7,
 } zest_renderer_flags;
+
+typedef enum {
+	zest_pipeline_set_flag_none										= 0,	
+	zest_pipeline_set_flag_is_render_target_pipeline				= 1 << 0,		//True if this pipeline is used for the final render of a render target to the swap chain
+	zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild	= 1 << 0		//True if the pipeline should update it's view extent when the swap chain is recreated (the window is resized)
+} zest_pipeline_set_flags;
 
 //Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -361,6 +366,13 @@ typedef struct zest_vec4 {
 typedef struct zest_matrix4 {
 	zest_vec4 v[4];
 } zest_matrix4;
+
+typedef struct zest_rgba8 {
+	union {
+		struct { unsigned char r, g, b, a; };
+		struct { zest_uint color; };
+	};
+} zest_rgba8;
 
 static inline zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right) {
 	zest_vec3 result = {
@@ -719,8 +731,7 @@ typedef struct {
 	VkWriteDescriptorSet *descriptor_writes[ZEST_MAX_FIF];						//Descriptor writes for creating the descriptor sets - is this needed here? only for certain pipelines, textures store their own
 	const char *name;															//Name for the pipeline just for labelling it when listing all the renderer objects in debug
 	void(*rebuild_pipeline_function)(void*);									//Override the function to rebuild the pipeline when the swap chain is recreated
-	zest_bool is_render_target_pipeline;										//True if this pipeline is used for the final render of a render target to the swap chain
-	zest_bool match_swapchain_view_extent_on_rebuild;							//True if the pipeline should update it's view extent when the swap chain is recreated (the window is resized)
+	zest_pipeline_set_flags flags;												//Flag bits	
 } zest_pipeline_set;
 
 typedef struct {
@@ -910,14 +921,18 @@ void zest__make_standard_render_passes(void);
 zest_uint zest__add_render_pass(const char *name, VkRenderPass render_pass);
 zest_buffer *zest__create_depth_resources(void);
 void zest__create_frame_buffers(void);
-VkRenderPass zest_get_render_pass(zest_index index);
 void zest__create_sync_objects(void);
 zest_index zest_create_uniform_buffer(const char *name, zest_size uniform_struct_size);
 zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer *buffer);
 void zest_update_uniform_buffer(void *user_uniform_data);
-void zest__create_renderer_command_pools();
+void zest__create_renderer_command_pools(void);
 void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes);
-void zest__make_standard_descriptor_layouts();
+void zest__make_standard_descriptor_layouts(void);
+void zest__prepare_standard_pipelines(void);
+void zest__create_final_render_command_buffer(void);
+void zest__rerecord_final_render_command_buffer(void);
+void zest__destroy_pipeline_set(zest_pipeline_set *p);
+void zest__cleanup_pipelines();
 // --End Renderer functions
 
 // --General Helper Functions
@@ -930,6 +945,7 @@ zest_bool zest__has_stencil_format(VkFormat format);
 VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features);
 VkCommandBuffer zest__begin_single_time_commands(void);
 void zest__end_single_time_commands(VkCommandBuffer command_buffer);
+char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
 // --End General Helper Functions
 
 // --Buffer allocation funcitons
@@ -958,32 +974,58 @@ zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags prop
 //end device setup functions
 
 //App initialise functions
-void zest__initialise_app();
-void zest__initialise_device();
-void zest__destroy();
+void zest__initialise_app(zest_create_info *create_info);
+void zest__initialise_device(void);
+void zest__destroy(void);
 zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char*);
 void zest__create_window_surface(zest_window*);
-void zest__main_loop();
+void zest__main_loop(void);
 void zest__keyboard_input_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 void zest__mouse_scroll_callback(GLFWwindow* window, double offset_x, double offset_y);
 void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
 //-- end of internal functions
 
 //User API functions
-ZEST_API zest_create_info zest_CreateInfo();
+ZEST_API zest_create_info zest_CreateInfo(void);
 ZEST_API void zest_Initialise(zest_create_info *info);
-ZEST_API void zest_Start();
+ZEST_API void zest_Start(void);
 ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API zest_index zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
-VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers);
+ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers);
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint binding);
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateSamplerLayoutBinding(zest_uint binding);
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding);
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDescriptorSetLayoutBinding *bindings);
+ZEST_API VkViewport zest_CreateViewport(float width, float height, float minDepth, float maxDepth);
+ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
+//Pipeline related 
+ZEST_API void zest_BuildPipeline(zest_pipeline_set *pipeline);
+ZEST_API void zest_SetPipelineTemplate(zest_pipeline_template *pipeline_template, zest_pipeline_template_create_info *create_info);
+ZEST_API void zest_MakePipelineTemplate(zest_pipeline_set *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info *create_info);
+ZEST_API VkShaderModule zest_CreateShaderModule(char *code);
+ZEST_API zest_pipeline_template_create_info zest_CreatePipelineTemplateCreateInfo(void);
+ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState();
+ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaOnlyBlendState();
+ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaBlendState();
+ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendState();
+ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendStateForSwap();
+ZEST_API VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState();
+ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState();
 
 //Inline API functions
+ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index) { return zest_map_at_index(ZestRenderer->descriptor_layouts, index).descriptor_layout; }
+ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name) { return zest_map_at(ZestRenderer->descriptor_layouts, name).descriptor_layout; }
+ZEST_API inline VkRenderPass zest_GetRenderPassByIndex(zest_index index) { zest_assert(zest_map_valid_index(ZestRenderer->render_passes, index)); return *zest_map_at_index(ZestRenderer->render_passes, index).render_pass; }
+ZEST_API inline VkRenderPass zest_GetRenderPassByName(const char *name) { zest_assert(zest_map_valid_name(ZestRenderer->render_passes, name)); return *zest_map_at(ZestRenderer->render_passes, name).render_pass; }
+ZEST_API inline VkRenderPass zest_GetStandardRenderPass() { return *zest_map_at(ZestRenderer->render_passes, "Render pass standard").render_pass; }
+ZEST_API inline zest_pipeline_set zest_CreatePipelineSet(void);
+ZEST_API inline zest_pipeline_set *zest_PipelineByIndex(zest_index index) { zest_assert(zest_map_valid_index(ZestRenderer->pipeline_sets, index)); return zest_map_at_index(ZestRenderer->pipeline_sets, index); }
+ZEST_API inline zest_pipeline_set *zest_PipelineByName(const char *name) { zest_assert(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); return zest_map_at(ZestRenderer->pipeline_sets, name); }
+ZEST_API inline zest_pipeline_template_create_info zest_PipelineCreateInfo(const char *name) { zest_assert(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); zest_pipeline_set *pipeline = zest_map_at(ZestRenderer->pipeline_sets, name); return pipeline->create_info; }
+ZEST_API inline zest_index zest_AddPipeline(const char *name) { zest_map_insert(ZestRenderer->pipeline_sets, name, zest_CreatePipelineSet()); return zest_map_last_index(ZestRenderer->pipeline_sets); }
+VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->swapchain_extent; }
 ZEST_API inline zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
 ZEST_API inline zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
 ZEST_API inline float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
@@ -992,10 +1034,10 @@ ZEST_API inline zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { z
 ZEST_API inline zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { zest_assert(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); }
 ZEST_API inline zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
 #ifdef _WIN32
-zest_millisecs zest_Millisecs() { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
-zest_microsecs zest_Microsecs() { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
+zest_millisecs inline zest_Millisecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
+zest_microsecs inline zest_Microsecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
 #else
-zest_millisecs zest_Millisecs() { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_uint m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
-zest_microsecs zest_Microsecs() { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
+zest_millisecs inline zest_Millisecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_uint m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
+zest_microsecs inline zest_Microsecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
 #endif
 #endif // ! ZEST_POCKET_RENDERER
