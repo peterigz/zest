@@ -6,11 +6,14 @@
 #define WIN_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <time.h>
 #endif
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include "2loc.h"
 #include <stdio.h>
+#include <math.h>
 
 #ifndef ZEST_MAX_FIF
 #define ZEST_MAX_FIF 2
@@ -50,6 +53,7 @@
 #define zest__reallocate(ptr, size) tloc_Reallocate(ZestDevice->allocator, ptr, size)
 #endif
 #define zest__array(name, type, count) type *name = zest__reallocate(0, sizeof(type) * count)
+#define ZEST_FIF ZestDevice->current_fif
 
 #define zest_null 0
 #define zest__vk_create_info(name, type) type name = {0} //Todo: remove this
@@ -71,6 +75,8 @@ const char *zest__vulkan_error(VkResult errorCode);
 typedef unsigned int zest_uint;
 typedef int zest_index;
 typedef unsigned long long zest_ull;
+typedef zest_uint zest_millisecs;
+typedef zest_ull zest_microsecs;
 typedef zest_ull zest_key;
 typedef size_t zest_size;
 typedef unsigned int zest_bool;
@@ -158,7 +164,7 @@ static inline void zest__set_present_family(zest_queue_family_indices *family, z
 static inline void zest__set_compute_family(zest_queue_family_indices *family, zest_uint v) { family->compute_family = v; family->compute_set = 1; }
 static inline zest_bool zest__family_is_complete(zest_queue_family_indices *family) { return family->graphics_set && family->present_set && family->compute_set; }
 
-// --Quick and dirty dynamic array
+// --Pocket Dynamic Array
 typedef struct zest_vec {
 	zest_uint current_size;
 	zest_uint capacity;
@@ -194,7 +200,7 @@ inline zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_ca
 #define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k 
 // --end of quick and dirty dynamic array
 
-// --Quick and dirty hasher, converted to c from Stephen Brumme's XXHash code
+// --Pocket Hasher, converted to c from Stephen Brumme's XXHash code
 /*
 	MIT License Copyright (c) 2018 Stephan Brumme
 	Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
@@ -301,9 +307,9 @@ inline void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->
 //The only command you need for the hasher
 inline zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed) { zest__hash_initialise(hasher, seed); zest__hasher_add(hasher, input, length); return (zest_key)zest__get_hash(hasher); }
 static zest_hasher *ZestHasher = 0;
-//-- End of hashing
+//-- End of Pocket Hasher
 
-// --Begin quick and dirty hash map
+// --Begin pocket hash map
 typedef struct {
 	zest_key key;
 	zest_index index;
@@ -329,12 +335,110 @@ zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pa
 #define zest_map_at(hash_map, name) &hash_map.data[zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name))]
 #define zest_map_at_key(hash_map, key) &hash_map.data[zest__map_get_index(hash_map.map, key)]
 #define zest_map_at_index(hash_map, index) &hash_map.data[index]
+#define zest_map_get_index_by_key(hash_map, key) zest__map_get_index(hash_map.map, key);
+#define zest_map_get_index_by_name(hash_map, name) zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name));
 #define zest_map_remove(hash_map, name) {zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_erase(hash_map.data, &hash_map.data[index]); zest__map_realign_indexes(hash_map.map, index); }
 #define zest_map_last_index(hash_map) (zest__vec_header(hash_map.data)->current_size - 1)
 #define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data);
 #define zest_map_foreach_i(hash_map) zest_foreach_i(hash_map.data)
 #define zest_map_foreach_j(hash_map) zest_foreach_j(hash_map.data)
-// --End quick and dirty hash map
+// --End pocket hash map
+
+// --Matrix and vector structs
+
+typedef struct zest_vec2 {
+	float x, y;
+} zest_vec2;
+
+typedef struct zest_vec3 {
+	float x, y, z;
+} zest_vec3;
+
+typedef struct zest_vec4 {
+	float x, y, z, w;
+} zest_vec4;
+
+typedef struct zest_matrix4 {
+	zest_vec4 v[4];
+} zest_matrix4;
+
+static inline zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right) {
+	zest_vec3 result = {
+		.x = left.x - right.x,
+		.y = left.y - right.y,
+		.z = left.z - right.z,
+	};
+	return result;
+}
+
+static inline float zest_LengthVec2(zest_vec3 const v) {
+	return v.x * v.x + v.y * v.y + v.z * v.z;
+}
+
+static inline float zest_LengthVec(zest_vec3 const v) {
+	return sqrtf(zest_LengthVec2(v));
+}
+
+static inline zest_vec3 zest_NormalizeVec(zest_vec3 const v) {
+	float length = zest_LengthVec(v);
+	zest_vec3 result = {
+		.x = v.x / length,
+		.y = v.y / length,
+		.z = v.z / length
+	};
+	return result;
+}
+
+static inline zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y)
+{
+	zest_vec3 result = {
+		.x = x.y * y.z - y.y * x.z,
+		.y = x.z * y.x - y.z * x.x,
+		.z = x.x * y.y - y.x * x.y,
+	};
+	return result;
+}
+
+static inline float zest_DotProduct(const zest_vec3 a, const zest_vec3 b)
+{
+	return (a.x * b.x + a.y * b.y + a.z * b.z);
+}
+
+static inline zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up)
+{
+	zest_vec3 f = zest_NormalizeVec(zest_SubVec(center, eye));
+	zest_vec3 s = zest_NormalizeVec(zest_CrossProduct(f, up));
+	zest_vec3 u = zest_CrossProduct(s, f);
+
+	zest_matrix4 result = { 0 };
+	result.v[0].x = s.x;
+	result.v[1].x = s.y;
+	result.v[2].x = s.z;
+	result.v[0].y = u.x;
+	result.v[1].y = u.y;
+	result.v[2].y = u.z;
+	result.v[0].z = -f.x;
+	result.v[1].z = -f.y;
+	result.v[2].z = -f.z;
+	result.v[3].x = -zest_DotProduct(s, eye);
+	result.v[3].y = -zest_DotProduct(u, eye);
+	result.v[3].z = zest_DotProduct(f, eye);
+	result.v[3].w = 1.f;
+	return result;
+}
+
+static inline zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far)
+{
+	zest_matrix4 result = { 0 };
+	result.v[0].x = 2.f / (right - left);
+	result.v[1].y = 2.f / (top - bottom);
+	result.v[2].z = -1.f / (z_far - z_near);
+	result.v[3].x = -(right + left) / (right - left);
+	result.v[3].y = -(top + bottom) / (top - bottom);
+	result.v[3].z = -z_near / (z_far - z_near);
+	result.v[3].w = 1.f;
+	return result;
+}
 
 // --Vulkan Buffer Management
 typedef struct {
@@ -371,6 +475,7 @@ typedef struct {
 	VkDeviceSize size;
 	VkDeviceSize memory_offset;
 	zest_device_memory_pool *memory_pool;
+	void *data;
 } zest_buffer;
 // --End Vulkan Buffer Management
 
@@ -483,12 +588,6 @@ typedef struct {
 } zest_semaphores;
 
 typedef struct {
-	zest_index buffer_id;						//The index to the memory allocation within fif_buffers
-	zest_index range_id;						//The index to the range within the memory allocation
-	zest_buffer_flags flags;					//Currently you can only flag the memory as readonly
-} zest_buffer_id;
-
-typedef struct {
 	VkImage image;
 	zest_buffer *buffer;
 	VkImageView view;
@@ -521,7 +620,7 @@ typedef struct {
 } zest_render_pass_data;
 
 typedef struct FinalRenderPushConstants {
-	float ScreenRes[2];			//the current size of the window/resolution
+	float screen_resolution[2];			//the current size of the window/resolution
 } zest_final_render_push_constants;
 
 //command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects and also 
@@ -543,10 +642,24 @@ typedef struct {
 	const char *name;
 } zest_render_pass;
 
-typedef struct QulkanDescriptorSetLayout {
+typedef struct zest_descriptor_set_layout {
 	VkDescriptorSetLayout descriptor_layout;
 	const char *name;
 } zest_descriptor_set_layout;
+
+typedef struct zest_uniform_buffer {
+	zest_buffer *buffer[ZEST_MAX_FIF];
+	VkDescriptorBufferInfo view_buffer_info[ZEST_MAX_FIF];
+} zest_uniform_buffer;
+
+typedef struct zest_uniform_buffer_data {
+	zest_matrix4 view;
+	zest_matrix4 proj;
+	zest_vec4 parameters1;
+	zest_vec4 parameters2;
+	zest_vec2 screen_size;
+	zest_uint millisecs;
+} zest_uniform_buffer_data;
 
 //Pipeline create template to setup the creation of a pipeline. Create this first and then use it with MakePipelineTemplate or SetPipelineTemplate to create a PipelineTemplate which you can then customise
 //further if needed before calling CreatePipeline
@@ -679,7 +792,7 @@ zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 //zest_hash_map(QulkanRenderTarget) render_targets;
 //zest_hash_map(QulkanTexture) textures;
 //zest_hash_map(QulkanFont) fonts;
-//zest_hash_map(QulkanUniformBuffer) uniform_buffers;
+zest_hash_map(zest_uniform_buffer) zest_map_uniform_buffers;
 zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
 
 typedef struct {
@@ -698,7 +811,7 @@ typedef struct {
 	//VkFence> images_in_flight_fences;
 	VkPipelineStageFlags *stage_flags[ZEST_MAX_FIF];
 	VkSemaphore *renderer_incoming_semaphores[ZEST_MAX_FIF];
-	zest_buffer_id standard_uniform_buffer_id;
+	zest_index standard_uniform_buffer_id;
 
 	VkImage *swapchain_images;
 	VkImageView *swapchain_image_views;
@@ -733,7 +846,7 @@ typedef struct {
 	//zest_map_render_targets render_targets;
 	//zest_map_textures textures;
 	//zest_map_fonts fonts;
-	//zest_map_uniform_buffers uniform_buffers;
+	zest_map_uniform_buffers uniform_buffers;
 	zest_map_descriptor_sets descriptor_sets;
 
 	zest_index *frame_queues;
@@ -799,6 +912,9 @@ zest_buffer *zest__create_depth_resources(void);
 void zest__create_frame_buffers(void);
 VkRenderPass zest_get_render_pass(zest_index index);
 void zest__create_sync_objects(void);
+zest_index zest_create_uniform_buffer(const char *name, zest_size uniform_struct_size);
+zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer *buffer);
+void zest_update_uniform_buffer(void *user_uniform_data);
 // --End Renderer functions
 
 // --General Helper Functions
@@ -853,5 +969,20 @@ void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
 //User API functions
 ZEST_API void zest_Initialise();
 ZEST_API void zest_Start();
+ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
+ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
+ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 
-#endif // ! ZEST_RENDERER
+//Inline API functions
+ZEST_API inline uint32_t zest_ScreenWidth() { return ZestApp->window->window_width; }
+ZEST_API inline uint32_t zest_ScreenHeight() { return ZestApp->window->window_height; }
+ZEST_API inline float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
+ZEST_API inline float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
+#ifdef _WIN32
+zest_millisecs zest_Millisecs() { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
+zest_microsecs zest_Microsecs() { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
+#else
+zest_millisecs zest_Millisecs() { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); uint32_t m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
+zest_microsecs zest_Microsecs() { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
+#endif
+#endif // ! ZEST_POCKET_RENDERER
