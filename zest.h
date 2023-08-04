@@ -23,8 +23,8 @@
 #define ZEST_MAX_BUFFERS_PER_ALLOCATOR 64
 #endif
 
-#ifndef zest_assert
-#define zest_assert assert
+#ifndef ZEST_ASSERT
+#define ZEST_ASSERT assert
 #endif
 
 #ifndef ZEST_API
@@ -37,24 +37,23 @@
 #define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
-#ifndef zest__free
-#define zest__free(memory) tloc_Free(ZestDevice->allocator, memory)
+#ifndef ZEST__FREE
+#define ZEST__FREE(memory) tloc_Free(ZestDevice->allocator, memory)
 #endif
 
 //Helper macros
-#define zest__Min(a, b) (((a) < (b)) ? (a) : (b))
-#define zest__Max(a, b) (((a) > (b)) ? (a) : (b))
+#define ZEST__MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define ZEST__MAX(a, b) (((a) > (b)) ? (a) : (b))
 
-#ifndef zest__reallocate
-#define zest__allocate(size) tloc_Allocate(ZestDevice->allocator, size)
-#define zest__reallocate(ptr, size) tloc_Reallocate(ZestDevice->allocator, ptr, size)
+#ifndef ZEST__REALLOCATE
+#define ZEST__ALLOCATE(size) tloc_Allocate(ZestDevice->allocator, size)
+#define ZEST__REALLOCATE(ptr, size) tloc_Reallocate(ZestDevice->allocator, ptr, size)
 #endif
-#define zest__array(name, type, count) type *name = zest__reallocate(0, sizeof(type) * count)
+#define ZEST__ARRAY(name, type, count) type *name = ZEST__REALLOCATE(0, sizeof(type) * count)
 #define ZEST_FIF ZestDevice->current_fif
 
-#define zest_null 0
-#define zest__vk_create_info(name, type) type name = {0} //Todo: remove this
-#define zest_eachframeinflight_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
+#define ZEST_NULL 0
+#define ZEST_EACHFFIF_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
 
 //For error checking vulkan commands
 #define ZEST_VK_CHECK_RESULT(res)																			\
@@ -62,7 +61,7 @@
 		if (res != VK_SUCCESS)																				\
 		{																									\
 			printf("Fatal : VkResult is \" %s \" in %s at line %i\n", zest__vulkan_error(res), __FILE__, __LINE__);	\
-			zest_assert(res == VK_SUCCESS);																		\
+			ZEST_ASSERT(res == VK_SUCCESS);																		\
 		}																									\
 	}
 
@@ -77,8 +76,8 @@ typedef zest_ull zest_key;
 typedef size_t zest_size;
 typedef unsigned int zest_bool;
 
-#define zest_true 1
-#define zest_false 0
+#define ZEST_TRUE 1
+#define ZEST_FALSE 0
 #define ZEST_INVALID 0xFFFFFFFF
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
 
@@ -184,7 +183,7 @@ inline zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_ca
 #define zest_vec_bump(T) zest__vec_header(T)->current_size++;
 #define zest_vec_clip(T) zest__vec_header(T)->current_size--;
 #define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
-#define zest_vec(T, name) T *name = zest_null
+#define zest_vec(T, name) T *name = ZEST_NULL
 #define zest_vec_empty(T) (!T || zest__vec_header(T)->current_size == 0)
 #define zest_vec_size(T) (zest__vec_header(T)->current_size)
 #define zest_vec_last_index(T) (zest__vec_header(T)->current_size - 1)
@@ -194,12 +193,12 @@ inline zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_ca
 #define zest_vec_back(T) (T[zest__vec_header(T)->current_size - 1])
 #define zest_vec_end(T) (&(T[zest_vec_size(T)]))
 #define zest_vec_clear(T) if(T) zest__vec_header(T)->current_size = 0
-#define zest_vec_free(T) (zest__free(zest__vec_header(T)), T = zest_null)
+#define zest_vec_free(T) (ZEST__FREE(zest__vec_header(T)), T = ZEST_NULL)
 #define zest_vec_resize(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); zest__vec_header(T)->current_size = new_size
 #define zest_vec_push(T, value) zest_vec_grow(T); (T)[zest__vec_header(T)->current_size++] = value 
 #define zest_vec_pop(T) (zest__vec_header(T)->current_size--, T[zest__vec_header(T)->current_size])
 #define zest_vec_insert(T, location, value) { ptrdiff_t offset = location - T; zest_vec_grow(T); if(offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T) }
-#define zest_vec_erase(T, location) { zest_assert(T && location >= T && location < zest_vec_end(T)); ptrdiff_t offset = location - T; memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); }
+#define zest_vec_erase(T, location) { ZEST_ASSERT(T && location >= T && location < zest_vec_end(T)); ptrdiff_t offset = location - T; memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); }
 #define zest_foreach_i(T) int i = 0; i != zest_vec_size(T); ++i 
 #define zest_foreach_j(T) int j = 0; j != zest_vec_size(T); ++j 
 #define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k 
@@ -231,7 +230,7 @@ static inline zest_ull zest__hash_process_single(zest_hasher *hasher, zest_ull p
 static inline void zest__hasher_process(zest_hasher *hasher, const void* data, zest_ull *state0, zest_ull *state1, zest_ull *state2, zest_ull *state3) { zest_ull* block = (zest_ull*)data; *state0 = zest__hash_process_single(hasher, *state0, block[0]); *state1 = zest__hash_process_single(hasher, *state1, block[1]); *state2 = zest__hash_process_single(hasher, *state2, block[2]); *state3 = zest__hash_process_single(hasher, *state3, block[3]); }
 static inline zest_bool zest__hasher_add(zest_hasher *hasher, const void* input, zest_ull length)
 {
-	if (!input || length == 0) return zest_false;
+	if (!input || length == 0) return ZEST_FALSE;
 
 	hasher->total_length += length;
 	unsigned char* data = (unsigned char*)input;
@@ -240,7 +239,7 @@ static inline zest_bool zest__hasher_add(zest_hasher *hasher, const void* input,
 	{
 		while (length-- > 0)
 			hasher->buffer[hasher->buffer_size++] = *data++;
-		return zest_true;
+		return ZEST_TRUE;
 	}
 
 	const unsigned char* stop = data + length;
@@ -266,7 +265,7 @@ static inline zest_bool zest__hasher_add(zest_hasher *hasher, const void* input,
 	for (zest_ull i = 0; i < hasher->buffer_size; i++)
 		hasher->buffer[i] = data[i];
 
-	return zest_true;
+	return ZEST_TRUE;
 }
 
 static inline zest_ull zest__get_hash(zest_hasher *hasher)
@@ -453,7 +452,7 @@ static inline zest_matrix4 zest_Ortho(float left, float right, float bottom, flo
 }
 
 // --Vulkan Buffer Management
-typedef struct {
+typedef struct zest_buffer_info{
 	VkImageUsageFlags image_usage_flags;
 	VkBufferUsageFlags usage_flags;					//The usage state_flags of the memory block. 
 	VkMemoryPropertyFlags property_flags;
@@ -463,7 +462,7 @@ typedef struct {
 } zest_buffer_info;
 
 //A simple buffer struct for creating and mapping GPU memory
-typedef struct {
+typedef struct zest_device_memory_pool{
 	VkBuffer buffer;
 	VkDeviceMemory memory;
 	VkDeviceSize size;
@@ -476,14 +475,14 @@ typedef struct {
 	const char *name;
 } zest_device_memory_pool;
 
-typedef struct {
+typedef struct zest_buffer_allocator{
 	VkBufferUsageFlags usage_flags;					//The usage state_flags of the memory block. 
 	VkMemoryPropertyFlags property_flags;			//The property state_flags of the memory block.	
 	tloc_allocator *allocator;
 	zest_device_memory_pool *memory_pools;
 } zest_buffer_allocator;
 
-typedef struct {
+typedef struct zest_buffer{
 	VkDeviceSize size;
 	VkDeviceSize memory_offset;
 	zest_index memory_pool;
@@ -492,7 +491,7 @@ typedef struct {
 } zest_buffer;
 // --End Vulkan Buffer Management
 
-typedef struct {
+typedef struct zest_swapchain_support_details{
 	VkSurfaceCapabilitiesKHR capabilities;
 	VkSurfaceFormatKHR *formats;
 	zest_uint formats_count;
@@ -500,7 +499,7 @@ typedef struct {
 	zest_uint present_modes_count;
 } zest_swapchain_support_details;
 
-typedef struct {
+typedef struct zest_window{
 	GLFWwindow *window_handle;
 	VkSurfaceKHR surface;
 	zest_uint window_width;
@@ -509,7 +508,7 @@ typedef struct {
 	zest_create_flags flags;
 } zest_window;
 
-typedef struct {
+typedef struct zest_device{
 	zest_uint api_version;
 	zest_uint use_labels_address_bit;
 	zest_uint current_fif;
@@ -551,7 +550,7 @@ typedef struct zest_create_info {
 	//All values are the size in bytes
 } zest_create_info;
 
-typedef struct {
+typedef struct zest_app{
 	zest_create_info create_info;
 
 	void(*update_callback)(float, void*);
@@ -586,7 +585,7 @@ typedef struct {
 	zest_app_flags flags;
 } zest_app;
 
-typedef struct {
+typedef struct zest_buffer_uploader{
 	zest_bool initialised;					//Set to true once AddCopyCommand has been run at least once
 	zest_bool source_is_fif;
 	zest_bool target_is_fif;
@@ -595,19 +594,19 @@ typedef struct {
 	VkBufferCopy *buffer_copies;			//List of vulkan copy info commands to upload staging buffers to the gpu each frame
 } zest_buffer_uploader;
 
-typedef struct {
+typedef struct zest_semaphores{
 	VkSemaphore present_complete;
 	VkSemaphore render_complete;
 } zest_semaphores;
 
-typedef struct {
+typedef struct zest_frame_buffer_attachment{
 	VkImage image;
 	zest_buffer *buffer;
 	VkImageView view;
 	VkFormat format;
 } zest_frame_buffer_attachment;
 
-typedef struct {
+typedef struct zest_frame_buffer{
 	zest_uint width, height;
 	VkFormat format;
 	VkFramebuffer frame_buffer;
@@ -617,7 +616,7 @@ typedef struct {
 } zest_frame_buffer;
 
 //Struct to store all the necessary data for a render pass
-typedef struct {
+typedef struct zest_render_pass_data{
 	int width, height;
 	VkFramebuffer frame_buffer;
 	zest_frame_buffer_attachment color, depth;
@@ -637,7 +636,7 @@ typedef struct FinalRenderPushConstants {
 } zest_final_render_push_constants;
 
 //command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects and also 
-typedef struct {
+typedef struct zest_command_queue{
 	const char *name;
 	VkCommandPool command_pool;										//The command pool for command buffers
 	VkCommandBuffer command_buffer[ZEST_MAX_FIF];					//A vulkan command buffer for each frame in flight
@@ -676,7 +675,7 @@ typedef struct zest_uniform_buffer_data {
 
 //Pipeline create template to setup the creation of a pipeline. Create this first and then use it with MakePipelineTemplate or SetPipelineTemplate to create a PipelineTemplate which you can then customise
 //further if needed before calling CreatePipeline
-typedef struct {
+typedef struct zest_pipeline_template_create_info{
 	VkRect2D viewport;
 	zest_index descriptorSetLayout;
 	VkPushConstantRange *pushConstantRange;
@@ -694,7 +693,7 @@ typedef struct {
 } zest_pipeline_template_create_info;
 
 //Pipeline template is used with CreatePipeline to create a vulkan pipeline. Use PipelineTemplate() or SetPipelineTemplate with PipelineTemplateCreateInfo to create a PipelineTemplate
-typedef struct {
+typedef struct zest_pipeline_template{
 	VkPipelineShaderStageCreateInfo vertShaderStageInfo;
 	VkPipelineShaderStageCreateInfo fragShaderStageInfo;
 	VkShaderModule vertShaderCode;
@@ -719,7 +718,7 @@ typedef struct {
 } zest_pipeline_template;
 
 //A pipeline set is all of the necessary things required to setup and maintain a pipeline
-typedef struct {
+typedef struct zest_pipeline_set{
 	zest_pipeline_template_create_info create_info;								//A copy of the create info and template is stored so that they can be used to update the pipeline later for any reason (like the swap chain is recreated)
 	zest_pipeline_template pipeline_template;
 	zest_index descriptor_layout;												//An index for the descriptor layout being used which is stored in the Renderer. Layouts can be reused an shared between pipelines
@@ -735,7 +734,7 @@ typedef struct {
 	zest_pipeline_set_flags flags;												//Flag bits	
 } zest_pipeline_set;
 
-typedef struct {
+typedef struct zest_command_setup_context{
 	zest_index command_queue_index;
 	zest_index render_pass_index;
 	zest_index draw_routine_index;
@@ -754,7 +753,7 @@ static inline void zest__reset_command_setup_context(zest_command_setup_context 
 
 //A draw routine is used to actually draw things to the render target. Qulkan provides Layers that have a set of draw commands for doing this or you can develop your own
 //By settting the callbacks and data pointers in the draw routine
-typedef struct {
+typedef struct zest_draw_routine{
 	const char *name;
 	zest_index cq_index;														//The index of the render queue that this draw routine is within
 	zest_index cq_render_pass_index;											//The index of the render pass within the command queue of this draw routine
@@ -771,7 +770,7 @@ typedef struct {
 //Every command queue will have either one or more render passes (unless it's purely for compute shading). Render pass contains various data for drawing things during the render pass.
 //These can be draw routines that you can use to draw various things to the screen. You can set the render_pass_function to whatever you need to record the command buffer. See existing render pass functions such as:
 //RenderDrawRoutine, RenderRenderTarget and RenderTargetToSwapChain.
-typedef struct {
+typedef struct zest_command_queue_draw {
 	VkFramebuffer(*get_frame_buffer)(void *item);
 	void(*render_pass_function)(void *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 	zest_index *draw_routines;
@@ -786,7 +785,7 @@ typedef struct {
 } zest_command_queue_draw;
 
 //In addition to render passes, you can also run compute shaders by adding this struct to the list of compute items in the command queue
-typedef struct {
+typedef struct zest_command_queue_compute {
 	void(*compute_function)(void *item);			//Call back function which will have the vkcommands the dispatch the compute shader task
 	zest_index *compute_routines;										//List of QulkanCompute indexes so multiple compute shaders can be run in the same compute item
 	const char *name;
@@ -807,7 +806,7 @@ zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 zest_hash_map(zest_uniform_buffer) zest_map_uniform_buffers;
 zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
 
-typedef struct {
+typedef struct zest_renderer{
 	VkFormat swapchain_image_format;
 	VkExtent2D swapchain_extent;
 	VkSwapchainKHR swapchain;
@@ -896,7 +895,7 @@ static const char* zest_required_extensions[zest__required_extension_names_count
 };
 
 //--Internal functions
-inline void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { if (T && new_capacity <= zest__vec_header(T)->capacity) return T; void* new_data = zest__reallocate((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); ((zest_vec*)(new_data))->capacity = new_capacity; return T; }
+inline void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { if (T && new_capacity <= zest__vec_header(T)->capacity) return T; void* new_data = ZEST__REALLOCATE((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); ((zest_vec*)(new_data))->capacity = new_capacity; return T; }
 
 //Buffer Management
 VkResult zest__bind_memory(zest_device_memory_pool *memory_allocation, VkDeviceSize offset);
@@ -1039,21 +1038,21 @@ ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer *buffer) { return
 VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw *item) { return ZestRenderer->swapchain_frame_buffers[ZestRenderer->current_frame]; }
 ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index) { return zest_map_at_index(ZestRenderer->descriptor_layouts, index).descriptor_layout; }
 ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name) { return zest_map_at(ZestRenderer->descriptor_layouts, name).descriptor_layout; }
-ZEST_API inline VkRenderPass zest_GetRenderPassByIndex(zest_index index) { zest_assert(zest_map_valid_index(ZestRenderer->render_passes, index)); return *zest_map_at_index(ZestRenderer->render_passes, index).render_pass; }
-ZEST_API inline VkRenderPass zest_GetRenderPassByName(const char *name) { zest_assert(zest_map_valid_name(ZestRenderer->render_passes, name)); return *zest_map_at(ZestRenderer->render_passes, name).render_pass; }
+ZEST_API inline VkRenderPass zest_GetRenderPassByIndex(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_passes, index)); return *zest_map_at_index(ZestRenderer->render_passes, index).render_pass; }
+ZEST_API inline VkRenderPass zest_GetRenderPassByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->render_passes, name)); return *zest_map_at(ZestRenderer->render_passes, name).render_pass; }
 ZEST_API inline VkRenderPass zest_GetStandardRenderPass() { return *zest_map_at(ZestRenderer->render_passes, "Render pass standard").render_pass; }
 ZEST_API inline zest_pipeline_set zest_CreatePipelineSet(void);
-ZEST_API inline zest_pipeline_set *zest_PipelineByIndex(zest_index index) { zest_assert(zest_map_valid_index(ZestRenderer->pipeline_sets, index)); return zest_map_at_index(ZestRenderer->pipeline_sets, index); }
-ZEST_API inline zest_pipeline_set *zest_PipelineByName(const char *name) { zest_assert(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); return zest_map_at(ZestRenderer->pipeline_sets, name); }
-ZEST_API inline zest_pipeline_template_create_info zest_PipelineCreateInfo(const char *name) { zest_assert(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); zest_pipeline_set *pipeline = zest_map_at(ZestRenderer->pipeline_sets, name); return pipeline->create_info; }
+ZEST_API inline zest_pipeline_set *zest_PipelineByIndex(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, index)); return zest_map_at_index(ZestRenderer->pipeline_sets, index); }
+ZEST_API inline zest_pipeline_set *zest_PipelineByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); return zest_map_at(ZestRenderer->pipeline_sets, name); }
+ZEST_API inline zest_pipeline_template_create_info zest_PipelineCreateInfo(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); zest_pipeline_set *pipeline = zest_map_at(ZestRenderer->pipeline_sets, name); return pipeline->create_info; }
 ZEST_API inline zest_index zest_AddPipeline(const char *name) { zest_map_insert(ZestRenderer->pipeline_sets, name, zest_CreatePipelineSet()); return zest_map_last_index(ZestRenderer->pipeline_sets); }
 VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->swapchain_extent; }
 ZEST_API inline zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
 ZEST_API inline zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
 ZEST_API inline float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
 ZEST_API inline float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
-ZEST_API inline zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { zest_assert(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); }
-ZEST_API inline zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { zest_assert(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); }
+ZEST_API inline zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); }
+ZEST_API inline zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); }
 ZEST_API inline zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
 ZEST_API inline void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }
 #ifdef _WIN32
