@@ -54,6 +54,7 @@ void zest_Initialise(zest_create_info *info) {
 	zest__initialise_app(info);
 	zest__initialise_device();
 	zest__initialise_renderer(info);
+	zest__create_empty_command_queue(&ZestRenderer->empty_queue);
 }
 
 void zest_Start() {
@@ -502,6 +503,7 @@ void zest__initialise_app(zest_create_info *create_info) {
 }
 
 void zest__destroy(void) {
+	zest_WaitForIdleDevice();
 	zest__cleanup_renderer();
 	vkDestroySurfaceKHR(ZestDevice->instance, ZestApp->window->surface, zest_null);
 	glfwDestroyWindow(ZestApp->window->window_handle);
@@ -564,6 +566,11 @@ zest_window* zest__create_window(int x, int y, int width, int height, zest_bool 
 	}
 
 	return window;
+}
+
+void zest__update_window_size(zest_window* window, zest_uint width, zest_uint height) {
+	window->window_width = width;
+	window->window_height = height;
 }
 
 // --Vulkan Buffer Management
@@ -675,7 +682,7 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, V
 	ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, zest_null, &buffer->memory));
 }
 
-zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image) {
+zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size) {
 	if (image != VK_NULL_HANDLE) {
 		VkMemoryRequirements memory_requirements;
 		vkGetImageMemoryRequirements(ZestDevice->logical_device, image, &memory_requirements);
@@ -690,11 +697,14 @@ zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info
 		buffer_allocator.property_flags = buffer_info->property_flags;
 		buffer_allocator.usage_flags = buffer_info->usage_flags;
 		zest_device_memory_pool buffer_pool = { 0 };
+		if (pool_size < size) {
+			pool_size = size * 2;
+		}
 		if (image == VK_NULL_HANDLE) {
-			zest__create_device_memory_pool(tloc__MEGABYTE(128), buffer_info->usage_flags, buffer_info->property_flags, &buffer_pool, "");
+			zest__create_device_memory_pool(pool_size ? pool_size : tloc__MEGABYTE(64), buffer_info->usage_flags, buffer_info->property_flags, &buffer_pool, "");
 		}
 		else {
-			zest__create_image_memory_pool(tloc__MEGABYTE(128), image, buffer_info->property_flags, &buffer_pool);
+			zest__create_image_memory_pool(pool_size ? pool_size : tloc__MEGABYTE(128), image, buffer_info->property_flags, &buffer_pool);
 		}
 		if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
 			zest__map_memory(&buffer_pool, VK_WHOLE_SIZE, 0);
@@ -707,32 +717,33 @@ zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info
 		zest_buffer *dummy_buffer = tloc_Allocate(buffer_allocator.allocator, sizeof(zest_buffer));
 		dummy_buffer->size = 0;
 		dummy_buffer->memory_offset = 0;
-		dummy_buffer->memory_pool = &zest_vec_back(buffer_allocator.memory_pools);
+		dummy_buffer->memory_pool = zest_vec_last_index(buffer_allocator.memory_pools);
 	}
 
 	zest_buffer_allocator *buffer_allocator = zest_map_at_key(ZestRenderer->buffer_allocators, key);
 	zest_buffer *buffer = tloc_Allocate(buffer_allocator->allocator, sizeof(zest_buffer));
+	buffer->buffer_allocator = buffer_allocator;
 	if (buffer) {
 		//If buffer is null then more then ZEST_MAX_BUFFERS_PER_ALLOCATOR buffers have been created
 		zest_buffer *previous_buffer = tloc__block_user_ptr(tloc__block_from_allocation(buffer)->prev_physical_block);
 		buffer->memory_offset = previous_buffer->memory_offset + previous_buffer->size;
 		buffer->memory_pool = previous_buffer->memory_pool;
-		buffer->size = tloc__align_size_up(size, buffer->memory_pool->alignment);
+		buffer->size = tloc__align_size_up(size, buffer_allocator->memory_pools[buffer->memory_pool].alignment);
 		if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-			buffer->data = (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset);
+			buffer->data = (void*)((char*)buffer_allocator->memory_pools[buffer->memory_pool].mapped + buffer->memory_offset);
 		}
 		else {
 			buffer->data = zest_null;
 		}
-		if (buffer->memory_offset + buffer->size > buffer->memory_pool->size) {
+		if (buffer->memory_offset + buffer->size > buffer_allocator->memory_pools[buffer->memory_pool].size) {
 			//Pool has run out of space, add a new one if we can
 			zest_device_memory_pool buffer_pool;
 			zest__create_device_memory_pool(tloc__MEGABYTE(128), buffer_info->usage_flags, buffer_info->property_flags, &buffer_pool, "");
 			zest_vec_push(buffer_allocator->memory_pools, buffer_pool);
-			buffer->memory_pool = &zest_vec_back(buffer_allocator->memory_pools);
+			buffer->memory_pool = zest_vec_last_index(buffer_allocator->memory_pools);
 			buffer->memory_offset = 0;
 			if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-				buffer->data = (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset);
+				buffer->data = (void*)((char*)buffer_allocator->memory_pools[buffer->memory_pool].mapped + buffer->memory_offset);
 			}
 			else {
 				buffer->data = zest_null;
@@ -741,6 +752,11 @@ zest_buffer *zest_create_buffer(VkDeviceSize size, zest_buffer_info *buffer_info
 	}
 
 	return buffer;
+}
+
+void zest_FreeBuffer(zest_buffer *buffer) {
+	zest_assert(buffer);	//Buffer must point to a valid buffer
+	tloc_Free(buffer->buffer_allocator->allocator, buffer);
 }
 // --End Vulkan Buffer Management
 
@@ -756,8 +772,8 @@ void zest__initialise_renderer(zest_create_info *create_info) {
 	ZestRenderer->depth_resource_buffer = zest__create_depth_resources();
 	zest__create_frame_buffers();
 	zest__create_sync_objects();
-	ZestRenderer->push_constants.screen_resolution[0] = 1.f / ZestRenderer->swapchain_extent.width;
-	ZestRenderer->push_constants.screen_resolution[1] = 1.f / ZestRenderer->swapchain_extent.height;
+	ZestRenderer->push_constants.screen_resolution.x = 1.f / ZestRenderer->swapchain_extent.width;
+	ZestRenderer->push_constants.screen_resolution.y = 1.f / ZestRenderer->swapchain_extent.height;
 
 	ZestRenderer->standard_uniform_buffer_id = zest_create_uniform_buffer("Standard Uniform Buffer", sizeof(zest_uniform_buffer_data));
 	ZestRenderer->update_uniform_buffer_callback = zest_update_uniform_buffer;
@@ -957,9 +973,96 @@ void zest__cleanup_renderer() {
 	//for (auto &command_queue : ZestRenderer->command_queues.data) {
 		//command_queue.CleanUp();
 	//}
-	//ZestRenderer->empty_queue.CleanUp();
+	zest__cleanup_command_queue(&ZestRenderer->empty_queue);
 
 	vkDestroyCommandPool(ZestDevice->logical_device, ZestRenderer->present_command_pool, VK_NULL_HANDLE);
+}
+
+void zest__recreate_swapchain() {
+	int width = 0, height = 0;
+	while (width == 0 || height == 0) {
+		glfwGetFramebufferSize(ZestApp->window->window_handle, &width, &height);
+		if (width == 0 || height == 0) {
+			glfwWaitEvents();
+		}
+	}
+
+	zest__update_window_size(ZestApp->window, width, height);
+	ZestRenderer->push_constants.screen_resolution.x = 1.f / width;
+	ZestRenderer->push_constants.screen_resolution.y = 1.f / height;
+
+	zest_WaitForIdleDevice();
+
+	zest__cleanup_swapchain();
+	zest__cleanup_pipelines();
+
+	zest__create_swapchain();
+	zest__create_swapchain_image_views();
+
+	zest_FreeBuffer(ZestRenderer->depth_resource_buffer);
+	ZestRenderer->depth_resource_buffer = zest__create_depth_resources();
+
+	zest__create_frame_buffers();
+	//for (auto& render_target : ZestRenderer->render_targets.data) {
+		//render_target.RecreateRenderResources();
+	//}
+	VkExtent2D extent;
+	extent.width = width;
+	extent.height = height;
+	for (zest_map_foreach_i(ZestRenderer->pipeline_sets)) {
+		zest_pipeline_set *pipeline = &ZestRenderer->pipeline_sets.data[i];
+		if (!pipeline->rebuild_pipeline_function) {
+			zest__rebuild_pipeline(pipeline);
+		}
+		else {
+			pipeline->rebuild_pipeline_function(pipeline);
+		}
+	}
+
+	zest__create_final_render_command_buffer();
+	ZestRenderer->update_uniform_buffer_callback(ZestRenderer->user_uniform_data);
+	/*
+	for (auto &compute : App.computers) {
+		if (compute.is_active) {
+			for (EachFrameInFlight) {
+				compute.descriptor_update_callback(compute);
+				//compute.command_buffer_update_callback(compute, compute.command_buffer[i]);
+			}
+		}
+	}
+
+	if (App.create_info.use_imgui) {
+		ImGuiIO& io = ImGui::GetIO();
+		io.DisplaySize = ImVec2(fScreenWidth(), fScreenHeight());
+	}
+
+	for (auto& draw_routine : ZestRenderer->draw_routines.data) {
+		if (!draw_routine.update_resolution_callback && draw_routine.draw_index != -1) {
+			QulkanLayer &layer = GetLayer(draw_routine.draw_index);
+			layer.UpdateResolution();
+		}
+		else if (draw_routine.update_resolution_callback)
+			draw_routine.update_resolution_callback(draw_routine);
+	}
+
+	for (auto &command_queue : ZestRenderer->command_queues.data) {
+		for (auto &render_command_index : command_queue.render_commands) {
+			CommandQueueDraw &render_command = ZestRenderer->command_queue_render_passes[render_command_index];
+			if (render_command.viewport_type == RenderViewportType_scale_with_window) {
+				render_command.viewport.extent.width = u32((float)width * render_command.viewport_scale.x);
+				render_command.viewport.extent.height = u32((float)height * render_command.viewport_scale.y);
+			}
+		}
+	}
+	*/
+
+	for (zest_foreach_i(ZestRenderer->empty_queue.render_commands)) {
+		zest_index render_command_index = ZestRenderer->empty_queue.render_commands[i];
+		zest_command_queue_draw *render_command = zest_map_at_index(ZestRenderer->command_queue_render_passes, render_command_index);
+		render_command->viewport.extent.width = width;
+		render_command->viewport.extent.height = height;
+	}
+
 }
 
 void zest__create_swapchain_image_views() {
@@ -1037,7 +1140,7 @@ zest_index zest_create_uniform_buffer(const char *name, zest_size uniform_struct
 	buffer_info.usage_flags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 	for (zest_eachframeinflight_i) {
-		uniform_buffer.buffer[i] = zest_create_buffer(uniform_struct_size, &buffer_info, zest_null);
+		uniform_buffer.buffer[i] = zest_CreateBuffer(uniform_struct_size, &buffer_info, zest_null, tloc__MEGABYTE(2));
 		uniform_buffer.view_buffer_info[i].offset = 0;
 		uniform_buffer.view_buffer_info[i].range = uniform_struct_size;
 	}
@@ -1507,6 +1610,17 @@ VkShaderModule zest_CreateShaderModule(char *code) {
 	return shader_module;
 }
 
+void zest__rebuild_pipeline(zest_pipeline_set *pipeline) {
+	//Note: not setting this for pipelines messes with scaling, but not sure if some pipelines need this to be fixed
+	pipeline->create_info.viewport.extent = zest_GetSwapChainExtent();
+	pipeline->pipeline_template.renderPass = zest_GetStandardRenderPass();
+	zest_UpdatePipelineTemplate(&pipeline->pipeline_template, &pipeline->create_info);
+	zest_BuildPipeline(pipeline);
+	for (zest_eachframeinflight_i) {
+		zest_vec_clear(pipeline->descriptor_writes);
+	}
+}
+
 void zest__prepare_standard_pipelines() {
 	VkRenderPass render_pass = zest_GetStandardRenderPass();
 
@@ -1537,6 +1651,38 @@ void zest__prepare_standard_pipelines() {
 	final_render->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendStateForSwap();
 
 	zest_BuildPipeline(final_render);
+}
+
+void zest_UpdatePipelineTemplate(zest_pipeline_template *pipeline_template, zest_pipeline_template_create_info *create_info) {
+	pipeline_template->viewport.width = (float)create_info->viewport.extent.width;
+	pipeline_template->viewport.height = (float)create_info->viewport.extent.height;
+	pipeline_template->scissor.extent.width = create_info->viewport.extent.width;
+	pipeline_template->scissor.extent.height = create_info->viewport.extent.height;
+
+	pipeline_template->vertShaderStageInfo.pName = create_info->vertShaderFunctionName;
+	pipeline_template->fragShaderStageInfo.pName = create_info->fragShaderFunctionName;
+
+	if (!create_info->no_vertex_input) {
+		if (zest_vec_empty(create_info->bindingDescriptions)) {
+			pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = 1;
+			pipeline_template->vertexInputInfo.pVertexBindingDescriptions = &create_info->bindingDescription;
+		}
+		else {
+			pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = zest_vec_size(create_info->bindingDescriptions);
+			pipeline_template->vertexInputInfo.pVertexBindingDescriptions = create_info->bindingDescriptions;
+		}
+		pipeline_template->vertexInputInfo.pVertexAttributeDescriptions = create_info->attributeDescriptions;
+	}
+	pipeline_template->viewportState.pViewports = &pipeline_template->viewport;
+	pipeline_template->viewportState.pScissors = &pipeline_template->scissor;
+	pipeline_template->colorBlending.pAttachments = &pipeline_template->colorBlendAttachment;
+	pipeline_template->pipelineLayoutInfo.pSetLayouts = zest_GetDescriptorSetLayoutByIndex(create_info->descriptorSetLayout);
+	pipeline_template->dynamicState.pDynamicStates = create_info->dynamicStates;
+
+	if (!zest_vec_empty(create_info->pushConstantRange)) {
+		pipeline_template->pipelineLayoutInfo.pPushConstantRanges = create_info->pushConstantRange;
+		pipeline_template->pipelineLayoutInfo.pushConstantRangeCount = zest_vec_size(create_info->pushConstantRange);
+	}
 }
 
 void zest__create_final_render_command_buffer() {
@@ -1629,7 +1775,212 @@ void zest__rerecord_final_render_command_buffer() {
 		ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(ZestRenderer->present_command_buffers[i]));
 	}
 }
+
+void zest__create_empty_command_queue(zest_command_queue *command_queue) {
+	VkCommandPoolCreateInfo cmd_pool_info = { 0 };
+	cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	cmd_pool_info.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
+	cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_pool_info, zest_null, &command_queue->command_pool));
+
+	VkCommandBufferAllocateInfo alloc_info = { 0 };
+	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	alloc_info.commandBufferCount = ZEST_MAX_FIF;
+	alloc_info.commandPool = command_queue->command_pool;
+	ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, command_queue->command_buffer));
+
+	for (zest_eachframeinflight_i) {
+		zest_vec_push(command_queue->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].present_complete);
+		zest_vec_push(command_queue->fif_stage_flags[i], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+	}
+	zest_command_queue_draw render_commands;
+	render_commands.render_pass = ZestRenderer->final_render_pass.render_pass;
+	render_commands.get_frame_buffer = zest_GetRendererFrameBuffer;
+	render_commands.render_pass_function = zest__render_blank;
+	render_commands.viewport.extent = zest_GetSwapChainExtent();
+	render_commands.viewport.offset.x = render_commands.viewport.offset.y = 0;
+	zest_ConnectCommandQueueToPresent(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+	zest_map_insert(ZestRenderer->command_queue_render_passes, "Blank Render Pass", render_commands);
+	zest_vec_push(command_queue->render_commands, zest_map_last_index(ZestRenderer->command_queue_render_passes));
+}
+
+void zest__render_blank(zest_command_queue_draw *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer) {
+	VkRenderPassBeginInfo render_pass_info = { 0 };
+	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	render_pass_info.renderPass = zest_GetRenderPassByIndex(render_pass);
+	render_pass_info.framebuffer = framebuffer;
+	render_pass_info.renderArea = item->viewport;
+
+	VkClearValue clear_values[2] = {
+		[0].color = { 0 },
+		[1].depthStencil = {.depth = 1.0f, .stencil = 0 }
+	};
+
+	render_pass_info.clearValueCount = 2;
+	render_pass_info.pClearValues = clear_values;
+
+	vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdEndRenderPass(command_buffer);
+}
+
+void zest__add_push_constant(zest_pipeline_template_create_info *create_info, VkPushConstantRange push_constant) {
+	zest_vec_push(create_info->pushConstantRange, push_constant);
+}
+
+void zest__add_draw_routine(zest_command_queue_draw *command_queue_draw, zest_draw_routine *draw_routine) {
+	zest_vec_push(command_queue_draw->draw_routines, draw_routine->routine_id);
+	draw_routine->cq_render_pass_index = zest_vec_size(command_queue_draw->draw_routines) - 1;
+}
+
+void zest__acquire_next_swapchain_image() {
+
+	VkResult result = vkAcquireNextImageKHR(ZestDevice->logical_device, ZestRenderer->swapchain, UINT64_MAX, ZestRenderer->semaphores[ZEST_FIF].present_complete, zest_null, &ZestRenderer->current_frame);
+
+	//Has the window been resized? if so rebuild the swap chain.
+	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+		zest__recreate_swapchain();
+		return;
+	}
+	else {
+		ZEST_VK_CHECK_RESULT(result);
+	}
+}
+
+void zest__draw_renderer_frame() {
+
+	ZestRenderer->flags |= zest_renderer_flag_drawing_loop_running;
+
+	zest__acquire_next_swapchain_image();
+	ZestRenderer->update_uniform_buffer_callback(ZestRenderer->user_uniform_data);
+
+	if (zest_vec_empty(ZestRenderer->frame_queues)) {
+		//if there's no render queues at all, then we can draw this blank one to prevent errors when presenting the frame
+		ZestRenderer->semaphores[ZestDevice->current_fif].render_complete = zest__get_command_queue_present_semaphore(&ZestRenderer->empty_queue);
+		zest__record_and_commit_command_queue(&ZestRenderer->empty_queue, ZestRenderer->fif_fence[ZEST_FIF]);
+		//FlushLayers();
+	}
+	else {
+		for (zest_foreach_i(ZestRenderer->frame_queues)) {
+			zest_index command_queue_index = ZestRenderer->frame_queues[i];
+			zest__record_and_commit_command_queue(zest_map_at_index(ZestRenderer->command_queues, command_queue_index), ZestRenderer->fif_fence[ZEST_FIF]);
+		}
+	}
+	zest_vec_clear(ZestRenderer->frame_queues);
+
+	zest__present_frame();
+}
+
+void zest__present_frame() {
+	VkPresentInfoKHR presentInfo = { 0 };
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+	presentInfo.waitSemaphoreCount = 1;
+	presentInfo.pWaitSemaphores = &ZestRenderer->semaphores[ZEST_FIF].render_complete;
+	VkSwapchainKHR swapChains[] = { ZestRenderer->swapchain };
+	presentInfo.swapchainCount = 1;
+	presentInfo.pSwapchains = swapChains;
+	presentInfo.pImageIndices = &ZestRenderer->current_frame;
+	presentInfo.pResults = zest_null;
+
+	VkResult result = vkQueuePresentKHR(ZestDevice->present_queue, &presentInfo);
+
+	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || ZestApp->window->framebuffer_resized || (ZestRenderer->flags & zest_renderer_flag_schedule_change_vsync)) {
+		ZestApp->window->framebuffer_resized = zest_false;
+		ZestRenderer->flags &= ~zest_renderer_flag_schedule_change_vsync;
+
+		zest__recreate_swapchain();
+		ZestRenderer->current_frame = 0;
+	}
+	else {
+		ZEST_VK_CHECK_RESULT(result);
+	}
+	ZestDevice->current_fif = (ZestDevice->current_fif + 1) % ZEST_MAX_FIF;
+
+}
 // --End Renderer functions
+
+// --Command Queue functions
+void zest__cleanup_command_queue(zest_command_queue *command_queue) {	
+	for (zest_eachframeinflight_i) {
+		for (zest_foreach_j(command_queue->fif_outgoing_semaphores[i])) {
+			VkSemaphore semaphore = command_queue->fif_outgoing_semaphores[i][j];
+			vkDestroySemaphore(ZestDevice->logical_device, semaphore, zest_null);
+		}
+	}
+	vkFreeCommandBuffers(ZestDevice->logical_device, command_queue->command_pool, ZEST_MAX_FIF, command_queue->command_buffer);
+	vkDestroyCommandPool(ZestDevice->logical_device, command_queue->command_pool, VK_NULL_HANDLE);
+}
+
+VkSemaphore zest__get_command_queue_present_semaphore(zest_command_queue *command_queue) {
+	zest_assert(command_queue->present_semaphore_index != -1);
+	return command_queue->fif_outgoing_semaphores[ZEST_FIF][command_queue->present_semaphore_index];
+}
+
+void zest__record_and_commit_command_queue(zest_command_queue *command_queue, VkFence fence) {
+	ZestRenderer->current_command_queue = command_queue;
+	VkCommandBufferBeginInfo begin_info = { 0 };
+	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+	vkResetCommandBuffer(command_queue->command_buffer[ZEST_FIF], 0);
+	ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(command_queue->command_buffer[ZEST_FIF], &begin_info) != VK_SUCCESS);
+
+	ZestRenderer->current_command_buffer = command_queue->command_buffer[ZEST_FIF];
+
+	//for (zest_foreach_i(command_queue->compute_items)) {
+		//zest_command_queue_compute &compute_item = GetCommandQueueCompute(compute_item_index);
+		//zest_assert(compute_item.compute_function);		//Compute item must have its compute function callback set
+		//ZestRenderer->current_compute_routine = &compute_item;
+		//compute_item.compute_function(compute_item);
+	//}
+
+	for (zest_foreach_i(command_queue->render_commands)) {
+		zest_command_queue_draw *render_command = &ZestRenderer->command_queue_render_passes.data[command_queue->render_commands[i]];
+		ZestRenderer->current_render_pass = render_command;
+		render_command->render_pass_function(render_command, command_queue->command_buffer[ZEST_FIF], render_command->render_pass, render_command->get_frame_buffer(render_command));
+	}
+
+	ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(command_queue->command_buffer[ZEST_FIF]));
+
+	ZestRenderer->current_command_queue = zest_null;
+	ZestRenderer->current_command_buffer = zest_null;
+	ZestRenderer->current_compute_routine = zest_null;
+	ZestRenderer->current_render_pass = zest_null;
+
+	VkSubmitInfo submit_info = { 0 };
+	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	if (!zest_vec_empty(command_queue->fif_incoming_semaphores[ZEST_FIF])) {
+		submit_info.pWaitSemaphores = command_queue->fif_incoming_semaphores[ZEST_FIF];
+		submit_info.waitSemaphoreCount = zest_vec_size(command_queue->fif_incoming_semaphores[ZEST_FIF]);
+		submit_info.pWaitDstStageMask = command_queue->fif_stage_flags[ZEST_FIF];
+	}
+	else {
+		submit_info.pWaitSemaphores = VK_NULL_HANDLE;
+		submit_info.waitSemaphoreCount = 0;
+		submit_info.pWaitDstStageMask = VK_NULL_HANDLE;
+	}
+	submit_info.signalSemaphoreCount = zest_vec_size(command_queue->fif_outgoing_semaphores[ZEST_FIF]);
+	submit_info.pSignalSemaphores = command_queue->fif_outgoing_semaphores[ZEST_FIF];
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &command_queue->command_buffer[ZEST_FIF];
+
+	vkResetFences(ZestDevice->logical_device, 1, &fence);
+	ZEST_VK_CHECK_RESULT(vkQueueSubmit(ZestDevice->graphics_queue, 1, &submit_info, fence));
+
+}
+
+void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineStageFlags stage_flags) {
+	VkSemaphoreCreateInfo semaphore_info = { 0 };
+	semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	for (zest_eachframeinflight_i) {
+		VkSemaphore semaphore = VK_NULL_HANDLE;
+		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, zest_null, &semaphore));
+		zest_vec_push(sender->fif_outgoing_semaphores[i], semaphore);
+		zest_vec_push(sender->fif_stage_flags[i], stage_flags);
+		sender->present_semaphore_index = zest_vec_last_index(sender->fif_outgoing_semaphores[i]);
+	}
+}
+// --Command Queue functions
 
 // --General Helper Functions
 VkViewport zest_CreateViewport(float width, float height, float minDepth, float maxDepth) {
@@ -1692,9 +2043,9 @@ zest_buffer *zest__create_image(zest_uint width, zest_uint height, zest_uint mip
 	zest_buffer_info buffer_info = { 0 };
 	buffer_info.image_usage_flags = usage;
 	buffer_info.property_flags = properties;
-	zest_buffer *buffer = zest_create_buffer(memory_requirements.size, &buffer_info, *image);
+	zest_buffer *buffer = zest_CreateBuffer(memory_requirements.size, &buffer_info, *image, tloc__MEGABYTE(64));
 
-	vkBindImageMemory(ZestDevice->logical_device, *image, buffer->memory_pool->memory, buffer->memory_offset);
+	vkBindImageMemory(ZestDevice->logical_device, *image, zest_GetBufferDeviceMemory(buffer), buffer->memory_offset);
 
 	return buffer;
 }
@@ -1943,19 +2294,10 @@ char* zest_ReadEntireFile(const char *file_name, zest_bool terminate) {
 // --Buffer allocation funcitons
 // --End Buffer allocation functions
 
-void zest__add_push_constant(zest_pipeline_template_create_info *create_info, VkPushConstantRange push_constant) { 
-	zest_vec_push(create_info->pushConstantRange, push_constant); 
-}
-
-void zest__add_draw_routine(zest_command_queue_draw *command_queue_draw, zest_draw_routine *draw_routine) {
-	zest_vec_push(command_queue_draw->draw_routines, draw_routine->routine_id);
-	draw_routine->cq_render_pass_index = zest_vec_size(command_queue_draw->draw_routines) - 1;
-}
-// --End renderer and related functions
 void zest__main_loop(void) {
 	while (!glfwWindowShouldClose(ZestApp->window->window_handle)) {
 
-		//VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZestDevice->current_fif], VK_TRUE, UINT64_MAX));
+		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
 		//DoScheduledTasks(ZestDevice->current_fif);
 
 		glfwPollEvents();
@@ -1964,7 +2306,7 @@ void zest__main_loop(void) {
 			ZestApp->update_callback(0, 0);
 		}
 
-		//DrawRendererFrame();
+		zest__draw_renderer_frame();
 
 		if (ZestApp->flags & zest_app_flag_show_fps_in_title) {
 			ZestApp->frame_timer += ZestApp->current_elapsed;
