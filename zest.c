@@ -1813,7 +1813,7 @@ void zest__render_blank(zest_command_queue_draw *item, VkCommandBuffer command_b
 	render_pass_info.renderArea = item->viewport;
 
 	VkClearValue clear_values[2] = {
-		[0].color = { 0 },
+		[0].color = { .float32[0] = 0.1f, .float32[1] = 0.0f, .float32[2] = 0.1f, .float32[3] = 1.f },
 		[1].depthStencil = {.depth = 1.0f, .stencil = 0 }
 	};
 
