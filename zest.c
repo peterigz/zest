@@ -682,6 +682,52 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, V
 	ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, ZEST_NULL, &buffer->memory));
 }
 
+tloc_size zest__get_remote_size(tloc_header *block) {
+	zest_buffer *buffer = (zest_buffer*)tloc__block_user_extension_ptr(block);
+	return buffer->size;
+}
+
+void zest__on_add_pool(void *user_data, void *block) {
+	zest_buffer_allocator *pools = (zest_buffer_allocator*)user_data;
+	zest_buffer *buffer = (zest_buffer*)block;
+	buffer->size = pools->memory_pools[zest_vec_last_index(pools->memory_pools)].size;
+	buffer->memory_pool = zest_vec_last_index(pools->memory_pools);
+	buffer->memory_offset = 0;
+}
+
+void zest__on_merge_next(void *user_data, tloc_header *block, tloc_header *next_block) {
+	zest_buffer *buffer = tloc__block_user_extension_ptr(block);
+	zest_buffer *next_buffer = tloc__block_user_extension_ptr(next_block);
+	buffer->size += next_buffer->size;
+	next_buffer->memory_offset = 0;
+	next_buffer->size = 0;
+}
+
+void zest__on_merge_prev(void *user_data, tloc_header *prev_block, tloc_header *block) {
+	zest_buffer *buffer = tloc__block_user_extension_ptr(block);
+	if (buffer->memory_offset == 0) {
+		//Can't merge across pools
+		//return;
+	}
+	zest_buffer *prev_buffer = tloc__block_user_extension_ptr(prev_block);
+	prev_buffer->size += buffer->size;
+	buffer->memory_offset = 0;
+	buffer->size = 0;
+}
+
+void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trimmed_block, tloc_size remote_size) {
+	zest_buffer *buffer = tloc__block_user_extension_ptr(block);
+	zest_buffer *trimmed_buffer = tloc__block_user_extension_ptr(trimmed_block);
+	trimmed_buffer->size = buffer->size - remote_size;
+	trimmed_buffer->memory_pool = buffer->memory_pool;
+	buffer->size = remote_size;
+	trimmed_buffer->memory_offset = buffer->memory_offset + buffer->size;
+}
+
+tloc_size zest__get_bytes_per_block(tloc_size pool_size) {
+	return pool_size > tloc__MEGABYTE(1) ? pool_size / 128 : 256;
+}
+
 zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size) {
 	if (image != VK_NULL_HANDLE) {
 		VkMemoryRequirements memory_requirements;
@@ -701,54 +747,50 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 			pool_size = size * 2;
 		}
 		if (image == VK_NULL_HANDLE) {
-			zest__create_device_memory_pool(pool_size ? pool_size : tloc__MEGABYTE(64), buffer_info->usage_flags, buffer_info->property_flags, &buffer_pool, "");
+			buffer_pool.size = pool_size ? pool_size : tloc__MEGABYTE(64);
+			zest__create_device_memory_pool(buffer_pool.size, buffer_info->usage_flags, buffer_info->property_flags, &buffer_pool, "");
 		}
 		else {
-			zest__create_image_memory_pool(pool_size ? pool_size : tloc__MEGABYTE(128), image, buffer_info->property_flags, &buffer_pool);
+			buffer_pool.size = pool_size ? pool_size : tloc__MEGABYTE(128);
+			zest__create_image_memory_pool(buffer_pool.size, image, buffer_info->property_flags, &buffer_pool);
 		}
 		if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
 			zest__map_memory(&buffer_pool, VK_WHOLE_SIZE, 0);
 		}
+		buffer_allocator.alignment = buffer_pool.alignment;
 		zest_vec_push(buffer_allocator.memory_pools, buffer_pool);
 		tloc_size size_of_allocator = tloc_AllocatorSize() + (sizeof(zest_buffer) * ZEST_MAX_BUFFERS_PER_ALLOCATOR);
-		buffer_allocator.allocator = ZEST__REALLOCATE(buffer_allocator.allocator, size_of_allocator);
-		buffer_allocator.allocator = tloc_InitialiseAllocatorWithPool(buffer_allocator.allocator, size_of_allocator);
+		buffer_allocator.allocator = ZEST__REALLOCATE(buffer_allocator.allocator, tloc_AllocatorSize());
+		buffer_allocator.allocator = tloc_InitialiseAllocator(buffer_allocator.allocator);
+		tloc_SetBlockExtensionSize(buffer_allocator.allocator, sizeof(zest_buffer));
+		tloc_SetBytesPerBlock(buffer_allocator.allocator, zest__get_bytes_per_block(buffer_pool.size));
+		tloc_size range_pool_size = tloc_CalculateRemoteBlockPoolSize(buffer_allocator.allocator, buffer_pool.size);
+		zest_pool_range *range_pool = malloc(range_pool_size);
+		zest_vec_push(buffer_allocator.range_pools, range_pool);
 		zest_map_insert_key(ZestRenderer->buffer_allocators, key, buffer_allocator);
-		zest_buffer *dummy_buffer = tloc_Allocate(buffer_allocator.allocator, sizeof(zest_buffer));
-		dummy_buffer->size = 0;
-		dummy_buffer->memory_offset = 0;
-		dummy_buffer->memory_pool = zest_vec_last_index(buffer_allocator.memory_pools);
+		buffer_allocator.allocator->user_data = zest_map_at_key(ZestRenderer->buffer_allocators, key);
+		buffer_allocator.allocator->get_block_size_callback = zest__get_remote_size;
+		buffer_allocator.allocator->add_pool_callback = zest__on_add_pool;
+		buffer_allocator.allocator->split_block_callback = zest__on_split_block;
+		buffer_allocator.allocator->merge_next_callback = zest__on_merge_next;
+		buffer_allocator.allocator->merge_prev_callback = zest__on_merge_prev;
+		tloc_AddRemotePool(buffer_allocator.allocator, range_pool, range_pool_size, buffer_pool.size);
 	}
 
 	zest_buffer_allocator *buffer_allocator = zest_map_at_key(ZestRenderer->buffer_allocators, key);
-	zest_buffer *buffer = tloc_Allocate(buffer_allocator->allocator, sizeof(zest_buffer));
+	tloc_size adjusted_size = tloc__align_size_up(size, buffer_allocator->alignment);
+	zest_buffer *buffer = tloc_AllocateRemote(buffer_allocator->allocator, adjusted_size);
 	buffer->buffer_allocator = buffer_allocator;
 	if (buffer) {
-		//If buffer is null then more then ZEST_MAX_BUFFERS_PER_ALLOCATOR buffers have been created
-		zest_buffer *previous_buffer = tloc__block_user_ptr(tloc__block_from_allocation(buffer)->prev_physical_block);
-		buffer->memory_offset = previous_buffer->memory_offset + previous_buffer->size;
-		buffer->memory_pool = previous_buffer->memory_pool;
-		buffer->size = tloc__align_size_up(size, buffer_allocator->memory_pools[buffer->memory_pool].alignment);
 		if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
 			buffer->data = (void*)((char*)buffer_allocator->memory_pools[buffer->memory_pool].mapped + buffer->memory_offset);
 		}
 		else {
 			buffer->data = ZEST_NULL;
 		}
-		if (buffer->memory_offset + buffer->size > buffer_allocator->memory_pools[buffer->memory_pool].size) {
-			//Pool has run out of space, add a new one if we can
-			zest_device_memory_pool buffer_pool;
-			zest__create_device_memory_pool(tloc__MEGABYTE(128), buffer_info->usage_flags, buffer_info->property_flags, &buffer_pool, "");
-			zest_vec_push(buffer_allocator->memory_pools, buffer_pool);
-			buffer->memory_pool = zest_vec_last_index(buffer_allocator->memory_pools);
-			buffer->memory_offset = 0;
-			if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-				buffer->data = (void*)((char*)buffer_allocator->memory_pools[buffer->memory_pool].mapped + buffer->memory_offset);
-			}
-			else {
-				buffer->data = ZEST_NULL;
-			}
-		}
+	}
+	else {
+		//Create a new memory pool and try again
 	}
 
 	return buffer;
@@ -756,7 +798,7 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 
 void zest_FreeBuffer(zest_buffer *buffer) {
 	ZEST_ASSERT(buffer);	//Buffer must point to a valid buffer
-	tloc_Free(buffer->buffer_allocator->allocator, buffer);
+	tloc_FreeRemote(buffer->buffer_allocator->allocator, buffer);
 }
 // --End Vulkan Buffer Management
 

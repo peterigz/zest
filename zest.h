@@ -11,6 +11,7 @@
 #endif
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
+#define TLOC_ENABLE_REMOTE_MEMORY
 #include "2loc.h"
 #include <stdio.h>
 #include <math.h>
@@ -475,11 +476,15 @@ typedef struct zest_device_memory_pool{
 	const char *name;
 } zest_device_memory_pool;
 
+typedef void* zest_pool_range;
+
 typedef struct zest_buffer_allocator{
 	VkBufferUsageFlags usage_flags;					//The usage state_flags of the memory block. 
 	VkMemoryPropertyFlags property_flags;			//The property state_flags of the memory block.	
 	tloc_allocator *allocator;
+	tloc_size alignment;
 	zest_device_memory_pool *memory_pools;
+	zest_pool_range *range_pools;
 } zest_buffer_allocator;
 
 typedef struct zest_buffer{
@@ -962,6 +967,12 @@ char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
 void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer, const char *name);
 void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer);
 void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineStageFlags stage_flags);
+tloc_size zest__get_bytes_per_block(tloc_size pool_size);
+tloc_size zest__get_remote_size(tloc_header *block);
+void zest__on_add_pool(void *user_data, void *block);
+void zest__on_merge_next(void *user_data, tloc_header *block, tloc_header *next_block);
+void zest__on_merge_prev(void *user_data, tloc_header *prev_block, tloc_header *block);
+void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trimmed_block, tloc_size remote_size);
 // --End Buffer allocation funcitons
 
 //Device set up 
