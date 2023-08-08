@@ -817,6 +817,14 @@ void zest_FreeBuffer(zest_buffer *buffer) {
 	tloc_FreeRemote(buffer->buffer_allocator->allocator, buffer);
 }
 
+VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer *buffer) { 
+	return buffer->buffer_allocator->memory_pools[buffer->memory_pool].memory; 
+}
+
+VkBuffer zest_GetBufferDeviceBuffer(zest_buffer *buffer) { 
+	return buffer->buffer_allocator->memory_pools[buffer->memory_pool].buffer; 
+}
+
 void zest_AddCopyCommand(zest_buffer_uploader *uploader, zest_buffer *source_buffer, zest_buffer *target_buffer, VkDeviceSize target_offset) {
 	if (uploader->flags & zest_buffer_upload_flag_initialised)
 		ZEST_ASSERT(uploader->source_buffer == source_buffer && uploader->target_buffer == target_buffer);	//Buffer uploads must be to the same source and target ids with each copy. Use a separate BufferUpload for each combination of source and target buffers

@@ -1079,8 +1079,8 @@ ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
 //Buffer related
 ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size);
 ZEST_API void zest_FreeBuffer(zest_buffer *buffer);
-ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer *buffer) { return buffer->buffer_allocator->memory_pools[buffer->memory_pool].memory; }
-ZEST_API VkBuffer zest_GetBufferDeviceBuffer(zest_buffer *buffer) { return buffer->buffer_allocator->memory_pools[buffer->memory_pool].buffer; }
+ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer *buffer);
+ZEST_API VkBuffer zest_GetBufferDeviceBuffer(zest_buffer *buffer);
 ZEST_API void zest_AddCopyCommand(zest_buffer_uploader *uploader, zest_buffer *source_buffer, zest_buffer *target_buffer, VkDeviceSize target_offset);
 ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer command_buffer);
 
