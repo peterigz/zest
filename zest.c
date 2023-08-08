@@ -1699,6 +1699,7 @@ void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { 
 zest_millisecs zest_Millisecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
 zest_microsecs zest_Microsecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
 FILE *zest__open_file(const char *file_name, const char *mode) {
+	FILE *file = NULL;
 	errno_t err = fopen_s(&file, file_name, mode);
 	if (err != 0 || file == NULL) {
 		return NULL;
