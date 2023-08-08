@@ -55,6 +55,21 @@ void zest_Initialise(zest_create_info *info) {
 	zest__initialise_device();
 	zest__initialise_renderer(info);
 	zest__create_empty_command_queue(&ZestRenderer->empty_queue);
+	if (info->flags & zest_init_flag_initialise_with_command_queue) {
+
+		ZestApp->default_command_queue_index = zest_NewCommandQueue("Default command queue", zest_command_dependency_type_present, 0);
+		{
+			ZestApp->default_render_commands_index = zest_NewRenderPassSetupSC("Default render pass");
+			//{
+				//App.default_layer_index = NewLayerSetup("Default Layer");
+				//if (create_info.create_imgui_layer)
+					//App.imgui_layer_index = NewImGuiLayerSetup();
+			//}
+			//ConnectQueueToPresent();
+			//Finish();
+		}
+
+	}
 }
 
 void zest_Start() {
@@ -780,8 +795,9 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 	zest_buffer_allocator *buffer_allocator = zest_map_at_key(ZestRenderer->buffer_allocators, key);
 	tloc_size adjusted_size = tloc__align_size_up(size, buffer_allocator->alignment);
 	zest_buffer *buffer = tloc_AllocateRemote(buffer_allocator->allocator, adjusted_size);
-	buffer->buffer_allocator = buffer_allocator;
 	if (buffer) {
+		buffer->buffer_allocator = buffer_allocator;
+		buffer->memory_in_use = 0;
 		if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
 			buffer->data = (void*)((char*)buffer_allocator->memory_pools[buffer->memory_pool].mapped + buffer->memory_offset);
 		}
@@ -799,6 +815,33 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 void zest_FreeBuffer(zest_buffer *buffer) {
 	ZEST_ASSERT(buffer);	//Buffer must point to a valid buffer
 	tloc_FreeRemote(buffer->buffer_allocator->allocator, buffer);
+}
+
+void zest_AddCopyCommand(zest_buffer_uploader *uploader, zest_buffer *source_buffer, zest_buffer *target_buffer, VkDeviceSize target_offset) {
+	if (uploader->flags & zest_buffer_upload_flag_initialised)
+		ZEST_ASSERT(uploader->source_buffer == source_buffer && uploader->target_buffer == target_buffer);	//Buffer uploads must be to the same source and target ids with each copy. Use a separate BufferUpload for each combination of source and target buffers
+
+	uploader->source_buffer = source_buffer;
+	uploader->target_buffer = target_buffer;
+	uploader->flags |= zest_buffer_upload_flag_initialised;
+
+	VkBufferCopy buffer_info;
+	buffer_info.srcOffset = source_buffer->memory_offset;
+	buffer_info.dstOffset = target_buffer->memory_offset + target_offset;
+	buffer_info.size = source_buffer->memory_in_use;
+	zest_vec_push(uploader->buffer_copies, buffer_info);
+	target_buffer->memory_in_use = source_buffer->memory_in_use;
+}
+
+zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer command_buffer) {
+	if (!zest_vec_size(uploader->buffer_copies)) {
+		return ZEST_FALSE;
+	}
+
+	vkCmdCopyBuffer(command_buffer, zest_GetBufferDeviceBuffer(uploader->source_buffer), zest_GetBufferDeviceBuffer(uploader->target_buffer), zest_vec_size(uploader->buffer_copies), uploader->buffer_copies); 
+	zest_vec_clear(uploader->buffer_copies);
+
+	return ZEST_TRUE;
 }
 // --End Vulkan Buffer Management
 
@@ -1993,6 +2036,67 @@ void zest__present_frame() {
 	ZestDevice->current_fif = (ZestDevice->current_fif + 1) % ZEST_MAX_FIF;
 
 }
+
+void zest_RenderDrawRoutinesCallback(zest_command_queue_draw *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer) {
+	VkRenderPassBeginInfo renderPassInfo = { 0 };
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassInfo.renderPass = zest_GetRenderPassByIndex(render_pass);
+	renderPassInfo.framebuffer = framebuffer;
+	renderPassInfo.renderArea = item->viewport;
+	VkClearValue clear_values[2] = {
+		[0].color = { .float32[0] = item->cls_color[0], .float32[1] = item->cls_color[1], .float32[2] = item->cls_color[2], .float32[3] = item->cls_color[4] },
+		[1].depthStencil = {.depth = 1.0f,.stencil = 0 }
+	};
+
+	renderPassInfo.clearValueCount = 2;
+	renderPassInfo.pClearValues = clear_values;
+
+	VkDeviceSize offsets[] = { 0 };
+
+	//Copy the buffers
+	zest_buffer_uploader index_upload;
+	zest_buffer_uploader vertex_upload;
+	zest_buffer_uploader storage_upload;
+
+	for (zest_foreach_i(item->draw_routines)) {
+		zest_index index = item->draw_routines[i];
+		zest_draw_routine *draw_routine = zest_GetDrawRoutineByIndex(index);
+		if (draw_routine->update_buffers_callback) {
+			draw_routine->update_buffers_callback(draw_routine, &index_upload, &vertex_upload, &storage_upload);
+		}
+	}
+
+	zest_UploadBuffer(&index_upload, command_buffer);
+	zest_UploadBuffer(&vertex_upload, command_buffer);
+	zest_UploadBuffer(&storage_upload, command_buffer);
+
+	vkCmdBeginRenderPass(command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	VkViewport view = zest_CreateViewport((float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
+	VkRect2D scissor = zest_CreateRect2D(item->viewport.extent.width, item->viewport.extent.height, 0, 0);
+	vkCmdSetViewport(command_buffer, 0, 1, &view);
+	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
+	for (zest_foreach_i(item->draw_routines)) {
+		zest_index index = item->draw_routines[i];
+		zest_draw_routine *draw_routine = zest_GetDrawRoutineByIndex(index);
+		if (draw_routine->draw_callback)
+			draw_routine->draw_callback(draw_routine);
+	}
+
+	vkCmdEndRenderPass(command_buffer);
+
+}
+
+zest_draw_routine *zest_GetDrawRoutineByIndex(zest_index index) {
+	assert(zest_map_valid_index(ZestRenderer->draw_routines, index));	//That index could not be found in the storage
+	return zest_map_at_index(ZestRenderer->draw_routines, index);
+}
+
+zest_draw_routine *zest_GetDrawRoutineByName(const char *name) {
+	assert(zest_map_valid_name(ZestRenderer->draw_routines, name));	//That index could not be found in the storage
+	return zest_map_at(ZestRenderer->draw_routines, name);
+}
 // --End Renderer functions
 
 // --Command Queue functions
@@ -2385,8 +2489,101 @@ char* zest_ReadEntireFile(const char *file_name, zest_bool terminate) {
 }
 // --End General Helper Functions
 
-// --Buffer allocation funcitons
-// --End Buffer allocation functions
+// --Command queue setup and modify functions
+void zest__set_queue_context(zest_setup_context_type context) {
+	if (ZestRenderer->setup_context.type == zest_setup_context_type_command_queue) {
+		ZestRenderer->setup_context.render_pass_index = -1;
+		ZestRenderer->setup_context.layer_index = -1;
+		ZestRenderer->setup_context.draw_routine_index = -1;
+		ZestRenderer->setup_context.compute_index = -1;
+	}
+	else if (ZestRenderer->setup_context.type == zest_setup_context_type_render_pass) {
+		ZestRenderer->setup_context.layer_index = -1;
+		ZestRenderer->setup_context.compute_index = -1;
+		ZestRenderer->setup_context.draw_routine_index = -1;
+	}
+}
+
+zest_index zest_NewCommandQueue(const char *name, zest_command_dependency_type dependency_type, zest_index dependency) {
+	assert(ZestRenderer->setup_context.type == zest_setup_context_type_none);	//Current setup context must be none. You can't setup a new command queue within another one
+	zest__set_queue_context(zest_setup_context_type_command_queue);
+	zest_index command_queue_index = zest__create_command_queue(name);
+	zest_command_queue *command_queue = zest_GetCommandQueue(command_queue_index);
+	ZestRenderer->setup_context.command_queue_index = command_queue_index;
+	ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
+	if (dependency_type == zest_command_dependency_type_present) {
+		zest_ConnectPresentToCommandQueue(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+	}
+	return command_queue_index;
+}
+
+zest_index zest__create_command_queue(const char *name) {
+	zest_command_queue command_queue;
+	command_queue.name = name;
+
+	VkCommandPoolCreateInfo cmd_pool_info = { 0 };
+	cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	cmd_pool_info.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
+	cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_pool_info, ZEST_NULL, &command_queue.command_pool));
+
+	VkCommandBufferAllocateInfo allocInfo = { 0 };
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandBufferCount = ZEST_MAX_FIF;
+	allocInfo.commandPool = command_queue.command_pool;
+	ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &allocInfo, command_queue.command_buffer));
+
+	zest_map_insert(ZestRenderer->command_queues, name, command_queue);
+	zest_vec_back(ZestRenderer->command_queues.data).index_in_renderer = zest_map_last_index(ZestRenderer->command_queues);
+	return zest_map_last_index(ZestRenderer->command_queues);
+}
+
+zest_command_queue *zest_GetCommandQueue(zest_index index) {
+	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->command_queues, index)); //Not a valid command queue index
+	return zest_map_at_index(ZestRenderer->command_queues, index);
+}
+
+zest_command_queue_draw *zest_GetCommandQueueRenderPass(zest_index index) {
+	assert(zest_map_valid_index(ZestRenderer->command_queue_render_passes, index));	//index of command queue render pass not found
+	return zest_map_at_index(ZestRenderer->command_queue_render_passes, index);
+}
+
+void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineStageFlags stage_flags) {
+	VkSemaphoreCreateInfo semaphoreInfo = { 0 };
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	for (ZEST_EACHFFIF_i) {
+		zest_vec_push(receiver->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].present_complete);
+		zest_vec_push(receiver->fif_stage_flags[i], stage_flags);
+	}
+}
+
+ZEST_API zest_index zest_NewRenderPassSetupSC(const char *name) {
+	zest__set_queue_context(zest_setup_context_type_render_pass);
+	zest_command_queue *command_queue = zest_GetCommandQueue(ZestRenderer->setup_context.command_queue_index);
+	zest_index render_commands_index = zest_create_command_queue_render_pass(name);
+	zest_vec_push(command_queue->render_commands, render_commands_index);
+	zest_command_queue_draw *render_commands = zest_GetCommandQueueRenderPass(render_commands_index);
+	render_commands->name = name;
+	render_commands->render_pass = ZestRenderer->final_render_pass.render_pass;
+	render_commands->get_frame_buffer = zest_GetRendererFrameBuffer;
+	render_commands->render_pass_function = zest_RenderDrawRoutinesCallback;
+	render_commands->viewport.extent = zest_GetSwapChainExtent();
+	render_commands->viewport.offset.x = render_commands->viewport.offset.y = 0;
+	ZestRenderer->setup_context.render_pass_index = render_commands_index;
+	ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
+	return render_commands_index;
+}
+
+zest_index zest_create_command_queue_render_pass(const char *name) {
+	zest_command_queue_draw render_commands;
+	render_commands.name = name;
+
+	//render_commands.command_queue_index = command_queue.index_in_renderer;
+	zest_map_insert(ZestRenderer->command_queue_render_passes, name, render_commands);
+	return zest_map_last_index(ZestRenderer->command_queue_render_passes);
+}
+// --End Command queue setup and modify functions
 
 void zest__main_loop(void) {
 	while (!glfwWindowShouldClose(ZestApp->window->window_handle)) {
