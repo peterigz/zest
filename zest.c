@@ -765,7 +765,7 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 		tloc_SetBlockExtensionSize(buffer_allocator.allocator, sizeof(zest_buffer));
 		tloc_SetBytesPerBlock(buffer_allocator.allocator, zest__get_bytes_per_block(buffer_pool.size));
 		tloc_size range_pool_size = tloc_CalculateRemoteBlockPoolSize(buffer_allocator.allocator, buffer_pool.size);
-		zest_pool_range *range_pool = malloc(range_pool_size);
+		zest_pool_range *range_pool = ZEST__ALLOCATE(range_pool_size);
 		zest_vec_push(buffer_allocator.range_pools, range_pool);
 		zest_map_insert_key(ZestRenderer->buffer_allocators, key, buffer_allocator);
 		buffer_allocator.allocator->user_data = zest_map_at_key(ZestRenderer->buffer_allocators, key);
