@@ -426,7 +426,7 @@ void zest__create_logical_device(void) {
 
 	VkPhysicalDeviceFeatures device_features = { 0 };
 	device_features.samplerAnisotropy = VK_TRUE;
-	device_features.wideLines = VK_TRUE;
+	//device_features.wideLines = VK_TRUE;
 	//device_features.dualSrcBlend = VK_TRUE;
 	//device_features.vertexPipelineStoresAndAtomics = VK_TRUE;
 	VkPhysicalDeviceVulkan12Features device_features_12 = { 0 };
@@ -455,7 +455,7 @@ void zest__create_logical_device(void) {
 	ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, ZEST_NULL, &ZestDevice->logical_device));
 
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->graphics_queue);
-	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 1, &ZestDevice->one_time_graphics_queue);
+	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->one_time_graphics_queue);
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.present_family, 0, &ZestDevice->present_queue);
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.compute_family, 0, &ZestDevice->compute_queue);
 
@@ -682,7 +682,7 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, V
 	ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, ZEST_NULL, &buffer->memory));
 }
 
-tloc_size zest__get_remote_size(tloc_header *block) {
+tloc_size zest__get_remote_size(const tloc_header *block) {
 	zest_buffer *buffer = (zest_buffer*)tloc__block_user_extension_ptr(block);
 	return buffer->size;
 }
@@ -1265,6 +1265,8 @@ void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes) {
 	ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_info, ZEST_NULL, &ZestRenderer->descriptor_pool));
 }
 
+VkRenderPass zest_GetRenderPassByIndex(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_passes, index)); return *zest_map_at_index(ZestRenderer->render_passes, index).render_pass; }
+
 void zest__make_standard_descriptor_layouts() {
 	zest_AddDescriptorLayout("Standard 1 uniform 1 sampler", zest_CreateDescriptorSetLayout(1, 1, 0));
 	zest_AddDescriptorLayout("Polygon layout (no sampler)", zest_CreateDescriptorSetLayout(1, 0, 0));
@@ -1356,7 +1358,7 @@ zest_pipeline_set zest_CreatePipelineSet() {
 	zest_pipeline_set pipeline_set = {
 		.create_info = {0},
 		.pipeline_template = {0},
-		.descriptor_layout = {0},
+		.descriptor_layout = 0,
 		.pipeline = VK_NULL_HANDLE,
 		.pipeline_layout = VK_NULL_HANDLE,
 		.uniforms = 1,
@@ -1372,7 +1374,7 @@ zest_pipeline_template_create_info zest_CreatePipelineTemplateCreateInfo(void) {
 	zest_pipeline_template_create_info create_info = {
 		.vertShaderFunctionName = "main",
 		.fragShaderFunctionName = "main",
-		.descriptorSetLayout = {0},
+		.descriptorSetLayout = 0,
 		.no_vertex_input = ZEST_FALSE,
 		.attributeDescriptions = 0,
 		.bindingDescription = 0,
@@ -1629,7 +1631,7 @@ ZEST_API void zest_BuildPipeline(zest_pipeline_set *pipeline) {
 void zest_MakePipelineTemplate(zest_pipeline_set *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info *create_info) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->descriptor_layouts, pipeline->descriptor_layout));	//Must be a valid descriptor layout index in the pipeline
 
-	if (!pipeline->flags & zest_pipeline_set_flag_is_render_target_pipeline)
+	if (!(pipeline->flags & zest_pipeline_set_flag_is_render_target_pipeline))
 		create_info->renderPass = render_pass;
 	pipeline->create_info.viewport.extent = zest_GetSwapChainExtent();
 
@@ -1662,6 +1664,56 @@ void zest__rebuild_pipeline(zest_pipeline_set *pipeline) {
 		zest_vec_clear(pipeline->descriptor_writes);
 	}
 }
+
+//Inline API functions
+zest_index zest_AddPipeline(const char *name) { zest_map_insert(ZestRenderer->pipeline_sets, name, zest_CreatePipelineSet()); return zest_map_last_index(ZestRenderer->pipeline_sets); }
+
+VkRenderPass zest_GetStandardRenderPass() { return *zest_map_at(ZestRenderer->render_passes, "Render pass standard").render_pass; }
+
+zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed) { zest__hash_initialise(hasher, seed); zest__hasher_add(hasher, input, length); return (zest_key)zest__get_hash(hasher); }
+
+VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw *item) { return ZestRenderer->swapchain_frame_buffers[ZestRenderer->current_frame]; }
+VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index) { return zest_map_at_index(ZestRenderer->descriptor_layouts, index).descriptor_layout; }
+VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name) { return zest_map_at(ZestRenderer->descriptor_layouts, name).descriptor_layout; }
+VkRenderPass zest_GetRenderPassByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->render_passes, name)); return *zest_map_at(ZestRenderer->render_passes, name).render_pass; }
+zest_pipeline_set *zest_PipelineByIndex(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, index)); return zest_map_at_index(ZestRenderer->pipeline_sets, index); }
+zest_pipeline_set *zest_PipelineByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); return zest_map_at(ZestRenderer->pipeline_sets, name); }
+zest_pipeline_template_create_info zest_PipelineCreateInfo(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); zest_pipeline_set *pipeline = zest_map_at(ZestRenderer->pipeline_sets, name); return pipeline->create_info; }
+VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->swapchain_extent; }
+zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
+zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
+float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
+float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
+zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); }
+zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); }
+zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
+void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }
+
+void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
+
+zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
+void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { if (T && new_capacity <= zest__vec_header(T)->capacity) return T; void* new_data = ZEST__REALLOCATE((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); ((zest_vec*)(new_data))->capacity = new_capacity; return T; }
+
+
+#ifdef _WIN32
+zest_millisecs zest_Millisecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
+zest_microsecs zest_Microsecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
+FILE *zest__open_file(const char *file_name, const char *mode) {
+	errno_t err = fopen_s(&file, file_name, mode);
+	if (err != 0 || file == NULL) {
+		return NULL;
+	}
+	return file;
+}
+#else
+zest_millisecs zest_Millisecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_uint m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
+zest_microsecs zest_Microsecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
+FILE *zest__open_file(const char *file_name, const char *mode) {
+	return fopen(file_name, mode);
+}
+#endif
+
+//End inline api functions
 
 void zest__prepare_standard_pipelines() {
 	VkRenderPass render_pass = zest_GetStandardRenderPass();
@@ -2292,10 +2344,9 @@ zest_create_info zest_CreateInfo() {
 
 char* zest_ReadEntireFile(const char *file_name, zest_bool terminate) {
 	char* buffer = 0;
-	FILE *file;
-	errno_t err;
-	err = fopen_s(&file, file_name, "rb");
-	if (err != 0 || file == NULL) {
+	FILE *file = NULL;
+    file = zest__open_file( file_name, "rb");
+	if(!file) {
 		return buffer;
 	}
 
@@ -2394,9 +2445,9 @@ int main(void) {
 
 	zest_hasher hasher;
 	zest_key hash = zest_Hash(&hasher, "Hash this", 9, 0);
-	printf("hash: %zu\n", zest_Hash(&hasher, "the key", strlen("the key"), 0));
-	printf("hash: %zu\n", zest_Hash(&hasher, "another key", strlen("another key"), 0));
-	printf("hash: %zu\n", zest_Hash(&hasher, "some other key", strlen("some other key"), 0));
+	printf("hash: %llu\n", zest_Hash(&hasher, "the key", strlen("the key"), 0));
+	printf("hash: %llu\n", zest_Hash(&hasher, "another key", strlen("another key"), 0));
+	printf("hash: %llu\n", zest_Hash(&hasher, "some other key", strlen("some other key"), 0));
 
 	zest_hash_map(zest_uint) hash_map;
 	hash_map my_hash_map = {0};

@@ -15,6 +15,7 @@
 #include "2loc.h"
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 
 #ifndef ZEST_MAX_FIF
 #define ZEST_MAX_FIF 2
@@ -76,6 +77,12 @@ typedef zest_ull zest_microsecs;
 typedef zest_ull zest_key;
 typedef size_t zest_size;
 typedef unsigned int zest_bool;
+
+/*Platform specific code*/
+FILE *zest__open_file(const char *file_name, const char *mode);
+ZEST_API zest_millisecs zest_Millisecs(void);
+ZEST_API zest_microsecs zest_Microsecs(void);
+/*end of platform specific code*/
 
 #define ZEST_TRUE 1
 #define ZEST_FALSE 0
@@ -180,7 +187,7 @@ enum {
 };
 
 #define zest__vec_header(T) ((zest_vec*)T - 1)
-inline zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
+zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_bump(T) zest__vec_header(T)->current_size++;
 #define zest_vec_clip(T) zest__vec_header(T)->current_size--;
 #define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
@@ -307,11 +314,11 @@ static inline zest_ull zest__get_hash(zest_hasher *hasher)
 	result ^= result >> 32;
 	return result;
 }
-inline void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
+void zest__hash_initialise(zest_hasher *hasher, zest_ull seed);
 
 //The only command you need for the hasher
-inline zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed) { zest__hash_initialise(hasher, seed); zest__hasher_add(hasher, input, length); return (zest_key)zest__get_hash(hasher); }
-static zest_hasher *ZestHasher = 0;
+zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed);
+zest_hasher *ZestHasher = 0;
 //-- End of Pocket Hasher
 
 // --Begin pocket hash map
@@ -758,7 +765,8 @@ static inline void zest__reset_command_setup_context(zest_command_setup_context 
 
 //A draw routine is used to actually draw things to the render target. Qulkan provides Layers that have a set of draw commands for doing this or you can develop your own
 //By settting the callbacks and data pointers in the draw routine
-typedef struct zest_draw_routine{
+typedef struct zest_draw_routine zest_draw_routine;
+struct zest_draw_routine {
 	const char *name;
 	zest_index cq_index;														//The index of the render queue that this draw routine is within
 	zest_index cq_render_pass_index;											//The index of the render pass within the command queue of this draw routine
@@ -766,18 +774,19 @@ typedef struct zest_draw_routine{
 	int draw_index;																//The user index of the draw routine. Use this to index the routine in your own lists. For Qulkan layers, this is used to hold the index of the layer in the renderer
 	zest_index *command_queues;													//A list of the render queues that this draw routine belongs to
 	void *data;																	//Pointer to some user data
-	void(*update_buffers_callback)(void *draw_routine, zest_buffer_uploader *index_upload, zest_buffer_uploader *vertex_upload, zest_buffer_uploader *storage_upload);		//The callback used to update and upload the buffers before rendering
+	void(*update_buffers_callback)(zest_draw_routine *draw_routine, zest_buffer_uploader *index_upload, zest_buffer_uploader *vertex_upload, zest_buffer_uploader *storage_upload);		//The callback used to update and upload the buffers before rendering
 	void(*draw_callback)(void *draw_routine);						//draw callback called by the render target when rendering
 	void(*update_resolution_callback)(void *draw_routine);			//Callback used when the window size changes
 	void(*clean_up_callback)(void *draw_routine);					//Clean up function call back called when the draw routine is deleted
-} zest_draw_routine;
+};
 
 //Every command queue will have either one or more render passes (unless it's purely for compute shading). Render pass contains various data for drawing things during the render pass.
 //These can be draw routines that you can use to draw various things to the screen. You can set the render_pass_function to whatever you need to record the command buffer. See existing render pass functions such as:
 //RenderDrawRoutine, RenderRenderTarget and RenderTargetToSwapChain.
-typedef struct zest_command_queue_draw {
-	VkFramebuffer(*get_frame_buffer)(void *item);
-	void(*render_pass_function)(void *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
+typedef struct zest_command_queue_draw zest_command_queue_draw;
+struct zest_command_queue_draw {
+	VkFramebuffer(*get_frame_buffer)(zest_command_queue_draw *item);
+	void(*render_pass_function)(zest_command_queue_draw *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 	zest_index *draw_routines;
 	zest_index *render_targets;
 	VkRect2D viewport;
@@ -787,14 +796,15 @@ typedef struct zest_command_queue_draw {
 	float cls_color[4];
 	int render_target_index;
 	const char *name;
-} zest_command_queue_draw;
+};
 
 //In addition to render passes, you can also run compute shaders by adding this struct to the list of compute items in the command queue
-typedef struct zest_command_queue_compute {
-	void(*compute_function)(void *item);			//Call back function which will have the vkcommands the dispatch the compute shader task
+typedef struct zest_command_queue_compute zest_command_queue_compute;
+struct zest_command_queue_compute {
+	void(*compute_function)(zest_command_queue_compute *item);			//Call back function which will have the vkcommands the dispatch the compute shader task
 	zest_index *compute_routines;										//List of QulkanCompute indexes so multiple compute shaders can be run in the same compute item
 	const char *name;
-} zest_command_queue_compute;
+};
 
 zest_hash_map(zest_command_queue) zest_map_command_queues;
 zest_hash_map(zest_render_pass) zest_map_render_passes;
@@ -887,9 +897,9 @@ typedef struct zest_renderer{
 	zest_renderer_flags flags;
 } zest_renderer;
 
-static zest_device *ZestDevice = 0;
-static zest_app *ZestApp = 0;
-static zest_renderer *ZestRenderer = 0;
+zest_device *ZestDevice = 0;
+zest_app *ZestApp = 0;
+zest_renderer *ZestRenderer = 0;
 
 static const char* zest_validation_layers[zest__validation_layer_count] = {
 	"VK_LAYER_KHRONOS_validation"
@@ -900,7 +910,8 @@ static const char* zest_required_extensions[zest__required_extension_names_count
 };
 
 //--Internal functions
-inline void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { if (T && new_capacity <= zest__vec_header(T)->capacity) return T; void* new_data = ZEST__REALLOCATE((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); ((zest_vec*)(new_data))->capacity = new_capacity; return T; }
+
+inline void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
 
 //Buffer Management
 VkResult zest__bind_memory(zest_device_memory_pool *memory_allocation, VkDeviceSize offset);
@@ -938,9 +949,9 @@ void zest__rerecord_final_render_command_buffer(void);
 void zest__create_empty_command_queue(zest_command_queue *command_queue);
 void zest__render_blank(zest_command_queue_draw *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 void zest__destroy_pipeline_set(zest_pipeline_set *p);
-void zest__cleanup_pipelines();
+void zest__cleanup_pipelines(void);
 void zest__rebuild_pipeline(zest_pipeline_set *pipeline);
-void zest__present_frame();
+void zest__present_frame(void);
 // --End Renderer functions
 
 // --Command Queue functions
@@ -968,7 +979,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
 void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer);
 void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineStageFlags stage_flags);
 tloc_size zest__get_bytes_per_block(tloc_size pool_size);
-tloc_size zest__get_remote_size(tloc_header *block);
+tloc_size zest__get_remote_size(const tloc_header *block);
 void zest__on_add_pool(void *user_data, void *block);
 void zest__on_merge_next(void *user_data, tloc_header *block, tloc_header *next_block);
 void zest__on_merge_prev(void *user_data, tloc_header *prev_block, tloc_header *block);
@@ -1027,50 +1038,45 @@ ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDesc
 ZEST_API VkViewport zest_CreateViewport(float width, float height, float minDepth, float maxDepth);
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 //Pipeline related 
+ZEST_API zest_index zest_AddPipeline(const char *name);
 ZEST_API void zest_BuildPipeline(zest_pipeline_set *pipeline);
 ZEST_API void zest_UpdatePipelineTemplate(zest_pipeline_template *pipeline_template, zest_pipeline_template_create_info *create_info);
 ZEST_API void zest_SetPipelineTemplate(zest_pipeline_template *pipeline_template, zest_pipeline_template_create_info *create_info);
 ZEST_API void zest_MakePipelineTemplate(zest_pipeline_set *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info *create_info);
 ZEST_API VkShaderModule zest_CreateShaderModule(char *code);
 ZEST_API zest_pipeline_template_create_info zest_CreatePipelineTemplateCreateInfo(void);
-ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState();
-ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaOnlyBlendState();
-ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaBlendState();
-ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendState();
-ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendStateForSwap();
-ZEST_API VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState();
-ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState();
+ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState(void);
+ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaOnlyBlendState(void);
+ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaBlendState(void);
+ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendState(void);
+ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendStateForSwap(void);
+ZEST_API VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState(void);
+ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
 //Buffer related
 ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size);
 ZEST_API void zest_FreeBuffer(zest_buffer *buffer);
 ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer *buffer) { return buffer->buffer_allocator->memory_pools[buffer->memory_pool].memory; }
 
+ZEST_API VkRenderPass zest_GetRenderPassByIndex(zest_index index);
+ZEST_API VkRenderPass zest_GetStandardRenderPass(void);
+ZEST_API zest_pipeline_set zest_CreatePipelineSet(void);
+
 //Inline API functions
-VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw *item) { return ZestRenderer->swapchain_frame_buffers[ZestRenderer->current_frame]; }
-ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index) { return zest_map_at_index(ZestRenderer->descriptor_layouts, index).descriptor_layout; }
-ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name) { return zest_map_at(ZestRenderer->descriptor_layouts, name).descriptor_layout; }
-ZEST_API inline VkRenderPass zest_GetRenderPassByIndex(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_passes, index)); return *zest_map_at_index(ZestRenderer->render_passes, index).render_pass; }
-ZEST_API inline VkRenderPass zest_GetRenderPassByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->render_passes, name)); return *zest_map_at(ZestRenderer->render_passes, name).render_pass; }
-ZEST_API inline VkRenderPass zest_GetStandardRenderPass() { return *zest_map_at(ZestRenderer->render_passes, "Render pass standard").render_pass; }
-ZEST_API inline zest_pipeline_set zest_CreatePipelineSet(void);
-ZEST_API inline zest_pipeline_set *zest_PipelineByIndex(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, index)); return zest_map_at_index(ZestRenderer->pipeline_sets, index); }
-ZEST_API inline zest_pipeline_set *zest_PipelineByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); return zest_map_at(ZestRenderer->pipeline_sets, name); }
-ZEST_API inline zest_pipeline_template_create_info zest_PipelineCreateInfo(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); zest_pipeline_set *pipeline = zest_map_at(ZestRenderer->pipeline_sets, name); return pipeline->create_info; }
-ZEST_API inline zest_index zest_AddPipeline(const char *name) { zest_map_insert(ZestRenderer->pipeline_sets, name, zest_CreatePipelineSet()); return zest_map_last_index(ZestRenderer->pipeline_sets); }
-VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->swapchain_extent; }
-ZEST_API inline zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
-ZEST_API inline zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
-ZEST_API inline float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
-ZEST_API inline float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
-ZEST_API inline zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); }
-ZEST_API inline zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); }
-ZEST_API inline zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
-ZEST_API inline void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }
-#ifdef _WIN32
-zest_millisecs inline zest_Millisecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
-zest_microsecs inline zest_Microsecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
-#else
-zest_millisecs inline zest_Millisecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_uint m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
-zest_microsecs inline zest_Microsecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
-#endif
+VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw *item);
+ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index);
+ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name);
+ZEST_API VkRenderPass zest_GetRenderPassByName(const char *name);
+ZEST_API zest_pipeline_set *zest_PipelineByIndex(zest_index index);
+ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
+ZEST_API zest_pipeline_template_create_info zest_PipelineCreateInfo(const char *name);
+VkExtent2D zest_GetSwapChainExtent(void);
+ZEST_API zest_uint zest_ScreenWidth(void);
+ZEST_API zest_uint zest_ScreenHeight(void);
+ZEST_API float zest_ScreenWidthf(void);
+ZEST_API float zest_ScreenHeightf(void);
+ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
+ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
+ZEST_API zest_bool zest_UniformBufferExists(const char *name);
+ZEST_API void zest_WaitForIdleDevice(void);
+
 #endif // ! ZEST_POCKET_RENDERER
