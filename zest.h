@@ -55,7 +55,8 @@
 #define ZEST_FIF ZestDevice->current_fif
 
 #define ZEST_NULL 0
-#define ZEST_EACHFFIF_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
+//For each frame in flight macro
+#define ZEST_EACH_FIF_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
 
 //For error checking vulkan commands
 #define ZEST_VK_CHECK_RESULT(res)																			\
@@ -173,9 +174,28 @@ typedef enum {
 
 typedef enum {
 	zest_buffer_upload_flag_initialised					= 1 << 0,				//Set to true once AddCopyCommand has been run at least once
-	zest_buffer_upload_flag_source_is_fif					= 1 << 1,
-	zest_buffer_upload_flag_target_is_fif					= 1 << 2
+	zest_buffer_upload_flag_source_is_fif				= 1 << 1,
+	zest_buffer_upload_flag_target_is_fif				= 1 << 2
 } zest_buffer_upload_flags;
+
+typedef enum {
+	zest_draw_mode_none = 0,			//Default no drawmode set when no drawing has been done yet	
+	zest_draw_mode_sprites,
+	zest_draw_mode_images,
+	zest_draw_mode_ribbons,
+	zest_draw_mode_lines,
+	zest_draw_mode_line_instance,
+	zest_draw_mode_line_instance3d,
+	zest_draw_mode_linechain,
+	zest_draw_mode_polys,
+	zest_draw_mode_textured_polys,
+	zest_draw_mode_ovals,
+	zest_draw_mode_shapes,
+	zest_draw_mode_text,
+	zest_draw_mode_fill_screen,
+	zest_draw_mode_viewport,
+	zest_draw_mode_im_gui
+} zest_draw_mode;
 
 //Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -210,7 +230,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
 #define zest_vec(T, name) T *name = ZEST_NULL
 #define zest_vec_empty(T) (!T || zest__vec_header(T)->current_size == 0)
-#define zest_vec_size(T) (zest__vec_header(T)->current_size)
+#define zest_vec_size(T) (T ? zest__vec_header(T)->current_size : 0)
 #define zest_vec_last_index(T) (zest__vec_header(T)->current_size - 1)
 #define zest_vec_capacity(T) (zest__vec_header(T)->capacity)
 #define zest_vec_size_in_bytes(T) (zest__vec_header(T)->current_size * sizeof(*T))
@@ -368,6 +388,7 @@ zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pa
 #define zest_map_get_index_by_name(hash_map, name) zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name));
 #define zest_map_remove(hash_map, name) {zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_erase(hash_map.data, &hash_map.data[index]); zest__map_realign_indexes(hash_map.map, index); }
 #define zest_map_last_index(hash_map) (zest__vec_header(hash_map.data)->current_size - 1)
+#define zest_map_size(hash_map) (zest__vec_header(hash_map.data)->current_size)
 #define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data);
 #define zest_map_foreach_i(hash_map) zest_foreach_i(hash_map.data)
 #define zest_map_foreach_j(hash_map) zest_foreach_j(hash_map.data)
@@ -397,8 +418,9 @@ typedef struct zest_rgba8 {
 		struct { zest_uint color; };
 	};
 } zest_rgba8;
+typedef zest_rgba8 zest_color;
 
-static inline zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right) {
+ZEST_API inline zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right) {
 	zest_vec3 result = {
 		.x = left.x - right.x,
 		.y = left.y - right.y,
@@ -407,15 +429,15 @@ static inline zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right) {
 	return result;
 }
 
-static inline float zest_LengthVec2(zest_vec3 const v) {
+ZEST_API inline float zest_LengthVec2(zest_vec3 const v) {
 	return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-static inline float zest_LengthVec(zest_vec3 const v) {
+ZEST_API inline float zest_LengthVec(zest_vec3 const v) {
 	return sqrtf(zest_LengthVec2(v));
 }
 
-static inline zest_vec3 zest_NormalizeVec(zest_vec3 const v) {
+ZEST_API inline zest_vec3 zest_NormalizeVec(zest_vec3 const v) {
 	float length = zest_LengthVec(v);
 	zest_vec3 result = {
 		.x = v.x / length,
@@ -425,7 +447,7 @@ static inline zest_vec3 zest_NormalizeVec(zest_vec3 const v) {
 	return result;
 }
 
-static inline zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y)
+ZEST_API inline zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y)
 {
 	zest_vec3 result = {
 		.x = x.y * y.z - y.y * x.z,
@@ -435,12 +457,12 @@ static inline zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y)
 	return result;
 }
 
-static inline float zest_DotProduct(const zest_vec3 a, const zest_vec3 b)
+ZEST_API inline float zest_DotProduct(const zest_vec3 a, const zest_vec3 b)
 {
 	return (a.x * b.x + a.y * b.y + a.z * b.z);
 }
 
-static inline zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up)
+ZEST_API inline zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up)
 {
 	zest_vec3 f = zest_NormalizeVec(zest_SubVec(center, eye));
 	zest_vec3 s = zest_NormalizeVec(zest_CrossProduct(f, up));
@@ -463,7 +485,7 @@ static inline zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 cent
 	return result;
 }
 
-static inline zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far)
+ZEST_API inline zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far)
 {
 	zest_matrix4 result = { 0 };
 	result.v[0].x = 2.f / (right - left);
@@ -792,19 +814,19 @@ struct zest_draw_routine {
 	int draw_index;																//The user index of the draw routine. Use this to index the routine in your own lists. For Qulkan layers, this is used to hold the index of the layer in the renderer
 	zest_index *command_queues;													//A list of the render queues that this draw routine belongs to
 	void *data;																	//Pointer to some user data
-	void(*update_buffers_callback)(zest_draw_routine *draw_routine, zest_buffer_uploader *index_upload, zest_buffer_uploader *vertex_upload, zest_buffer_uploader *storage_upload);		//The callback used to update and upload the buffers before rendering
-	void(*draw_callback)(void *draw_routine);						//draw callback called by the render target when rendering
-	void(*update_resolution_callback)(void *draw_routine);			//Callback used when the window size changes
-	void(*clean_up_callback)(void *draw_routine);					//Clean up function call back called when the draw routine is deleted
+	void(*update_buffers_callback)(zest_draw_routine *draw_routine, zest_buffer_uploader *upload);		//The callback used to update and upload the buffers before rendering
+	void(*draw_callback)(zest_draw_routine *draw_routine);						//draw callback called by the render target when rendering
+	void(*update_resolution_callback)(zest_draw_routine *draw_routine);			//Callback used when the window size changes
+	void(*clean_up_callback)(zest_draw_routine *draw_routine);					//Clean up function call back called when the draw routine is deleted
 };
 
 //Every command queue will have either one or more render passes (unless it's purely for compute shading). Render pass contains various data for drawing things during the render pass.
 //These can be draw routines that you can use to draw various things to the screen. You can set the render_pass_function to whatever you need to record the command buffer. See existing render pass functions such as:
 //RenderDrawRoutine, RenderRenderTarget and RenderTargetToSwapChain.
-typedef struct zest_command_queue_draw zest_command_queue_draw;
-struct zest_command_queue_draw {
-	VkFramebuffer(*get_frame_buffer)(zest_command_queue_draw *item);
-	void(*render_pass_function)(zest_command_queue_draw *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
+typedef struct zest_command_queue_draw_commands zest_command_queue_draw_commands;
+struct zest_command_queue_draw_commands {
+	VkFramebuffer(*get_frame_buffer)(zest_command_queue_draw_commands *item);
+	void(*render_pass_function)(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 	zest_index *draw_routines;
 	zest_index *render_targets;
 	VkRect2D viewport;
@@ -815,6 +837,73 @@ struct zest_command_queue_draw {
 	int render_target_index;
 	const char *name;
 };
+
+typedef struct zest_sprite_instance {			//64 bytes
+	zest_vec2 size;						//Size of the sprite in pixels
+	zest_vec2 handle;					//The handle of the sprite
+	zest_vec4 uv;						//The UV coords of the image in the texture
+	zest_vec4 position_rotation;		//The position of the sprite with rotation in w and stretch in z
+	float intensity;					//Multiply blend factor, y is unused
+	zest_uint alignment;				//normalised alignment vector 2 floats packed into 16bits
+	zest_color color;					//The color tint of the sprite
+	zest_uint image_layer_index;		//reference for the texture array if used
+} zest_sprite_instance;
+
+typedef struct zest_instance_layer_buffers {
+	zest_buffer *staging_data;					//The cpu visible staging buffer containing the transform data of every sprite instance
+	zest_buffer *device_data;					//The gpu visible buffer containing the transform data of every sprite instance, this will be uploaded to every frame
+	zest_uint instance_count;
+} zest_instance_layer_buffers;
+
+typedef struct zest_push_constants {
+	zest_matrix4 model;				//Matrix transform for the layer
+	zest_matrix4 view;
+	zest_matrix4 proj;
+	zest_vec4 parameters1;			//Contextual parameters, text uses this for shadow color
+	zest_vec4 parameters2;			//Contextual - x,y shadow offset, z shadow_smoothing, w shadow clipped for text
+	zest_vec4 camera;				//For 3d drawing
+}zest_push_constants;
+
+typedef struct zest_instance_instructions {
+	zest_index start_index;						//The starting index
+	zest_uint total_instances;					//The total number of instances to be drawn in the draw instruction
+	zest_index last_instance;					//The last instance that was drawn in the previous instance instruction
+	zest_index pipeline;						//The pipeline index to draw the instances. 
+	VkDescriptorSet descriptor_set; 			//The descriptor set used to draw the quads.
+	zest_push_constants attributes;				//Each draw instruction can have different values in the push constants attributes
+	VkRect2D scissor;							//The drawinstruction can also clip whats drawn
+	VkViewport viewport;						//The viewport size of the draw call 
+	zest_draw_mode draw_mode;
+} zest_instance_instructions;
+
+typedef struct zest_draw_layer {
+
+	const char *name;
+
+	zest_instance_layer_buffers instance_memory_refs[ZEST_MAX_FIF];
+	zest_uint initial_instance_pool_size;
+	zest_index render_pass_index;
+
+	void *sprite_ptr;
+	void *synced_staging_ptr;
+
+	zest_index sprite_pipeline_index;
+
+	zest_instance_instructions current_instance_instruction;
+
+	zest_color current_color;
+	float multiply_blend_factor;
+	zest_push_constants attributes;
+
+	zest_vec2 layer_size;
+	zest_vec2 viewport_size;
+	zest_vec2 screen_scale;
+
+	zest_instance_instructions *instance_instructions[ZEST_MAX_FIF];
+	zest_draw_mode last_draw_mode;
+
+	zest_index draw_routine_index;
+} zest_draw_layer;
 
 //In addition to render passes, you can also run compute shaders by adding this struct to the list of compute items in the command queue
 typedef struct zest_command_queue_compute zest_command_queue_compute;
@@ -828,11 +917,11 @@ zest_hash_map(zest_command_queue) zest_map_command_queues;
 zest_hash_map(zest_render_pass) zest_map_render_passes;
 zest_hash_map(zest_descriptor_set_layout) zest_map_descriptor_layouts;
 zest_hash_map(zest_pipeline_set) zest_map_pipeline_sets;
-zest_hash_map(zest_command_queue_draw) zest_map_command_queue_render_passes;
+zest_hash_map(zest_command_queue_draw_commands) zest_map_command_queue_render_passes;
 zest_hash_map(zest_command_queue_compute) zest_map_command_queue_computes;
 zest_hash_map(zest_draw_routine) zest_map_draw_routines;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
-//zest_hash_map(QulkanLayer) layers;
+zest_hash_map(zest_draw_layer) zest_map_draw_layers;
 //zest_hash_map(QulkanRenderTarget) render_targets;
 //zest_hash_map(QulkanTexture) textures;
 //zest_hash_map(QulkanFont) fonts;
@@ -874,7 +963,7 @@ typedef struct zest_renderer{
 	//Context data
 	VkCommandBuffer current_command_buffer;
 	zest_command_queue *current_command_queue;
-	zest_command_queue_draw *current_render_pass;
+	zest_command_queue_draw_commands *current_render_pass;
 	zest_command_queue_compute *current_compute_routine;
 
 	//General Storage
@@ -885,7 +974,7 @@ typedef struct zest_renderer{
 	zest_map_command_queue_render_passes command_queue_render_passes;
 	zest_map_command_queue_computes command_queue_computes;
 	zest_map_draw_routines draw_routines;
-	//zest_map_layers layers;
+	zest_map_draw_layers draw_layers;
 	//zest_map_render_targets render_targets;
 	//zest_map_textures textures;
 	//zest_map_fonts fonts;
@@ -948,7 +1037,7 @@ VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
 void zest__cleanup_swapchain(void);
 void zest__cleanup_renderer(void);
 void zest__add_push_constant(zest_pipeline_template_create_info *create_info, VkPushConstantRange push_constant);
-void zest__add_draw_routine(zest_command_queue_draw *command_queue_draw, zest_draw_routine *draw_routine);
+void zest__add_draw_routine(zest_command_queue_draw_commands *command_queue_draw, zest_draw_routine *draw_routine);
 void zest__create_swapchain_image_views(void);
 void zest__make_standard_render_passes(void);
 zest_uint zest__add_render_pass(const char *name, VkRenderPass render_pass);
@@ -965,7 +1054,7 @@ void zest__prepare_standard_pipelines(void);
 void zest__create_final_render_command_buffer(void);
 void zest__rerecord_final_render_command_buffer(void);
 void zest__create_empty_command_queue(zest_command_queue *command_queue);
-void zest__render_blank(zest_command_queue_draw *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
+void zest__render_blank(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 void zest__destroy_pipeline_set(zest_pipeline_set *p);
 void zest__cleanup_pipelines(void);
 void zest__rebuild_pipeline(zest_pipeline_set *pipeline);
@@ -982,6 +1071,14 @@ zest_index zest_create_command_queue_render_pass(const char *name);
 // --Command Queue Setup functions
 zest_index zest__create_command_queue(const char *name);
 void zest__set_queue_context(zest_setup_context_type context);
+zest_draw_routine *zest__create_draw_routine_with_sprite_layer(const char *name, zest_uint initial_sprite_count);
+
+// --Sprite layer internal functions
+void zest__sync_sprite_layer_to_current_fif(zest_draw_layer *sprite_layer);
+void zest__end_sprite_instructions(zest_draw_layer *sprite_layer);
+void zest__update_sprite_layer_buffers_callback(zest_draw_routine *draw_routine, zest_buffer_uploader *vertex_upload);
+void zest__draw_sprite_layer_callback(zest_draw_routine *draw_routine);
+void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer command_buffer);
 
 // --General Helper Functions
 VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
@@ -1059,6 +1156,9 @@ ZEST_API VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint 
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDescriptorSetLayoutBinding *bindings);
 ZEST_API VkViewport zest_CreateViewport(float width, float height, float minDepth, float maxDepth);
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
+ZEST_API void zest_SetUserData(void* data);
+ZEST_API void zest_SetUserCallback(void(*callback)(float, void*));
+ZEST_API void zest_SetActiveRenderQueue(zest_index command_queue_index);
 
 //Pipeline related 
 ZEST_API zest_index zest_AddPipeline(const char *name);
@@ -1075,30 +1175,53 @@ ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendStateForSwap(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
+ZEST_API void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_set *pipeline, VkDescriptorSet descriptor_set);
+ZEST_API zest_pipeline_set *zest_Pipeline(zest_index index);
 
 //Buffer related
 ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size);
+ZEST_API zest_buffer_info zest_CreateVertexBufferInfo();
+ZEST_API zest_buffer_info zest_CreateStagingBufferInfo();
 ZEST_API void zest_FreeBuffer(zest_buffer *buffer);
 ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer *buffer);
-ZEST_API VkBuffer zest_GetBufferDeviceBuffer(zest_buffer *buffer);
+ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer *buffer);
 ZEST_API void zest_AddCopyCommand(zest_buffer_uploader *uploader, zest_buffer *source_buffer, zest_buffer *target_buffer, VkDeviceSize target_offset);
 ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer command_buffer);
 
 //Command queue setup and creation
 ZEST_API zest_index zest_NewCommandQueue(const char *name, zest_command_dependency_type dependency_type, zest_index dependency);
 ZEST_API zest_command_queue *zest_GetCommandQueue(zest_index index);
-ZEST_API zest_command_queue_draw *zest_GetCommandQueueRenderPass(zest_index index);
+ZEST_API zest_command_queue_draw_commands *zest_GetCommandQueueRenderPass(zest_index index);
 ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineStageFlags stage_flags);
+ZEST_API VkSemaphore zest_GetPresentSemaphore(zest_command_queue *command_queue);
 ZEST_API zest_index zest_NewRenderPassSetupSC(const char *name);
 ZEST_API zest_draw_routine *zest_GetDrawRoutineByIndex(zest_index index);
 ZEST_API zest_draw_routine *zest_GetDrawRoutineByName(const char *name);
-ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
+ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
+ZEST_API void zest_AddDrawRoutine(zest_index index);
+ZEST_API void zest_AddDrawRoutineToRenderPass(zest_command_queue_draw_commands *render_pass, zest_draw_routine *draw_routine);
+ZEST_API zest_draw_layer *zest_GetLayerByIndex(zest_index index);
+ZEST_API zest_draw_layer *zest_GetLayerByName(const char *name);
+ZEST_API void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instance_pool_size);
+ZEST_API void zest_ResetSpriteLayerDrawing(zest_draw_layer *sprite_layer);
+ZEST_API zest_index zest_NewSpriteLayerSetup(const char *name);
+ZEST_API inline VkCommandBuffer zest_CurrentCommandBuffer() { return ZestRenderer->current_command_buffer; }
+ZEST_API inline zest_command_queue *zest_CurrentCommandQueue() { return ZestRenderer->current_command_queue; }
+ZEST_API inline zest_command_queue_draw_commands *zest_CurrentRenderPass() { return ZestRenderer->current_render_pass; }
+void zest_Finish();
+void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_index, VkPipelineStageFlags stage_flags);
+void zest_ConnectQueueTo(zest_index receiver, VkPipelineStageFlags stage_flags);
+void zest_ConnectQueueToPresent();
 
 //General Helper functions
+ZEST_API inline zest_matrix4 zest_M4() { zest_matrix4 matrix = { 0 }; matrix.v[0].x = 1.f; matrix.v[1].y = 1.f; matrix.v[2].z = 1.f; matrix.v[3].w = 1.f; return matrix; }
+ZEST_API inline zest_vec2 zest_Vec2Set1(float v) { zest_vec2 vec; vec.x = v; vec.y = v; return vec; }
+ZEST_API inline zest_vec3 zest_Vec3Set1(float v) { zest_vec3 vec; vec.x = v; vec.y = v; vec.z = v; return vec; }
+ZEST_API inline zest_vec4 zest_Vec4Set1(float v) { zest_vec4 vec; vec.x = v; vec.y = v; vec.z = v; vec.w = v; return vec; }
 ZEST_API VkRenderPass zest_GetRenderPassByIndex(zest_index index);
 ZEST_API VkRenderPass zest_GetStandardRenderPass(void);
 ZEST_API zest_pipeline_set zest_CreatePipelineSet(void);
-ZEST_API VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw *item);
+ZEST_API VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands *item);
 ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index);
 ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name);
 ZEST_API VkRenderPass zest_GetRenderPassByName(const char *name);
