@@ -37,6 +37,109 @@ const char *zest__vulkan_error(VkResult errorCode)
 	}
 }
 
+// --Math
+zest_matrix4 zest_M4() { 
+	zest_matrix4 matrix = { 0 }; 
+	matrix.v[0].x = 1.f; 
+	matrix.v[1].y = 1.f; 
+	matrix.v[2].z = 1.f; 
+	matrix.v[3].w = 1.f; 
+	return matrix; 
+}
+
+zest_vec2 zest_Vec2Set1(float v) { 
+	zest_vec2 vec; vec.x = v; vec.y = v; return vec; 
+}
+
+zest_vec3 zest_Vec3Set1(float v) { 
+	zest_vec3 vec; vec.x = v; vec.y = v; vec.z = v; return vec; 
+}
+
+zest_vec4 zest_Vec4Set1(float v) { 
+	zest_vec4 vec; vec.x = v; vec.y = v; vec.z = v; vec.w = v; return vec; 
+}
+
+
+zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right) {
+	zest_vec3 result = {
+		.x = left.x - right.x,
+		.y = left.y - right.y,
+		.z = left.z - right.z,
+	};
+	return result;
+}
+
+float zest_LengthVec2(zest_vec3 const v) {
+	return v.x * v.x + v.y * v.y + v.z * v.z;
+}
+
+float zest_LengthVec(zest_vec3 const v) {
+	return sqrtf(zest_LengthVec2(v));
+}
+
+zest_vec3 zest_NormalizeVec(zest_vec3 const v) {
+	float length = zest_LengthVec(v);
+	zest_vec3 result = {
+		.x = v.x / length,
+		.y = v.y / length,
+		.z = v.z / length
+	};
+	return result;
+}
+
+zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y)
+{
+	zest_vec3 result = {
+		.x = x.y * y.z - y.y * x.z,
+		.y = x.z * y.x - y.z * x.x,
+		.z = x.x * y.y - y.x * x.y,
+	};
+	return result;
+}
+
+float zest_DotProduct(const zest_vec3 a, const zest_vec3 b)
+{
+	return (a.x * b.x + a.y * b.y + a.z * b.z);
+}
+
+zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up)
+{
+	zest_vec3 f = zest_NormalizeVec(zest_SubVec(center, eye));
+	zest_vec3 s = zest_NormalizeVec(zest_CrossProduct(f, up));
+	zest_vec3 u = zest_CrossProduct(s, f);
+
+	zest_matrix4 result = { 0 };
+	result.v[0].x = s.x;
+	result.v[1].x = s.y;
+	result.v[2].x = s.z;
+	result.v[0].y = u.x;
+	result.v[1].y = u.y;
+	result.v[2].y = u.z;
+	result.v[0].z = -f.x;
+	result.v[1].z = -f.y;
+	result.v[2].z = -f.z;
+	result.v[3].x = -zest_DotProduct(s, eye);
+	result.v[3].y = -zest_DotProduct(u, eye);
+	result.v[3].z = zest_DotProduct(f, eye);
+	result.v[3].w = 1.f;
+	return result;
+}
+
+zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far)
+{
+	zest_matrix4 result = { 0 };
+	result.v[0].x = 2.f / (right - left);
+	result.v[1].y = 2.f / (top - bottom);
+	result.v[2].z = -1.f / (z_far - z_near);
+	result.v[3].x = -(right + left) / (right - left);
+	result.v[3].y = -(top + bottom) / (top - bottom);
+	result.v[3].z = -z_near / (z_far - z_near);
+	result.v[3].w = 1.f;
+	return result;
+}
+
+//  --End Math
+
 void zest_Initialise(zest_create_info *info) {
 	void *memory_pool = malloc(tloc__MEGABYTE(128));
 
@@ -89,7 +192,7 @@ void zest_SetUserCallback(void(*callback)(float, void*)) {
 	ZestApp->update_callback = callback;
 }
 
-ZEST_API void zest_SetActiveRenderQueue(zest_index command_queue_index) {
+void zest_SetActiveRenderQueue(zest_index command_queue_index) {
 	ZEST_ASSERT(zest_vec_empty(ZestRenderer->frame_queues));									//You cannot specify more than one render queue per frame, try using SetActiveRenderSet instead for using multiple render queues
 	ZEST_ASSERT(command_queue_index < (zest_index)zest_map_size(ZestRenderer->command_queues));	//Must be a valid render queue index
 	zest_vec_push(ZestRenderer->frame_queues, command_queue_index);
@@ -1796,7 +1899,7 @@ FILE *zest__open_file(const char *file_name, const char *mode) {
 }
 #endif
 
-//End inline api functions
+//End api functions
 
 void zest__prepare_standard_pipelines() {
 	VkRenderPass render_pass = zest_GetStandardRenderPass();
@@ -2602,6 +2705,19 @@ void zest_Finish() {
 	ZestRenderer->setup_context.type = zest_setup_context_type_none;
 }
 
+VkCommandBuffer zest_CurrentCommandBuffer() { 
+	return ZestRenderer->current_command_buffer; 
+}
+
+zest_command_queue *zest_CurrentCommandQueue() { 
+	return ZestRenderer->current_command_queue; 
+}
+
+zest_command_queue_draw_commands *zest_CurrentRenderPass() { 
+	return ZestRenderer->current_render_pass; 
+}
+
+
 void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_index, VkPipelineStageFlags stage_flags) {
 	zest_command_queue *sender = zest_GetCommandQueue(sender_index);
 	zest_command_queue *receiver = zest_GetCommandQueue(receiver_index);
@@ -2725,7 +2841,7 @@ void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instanc
 	sprite_layer->current_color.g = 255;
 	sprite_layer->current_color.b = 255;
 	sprite_layer->current_color.a = 255;
-	sprite_layer->attributes.model = zest_M4(1.f);
+	sprite_layer->attributes.model = zest_M4();
 	sprite_layer->attributes.parameters1 = zest_Vec4Set1(0.f);
 	sprite_layer->attributes.parameters2.x = 0.f;
 	sprite_layer->attributes.parameters2.y = 0.f;
