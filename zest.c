@@ -3,6 +3,9 @@
 #define TLOC_OUTPUT_ERROR_MESSAGES
 #include "2loc.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 const char *zest__vulkan_error(VkResult errorCode)
 {
 	switch (errorCode)
@@ -136,6 +139,12 @@ zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float 
 	result.v[3].z = -z_near / (z_far - z_near);
 	result.v[3].w = 1.f;
 	return result;
+}
+
+float zest_Distance(float fromx, float fromy, float tox, float toy) {
+	float w = tox - fromx;
+	float h = toy - fromy;
+	return sqrtf(w * w + h * h);
 }
 
 //  --End Math
@@ -2977,8 +2986,138 @@ zest_image zest_CreateImage() {
 	return image;
 }
 
+void zest_LoadStbImage(zest_bitmap *image, const char *file, int desired_channels) {
+	int width, height, original_no_channels;
+	unsigned char *img = stbi_load(file, &width, &height, &original_no_channels, desired_channels);
+	if (img != NULL) {
+		image->width = width;
+		image->height = height;
+		image->data = img;
+		image->channels = desired_channels ? desired_channels : original_no_channels;
+		image->stride = width * original_no_channels;
+		image->size = width * height * original_no_channels;
+		image->name = file;
+	}
+	else {
+		image->data = ZEST_NULL;
+	}
+}
+
+zest_bitmap zest_CreateBitmap() {
+	zest_bitmap bitmap = { 0 };
+	return bitmap;
+}
+
+zest_bitmap *zest_GetBitmap(zest_texture *texture, zest_index bitmap_index) {
+	return &texture->image_bitmaps[bitmap_index];
+}
+
+void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level) {
+	//Todo: simd this
+	if (src->channels == 4)
+		return;
+
+	assert(src->data);
+
+	zest_byte *new_image;
+	int channels = 4;
+	zest_size new_size = src->width * src->height * channels;
+	new_image = (zest_byte*)ZEST__ALLOCATE(new_size);
+
+	zest_size pos = 0;
+	zest_size new_pos = 0;
+
+	if (src->channels == 1) {
+		while (pos < src->size) {
+			*(new_image + new_pos) = *(src->data + pos);
+			*(new_image + new_pos + 1) = *(src->data + pos);
+			*(new_image + new_pos + 2) = *(src->data + pos);
+			*(new_image + new_pos + 3) = alpha_level;
+			pos += src->channels;
+			new_pos += 4;
+		}
+	}
+	else if (src->channels == 2) {
+		while (pos < src->size) {
+			*(new_image + new_pos) = *(src->data + pos);
+			*(new_image + new_pos + 1) = *(src->data + pos);
+			*(new_image + new_pos + 2) = *(src->data + pos);
+			*(new_image + new_pos + 3) = *(src->data + pos + 1);
+			pos += src->channels;
+			new_pos += 4;
+		}
+	}
+	else if (src->channels == 3) {
+		while (pos < src->size) {
+			*(new_image + new_pos) = *(src->data + pos);
+			*(new_image + new_pos + 1) = *(src->data + pos + 1);
+			*(new_image + new_pos + 2) = *(src->data + pos + 2);
+			*(new_image + new_pos + 3) = alpha_level;
+			pos += src->channels;
+			new_pos += 4;
+		}
+	}
+
+	ZEST__FREE(src->data);
+	src->channels = channels;
+	src->size = new_size;
+	src->stride = src->width * channels;
+	src->data = new_image;
+
+}
+
+zest_color zest_SampleBitmap(zest_bitmap *image, int x, int y) {
+	ZEST_ASSERT(image->data);
+
+	size_t offset = y * image->stride + (x * image->channels);
+	zest_color c;
+	if (offset < image->size) {
+		c.r = *(image->data + offset);
+
+		if (image->channels == 2) {
+			c.a = *(image->data + offset + 1);
+		}
+
+		if (image->channels == 3) {
+			c.g = *(image->data + offset + 1);
+			c.b = *(image->data + offset + 2);
+		}
+
+		if (image->channels == 4) {
+			c.g = *(image->data + offset + 1);
+			c.b = *(image->data + offset + 2);
+			c.a = *(image->data + offset + 3);
+		}
+	}
+
+	return c;
+}
+
+float zest_FindBitmapRadius(zest_bitmap *image) {
+	//Todo: optimise with SIMD
+	ZEST_ASSERT(image->data);
+	float max_radius = 0;
+	for (int x = 0; x < image->width; ++x) {
+		for (int y = 0; y < image->height; ++y) {
+			zest_color c = zest_SampleBitmap(image, x, y);
+			if (c.a) {
+				max_radius = ceilf(ZEST__MAX(max_radius, zest_Distance((float)image->width / 2.f, (float)image->height / 2.f, (float)x, (float)y)));
+			}
+		}
+	}
+	return ceilf(max_radius);
+}
+
+ZEST_API zest_index zest_GetImageIndex(zest_texture *texture) {
+	return texture->image_index;
+}
+
 void zest_DestroyBitmapArray(zest_bitmap_array *bitmap_array) { 
-	if (bitmap_array->data) ZEST__FREE(bitmap_array->data); bitmap_array->data = ZEST_NULL; bitmap_array->size_of_array = 0; 
+	if (bitmap_array->data) {
+		ZEST__FREE(bitmap_array->data);
+	}
+	bitmap_array->data = ZEST_NULL; 
+	bitmap_array->size_of_array = 0; 
 }
 
 zest_bitmap zest_GetImageFromArray(zest_bitmap_array *bitmap_array, zest_index index) {
@@ -2988,6 +3127,30 @@ zest_bitmap zest_GetImageFromArray(zest_bitmap_array *bitmap_array, zest_index i
 	image.channels = bitmap_array->channels;
 	image.stride = bitmap_array->width * bitmap_array->channels;
 	image.data = bitmap_array->data + index * bitmap_array->size_of_each_image;
+	return image;
+}
+
+zest_image *zest_LoadImageFile(zest_texture *texture, const char* filename) {
+	zest_vec_push(texture->images, zest_CreateImage());
+	texture->image_index = zest_vec_last_index(texture->images);
+	zest_image *image = &zest_vec_back(texture->images);
+	image->index = texture->image_index;
+	zest_vec_push(texture->image_bitmaps, zest_CreateBitmap());
+	zest_bitmap *bitmap = zest_GetBitmap(texture, zest_GetImageIndex(texture));
+
+	zest_LoadStbImage(bitmap, filename, texture->desired_channels);
+	ZEST_ASSERT(bitmap->data != ZEST_NULL);			//No image data found, make sure the image is loading ok
+	zest_ConvertBitmapToRGBA(bitmap, 255);
+
+	//get the image width and height
+	image->width = bitmap->width;
+	image->height = bitmap->height;
+	image->texture_index = texture->index_in_renderer;
+	if (texture->flags & zest_texture_flag_get_max_radius) {
+		image->max_radius = zest_FindBitmapRadius(bitmap);
+	}
+	image->name = filename;
+
 	return image;
 }
 //-- End Texture and Image Functions
