@@ -448,84 +448,6 @@ typedef struct zest_rgba8 {
 } zest_rgba8;
 typedef zest_rgba8 zest_color;
 
-ZEST_API inline zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right) {
-	zest_vec3 result = {
-		.x = left.x - right.x,
-		.y = left.y - right.y,
-		.z = left.z - right.z,
-	};
-	return result;
-}
-
-ZEST_API inline float zest_LengthVec2(zest_vec3 const v) {
-	return v.x * v.x + v.y * v.y + v.z * v.z;
-}
-
-ZEST_API inline float zest_LengthVec(zest_vec3 const v) {
-	return sqrtf(zest_LengthVec2(v));
-}
-
-ZEST_API inline zest_vec3 zest_NormalizeVec(zest_vec3 const v) {
-	float length = zest_LengthVec(v);
-	zest_vec3 result = {
-		.x = v.x / length,
-		.y = v.y / length,
-		.z = v.z / length
-	};
-	return result;
-}
-
-ZEST_API inline zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y)
-{
-	zest_vec3 result = {
-		.x = x.y * y.z - y.y * x.z,
-		.y = x.z * y.x - y.z * x.x,
-		.z = x.x * y.y - y.x * x.y,
-	};
-	return result;
-}
-
-ZEST_API inline float zest_DotProduct(const zest_vec3 a, const zest_vec3 b)
-{
-	return (a.x * b.x + a.y * b.y + a.z * b.z);
-}
-
-ZEST_API inline zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up)
-{
-	zest_vec3 f = zest_NormalizeVec(zest_SubVec(center, eye));
-	zest_vec3 s = zest_NormalizeVec(zest_CrossProduct(f, up));
-	zest_vec3 u = zest_CrossProduct(s, f);
-
-	zest_matrix4 result = { 0 };
-	result.v[0].x = s.x;
-	result.v[1].x = s.y;
-	result.v[2].x = s.z;
-	result.v[0].y = u.x;
-	result.v[1].y = u.y;
-	result.v[2].y = u.z;
-	result.v[0].z = -f.x;
-	result.v[1].z = -f.y;
-	result.v[2].z = -f.z;
-	result.v[3].x = -zest_DotProduct(s, eye);
-	result.v[3].y = -zest_DotProduct(u, eye);
-	result.v[3].z = zest_DotProduct(f, eye);
-	result.v[3].w = 1.f;
-	return result;
-}
-
-ZEST_API inline zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far)
-{
-	zest_matrix4 result = { 0 };
-	result.v[0].x = 2.f / (right - left);
-	result.v[1].y = 2.f / (top - bottom);
-	result.v[2].z = -1.f / (z_far - z_near);
-	result.v[3].x = -(right + left) / (right - left);
-	result.v[3].y = -(top + bottom) / (top - bottom);
-	result.v[3].z = -z_near / (z_far - z_near);
-	result.v[3].w = 1.f;
-	return result;
-}
-
 // --Vulkan Buffer Management
 typedef struct zest_buffer_info{
 	VkImageUsageFlags image_usage_flags;
@@ -1332,13 +1254,30 @@ ZEST_API zest_draw_layer *zest_GetLayerByName(const char *name);
 ZEST_API void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instance_pool_size);
 ZEST_API void zest_ResetSpriteLayerDrawing(zest_draw_layer *sprite_layer);
 ZEST_API zest_index zest_NewSpriteLayerSetup(const char *name);
-ZEST_API inline VkCommandBuffer zest_CurrentCommandBuffer() { return ZestRenderer->current_command_buffer; }
-ZEST_API inline zest_command_queue *zest_CurrentCommandQueue() { return ZestRenderer->current_command_queue; }
-ZEST_API inline zest_command_queue_draw_commands *zest_CurrentRenderPass() { return ZestRenderer->current_render_pass; }
-void zest_Finish();
-void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_index, VkPipelineStageFlags stage_flags);
-void zest_ConnectQueueTo(zest_index receiver, VkPipelineStageFlags stage_flags);
-void zest_ConnectQueueToPresent();
+
+ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(); 
+ZEST_API zest_command_queue *zest_CurrentCommandQueue();
+ZEST_API zest_command_queue_draw_commands *zest_CurrentRenderPass();
+
+ZEST_API void zest_Finish();
+ZEST_API void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_index, VkPipelineStageFlags stage_flags);
+ZEST_API void zest_ConnectQueueTo(zest_index receiver, VkPipelineStageFlags stage_flags);
+ZEST_API void zest_ConnectQueueToPresent();
+
+// --Math
+ZEST_API zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right);
+ZEST_API float zest_LengthVec2(zest_vec3 const v);
+ZEST_API float zest_LengthVec(zest_vec3 const v);
+ZEST_API zest_vec3 zest_NormalizeVec(zest_vec3 const v);
+ZEST_API zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y);
+ZEST_API float zest_DotProduct(const zest_vec3 a, const zest_vec3 b);
+ZEST_API zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up);
+ZEST_API zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far);
+
+ZEST_API zest_matrix4 zest_M4();
+ZEST_API zest_vec2 zest_Vec2Set1(float v);
+ZEST_API zest_vec3 zest_Vec3Set1(float v);
+ZEST_API zest_vec4 zest_Vec4Set1(float v);
 
 //Images and textures
 ZEST_API zest_texture zestCreateTexture();
@@ -1354,10 +1293,7 @@ ZEST_API zest_index LoadAnimationMemory(const char* name, unsigned char *buffer,
 ZEST_API float zest_CopyAnimationFrames(zest_image *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 
 //General Helper functions
-ZEST_API inline zest_matrix4 zest_M4() { zest_matrix4 matrix = { 0 }; matrix.v[0].x = 1.f; matrix.v[1].y = 1.f; matrix.v[2].z = 1.f; matrix.v[3].w = 1.f; return matrix; }
-ZEST_API inline zest_vec2 zest_Vec2Set1(float v) { zest_vec2 vec; vec.x = v; vec.y = v; return vec; }
-ZEST_API inline zest_vec3 zest_Vec3Set1(float v) { zest_vec3 vec; vec.x = v; vec.y = v; vec.z = v; return vec; }
-ZEST_API inline zest_vec4 zest_Vec4Set1(float v) { zest_vec4 vec; vec.x = v; vec.y = v; vec.z = v; vec.w = v; return vec; }
+
 ZEST_API VkRenderPass zest_GetRenderPassByIndex(zest_index index);
 ZEST_API VkRenderPass zest_GetStandardRenderPass(void);
 ZEST_API zest_pipeline_set zest_CreatePipelineSet(void);
