@@ -2811,6 +2811,71 @@ void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer comm
 
 // --End Command queue setup and modify functions
 
+// --Texture and Image functions
+zest_texture zestCreateTexture() {
+	zest_texture texture = { 0 };
+	texture.flags = zest_texture_flag_use_filtering;
+	texture.sampler = VK_NULL_HANDLE;
+	texture.storage_type = zest_texture_storage_type_single;
+	texture.pipeline_index_premultiply = 0;
+	texture.imgui_pipeline_index = 0;
+	texture.image_index = 1;
+	texture.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	texture.image_format = VK_FORMAT_R8G8B8A8_UNORM;
+	texture.desired_channels = 0;
+	texture.imgui_blend_type = zest_imgui_blendtype_none;
+	texture.image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	texture.packed_border_size = 0;
+	texture.sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	texture.sampler_info.magFilter = VK_FILTER_LINEAR;
+	texture.sampler_info.minFilter = VK_FILTER_LINEAR;
+	texture.sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	texture.sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	texture.sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	texture.sampler_info.anisotropyEnable = VK_FALSE;
+	texture.sampler_info.maxAnisotropy = 1.f;
+	texture.sampler_info.unnormalizedCoordinates = VK_FALSE;
+	texture.sampler_info.compareEnable = VK_FALSE;
+	texture.sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+	texture.sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	texture.sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+	texture.sampler_info.mipLodBias = 0.f;
+	texture.sampler_info.minLod = 0.0f;
+	texture.sampler_info.maxLod = 1.0f;
+	texture.sampler_info.pNext = VK_NULL_HANDLE;
+	texture.sampler_info.flags = 0;
+	texture.sampler = VK_NULL_HANDLE;
+
+	return texture;
+}
+
+zest_image zest_CreateImage() {
+	zest_image image = { 0 };
+	image.scale = zest_Vec2Set1(1.f);
+	image.handle = zest_Vec2Set1(0.5f);
+	image.uv.x = 0.f;
+	image.uv.y = 0.f;
+	image.uv.z = 1.f;
+	image.uv.w = 1.f;
+	image.layer = 0;
+	return image;
+}
+
+void zest_DestroyBitmapArray(zest_bitmap_array *bitmap_array) { 
+	if (bitmap_array->data) ZEST__FREE(bitmap_array->data); bitmap_array->data = ZEST_NULL; bitmap_array->size_of_array = 0; 
+}
+
+zest_bitmap zest_GetImageFromArray(zest_bitmap_array *bitmap_array, zest_index index) {
+	zest_bitmap image;
+	image.width = bitmap_array->width;
+	image.height = bitmap_array->height;
+	image.channels = bitmap_array->channels;
+	image.stride = bitmap_array->width * bitmap_array->channels;
+	image.data = bitmap_array->data + index * bitmap_array->size_of_each_image;
+	return image;
+}
+//-- End Texture and Image Functions
+
 void zest__main_loop(void) {
 	while (!glfwWindowShouldClose(ZestApp->window->window_handle)) {
 
