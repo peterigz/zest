@@ -13,6 +13,11 @@
 #include <GLFW/glfw3.h>
 #define TLOC_ENABLE_REMOTE_MEMORY
 #include "2loc.h"
+
+#define STB_RECT_PACK_IMPLEMENTATION
+#include "stb_rect_pack.h"
+
+#include "stb_image_resize.h"
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
@@ -46,6 +51,7 @@
 //Helper macros
 #define ZEST__MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define ZEST__MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define ZEST_POW2(x) ((x) && !((x) & ((x) - 1)))
 
 #ifndef ZEST__REALLOCATE
 #define ZEST__ALLOCATE(size) tloc_Allocate(ZestDevice->allocator, size)
@@ -272,6 +278,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_end(T) (&(T[zest_vec_size(T)]))
 #define zest_vec_clear(T) if(T) zest__vec_header(T)->current_size = 0
 #define zest_vec_free(T) (ZEST__FREE(zest__vec_header(T)), T = ZEST_NULL)
+#define zest_vec_reserve(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); 
 #define zest_vec_resize(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); zest__vec_header(T)->current_size = new_size
 #define zest_vec_push(T, value) zest_vec_grow(T); (T)[zest__vec_header(T)->current_size++] = value 
 #define zest_vec_pop(T) (zest__vec_header(T)->current_size--, T[zest__vec_header(T)->current_size])
@@ -495,6 +502,7 @@ typedef struct zest_buffer{
 	zest_buffer_allocator *buffer_allocator;
 	zest_size memory_in_use;
 	void *data;
+	void *end;
 } zest_buffer;
 
 //Simple stuct for uploading buffers from the staging buffer to the device local buffers
@@ -665,6 +673,12 @@ typedef struct zest_descriptor_set_layout {
 	VkDescriptorSetLayout descriptor_layout;
 	const char *name;
 } zest_descriptor_set_layout;
+
+typedef struct zest_descriptor_set {
+	zest_index uniform_buffer_index;
+	VkWriteDescriptorSet *descriptor_writes[ZEST_MAX_FIF];
+	VkDescriptorSet descriptor_set[ZEST_MAX_FIF];
+} zest_descriptor_set;
 
 typedef struct zest_uniform_buffer {
 	zest_buffer *buffer[ZEST_MAX_FIF];
@@ -839,7 +853,7 @@ typedef struct zest_draw_layer {
 	zest_uint initial_instance_pool_size;
 	zest_index render_pass_index;
 
-	void *sprite_ptr;
+	void *instance_ptr;
 	void *synced_staging_ptr;
 
 	zest_index sprite_pipeline_index;
@@ -868,13 +882,7 @@ struct zest_command_queue_compute {
 	const char *name;
 };
 
-typedef struct zest_texture_descriptor_set {
-	const char *uniform_buffer_name;
-	VkWriteDescriptorSet *descriptor_writes[ZEST_MAX_FIF];
-	VkDescriptorSet descriptor_set[ZEST_MAX_FIF];
-} zest_texture_descriptor_set;
-
-zest_hash_map(zest_texture_descriptor_set) zest_map_texture_descriptor_sets;
+zest_hash_map(zest_descriptor_set) zest_map_texture_descriptor_sets;
 
 typedef struct zest_bitmap {
 	int width;
@@ -936,8 +944,8 @@ struct zest_texture {
 	zest_index pipeline_index_premultiply_instanced;
 	zest_index pipeline_index_billboard;
 	zest_index pipeline_index_premultiply_depth;
-
 	zest_index imgui_pipeline_index;
+
 	zest_imgui_blendtype imgui_blend_type;
 	VkSampler sampler;
 	zest_index image_index;									//Tracks the UID of image indexes in the qvec
@@ -946,14 +954,16 @@ struct zest_texture {
 	zest_map_texture_descriptor_sets descriptor_sets;
 	unsigned short packed_border_size;
 
+	zest_buffer *stream_staging_buffer;		//Used for stream buffers only if you need to update the texture every frame
+	zest_uint texture_layer_size;
 	zest_image texture;
 	zest_bitmap texture_bitmap;
-	zest_frame_buffer_attachment texture_buffer;
+	zest_frame_buffer_attachment frame_buffer;
 	//Todo: option to not keep the images in memory after they're uploaded to the graphics card
 	zest_bitmap *image_bitmaps;
 	zest_image *images;
 	zest_bitmap *layers;
-	zest_bitmap_array image_array;
+	zest_bitmap_array bitmap_array;
 	zest_uint layer_count;
 	VkBufferImageCopy *buffer_copy_regions;
 	zest_texture_storage_type storage_type;
@@ -975,11 +985,11 @@ zest_hash_map(zest_command_queue_compute) zest_map_command_queue_computes;
 zest_hash_map(zest_draw_routine) zest_map_draw_routines;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 zest_hash_map(zest_draw_layer) zest_map_draw_layers;
-//zest_hash_map(QulkanRenderTarget) render_targets;
-//zest_hash_map(QulkanTexture) textures;
-//zest_hash_map(QulkanFont) fonts;
 zest_hash_map(zest_uniform_buffer) zest_map_uniform_buffers;
 zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
+zest_hash_map(zest_texture) zest_map_textures;
+//zest_hash_map(QulkanRenderTarget) render_targets;
+//zest_hash_map(QulkanFont) fonts;
 
 typedef struct zest_renderer{
 	VkFormat swapchain_image_format;
@@ -1028,8 +1038,8 @@ typedef struct zest_renderer{
 	zest_map_command_queue_computes command_queue_computes;
 	zest_map_draw_routines draw_routines;
 	zest_map_draw_layers draw_layers;
+	zest_map_textures textures;
 	//zest_map_render_targets render_targets;
-	//zest_map_textures textures;
 	//zest_map_fonts fonts;
 	zest_map_uniform_buffers uniform_buffers;
 	zest_map_descriptor_sets descriptor_sets;
@@ -1110,6 +1120,8 @@ void zest__create_empty_command_queue(zest_command_queue *command_queue);
 void zest__render_blank(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 void zest__destroy_pipeline_set(zest_pipeline_set *p);
 void zest__cleanup_pipelines(void);
+void zest__cleanup_textures(void);
+void zest__cleanup_texture(zest_texture *texture);
 void zest__rebuild_pipeline(zest_pipeline_set *pipeline);
 void zest__present_frame(void);
 // --End Renderer functions
@@ -1136,6 +1148,9 @@ void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer comm
 // --General Helper Functions
 VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
 zest_buffer *zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
+zest_buffer *zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
+void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout image_layout);
+void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image);
 void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount);
 VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout final_layout, VkAttachmentLoadOp load_op);
 VkFormat zest__find_depth_format(void);
@@ -1194,6 +1209,9 @@ void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void zest__update_window_size(zest_window* window, zest_uint width, zest_uint height);
 //-- End Window related functions
 
+//-- Draw layer internal functions
+inline void zest__next_sprite_instance(zest_draw_layer *layer);
+
 //User API functions
 ZEST_API zest_create_info zest_CreateInfo(void);
 ZEST_API void zest_Initialise(zest_create_info *info);
@@ -1207,6 +1225,10 @@ ZEST_API VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint 
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateSamplerLayoutBinding(zest_uint binding);
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding);
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDescriptorSetLayoutBinding *bindings);
+ZEST_API VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorImageInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API void zest_AllocateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSetLayout descriptor_layout, VkDescriptorSet *descriptor_set);
+ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
 ZEST_API VkViewport zest_CreateViewport(float width, float height, float minDepth, float maxDepth);
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 ZEST_API void zest_SetUserData(void* data);
@@ -1277,32 +1299,75 @@ ZEST_API zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y);
 ZEST_API float zest_DotProduct(const zest_vec3 a, const zest_vec3 b);
 ZEST_API zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up);
 ZEST_API zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far);
-float zest_Distance(float fromx, float fromy, float tox, float toy);
+ZEST_API float zest_Distance(float fromx, float fromy, float tox, float toy);
+ZEST_API zest_uint zest_Pack16bit(float x, float y);
+ZEST_API zest_uint zest_GetNextPower(zest_uint n);
 
 ZEST_API zest_matrix4 zest_M4();
 ZEST_API zest_vec2 zest_Vec2Set1(float v);
 ZEST_API zest_vec3 zest_Vec3Set1(float v);
 ZEST_API zest_vec4 zest_Vec4Set1(float v);
+ZEST_API zest_vec2 zest_Vec2Set(float x, float y);
+ZEST_API zest_vec3 zest_Vec3Set(float x, float y, float z);
+ZEST_API zest_vec4 zest_Vec4Set(float x, float y, float z, float w);
 
 //Images and textures
-ZEST_API zest_texture zestCreateTexture(void);
+ZEST_API zest_map_textures *zest_GetTextures();
+ZEST_API zest_texture zest_NewTexture(void);
+ZEST_API zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_uint reserve_images);
 ZEST_API zest_image zest_CreateImage(void);
-ZEST_API void zest_LoadStbImage(zest_bitmap *image, const char *file, int desired_channels);
-ZEST_API zest_bitmap zest_CreateBitmap(void);
+ZEST_API void zest_LoadBitmapImage(zest_bitmap *image, const char *file, int desired_channels);
+ZEST_API void zest_FreeBitmap(zest_bitmap *image);
+ZEST_API zest_bitmap zest_NewBitmap(void);
+ZEST_API void zest_AllocateBitmap(zest_bitmap *bitmap, int width, int height, int channels, zest_uint fill_color);
+ZEST_API void zest_CopyBitmap(zest_bitmap *src, int from_x, int from_y, int width, int height, zest_bitmap *dst, int to_x, int to_y);
 ZEST_API void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level);
 ZEST_API zest_color zest_SampleBitmap(zest_bitmap *image, int x, int y);
+ZEST_API zest_byte *zest_BitmapArrayLookUp(zest_bitmap_array *bitmap_array, zest_index index);
 ZEST_API float zest_FindBitmapRadius(zest_bitmap *image);
 ZEST_API void zest_DestroyBitmapArray(zest_bitmap_array *bitmap_array);
 ZEST_API zest_bitmap zest_GetImageFromArray(zest_bitmap_array *bitmap_array, zest_index index);
 ZEST_API zest_bitmap *zest_GetBitmap(zest_texture *texture, zest_index bitmap_index);
 ZEST_API zest_index zest_GetImageIndex(zest_texture *texture);
-ZEST_API zest_image *zest_LoadImageFile(zest_texture *texture, const char* name);
+ZEST_API zest_image *zest_GetImageFromTexture(zest_texture *texture, zest_index index);
+ZEST_API zest_index zest_LoadImageFile(zest_texture *texture, const char* name);
 ZEST_API zest_image *zest_LoadImageStb(zest_bitmap *image);
 ZEST_API zest_image *zest_LoadImageMemory(const char* name, unsigned char* buffer, int buffer_size);
-ZEST_API zest_index zest_LoadAnimationFile(const char* name, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_index zest_LoadAnimationFile(zest_texture *texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 ZEST_API zest_index LoadAnimationImage(zest_bitmap *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 ZEST_API zest_index LoadAnimationMemory(const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
-ZEST_API float zest_CopyAnimationFrames(zest_bitmap *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
+ZEST_API float zest_CopyAnimationFrames(zest_texture *texture, zest_bitmap *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
+ZEST_API void zest_ProcessTextureImages(zest_texture *texture);
+ZEST_API void zest_DeleteTextureLayers(zest_texture *texture);
+ZEST_API void zest_CreateTextureDescriptorSets(zest_texture *texture, const char *name, const char *uniform_buffer_name);
+ZEST_API void zest_UpdateTextureSingleDescriptorSet(zest_texture *texture, const char *name);
+ZEST_API void zest_UpdateAllTextureDescriptorWrites(zest_texture *texture);
+ZEST_API void zest_SwitchTextureDescriptorSet(zest_texture *texture, const char *name);
+ZEST_API void zest_CreateTextureImage(zest_texture *texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap);
+ZEST_API void zest_CreateTextureImageArray(zest_texture *texture, zest_uint mip_levels);
+ZEST_API void zest_CreateTextureStream(zest_texture *texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap);
+ZEST_API void zest_CreateTextureSampler(zest_texture *texture, VkSamplerCreateInfo samplerInfo, zest_uint mip_levels);
+ZEST_API zest_byte zest_CalculateTextureLayers(stbrp_rect *rects, zest_uint size, const zest_uint node_count);
+ZEST_API void zest_MakeImageBank(zest_texture *texture, zest_uint size);
+ZEST_API void zest_MakeSpriteSheet(zest_texture *texture);
+ZEST_API void zest_PackImages(zest_texture *texture, zest_uint size);
+ZEST_API void zest_CleanUpTexture(zest_texture *texture);
+ZEST_API void zest_UpdateImageVertices(zest_image *image);
+ZEST_API void zest_SetTextureStorageType(zest_texture *texture, zest_texture_storage_type value);
+ZEST_API void zest_SetUseFiltering(zest_texture *texture, zest_bool value);
+ZEST_API void zest_SetTextureWrapping(zest_texture *texture, VkSamplerAddressMode u, VkSamplerAddressMode v, VkSamplerAddressMode w);
+ZEST_API void zest_SetTextureWrappingClamp(zest_texture *texture);
+ZEST_API void zest_SetTextureWrappingBorder(zest_texture *texture);
+ZEST_API void zest_SetTextureWrappingRepeat(zest_texture *texture);
+ZEST_API void zest_SetTextureLayerSize(zest_texture *texture, zest_uint size);
+ZEST_API zest_bitmap *zest_GetTextureSingleBitmap(zest_texture *texture);
+ZEST_API void zest_CreateTextureImageView(zest_texture *texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
+ZEST_API void zest_AddTextureDescriptorSet(zest_texture *texture, const char *name, zest_descriptor_set descriptor_set);
+ZEST_API zest_texture *zest_GetTextureByIndex(zest_index index);
+ZEST_API zest_texture *zest_GetTextureByName(const char *name);
+
+// --Draw layers
+ZEST_API void zest_DrawSprite(zest_draw_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 
 //General Helper functions
 ZEST_API VkRenderPass zest_GetRenderPassByIndex(zest_index index);
@@ -1311,6 +1376,8 @@ ZEST_API zest_pipeline_set zest_CreatePipelineSet(void);
 ZEST_API VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands *item);
 ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index);
 ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name);
+VkDescriptorBufferInfo *zest_GetUniformBufferInfoByName(const char *name, zest_index fif);
+VkDescriptorBufferInfo *zest_GetUniformBufferInfoByIndex(zest_index index, zest_index fif);
 ZEST_API VkRenderPass zest_GetRenderPassByName(const char *name);
 ZEST_API zest_pipeline_set *zest_PipelineByIndex(zest_index index);
 ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
