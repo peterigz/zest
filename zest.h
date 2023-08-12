@@ -1140,6 +1140,7 @@ zest_draw_routine *zest__create_draw_routine_with_sprite_layer(const char *name,
 
 // --Sprite layer internal functions
 void zest__sync_sprite_layer_to_current_fif(zest_draw_layer *sprite_layer);
+void zest__start_sprite_instructions(zest_draw_layer *sprite_layer);
 void zest__end_sprite_instructions(zest_draw_layer *sprite_layer);
 void zest__update_sprite_layer_buffers_callback(zest_draw_routine *draw_routine, zest_buffer_uploader *vertex_upload);
 void zest__draw_sprite_layer_callback(zest_draw_routine *draw_routine);
@@ -1210,7 +1211,7 @@ void zest__update_window_size(zest_window* window, zest_uint width, zest_uint he
 //-- End Window related functions
 
 //-- Draw layer internal functions
-inline void zest__next_sprite_instance(zest_draw_layer *layer);
+void zest__next_sprite_instance(zest_draw_layer *layer);
 
 //User API functions
 ZEST_API zest_create_info zest_CreateInfo(void);
@@ -1255,6 +1256,7 @@ ZEST_API zest_pipeline_set *zest_Pipeline(zest_index index);
 
 //Buffer related
 ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size);
+ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size);
 ZEST_API zest_buffer_info zest_CreateVertexBufferInfo(void);
 ZEST_API zest_buffer_info zest_CreateStagingBufferInfo(void);
 ZEST_API void zest_FreeBuffer(zest_buffer *buffer);
