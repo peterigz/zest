@@ -4300,7 +4300,14 @@ void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer comm
 	VkDeviceSize image_data_offsets[] = { sprite_layer->instance_memory_refs[ZEST_FIF].device_data->memory_offset };
 
 	for (zest_foreach_i(sprite_layer->instance_instructions[ZEST_FIF])) {
-		zest_instance_instructions *current = &sprite_layer->instance_instructions[ZEST_FIF][i];
+		zest_instance_instruction *current = &sprite_layer->instance_instructions[ZEST_FIF][i];
+
+		if (current->draw_mode == zest_draw_mode_viewport) {
+			vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
+			vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+			continue;
+		}
+		
 		vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(sprite_layer->instance_memory_refs[ZEST_FIF].device_data), image_data_offsets);
 
 		zest_BindPipeline(command_buffer, zest_Pipeline(current->pipeline), current->descriptor_set);

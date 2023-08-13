@@ -833,7 +833,7 @@ typedef struct zest_push_constants {
 	zest_vec4 camera;				//For 3d drawing
 }zest_push_constants;
 
-typedef struct zest_instance_instructions {
+typedef struct zest_instance_instruction {
 	zest_index start_index;						//The starting index
 	zest_uint total_instances;					//The total number of instances to be drawn in the draw instruction
 	zest_index last_instance;					//The last instance that was drawn in the previous instance instruction
@@ -843,7 +843,7 @@ typedef struct zest_instance_instructions {
 	VkRect2D scissor;							//The drawinstruction can also clip whats drawn
 	VkViewport viewport;						//The viewport size of the draw call 
 	zest_draw_mode draw_mode;
-} zest_instance_instructions;
+} zest_instance_instruction;
 
 typedef struct zest_draw_layer {
 
@@ -858,7 +858,7 @@ typedef struct zest_draw_layer {
 
 	zest_index sprite_pipeline_index;
 
-	zest_instance_instructions current_instance_instruction;
+	zest_instance_instruction current_instance_instruction;
 
 	zest_color current_color;
 	float multiply_blend_factor;
@@ -868,7 +868,7 @@ typedef struct zest_draw_layer {
 	zest_vec2 viewport_size;
 	zest_vec2 screen_scale;
 
-	zest_instance_instructions *instance_instructions[ZEST_MAX_FIF];
+	zest_instance_instruction *instance_instructions[ZEST_MAX_FIF];
 	zest_draw_mode last_draw_mode;
 
 	zest_index draw_routine_index;
