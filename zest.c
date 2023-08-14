@@ -889,20 +889,28 @@ void zest__on_merge_prev(void *user_data, tloc_header *prev_block, tloc_header *
 }
 
 void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trimmed_block, tloc_size remote_size) {
+	zest_buffer_allocator *pools = (zest_buffer_allocator*)user_data;
 	zest_buffer *buffer = tloc__block_user_extension_ptr(block);
 	zest_buffer *trimmed_buffer = tloc__block_user_extension_ptr(trimmed_block);
 	trimmed_buffer->size = buffer->size - remote_size;
 	trimmed_buffer->memory_pool = buffer->memory_pool;
 	buffer->size = remote_size;
 	trimmed_buffer->memory_offset = buffer->memory_offset + buffer->size;
+	if (pools->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+		buffer->data = (void*)((char*)pools->memory_pools[buffer->memory_pool].mapped + buffer->memory_offset);
+		buffer->end = (void*)((char*)buffer->data + buffer->size);
+	}
 }
 
 void zest__on_reallocation_copy(void *user_data, tloc_header* block, tloc_header *new_block) {
 	zest_buffer_allocator *pools = (zest_buffer_allocator*)user_data;
 	zest_buffer *buffer = tloc__block_user_extension_ptr(block);
 	zest_buffer *new_buffer = tloc__block_user_extension_ptr(new_block);
-	new_buffer->data = (void*)((char*)buffer->buffer_allocator->memory_pools[buffer->memory_pool].mapped + new_buffer->memory_offset);
-	memcpy(new_buffer->data, buffer->data, buffer->size);
+	if (pools->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+		new_buffer->data = (void*)((char*)buffer->buffer_allocator->memory_pools[buffer->memory_pool].mapped + new_buffer->memory_offset);
+		new_buffer->end = (void*)((char*)new_buffer->data + new_buffer->size);
+		memcpy(new_buffer->data, buffer->data, buffer->size);
+	}
 }
 
 tloc_size zest__get_bytes_per_block(tloc_size pool_size) {
@@ -980,20 +988,21 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 	return buffer;
 }
 
-zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size) {
+zest_bool zest_GrowBuffer(zest_buffer **buffer, zest_size unit_size) {
 	ZEST_ASSERT(unit_size);
-	zest_size units = buffer->size / unit_size;
+	zest_size units = (*buffer)->size / unit_size;
 	zest_size new_size = (units ? units + units / 2 : 8) * unit_size;
-	zest_buffer *new_buffer = tloc_ReallocateRemote(buffer->buffer_allocator->allocator, buffer, new_size);
+	zest_buffer *new_buffer = tloc_ReallocateRemote((*buffer)->buffer_allocator->allocator, *buffer, new_size);
+	new_buffer->buffer_allocator = (*buffer)->buffer_allocator;
 	if (new_buffer) {
-		new_buffer->memory_in_use = buffer->memory_in_use;
-		buffer = new_buffer;
-		if (buffer->buffer_allocator->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-			buffer->data = (void*)((char*)buffer->buffer_allocator->memory_pools[buffer->memory_pool].mapped + buffer->memory_offset);
-			buffer->end = (void*)((char*)buffer->data + buffer->size);
+		new_buffer->memory_in_use = (*buffer)->memory_in_use;
+		*buffer = new_buffer;
+		if ((*buffer)->buffer_allocator->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+			(*buffer)->data = (void*)((char*)(*buffer)->buffer_allocator->memory_pools[(*buffer)->memory_pool].mapped + (*buffer)->memory_offset);
+			(*buffer)->end = (void*)((char*)(*buffer)->data + (*buffer)->size);
 		}
 		else {
-			buffer->data = ZEST_NULL;
+			(*buffer)->data = ZEST_NULL;
 		}
 	}
 	else {
@@ -4334,6 +4343,7 @@ void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instanc
 		sprite_layer->instance_memory_refs[i].device_data = zest_CreateBuffer(sizeof(zest_sprite_instance) * instance_pool_size, &device_buffer_info, ZEST_NULL, tloc__MEGABYTE(64));
 		sprite_layer->instance_memory_refs[i].staging_data = zest_CreateBuffer(sizeof(zest_sprite_instance) * instance_pool_size, &staging_buffer_info, ZEST_NULL, tloc__MEGABYTE(64));
 		sprite_layer->instance_memory_refs[i].instance_count = 0;
+		sprite_layer->instance_memory_refs[i].instance_count = 0;
 	}
 
 	zest__sync_sprite_layer_to_current_fif(sprite_layer);
@@ -4346,6 +4356,7 @@ void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instanc
 
 ZEST_API zest_instance_instruction zest_InstanceInstruction() {
 	zest_instance_instruction instruction = { 0 };
+	instruction.pipeline = ZEST_INVALID;
 	return instruction;
 }
 
@@ -4437,8 +4448,8 @@ void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer comm
 void zest__next_sprite_instance(zest_draw_layer *layer) {
 	layer->instance_ptr = (zest_sprite_instance*)layer->instance_ptr + 1;
 	if (layer->instance_ptr == layer->instance_memory_refs[ZEST_FIF].staging_data->end) {
-		zest_bool grown = zest_GrowBuffer(layer->instance_memory_refs[ZEST_FIF].staging_data, sizeof(zest_sprite_instance));
-		grown = grown && zest_GrowBuffer(layer->instance_memory_refs[ZEST_FIF].device_data, sizeof(zest_sprite_instance));
+		zest_bool grown = zest_GrowBuffer(&layer->instance_memory_refs[ZestDevice->current_fif].staging_data, sizeof(zest_sprite_instance));
+		zest_GrowBuffer(&layer->instance_memory_refs[ZEST_FIF].device_data, sizeof(zest_sprite_instance));
 		if (grown) {
 			layer->instance_memory_refs[ZEST_FIF].instance_count++;
 			layer->instance_ptr = (zest_sprite_instance*)layer->instance_memory_refs[ZEST_FIF].staging_data->data + layer->instance_memory_refs[ZEST_FIF].instance_count;
@@ -4457,7 +4468,7 @@ void zest_DrawSprite(zest_draw_layer *layer, zest_image *image, float x, float y
 	ZEST_ASSERT(ZestRenderer->current_pipeline_index != ZEST_INVALID);
 	zest_texture *texture = zest_GetTextureByIndex(image->texture_index);
 
-	if (layer->last_draw_mode != zest_draw_mode_images || !layer->current_instance_instruction.pipeline || layer->current_instance_instruction.pipeline != ZestRenderer->current_pipeline_index
+	if (layer->last_draw_mode != zest_draw_mode_images || layer->current_instance_instruction.pipeline != ZestRenderer->current_pipeline_index
 		|| layer->current_instance_instruction.descriptor_set != texture->current_descriptor_set[ZEST_FIF]) {
 		zest__end_sprite_instructions(layer);
 		zest__start_sprite_instructions(layer);
@@ -4514,14 +4525,14 @@ void zest__main_loop(void) {
 		if (ZestApp->flags & zest_app_flag_show_fps_in_title) {
 			ZestApp->frame_timer += ZestApp->current_elapsed;
 			ZestApp->frame_count++;
-			if (ZestApp->frame_timer >= 1000000) {
+			if (ZestApp->frame_timer >= ZEST_MICROSECS_SECOND) {
 				char fps_str[20];
 				sprintf_s(fps_str, 20, "FPS: %u", ZestApp->frame_count);
 				glfwSetWindowTitle(ZestApp->window->window_handle, fps_str);
 
 				ZestApp->last_fps = ZestApp->frame_count;
 				ZestApp->frame_count = 0;
-				ZestApp->frame_timer = ZestApp->frame_timer - 1000000;
+				ZestApp->frame_timer = ZestApp->frame_timer - ZEST_MICROSECS_SECOND;
 			}
 		}
 	}
@@ -4550,7 +4561,11 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_SetActiveRenderQueue(0);
 	zest_PushPipeline(example->sprite_pipeline);
 	layer->multiply_blend_factor = 1.f;
-	zest_DrawSprite(layer, zest_GetImageFromTexture(texture, example->image1), 200.f, 200.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
+	for (float x = 0; x != 100; ++x) {
+		for (float y = 0; y != 10; ++y) {
+			zest_DrawSprite(layer, zest_GetImageFromTexture(texture, example->image1), x * 10.f + 20.f, y * 40.f + 20.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
+		}
+	}
 	zest_PopPipeline();
 }
 

@@ -65,6 +65,8 @@
 
 #define ZEST__ARRAY(name, type, count) type *name = ZEST__REALLOCATE(0, sizeof(type) * count)
 #define ZEST_FIF ZestDevice->current_fif
+#define ZEST_MICROSECS_SECOND 1000000ULL
+#define ZEST_MICROSECS_MILLISECOND 1000
 
 #define ZEST_NULL 0
 //For each frame in flight macro
@@ -1263,7 +1265,7 @@ ZEST_API zest_index zest_CurrentPipeline();
 
 //Buffer related
 ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size);
-ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size);
+ZEST_API zest_bool zest_GrowBuffer(zest_buffer **buffer, zest_size unit_size);
 ZEST_API zest_buffer_info zest_CreateVertexBufferInfo(void);
 ZEST_API zest_buffer_info zest_CreateStagingBufferInfo(void);
 ZEST_API void zest_FreeBuffer(zest_buffer *buffer);
