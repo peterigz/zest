@@ -894,6 +894,8 @@ void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trim
 	zest_buffer *trimmed_buffer = tloc__block_user_extension_ptr(trimmed_block);
 	trimmed_buffer->size = buffer->size - remote_size;
 	trimmed_buffer->memory_pool = buffer->memory_pool;
+	trimmed_buffer->buffer_allocator = buffer->buffer_allocator;
+	trimmed_buffer->memory_in_use = 0;
 	buffer->size = remote_size;
 	trimmed_buffer->memory_offset = buffer->memory_offset + buffer->size;
 	if (pools->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
