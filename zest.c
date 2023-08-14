@@ -907,7 +907,7 @@ void zest__on_reallocation_copy(void *user_data, tloc_header* block, tloc_header
 	zest_buffer *buffer = tloc__block_user_extension_ptr(block);
 	zest_buffer *new_buffer = tloc__block_user_extension_ptr(new_block);
 	if (pools->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-		new_buffer->data = (void*)((char*)buffer->buffer_allocator->memory_pools[buffer->memory_pool].mapped + new_buffer->memory_offset);
+		new_buffer->data = (void*)((char*)new_buffer->buffer_allocator->memory_pools[new_buffer->memory_pool].mapped + new_buffer->memory_offset);
 		new_buffer->end = (void*)((char*)new_buffer->data + new_buffer->size);
 		memcpy(new_buffer->data, buffer->data, buffer->size);
 	}
