@@ -44,7 +44,7 @@ const char *zest__vulkan_error(VkResult errorCode)
 }
 
 // --Math
-zest_matrix4 zest_M4() { 
+zest_matrix4 zest_M4(void) { 
 	zest_matrix4 matrix = { 0 }; 
 	matrix.v[0].x = 1.f; 
 	matrix.v[1].y = 1.f; 
@@ -4544,7 +4544,8 @@ void zest__main_loop(void) {
 			ZestApp->frame_count++;
 			if (ZestApp->frame_timer >= ZEST_MICROSECS_SECOND) {
 				char fps_str[20];
-				sprintf_s(fps_str, 20, "FPS: %u", ZestApp->frame_count);
+                zest_snprintf(fps_str, 20, "FPS: %u", ZestApp->frame_count);
+                
 				glfwSetWindowTitle(ZestApp->window->window_handle, fps_str);
 
 				ZestApp->last_fps = ZestApp->frame_count;

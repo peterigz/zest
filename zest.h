@@ -96,8 +96,14 @@ typedef unsigned int zest_bool;
 
 /*Platform specific code*/
 FILE *zest__open_file(const char *file_name, const char *mode);
+void zest__sprint(char *buffer, zest_size buffer_size, const char *str, ...);
 ZEST_API zest_millisecs zest_Millisecs(void);
 ZEST_API zest_microsecs zest_Microsecs(void);
+#if defined _WIN32
+#define zest_snprintf(buffer, bufferSize, format, ...) sprintf_s(buffer, bufferSize, format, __VA_ARGS__)
+#else
+#define zest_snprintf(buffer, bufferSize, format, ...) snprintf(buffer, bufferSize, format, __VA_ARGS__)
+#endif
 /*end of platform specific code*/
 
 #define ZEST_TRUE 1
@@ -829,8 +835,6 @@ typedef struct zest_instance_layer_buffers {
 
 typedef struct zest_push_constants {
 	zest_matrix4 model;				//Matrix transform for the layer
-	zest_matrix4 view;
-	zest_matrix4 proj;
 	zest_vec4 parameters1;			//Contextual parameters, text uses this for shadow color
 	zest_vec4 parameters2;			//Contextual - x,y shadow offset, z shadow_smoothing, w shadow clipped for text
 	zest_vec4 camera;				//For 3d drawing
@@ -1161,7 +1165,7 @@ VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_
 VkCommandBuffer zest__begin_single_time_commands(void);
 void zest__end_single_time_commands(VkCommandBuffer command_buffer);
 char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
-zest_index zest__next_fif();
+zest_index zest__next_fif(void);
 // --End General Helper Functions
 
 // --Buffer allocation funcitons
