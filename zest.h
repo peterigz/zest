@@ -182,7 +182,7 @@ typedef enum {
 
 typedef enum {
 	zest_init_flag_none									= 0,
-	zest_init_flag_initialise_with_command_queue		= 1 << 0
+	zest_init_flag_initialise_with_command_queue		= 1 << 0,
 } zest_create_info_flags;
 
 typedef enum {
@@ -577,15 +577,16 @@ typedef struct zest_create_info {
 typedef struct zest_app{
 	zest_create_info create_info;
 
-	void(*update_callback)(float, void*);
-	void *data;
+	void(*update_callback)(zest_microsecs, void*);
+	void *user_data;
 
 	zest_window *window;
 
-	float current_elapsed;
+	zest_microsecs current_elapsed;
+	zest_microsecs current_elapsed_time;
 	float update_time;
 	float render_time;
-	float frame_timer;
+	zest_microsecs frame_timer;
 
 	double mouse_x;
 	double mouse_y;
@@ -939,13 +940,6 @@ struct zest_texture {
 
 	const char *name;
 
-	//Standard pipeline indexes
-	zest_index pipeline_index_premultiply;
-	zest_index pipeline_index_premultiply_instanced;
-	zest_index pipeline_index_billboard;
-	zest_index pipeline_index_premultiply_depth;
-	zest_index imgui_pipeline_index;
-
 	zest_imgui_blendtype imgui_blend_type;
 	VkSampler sampler;
 	zest_index image_index;									//Tracks the UID of image indexes in the qvec
@@ -1022,6 +1016,9 @@ typedef struct zest_renderer{
 	VkDescriptorBufferInfo view_buffer_info[ZEST_MAX_FIF];
 
 	zest_map_buffer_allocators buffer_allocators;									//For non frame in flight buffers
+
+	zest_index current_pipeline_index;
+	zest_index *pipeline_stack;
 
 	//Context data
 	VkCommandBuffer current_command_buffer;
@@ -1145,6 +1142,7 @@ void zest__end_sprite_instructions(zest_draw_layer *sprite_layer);
 void zest__update_sprite_layer_buffers_callback(zest_draw_routine *draw_routine, zest_buffer_uploader *vertex_upload);
 void zest__draw_sprite_layer_callback(zest_draw_routine *draw_routine);
 void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer command_buffer);
+void zest__map_sprite_instance_to_next_fif(zest_draw_layer *sprite_layer);
 
 // --General Helper Functions
 VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
@@ -1160,6 +1158,7 @@ VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_
 VkCommandBuffer zest__begin_single_time_commands(void);
 void zest__end_single_time_commands(VkCommandBuffer command_buffer);
 char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
+zest_index zest__next_fif();
 // --End General Helper Functions
 
 // --Buffer allocation funcitons
@@ -1194,16 +1193,17 @@ const char** zest__get_required_extensions(zest_uint *extension_count);
 zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
 //end device setup functions
 
-//App initialise functions
+//App initialise/run functions
 void zest__initialise_app(zest_create_info *create_info);
 void zest__initialise_device(void);
 void zest__destroy(void);
 zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char*);
 void zest__create_window_surface(zest_window*);
-void zest__main_loop(void);
 void zest__keyboard_input_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 void zest__mouse_scroll_callback(GLFWwindow* window, double offset_x, double offset_y);
 void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void zest__main_loop(void);
+zest_microsecs zest__set_elapsed_time();
 //-- end of internal functions
 
 //-- Window related functions
@@ -1233,7 +1233,7 @@ ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
 ZEST_API VkViewport zest_CreateViewport(float width, float height, float minDepth, float maxDepth);
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 ZEST_API void zest_SetUserData(void* data);
-ZEST_API void zest_SetUserCallback(void(*callback)(float, void*));
+ZEST_API void zest_SetUserCallback(void(*callback)(zest_microsecs, void*));
 ZEST_API void zest_SetActiveRenderQueue(zest_index command_queue_index);
 
 //Pipeline related 
@@ -1244,6 +1244,8 @@ ZEST_API void zest_SetPipelineTemplate(zest_pipeline_template *pipeline_template
 ZEST_API void zest_MakePipelineTemplate(zest_pipeline_set *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info *create_info);
 ZEST_API VkShaderModule zest_CreateShaderModule(char *code);
 ZEST_API zest_pipeline_template_create_info zest_CreatePipelineTemplateCreateInfo(void);
+ZEST_API VkVertexInputBindingDescription zest_CreateVertexInputBindingDescription(zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
+ZEST_API VkVertexInputAttributeDescription zest_CreateVertexInputDescription(zest_uint binding, zest_uint location, VkFormat format, zest_uint offset);
 ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaOnlyBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaBlendState(void);
@@ -1253,6 +1255,11 @@ ZEST_API VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
 ZEST_API void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_set *pipeline, VkDescriptorSet descriptor_set);
 ZEST_API zest_pipeline_set *zest_Pipeline(zest_index index);
+ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
+ZEST_API zest_index zest_PipelineIndex(const char *name);
+ZEST_API void zest_PushPipeline(zest_index pipeline_index);
+ZEST_API zest_index zest_PopPipeline();
+ZEST_API zest_index zest_CurrentPipeline();
 
 //Buffer related
 ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size);
@@ -1279,6 +1286,7 @@ ZEST_API void zest_AddDrawRoutine(zest_index index);
 ZEST_API void zest_AddDrawRoutineToRenderPass(zest_command_queue_draw_commands *render_pass, zest_draw_routine *draw_routine);
 ZEST_API zest_draw_layer *zest_GetLayerByIndex(zest_index index);
 ZEST_API zest_draw_layer *zest_GetLayerByName(const char *name);
+ZEST_API zest_index zest_GetLayerIndex(const char *name);
 ZEST_API void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instance_pool_size);
 ZEST_API void zest_ResetSpriteLayerDrawing(zest_draw_layer *sprite_layer);
 ZEST_API zest_index zest_NewSpriteLayerSetup(const char *name);
@@ -1369,6 +1377,7 @@ ZEST_API zest_texture *zest_GetTextureByIndex(zest_index index);
 ZEST_API zest_texture *zest_GetTextureByName(const char *name);
 
 // --Draw layers
+ZEST_API zest_instance_instruction zest_InstanceInstruction();
 ZEST_API void zest_DrawSprite(zest_draw_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 
 //General Helper functions
@@ -1378,8 +1387,8 @@ ZEST_API zest_pipeline_set zest_CreatePipelineSet(void);
 ZEST_API VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands *item);
 ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index);
 ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name);
-VkDescriptorBufferInfo *zest_GetUniformBufferInfoByName(const char *name, zest_index fif);
-VkDescriptorBufferInfo *zest_GetUniformBufferInfoByIndex(zest_index index, zest_index fif);
+ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfoByName(const char *name, zest_index fif);
+ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfoByIndex(zest_index index, zest_index fif);
 ZEST_API VkRenderPass zest_GetRenderPassByName(const char *name);
 ZEST_API zest_pipeline_set *zest_PipelineByIndex(zest_index index);
 ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
@@ -1393,5 +1402,7 @@ ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
+ZEST_API void zest_ShowFPSInTitle();
+ZEST_API void zest_HideFPSInTitle();
 
 #endif // ! ZEST_POCKET_RENDERER
