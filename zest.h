@@ -803,7 +803,7 @@ struct zest_command_queue_draw_commands {
 	zest_index *render_targets;
 	VkRect2D viewport;
 	zest_render_viewport_type viewport_type;
-	float viewport_scale[2];
+	zest_vec2 viewport_scale;
 	zest_index render_pass;
 	float cls_color[4];
 	int render_target_index;
@@ -1143,6 +1143,7 @@ void zest__start_sprite_instructions(zest_draw_layer *sprite_layer);
 void zest__end_sprite_instructions(zest_draw_layer *sprite_layer);
 void zest__update_sprite_layer_buffers_callback(zest_draw_routine *draw_routine, zest_buffer_uploader *vertex_upload);
 void zest__draw_sprite_layer_callback(zest_draw_routine *draw_routine);
+void zest__update_draw_layer_resolution(zest_draw_layer *layer);
 void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer command_buffer);
 void zest__map_sprite_instance_to_next_fif(zest_draw_layer *sprite_layer);
 

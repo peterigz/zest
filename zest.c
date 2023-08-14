@@ -1351,6 +1351,16 @@ void zest__recreate_swapchain() {
 
 	zest__create_final_render_command_buffer();
 	ZestRenderer->update_uniform_buffer_callback(ZestRenderer->user_uniform_data);
+
+	for (zest_map_foreach_i(ZestRenderer->draw_routines)) {
+		zest_draw_routine *draw_routine = zest_map_at_index(ZestRenderer->draw_routines, i);
+		if (!draw_routine->update_resolution_callback && draw_routine->draw_index != -1) {
+			zest_draw_layer *layer = zest_GetLayerByIndex(draw_routine->draw_index);
+			zest__update_draw_layer_resolution(layer);
+		}
+		else if (draw_routine->update_resolution_callback)
+			draw_routine->update_resolution_callback(draw_routine);
+	}
 	/*
 	for (auto &compute : App.computers) {
 		if (compute.is_active) {
@@ -1365,26 +1375,19 @@ void zest__recreate_swapchain() {
 		ImGuiIO& io = ImGui::GetIO();
 		io.DisplaySize = ImVec2(fScreenWidth(), fScreenHeight());
 	}
+	*/
 
-	for (auto& draw_routine : ZestRenderer->draw_routines.data) {
-		if (!draw_routine.update_resolution_callback && draw_routine.draw_index != -1) {
-			QulkanLayer &layer = GetLayer(draw_routine.draw_index);
-			layer.UpdateResolution();
-		}
-		else if (draw_routine.update_resolution_callback)
-			draw_routine.update_resolution_callback(draw_routine);
-	}
-
-	for (auto &command_queue : ZestRenderer->command_queues.data) {
-		for (auto &render_command_index : command_queue.render_commands) {
-			CommandQueueDraw &render_command = ZestRenderer->command_queue_render_passes[render_command_index];
-			if (render_command.viewport_type == RenderViewportType_scale_with_window) {
-				render_command.viewport.extent.width = zest_uint((float)width * render_command.viewport_scale.x);
-				render_command.viewport.extent.height = zest_uint((float)height * render_command.viewport_scale.y);
+	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
+		zest_command_queue *command_queue = zest_map_at_index(ZestRenderer->command_queues, i);
+		for (zest_foreach_j(command_queue->render_commands)) {
+			zest_index render_command_index = command_queue->render_commands[j];
+			zest_command_queue_draw_commands *render_command = zest_map_at_index(ZestRenderer->command_queue_render_passes, render_command_index);
+			if (render_command->viewport_type == zest_render_viewport_type_scale_with_window) {
+				render_command->viewport.extent.width = (zest_uint)((float)width * render_command->viewport_scale.x);
+				render_command->viewport.extent.height = (zest_uint)((float)height * render_command->viewport_scale.y);
 			}
 		}
 	}
-	*/
 
 	for (zest_foreach_i(ZestRenderer->empty_queue.render_commands)) {
 		zest_index render_command_index = ZestRenderer->empty_queue.render_commands[i];
@@ -2137,8 +2140,6 @@ void zest__prepare_standard_pipelines() {
 	sprite_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	zest_BuildPipeline(sprite_instance_pipeline);
 
-	zest_vec_free(instance_vertex_input_attributes);
-
 	//Final Render Pipelines
 	zest_uint final_render_index = zest_AddPipeline("pipeline_final_render");
 	zest_pipeline_set *final_render = zest_PipelineByIndex(final_render_index);
@@ -2309,12 +2310,14 @@ void zest__create_empty_command_queue(zest_command_queue *command_queue) {
 		zest_vec_push(command_queue->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].present_complete);
 		zest_vec_push(command_queue->fif_stage_flags[i], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 	}
-	zest_command_queue_draw_commands render_commands;
+	zest_command_queue_draw_commands render_commands = { 0 };
 	render_commands.render_pass = ZestRenderer->final_render_pass.render_pass;
 	render_commands.get_frame_buffer = zest_GetRendererFrameBuffer;
 	render_commands.render_pass_function = zest__render_blank;
 	render_commands.viewport.extent = zest_GetSwapChainExtent();
 	render_commands.viewport.offset.x = render_commands.viewport.offset.y = 0;
+	render_commands.viewport_scale.x = 1.f;
+	render_commands.viewport_scale.y = 1.f;
 	zest_ConnectCommandQueueToPresent(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 	zest_map_insert(ZestRenderer->command_queue_render_passes, "Blank Render Pass", render_commands);
 	zest_vec_push(command_queue->render_commands, zest_map_last_index(ZestRenderer->command_queue_render_passes));
@@ -3154,6 +3157,10 @@ zest_index zest_NewRenderPassSetupSC(const char *name) {
 zest_index zest_create_command_queue_render_pass(const char *name) {
 	zest_command_queue_draw_commands render_commands = { 0 };
 	render_commands.name = name;
+	render_commands.viewport_scale.x = 1.f;
+	render_commands.viewport_scale.y = 1.f;
+	render_commands.render_target_index = -1;
+	render_commands.viewport_type = zest_render_viewport_type_scale_with_window;
 
 	//render_commands.command_queue_index = command_queue.index_in_renderer;
 	zest_map_insert(ZestRenderer->command_queue_render_passes, name, render_commands);
@@ -4415,6 +4422,14 @@ void zest__draw_sprite_layer_callback(zest_draw_routine *draw_routine) {
 	zest__draw_sprite_layer(sprite_layer, zest_CurrentCommandBuffer());
 	zest_ResetSpriteLayerDrawing(sprite_layer);
 	zest__map_sprite_instance_to_next_fif(sprite_layer);
+}
+
+void zest__update_draw_layer_resolution(zest_draw_layer *layer) {
+	//GetRenderTarget(render_target_index).GetViewportSize(viewport_size.x, viewport_size.y);
+	layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
+	layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
+	layer->screen_scale.x = layer->viewport_size.x / layer->layer_size.x;
+	layer->screen_scale.y = layer->viewport_size.y / layer->layer_size.y;
 }
 
 void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer command_buffer) {
