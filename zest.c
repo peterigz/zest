@@ -175,8 +175,8 @@ zest_uint zest_Pack16bit(float x, float y) {
 	return u.out;
 }
 
-zest_uint zest_GetNextPower(zest_uint n) {
-	zest_uint t = 1;
+zest_size zest_GetNextPower(zest_size n) {
+	zest_size t = 1;
 	while (t < n)
 		t *= 2;
 	return t;
@@ -229,6 +229,7 @@ void zest__initialise_device() {
 	zest__pick_physical_device();
 	zest__create_logical_device();
 	zest__set_limit_data();
+	zest__set_default_pool_sizes();
 }
 
 void zest_SetUserData(void* data) {
@@ -649,6 +650,33 @@ void zest__set_limit_data() {
 	ZestDevice->max_image_size = physicalDeviceProperties.limits.maxImageDimension2D;
 }
 
+void zest__set_default_pool_sizes() {
+	zest_buffer_usage usage = { 0 };
+	//Depth buffer image
+	usage.image_flags = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	zest_SetDevicePoolSize(0, usage.property_flags, usage.image_flags, tloc__KILOBYTE(4), tloc__MEGABYTE(16));
+
+	//Texture images
+	usage.image_flags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	zest_SetDevicePoolSize(0, usage.property_flags, usage.image_flags, tloc__KILOBYTE(4), tloc__MEGABYTE(32));
+
+	//Uniform buffers
+	usage.image_flags = 0;
+	usage.usage_flags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+	usage.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+	zest_SetDevicePoolSize(usage.usage_flags, usage.property_flags, 0, 64, tloc__MEGABYTE(1));
+
+	//Staging buffer
+	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	zest_SetDevicePoolSize(usage.usage_flags, usage.property_flags, 0, tloc__KILOBYTE(2), tloc__MEGABYTE(32));
+
+	//Vertex buffer
+	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	zest_SetDevicePoolSize(usage.usage_flags, usage.property_flags, 0, tloc__KILOBYTE(2), tloc__MEGABYTE(32));
+}
+
 /*
 End of Device creation functions
 */
@@ -888,7 +916,7 @@ void zest__on_merge_prev(void *user_data, tloc_header *prev_block, tloc_header *
 	buffer->size = 0;
 }
 
-void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trimmed_block, tloc_size remote_size) {
+void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trimmed_block, zest_size remote_size) {
 	zest_buffer_allocator *pools = (zest_buffer_allocator*)user_data;
 	zest_buffer *buffer = tloc__block_user_extension_ptr(block);
 	zest_buffer *trimmed_buffer = tloc__block_user_extension_ptr(trimmed_block);
@@ -915,7 +943,7 @@ void zest__on_reallocation_copy(void *user_data, tloc_header* block, tloc_header
 	}
 }
 
-tloc_size zest__get_bytes_per_block(tloc_size pool_size) {
+tloc_size zest__get_bytes_per_block(zest_size pool_size) {
 	return pool_size > tloc__MEGABYTE(1) ? pool_size / 128 : 256;
 }
 
@@ -923,7 +951,7 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 	if (image != VK_NULL_HANDLE) {
 		VkMemoryRequirements memory_requirements;
 		vkGetImageMemoryRequirements(ZestDevice->logical_device, image, &memory_requirements);
-		buffer_info->memoryTypeBits = memory_requirements.memoryTypeBits;
+		buffer_info->memory_type_bits = memory_requirements.memoryTypeBits;
 		buffer_info->alignment = memory_requirements.alignment;
 	}
 
@@ -934,15 +962,28 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 		buffer_allocator.property_flags = buffer_info->property_flags;
 		buffer_allocator.usage_flags = buffer_info->usage_flags;
 		zest_device_memory_pool buffer_pool = { 0 };
-		if (pool_size < size) {
-			pool_size = size * 2;
-		}
 		if (image == VK_NULL_HANDLE) {
-			buffer_pool.size = pool_size ? pool_size : tloc__MEGABYTE(64);
+			zest_buffer_pool_size pre_defined_pool_size = zest_GetDevicePoolSize(buffer_info->usage_flags, buffer_info->property_flags, buffer_info->image_usage_flags);
+			if (pre_defined_pool_size.pool_size > 0) {
+				buffer_pool.size = pre_defined_pool_size.pool_size > size ? pre_defined_pool_size.pool_size : size + size / 2;
+			}
+			else {
+				ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating memory where no default pool size was found for usage flags: %i and property flags: %i. Defaulting to 32MB or size + size / 2, whichever is bigger.",
+									buffer_info->usage_flags, buffer_info->property_flags);
+				buffer_pool.size = tloc__MEGABYTE(32) > size ? tloc__MEGABYTE(32) : zest_GetNextPower(size + size / 2);
+			}
 			zest__create_device_memory_pool(buffer_pool.size, buffer_info->usage_flags, buffer_info->property_flags, &buffer_pool, "");
 		}
 		else {
-			buffer_pool.size = pool_size ? pool_size : tloc__MEGABYTE(128);
+			zest_buffer_pool_size pre_defined_pool_size = zest_GetDevicePoolSize(buffer_info->usage_flags, buffer_info->property_flags, buffer_info->image_usage_flags);
+			if (pre_defined_pool_size.pool_size > 0) {
+				buffer_pool.size = pre_defined_pool_size.pool_size > size ? pre_defined_pool_size.pool_size : zest_GetNextPower(size + size / 2);
+			}
+			else {
+				ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating image memory where no default pool size was found for image usage flags: %i, and property flags: %i. Defaulting to 32MB or size + size / 2, whichever is bigger.",
+					buffer_info->image_usage_flags, buffer_info->property_flags);
+				buffer_pool.size = pool_size ? pool_size : tloc__MEGABYTE(32);
+			}
 			zest__create_image_memory_pool(buffer_pool.size, image, buffer_info->property_flags, &buffer_pool);
 		}
 		if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
@@ -1064,6 +1105,33 @@ zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer comm
 	zest_vec_clear(uploader->buffer_copies);
 
 	return ZEST_TRUE;
+}
+
+zest_buffer_pool_size zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags) {
+	zest_buffer_usage usage;
+	usage.usage_flags = usage_flags;
+	usage.property_flags = property_flags;
+	usage.image_flags = image_flags;
+	zest_key usage_hash = zest_Hash(ZestHasher, &usage, sizeof(zest_buffer_usage), ZEST_HASH_SEED);
+	if (zest_map_valid_key(ZestDevice->pool_sizes, usage_hash)) {
+		return *zest_map_at_key(ZestDevice->pool_sizes, usage_hash);
+	}
+	zest_buffer_pool_size pool_size = { 0 };
+	return pool_size;
+}
+
+void zest_SetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size) {
+	ZEST_ASSERT(minimum_allocation > tloc__MEMORY_ALIGNMENT);	//minimum_allocation must be higher then the memoryalignment
+	ZEST_ASSERT(pool_size);		//Must set a pool size
+	zest_buffer_usage usage;
+	usage.usage_flags = usage_flags;
+	usage.property_flags = property_flags;
+	usage.image_flags = image_flags;
+	zest_key usage_hash = zest_Hash(ZestHasher, &usage, sizeof(zest_buffer_usage), ZEST_HASH_SEED);
+	zest_buffer_pool_size pool_sizes;
+	pool_sizes.minimum_allocation_size = minimum_allocation;
+	pool_sizes.pool_size = pool_size;
+	zest_map_insert_key(ZestDevice->pool_sizes, usage_hash, pool_sizes);
 }
 // --End Vulkan Buffer Management
 
@@ -1471,7 +1539,7 @@ void zest__create_sync_objects() {
 
 zest_index zest_create_uniform_buffer(const char *name, zest_size uniform_struct_size) {
 	zest_uniform_buffer uniform_buffer;
-	zest_buffer_info buffer_info;
+	zest_buffer_info buffer_info = { 0 };
 	buffer_info.usage_flags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 	for (ZEST_EACH_FIF_i) {
@@ -2966,7 +3034,7 @@ zest_create_info zest_CreateInfo() {
 		.virtual_height = 768,
 		.color_format = VK_FORMAT_R8G8B8A8_UNORM,
 		.pool_counts = ZEST_NULL,
-		.flags = zest_init_flag_initialise_with_command_queue
+		.flags = zest_init_flag_initialise_with_command_queue,
 	};
 	return create_info;
 }
@@ -4032,7 +4100,7 @@ void zest_MakeSpriteSheet(zest_texture *texture) {
 	}
 
 	zest_uint size = (zest_uint)ZEST__MAX((float)max_width, (float)max_height);
-	size = zest_GetNextPower(size);
+	size = (zest_uint)zest_GetNextPower(size);
 
 	const zest_uint node_count = size * 2;
 	stbrp_node *nodes = 0;

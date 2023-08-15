@@ -63,6 +63,18 @@
 #define STBI_FREE(p)              ZEST__FREE(p)
 #include "stb_image.h"
 
+#ifndef ZEST_WARNING_COLOR
+#define ZEST_WARNING_COLOR "\033[38;5;208m"
+#endif
+
+#define ZEST_OUTPUT_WARNING_MESSAGES
+#ifdef ZEST_OUTPUT_WARNING_MESSAGES
+#include <stdio.h>
+#define ZEST_PRINT_WARNING(message_f, ...) printf(message_f"\n\033[0m", __VA_ARGS__)
+#else
+#define ZEST_PRINT_WARNING(message_f, ...)
+#endif
+
 #define ZEST__ARRAY(name, type, count) type *name = ZEST__REALLOCATE(0, sizeof(type) * count)
 #define ZEST_FIF ZestDevice->current_fif
 #define ZEST_MICROSECS_SECOND 1000000ULL
@@ -425,9 +437,9 @@ zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pa
 #define zest_map_valid_key(hash_map, key) (hash_map.map && zest__map_get_index(hash_map.map, key) != -1)
 #define zest_map_valid_index(hash_map, index) (hash_map.map && (zest_uint)index < zest_vec_size(hash_map.data))
 #define zest_map_valid_hash(hash_map, ptr, size) (zest__map_get_index(hash_map.map, zest_map_hash_ptr(hash_map, ptr, size)) != -1)
-#define zest_map_set_index(hash_map, key, value) zest_hash_pair *it = zest__lower_bound(hash_map.map, key); if(!hash_map.map || it == zest_vec_end(hash_map.map) || it->key != key) { zest_vec_push(hash_map.data, value); zest_hash_pair new_pair; new_pair.key = key; new_pair.index = zest_vec_size(hash_map.data) - 1; zest_vec_insert(hash_map.map, it, new_pair); } else {hash_map.data[it->index] = value;}
+#define zest_map_set_index(hash_map, hash_key, value) zest_hash_pair *it = zest__lower_bound(hash_map.map, hash_key); if(!hash_map.map || it == zest_vec_end(hash_map.map) || it->key != hash_key) { zest_vec_push(hash_map.data, value); zest_hash_pair new_pair; new_pair.key = hash_key; new_pair.index = zest_vec_size(hash_map.data) - 1; zest_vec_insert(hash_map.map, it, new_pair); } else {hash_map.data[it->index] = value;}
 #define zest_map_insert(hash_map, name, value) { zest_key key = zest_map_hash(hash_map, name); zest_map_set_index(hash_map, key, value) }
-#define zest_map_insert_key(hash_map, key, value) { zest_map_set_index(hash_map, key, value) }
+#define zest_map_insert_key(hash_map, hash_key, value) { zest_map_set_index(hash_map, hash_key, value) }
 #define zest_map_insert_with_ptr_hash(hash_map, ptr, size, value) { zest_key key = zest_map_hash_ptr(hash_map, ptr, size); zest_map_set_index(hash_map, key, value) }
 #define zest_map_at(hash_map, name) &hash_map.data[zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name))]
 #define zest_map_at_key(hash_map, key) &hash_map.data[zest__map_get_index(hash_map.map, key)]
@@ -475,8 +487,21 @@ typedef struct zest_buffer_info{
 	VkMemoryPropertyFlags property_flags;
 	zest_buffer_flags flags;
 	VkDeviceSize alignment;
-	zest_uint memoryTypeBits;
+	zest_uint memory_type_bits;
 } zest_buffer_info;
+
+typedef struct zest_buffer_pool_size {
+	zest_size pool_size;
+	zest_size minimum_allocation_size;
+} zest_buffer_pool_size;
+
+typedef struct zest_buffer_usage { 
+	VkBufferUsageFlags usage_flags; 
+	VkMemoryPropertyFlags property_flags; 
+	VkImageUsageFlags image_flags; 
+} zest_buffer_usage;
+
+zest_hash_map(zest_buffer_pool_size) zest_map_buffer_pool_sizes;
 
 //A simple buffer struct for creating and mapping GPU memory
 typedef struct zest_device_memory_pool{
@@ -498,7 +523,7 @@ typedef struct zest_buffer_allocator{
 	VkBufferUsageFlags usage_flags;					//The usage state_flags of the memory block. 
 	VkMemoryPropertyFlags property_flags;			//The property state_flags of the memory block.	
 	tloc_allocator *allocator;
-	tloc_size alignment;
+	zest_size alignment;
 	zest_device_memory_pool *memory_pools;
 	zest_pool_range *range_pools;
 } zest_buffer_allocator;
@@ -567,6 +592,7 @@ typedef struct zest_device{
 	VkCommandPool command_pool;
 	PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
 	VkFormat color_format;
+	zest_map_buffer_pool_sizes pool_sizes;
 } zest_device;
 
 typedef struct zest_create_info {
@@ -576,10 +602,6 @@ typedef struct zest_create_info {
 	VkFormat color_format;								//Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
 	VkDescriptorPoolSize *pool_counts;					//You can define descriptor pool counts here.
 	zest_create_info_flags flags;						//Set flags to apply different initialisation options
-
-	//The starting sizes of various buffers. Whilst these will be resized as necessary, they are best set to a size so they have enough space and do not need to be resized at all.
-	//Set output_memory_usage_on_exit to true so that you can determine the sizes as you develop your application
-	//All values are the size in bytes
 } zest_create_info;
 
 typedef struct zest_app{
@@ -1176,12 +1198,12 @@ zest_index zest__next_fif(void);
 void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer, const char *name);
 void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer);
 void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineStageFlags stage_flags);
-tloc_size zest__get_bytes_per_block(tloc_size pool_size);
-tloc_size zest__get_remote_size(const tloc_header *block);
+zest_size zest__get_bytes_per_block(zest_size pool_size);
+zest_size zest__get_remote_size(const tloc_header *block);
 void zest__on_add_pool(void *user_data, void *block);
 void zest__on_merge_next(void *user_data, tloc_header *block, tloc_header *next_block);
 void zest__on_merge_prev(void *user_data, tloc_header *prev_block, tloc_header *block);
-void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trimmed_block, tloc_size remote_size);
+void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trimmed_block, zest_size remote_size);
 // --End Buffer allocation funcitons
 
 //Device set up 
@@ -1202,6 +1224,7 @@ void zest__set_limit_data(void);
 zest_bool zest__check_validation_layer_support(void);
 const char** zest__get_required_extensions(zest_uint *extension_count);
 zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
+void zest__set_default_pool_sizes();
 //end device setup functions
 
 //App initialise/run functions
@@ -1280,6 +1303,8 @@ ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer *buffer);
 ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer *buffer);
 ZEST_API void zest_AddCopyCommand(zest_buffer_uploader *uploader, zest_buffer *source_buffer, zest_buffer *target_buffer, VkDeviceSize target_offset);
 ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer command_buffer);
+ZEST_API zest_buffer_pool_size zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
+ZEST_API void zest_SetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
 
 //Command queue setup and creation
 ZEST_API zest_index zest_NewCommandQueue(const char *name, zest_command_dependency_type dependency_type, zest_index dependency);
@@ -1320,7 +1345,7 @@ ZEST_API zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, c
 ZEST_API zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far);
 ZEST_API float zest_Distance(float fromx, float fromy, float tox, float toy);
 ZEST_API zest_uint zest_Pack16bit(float x, float y);
-ZEST_API zest_uint zest_GetNextPower(zest_uint n);
+ZEST_API zest_size zest_GetNextPower(zest_size n);
 
 ZEST_API zest_matrix4 zest_M4(void);
 ZEST_API zest_vec2 zest_Vec2Set1(float v);
