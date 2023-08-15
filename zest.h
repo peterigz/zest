@@ -41,7 +41,7 @@
 #ifndef _DEBUG
 #define ZEST_ENABLE_VALIDATION_LAYER 0
 #else
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
 #ifndef ZEST__FREE
@@ -838,6 +838,7 @@ typedef struct zest_push_constants {
 	zest_vec4 parameters1;			//Contextual parameters, text uses this for shadow color
 	zest_vec4 parameters2;			//Contextual - x,y shadow offset, z shadow_smoothing, w shadow clipped for text
 	zest_vec4 camera;				//For 3d drawing
+    zest_vec4 padding;
 }zest_push_constants;
 
 typedef struct zest_instance_instruction {
@@ -1102,6 +1103,7 @@ VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_mo
 VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
 void zest__cleanup_swapchain(void);
 void zest__cleanup_renderer(void);
+void zest__recreate_swapchain(void);
 void zest__add_push_constant(zest_pipeline_template_create_info *create_info, VkPushConstantRange push_constant);
 void zest__add_draw_routine(zest_command_queue_draw_commands *command_queue_draw, zest_draw_routine *draw_routine);
 void zest__create_swapchain_image_views(void);
@@ -1127,6 +1129,8 @@ void zest__cleanup_textures(void);
 void zest__cleanup_texture(zest_texture *texture);
 void zest__rebuild_pipeline(zest_pipeline_set *pipeline);
 void zest__present_frame(void);
+void zest__acquire_next_swapchain_image(void);
+void zest__draw_renderer_frame(void);
 // --End Renderer functions
 
 // --Command Queue functions
@@ -1210,7 +1214,7 @@ void zest__keyboard_input_callback(GLFWwindow* window, int key, int scancode, in
 void zest__mouse_scroll_callback(GLFWwindow* window, double offset_x, double offset_y);
 void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void zest__main_loop(void);
-zest_microsecs zest__set_elapsed_time();
+zest_microsecs zest__set_elapsed_time(void);
 //-- end of internal functions
 
 //-- Window related functions
@@ -1225,8 +1229,6 @@ ZEST_API zest_create_info zest_CreateInfo(void);
 ZEST_API void zest_Initialise(zest_create_info *info);
 ZEST_API void zest_Start(void);
 ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
-ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
-ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API zest_index zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers);
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint binding);
@@ -1265,8 +1267,8 @@ ZEST_API zest_pipeline_set *zest_Pipeline(zest_index index);
 ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
 ZEST_API zest_index zest_PipelineIndex(const char *name);
 ZEST_API void zest_PushPipeline(zest_index pipeline_index);
-ZEST_API zest_index zest_PopPipeline();
-ZEST_API zest_index zest_CurrentPipeline();
+ZEST_API zest_index zest_PopPipeline(void);
+ZEST_API zest_index zest_CurrentPipeline(void);
 
 //Buffer related
 ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size);
@@ -1320,7 +1322,7 @@ ZEST_API float zest_Distance(float fromx, float fromy, float tox, float toy);
 ZEST_API zest_uint zest_Pack16bit(float x, float y);
 ZEST_API zest_uint zest_GetNextPower(zest_uint n);
 
-ZEST_API zest_matrix4 zest_M4();
+ZEST_API zest_matrix4 zest_M4(void);
 ZEST_API zest_vec2 zest_Vec2Set1(float v);
 ZEST_API zest_vec3 zest_Vec3Set1(float v);
 ZEST_API zest_vec4 zest_Vec4Set1(float v);
@@ -1329,7 +1331,7 @@ ZEST_API zest_vec3 zest_Vec3Set(float x, float y, float z);
 ZEST_API zest_vec4 zest_Vec4Set(float x, float y, float z, float w);
 
 //Images and textures
-ZEST_API zest_map_textures *zest_GetTextures();
+ZEST_API zest_map_textures *zest_GetTextures(void);
 ZEST_API zest_texture zest_NewTexture(void);
 ZEST_API zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_uint reserve_images);
 ZEST_API zest_image zest_CreateImage(void);
@@ -1384,7 +1386,7 @@ ZEST_API zest_texture *zest_GetTextureByIndex(zest_index index);
 ZEST_API zest_texture *zest_GetTextureByName(const char *name);
 
 // --Draw layers
-ZEST_API zest_instance_instruction zest_InstanceInstruction();
+ZEST_API zest_instance_instruction zest_InstanceInstruction(void);
 ZEST_API void zest_DrawSprite(zest_draw_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 
 //General Helper functions
@@ -1409,7 +1411,7 @@ ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
-ZEST_API void zest_ShowFPSInTitle();
-ZEST_API void zest_HideFPSInTitle();
+ZEST_API void zest_ShowFPSInTitle(void);
+ZEST_API void zest_HideFPSInTitle(void);
 
 #endif // ! ZEST_POCKET_RENDERER
