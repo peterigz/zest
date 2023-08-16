@@ -19,8 +19,8 @@ layout(push_constant) uniform quad_index
     mat4 model;
     vec4 parameters1;
 	vec4 parameters2;
+	vec4 parameters3;
 	vec4 camera;
-	uint flags;
 } pc;
 
 //Vertex
@@ -73,11 +73,10 @@ void main() {
 	matrix[1][0] = -s;
 	matrix[1][1] = c;
 
-	mat4 modelView = uboView.view * pc.model;
 	vec3 pos = matrix * vec3(vertex_position.x, vertex_position.y, 1);
 	pos.xy += alignment_normal * dot(pos.xy, alignment_normal);
 	pos.xy += position_rotation.xy;
-	gl_Position = uboView.proj * modelView * vec4(pos, 1.0);
+	gl_Position = uboView.proj * uboView.view * vec4(pos, 1.0);
 
 	//----------------
 	out_frag_color = in_color * intensity;

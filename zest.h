@@ -26,10 +26,6 @@
 #define ZEST_MAX_FIF 2
 #endif
 
-#ifndef ZEST_MAX_BUFFERS_PER_ALLOCATOR
-#define ZEST_MAX_BUFFERS_PER_ALLOCATOR 64
-#endif
-
 #ifndef ZEST_ASSERT
 #define ZEST_ASSERT assert
 #endif
@@ -856,11 +852,11 @@ typedef struct zest_instance_layer_buffers {
 } zest_instance_layer_buffers;
 
 typedef struct zest_push_constants {
-	zest_matrix4 model;				//Matrix transform for the layer
-	zest_vec4 parameters1;			//Contextual parameters, text uses this for shadow color
-	zest_vec4 parameters2;			//Contextual - x,y shadow offset, z shadow_smoothing, w shadow clipped for text
+	zest_matrix4 model;				//Can be used for anything
+	zest_vec4 parameters1;			//Can be used for anything
+	zest_vec4 parameters2;			//Can be used for anything
+    zest_vec4 parameters3;			//Can be used for anything		
 	zest_vec4 camera;				//For 3d drawing
-    zest_vec4 padding;
 }zest_push_constants;
 
 typedef struct zest_instance_instruction {
@@ -869,7 +865,7 @@ typedef struct zest_instance_instruction {
 	zest_index last_instance;					//The last instance that was drawn in the previous instance instruction
 	zest_index pipeline;						//The pipeline index to draw the instances. 
 	VkDescriptorSet descriptor_set; 			//The descriptor set used to draw the quads.
-	zest_push_constants attributes;				//Each draw instruction can have different values in the push constants attributes
+	zest_push_constants push_constants;			//Each draw instruction can have different values in the push constants push_constants
 	VkRect2D scissor;							//The drawinstruction can also clip whats drawn
 	VkViewport viewport;						//The viewport size of the draw call 
 	zest_draw_mode draw_mode;
@@ -892,7 +888,7 @@ typedef struct zest_draw_layer {
 
 	zest_color current_color;
 	float multiply_blend_factor;
-	zest_push_constants attributes;
+	zest_push_constants push_constants;
 
 	zest_vec2 layer_size;
 	zest_vec2 viewport_size;
@@ -1322,6 +1318,7 @@ ZEST_API zest_draw_layer *zest_GetLayerByIndex(zest_index index);
 ZEST_API zest_draw_layer *zest_GetLayerByName(const char *name);
 ZEST_API zest_index zest_GetLayerIndex(const char *name);
 ZEST_API void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instance_pool_size);
+ZEST_API void zest_ScaleDrawLayer(zest_draw_layer *sprite_layer, float scale);
 ZEST_API void zest_ResetSpriteLayerDrawing(zest_draw_layer *sprite_layer);
 ZEST_API zest_index zest_NewSpriteLayerSetup(const char *name);
 
@@ -1347,7 +1344,9 @@ ZEST_API float zest_Distance(float fromx, float fromy, float tox, float toy);
 ZEST_API zest_uint zest_Pack16bit(float x, float y);
 ZEST_API zest_size zest_GetNextPower(zest_size n);
 
-ZEST_API zest_matrix4 zest_M4(void);
+ZEST_API zest_matrix4 zest_M4(float v);
+ZEST_API zest_vec4 zest_ScaleVec4(zest_vec4 *vec4, float v);
+ZEST_API zest_matrix4 zest_ScaleMatrix4x4(zest_matrix4 *m, zest_vec4 *v);
 ZEST_API zest_vec2 zest_Vec2Set1(float v);
 ZEST_API zest_vec3 zest_Vec3Set1(float v);
 ZEST_API zest_vec4 zest_Vec4Set1(float v);

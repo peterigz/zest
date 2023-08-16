@@ -44,13 +44,22 @@ const char *zest__vulkan_error(VkResult errorCode)
 }
 
 // --Math
-zest_matrix4 zest_M4(void) {
+zest_matrix4 zest_M4(float v) {
 	zest_matrix4 matrix = { 0 }; 
-	matrix.v[0].x = 1.f; 
-	matrix.v[1].y = 1.f; 
-	matrix.v[2].z = 1.f; 
-	matrix.v[3].w = 1.f; 
+	matrix.v[0].x = v; 
+	matrix.v[1].y = v; 
+	matrix.v[2].z = v; 
+	matrix.v[3].w = v; 
 	return matrix; 
+}
+
+zest_matrix4 zest_ScaleMatrix4x4(zest_matrix4 *m, zest_vec4 *v) {
+	zest_matrix4 result = zest_M4(1);
+	result.v[0] = zest_ScaleVec4(&m->v[0], v->x);
+	result.v[1] = zest_ScaleVec4(&m->v[1], v->y);
+	result.v[2] = zest_ScaleVec4(&m->v[2], v->z);
+	result.v[3] = zest_ScaleVec4(&m->v[3], v->w);
+	return result;
 }
 
 zest_vec2 zest_Vec2Set1(float v) { 
@@ -81,6 +90,15 @@ zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right) {
 		.y = left.y - right.y,
 		.z = left.z - right.z,
 	};
+	return result;
+}
+
+zest_vec4 zest_ScaleVec4(zest_vec4 *vec4, float v) {
+	zest_vec4 result;
+	result.x = vec4->x * v;
+	result.y = vec4->y * v;
+	result.z = vec4->z * v;
+	result.w = vec4->w * v;
 	return result;
 }
 
@@ -4398,12 +4416,12 @@ void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instanc
 	sprite_layer->current_color.g = 255;
 	sprite_layer->current_color.b = 255;
 	sprite_layer->current_color.a = 255;
-	sprite_layer->attributes.model = zest_M4();
-	sprite_layer->attributes.parameters1 = zest_Vec4Set1(0.f);
-	sprite_layer->attributes.parameters2.x = 0.f;
-	sprite_layer->attributes.parameters2.y = 0.f;
-	sprite_layer->attributes.parameters2.z = 0.25f;
-	sprite_layer->attributes.parameters2.w = 0.5f;
+	sprite_layer->push_constants.model = zest_M4(1);
+	sprite_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
+	sprite_layer->push_constants.parameters2.x = 0.f;
+	sprite_layer->push_constants.parameters2.y = 0.f;
+	sprite_layer->push_constants.parameters2.z = 0.25f;
+	sprite_layer->push_constants.parameters2.w = 0.5f;
 	sprite_layer->layer_size = zest_Vec2Set1(1.f);
 
 	zest_buffer_info device_buffer_info = zest_CreateVertexBufferInfo();
@@ -4421,6 +4439,10 @@ void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instanc
 	sprite_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
 
 	zest_ResetSpriteLayerDrawing(sprite_layer);
+}
+
+void zest_ScaleDrawLayer(zest_draw_layer *sprite_layer, float scale) {
+	sprite_layer->push_constants.model = zest_M4(scale);
 }
 
 ZEST_API zest_instance_instruction zest_InstanceInstruction() {
@@ -4444,7 +4466,7 @@ void zest__sync_sprite_layer_to_current_fif(zest_draw_layer *sprite_layer) {
 
 void zest__start_sprite_instructions(zest_draw_layer *sprite_layer) {
 	sprite_layer->current_instance_instruction.start_index = sprite_layer->instance_memory_refs[ZEST_FIF].instance_count ? sprite_layer->instance_memory_refs[ZEST_FIF].instance_count : 0;
-	sprite_layer->current_instance_instruction.attributes = sprite_layer->attributes;
+	sprite_layer->current_instance_instruction.push_constants = sprite_layer->push_constants;
 }
 
 void zest__end_sprite_instructions(zest_draw_layer *sprite_layer) {
@@ -4516,7 +4538,7 @@ void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer comm
 			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			0,
 			sizeof(zest_push_constants),
-			&current->attributes);
+			&current->push_constants);
 
 		vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
 	}
@@ -4639,9 +4661,10 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_SetActiveRenderQueue(0);
 	zest_PushPipeline(example->sprite_pipeline);
 	layer->multiply_blend_factor = 1.f;
-	for (float x = 0; x != 100; ++x) {
-		for (float y = 0; y != 10; ++y) {
-			zest_DrawSprite(layer, zest_GetImageFromTexture(texture, example->image1), x * 20.f + 20.f, y * 40.f + 20.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
+	zest_ScaleDrawLayer(layer, 0.5f);
+	for (float x = 0; x != 75; ++x) {
+		for (float y = 0; y != 15; ++y) {
+			zest_DrawSprite(layer, zest_GetImageFromTexture(texture, example->image1), x * 16.f + 20.f, y * 40.f + 20.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
 		}
 	}
 	zest_PopPipeline();
