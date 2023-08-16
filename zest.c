@@ -3401,6 +3401,22 @@ void zest_LoadBitmapImage(zest_bitmap *image, const char *file, int desired_chan
 	}
 }
 
+void zest_LoadBitmapImageMemory(zest_bitmap *image, unsigned char *buffer, int size, int desired_no_channels) {
+	int width, height, original_no_channels;
+	unsigned char *img = stbi_load_from_memory(buffer, size, &width, &height, &original_no_channels, desired_no_channels);
+	if (img != NULL) {
+		image->width = width;
+		image->height = height;
+		image->data = img;
+		image->channels = original_no_channels;
+		image->stride = width * original_no_channels;
+		image->size = width * height * original_no_channels;
+	}
+	else {
+		image->data = ZEST_NULL;
+	}
+}
+
 void zest_FreeBitmap(zest_bitmap *image) {
 	if (image->data) {
 		ZEST__FREE(image->data);
@@ -3586,7 +3602,6 @@ zest_index zest_LoadImageFile(zest_texture *texture, const char* filename) {
 	ZEST_ASSERT(bitmap->data != ZEST_NULL);			//No image data found, make sure the image is loading ok
 	zest_ConvertBitmapToRGBA(bitmap, 255);
 
-	//get the image width and height
 	image->width = bitmap->width;
 	image->height = bitmap->height;
 	image->texture_index = texture->index_in_renderer;
@@ -3599,21 +3614,43 @@ zest_index zest_LoadImageFile(zest_texture *texture, const char* filename) {
 	return image->index;
 }
 
-zest_index zest_LoadImageBitmap(zest_texture *texture, zest_bitmap *image_data) {
+zest_index zest_LoadImageBitmap(zest_texture *texture, zest_bitmap *bitmap_to_load) {
 	zest_vec_push(texture->images, zest_CreateImage());
 	texture->image_index = zest_vec_last_index(texture->images);
 	zest_image *image = &zest_vec_back(texture->images);
 	image->index = texture->image_index;
 	zest_bitmap image_copy;
-	zest_CopyWholeBitmap(image_data, &image_copy);
+	zest_CopyWholeBitmap(bitmap_to_load, &image_copy);
 	zest_vec_push(texture->image_bitmaps, image_copy);
 	zest_bitmap *bitmap = zest_GetBitmap(texture, zest_GetImageIndex(texture));
 
 	ZEST_ASSERT(bitmap->data != ZEST_NULL);
 	zest_ConvertBitmapToRGBA(bitmap, 255);
-	//PreMultiplyAlpha(store_image, load_filter);
 
-	//get the image width and height
+	image->width = bitmap->width;
+	image->height = bitmap->height;
+	image->texture_index = texture->index_in_renderer;
+	if (texture->flags & zest_texture_flag_get_max_radius) {
+		image->max_radius = zest_FindBitmapRadius(bitmap);
+	}
+	image->name = bitmap->name;
+	zest_UpdateImageVertices(image);
+
+	return image->index;
+}
+
+zest_index zest_LoadImageMemory(zest_texture *texture, const char* name, unsigned char* buffer, int buffer_size) {
+	zest_vec_push(texture->images, zest_CreateImage());
+	texture->image_index = zest_vec_last_index(texture->images);
+	zest_image *image = &zest_vec_back(texture->images);
+	image->index = texture->image_index;
+	zest_vec_push(texture->image_bitmaps, zest_NewBitmap());
+	zest_bitmap *bitmap = zest_GetBitmap(texture, zest_GetImageIndex(texture));
+
+	zest_LoadBitmapImageMemory(bitmap, buffer, buffer_size, texture->desired_channels);
+	ZEST_ASSERT(bitmap->data != ZEST_NULL);
+	zest_ConvertBitmapToRGBA(bitmap, 255);
+
 	image->width = bitmap->width;
 	image->height = bitmap->height;
 	image->texture_index = texture->index_in_renderer;
@@ -3635,11 +3672,57 @@ zest_index zest_LoadAnimationFile(zest_texture *texture, const char* filename, i
 
 	zest_uint animation_area = spritesheet.width * spritesheet.height;
 	zest_uint frame_area = width * height;
-	zest_uint first_index = zest_vec_size(texture->images);
+	zest_index first_index = zest_vec_size(texture->images);
 
-	assert(frames <= animation_area / frame_area);	// ERROR: The animation being loaded is the wrong size for the number of frames that you want to load for the specified width and height.
-	assert(spritesheet.width >= width);				// ERROR: The animation being loaded is not wide enough for the width of each frame specified.
-	assert(spritesheet.height >= height);			// ERROR: The animation being loaded is not heigh enough for the height of each frame specified.
+	ZEST_ASSERT(frames <= animation_area / frame_area);	// ERROR: The animation being loaded is the wrong size for the number of frames that you want to load for the specified width and height.
+	ZEST_ASSERT(spritesheet.width >= width);			// ERROR: The animation being loaded is not wide enough for the width of each frame specified.
+	ZEST_ASSERT(spritesheet.height >= height);			// ERROR: The animation being loaded is not heigh enough for the height of each frame specified.
+
+	*max_radius = zest_CopyAnimationFrames(texture, &spritesheet, width, height, frames, row_by_row);
+	zest_FreeBitmap(&spritesheet);
+
+	return first_index;
+}
+
+zest_index zest_LoadAnimationImage(zest_texture *texture, zest_bitmap *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
+
+	ZEST_ASSERT(spritesheet->data != ZEST_NULL);
+	zest_ConvertBitmapToRGBA(spritesheet, 255);
+	spritesheet->width;
+	spritesheet->height;
+
+	zest_uint animation_area = spritesheet->width * spritesheet->height;
+	zest_uint frame_area = width * height;
+
+	zest_index first_index = zest_vec_size(texture->images);
+
+	ZEST_ASSERT(frames <= animation_area / frame_area);	// ERROR: The animation being loaded is the wrong size for the number of frames that you want to load for the specified width and height.
+	ZEST_ASSERT(spritesheet->width >= width);			// ERROR: The animation being loaded is not wide enough for the width of each frame specified.
+	ZEST_ASSERT(spritesheet->height >= height);			// ERROR: The animation being loaded is not heigh enough for the height of each frame specified.
+
+	*max_radius = zest_CopyAnimationFrames(texture, spritesheet, width, height, frames, row_by_row);
+
+	return first_index;
+}
+
+zest_index zest_LoadAnimationMemory(zest_texture *texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
+	zest_bitmap spritesheet = { 0 };
+
+	zest_LoadBitmapImageMemory(&spritesheet, buffer, buffer_size, texture->desired_channels);
+	ZEST_ASSERT(spritesheet.data != ZEST_NULL);
+	zest_ConvertBitmapToRGBA(&spritesheet, 255);
+	//PreMultiplyAlpha(spritesheet, load_filter);
+	spritesheet.width;
+	spritesheet.height;
+
+	zest_uint animation_area = spritesheet.width * spritesheet.height;
+	zest_uint frame_area = width * height;
+
+	zest_index first_index = zest_vec_size(texture->images);
+
+	ZEST_ASSERT(frames <= animation_area / frame_area);	//ERROR: The animation being loaded is the wrong size for the number of frames that you want to load for the specified width and height.
+	ZEST_ASSERT(spritesheet.width >= width);				// ERROR: The animation being loaded is not wide enough for the width of each frame specified.
+	ZEST_ASSERT(spritesheet.height >= height);			// ERROR: The animation being loaded is not heigh enough for the height of each frame specified.
 
 	*max_radius = zest_CopyAnimationFrames(texture, &spritesheet, width, height, frames, row_by_row);
 	zest_FreeBitmap(&spritesheet);
