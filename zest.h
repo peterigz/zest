@@ -1318,7 +1318,6 @@ ZEST_API zest_draw_layer *zest_GetLayerByIndex(zest_index index);
 ZEST_API zest_draw_layer *zest_GetLayerByName(const char *name);
 ZEST_API zest_index zest_GetLayerIndex(const char *name);
 ZEST_API void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instance_pool_size);
-ZEST_API void zest_ScaleDrawLayer(zest_draw_layer *sprite_layer, float scale);
 ZEST_API void zest_ResetSpriteLayerDrawing(zest_draw_layer *sprite_layer);
 ZEST_API zest_index zest_NewSpriteLayerSetup(const char *name);
 

@@ -4561,10 +4561,6 @@ void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instanc
 	zest_ResetSpriteLayerDrawing(sprite_layer);
 }
 
-void zest_ScaleDrawLayer(zest_draw_layer *sprite_layer, float scale) {
-	sprite_layer->push_constants.model = zest_M4(scale);
-}
-
 ZEST_API zest_instance_instruction zest_InstanceInstruction() {
 	zest_instance_instruction instruction = { 0 };
 	instruction.pipeline = ZEST_INVALID;
