@@ -84,6 +84,20 @@ zest_vec4 zest_Vec4Set(float x, float y, float z, float w) {
 	zest_vec4 vec; vec.x = x; vec.y = y; vec.z = z; vec.w = w; return vec; 
 }
 
+zest_color zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a) {
+	zest_color color = {
+		.r = r,.g = g,.b = b,.a = a
+	};
+	return color;
+}
+
+zest_color zest_ColorSet1(zest_byte c) {
+	zest_color color = {
+		.r = c,.g = c,.b = c,.a = c
+	};
+	return color;
+}
+
 zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right) {
 	zest_vec3 result = {
 		.x = left.x - right.x,
@@ -1926,23 +1940,6 @@ zest_pipeline_set *zest_Pipeline(zest_index pipeline_index) {
 zest_index zest_PipelineIndex(const char *name) {
 	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name));	//That index could not be found in the pipeline storage
 	return zest_map_get_index_by_name(ZestRenderer->pipeline_sets, name);
-}
-
-void zest_PushPipeline(zest_index pipeline_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage
-	zest_vec_push(ZestRenderer->pipeline_stack, pipeline_index);
-	ZestRenderer->current_pipeline_index = pipeline_index;
-}
-
-zest_index zest_PopPipeline() {
-	ZEST_ASSERT(zest_vec_size(ZestRenderer->pipeline_stack));	//There's nothing on the pipeline stack to pop!
-	zest_vec_pop(ZestRenderer->pipeline_stack);
-	ZestRenderer->current_pipeline_index = zest_vec_size(ZestRenderer->pipeline_stack) ? zest_vec_back(ZestRenderer->pipeline_stack) : ZEST_INVALID;
-	return ZestRenderer->current_pipeline_index;
-}
-
-zest_index zest_CurrentPipeline() {
-	return ZestRenderer->current_pipeline_index;
 }
 
 void zest_SetPipelineTemplate(zest_pipeline_template *pipeline_template, zest_pipeline_template_create_info *create_info) {
@@ -4688,20 +4685,19 @@ void zest_SetViewPort(zest_instance_layer *instance_layer, int x, int y, zest_ui
 	instance_layer->current_instance_instruction.viewport = zest_CreateViewport(viewport_width, viewport_height, 0.f, 1.f);
 }
 
-void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type) {
-	ZEST_ASSERT(ZestRenderer->current_pipeline_index != ZEST_INVALID);
-	zest_texture *texture = zest_GetTextureByIndex(image->texture_index);
+void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index pipeline_index) {
+	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
+	zest__end_draw_instructions(sprite_layer);
+	zest__start_draw_instructions(sprite_layer);
+	zest__sync_sprite_layer_to_current_fif(sprite_layer);
+	sprite_layer->current_instance_instruction.pipeline = pipeline_index;
+	sprite_layer->current_instance_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+	sprite_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
+	sprite_layer->last_draw_mode = zest_draw_mode_instance;
+}
 
-	if (layer->last_draw_mode != zest_draw_mode_images || layer->current_instance_instruction.pipeline != ZestRenderer->current_pipeline_index
-		|| layer->current_instance_instruction.descriptor_set != texture->current_descriptor_set[ZEST_FIF]) {
-		zest__end_draw_instructions(layer);
-		zest__start_draw_instructions(layer);
-		zest__sync_sprite_layer_to_current_fif(layer);
-		layer->current_instance_instruction.pipeline = ZestRenderer->current_pipeline_index;
-		layer->current_instance_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
-		layer->current_instance_instruction.draw_mode = zest_draw_mode_images;
-		layer->last_draw_mode = zest_draw_mode_images;
-	}
+void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type) {
+	assert(layer->current_instance_instruction.draw_mode = zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
 
 	zest_sprite_instance *sprite = (zest_sprite_instance*)layer->instance_ptr;
 
@@ -4740,9 +4736,6 @@ void zest__main_loop(void) {
 		if (ZestApp->update_callback) {
 			ZestApp->update_callback(ZestApp->current_elapsed_time, ZestApp->user_data);
 		}
-
-		//You must pop all pipelines off the stack before finishing your update routine
-		ZEST_ASSERT(zest_vec_size(ZestRenderer->pipeline_stack) == 0);
 
 		zest__draw_renderer_frame();
 
@@ -4785,15 +4778,14 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_instance_layer *layer = zest_GetLayerByIndex(example->layer);
 	zest_texture *texture = zest_GetTextureByIndex(example->texture_index);
 	zest_SetActiveRenderQueue(0);
-	zest_PushPipeline(example->sprite_pipeline);
 	layer->multiply_blend_factor = 1.f;
 	//zest_SetViewPort(layer, 0, 0, 300, 300, zest_ScreenWidthf(), zest_ScreenHeightf());
+	zest_StartSpriteDrawing(layer, texture, example->sprite_pipeline);
 	for (float x = 0; x != 75; ++x) {
 		for (float y = 0; y != 15; ++y) {
 			zest_DrawSprite(layer, zest_GetImageFromTexture(texture, example->image1), x * 16.f + 20.f, y * 40.f + 20.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
 		}
 	}
-	zest_PopPipeline();
 }
 
 int main(void) {

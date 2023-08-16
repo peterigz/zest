@@ -209,7 +209,7 @@ typedef enum {
 
 typedef enum {
 	zest_draw_mode_none = 0,			//Default no drawmode set when no drawing has been done yet	
-	zest_draw_mode_sprites,
+	zest_draw_mode_instance,
 	zest_draw_mode_images,
 	zest_draw_mode_ribbons,
 	zest_draw_mode_lines,
@@ -1042,9 +1042,6 @@ typedef struct zest_renderer{
 
 	zest_map_buffer_allocators buffer_allocators;									//For non frame in flight buffers
 
-	zest_index current_pipeline_index;
-	zest_index *pipeline_stack;
-
 	//Context data
 	VkCommandBuffer current_command_buffer;
 	zest_command_queue *current_command_queue;
@@ -1287,9 +1284,6 @@ ZEST_API void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_se
 ZEST_API zest_pipeline_set *zest_Pipeline(zest_index index);
 ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
 ZEST_API zest_index zest_PipelineIndex(const char *name);
-ZEST_API void zest_PushPipeline(zest_index pipeline_index);
-ZEST_API zest_index zest_PopPipeline(void);
-ZEST_API zest_index zest_CurrentPipeline(void);
 
 //Buffer related
 ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size);
@@ -1354,6 +1348,8 @@ ZEST_API zest_vec4 zest_Vec4Set1(float v);
 ZEST_API zest_vec2 zest_Vec2Set(float x, float y);
 ZEST_API zest_vec3 zest_Vec3Set(float x, float y, float z);
 ZEST_API zest_vec4 zest_Vec4Set(float x, float y, float z, float w);
+ZEST_API zest_color zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a);
+ZEST_API zest_color zest_ColorSet1(zest_byte c);
 
 //Images and textures
 ZEST_API zest_map_textures *zest_GetTextures(void);
@@ -1414,6 +1410,7 @@ ZEST_API zest_texture *zest_GetTextureByName(const char *name);
 
 // --Draw layers
 ZEST_API zest_instance_instruction zest_InstanceInstruction(void);
+ZEST_API void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index pipeline_index);
 ZEST_API void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 
 //General Helper functions
