@@ -871,7 +871,7 @@ typedef struct zest_instance_instruction {
 	zest_draw_mode draw_mode;
 } zest_instance_instruction;
 
-typedef struct zest_draw_layer {
+typedef struct zest_instance_layer {
 
 	const char *name;
 
@@ -898,7 +898,7 @@ typedef struct zest_draw_layer {
 	zest_draw_mode last_draw_mode;
 
 	zest_index draw_routine_index;
-} zest_draw_layer;
+} zest_instance_layer;
 
 //In addition to render passes, you can also run compute shaders by adding this struct to the list of compute items in the command queue
 typedef struct zest_command_queue_compute zest_command_queue_compute;
@@ -1003,7 +1003,7 @@ zest_hash_map(zest_command_queue_draw_commands) zest_map_command_queue_render_pa
 zest_hash_map(zest_command_queue_compute) zest_map_command_queue_computes;
 zest_hash_map(zest_draw_routine) zest_map_draw_routines;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
-zest_hash_map(zest_draw_layer) zest_map_draw_layers;
+zest_hash_map(zest_instance_layer) zest_map_instance_layers;
 zest_hash_map(zest_uniform_buffer) zest_map_uniform_buffers;
 zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
 zest_hash_map(zest_texture) zest_map_textures;
@@ -1059,7 +1059,7 @@ typedef struct zest_renderer{
 	zest_map_command_queue_render_passes command_queue_render_passes;
 	zest_map_command_queue_computes command_queue_computes;
 	zest_map_draw_routines draw_routines;
-	zest_map_draw_layers draw_layers;
+	zest_map_instance_layers instance_layers;
 	zest_map_textures textures;
 	//zest_map_render_targets render_targets;
 	//zest_map_fonts fonts;
@@ -1163,15 +1163,17 @@ zest_index zest__create_command_queue(const char *name);
 void zest__set_queue_context(zest_setup_context_type context);
 zest_draw_routine *zest__create_draw_routine_with_sprite_layer(const char *name, zest_uint initial_sprite_count);
 
+// --Draw layer internal functions
+void zest__start_draw_instructions(zest_instance_layer *instance_layer);
+void zest__end_draw_instructions(zest_instance_layer *instance_layer);
+void zest__update_draw_layer_buffers_callback(zest_draw_routine *draw_routine, zest_buffer_uploader *vertex_upload);
+void zest__draw_instance_layer(zest_instance_layer *instance_layer, VkCommandBuffer command_buffer);
+
 // --Sprite layer internal functions
-void zest__sync_sprite_layer_to_current_fif(zest_draw_layer *sprite_layer);
-void zest__start_sprite_instructions(zest_draw_layer *sprite_layer);
-void zest__end_sprite_instructions(zest_draw_layer *sprite_layer);
-void zest__update_sprite_layer_buffers_callback(zest_draw_routine *draw_routine, zest_buffer_uploader *vertex_upload);
+void zest__sync_sprite_layer_to_current_fif(zest_instance_layer *sprite_layer);
 void zest__draw_sprite_layer_callback(zest_draw_routine *draw_routine);
-void zest__update_draw_layer_resolution(zest_draw_layer *layer);
-void zest__draw_sprite_layer(zest_draw_layer *sprite_layer, VkCommandBuffer command_buffer);
-void zest__map_sprite_instance_to_next_fif(zest_draw_layer *sprite_layer);
+void zest__update_draw_layer_resolution(zest_instance_layer *layer);
+void zest__map_sprite_instance_to_next_fif(zest_instance_layer *sprite_layer);
 
 // --General Helper Functions
 VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
@@ -1241,7 +1243,7 @@ void zest__update_window_size(zest_window* window, zest_uint width, zest_uint he
 //-- End Window related functions
 
 //-- Draw layer internal functions
-void zest__next_sprite_instance(zest_draw_layer *layer);
+void zest__next_sprite_instance(zest_instance_layer *layer);
 
 //User API functions
 ZEST_API zest_create_info zest_CreateInfo(void);
@@ -1314,11 +1316,11 @@ ZEST_API zest_draw_routine *zest_GetDrawRoutineByName(const char *name);
 ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_AddDrawRoutine(zest_index index);
 ZEST_API void zest_AddDrawRoutineToRenderPass(zest_command_queue_draw_commands *render_pass, zest_draw_routine *draw_routine);
-ZEST_API zest_draw_layer *zest_GetLayerByIndex(zest_index index);
-ZEST_API zest_draw_layer *zest_GetLayerByName(const char *name);
+ZEST_API zest_instance_layer *zest_GetLayerByIndex(zest_index index);
+ZEST_API zest_instance_layer *zest_GetLayerByName(const char *name);
 ZEST_API zest_index zest_GetLayerIndex(const char *name);
-ZEST_API void zest_InitialiseSpriteLayer(zest_draw_layer *sprite_layer, zest_uint instance_pool_size);
-ZEST_API void zest_ResetSpriteLayerDrawing(zest_draw_layer *sprite_layer);
+ZEST_API void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint instance_pool_size);
+ZEST_API void zest_ResetDrawLayerDrawing(zest_instance_layer *sprite_layer);
 ZEST_API zest_index zest_NewSpriteLayerSetup(const char *name);
 
 ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void); 
@@ -1412,7 +1414,7 @@ ZEST_API zest_texture *zest_GetTextureByName(const char *name);
 
 // --Draw layers
 ZEST_API zest_instance_instruction zest_InstanceInstruction(void);
-ZEST_API void zest_DrawSprite(zest_draw_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
+ZEST_API void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 
 //General Helper functions
 ZEST_API VkRenderPass zest_GetRenderPassByIndex(zest_index index);
