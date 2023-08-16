@@ -3471,6 +3471,16 @@ void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level) {
 
 }
 
+void zest_CopyWholeBitmap(zest_bitmap *src, zest_bitmap *dst) {
+	ZEST_ASSERT(src->data && src->size);
+
+	*dst = *src;
+	dst->data = ZEST_NULL;
+	dst->data = (zest_byte*)ZEST__ALLOCATE(src->size);
+	memcpy(dst->data, src->data, src->size);
+
+}
+
 void zest_CopyBitmap(zest_bitmap *src, int from_x, int from_y, int width, int height, zest_bitmap *dst, int to_x, int to_y) {
 	ZEST_ASSERT(src->data);
 	ZEST_ASSERT(dst->data);
@@ -3584,6 +3594,33 @@ zest_index zest_LoadImageFile(zest_texture *texture, const char* filename) {
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
 	image->name = filename;
+	zest_UpdateImageVertices(image);
+
+	return image->index;
+}
+
+zest_index zest_LoadImageBitmap(zest_texture *texture, zest_bitmap *image_data) {
+	zest_vec_push(texture->images, zest_CreateImage());
+	texture->image_index = zest_vec_last_index(texture->images);
+	zest_image *image = &zest_vec_back(texture->images);
+	image->index = texture->image_index;
+	zest_bitmap image_copy;
+	zest_CopyWholeBitmap(image_data, &image_copy);
+	zest_vec_push(texture->image_bitmaps, image_copy);
+	zest_bitmap *bitmap = zest_GetBitmap(texture, zest_GetImageIndex(texture));
+
+	ZEST_ASSERT(bitmap->data != ZEST_NULL);
+	zest_ConvertBitmapToRGBA(bitmap, 255);
+	//PreMultiplyAlpha(store_image, load_filter);
+
+	//get the image width and height
+	image->width = bitmap->width;
+	image->height = bitmap->height;
+	image->texture_index = texture->index_in_renderer;
+	if (texture->flags & zest_texture_flag_get_max_radius) {
+		image->max_radius = zest_FindBitmapRadius(bitmap);
+	}
+	image->name = bitmap->name;
 	zest_UpdateImageVertices(image);
 
 	return image->index;
