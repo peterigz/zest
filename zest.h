@@ -93,13 +93,13 @@
 #define ZEST_EACH_FIF_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
 
 //For error checking vulkan commands
-#define ZEST_VK_CHECK_RESULT(res)																			\
-	{																										\
-		if (res != VK_SUCCESS)																				\
-		{																									\
+#define ZEST_VK_CHECK_RESULT(res)																					\
+	{																												\
+		if (res != VK_SUCCESS)																						\
+		{																											\
 			printf("Fatal : VkResult is \" %s \" in %s at line %i\n", zest__vulkan_error(res), __FILE__, __LINE__);	\
-			ZEST_ASSERT(res == VK_SUCCESS);																		\
-		}																									\
+			ZEST_ASSERT(res == VK_SUCCESS);																			\
+		}																											\
 	}
 
 const char *zest__vulkan_error(VkResult errorCode);
@@ -527,8 +527,7 @@ typedef struct zest_device_memory_pool{
 typedef void* zest_pool_range;
 
 typedef struct zest_buffer_allocator{
-	VkBufferUsageFlags usage_flags;					//The usage state_flags of the memory block. 
-	VkMemoryPropertyFlags property_flags;			//The property state_flags of the memory block.	
+	zest_buffer_info buffer_info;
 	tloc_allocator *allocator;
 	zest_size alignment;
 	zest_device_memory_pool *memory_pools;
@@ -1123,6 +1122,9 @@ VkResult zest__map_memory(zest_device_memory_pool *memory_allocation, VkDeviceSi
 void zest__unmap_memory(zest_device_memory_pool *memory_allocation);
 void zest__destroy_memory(zest_device_memory_pool *memory_allocation);
 VkResult zest__flush_memory(zest_device_memory_pool *memory_allocation, VkDeviceSize size, VkDeviceSize offset);
+zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info *buffer_info, VkImage image, zest_size size);
+void zest__add_remote_range_pool(zest_buffer_allocator *buffer_allocator, zest_device_memory_pool *buffer_pool);
+void zest__set_buffer_details(zest_buffer_allocator *buffer_allocator, zest_buffer *buffer, zest_bool is_host_visible);
 //End Buffer Management
 
 //Renderer functions
@@ -1304,7 +1306,7 @@ ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
 ZEST_API zest_index zest_PipelineIndex(const char *name);
 
 //Buffer related
-ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image, VkDeviceSize pool_size);
+ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image);
 ZEST_API zest_bool zest_GrowBuffer(zest_buffer **buffer, zest_size unit_size);
 ZEST_API zest_buffer_info zest_CreateVertexBufferInfo(void);
 ZEST_API zest_buffer_info zest_CreateStagingBufferInfo(void);
