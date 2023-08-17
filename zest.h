@@ -524,7 +524,7 @@ typedef struct zest_buffer_allocator{
 	zest_pool_range *range_pools;
 } zest_buffer_allocator;
 
-typedef struct zest_buffer{
+typedef struct zest_buffer {
 	VkDeviceSize size;
 	VkDeviceSize memory_offset;
 	zest_index memory_pool;
@@ -572,6 +572,7 @@ typedef struct zest_device{
 	void *memory_pools[32];
 	zest_uint memory_pool_count;
 	tloc_allocator *allocator;
+	VkAllocationCallbacks allocation_callbacks;
 	VkInstance instance;
 	VkPhysicalDevice physical_device;
 	VkDevice logical_device;
@@ -1220,6 +1221,9 @@ zest_bool zest__check_validation_layer_support(void);
 const char** zest__get_required_extensions(zest_uint *extension_count);
 zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
 void zest__set_default_pool_sizes();
+void *zest_vk_allocate_callback(void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
+void *zest_vk_reallocate_callback(void* pUserData, void *memory, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
+void zest_vk_free_callback(void* pUserData, void *memory);
 //end device setup functions
 
 //App initialise/run functions
