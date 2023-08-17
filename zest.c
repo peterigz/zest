@@ -1235,7 +1235,10 @@ zest_buffer_pool_size zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkM
 
 void zest_SetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size) {
 	ZEST_ASSERT(minimum_allocation > tloc__MEMORY_ALIGNMENT);	//minimum_allocation must be higher then the memoryalignment
-	ZEST_ASSERT(pool_size);		//Must set a pool size
+	ZEST_ASSERT(pool_size);					//Must set a pool size
+	ZEST_ASSERT(ZEST_POW2(pool_size));		//Pool size must be a power of 2
+	zest_index size_index = ZEST__MAX(tloc__scan_forward(pool_size) - 20, 0);
+	minimum_allocation = ZEST__MAX(minimum_allocation, 64 << size_index);
 	zest_buffer_usage usage;
 	usage.usage_flags = usage_flags;
 	usage.property_flags = property_flags;
@@ -2306,6 +2309,30 @@ void zest__prepare_standard_pipelines() {
 	sprite_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	zest_BuildPipeline(sprite_instance_pipeline);
 
+	//3d billboards
+	instance_create_info.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_billboard_instance), VK_VERTEX_INPUT_RATE_INSTANCE);
+	VkVertexInputAttributeDescription *billboard_vertex_input_attributes = 0;
+
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance, position)));			// Location 0: Position
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance, uv_xy)));				// Location 1: uv_xy
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance, rotations)));		// Location 2: scale pitch yaw
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance, uv_zw)));				// Location 3: uv_zw
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance, scale)));				// Location 4: Handle
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance, handle)));				// Location 5: Handle
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_SFLOAT, offsetof(zest_billboard_instance, stretch)));				// Location 6: Stretch amount
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance, blend_texture_array)));		// Location 7: texture array index
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance, color)));				// Location 8: Instance Color
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_A2R10G10B10_SNORM_PACK32, offsetof(zest_billboard_instance, alignment)));// Location 9: Alignment
+
+	index = zest_AddPipeline("pipeline_billboard");
+	instance_create_info.attributeDescriptions = billboard_vertex_input_attributes;
+	zest_pipeline_set *billboard_instance_pipeline = zest_Pipeline(index);
+	instance_create_info.vertShaderFile = "spv/billboard.spv";
+	instance_create_info.fragShaderFile = "spv/billboard.spv";
+	zest_MakePipelineTemplate(billboard_instance_pipeline, render_pass, &instance_create_info);
+	billboard_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	zest_BuildPipeline(billboard_instance_pipeline);
+
 	//Final Render Pipelines
 	zest_uint final_render_index = zest_AddPipeline("pipeline_final_render");
 	zest_pipeline_set *final_render = zest_PipelineByIndex(final_render_index);
@@ -3122,7 +3149,7 @@ zest_index zest__next_fif() {
 
 zest_create_info zest_CreateInfo() {
 	zest_create_info create_info = {
-		.memory_pool_size = tloc__MEGABYTE(64),
+		.memory_pool_size = tloc__MEGABYTE(16),
 		.screen_width = 1280, 
 		.screen_height = 768,			
 		.screen_x = 0, 
@@ -4865,6 +4892,9 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_SetSpriteDrawing(layer, texture, example->sprite_pipeline);
 	for (float x = 0; x != 75; ++x) {
 		for (float y = 0; y != 15; ++y) {
+			layer->current_color.r = (zest_byte)(1 - ((y + 1) / 16.f) * 255.f);
+			layer->current_color.g = (zest_byte)(y / 15.f * 255.f);
+			layer->current_color.b = (zest_byte)(x / 75.f * 255.f);
 			zest_DrawSprite(layer, zest_GetImageFromTexture(texture, example->image1), x * 16.f + 20.f, y * 40.f + 20.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
 		}
 	}
@@ -4874,7 +4904,6 @@ int main(void) {
 	zest_example example;
 
 	zest_create_info create_info = zest_CreateInfo();
-	create_info.memory_pool_size = tloc__MEGABYTE(2);
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&example);

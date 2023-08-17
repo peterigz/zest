@@ -857,6 +857,19 @@ typedef struct zest_sprite_instance {			//64 bytes
 	zest_uint image_layer_index;		//reference for the texture array if used
 } zest_sprite_instance;
 
+typedef struct zest_billboard_instance {		//64 bytes
+	zest_vec3 position;					//The position of the sprite
+	zest_uint uv_xy;					//The UV coords of the image in the texture, x and y packed in a zest_uint as SNORM 16bit floats
+	zest_vec3 rotations;				//Pitch yaw and roll
+	zest_uint uv_zw;					//The UV coords of the image in the texture, z and w packed in a zest_uint as SNORM 16bit floats
+	zest_vec2 scale;					//The scale of the billboard
+	zest_vec2 handle;					//The handle of the billboard
+	float stretch;						//Amount to stretch the billboard along it's alignment vector
+	zest_uint blend_texture_array;		//reference for the texture array (8bits) and blend factor (24bits)
+	zest_color color;					//The color tint of the sprite
+	zest_uint alignment;				//normalised alignment vector 3 floats packed into 10bits each with 2 bits left over
+} zest_billboard_instance;
+
 typedef struct zest_instance_layer_buffers {
 	zest_buffer *staging_data;					//The cpu visible staging buffer containing the transform data of every sprite instance
 	zest_buffer *device_data;					//The gpu visible buffer containing the transform data of every sprite instance, this will be uploaded to every frame
