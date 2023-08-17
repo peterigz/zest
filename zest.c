@@ -730,6 +730,7 @@ End of Device creation functions
 
 void zest__initialise_app(zest_create_info *create_info) {
 	memset(ZestApp, 0, sizeof(zest_app));
+	ZestApp->create_info = *create_info;
 	ZestApp->update_callback = 0;
 	ZestApp->current_elapsed = 0;
 	ZestApp->update_time = 0;
@@ -835,6 +836,7 @@ void* zest__allocate(zest_size size) {
 		tloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
 		allocation = tloc_Allocate(ZestDevice->allocator, size);
 		ZEST_ASSERT(allocation);	//Unable to allocate even after adding a pool
+		ZestDevice->memory_pool_count++;
 		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %llu. ", pool_size);
 	}
 	return allocation;
@@ -853,6 +855,7 @@ void* zest__reallocate(void *memory, zest_size size) {
 		tloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
 		allocation = tloc_Reallocate(ZestDevice->allocator, memory, size);
 		ZEST_ASSERT(allocation);	//Unable to allocate even after adding a pool
+		ZestDevice->memory_pool_count++;
 		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %llu. ", pool_size);
 	}
 	return allocation;
@@ -1185,7 +1188,7 @@ zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer comm
 	}
 
 	vkCmdCopyBuffer(command_buffer, *zest_GetBufferDeviceBuffer(uploader->source_buffer), *zest_GetBufferDeviceBuffer(uploader->target_buffer), zest_vec_size(uploader->buffer_copies), uploader->buffer_copies); 
-	zest_vec_clear(uploader->buffer_copies);
+	zest_vec_free(uploader->buffer_copies);
 
 	return ZEST_TRUE;
 }
@@ -4844,6 +4847,7 @@ int main(void) {
 	zest_example example;
 
 	zest_create_info create_info = zest_CreateInfo();
+	create_info.memory_pool_size = tloc__MEGABYTE(2);
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&example);
