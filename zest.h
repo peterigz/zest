@@ -50,8 +50,8 @@
 #define ZEST_POW2(x) ((x) && !((x) & ((x) - 1)))
 
 #ifndef ZEST__REALLOCATE
-#define ZEST__ALLOCATE(size) tloc_Allocate(ZestDevice->allocator, size)
-#define ZEST__REALLOCATE(ptr, size) tloc_Reallocate(ZestDevice->allocator, ptr, size)
+#define ZEST__ALLOCATE(size) zest__allocate(size)
+#define ZEST__REALLOCATE(ptr, size) zest__reallocate(ptr, size)
 #endif
 
 #define STBI_MALLOC(sz)           ZEST__ALLOCATE(sz)
@@ -63,12 +63,24 @@
 #define ZEST_WARNING_COLOR "\033[38;5;208m"
 #endif
 
+#ifndef ZEST_NOTICE_COLOR
+#define ZEST_NOTICE_COLOR "\033[0m"
+#endif
+
 #define ZEST_OUTPUT_WARNING_MESSAGES
 #ifdef ZEST_OUTPUT_WARNING_MESSAGES
 #include <stdio.h>
 #define ZEST_PRINT_WARNING(message_f, ...) printf(message_f"\n\033[0m", __VA_ARGS__)
 #else
 #define ZEST_PRINT_WARNING(message_f, ...)
+#endif
+
+#define ZEST_OUTPUT_NOTICE_MESSAGES
+#ifdef ZEST_OUTPUT_NOTICE_MESSAGES
+#include <stdio.h>
+#define ZEST_PRINT_NOTICE(message_f, ...) printf(message_f"\n\033[0m", __VA_ARGS__)
+#else
+#define ZEST_PRINT_NOTICE(message_f, ...)
 #endif
 
 #define ZEST__ARRAY(name, type, count) type *name = ZEST__REALLOCATE(0, sizeof(type) * count)
@@ -104,7 +116,6 @@ typedef unsigned int zest_bool;
 
 /*Platform specific code*/
 FILE *zest__open_file(const char *file_name, const char *mode);
-void zest__sprint(char *buffer, zest_size buffer_size, const char *str, ...);
 ZEST_API zest_millisecs zest_Millisecs(void);
 ZEST_API zest_microsecs zest_Microsecs(void);
 #if defined _WIN32
@@ -593,6 +604,7 @@ typedef struct zest_device{
 } zest_device;
 
 typedef struct zest_create_info {
+	zest_size memory_pool_size;							//The size of each memory pool. More pools are added if needed
 	int screen_width, screen_height;					//Default width and height of the window that you open
 	int screen_x, screen_y;								//Default position of the window
 	int virtual_width, virtual_height;					//The virtial width/height of the viewport
@@ -1103,7 +1115,9 @@ static const char* zest_required_extensions[zest__required_extension_names_count
 
 inline void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
 
-//Buffer Management
+//Buffer & Memory Management
+void* zest__allocate(zest_size size);
+void* zest__reallocate(void *memory, zest_size size);
 VkResult zest__bind_memory(zest_device_memory_pool *memory_allocation, VkDeviceSize offset);
 VkResult zest__map_memory(zest_device_memory_pool *memory_allocation, VkDeviceSize size, VkDeviceSize offset);
 void zest__unmap_memory(zest_device_memory_pool *memory_allocation);

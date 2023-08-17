@@ -217,11 +217,11 @@ zest_size zest_GetNextPower(zest_size n) {
 //  --End Math
 
 void zest_Initialise(zest_create_info *info) {
-	void *memory_pool = malloc(tloc__MEGABYTE(128));
+	void *memory_pool = malloc(info->memory_pool_size);
 
 	ZEST_ASSERT(memory_pool);	//unable to allocate initial memory pool
 
-	tloc_allocator *allocator = tloc_InitialiseAllocatorWithPool(memory_pool, tloc__MEGABYTE(128));
+	tloc_allocator *allocator = tloc_InitialiseAllocatorWithPool(memory_pool, info->memory_pool_size);
 	ZestDevice = tloc_Allocate(allocator, sizeof(zest_device));
 	ZestApp = tloc_Allocate(allocator, sizeof(zest_app));
 	ZestRenderer = tloc_Allocate(allocator, sizeof(zest_renderer));
@@ -230,7 +230,7 @@ void zest_Initialise(zest_create_info *info) {
 	memset(ZestApp, 0, sizeof(zest_app));
 	memset(ZestRenderer, 0, sizeof(zest_renderer));
 	ZestDevice->memory_pools[0] = memory_pool;
-	ZestDevice->memory_pool_count = 0;
+	ZestDevice->memory_pool_count = 1;
 	ZestDevice->allocator = allocator;
 	ZestDevice->color_format = info->color_format;
 	ZestDevice->allocation_callbacks.pfnAllocation = zest_vk_allocate_callback;
@@ -821,7 +821,43 @@ void zest__update_window_size(zest_window* window, zest_uint width, zest_uint he
 	window->window_height = height;
 }
 
-// --Vulkan Buffer Management
+// --Buffer & Memory Management
+void* zest__allocate(zest_size size) {
+	void *allocation = tloc_Allocate(ZestDevice->allocator, size);
+	if (!allocation) {
+		ZEST_ASSERT(ZestDevice->memory_pool_count < 32);	//Reached the max number of memory pools
+		zest_size pool_size = ZestApp->create_info.memory_pool_size;
+		if (pool_size <= size) {
+			pool_size = zest_GetNextPower(size);
+		}
+		ZestDevice->memory_pools[ZestDevice->memory_pool_count] = malloc(pool_size);
+		ZEST_ASSERT(ZestDevice->memory_pools[ZestDevice->memory_pool_count]);	//Unable to allocate more memory. Out of memory?
+		tloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
+		allocation = tloc_Allocate(ZestDevice->allocator, size);
+		ZEST_ASSERT(allocation);	//Unable to allocate even after adding a pool
+		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %llu. ", pool_size);
+	}
+	return allocation;
+}
+
+void* zest__reallocate(void *memory, zest_size size) {
+	void *allocation = tloc_Reallocate(ZestDevice->allocator, memory, size);
+	if (!allocation) {
+		ZEST_ASSERT(ZestDevice->memory_pool_count < 32);	//Reached the max number of memory pools
+		zest_size pool_size = ZestApp->create_info.memory_pool_size;
+		if (pool_size <= size) {
+			pool_size = zest_GetNextPower(size);
+		}
+		ZestDevice->memory_pools[ZestDevice->memory_pool_count] = malloc(pool_size);
+		ZEST_ASSERT(ZestDevice->memory_pools[ZestDevice->memory_pool_count]);	//Unable to allocate more memory. Out of memory?
+		tloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
+		allocation = tloc_Reallocate(ZestDevice->allocator, memory, size);
+		ZEST_ASSERT(allocation);	//Unable to allocate even after adding a pool
+		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %llu. ", pool_size);
+	}
+	return allocation;
+}
+
 VkResult zest__bind_memory(zest_device_memory_pool *memory_allocation, VkDeviceSize offset) {
 	return vkBindBufferMemory(ZestDevice->logical_device, memory_allocation->buffer, memory_allocation->memory, offset);
 }
@@ -839,10 +875,10 @@ void zest__unmap_memory(zest_device_memory_pool *memory_allocation) {
 
 void zest__destroy_memory(zest_device_memory_pool *memory_allocation) {
 	if (memory_allocation->buffer) {
-		vkDestroyBuffer(ZestDevice->logical_device, memory_allocation->buffer, ZEST_NULL);
+		vkDestroyBuffer(ZestDevice->logical_device, memory_allocation->buffer, &ZestDevice->allocation_callbacks);
 	}
 	if (memory_allocation->memory) {
-		vkFreeMemory(ZestDevice->logical_device, memory_allocation->memory, ZEST_NULL);
+		vkFreeMemory(ZestDevice->logical_device, memory_allocation->memory, &ZestDevice->allocation_callbacks);
 	}
 	memory_allocation->mapped = ZEST_NULL;
 }
@@ -863,7 +899,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
 	buffer_info.usage = usage_flags;
 	buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-	ZEST_VK_CHECK_RESULT(vkCreateBuffer(ZestDevice->logical_device, &buffer_info, ZEST_NULL, &buffer->buffer));
+	ZEST_VK_CHECK_RESULT(vkCreateBuffer(ZestDevice->logical_device, &buffer_info, &ZestDevice->allocation_callbacks, &buffer->buffer));
 
 	VkMemoryRequirements memory_requirements;
 	vkGetBufferMemoryRequirements(ZestDevice->logical_device, buffer->buffer, &memory_requirements);
@@ -882,7 +918,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
 	if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
 		alloc_info.pNext = &flags;
 	}
-	ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, ZEST_NULL, &buffer->memory));
+	ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 
 	if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
 		ZestDevice->use_labels_address_bit = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
@@ -927,7 +963,7 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, V
 	buffer->property_flags = property_flags;
 	buffer->usage_flags = 0;
 
-	ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, ZEST_NULL, &buffer->memory));
+	ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 }
 
 tloc_size zest__get_remote_size(const tloc_header *block) {
@@ -3056,6 +3092,7 @@ zest_index zest__next_fif() {
 
 zest_create_info zest_CreateInfo() {
 	zest_create_info create_info = {
+		.memory_pool_size = tloc__MEGABYTE(64),
 		.screen_width = 1280, 
 		.screen_height = 768,			
 		.screen_x = 0, 
