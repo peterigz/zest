@@ -26,12 +26,10 @@ layout (binding = 0) uniform UboView
 layout(push_constant) uniform quad_index
 {
     mat4 model;
-	mat4 view;
-	mat4 proj;
     vec4 parameters1;
 	vec4 parameters2;
+	vec4 parameters3;
 	vec4 camera;
-	uint flags;
 } pc;
 
 //Vertex

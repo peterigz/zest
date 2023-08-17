@@ -47,6 +47,7 @@
 //Helper macros
 #define ZEST__MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define ZEST__MAX(a, b) (((a) > (b)) ? (a) : (b))
+#define ZEST__CLAMP(v, min_v, max_v) ((v < min_v) ? min_v : ((v > max_v) ? max_v : v))
 #define ZEST_POW2(x) ((x) && !((x) & ((x) - 1)))
 
 #ifndef ZEST__REALLOCATE
@@ -262,6 +263,12 @@ typedef enum zest_texture_storage_type {
 	zest_texture_storage_type_stream,						//A storage texture that you can update every frame
 	zest_texture_storage_type_render_target					//Texture storage for a render target sampler, so that you can draw the target onto another render target
 } zest_texture_storage_type;
+
+typedef enum zest_camera_flags {
+	zest_camera_flags_none = 0,
+	zest_camera_flags_perspective						= 1 << 0,
+	zest_camera_flags_orthagonal						= 1 << 1,
+} zest_camera_flags;
 
 //Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -486,6 +493,18 @@ typedef struct zest_rgba8 {
 	};
 } zest_rgba8;
 typedef zest_rgba8 zest_color;
+
+typedef struct zest_camera {
+	zest_vec3 position;
+	zest_vec3 up;
+	zest_vec3 right;
+	zest_vec3 front;
+	float yaw;
+	float pitch;
+	float fov;
+	float ortho_scale;
+	zest_camera_flags flags;
+} zest_camera;
 
 // --Vulkan Buffer Management
 typedef struct zest_buffer_info{
@@ -910,6 +929,7 @@ typedef struct zest_instance_layer {
 	zest_index sprite_pipeline_index;
 
 	zest_instance_instruction current_instance_instruction;
+	zest_size instance_struct_size;
 
 	zest_color current_color;
 	float multiply_blend_factor;
@@ -1157,9 +1177,8 @@ zest_uint zest__add_render_pass(const char *name, VkRenderPass render_pass);
 zest_buffer *zest__create_depth_resources(void);
 void zest__create_frame_buffers(void);
 void zest__create_sync_objects(void);
-zest_index zest_create_uniform_buffer(const char *name, zest_size uniform_struct_size);
 zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer *buffer);
-void zest_update_uniform_buffer(void *user_uniform_data);
+void zest__update_uniform_buffer2d(void *user_uniform_data);
 void zest__create_renderer_command_pools(void);
 void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes);
 void zest__make_standard_descriptor_layouts(void);
@@ -1194,13 +1213,22 @@ zest_draw_routine *zest__create_draw_routine_with_sprite_layer(const char *name,
 void zest__start_draw_instructions(zest_instance_layer *instance_layer);
 void zest__end_draw_instructions(zest_instance_layer *instance_layer);
 void zest__update_draw_layer_buffers_callback(zest_draw_routine *draw_routine, zest_buffer_uploader *vertex_upload);
+void zest__update_draw_layer_resolution(zest_instance_layer *layer);
 void zest__draw_instance_layer(zest_instance_layer *instance_layer, VkCommandBuffer command_buffer);
+zest_instance_instruction zest__instance_instruction(void);
+void zest__reset_draw_layer_drawing(zest_instance_layer *sprite_layer);
 
 // --Sprite layer internal functions
 void zest__sync_sprite_layer_to_current_fif(zest_instance_layer *sprite_layer);
 void zest__draw_sprite_layer_callback(zest_draw_routine *draw_routine);
-void zest__update_draw_layer_resolution(zest_instance_layer *layer);
 void zest__map_sprite_instance_to_next_fif(zest_instance_layer *sprite_layer);
+void zest__next_sprite_instance(zest_instance_layer *layer);
+
+// --Billboard layer internal functions
+void zest__sync_billboard_layer_to_current_fif(zest_instance_layer *sprite_layer);
+void zest__draw_billboard_layer_callback(zest_draw_routine *draw_routine);
+void zest__map_billboard_instance_to_next_fif(zest_instance_layer *sprite_layer);
+void zest__next_billboard_instance(zest_instance_layer *layer);
 
 // --General Helper Functions
 VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
@@ -1272,9 +1300,6 @@ zest_microsecs zest__set_elapsed_time(void);
 void zest__update_window_size(zest_window* window, zest_uint width, zest_uint height);
 //-- End Window related functions
 
-//-- Draw layer internal functions
-void zest__next_sprite_instance(zest_instance_layer *layer);
-
 //User API functions
 ZEST_API zest_create_info zest_CreateInfo(void);
 ZEST_API void zest_Initialise(zest_create_info *info);
@@ -1330,6 +1355,7 @@ ZEST_API void zest_AddCopyCommand(zest_buffer_uploader *uploader, zest_buffer *s
 ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer command_buffer);
 ZEST_API zest_buffer_pool_size zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
 ZEST_API void zest_SetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
+zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
 
 //Command queue setup and creation
 ZEST_API zest_index zest_NewCommandQueue(const char *name, zest_command_dependency_type dependency_type, zest_index dependency);
@@ -1346,8 +1372,6 @@ ZEST_API void zest_AddDrawRoutineToRenderPass(zest_command_queue_draw_commands *
 ZEST_API zest_instance_layer *zest_GetLayerByIndex(zest_index index);
 ZEST_API zest_instance_layer *zest_GetLayerByName(const char *name);
 ZEST_API zest_index zest_GetLayerIndex(const char *name);
-ZEST_API void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint instance_pool_size);
-ZEST_API void zest_ResetDrawLayerDrawing(zest_instance_layer *sprite_layer);
 ZEST_API zest_index zest_NewSpriteLayerSetup(const char *name);
 
 ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void); 
@@ -1360,10 +1384,15 @@ ZEST_API void zest_ConnectQueueTo(zest_index receiver, VkPipelineStageFlags stag
 ZEST_API void zest_ConnectQueueToPresent(void);
 
 // --Math
-ZEST_API zest_vec3 zest_SubVec(zest_vec3 left, zest_vec3 right);
+ZEST_API zest_vec3 zest_SubVec3(zest_vec3 left, zest_vec3 right);
+ZEST_API zest_vec4 zest_SubVec4(zest_vec4 left, zest_vec4 right);
+ZEST_API zest_vec3 zest_AddVec3(zest_vec3 left, zest_vec3 right);
+ZEST_API zest_vec4 zest_AddVec4(zest_vec4 left, zest_vec4 right);
 ZEST_API float zest_LengthVec2(zest_vec3 const v);
 ZEST_API float zest_LengthVec(zest_vec3 const v);
 ZEST_API zest_vec3 zest_NormalizeVec(zest_vec3 const v);
+ZEST_API zest_vec4 zest_MatrixTransformVector(zest_matrix4 *mat, zest_vec4 vec);
+ZEST_API zest_matrix4 zest_Inverse(zest_matrix4 *m);
 ZEST_API zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y);
 ZEST_API float zest_DotProduct(const zest_vec3 a, const zest_vec3 b);
 ZEST_API zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up);
@@ -1371,10 +1400,16 @@ ZEST_API zest_matrix4 zest_Ortho(float left, float right, float bottom, float to
 ZEST_API float zest_Distance(float fromx, float fromy, float tox, float toy);
 ZEST_API zest_uint zest_Pack16bit(float x, float y);
 ZEST_API zest_size zest_GetNextPower(zest_size n);
+ZEST_API float zest_Radians(float degrees);
+ZEST_API float zest_Degrees(float radians);
 
 ZEST_API zest_matrix4 zest_M4(float v);
+ZEST_API zest_vec2 zest_ScaleVec2(zest_vec2 *vec2, float v);
+ZEST_API zest_vec3 zest_ScaleVec3(zest_vec3 *vec3, float v);
 ZEST_API zest_vec4 zest_ScaleVec4(zest_vec4 *vec4, float v);
+ZEST_API zest_vec4 zest_MulVec4(zest_vec4 *left, zest_vec4 *right);
 ZEST_API zest_matrix4 zest_ScaleMatrix4x4(zest_matrix4 *m, zest_vec4 *v);
+ZEST_API zest_matrix4 zest_ScaleMatrix4(zest_matrix4 *m, float scalar);
 ZEST_API zest_vec2 zest_Vec2Set1(float v);
 ZEST_API zest_vec3 zest_Vec3Set1(float v);
 ZEST_API zest_vec4 zest_Vec4Set1(float v);
@@ -1383,6 +1418,24 @@ ZEST_API zest_vec3 zest_Vec3Set(float x, float y, float z);
 ZEST_API zest_vec4 zest_Vec4Set(float x, float y, float z, float w);
 ZEST_API zest_color zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a);
 ZEST_API zest_color zest_ColorSet1(zest_byte c);
+//-- Camera and other helpers
+ZEST_API zest_camera zest_CreateCamera();
+ZEST_API void zest_TurnCamera(zest_camera *camera, float turn_x, float turn_y, float sensitivity);
+ZEST_API void zest_UpdateFront(zest_camera *camera);
+ZEST_API void zest_MoveForward(zest_camera *camera, float speed);
+ZEST_API void zest_MoveBackward(zest_camera *camera, float speed);
+ZEST_API void zest_MoveUp(zest_camera *camera, float speed);
+ZEST_API void zest_MoveDown(zest_camera *camera, float speed);
+ZEST_API void zest_StrafLeft(zest_camera *camera, float speed);
+ZEST_API void zest_StrafRight(zest_camera *camera, float speed);
+ZEST_API void zest_Position(zest_camera *camera, zest_vec3 position);
+ZEST_API void zest_SetFoV(zest_camera *camera, float degrees);
+ZEST_API zest_bool zest_RayIntersectPlane(zest_vec3 ray_origin, zest_vec3 ray_direction, zest_vec3 plane, zest_vec3 plane_normal, float *distance, zest_vec3 *intersection);
+ZEST_API zest_vec3 zest_ScreenRay(float xpos, float ypos, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
+ZEST_API zest_vec2 zest_WorldToScreen(const zest_vec3 *point, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
+ZEST_API zest_vec2 zest_WorldToScreenOrtho(const zest_vec3 *point, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
+ZEST_API zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, float zFar);
+//-- End camera and other helpers
 
 //Images and textures
 ZEST_API zest_map_textures *zest_GetTextures(void);
@@ -1442,11 +1495,12 @@ ZEST_API zest_texture *zest_GetTextureByIndex(zest_index index);
 ZEST_API zest_texture *zest_GetTextureByName(const char *name);
 
 // --Draw layers
-ZEST_API zest_instance_instruction zest_InstanceInstruction(void);
+ZEST_API void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index pipeline_index);
 ZEST_API void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 
 //General Helper functions
+ZEST_API zest_camera zest_CreateCamera();
 ZEST_API VkRenderPass zest_GetRenderPassByIndex(zest_index index);
 ZEST_API VkRenderPass zest_GetStandardRenderPass(void);
 ZEST_API zest_pipeline_set zest_CreatePipelineSet(void);
