@@ -56,9 +56,9 @@ zest_matrix4 zest_M4(float v) {
 zest_matrix4 zest_M4SetWithVecs(zest_vec4 a, zest_vec4 b, zest_vec4 c, zest_vec4 d) {
 	zest_matrix4 r;
 	r.v[0].x = a.x, r.v[0].y = a.y, r.v[0].z = a.z, r.v[0].w = a.w;
-	r.v[0].x = b.x, r.v[0].y = b.y, r.v[0].z = b.z, r.v[0].w = b.w;
-	r.v[0].x = c.x, r.v[0].y = c.y, r.v[0].z = c.z, r.v[0].w = c.w;
-	r.v[0].x = d.x, r.v[0].y = d.y, r.v[0].z = d.z, r.v[0].w = d.w;
+	r.v[1].x = b.x, r.v[1].y = b.y, r.v[1].z = b.z, r.v[1].w = b.w;
+	r.v[2].x = c.x, r.v[2].y = c.y, r.v[2].z = c.z, r.v[2].w = c.w;
+	r.v[3].x = d.x, r.v[3].y = d.y, r.v[3].z = d.z, r.v[3].w = d.w;
 	return r;
 }
 
@@ -124,19 +124,19 @@ zest_color zest_ColorSet1(zest_byte c) {
 
 zest_vec3 zest_AddVec3(zest_vec3 left, zest_vec3 right) {
 	zest_vec3 result = {
-		.x = left.x = right.x,
-		.y = left.y = right.y,
-		.z = left.z = right.z,
+		.x = left.x + right.x,
+		.y = left.y + right.y,
+		.z = left.z + right.z,
 	};
 	return result;
 }
 
 zest_vec4 zest_AddVec4(zest_vec4 left, zest_vec4 right) {
 	zest_vec4 result = {
-		.x = left.x = right.x,
-		.y = left.y = right.y,
-		.z = left.z = right.z,
-		.w = left.z = right.w,
+		.x = left.x + right.x,
+		.y = left.y + right.y,
+		.z = left.z + right.z,
+		.w = left.z + right.w,
 	};
 	return result;
 }
@@ -362,6 +362,7 @@ zest_camera zest_CreateCamera() {
 	camera.ortho_scale = 5.f;
 	camera.up = zest_Vec3Set(0.f, 1.f, 0.f);
 	camera.right = zest_Vec3Set(1.f, 0.f, 0.f);
+	zest_CameraUpdateFront(&camera);
 	return camera;
 }
 
@@ -499,6 +500,17 @@ zest_uint zest_Pack16bit(float x, float y) {
 	return u.out;
 }
 
+inline zest_uint zest_Pack10bit(zest_vec3 *v, zest_uint extra) {
+	zest_vec3 converted = zest_ScaleVec3(v, 511.f);
+	zest_packed10bit result;
+	result.pack = 0;
+	result.data.x = (zest_uint)converted.z;
+	result.data.y = (zest_uint)converted.y;
+	result.data.z = (zest_uint)converted.x;
+	result.data.w = extra;
+	return result.pack;
+}
+
 zest_size zest_GetNextPower(zest_size n) {
 	zest_size t = 1;
 	while (t < n)
@@ -566,7 +578,7 @@ void zest_SetUserData(void* data) {
 	ZestApp->user_data = data;
 }
 
-void zest_SetUserCallback(void(*callback)(zest_microsecs, void*)) {
+void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*)) {
 	ZestApp->update_callback = callback;
 }
 
@@ -1511,6 +1523,9 @@ zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer comm
 
 	vkCmdCopyBuffer(command_buffer, *zest_GetBufferDeviceBuffer(uploader->source_buffer), *zest_GetBufferDeviceBuffer(uploader->target_buffer), zest_vec_size(uploader->buffer_copies), uploader->buffer_copies); 
 	zest_vec_free(uploader->buffer_copies);
+	uploader->flags = 0;
+	zest_buffer_uploader fresh_uploader = { 0 };
+	*uploader = fresh_uploader;
 
 	return ZEST_TRUE;
 }
@@ -1955,7 +1970,7 @@ zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_s
 	for (ZEST_EACH_FIF_i) {
 		uniform_buffer.buffer[i] = zest_CreateBuffer(uniform_struct_size, &buffer_info, ZEST_NULL);
 		uniform_buffer.view_buffer_info[i].buffer = *zest_GetBufferDeviceBuffer(uniform_buffer.buffer[i]);
-		uniform_buffer.view_buffer_info[i].offset = 0;
+		uniform_buffer.view_buffer_info[i].offset = uniform_buffer.buffer[i]->memory_offset;
 		uniform_buffer.view_buffer_info[i].range = uniform_struct_size;
 	}
 	return zest_add_uniform_buffer(name, &uniform_buffer);
@@ -2913,17 +2928,14 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands *item, VkC
 	renderPassInfo.pClearValues = clear_values;
 
 	//Copy the buffers
-	zest_buffer_uploader vertex_upload = { 0 };
 
 	for (zest_foreach_i(item->draw_routines)) {
 		zest_index index = item->draw_routines[i];
 		zest_draw_routine *draw_routine = zest_GetDrawRoutineByIndex(index);
 		if (draw_routine->update_buffers_callback) {
-			draw_routine->update_buffers_callback(draw_routine, &vertex_upload);
+			draw_routine->update_buffers_callback(draw_routine, command_buffer);
 		}
 	}
-
-	zest_UploadBuffer(&vertex_upload, command_buffer);
 
 	vkCmdBeginRenderPass(command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -2935,8 +2947,9 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands *item, VkC
 	for (zest_foreach_i(item->draw_routines)) {
 		zest_index index = item->draw_routines[i];
 		zest_draw_routine *draw_routine = zest_GetDrawRoutineByIndex(index);
-		if (draw_routine->draw_callback)
+		if (draw_routine->draw_callback) {
 			draw_routine->draw_callback(draw_routine);
+		}
 	}
 
 	vkCmdEndRenderPass(command_buffer);
@@ -3668,9 +3681,9 @@ zest_index zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type b
 	zest_command_queue_draw_commands *render_commands = zest_GetCommandQueueRenderPass(ZestRenderer->setup_context.render_pass_index);
 	zest_draw_routine *draw_routine = { 0 };
 	if (builtin_layer == zest_builtin_layer_sprites) {
-		draw_routine = zest__create_draw_routine_with_builtin_layer(name, 1000, zest__draw_sprite_layer_callback);
+		draw_routine = zest__create_draw_routine_with_builtin_layer(name, builtin_layer);
 	} else if(builtin_layer == zest_builtin_layer_billboards) {
-		draw_routine = zest__create_draw_routine_with_builtin_layer(name, 1000, zest__draw_billboard_layer_callback);
+		draw_routine = zest__create_draw_routine_with_builtin_layer(name, builtin_layer);
 	}
 	zest_instance_layer *layer = zest_GetLayerByIndex(draw_routine->draw_index);
 	ZestRenderer->setup_context.layer_index = draw_routine->draw_index;
@@ -3682,16 +3695,22 @@ zest_index zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type b
 	return draw_routine->draw_index;
 }
 
-zest_draw_routine *zest__create_draw_routine_with_builtin_layer(const char *name, zest_uint initial_sprite_count, void(*draw_callback)(zest_draw_routine *draw_routine)) {
+zest_draw_routine *zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));	//A draw routine with that name already exists
-	zest_instance_layer sprite_layer = { 0 };
+	zest_instance_layer layer = { 0 };
 
 	zest_draw_routine draw_routine = { 0 };
-	zest_InitialiseSpriteLayer(&sprite_layer, initial_sprite_count);
-	zest_map_insert(ZestRenderer->instance_layers, name, sprite_layer);
+	if (builtin_layer == zest_builtin_layer_sprites) {
+		draw_routine.draw_callback = zest__draw_sprite_layer_callback;
+		zest_InitialiseSpriteLayer(&layer, 1000);
+	}
+	else if (builtin_layer == zest_builtin_layer_billboards) {
+		draw_routine.draw_callback = zest__draw_billboard_layer_callback;
+		zest_InitialiseBillboardLayer(&layer, 1000);
+	}
+	zest_map_insert(ZestRenderer->instance_layers, name, layer);
 	draw_routine.draw_index = zest_map_last_index(ZestRenderer->instance_layers);
 	draw_routine.update_buffers_callback = zest__update_draw_layer_buffers_callback;
-	draw_routine.draw_callback = draw_callback;
 	draw_routine.name = name;
 
 	zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
@@ -4331,7 +4350,6 @@ void zest_ProcessTextureImages(zest_texture *texture) {
 
 	if (!(texture->flags & zest_texture_flag_descriptor_sets_created)) {
 		zest_CreateTextureDescriptorSets(texture, "Default", "Standard 2d Uniform Buffer");
-		zest_SwitchTextureDescriptorSet(texture, "Default");
 	}
 
 	zest_DeleteTextureLayers(texture);
@@ -4346,7 +4364,7 @@ void zest_DeleteTextureLayers(zest_texture *texture) {
 	zest_vec_clear(texture->layers);
 }
 
-void zest_CreateTextureDescriptorSets(zest_texture *texture, const char *name, const char *uniform_buffer_name) {
+zest_index zest_CreateTextureDescriptorSets(zest_texture *texture, const char *name, const char *uniform_buffer_name) {
 	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, uniform_buffer_name));	//No uniform buffer found with that name
 	zest_descriptor_set set = { 0 };
 	set.uniform_buffer_index = zest_map_get_index_by_name(ZestRenderer->uniform_buffers, uniform_buffer_name);
@@ -4355,9 +4373,20 @@ void zest_CreateTextureDescriptorSets(zest_texture *texture, const char *name, c
 		zest_vec_push(set.descriptor_writes[i], zest_CreateBufferDescriptorWriteWithType(set.descriptor_set[i], zest_GetUniformBufferInfoByIndex(set.uniform_buffer_index, i), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
 		zest_vec_push(set.descriptor_writes[i], zest_CreateImageDescriptorWriteWithType(set.descriptor_set[i], &texture->descriptor, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
 	}
-	zest_AddTextureDescriptorSet(texture, name, set);
+	zest_index set_index = zest_AddTextureDescriptorSet(texture, name, set);
 	zest_UpdateTextureSingleDescriptorSet(texture, name);
 	texture->flags |= zest_texture_flag_descriptor_sets_created;
+	return set_index;
+}
+
+zest_index zest_GetTextureDescriptorSetIndex(zest_texture *texture, const char *name) {
+	ZEST_ASSERT(zest_map_valid_name(texture->descriptor_sets, name));
+	return zest_map_get_index_by_name(texture->descriptor_sets, name);
+}
+
+VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture *texture, zest_index index) {
+	ZEST_ASSERT(zest_map_valid_index(texture->descriptor_sets, index));
+	return (zest_map_at_index(texture->descriptor_sets, index))->descriptor_set[ZEST_FIF];
 }
 
 void zest_UpdateTextureSingleDescriptorSet(zest_texture *texture, const char *name) {
@@ -4400,16 +4429,9 @@ void zest_RefreshTextureDescriptors(zest_texture *texture) {
 	zest_UpdateAllTextureDescriptorSets(texture);
 }
 
-void zest_SwitchTextureDescriptorSet(zest_texture *texture, const char *name) {
-	ZEST_ASSERT(zest_map_valid_name(texture->descriptor_sets, name));
-	zest_descriptor_set *set = zest_map_at(texture->descriptor_sets, name);
-	for (ZEST_EACH_FIF_i) {
-		texture->current_descriptor_set[i] = set->descriptor_set[i];
-	}
-}
-
-void zest_AddTextureDescriptorSet(zest_texture *texture, const char *name, zest_descriptor_set descriptor_set) { 
+zest_index zest_AddTextureDescriptorSet(zest_texture *texture, const char *name, zest_descriptor_set descriptor_set) { 
 	zest_map_insert(texture->descriptor_sets, name, descriptor_set); 
+	return zest_map_last_index(texture->descriptor_sets);
 }
 
 zest_bitmap *zest_GetTextureSingleBitmap(zest_texture *texture) {
@@ -4968,12 +4990,12 @@ ZEST_API zest_instance_instruction zest__instance_instruction() {
 	return instruction;
 }
 
-void zest__reset_draw_layer_drawing(zest_instance_layer *sprite_layer) {
-	zest_vec_clear(sprite_layer->instance_instructions[ZEST_FIF]);
-	//sprite_layer->flags &= ~QLayerFlags_has_instance_instructions;
-	sprite_layer->instance_memory_refs[ZEST_FIF].staging_data->memory_in_use = 0;
-	sprite_layer->current_instance_instruction = zest__instance_instruction();
-	sprite_layer->instance_memory_refs[ZEST_FIF].instance_count = 0;
+void zest__reset_draw_layer_drawing(zest_instance_layer *instance_layer) {
+	zest_vec_clear(instance_layer->instance_instructions[ZEST_FIF]);
+	//instance_layer->flags &= ~QLayerFlags_has_instance_instructions;
+	instance_layer->instance_memory_refs[ZEST_FIF].staging_data->memory_in_use = 0;
+	instance_layer->current_instance_instruction = zest__instance_instruction();
+	instance_layer->instance_memory_refs[ZEST_FIF].instance_count = 0;
 }
 
 void zest__start_draw_instructions(zest_instance_layer *instance_layer) {
@@ -4997,14 +5019,16 @@ void zest__end_draw_instructions(zest_instance_layer *instance_layer) {
 	}
 }
 
-void zest__update_draw_layer_buffers_callback(zest_draw_routine *draw_routine, zest_buffer_uploader *vertex_upload) {
+void zest__update_draw_layer_buffers_callback(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer) {
 	zest_instance_layer *instance_layer = zest_GetLayerByIndex(draw_routine->draw_index);
 	zest__end_draw_instructions(instance_layer);
 
 	if (!zest_vec_empty(instance_layer->instance_instructions[ZEST_FIF])) {
-		zest_AddCopyCommand(vertex_upload, instance_layer->instance_memory_refs[ZEST_FIF].staging_data, instance_layer->instance_memory_refs[ZEST_FIF].device_data, 0);
+		zest_AddCopyCommand(&instance_layer->vertex_upload, instance_layer->instance_memory_refs[ZEST_FIF].staging_data, instance_layer->instance_memory_refs[ZEST_FIF].device_data, 0);
 	}
 
+	zest_UploadBuffer(&instance_layer->vertex_upload, command_buffer);
+	
 }
 
 void zest__update_draw_layer_resolution(zest_instance_layer *layer) {
@@ -5135,6 +5159,7 @@ void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint ins
 	sprite_layer->current_color.g = 255;
 	sprite_layer->current_color.b = 255;
 	sprite_layer->current_color.a = 255;
+	sprite_layer->multiply_blend_factor = 1;
 	sprite_layer->push_constants.model = zest_M4(1);
 	sprite_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
 	sprite_layer->push_constants.parameters2.x = 0.f;
@@ -5161,13 +5186,13 @@ void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint ins
 	zest__reset_draw_layer_drawing(sprite_layer);
 }
 
-void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index pipeline_index) {
+void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index descriptor_set_index, zest_index pipeline_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
 	zest__end_draw_instructions(sprite_layer);
 	zest__start_draw_instructions(sprite_layer);
 	zest__sync_sprite_layer_to_current_fif(sprite_layer);
 	sprite_layer->current_instance_instruction.pipeline = pipeline_index;
-	sprite_layer->current_instance_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+	sprite_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
 	sprite_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
 	sprite_layer->last_draw_mode = zest_draw_mode_instance;
 }
@@ -5197,6 +5222,7 @@ void zest_InitialiseBillboardLayer(zest_instance_layer *billboard_layer, zest_ui
 	billboard_layer->current_color.g = 255;
 	billboard_layer->current_color.b = 255;
 	billboard_layer->current_color.a = 255;
+	billboard_layer->multiply_blend_factor = 1;
 	billboard_layer->push_constants.model = zest_M4(1);
 	billboard_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
 	billboard_layer->push_constants.parameters2.x = 0.f;
@@ -5223,13 +5249,13 @@ void zest_InitialiseBillboardLayer(zest_instance_layer *billboard_layer, zest_ui
 	zest__reset_draw_layer_drawing(billboard_layer);
 }
 
-void zest_SetBillboardDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index pipeline_index) {
+void zest_SetBillboardDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index descriptor_set_index, zest_index pipeline_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
 	zest__end_draw_instructions(sprite_layer);
 	zest__start_draw_instructions(sprite_layer);
 	zest__sync_billboard_layer_to_current_fif(sprite_layer);
 	sprite_layer->current_instance_instruction.pipeline = pipeline_index;
-	sprite_layer->current_instance_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+	sprite_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
 	sprite_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
 	sprite_layer->last_draw_mode = zest_draw_mode_instance;
 }
@@ -5251,7 +5277,7 @@ void zest_DrawBillboard(zest_instance_layer *layer, zest_image *image, float pos
 	billboard->blend_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->multiply_blend_factor * 0.125f * 4194303.f);
 	layer->current_instance_instruction.total_instances++;
 
-	zest__next_sprite_instance(layer);
+	zest__next_billboard_instance(layer);
 }
 //-- End Billboard Drawing API
 
@@ -5306,16 +5332,18 @@ typedef struct zest_example {
 	zest_index billboard_pipeline;
 	zest_camera camera;
 	zest_index uniform_buffer_3d_index;
+	zest_index sprite_descriptor_index;
+	zest_index billboard_descriptor_index;
 } zest_example;
 
 void UpdateUniformBuffer3d(zest_example *example) {
-	zest_uniform_buffer_data *ubo_ptr = zest_GetUniformBufferData(example->uniform_buffer_3d_index);
-	ubo_ptr->view = zest_LookAt(example->camera.position, zest_AddVec3(example->camera.position, example->camera.front), example->camera.up);
-	ubo_ptr->proj = zest_Perspective(example->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.1f, 10000.f);
-	ubo_ptr->proj.v[1].y *= -1.f;
-	ubo_ptr->screen_size.x = zest_ScreenWidthf();
-	ubo_ptr->screen_size.y = zest_ScreenHeightf();
-	ubo_ptr->millisecs = 0;
+	zest_uniform_buffer_data *buffer_3d = zest_GetUniformBufferData(example->uniform_buffer_3d_index);
+	buffer_3d->view = zest_LookAt(example->camera.position, zest_AddVec3(example->camera.position, example->camera.front), example->camera.up);
+	buffer_3d->proj = zest_Perspective(example->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.1f, 10000.f);
+	buffer_3d->proj.v[1].y *= -1.f;
+	buffer_3d->screen_size.x = zest_ScreenWidthf();
+	buffer_3d->screen_size.y = zest_ScreenHeightf();
+	buffer_3d->millisecs = 0;
 }
 
 void InitExample(zest_example *example) {
@@ -5325,22 +5353,21 @@ void InitExample(zest_example *example) {
 	zest_ProcessTextureImages(texture);
 	example->sprite_pipeline = zest_PipelineIndex("pipeline_2d_sprites");
 	example->sprite_layer = zest_GetLayerIndex("Sprite 2d Layer");
+	example->sprite_descriptor_index = zest_GetTextureDescriptorSetIndex(texture, "Default");
 	example->billboard_pipeline = zest_PipelineIndex("pipeline_billboard");
 	example->billboard_layer = zest_GetLayerIndex("Sprite 2d Layer");
 	example->uniform_buffer_3d_index = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data));
-	zest_CreateTextureDescriptorSets(texture, "3d", "example 3d uniform");
+	example->billboard_descriptor_index = zest_CreateTextureDescriptorSets(texture, "3d", "example 3d uniform");
 	zest_RefreshTextureDescriptors(texture);
 
+	example->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&example->camera, 60.f);
-	example->camera.yaw = zest_Radians(0.f);
-	example->camera.pitch = zest_Radians(0.f);
-	zest_CameraUpdateFront(&example->camera);
 
 	zest_AppendCommandQueue(ZestApp->default_command_queue_index);
 	{
 		zest_AppendRenderPassSetup(ZestApp->default_render_commands_index);
 		{
-			zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
+			example->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
 		}
 		zest_FinishQueueSetup();
 	}
@@ -5351,11 +5378,12 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_UpdateStandardUniformBuffer();
 	UpdateUniformBuffer3d(example);
 	zest_instance_layer *sprite_layer = zest_GetLayerByIndex(example->sprite_layer);
+	zest_instance_layer *billboard_layer = zest_GetLayerByIndex(example->billboard_layer);
 	zest_texture *texture = zest_GetTextureByIndex(example->texture_index);
 	zest_SetActiveRenderQueue(0);
 	sprite_layer->multiply_blend_factor = 1.f;
 	//zest_SetViewPort(sprite_layer, 0, 0, 300, 300, zest_ScreenWidthf(), zest_ScreenHeightf());
-	zest_SetSpriteDrawing(sprite_layer, texture, example->sprite_pipeline);
+	zest_SetSpriteDrawing(sprite_layer, texture, example->sprite_descriptor_index, example->sprite_pipeline);
 	for (float x = 0; x != 75; ++x) {
 		for (float y = 0; y != 15; ++y) {
 			sprite_layer->current_color.r = (zest_byte)(1 - ((y + 1) / 16.f) * 255.f);
@@ -5364,6 +5392,16 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 			zest_DrawSprite(sprite_layer, zest_GetImageFromTexture(texture, example->image1), x * 16.f + 20.f, y * 40.f + 20.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
 		}
 	}
+
+	//Ordering is important here
+	zest_SetBillboardDrawing(billboard_layer, texture, example->billboard_descriptor_index, example->billboard_pipeline);
+	zest_uniform_buffer_data *buffer_3d = zest_GetUniformBufferData(example->uniform_buffer_3d_index);
+	zest_vec3 ray = zest_ScreenRay(200.f, 200.f, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
+	zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&ray, 10.f), example->camera.position);
+	zest_vec3 angles = { 0 };
+	zest_vec3 handle = { .x = .5f,.y = .5f };
+	zest_vec3 alignment = zest_Vec3Set(1.f, 0.f, 0.f);
+	zest_DrawBillboard(billboard_layer, zest_GetImageFromTexture(texture, example->image1), &position.x, zest_Pack10bit(&alignment, 0), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
 
 }
 
@@ -5374,7 +5412,7 @@ int main(void) {
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&example);
-	zest_SetUserCallback(test_update_callback);
+	zest_SetUserUpdateCallback(test_update_callback);
     
 	InitExample(&example);
 	zest_ShowFPSInTitle();
