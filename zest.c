@@ -548,7 +548,7 @@ void zest_Initialise(zest_create_info *info) {
 	zest__initialise_renderer(info);
 	zest__create_empty_command_queue(&ZestRenderer->empty_queue);
 	if (info->flags & zest_init_flag_initialise_with_command_queue) {
-		ZestApp->default_command_queue_index = zest_NewCommandQueue("Default command queue", zest_command_dependency_type_present, 0);
+		ZestApp->default_command_queue_index = zest_NewCommandQueue("Default command queue", zest_command_queue_flag_present_dependency);
 		{
 			ZestApp->default_render_commands_index = zest_NewRenderPassSetupSC("Default render pass");
 			{
@@ -585,6 +585,7 @@ void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*)) {
 void zest_SetActiveRenderQueue(zest_index command_queue_index) {
 	ZEST_ASSERT(zest_vec_empty(ZestRenderer->frame_queues));									//You cannot specify more than one render queue per frame, try using SetActiveRenderSet instead for using multiple render queues
 	ZEST_ASSERT(command_queue_index < (zest_index)zest_map_size(ZestRenderer->command_queues));	//Must be a valid render queue index
+	ZEST_ASSERT((zest_map_at_index(ZestRenderer->command_queues, command_queue_index))->flags & zest_command_queue_flag_validated);	//Make sure that the command queue creation ended with the command: zest_FinishQueueSetup
 	zest_vec_push(ZestRenderer->frame_queues, command_queue_index);
 	ZestRenderer->semaphores[ZEST_FIF].render_complete = zest_GetPresentSemaphore(zest_GetCommandQueue(command_queue_index));
 }
@@ -3525,15 +3526,19 @@ void zest__set_queue_context(zest_setup_context_type context) {
 	}
 }
 
-zest_index zest_NewCommandQueue(const char *name, zest_command_dependency_type dependency_type, zest_index dependency) {
+zest_index zest_NewCommandQueue(const char *name, zest_command_queue_flags flags) {
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_none);	//Current setup context must be none. You can't setup a new command queue within another one
 	zest__set_queue_context(zest_setup_context_type_command_queue);
 	zest_index command_queue_index = zest__create_command_queue(name);
 	zest_command_queue *command_queue = zest_GetCommandQueue(command_queue_index);
+	command_queue->flags = flags;
 	ZestRenderer->setup_context.command_queue_index = command_queue_index;
 	ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
-	if (dependency_type == zest_command_dependency_type_present) {
+	if (flags & zest_command_queue_flag_present_dependency) {
 		zest_ConnectPresentToCommandQueue(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+	}
+	else if (flags & zest_command_queue_flag_command_queue_dependency) {
+		//Todo: Or maybe this is just a separate function
 	}
 	return command_queue_index;
 }
@@ -3594,11 +3599,33 @@ void zest_AppendRenderPassSetup(zest_index render_commands_index) {
 }
 
 void zest_FinishQueueSetup() {
+	ZEST_ASSERT(ZestRenderer->setup_context.command_queue_index != -1);		//Trying to validate a queue that has no context. Finish queue setup must me run at the end of a queue setup
+	zest_ValidateQueue(ZestRenderer->setup_context.command_queue_index);
 	ZestRenderer->setup_context.command_queue_index = -1;
 	ZestRenderer->setup_context.render_pass_index = -1;
 	ZestRenderer->setup_context.draw_routine_index = -1;
 	ZestRenderer->setup_context.layer_index = -1;
 	ZestRenderer->setup_context.type = zest_setup_context_type_none;
+}
+
+void zest_ValidateQueue(zest_index index) {
+	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->command_queues, index));
+	zest_command_queue *command_queue = zest_GetCommandQueue(index);
+	if (command_queue->flags & zest_command_queue_flag_present_dependency) {
+		zest_bool present_found = 0;
+		zest_bool present_flags_found = 0;
+		for (ZEST_EACH_FIF_i) {
+			for (zest_foreach_j(command_queue->fif_incoming_semaphores[i])) {
+				present_found += (command_queue->fif_incoming_semaphores[i][j] == ZestRenderer->semaphores[i].present_complete);
+			}
+			for (zest_foreach_j(command_queue->fif_stage_flags[i])) {
+				present_flags_found += (command_queue->fif_stage_flags[i][j] == VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+			}
+		}
+		ZEST_ASSERT(present_found == ZEST_MAX_FIF);				//The command queue was created with zest_command_queue_flag_present_dependency but no semaphore was found to connect the two
+		ZEST_ASSERT(present_flags_found == ZEST_MAX_FIF * 2);	//The command queue was created with zest_command_queue_flag_present_dependency but the stage flags should be set to VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+	}
+	command_queue->flags |= zest_command_queue_flag_validated;
 }
 
 VkCommandBuffer zest_CurrentCommandBuffer() { 
@@ -5382,7 +5409,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_texture *texture = zest_GetTextureByIndex(example->texture_index);
 	zest_SetActiveRenderQueue(0);
 	sprite_layer->multiply_blend_factor = 1.f;
-	//zest_SetViewPort(sprite_layer, 0, 0, 300, 300, zest_ScreenWidthf(), zest_ScreenHeightf());
+
 	zest_SetSpriteDrawing(sprite_layer, texture, example->sprite_descriptor_index, example->sprite_pipeline);
 	for (float x = 0; x != 75; ++x) {
 		for (float y = 0; y != 15; ++y) {
@@ -5393,7 +5420,6 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		}
 	}
 
-	//Ordering is important here
 	zest_SetBillboardDrawing(billboard_layer, texture, example->billboard_descriptor_index, example->billboard_pipeline);
 	zest_uniform_buffer_data *buffer_3d = zest_GetUniformBufferData(example->uniform_buffer_3d_index);
 	zest_vec3 ray = zest_ScreenRay(200.f, 200.f, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);

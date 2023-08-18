@@ -197,22 +197,23 @@ typedef enum {
 	zest_setup_context_type_compute
 } zest_setup_context_type;
 
-typedef enum zest_command_dependency_type {
-	zest_command_dependency_type_none,
-	zest_command_dependency_type_present,
-	zest_command_dependency_type_command_queue
-} zest_command_dependency_type;
+typedef enum zest_command_queue_flags {
+	zest_command_queue_flag_none								= 0,
+	zest_command_queue_flag_present_dependency					= 1 << 0,
+	zest_command_queue_flag_command_queue_dependency			= 1 << 1,
+	zest_command_queue_flag_validated							= 1 << 2,
+} zest_command_queue_flags;
 
 typedef enum {
-	zest_renderer_flag_enable_multisampling =					1 << 0,
-	zest_renderer_flag_schedule_recreate_textures =				1 << 1,
-	zest_renderer_flag_schedule_change_vsync =					1 << 2,
-	zest_renderer_flag_schedule_rerecord_final_render_buffer =	1 << 3,
-	zest_renderer_flag_drawing_loop_running =					1 << 4,
-	zest_renderer_flag_msaa_toggled =							1 << 5,
-	zest_renderer_flag_vsync_enabled =							1 << 6,
-	zest_renderer_flag_disable_default_uniform_update =			1 << 7,
-	zest_renderer_flag_swapchain_was_recreated =				1 << 8,
+	zest_renderer_flag_enable_multisampling						= 1 << 0,
+	zest_renderer_flag_schedule_recreate_textures 				= 1 << 1,
+	zest_renderer_flag_schedule_change_vsync 					= 1 << 2,
+	zest_renderer_flag_schedule_rerecord_final_render_buffer 	= 1 << 3,
+	zest_renderer_flag_drawing_loop_running 					= 1 << 4,
+	zest_renderer_flag_msaa_toggled 							= 1 << 5,
+	zest_renderer_flag_vsync_enabled 							= 1 << 6,
+	zest_renderer_flag_disable_default_uniform_update 			= 1 << 7,
+	zest_renderer_flag_swapchain_was_recreated 					= 1 << 8,
 } zest_renderer_flags;
 
 typedef enum {
@@ -734,10 +735,11 @@ typedef struct zest_command_queue{
 	VkSemaphore *fif_incoming_semaphores[ZEST_MAX_FIF];				//command queues need to be synchronises with other command queues and the swap chain so...
 	VkSemaphore *fif_outgoing_semaphores[ZEST_MAX_FIF];				//an array of incoming and outgoing (wait and signal) semaphores are maintained for this purpose
 	VkPipelineStageFlags *fif_stage_flags[ZEST_MAX_FIF];			//Stage state_flags relavent to the semaphores
-	zest_index *render_commands;										//A list of render commandsj indexes - mostly these will be render passes that are recorded to the command buffer
+	zest_index *render_commands;									//A list of render commandsj indexes - mostly these will be render passes that are recorded to the command buffer
 	zest_index *compute_items;										//Compute items to be recorded to the command buffer
 	zest_index index_in_renderer;									//A self reference of the index in the Renderer storage array for command queues
 	zest_index present_semaphore_index;								//An index to the semaphore representing the swap chain if required. (command queues don't necessarily have to wait for the swap chain)
+	zest_command_queue_flags flags;									//Can be either dependent on the swap chain to present or another command queue
 } zest_command_queue;
 
 typedef struct {
@@ -1374,7 +1376,7 @@ ZEST_API zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform
 ZEST_API void zest_UpdateStandardUniformBuffer(void);
 
 //Command queue setup and creation
-ZEST_API zest_index zest_NewCommandQueue(const char *name, zest_command_dependency_type dependency_type, zest_index dependency);
+ZEST_API zest_index zest_NewCommandQueue(const char *name, zest_command_queue_flags flags);
 ZEST_API zest_command_queue *zest_GetCommandQueue(zest_index index);
 ZEST_API zest_command_queue_draw_commands *zest_GetCommandQueueRenderPass(zest_index index);
 ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineStageFlags stage_flags);
@@ -1395,6 +1397,7 @@ ZEST_API zest_command_queue_draw_commands *zest_CurrentRenderPass(void);
 ZEST_API void zest_AppendCommandQueue(zest_index render_index);
 ZEST_API void zest_AppendRenderPassSetup(zest_index render_commands_index);
 ZEST_API void zest_FinishQueueSetup(void);
+ZEST_API void zest_ValidateQueue(zest_index index);
 ZEST_API void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_index, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectQueueTo(zest_index receiver, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectQueueToPresent(void);
