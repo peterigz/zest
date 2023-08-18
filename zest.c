@@ -347,6 +347,12 @@ zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float 
 	return result;
 }
 
+//-- Events and States
+zest_bool zest_SwapchainWasRecreated() {
+	return (ZestRenderer->flags & zest_renderer_flag_swapchain_was_recreated);
+}
+//-- End Events and States
+
 //-- Camera and other helpers
 zest_camera zest_CreateCamera() {
 	zest_camera camera = { 0 };
@@ -1556,9 +1562,8 @@ void zest__initialise_renderer(zest_create_info *create_info) {
 	ZestRenderer->push_constants.screen_resolution.y = 1.f / ZestRenderer->swapchain_extent.height;
 
 	ZestRenderer->standard_uniform_buffer_id = zest_CreateUniformBuffer("Standard 2d Uniform Buffer", sizeof(zest_uniform_buffer_data));
-	ZestRenderer->update_uniform_buffer_callback = zest__update_uniform_buffer2d;
 
-	zest__update_uniform_buffer2d(ZEST_NULL);
+	zest_UpdateStandardUniformBuffer();
 
 	zest__create_renderer_command_pools();
 	zest__create_descriptor_pools(create_info->pool_counts);
@@ -1785,6 +1790,7 @@ void zest__cleanup_renderer() {
 
 void zest__recreate_swapchain() {
 	int width = 0, height = 0;
+	ZestRenderer->flags |= zest_renderer_flag_swapchain_was_recreated;
 	while (width == 0 || height == 0) {
 		glfwGetFramebufferSize(ZestApp->window->window_handle, &width, &height);
 		if (width == 0 || height == 0) {
@@ -1825,7 +1831,6 @@ void zest__recreate_swapchain() {
 	}
 
 	zest__create_final_render_command_buffer();
-	ZestRenderer->update_uniform_buffer_callback(ZestRenderer->user_uniform_data);
 
 	for (zest_map_foreach_i(ZestRenderer->draw_routines)) {
 		zest_draw_routine *draw_routine = zest_map_at_index(ZestRenderer->draw_routines, i);
@@ -1956,12 +1961,8 @@ zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_s
 	return zest_add_uniform_buffer(name, &uniform_buffer);
 }
 
-void zest__update_uniform_buffer2d(void *user_uniform_data) {
-	if (ZestRenderer->flags & zest_renderer_flag_disable_default_uniform_update) {
-		return;
-	}
-	zest_uniform_buffer *uniform_buffer = zest_GetUniformBuffer(ZestRenderer->standard_uniform_buffer_id);
-	zest_uniform_buffer_data *ubo_ptr = (zest_uniform_buffer_data*)uniform_buffer->buffer[ZEST_FIF]->data;
+void zest_UpdateStandardUniformBuffer() {
+	zest_uniform_buffer_data *ubo_ptr = (zest_uniform_buffer_data*)zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer_id);
 	zest_vec3 eye = { .x = 0.f, .y = 0.f, .z = -1 };
 	zest_vec3 center = { 0 };
 	zest_vec3 up = { .x = 0.f, .y = -1.f, .z = 0.f };
@@ -2502,13 +2503,9 @@ void zest__rebuild_pipeline(zest_pipeline_set *pipeline) {
 	}
 }
 
-//Inline API functions
 zest_index zest_AddPipeline(const char *name) { zest_map_insert(ZestRenderer->pipeline_sets, name, zest_CreatePipelineSet()); return zest_map_last_index(ZestRenderer->pipeline_sets); }
-
 VkRenderPass zest_GetStandardRenderPass() { return *zest_map_at(ZestRenderer->render_passes, "Render pass standard").render_pass; }
-
 zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed) { zest__hash_initialise(hasher, seed); zest__hasher_add(hasher, input, length); return (zest_key)zest__get_hash(hasher); }
-
 VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands *item) { return ZestRenderer->swapchain_frame_buffers[ZestRenderer->current_frame]; }
 VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index) { return zest_map_at_index(ZestRenderer->descriptor_layouts, index).descriptor_layout; }
 VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name) { return zest_map_at(ZestRenderer->descriptor_layouts, name).descriptor_layout; }
@@ -2525,11 +2522,17 @@ float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
 float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
 zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); }
 zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); }
+void *zest_GetUniformBufferData(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return (zest_map_at_index(ZestRenderer->uniform_buffers, index))->buffer[ZEST_FIF]->data; }
+void *zest_GetUniformBufferDataByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return (zest_map_at(ZestRenderer->uniform_buffers, name))->buffer[ZEST_FIF]->data; }
+void *zest_GetUniformBufferDataFIF(zest_index index, zest_index fif) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return (zest_map_at_index(ZestRenderer->uniform_buffers, index))->buffer[fif]->data; }
+void *zest_GetUniformBufferDataByNameFIF(const char *name, zest_index fif) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return (zest_map_at(ZestRenderer->uniform_buffers, name))->buffer[fif]->data; }
 zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
 void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }
+
 void zest_ShowFPSInTitle() {
 	ZestApp->flags |= zest_app_flag_show_fps_in_title;
 }
+
 void zest_HideFPSInTitle() {
 	ZestApp->flags &= ~zest_app_flag_show_fps_in_title;
 }
@@ -2846,9 +2849,9 @@ void zest__acquire_next_swapchain_image() {
 void zest__draw_renderer_frame() {
 
 	ZestRenderer->flags |= zest_renderer_flag_drawing_loop_running;
+	ZestRenderer->flags &= ~zest_renderer_flag_swapchain_was_recreated;
 
 	zest__acquire_next_swapchain_image();
-	ZestRenderer->update_uniform_buffer_callback(ZestRenderer->user_uniform_data);
 
 	if (zest_vec_empty(ZestRenderer->frame_queues)) {
 		//if there's no render queues at all, then we can draw this blank one to prevent errors when presenting the frame
@@ -5291,6 +5294,9 @@ void InitExample(zest_example *example) {
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
+	//if (zest_SwapchainWasRecreated()) {
+		zest_UpdateStandardUniformBuffer();
+	//}
 	zest_example *example = (zest_example*)user_data;
 	zest_instance_layer *layer = zest_GetLayerByIndex(example->layer);
 	zest_texture *texture = zest_GetTextureByIndex(example->texture_index);

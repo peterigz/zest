@@ -200,6 +200,7 @@ typedef enum {
 	zest_renderer_flag_msaa_toggled =							1 << 5,
 	zest_renderer_flag_vsync_enabled =							1 << 6,
 	zest_renderer_flag_disable_default_uniform_update =			1 << 7,
+	zest_renderer_flag_swapchain_was_recreated =				1 << 8,
 } zest_renderer_flags;
 
 typedef enum {
@@ -1113,9 +1114,6 @@ typedef struct zest_renderer{
 	VkDescriptorPool descriptor_pool;
 	zest_command_setup_context setup_context;
 
-	void *user_uniform_data;
-	void(*update_uniform_buffer_callback)(void *user_uniform_data);							//Function callback where you can update a uniform buffer
-
 	zest_index *free_layers;
 	zest_index *free_drawroutines;
 
@@ -1178,7 +1176,6 @@ zest_buffer *zest__create_depth_resources(void);
 void zest__create_frame_buffers(void);
 void zest__create_sync_objects(void);
 zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer *buffer);
-void zest__update_uniform_buffer2d(void *user_uniform_data);
 void zest__create_renderer_command_pools(void);
 void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes);
 void zest__make_standard_descriptor_layouts(void);
@@ -1355,7 +1352,8 @@ ZEST_API void zest_AddCopyCommand(zest_buffer_uploader *uploader, zest_buffer *s
 ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer command_buffer);
 ZEST_API zest_buffer_pool_size zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
 ZEST_API void zest_SetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
-zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
+ZEST_API zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
+ZEST_API void zest_UpdateStandardUniformBuffer(void);
 
 //Command queue setup and creation
 ZEST_API zest_index zest_NewCommandQueue(const char *name, zest_command_dependency_type dependency_type, zest_index dependency);
@@ -1418,6 +1416,7 @@ ZEST_API zest_vec3 zest_Vec3Set(float x, float y, float z);
 ZEST_API zest_vec4 zest_Vec4Set(float x, float y, float z, float w);
 ZEST_API zest_color zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a);
 ZEST_API zest_color zest_ColorSet1(zest_byte c);
+
 //-- Camera and other helpers
 ZEST_API zest_camera zest_CreateCamera();
 ZEST_API void zest_TurnCamera(zest_camera *camera, float turn_x, float turn_y, float sensitivity);
@@ -1499,6 +1498,9 @@ ZEST_API void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest
 ZEST_API void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index pipeline_index);
 ZEST_API void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 
+// --Events and States
+ZEST_API zest_bool zest_SwapchainWasRecreated();
+
 //General Helper functions
 ZEST_API zest_camera zest_CreateCamera();
 ZEST_API VkRenderPass zest_GetRenderPassByIndex(zest_index index);
@@ -1520,6 +1522,8 @@ ZEST_API float zest_ScreenWidthf(void);
 ZEST_API float zest_ScreenHeightf(void);
 ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
+ZEST_API void *zest_GetUniformBufferData(zest_index index);
+ZEST_API void *zest_GetUniformBufferDataByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
 ZEST_API void zest_ShowFPSInTitle(void);
