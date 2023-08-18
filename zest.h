@@ -240,6 +240,11 @@ typedef enum {
 } zest_draw_mode;
 
 typedef enum {
+	zest_builtin_layer_sprites = 0,
+	zest_builtin_layer_billboards = 0,
+} zest_builtin_layer_type;
+
+typedef enum {
 	zest_imgui_blendtype_none,				//Just draw with standard alpha blend
 	zest_imgui_blendtype_pass,				//Force the alpha channel to 1
 	zest_imgui_blendtype_premultiply		//Divide the color channels by the alpha channel
@@ -1204,7 +1209,7 @@ zest_index zest_create_command_queue_render_pass(const char *name);
 // --Command Queue Setup functions
 zest_index zest__create_command_queue(const char *name);
 void zest__set_queue_context(zest_setup_context_type context);
-zest_draw_routine *zest__create_draw_routine_with_sprite_layer(const char *name, zest_uint initial_sprite_count);
+zest_draw_routine *zest__create_draw_routine_with_builtin_layer(const char *name, zest_uint initial_sprite_count, void(*draw_callback)(zest_draw_routine *draw_routine));
 
 // --Draw layer internal functions
 void zest__start_draw_instructions(zest_instance_layer *instance_layer);
@@ -1370,13 +1375,13 @@ ZEST_API void zest_AddDrawRoutineToRenderPass(zest_command_queue_draw_commands *
 ZEST_API zest_instance_layer *zest_GetLayerByIndex(zest_index index);
 ZEST_API zest_instance_layer *zest_GetLayerByName(const char *name);
 ZEST_API zest_index zest_GetLayerIndex(const char *name);
-ZEST_API zest_index zest_NewSpriteLayerSetup(const char *name);
-
+ZEST_API zest_index zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type builtin_layer);
 ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void); 
 ZEST_API zest_command_queue *zest_CurrentCommandQueue(void);
 ZEST_API zest_command_queue_draw_commands *zest_CurrentRenderPass(void);
-
-ZEST_API void zest_Finish(void);
+ZEST_API void zest_AppendCommandQueue(zest_index render_index);
+ZEST_API void zest_AppendRenderPassSetup(zest_index render_commands_index);
+ZEST_API void zest_FinishQueueSetup(void);
 ZEST_API void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_index, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectQueueTo(zest_index receiver, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectQueueToPresent(void);
@@ -1420,15 +1425,15 @@ ZEST_API zest_color zest_ColorSet1(zest_byte c);
 //-- Camera and other helpers
 ZEST_API zest_camera zest_CreateCamera();
 ZEST_API void zest_TurnCamera(zest_camera *camera, float turn_x, float turn_y, float sensitivity);
-ZEST_API void zest_UpdateFront(zest_camera *camera);
-ZEST_API void zest_MoveForward(zest_camera *camera, float speed);
-ZEST_API void zest_MoveBackward(zest_camera *camera, float speed);
-ZEST_API void zest_MoveUp(zest_camera *camera, float speed);
-ZEST_API void zest_MoveDown(zest_camera *camera, float speed);
-ZEST_API void zest_StrafLeft(zest_camera *camera, float speed);
-ZEST_API void zest_StrafRight(zest_camera *camera, float speed);
-ZEST_API void zest_Position(zest_camera *camera, zest_vec3 position);
-ZEST_API void zest_SetFoV(zest_camera *camera, float degrees);
+ZEST_API void zest_CameraUpdateFront(zest_camera *camera);
+ZEST_API void zest_CameraMoveForward(zest_camera *camera, float speed);
+ZEST_API void zest_CameraMoveBackward(zest_camera *camera, float speed);
+ZEST_API void zest_CameraMoveUp(zest_camera *camera, float speed);
+ZEST_API void zest_CameraMoveDown(zest_camera *camera, float speed);
+ZEST_API void zest_CameraStrafLeft(zest_camera *camera, float speed);
+ZEST_API void zest_CameraStrafRight(zest_camera *camera, float speed);
+ZEST_API void zest_CameraPosition(zest_camera *camera, zest_vec3 position);
+ZEST_API void zest_CameraSetFoV(zest_camera *camera, float degrees);
 ZEST_API zest_bool zest_RayIntersectPlane(zest_vec3 ray_origin, zest_vec3 ray_direction, zest_vec3 plane, zest_vec3 plane_normal, float *distance, zest_vec3 *intersection);
 ZEST_API zest_vec3 zest_ScreenRay(float xpos, float ypos, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
 ZEST_API zest_vec2 zest_WorldToScreen(const zest_vec3 *point, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
@@ -1492,6 +1497,8 @@ ZEST_API void zest_CreateTextureImageView(zest_texture *texture, VkImageViewType
 ZEST_API void zest_AddTextureDescriptorSet(zest_texture *texture, const char *name, zest_descriptor_set descriptor_set);
 ZEST_API zest_texture *zest_GetTextureByIndex(zest_index index);
 ZEST_API zest_texture *zest_GetTextureByName(const char *name);
+ZEST_API void zest_UpdateAllTextureDescriptorSets(zest_texture *texture);
+ZEST_API void zest_RefreshTextureDescriptors(zest_texture *texture);
 
 // --Draw layers
 ZEST_API void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint instance_pool_size);
