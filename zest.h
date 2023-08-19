@@ -511,11 +511,11 @@ typedef struct zest_vec3 {
 
 typedef struct zest_vec4 {
 	float x, y, z, w;
-} zest_vec4;
+} zest_vec4 __attribute__((aligned(16)));
 
 typedef struct zest_matrix4 {
 	zest_vec4 v[4];
-} zest_matrix4;
+} zest_matrix4 __attribute__((aligned(16)));
 
 typedef struct zest_rgba8 {
 	union {
