@@ -1305,7 +1305,7 @@ void zest__set_limit_data(void);
 zest_bool zest__check_validation_layer_support(void);
 const char** zest__get_required_extensions(zest_uint *extension_count);
 zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
-void zest__set_default_pool_sizes();
+void zest__set_default_pool_sizes(void);
 void *zest_vk_allocate_callback(void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
 void *zest_vk_reallocate_callback(void* pUserData, void *memory, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
 void zest_vk_free_callback(void* pUserData, void *memory);
@@ -1452,7 +1452,7 @@ ZEST_API zest_color zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_by
 ZEST_API zest_color zest_ColorSet1(zest_byte c);
 
 //-- Camera and other helpers
-ZEST_API zest_camera zest_CreateCamera();
+ZEST_API zest_camera zest_CreateCamera(void);
 ZEST_API void zest_TurnCamera(zest_camera *camera, float turn_x, float turn_y, float sensitivity);
 ZEST_API void zest_CameraUpdateFront(zest_camera *camera);
 ZEST_API void zest_CameraMoveForward(zest_camera *camera, float speed);
@@ -1541,10 +1541,10 @@ ZEST_API void zest_SetBillboardDrawing(zest_instance_layer *sprite_layer, zest_t
 ZEST_API void zest_DrawBillboard(zest_instance_layer *layer, zest_image *image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
 
 // --Events and States
-ZEST_API zest_bool zest_SwapchainWasRecreated();
+ZEST_API zest_bool zest_SwapchainWasRecreated(void);
 
 //General Helper functions
-ZEST_API zest_camera zest_CreateCamera();
+ZEST_API zest_camera zest_CreateCamera(void);
 ZEST_API VkRenderPass zest_GetRenderPassByIndex(zest_index index);
 ZEST_API VkRenderPass zest_GetStandardRenderPass(void);
 ZEST_API zest_pipeline_set zest_CreatePipelineSet(void);
