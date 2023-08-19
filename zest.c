@@ -55,8 +55,6 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
 	ZEST_ASSERT(ZestDevice);		//Must initialise the ZestDevice first
 
-	zest_window_instance = GetModuleHandle(NULL);
-
 	zest_window *window = ZEST__ALLOCATE(sizeof(zest_window));
 	WNDCLASS window_class = { 0 };
 	memset(window, 0, sizeof(zest_window));
@@ -5350,7 +5348,7 @@ void zest__main_loop(void) {
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
 		//DoScheduledTasks(ZestDevice->current_fif);
 
-		BOOL result = GetMessage(&msg, 0, 0, 0);
+		BOOL result = PeekMessage(&msg, NULL, 0, 0, PM_REMOVE);
 		if (result > 0) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
@@ -5472,9 +5470,10 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 }
 
-int main(void) {
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 	zest_example example = { 0 };
 
+	zest_window_instance = hInstance;
 	zest_create_info create_info = zest_CreateInfo();
 
 	zest_Initialise(&create_info);
