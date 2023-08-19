@@ -55,10 +55,10 @@ zest_matrix4 zest_M4(float v) {
 
 zest_matrix4 zest_M4SetWithVecs(zest_vec4 a, zest_vec4 b, zest_vec4 c, zest_vec4 d) {
 	zest_matrix4 r;
-	r.v[0].x = a.x, r.v[0].y = a.y, r.v[0].z = a.z, r.v[0].w = a.w;
-	r.v[1].x = b.x, r.v[1].y = b.y, r.v[1].z = b.z, r.v[1].w = b.w;
-	r.v[2].x = c.x, r.v[2].y = c.y, r.v[2].z = c.z, r.v[2].w = c.w;
-	r.v[3].x = d.x, r.v[3].y = d.y, r.v[3].z = d.z, r.v[3].w = d.w;
+    r.v[0].x = a.x; r.v[0].y = a.y; r.v[0].z = a.z; r.v[0].w = a.w;
+    r.v[1].x = b.x; r.v[1].y = b.y; r.v[1].z = b.z; r.v[1].w = b.w;
+    r.v[2].x = c.x; r.v[2].y = c.y; r.v[2].z = c.z; r.v[2].w = c.w;
+    r.v[3].x = d.x; r.v[3].y = d.y; r.v[3].z = d.z; r.v[3].w = d.w;
 	return r;
 }
 
@@ -1145,7 +1145,7 @@ void* zest__allocate(zest_size size) {
 		allocation = tloc_Allocate(ZestDevice->allocator, size);
 		ZEST_ASSERT(allocation);	//Unable to allocate even after adding a pool
 		ZestDevice->memory_pool_count++;
-		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %llu. ", pool_size);
+		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %zu. ", pool_size);
 	}
 	return allocation;
 }
@@ -1164,7 +1164,7 @@ void* zest__reallocate(void *memory, zest_size size) {
 		allocation = tloc_Reallocate(ZestDevice->allocator, memory, size);
 		ZEST_ASSERT(allocation);	//Unable to allocate even after adding a pool
 		ZestDevice->memory_pool_count++;
-		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %llu. ", pool_size);
+		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %zu. ", pool_size);
 	}
 	return allocation;
 }
@@ -1439,7 +1439,7 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 		ZEST_ASSERT(buffer_pool.alignment == buffer_allocator->alignment);	//The new pool should have the same alignment as the alignment set in the allocator, this
 																			//would have been set when the first pool was created
 
-		void zest__add_remote_range_pool(buffer_allocator, buffer_pool);
+		zest__add_remote_range_pool(buffer_allocator, &buffer_pool);
 		zest_buffer *buffer = tloc_AllocateRemote(buffer_allocator->allocator, adjusted_size);
 		ZEST_ASSERT(buffer);	//Unable to allocate memory. Out of memory?
 		zest__set_buffer_details(buffer_allocator, buffer, buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
@@ -1465,7 +1465,7 @@ zest_bool zest_GrowBuffer(zest_buffer **buffer, zest_size unit_size) {
 		zest_device_memory_pool buffer_pool = zest__create_vk_memory_pool(&buffer_allocator->buffer_info, ZEST_NULL, new_size);
 		ZEST_ASSERT(buffer_pool.alignment == buffer_allocator->alignment);	//The new pool should have the same alignment as the alignment set in the allocator, this
 																			//would have been set when the first pool was created
-		void zest__add_remote_range_pool(buffer_allocator, buffer_pool);
+		zest__add_remote_range_pool(buffer_allocator, &buffer_pool);
 		zest_buffer *new_buffer = tloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 		ZEST_ASSERT(new_buffer);	//Unable to allocate memory. Out of memory?
 		*buffer = new_buffer;
@@ -4145,8 +4145,6 @@ zest_index zest_LoadAnimationImage(zest_texture *texture, zest_bitmap *spriteshe
 
 	ZEST_ASSERT(spritesheet->data != ZEST_NULL);
 	zest_ConvertBitmapToRGBA(spritesheet, 255);
-	spritesheet->width;
-	spritesheet->height;
 
 	zest_uint animation_area = spritesheet->width * spritesheet->height;
 	zest_uint frame_area = width * height;
@@ -4169,8 +4167,6 @@ zest_index zest_LoadAnimationMemory(zest_texture *texture, const char* name, uns
 	ZEST_ASSERT(spritesheet.data != ZEST_NULL);
 	zest_ConvertBitmapToRGBA(&spritesheet, 255);
 	//PreMultiplyAlpha(spritesheet, load_filter);
-	spritesheet.width;
-	spritesheet.height;
 
 	zest_uint animation_area = spritesheet.width * spritesheet.height;
 	zest_uint frame_area = width * height;
