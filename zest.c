@@ -58,31 +58,23 @@ zest_window* zest__create_window(int x, int y, int width, int height, zest_bool 
 	zest_window_instance = GetModuleHandle(NULL);
 
 	zest_window *window = ZEST__ALLOCATE(sizeof(zest_window));
-	WNDCLASSEX *wcex = ZEST__ALLOCATE(sizeof(WNDCLASSEX));
+	WNDCLASS window_class = { 0 };
 	memset(window, 0, sizeof(zest_window));
 
 	window->window_width = width;
 	window->window_height = height;
 
-	wcex->cbSize = sizeof(WNDCLASSEX);
-	wcex->style = CS_HREDRAW | CS_VREDRAW;
-	wcex->lpfnWndProc = zest__window_proc;
-	wcex->cbClsExtra = 0;
-	wcex->cbWndExtra = 0;
-	wcex->hInstance = zest_window_instance;
-	wcex->hIcon = LoadIcon(zest_window_instance, MAKEINTRESOURCE(IDI_APPLICATION));
-	wcex->hCursor = LoadCursor(NULL, IDC_ARROW);
-	wcex->hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
-	wcex->lpszMenuName = NULL;
-	wcex->lpszClassName = "zest_app_class_name";
-	wcex->hIconSm = LoadIcon(wcex->hInstance, MAKEINTRESOURCE(IDI_APPLICATION));
+	window_class.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
+	window_class.lpfnWndProc = zest__window_proc;
+	window_class.hInstance = zest_window_instance;
+	window_class.hIcon = LoadIcon(zest_window_instance, MAKEINTRESOURCE(IDI_APPLICATION));
+	window_class.lpszClassName = "zest_app_class_name";
 
-	if (!RegisterClassEx(wcex)) {
+	if (!RegisterClass(&window_class)) {
 		ZEST_ASSERT(0);		//Failed to register window
-	}
+	} 
 
-	window->window_handle = CreateWindowEx(0, wcex->lpszClassName, title, WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN, x, y, width, height, 0, 0, zest_window_instance, 0);
-	MSG msg;
+	window->window_handle = CreateWindowEx(0, window_class.lpszClassName, title, WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN, x, y, width, height, 0, 0, zest_window_instance, 0);
 	ZEST_ASSERT(window->window_handle);		//Unable to open a window!
 
 	//ShowWindow(window->window_handle, SW_SHOW);
@@ -5385,10 +5377,10 @@ void zest__main_loop(void) {
 			if (ZestApp->frame_timer >= ZEST_MICROSECS_SECOND) {
 				char fps_str[20];
                 zest_snprintf(fps_str, 20, "FPS: %u", ZestApp->frame_count);
-				printf("FPS: %u\n", ZestApp->frame_count);
+				//printf("FPS: %u\n", ZestApp->frame_count);
                 
 				//glfwSetWindowTitle(ZestApp->window->window_handle, fps_str);
-				//SetWindowText(ZestApp->window->window_handle, fps_str);
+				SetWindowText(ZestApp->window->window_handle, fps_str);
 
 				ZestApp->last_fps = ZestApp->frame_count;
 				ZestApp->frame_count = 0;
