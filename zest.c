@@ -72,10 +72,9 @@ zest_window* zest__create_window(int x, int y, int width, int height, zest_bool 
 		ZEST_ASSERT(0);		//Failed to register window
 	} 
 
-	window->window_handle = CreateWindowEx(0, window_class.lpszClassName, title, WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN, x, y, width, height, 0, 0, zest_window_instance, 0);
+	window->window_handle = CreateWindowEx(0, window_class.lpszClassName, title, WS_OVERLAPPEDWINDOW | WS_VISIBLE, x, y, width, height, 0, 0, zest_window_instance, 0);
 	ZEST_ASSERT(window->window_handle);		//Unable to open a window!
 
-	//ShowWindow(window->window_handle, SW_SHOW);
 	SetForegroundWindow(window->window_handle);
 	SetFocus(window->window_handle);
 
