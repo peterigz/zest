@@ -587,7 +587,7 @@ void zest_SetActiveRenderQueue(zest_index command_queue_index) {
 	ZEST_ASSERT(command_queue_index < (zest_index)zest_map_size(ZestRenderer->command_queues));	//Must be a valid render queue index
 	ZEST_ASSERT((zest_map_at_index(ZestRenderer->command_queues, command_queue_index))->flags & zest_command_queue_flag_validated);	//Make sure that the command queue creation ended with the command: zest_FinishQueueSetup
 	zest_vec_push(ZestRenderer->frame_queues, command_queue_index);
-	ZestRenderer->semaphores[ZEST_FIF].render_complete = zest_GetPresentSemaphore(zest_GetCommandQueue(command_queue_index));
+	ZestRenderer->semaphores[ZEST_FIF].render_complete = zest_GetCommandQueuePresentSemaphore(zest_GetCommandQueue(command_queue_index));
 }
 
 /*
@@ -2805,7 +2805,7 @@ void zest__create_empty_command_queue(zest_command_queue *command_queue) {
 
 	for (ZEST_EACH_FIF_i) {
 		zest_vec_push(command_queue->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].present_complete);
-		zest_vec_push(command_queue->fif_stage_flags[i], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+		zest_vec_push(command_queue->fif_wait_stage_flags[i], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 	}
 	zest_command_queue_draw_commands render_commands = { 0 };
 	render_commands.render_pass = ZestRenderer->final_render_pass.render_pass;
@@ -2871,7 +2871,7 @@ void zest__draw_renderer_frame() {
 
 	if (zest_vec_empty(ZestRenderer->frame_queues)) {
 		//if there's no render queues at all, then we can draw this blank one to prevent errors when presenting the frame
-		ZestRenderer->semaphores[ZestDevice->current_fif].render_complete = zest__get_command_queue_present_semaphore(&ZestRenderer->empty_queue);
+		ZestRenderer->semaphores[ZestDevice->current_fif].render_complete = zest_GetCommandQueuePresentSemaphore(&ZestRenderer->empty_queue);
 		zest__record_and_commit_command_queue(&ZestRenderer->empty_queue, ZestRenderer->fif_fence[ZEST_FIF]);
 		//FlushLayers();
 	}
@@ -2980,11 +2980,6 @@ void zest__cleanup_command_queue(zest_command_queue *command_queue) {
 	vkDestroyCommandPool(ZestDevice->logical_device, command_queue->command_pool, VK_NULL_HANDLE);
 }
 
-VkSemaphore zest__get_command_queue_present_semaphore(zest_command_queue *command_queue) {
-	ZEST_ASSERT(command_queue->present_semaphore_index != -1);
-	return command_queue->fif_outgoing_semaphores[ZEST_FIF][command_queue->present_semaphore_index];
-}
-
 void zest__record_and_commit_command_queue(zest_command_queue *command_queue, VkFence fence) {
 	ZestRenderer->current_command_queue = command_queue;
 	VkCommandBufferBeginInfo begin_info = { 0 };
@@ -3020,7 +3015,7 @@ void zest__record_and_commit_command_queue(zest_command_queue *command_queue, Vk
 	if (!zest_vec_empty(command_queue->fif_incoming_semaphores[ZEST_FIF])) {
 		submit_info.pWaitSemaphores = command_queue->fif_incoming_semaphores[ZEST_FIF];
 		submit_info.waitSemaphoreCount = zest_vec_size(command_queue->fif_incoming_semaphores[ZEST_FIF]);
-		submit_info.pWaitDstStageMask = command_queue->fif_stage_flags[ZEST_FIF];
+		submit_info.pWaitDstStageMask = command_queue->fif_wait_stage_flags[ZEST_FIF];
 	}
 	else {
 		submit_info.pWaitSemaphores = VK_NULL_HANDLE;
@@ -3044,8 +3039,7 @@ void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineSta
 		VkSemaphore semaphore = VK_NULL_HANDLE;
 		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &semaphore));
 		zest_vec_push(sender->fif_outgoing_semaphores[i], semaphore);
-		zest_vec_push(sender->fif_stage_flags[i], stage_flags);
-		sender->present_semaphore_index = zest_vec_last_index(sender->fif_outgoing_semaphores[i]);
+		sender->present_semaphore_index[ZEST_FIF] = zest_vec_last_index(sender->fif_outgoing_semaphores[i]);
 	}
 }
 // --Command Queue functions
@@ -3580,7 +3574,7 @@ void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineS
 	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 	for (ZEST_EACH_FIF_i) {
 		zest_vec_push(receiver->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].present_complete);
-		zest_vec_push(receiver->fif_stage_flags[i], stage_flags);
+		zest_vec_push(receiver->fif_wait_stage_flags[i], stage_flags);
 	}
 }
 
@@ -3618,12 +3612,12 @@ void zest_ValidateQueue(zest_index index) {
 			for (zest_foreach_j(command_queue->fif_incoming_semaphores[i])) {
 				present_found += (command_queue->fif_incoming_semaphores[i][j] == ZestRenderer->semaphores[i].present_complete);
 			}
-			for (zest_foreach_j(command_queue->fif_stage_flags[i])) {
-				present_flags_found += (command_queue->fif_stage_flags[i][j] == VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+			for (zest_foreach_j(command_queue->fif_wait_stage_flags[i])) {
+				present_flags_found += (command_queue->fif_wait_stage_flags[i][j] == VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 			}
 		}
 		ZEST_ASSERT(present_found == ZEST_MAX_FIF);				//The command queue was created with zest_command_queue_flag_present_dependency but no semaphore was found to connect the two
-		ZEST_ASSERT(present_flags_found == ZEST_MAX_FIF * 2);	//The command queue was created with zest_command_queue_flag_present_dependency but the stage flags should be set to VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
+		ZEST_ASSERT(present_flags_found == ZEST_MAX_FIF);		//The command queue was created with zest_command_queue_flag_present_dependency but the stage flags should be set to VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
 	}
 	command_queue->flags |= zest_command_queue_flag_validated;
 }
@@ -3651,7 +3645,7 @@ void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_inde
 		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphoreInfo, &ZestDevice->allocation_callbacks, &semaphore));
 		zest_vec_push(sender->fif_outgoing_semaphores[i], semaphore);
 		zest_vec_push(receiver->fif_incoming_semaphores[i], semaphore);
-		zest_vec_push(sender->fif_stage_flags[i], stage_flags);
+		zest_vec_push(sender->fif_wait_stage_flags[i], stage_flags);
 	}
 }
 
@@ -3666,9 +3660,9 @@ void zest_ConnectQueueToPresent() {
 	zest_ConnectCommandQueueToPresent(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 }
 
-VkSemaphore zest_GetPresentSemaphore(zest_command_queue *command_queue) {
-	ZEST_ASSERT(command_queue->present_semaphore_index != -1);
-	return command_queue->fif_outgoing_semaphores[ZEST_FIF][command_queue->present_semaphore_index];
+VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue *command_queue) {
+	ZEST_ASSERT(command_queue->present_semaphore_index[ZEST_FIF] != -1);
+	return command_queue->fif_outgoing_semaphores[ZEST_FIF][command_queue->present_semaphore_index[ZEST_FIF]];
 }
 
 zest_index zest_NewRenderPassSetupSC(const char *name) {

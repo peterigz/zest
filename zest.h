@@ -732,13 +732,13 @@ typedef struct zest_command_queue{
 	const char *name;
 	VkCommandPool command_pool;										//The command pool for command buffers
 	VkCommandBuffer command_buffer[ZEST_MAX_FIF];					//A vulkan command buffer for each frame in flight
-	VkSemaphore *fif_incoming_semaphores[ZEST_MAX_FIF];				//command queues need to be synchronises with other command queues and the swap chain so...
+	VkSemaphore *fif_incoming_semaphores[ZEST_MAX_FIF];				//command queues need to be synchronises with other command queues and the swap chain so
 	VkSemaphore *fif_outgoing_semaphores[ZEST_MAX_FIF];				//an array of incoming and outgoing (wait and signal) semaphores are maintained for this purpose
-	VkPipelineStageFlags *fif_stage_flags[ZEST_MAX_FIF];			//Stage state_flags relavent to the semaphores
+	VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];		//Stage state_flags relavent to the incoming semaphores
 	zest_index *render_commands;									//A list of render commandsj indexes - mostly these will be render passes that are recorded to the command buffer
 	zest_index *compute_items;										//Compute items to be recorded to the command buffer
 	zest_index index_in_renderer;									//A self reference of the index in the Renderer storage array for command queues
-	zest_index present_semaphore_index;								//An index to the semaphore representing the swap chain if required. (command queues don't necessarily have to wait for the swap chain)
+	zest_index present_semaphore_index[ZEST_MAX_FIF];				//An index to the semaphore representing the swap chain if required. (command queues don't necessarily have to wait for the swap chain)
 	zest_command_queue_flags flags;									//Can be either dependent on the swap chain to present or another command queue
 } zest_command_queue;
 
@@ -1216,7 +1216,6 @@ void zest__draw_renderer_frame(void);
 
 // --Command Queue functions
 void zest__cleanup_command_queue(zest_command_queue *command_queue);
-VkSemaphore zest__get_command_queue_present_semaphore(zest_command_queue *command_queue);
 void zest__record_and_commit_command_queue(zest_command_queue *command_queue, VkFence fence);
 zest_index zest_create_command_queue_render_pass(const char *name);
 // --Command Queue functions
@@ -1380,7 +1379,7 @@ ZEST_API zest_index zest_NewCommandQueue(const char *name, zest_command_queue_fl
 ZEST_API zest_command_queue *zest_GetCommandQueue(zest_index index);
 ZEST_API zest_command_queue_draw_commands *zest_GetCommandQueueRenderPass(zest_index index);
 ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineStageFlags stage_flags);
-ZEST_API VkSemaphore zest_GetPresentSemaphore(zest_command_queue *command_queue);
+ZEST_API VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue *command_queue);
 ZEST_API zest_index zest_NewRenderPassSetupSC(const char *name);
 ZEST_API zest_draw_routine *zest_GetDrawRoutineByIndex(zest_index index);
 ZEST_API zest_draw_routine *zest_GetDrawRoutineByName(const char *name);
