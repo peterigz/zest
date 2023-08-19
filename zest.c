@@ -9,6 +9,121 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include "stb_image_resize.h"
 
+
+#ifdef _WIN32
+zest_millisecs zest_Millisecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
+zest_microsecs zest_Microsecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
+
+FILE *zest__open_file(const char *file_name, const char *mode) {
+	FILE *file = NULL;
+	errno_t err = fopen_s(&file, file_name, mode);
+	if (err != 0 || file == NULL) {
+		return NULL;
+	}
+	return file;
+}
+
+void zest__destroy_window_callback(void *user_data) {
+	DestroyWindow(ZestApp->window->window_handle);
+	PostQuitMessage(0);
+}
+
+void zest__wait_for_events_callback(void *user_data) {
+	MsgWaitForMultipleObjects(0, NULL, FALSE, (DWORD)(1 * 1e3), QS_ALLEVENTS);
+}
+
+LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+	LRESULT result = 0;
+	switch (msg) {
+	case WM_CLOSE:
+		ZestApp->flags |= zest_app_flag_quit_application;
+		return 0;
+		break;
+	case WM_PAINT:
+		//ValidateRect(hWnd, NULL);
+		break;
+	case WM_SIZE:
+		break;
+	default:
+		result = DefWindowProc(hWnd, msg, wParam, lParam);
+		break;
+	}
+
+	return result;
+}
+
+zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
+	ZEST_ASSERT(ZestDevice);		//Must initialise the ZestDevice first
+
+	zest_window_instance = GetModuleHandle(NULL);
+
+	zest_window *window = ZEST__ALLOCATE(sizeof(zest_window));
+	WNDCLASSEX *wcex = ZEST__ALLOCATE(sizeof(WNDCLASSEX));
+	memset(window, 0, sizeof(zest_window));
+
+	window->window_width = width;
+	window->window_height = height;
+
+	wcex->cbSize = sizeof(WNDCLASSEX);
+	wcex->style = CS_HREDRAW | CS_VREDRAW;
+	wcex->lpfnWndProc = zest__window_proc;
+	wcex->cbClsExtra = 0;
+	wcex->cbWndExtra = 0;
+	wcex->hInstance = zest_window_instance;
+	wcex->hIcon = LoadIcon(zest_window_instance, MAKEINTRESOURCE(IDI_APPLICATION));
+	wcex->hCursor = LoadCursor(NULL, IDC_ARROW);
+	wcex->hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+	wcex->lpszMenuName = NULL;
+	wcex->lpszClassName = "zest_app_class_name";
+	wcex->hIconSm = LoadIcon(wcex->hInstance, MAKEINTRESOURCE(IDI_APPLICATION));
+
+	if (!RegisterClassEx(wcex)) {
+		ZEST_ASSERT(0);		//Failed to register window
+	}
+
+	window->window_handle = CreateWindowEx(0, wcex->lpszClassName, title, WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN, x, y, width, height, 0, 0, zest_window_instance, 0);
+	MSG msg;
+	ZEST_ASSERT(window->window_handle);		//Unable to open a window!
+
+	//ShowWindow(window->window_handle, SW_SHOW);
+	SetForegroundWindow(window->window_handle);
+	SetFocus(window->window_handle);
+
+	return window;
+}
+
+void zest__create_window_surface(zest_window* window) {
+	VkWin32SurfaceCreateInfoKHR surface_create_info;
+	surface_create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	surface_create_info.pNext = NULL;
+	surface_create_info.flags = 0;
+	surface_create_info.hinstance = zest_window_instance;
+	surface_create_info.hwnd = window->window_handle;
+	ZEST_VK_CHECK_RESULT(vkCreateWin32SurfaceKHR(ZestDevice->instance, &surface_create_info, &ZestDevice->allocation_callbacks, &window->surface));
+}
+
+char **zest__add_platform_extensions() {
+	char **extensions = 0;
+	zest_vec_push(extensions, VK_KHR_SURFACE_EXTENSION_NAME);
+	zest_vec_push(extensions, VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+	return extensions;
+}
+
+void zest__get_window_size_callback(void *user_data, int *width, int *height) {
+	RECT window_rect;
+	GetClientRect(ZestApp->window->window_handle, &window_rect);
+	*width = window_rect.right - window_rect.left;
+	*height = window_rect.bottom - window_rect.top;
+}
+
+#else
+zest_millisecs zest_Millisecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); long m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
+zest_microsecs zest_Microsecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
+FILE *zest__open_file(const char *file_name, const char *mode) {
+	return fopen(file_name, mode);
+}
+#endif
+
 const char *zest__vulkan_error(VkResult errorCode)
 {
 	switch (errorCode)
@@ -624,8 +739,8 @@ void zest__create_instance(void) {
 	create_info.flags = 0;
 	create_info.pNext = 0;
 
-	zest_uint extension_count = 0;
-	const char** extensions = zest__get_required_extensions(&extension_count);
+	const char** extensions = zest__get_required_extensions();
+	zest_uint extension_count = zest_vec_size(extensions);
 	create_info.enabledExtensionCount = extension_count;
 	create_info.ppEnabledExtensionNames = extensions;
 
@@ -651,10 +766,6 @@ void zest__create_instance(void) {
 	ZEST__FREE(available_extensions);
 	zest__create_window_surface(ZestApp->window);
 
-}
-
-void zest__create_window_surface(zest_window* window) {
-	ZEST_VK_CHECK_RESULT(glfwCreateWindowSurface(ZestDevice->instance, window->window_handle, &ZestDevice->allocation_callbacks, &window->surface));
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback( VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
@@ -699,23 +810,17 @@ void zest__setup_validation(void) {
 }
 
 //Get the extensions that we need for the app.
-const char** zest__get_required_extensions(zest_uint *extension_count) {
-	zest_uint glfw_extension_count = 0;
-	const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
+const char** zest__get_required_extensions() {
+	char** platform_extensions = zest__add_platform_extensions();
 
-	ZEST_ASSERT(glfw_extensions); //Vulkan not available
+	ZEST_ASSERT(platform_extensions); //Vulkan not available
 
-	*extension_count = glfw_extension_count + 1 + ZEST_ENABLE_VALIDATION_LAYER;
-	ZEST__ARRAY(extensions, const char*, *extension_count);
-	for (int i = 0; i != glfw_extension_count; ++i) {
-		extensions[i] = glfw_extensions[i];
-	}
 	if (ZEST_ENABLE_VALIDATION_LAYER) {
-		extensions[*extension_count - 2] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
+		zest_vec_push(platform_extensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 	}
-	extensions[*extension_count - 1] = VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME;
+	zest_vec_push(platform_extensions, VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
 	
-	return extensions;
+	return (const char**)platform_extensions;
 }
 
 zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties) {
@@ -1066,74 +1171,19 @@ void zest__initialise_app(zest_create_info *create_info) {
 	ZestApp->virtual_mouse_x = 0;
 	ZestApp->virtual_mouse_y = 0;
 
-	ZestApp->window = zest__create_window(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, 0, "Zest");
+	ZestApp->window = ZEST_CREATE_OS_WINDOW(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, 0, "Zest");
 }
 
 void zest__destroy(void) {
 	zest_WaitForIdleDevice();
 	zest__cleanup_renderer();
+	ZestRenderer->destroy_window_callback(ZestApp->user_data);
 	vkDestroySurfaceKHR(ZestDevice->instance, ZestApp->window->surface, &ZestDevice->allocation_callbacks);
-	glfwDestroyWindow(ZestApp->window->window_handle);
-	glfwTerminate();
 	zest_destroy_debug_messenger();
 	vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->command_pool, &ZestDevice->allocation_callbacks);
 	vkDestroyDevice(ZestDevice->logical_device, &ZestDevice->allocation_callbacks);
 	vkDestroyInstance(ZestDevice->instance, &ZestDevice->allocation_callbacks);
 	free(ZestDevice->memory_pools[0]);
-}
-
-void zest__keyboard_input_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-	if (key == GLFW_KEY_UNKNOWN) return;
-
-	if (action != GLFW_PRESS && action != GLFW_RELEASE)
-		return;
-
-	int state = glfwGetKey(window, key);
-
-	printf("Key State: %i\n", state);
-}
-
-void zest__mouse_scroll_callback(GLFWwindow* window, double offset_x, double offset_y) {
-	ZestApp->mouse_wheel_h = offset_x;
-	ZestApp->mouse_wheel_v = offset_y;
-}
-
-void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-	ZestApp->window->framebuffer_resized = 1;
-}
-
-zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char *title) {
-	ZEST_ASSERT(ZestDevice);		//Must initialise the ZestDevice first
-
-	zest_window *window = ZEST__ALLOCATE(sizeof(zest_window));
-	memset(window, 0, sizeof(zest_window));
-	glfwInit();
-
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	if (maximised)
-		glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
-
-	window->window_width = width;
-	window->window_height = height;
-
-	window->window_handle = glfwCreateWindow(width, height, title, 0, 0);
-	if (!maximised) {
-		glfwSetWindowPos(window->window_handle, x, y);
-	}
-	glfwSetWindowUserPointer(window->window_handle, ZestApp);
-	glfwSetKeyCallback(window->window_handle, zest__keyboard_input_callback);
-	glfwSetScrollCallback(window->window_handle, zest__mouse_scroll_callback);
-	glfwSetFramebufferSizeCallback(window->window_handle, zest__framebuffer_size_callback);
-	//glfwSetCharCallback(window->window_handle, character_func);
-
-	if (maximised) {
-		int width, height;
-		glfwGetFramebufferSize(window->window_handle, &width, &height);
-		window->window_width = width;
-		window->window_height = height;
-	}
-
-	return window;
 }
 
 void zest__update_window_size(zest_window* window, zest_uint width, zest_uint height) {
@@ -1605,6 +1655,8 @@ void zest__initialise_renderer(zest_create_info *create_info) {
 	}
 
 	zest__create_final_render_command_buffer();
+	ZestRenderer->destroy_window_callback = zest__destroy_window_callback;
+	ZestRenderer->get_window_size_callback = zest__get_window_size_callback;
 }
 
 void zest__create_swapchain() {
@@ -1670,8 +1722,8 @@ VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities) {
 		return capabilities->currentExtent;
 	}
 	else {
-		int width, height;
-		glfwGetFramebufferSize(ZestApp->window->window_handle, &width, &height);
+		int width = 0, height = 0;
+		//glfwGetFramebufferSize(ZestApp->window->window_handle, &width, &height);
 
 		VkExtent2D actual_extent = {
 			.width	= (zest_uint)(width),
@@ -1779,11 +1831,13 @@ void zest__cleanup_renderer() {
 	}
 	zest_map_clear(ZestRenderer->render_passes);
 
-	//for (auto& draw_routine : ZestRenderer->draw_routines.data) {
-		//if (draw_routine.clean_up_callback) {
-			//draw_routine.clean_up_callback(draw_routine);
-		//}
-	//}
+	for (zest_map_foreach_i(ZestRenderer->draw_routines)) {
+		zest_draw_routine *draw_routine = zest_map_at_index(ZestRenderer->draw_routines, i);
+		if (draw_routine->clean_up_callback) {
+			draw_routine->clean_up_callback(draw_routine);
+		}
+	}
+
 	zest_map_clear(ZestRenderer->draw_routines);
 
 	for (zest_map_foreach_i(ZestRenderer->descriptor_layouts)) {
@@ -1819,9 +1873,9 @@ void zest__recreate_swapchain() {
 	int width = 0, height = 0;
 	ZestRenderer->flags |= zest_renderer_flag_swapchain_was_recreated;
 	while (width == 0 || height == 0) {
-		glfwGetFramebufferSize(ZestApp->window->window_handle, &width, &height);
+		ZestRenderer->get_window_size_callback(ZestApp->user_data, &width, &height);
 		if (width == 0 || height == 0) {
-			glfwWaitEvents();
+//			glfwWaitEvents();
 		}
 	}
 
@@ -2569,26 +2623,6 @@ void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0
 zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
 void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { if (T && new_capacity <= zest__vec_header(T)->capacity) return T; void* new_data = ZEST__REALLOCATE((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); ((zest_vec*)(new_data))->capacity = new_capacity; return T; }
 
-
-#ifdef _WIN32
-zest_millisecs zest_Millisecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull ms = time.QuadPart / 10000ULL; return (zest_millisecs)ms; }
-zest_microsecs zest_Microsecs(void) { FILETIME ft; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER time; time.LowPart = ft.dwLowDateTime; time.HighPart = ft.dwHighDateTime; zest_ull us = time.QuadPart / 10ULL; return (zest_microsecs)us; }
-FILE *zest__open_file(const char *file_name, const char *mode) {
-	FILE *file = NULL;
-	errno_t err = fopen_s(&file, file_name, mode);
-	if (err != 0 || file == NULL) {
-		return NULL;
-	}
-	return file;
-}
-#else
-zest_millisecs zest_Millisecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); long m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
-zest_microsecs zest_Microsecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
-FILE *zest__open_file(const char *file_name, const char *mode) {
-	return fopen(file_name, mode);
-}
-#endif
-
 //End api functions
 
 void zest__prepare_standard_pipelines() {
@@ -2984,11 +3018,11 @@ void zest__cleanup_command_queue(zest_command_queue *command_queue) {
 	for (ZEST_EACH_FIF_i) {
 		for (zest_foreach_j(command_queue->fif_outgoing_semaphores[i])) {
 			VkSemaphore semaphore = command_queue->fif_outgoing_semaphores[i][j];
-			vkDestroySemaphore(ZestDevice->logical_device, semaphore, ZEST_NULL);
+			vkDestroySemaphore(ZestDevice->logical_device, semaphore, &ZestDevice->allocation_callbacks);
 		}
 	}
 	vkFreeCommandBuffers(ZestDevice->logical_device, command_queue->command_pool, ZEST_MAX_FIF, command_queue->command_buffer);
-	vkDestroyCommandPool(ZestDevice->logical_device, command_queue->command_pool, VK_NULL_HANDLE);
+	vkDestroyCommandPool(ZestDevice->logical_device, command_queue->command_pool, &ZestDevice->allocation_callbacks);
 }
 
 void zest__record_and_commit_command_queue(zest_command_queue *command_queue, VkFence fence) {
@@ -5318,12 +5352,24 @@ zest_microsecs zest__set_elapsed_time() {
 
 void zest__main_loop(void) {
 	ZestApp->current_elapsed_time = zest_Microsecs();
-	while (!glfwWindowShouldClose(ZestApp->window->window_handle)) {
+	MSG msg;
+	while (!(ZestApp->flags & zest_app_flag_quit_application)) {
 
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
 		//DoScheduledTasks(ZestDevice->current_fif);
 
-		glfwPollEvents();
+		BOOL result = GetMessage(&msg, 0, 0, 0);
+		if (result > 0) {
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+		}
+		else if (result == 0) {
+			break;
+		}
+		else {
+			//Error;
+			ZEST_ASSERT(0);
+		}
 
 		zest__set_elapsed_time();
 
@@ -5339,8 +5385,10 @@ void zest__main_loop(void) {
 			if (ZestApp->frame_timer >= ZEST_MICROSECS_SECOND) {
 				char fps_str[20];
                 zest_snprintf(fps_str, 20, "FPS: %u", ZestApp->frame_count);
+				printf("FPS: %u\n", ZestApp->frame_count);
                 
-				glfwSetWindowTitle(ZestApp->window->window_handle, fps_str);
+				//glfwSetWindowTitle(ZestApp->window->window_handle, fps_str);
+				//SetWindowText(ZestApp->window->window_handle, fps_str);
 
 				ZestApp->last_fps = ZestApp->frame_count;
 				ZestApp->frame_count = 0;

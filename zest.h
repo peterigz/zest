@@ -10,7 +10,6 @@
 #include <time.h>
 #endif
 #include <vulkan/vulkan.h>
-#include <GLFW/glfw3.h>
 #define TLOC_ENABLE_REMOTE_MEMORY
 #include "2loc.h"
 
@@ -37,7 +36,7 @@
 #ifndef _DEBUG
 #define ZEST_ENABLE_VALIDATION_LAYER 0
 #else
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 #ifndef ZEST__FREE
@@ -140,17 +139,40 @@ typedef union zest_packed8bit
 } zest_packed8bit;
 
 /*Platform specific code*/
+
 FILE *zest__open_file(const char *file_name, const char *mode);
 ZEST_API zest_millisecs zest_Millisecs(void);
 ZEST_API zest_microsecs zest_Microsecs(void);
+
 #if defined _WIN32
+#include "vulkan/vulkan_win32.h"
 #define zest_snprintf(buffer, bufferSize, format, ...) sprintf_s(buffer, bufferSize, format, __VA_ARGS__)
 #define ZEST_ALIGN_PREFIX(v) __declspec(align(v))
 #define ZEST_ALIGN_AFFIX(v)
+
+//Window creation
+int main(void);
+HINSTANCE zest_window_instance;
+#define ZEST_WINDOW_HANDLE HWND
+#define ZEST_WINDOW_INSTANCE HINSTANCE
+#define ZEST_CREATE_OS_WINDOW(x, y, width, height, maximised, title) zest__create_window(x, y, width, height, maximised, title)
+typedef struct zest_window zest_window;
+LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
+void zest__create_window_surface(zest_window* window);
+char **zest__add_platform_extensions();
+LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+//--
+
 #else
 #define ZEST_ALIGN_PREFIX(v) 
 #define ZEST_ALIGN_AFFIX(v)  __attribute__((aligned(16)))
 #define zest_snprintf(buffer, bufferSize, format, ...) snprintf(buffer, bufferSize, format, __VA_ARGS__)
+
+//Window creation
+#define ZEST_WINDOW_HANDLE HWND
+//--
+
 #endif
 /*end of platform specific code*/
 
@@ -158,9 +180,6 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 #define ZEST_FALSE 0
 #define ZEST_INVALID 0xFFFFFFFF
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
-
-//Callback typedefs
-typedef void(*zest_keyboard_input_callback)(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 //enums and flags
 typedef enum zest_create_flags {
@@ -185,7 +204,8 @@ typedef enum zest_app_flags {
 	zest_app_flag_control_pressed =			1 << 3,
 	zest_app_flag_cmd_pressed =				1 << 4,
 	zest_app_flag_record_input  =			1 << 5,
-	zest_app_flag_enable_console =			1 << 6
+	zest_app_flag_enable_console =			1 << 6,
+	zest_app_flag_quit_application =		1 << 7
 } zest_app_flags;
 
 enum zest__constants {
@@ -615,8 +635,8 @@ typedef struct zest_swapchain_support_details{
 	zest_uint present_modes_count;
 } zest_swapchain_support_details;
 
-typedef struct zest_window{
-	GLFWwindow *window_handle;
+typedef struct zest_window {
+	ZEST_WINDOW_HANDLE window_handle;
 	VkSurfaceKHR surface;
 	zest_uint window_width;
 	zest_uint window_height;
@@ -1163,6 +1183,10 @@ typedef struct zest_renderer{
 
 	//Flags
 	zest_renderer_flags flags;
+
+	//Callbacks
+	void(*get_window_size_callback)(void *user_data, int *width, int *height);
+	void(*destroy_window_callback)(void *user_data);
 } zest_renderer;
 
 zest_device *ZestDevice = 0;
@@ -1200,6 +1224,9 @@ void zest__create_swapchain(void);
 VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *availableFormats);
 VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_modes, zest_bool use_vsync);
 VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
+void zest__get_window_size_callback(void *user_data, int *width, int *height);
+void zest__destroy_window_callback(void *user_data);
+void zest__wait_for_events_callback(void *user_data);
 void zest__cleanup_swapchain(void);
 void zest__cleanup_renderer(void);
 void zest__recreate_swapchain(void);
@@ -1293,7 +1320,6 @@ void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trim
 
 //Device set up 
 void zest__create_instance(void);
-void zest__create_window_surface(zest_window* window);
 void zest__setup_validation(void);
 static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
 VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
@@ -1307,7 +1333,7 @@ VkSampleCountFlagBits zest__get_max_useable_sample_count(void);
 void zest__create_logical_device(void);
 void zest__set_limit_data(void);
 zest_bool zest__check_validation_layer_support(void);
-const char** zest__get_required_extensions(zest_uint *extension_count);
+const char** zest__get_required_extensions();
 zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
 void zest__set_default_pool_sizes(void);
 void *zest_vk_allocate_callback(void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
@@ -1319,11 +1345,6 @@ void zest_vk_free_callback(void* pUserData, void *memory);
 void zest__initialise_app(zest_create_info *create_info);
 void zest__initialise_device(void);
 void zest__destroy(void);
-zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char*);
-void zest__create_window_surface(zest_window*);
-void zest__keyboard_input_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
-void zest__mouse_scroll_callback(GLFWwindow* window, double offset_x, double offset_y);
-void zest__framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void zest__main_loop(void);
 zest_microsecs zest__set_elapsed_time(void);
 //-- end of internal functions
