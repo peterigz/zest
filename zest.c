@@ -55,6 +55,8 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
 	ZEST_ASSERT(ZestDevice);		//Must initialise the ZestDevice first
 
+	zest_window_instance = GetModuleHandle(NULL);
+
 	zest_window *window = ZEST__ALLOCATE(sizeof(zest_window));
 	WNDCLASS window_class = { 0 };
 	memset(window, 0, sizeof(zest_window));
@@ -5448,6 +5450,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_SetActiveRenderQueue(0);
 	sprite_layer->multiply_blend_factor = 1.f;
 
+	/*
 	zest_SetSpriteDrawing(sprite_layer, texture, example->sprite_descriptor_index, example->sprite_pipeline);
 	for (float x = 0; x != 75; ++x) {
 		for (float y = 0; y != 15; ++y) {
@@ -5466,13 +5469,12 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_vec3 handle = { .x = .5f,.y = .5f };
 	zest_vec3 alignment = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_DrawBillboard(billboard_layer, zest_GetImageFromTexture(texture, example->image1), &position.x, zest_Pack8bitx3(&alignment), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
-
+*/
 }
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+int main(void) {
 	zest_example example = { 0 };
 
-	zest_window_instance = hInstance;
 	zest_create_info create_info = zest_CreateInfo();
 
 	zest_Initialise(&create_info);
