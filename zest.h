@@ -145,7 +145,11 @@ ZEST_API zest_millisecs zest_Millisecs(void);
 ZEST_API zest_microsecs zest_Microsecs(void);
 #if defined _WIN32
 #define zest_snprintf(buffer, bufferSize, format, ...) sprintf_s(buffer, bufferSize, format, __VA_ARGS__)
+#define ZEST_ALIGN_PREFIX(v) __declspec(align(v))
+#define ZEST_ALIGN_AFFIX(v)
 #else
+#define ZEST_ALIGN_PREFIX(v) 
+#define ZEST_ALIGN_AFFIX(v)  __attribute__((aligned(16)))
 #define zest_snprintf(buffer, bufferSize, format, ...) snprintf(buffer, bufferSize, format, __VA_ARGS__)
 #endif
 /*end of platform specific code*/
@@ -509,13 +513,13 @@ typedef struct zest_vec3 {
 	float x, y, z;
 } zest_vec3;
 
-typedef struct zest_vec4 {
+typedef struct ZEST_ALIGN_PREFIX(16) zest_vec4 {
 	float x, y, z, w;
-} zest_vec4 __attribute__((aligned(16)));
+} zest_vec4 ZEST_ALIGN_AFFIX(16);
 
-typedef struct zest_matrix4 {
+typedef struct ZEST_ALIGN_PREFIX(16) zest_matrix4 {
 	zest_vec4 v[4];
-} zest_matrix4 __attribute__((aligned(16)));
+} zest_matrix4 ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_rgba8 {
 	union {
