@@ -127,6 +127,18 @@ typedef union zest_packed10bit
 	zest_uint pack;
 } zest_packed10bit;
 
+typedef union zest_packed8bit
+{
+	struct
+	{
+		int x : 8;
+		int y : 8;
+		int z : 8;
+		int w : 8;
+	} data;
+	zest_uint pack;
+} zest_packed8bit;
+
 /*Platform specific code*/
 FILE *zest__open_file(const char *file_name, const char *mode);
 ZEST_API zest_millisecs zest_Millisecs(void);
@@ -1417,6 +1429,7 @@ ZEST_API zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, c
 ZEST_API zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float z_near, float z_far);
 ZEST_API float zest_Distance(float fromx, float fromy, float tox, float toy);
 ZEST_API zest_uint zest_Pack10bit(zest_vec3 *v, zest_uint extra);
+ZEST_API zest_uint zest_Pack8bitx3(zest_vec3 *v);
 ZEST_API zest_uint zest_Pack16bit(float x, float y);
 ZEST_API zest_size zest_GetNextPower(zest_size n);
 ZEST_API float zest_Radians(float degrees);

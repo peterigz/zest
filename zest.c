@@ -511,6 +511,17 @@ inline zest_uint zest_Pack10bit(zest_vec3 *v, zest_uint extra) {
 	return result.pack;
 }
 
+zest_uint zest_Pack8bitx3(zest_vec3 *v) {
+	zest_vec3 converted = zest_ScaleVec3(v, 255.f);
+	zest_packed8bit result;
+	result.pack = 0;
+	result.data.x = (zest_uint)converted.z;
+	result.data.y = (zest_uint)converted.y;
+	result.data.z = (zest_uint)converted.x;
+	result.data.w = 0;
+	return result.pack;
+}
+
 zest_size zest_GetNextPower(zest_size n) {
 	zest_size t = 1;
 	while (t < n)
@@ -1439,7 +1450,7 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 		ZEST_ASSERT(buffer_pool.alignment == buffer_allocator->alignment);	//The new pool should have the same alignment as the alignment set in the allocator, this
 																			//would have been set when the first pool was created
 
-		void zest__add_remote_range_pool(buffer_allocator, buffer_pool);
+		zest__add_remote_range_pool(buffer_allocator, &buffer_pool);
 		zest_buffer *buffer = tloc_AllocateRemote(buffer_allocator->allocator, adjusted_size);
 		ZEST_ASSERT(buffer);	//Unable to allocate memory. Out of memory?
 		zest__set_buffer_details(buffer_allocator, buffer, buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
@@ -2630,7 +2641,7 @@ void zest__prepare_standard_pipelines() {
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_SFLOAT, offsetof(zest_billboard_instance, stretch)));				// Location 6: Stretch amount
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance, blend_texture_array)));		// Location 7: texture array index
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance, color)));				// Location 8: Instance Color
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_A2R10G10B10_SNORM_PACK32, offsetof(zest_billboard_instance, alignment)));// Location 9: Alignment
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance, alignment)));			// Location 9: Alignment
 
 	index = zest_AddPipeline("pipeline_billboard");
 	instance_create_info.attributeDescriptions = billboard_vertex_input_attributes;
@@ -5421,7 +5432,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_vec3 angles = { 0 };
 	zest_vec3 handle = { .x = .5f,.y = .5f };
 	zest_vec3 alignment = zest_Vec3Set(1.f, 0.f, 0.f);
-	zest_DrawBillboard(billboard_layer, zest_GetImageFromTexture(texture, example->image1), &position.x, zest_Pack10bit(&alignment, 0), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
+	zest_DrawBillboard(billboard_layer, zest_GetImageFromTexture(texture, example->image1), &position.x, zest_Pack8bitx3(&alignment), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
 
 }
 

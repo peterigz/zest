@@ -45,7 +45,7 @@ layout(location = 5) in vec2 handle;
 layout(location = 6) in float stretch;
 layout(location = 7) in uint blend_texture_index;
 layout(location = 8) in vec4 in_color;
-layout(location = 9) in vec4 alignment;
+layout(location = 9) in vec3 alignment;
 
 layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec3 out_tex_coord;
@@ -83,7 +83,7 @@ void main() {
 	float vector_align = float((blend_texture_index & uint(0x00C00000)) == 8388608);
 
 	//vec3 alignment_up_cross = dot(alignment.xyz, up) == 0 ? vec3(0, 1, 0) : normalize(cross(alignment.xyz, up));
-	vec3 alignment_up_cross = normalize(cross(alignment.xyz, up));
+	vec3 alignment_up_cross = normalize(cross(alignment, up));
 
 	vec2 uvs[4];
 	uvs[0].x = uv_xy.x ; uvs[0].y = uv_xy.y;
@@ -91,8 +91,8 @@ void main() {
 	uvs[2].x = uv_xy.x ; uvs[2].y = uv_zw.y;
 	uvs[3].x = uv_zw.x ; uvs[3].y = uv_zw.y;
 	
-	vec3 alignment_normal = normalize(alignment.xyz);
-	vec3 camera_relative_aligment = alignment.xyz * inverse(mat3(uboView.view));
+	vec3 alignment_normal = normalize(alignment);
+	vec3 camera_relative_aligment = alignment * inverse(mat3(uboView.view));
 	float dp_up = dot(camera_relative_aligment.xy, -up.xy);
 	float det = camera_relative_aligment.x * -up.y;
 	float dp_angle = vector_align * atan(-det, -dp_up) + rotations.z;
