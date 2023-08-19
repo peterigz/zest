@@ -5348,7 +5348,7 @@ void zest__main_loop(void) {
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
 		//DoScheduledTasks(ZestDevice->current_fif);
 
-		BOOL result = PeekMessage(&msg, NULL, 0, 0, PM_REMOVE);
+		BOOL result = PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE);
 		if (result > 0) {
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
