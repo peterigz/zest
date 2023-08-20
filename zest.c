@@ -1,4 +1,4 @@
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #include "zest.h"
 #define PKT_IMPLEMENTATION
 #define PKT_OUTPUT_ERROR_MESSAGES
@@ -178,6 +178,7 @@ void zest__create_window_surface(zest_window* window) {
 
 void zest__poll_events(void) {
     glfwPollEvents();
+    ZestApp->flags |= glfwWindowShouldClose(ZestApp->window->window_handle) ? zest_app_flag_quit_application : 0;
 }
 
 char **zest__add_platform_extensions(void) {
