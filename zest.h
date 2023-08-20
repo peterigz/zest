@@ -30,7 +30,7 @@
 #ifndef _DEBUG
 #define ZEST_ENABLE_VALIDATION_LAYER 0
 #else
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 #ifndef ZEST__FREE
@@ -679,6 +679,12 @@ typedef struct zest_create_info {
 	VkFormat color_format;								//Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
 	VkDescriptorPoolSize *pool_counts;					//You can define descriptor pool counts here.
 	zest_create_info_flags flags;						//Set flags to apply different initialisation options
+
+	//Callbacks use these to implement your own preferred window creation functionality
+	void(*get_window_size_callback)(void *user_data, int *width, int *height);
+	void(*destroy_window_callback)(void *user_data);
+	void(*poll_events_callback)();
+	char**(*add_platform_extensions_callback)();
 } zest_create_info;
 
 typedef struct zest_app{
@@ -1182,6 +1188,9 @@ typedef struct zest_renderer{
 	//Callbacks
 	void(*get_window_size_callback)(void *user_data, int *width, int *height);
 	void(*destroy_window_callback)(void *user_data);
+	void(*poll_events_callback)();
+	char**(*add_platform_extensions_callback)();
+
 } zest_renderer;
 
 zest_device *ZestDevice = 0;
@@ -1217,8 +1226,8 @@ ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator *buffer_allocat
 //See definitions at the top of zest.c
 ZEST_PRIVATE zest_window *zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
 ZEST_PRIVATE void zest__create_window_surface(zest_window* window);
-ZEST_PRIVATE void zest__poll_events();
-ZEST_PRIVATE char **zest__add_platform_extensions();
+ZEST_PRIVATE void zest__poll_events(void);
+ZEST_PRIVATE char **zest__add_platform_extensions(void);
 //-- End Platform dependent functions
 
 //Renderer functions
@@ -1379,6 +1388,10 @@ ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offse
 ZEST_API void zest_SetUserData(void* data);
 ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
 ZEST_API void zest_SetActiveRenderQueue(zest_index command_queue_index);
+ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data));
+ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *width, int *height));
+ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
+ZEST_API void zest_SetPlatformExtensionsCallback(char**(*add_platform_extensions_callback)());
 //--End User API functions
 
 //Pipeline related 

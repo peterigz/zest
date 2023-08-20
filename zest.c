@@ -37,21 +37,22 @@ LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wPar
 	LRESULT result = 0;
 	switch (message) {
 	case WM_CLOSE:
-	case WM_QUIT:
+	case WM_QUIT: {
 		ZestApp->flags |= zest_app_flag_quit_application;
-		break;
-	case WM_PAINT:
+	} break;
+	case WM_PAINT: {
 		PAINTSTRUCT paint;
 		HDC DeviceContext = BeginPaint(window_handle, &paint);
 		EndPaint(window_handle, &paint);
-		break;
-	case WM_SIZE:
-		break;
-	case WM_DESTROY:
-		break;
-	default:
+	} break;
+	case WM_SIZE: {
+	} break;
+	case WM_DESTROY: {
+	} break;
+	default: {
 		result = DefWindowProc(window_handle, message, wParam, lParam);
 		break;
+	}
 	}
 
 	return result;
@@ -695,6 +696,10 @@ void zest_Initialise(zest_create_info *info) {
 	ZestDevice->allocation_callbacks.pfnAllocation = zest_vk_allocate_callback;
 	ZestDevice->allocation_callbacks.pfnReallocation = zest_vk_reallocate_callback;
 	ZestDevice->allocation_callbacks.pfnFree = zest_vk_free_callback;
+	ZestRenderer->destroy_window_callback = info->destroy_window_callback;
+	ZestRenderer->get_window_size_callback = info->get_window_size_callback;
+	ZestRenderer->poll_events_callback = info->poll_events_callback;
+	ZestRenderer->add_platform_extensions_callback = info->add_platform_extensions_callback;
 	zest__initialise_app(info);
 	zest__initialise_device();
 	zest__initialise_renderer(info);
@@ -740,6 +745,22 @@ void zest_SetActiveRenderQueue(zest_index command_queue_index) {
 	ZEST_ASSERT((zest_map_at_index(ZestRenderer->command_queues, command_queue_index))->flags & zest_command_queue_flag_validated);	//Make sure that the command queue creation ended with the command: zest_FinishQueueSetup
 	zest_vec_push(ZestRenderer->frame_queues, command_queue_index);
 	ZestRenderer->semaphores[ZEST_FIF].render_complete = zest_GetCommandQueuePresentSemaphore(zest_GetCommandQueue(command_queue_index));
+}
+
+void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data)) {
+	ZestRenderer->destroy_window_callback = destroy_window_callback;
+}
+
+void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *width, int *height)) {
+	ZestRenderer->get_window_size_callback = get_window_size_callback;
+}
+
+void zest_SetPollEventsCallback(void(*poll_events_callback)(void)) {
+	ZestRenderer->poll_events_callback = poll_events_callback;
+}
+
+void zest_SetPlatformExtensionsCallback(char**(*add_platform_extensions_callback)()) {
+	ZestRenderer->add_platform_extensions_callback = add_platform_extensions_callback;
 }
 
 /*
@@ -837,7 +858,7 @@ void zest__setup_validation(void) {
 
 //Get the extensions that we need for the app.
 const char** zest__get_required_extensions() {
-	char** platform_extensions = zest__add_platform_extensions();
+	char** platform_extensions = ZestRenderer->add_platform_extensions_callback();
 
 	ZEST_ASSERT(platform_extensions); //Vulkan not available
 
@@ -1203,12 +1224,12 @@ void zest__initialise_app(zest_create_info *create_info) {
 void zest__destroy(void) {
 	zest_WaitForIdleDevice();
 	zest__cleanup_renderer();
-	ZestRenderer->destroy_window_callback(ZestApp->user_data);
 	vkDestroySurfaceKHR(ZestDevice->instance, ZestApp->window->surface, &ZestDevice->allocation_callbacks);
 	zest_destroy_debug_messenger();
 	vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->command_pool, &ZestDevice->allocation_callbacks);
 	vkDestroyDevice(ZestDevice->logical_device, &ZestDevice->allocation_callbacks);
 	vkDestroyInstance(ZestDevice->instance, &ZestDevice->allocation_callbacks);
+	ZestRenderer->destroy_window_callback(ZestApp->user_data);
 	free(ZestDevice->memory_pools[0]);
 }
 
@@ -1651,7 +1672,6 @@ void zest_SetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlag
 
 // --Renderer and related functions
 void zest__initialise_renderer(zest_create_info *create_info) {
-	memset(ZestRenderer, 0, sizeof(zest_renderer));
 	zest__create_swapchain();
 	zest__create_swapchain_image_views();
 
@@ -1681,8 +1701,6 @@ void zest__initialise_renderer(zest_create_info *create_info) {
 	}
 
 	zest__create_final_render_command_buffer();
-	ZestRenderer->destroy_window_callback = zest__destroy_window_callback;
-	ZestRenderer->get_window_size_callback = zest__get_window_size_callback;
 }
 
 void zest__create_swapchain() {
@@ -3538,6 +3556,10 @@ zest_create_info zest_CreateInfo() {
 		.color_format = VK_FORMAT_R8G8B8A8_UNORM,
 		.pool_counts = ZEST_NULL,
 		.flags = zest_init_flag_initialise_with_command_queue,
+		.destroy_window_callback = zest__destroy_window_callback,
+		.get_window_size_callback = zest__get_window_size_callback,
+		.poll_events_callback = zest__poll_events,
+		.add_platform_extensions_callback = zest__add_platform_extensions
 	};
 	return create_info;
 }
@@ -5389,7 +5411,7 @@ void zest__main_loop(void) {
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
 		//DoScheduledTasks(ZestDevice->current_fif);
 
-		zest__poll_events();
+		ZestRenderer->poll_events_callback();
 
 		zest__set_elapsed_time();
 
