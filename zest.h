@@ -146,7 +146,7 @@ FILE *zest__open_file(const char *file_name, const char *mode);
 ZEST_API zest_millisecs zest_Millisecs(void);
 ZEST_API zest_microsecs zest_Microsecs(void);
 
-#if defined _WIN32
+#if defined (_WIN32)
 #include "vulkan/vulkan_win32.h"
 #define zest_snprintf(buffer, bufferSize, format, ...) sprintf_s(buffer, bufferSize, format, __VA_ARGS__)
 #define ZEST_ALIGN_PREFIX(v) __declspec(align(v))
@@ -161,12 +161,14 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 //--
 
 #else
+//We'll just use glfw on mac for now. Can maybe add basic cocoa windows later
+#include <glfw/glfw3.h>
 #define ZEST_ALIGN_PREFIX(v) 
 #define ZEST_ALIGN_AFFIX(v)  __attribute__((aligned(16)))
 #define zest_snprintf(buffer, bufferSize, format, ...) snprintf(buffer, bufferSize, format, __VA_ARGS__)
 
 //Window creation
-#define ZEST_WINDOW_HANDLE HWND
+#define ZEST_WINDOW_HANDLE void*
 //--
 
 #endif
@@ -681,8 +683,8 @@ typedef struct zest_create_info {
 	//Callbacks use these to implement your own preferred window creation functionality
 	void(*get_window_size_callback)(void *user_data, int *width, int *height);
 	void(*destroy_window_callback)(void *user_data);
-	void(*poll_events_callback)();
-	char**(*add_platform_extensions_callback)();
+	void(*poll_events_callback)(void);
+	char**(*add_platform_extensions_callback)(void);
 } zest_create_info;
 
 typedef struct zest_app{
@@ -1186,8 +1188,8 @@ typedef struct zest_renderer{
 	//Callbacks
 	void(*get_window_size_callback)(void *user_data, int *width, int *height);
 	void(*destroy_window_callback)(void *user_data);
-	void(*poll_events_callback)();
-	char**(*add_platform_extensions_callback)();
+	void(*poll_events_callback)(void);
+	char**(*add_platform_extensions_callback)(void);
 
 } zest_renderer;
 
@@ -1236,7 +1238,6 @@ ZEST_PRIVATE VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *availab
 ZEST_PRIVATE VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
 ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *width, int *height);
 ZEST_PRIVATE void zest__destroy_window_callback(void *user_data);
-ZEST_PRIVATE void zest__wait_for_events_callback(void *user_data);
 ZEST_PRIVATE void zest__cleanup_swapchain(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
 ZEST_PRIVATE void zest__recreate_swapchain(void);
@@ -1346,7 +1347,7 @@ ZEST_PRIVATE VkSampleCountFlagBits zest__get_max_useable_sample_count(void);
 ZEST_PRIVATE void zest__create_logical_device(void);
 ZEST_PRIVATE void zest__set_limit_data(void);
 ZEST_PRIVATE zest_bool zest__check_validation_layer_support(void);
-ZEST_PRIVATE const char** zest__get_required_extensions();
+ZEST_PRIVATE const char** zest__get_required_extensions(void);
 ZEST_PRIVATE zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
 ZEST_PRIVATE void zest__set_default_pool_sizes(void);
 ZEST_PRIVATE void *zest_vk_allocate_callback(void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
@@ -1389,7 +1390,7 @@ ZEST_API void zest_SetActiveRenderQueue(zest_index command_queue_index);
 ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data));
 ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *width, int *height));
 ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
-ZEST_API void zest_SetPlatformExtensionsCallback(char**(*add_platform_extensions_callback)());
+ZEST_API void zest_SetPlatformExtensionsCallback(char**(*add_platform_extensions_callback)(void));
 //--End User API functions
 
 //Pipeline related 

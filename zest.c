@@ -27,10 +27,6 @@ void zest__destroy_window_callback(void *user_data) {
 	PostQuitMessage(0);
 }
 
-void zest__wait_for_events_callback(void *user_data) {
-	MsgWaitForMultipleObjects(0, NULL, FALSE, (DWORD)(1 * 1e3), QS_ALLEVENTS);
-}
-
 LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wParam, LPARAM lParam) {
 	LRESULT result = 0;
 	switch (message) {
@@ -144,6 +140,63 @@ zest_millisecs zest_Millisecs(void) { struct timespec now; clock_gettime(CLOCK_R
 zest_microsecs zest_Microsecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
 FILE *zest__open_file(const char *file_name, const char *mode) {
 	return fopen(file_name, mode);
+}
+
+zest_window *zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
+    ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
+
+    zest_window *window = ZEST__ALLOCATE(sizeof(zest_window));
+    memset(window, 0, sizeof(zest_window));
+    glfwInit();
+
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    if (maximised)
+        glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+
+    window->window_width = width;
+    window->window_height = height;
+
+    window->window_handle = glfwCreateWindow(width, height, title, 0, 0);
+    if (!maximised) {
+        glfwSetWindowPos(window->window_handle, x, y);
+    }
+    glfwSetWindowUserPointer(window->window_handle, ZestApp);
+
+    if (maximised) {
+        int width, height;
+        glfwGetFramebufferSize(window->window_handle, &width, &height);
+        window->window_width = width;
+        window->window_height = height;
+    }
+
+    return window;
+}
+
+void zest__create_window_surface(zest_window* window) {
+    ZEST_VK_CHECK_RESULT(glfwCreateWindowSurface(ZestDevice->instance, window->window_handle, &ZestDevice->allocation_callbacks, &window->surface));
+}
+
+void zest__poll_events(void) {
+    glfwPollEvents();
+}
+
+char **zest__add_platform_extensions(void) {
+    zest_uint count;
+    char **extensions = 0;
+    const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
+    for(int i = 0 ; i != count; ++i) {
+        zest_vec_push(extensions, (char*)glfw_extensions[i]);
+    }
+    zest_uint size = zest_vec_size(extensions);
+    return extensions;
+}
+
+void zest__get_window_size_callback(void *user_data, int *width, int *height){
+    glfwGetFramebufferSize(ZestApp->window->window_handle, width, height);
+}
+
+void zest__destroy_window_callback(void *user_data){
+    glfwDestroyWindow((GLFWwindow*)ZestApp->window->window_handle);
 }
 #endif
 
@@ -757,7 +810,7 @@ void zest_SetPollEventsCallback(void(*poll_events_callback)(void)) {
 	ZestRenderer->poll_events_callback = poll_events_callback;
 }
 
-void zest_SetPlatformExtensionsCallback(char**(*add_platform_extensions_callback)()) {
+void zest_SetPlatformExtensionsCallback(char**(*add_platform_extensions_callback)(void)) {
 	ZestRenderer->add_platform_extensions_callback = add_platform_extensions_callback;
 }
 
@@ -783,8 +836,8 @@ void zest__create_instance(void) {
 	create_info.pApplicationInfo = &app_info;
 	create_info.flags = 0;
 	create_info.pNext = 0;
-
-	const char** extensions = zest__get_required_extensions();
+    
+    const char** extensions = zest__get_required_extensions();
 	zest_uint extension_count = zest_vec_size(extensions);
 	create_info.enabledExtensionCount = extension_count;
 	create_info.ppEnabledExtensionNames = extensions;
@@ -1128,7 +1181,7 @@ void zest__create_logical_device(void) {
 	else {
 		create_info.enabledLayerCount = 0;
 	}
-
+    
 	ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->logical_device));
 
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->graphics_queue);
@@ -5029,8 +5082,6 @@ zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storag
 		zest_SetUseFiltering(&texture, use_filtering);
 	}
 	zest_vec_reserve(texture.images, reserve_images);
-	_ReadBarrier();
-	_WriteBarrier();
 	//texture.images[0] = zest_CreateImage();
 	zest_map_insert(ZestRenderer->textures, name, texture);
 	zest_vec_back(zest_GetTextures()->data).index_in_renderer = zest_map_last_index(ZestRenderer->textures);
