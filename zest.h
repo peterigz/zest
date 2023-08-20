@@ -10,13 +10,7 @@
 #include <time.h>
 #endif
 #include <vulkan/vulkan.h>
-#define TLOC_ENABLE_REMOTE_MEMORY
-#include "2loc.h"
 
-#define STB_RECT_PACK_IMPLEMENTATION
-#include "stb_rect_pack.h"
-
-#include "stb_image_resize.h"
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
@@ -57,7 +51,10 @@
 #define STBI_MALLOC(sz)           ZEST__ALLOCATE(sz)
 #define STBI_REALLOC(p,newsz)     ZEST__REALLOCATE(p,newsz)
 #define STBI_FREE(p)              ZEST__FREE(p)
-#include "stb_image.h"
+
+#define TLOC_ENABLE_REMOTE_MEMORY
+#include "2loc.h"
+#include "lib_bundle.h"
 
 #ifndef ZEST_WARNING_COLOR
 #define ZEST_WARNING_COLOR "\033[38;5;208m"

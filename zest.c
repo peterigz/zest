@@ -3,11 +3,12 @@
 #define TLOC_OUTPUT_ERROR_MESSAGES
 #include "2loc.h"
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
+#define STB_RECT_PACK_IMPLEMENTATION
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
-#include "stb_image_resize.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "lib_bundle.h"
+
+//#include "stb_image_resize.h"
 
 
 #ifdef _WIN32

@@ -1,4 +1,3 @@
-#pragma once
 // stb_rect_pack.h - v1.00 - public domain - rectangle packing
 // Sean Barrett 2014
 //
