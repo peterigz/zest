@@ -163,7 +163,6 @@ HINSTANCE zest_window_instance;
 #define ZEST_WINDOW_HANDLE HWND
 #define ZEST_WINDOW_INSTANCE HINSTANCE
 LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-char **zest__add_platform_extensions();
 //--
 
 #else
@@ -1216,10 +1215,14 @@ ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator *buffer_allo
 ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator *buffer_allocator, zest_buffer *buffer, zest_bool is_host_visible);
 //End Buffer Management
 
-//Platform functions
+//Platform dependent functions
+//These functions need a different implementation depending on the platform being run on
+//See definitions at the top of zest.c
 ZEST_PRIVATE zest_window *zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
 ZEST_PRIVATE void zest__create_window_surface(zest_window* window);
 ZEST_PRIVATE void zest__poll_events();
+ZEST_PRIVATE char **zest__add_platform_extensions();
+//-- End Platform dependent functions
 
 //Renderer functions
 ZEST_PRIVATE void zest__initialise_renderer(zest_create_info *create_info);
@@ -1264,7 +1267,7 @@ ZEST_PRIVATE void zest__draw_renderer_frame(void);
 ZEST_PRIVATE void zest__cleanup_command_queue(zest_command_queue *command_queue);
 ZEST_PRIVATE void zest__record_and_commit_command_queue(zest_command_queue *command_queue, VkFence fence);
 ZEST_PRIVATE zest_index zest_create_command_queue_render_pass(const char *name);
-// --Command Queue functions
+// --End Command Queue functions
 
 // --Command Queue Setup functions
 ZEST_PRIVATE zest_index zest__create_command_queue(const char *name);
@@ -1312,7 +1315,6 @@ ZEST_PRIVATE zest_index zest__next_fif(void);
 // --Buffer allocation funcitons
 ZEST_PRIVATE void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer, const char *name);
 ZEST_PRIVATE void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer);
-ZEST_PRIVATE void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineStageFlags stage_flags);
 ZEST_PRIVATE zest_size zest__get_bytes_per_block(zest_size pool_size);
 ZEST_PRIVATE zest_size zest__get_remote_size(const tloc_header *block);
 ZEST_PRIVATE void zest__on_add_pool(void *user_data, void *block);
@@ -1380,6 +1382,7 @@ ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offse
 ZEST_API void zest_SetUserData(void* data);
 ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
 ZEST_API void zest_SetActiveRenderQueue(zest_index command_queue_index);
+//--End User API functions
 
 //Pipeline related 
 ZEST_API zest_index zest_AddPipeline(const char *name);
@@ -1402,6 +1405,7 @@ ZEST_API void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_se
 ZEST_API zest_pipeline_set *zest_Pipeline(zest_index index);
 ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
 ZEST_API zest_index zest_PipelineIndex(const char *name);
+//-- End Pipeline related 
 
 //Buffer related
 ZEST_API zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info, VkImage image);
@@ -1417,12 +1421,14 @@ ZEST_API zest_buffer_pool_size zest_GetDevicePoolSize(VkBufferUsageFlags usage_f
 ZEST_API void zest_SetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
 ZEST_API zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
 ZEST_API void zest_UpdateStandardUniformBuffer(void);
+//--End Buffer related
 
 //Command queue setup and creation
 ZEST_API zest_index zest_NewCommandQueue(const char *name, zest_command_queue_flags flags);
 ZEST_API zest_command_queue *zest_GetCommandQueue(zest_index index);
 ZEST_API zest_command_queue_draw_commands *zest_GetCommandQueueRenderPass(zest_index index);
 ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineStageFlags stage_flags);
+ZEST_API void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineStageFlags stage_flags);
 ZEST_API VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue *command_queue);
 ZEST_API zest_index zest_NewRenderPassSetupSC(const char *name);
 ZEST_API zest_draw_routine *zest_GetDrawRoutineByIndex(zest_index index);
@@ -1444,8 +1450,9 @@ ZEST_API void zest_ValidateQueue(zest_index index);
 ZEST_API void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_index, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectQueueTo(zest_index receiver, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectQueueToPresent(void);
+//-- End Command queue setup and creation
 
-// --Math
+//General Math
 ZEST_API zest_vec3 zest_SubVec3(zest_vec3 left, zest_vec3 right);
 ZEST_API zest_vec4 zest_SubVec4(zest_vec4 left, zest_vec4 right);
 ZEST_API zest_vec3 zest_AddVec3(zest_vec3 left, zest_vec3 right);
@@ -1466,7 +1473,6 @@ ZEST_API zest_uint zest_Pack16bit(float x, float y);
 ZEST_API zest_size zest_GetNextPower(zest_size n);
 ZEST_API float zest_Radians(float degrees);
 ZEST_API float zest_Degrees(float radians);
-
 ZEST_API zest_matrix4 zest_M4(float v);
 ZEST_API zest_vec2 zest_ScaleVec2(zest_vec2 *vec2, float v);
 ZEST_API zest_vec3 zest_ScaleVec3(zest_vec3 *vec3, float v);
@@ -1482,8 +1488,9 @@ ZEST_API zest_vec3 zest_Vec3Set(float x, float y, float z);
 ZEST_API zest_vec4 zest_Vec4Set(float x, float y, float z, float w);
 ZEST_API zest_color zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a);
 ZEST_API zest_color zest_ColorSet1(zest_byte c);
+//--End General Math
 
-//-- Camera and other helpers
+//Camera and other helpers
 ZEST_API zest_camera zest_CreateCamera(void);
 ZEST_API void zest_TurnCamera(zest_camera *camera, float turn_x, float turn_y, float sensitivity);
 ZEST_API void zest_CameraUpdateFront(zest_camera *camera);
@@ -1561,19 +1568,23 @@ ZEST_API zest_texture *zest_GetTextureByIndex(zest_index index);
 ZEST_API zest_texture *zest_GetTextureByName(const char *name);
 ZEST_API void zest_UpdateAllTextureDescriptorSets(zest_texture *texture);
 ZEST_API void zest_RefreshTextureDescriptors(zest_texture *texture);
+//-- End Images and textures
 
-// --Draw sprite layers
+//Draw sprite layers
 ZEST_API void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index descriptor_set_index, zest_index pipeline_index);
 ZEST_API void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
+//-- End Draw sprite layers
 
-// --Draw billboard layers
+//Draw billboard layers
 ZEST_API void zest_InitialiseBillboardLayer(zest_instance_layer *billboard_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetBillboardDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index descriptor_set_index, zest_index pipeline_index);
 ZEST_API void zest_DrawBillboard(zest_instance_layer *layer, zest_image *image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
+//--End Draw billboard layers
 
-// --Events and States
+//Events and States
 ZEST_API zest_bool zest_SwapchainWasRecreated(void);
+//--End Events and States
 
 //General Helper functions
 ZEST_API zest_camera zest_CreateCamera(void);
@@ -1602,5 +1613,6 @@ ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
 ZEST_API void zest_ShowFPSInTitle(void);
 ZEST_API void zest_HideFPSInTitle(void);
+//--End General Helper functions
 
 #endif // ! ZEST_POCKET_RENDERER
