@@ -1,5 +1,5 @@
-
-#ifndef  ZEST_RENDERER_H
+//Zest - A Vulkan Pocket Renderer
+#ifndef ZEST_RENDERER_H
 #define ZEST_RENDERER_H
 
 #ifdef _WIN32
@@ -32,7 +32,7 @@
 #endif
 
 #ifndef ZEST__FREE
-#define ZEST__FREE(memory) tloc_Free(ZestDevice->allocator, memory)
+#define ZEST__FREE(memory) pkt_Free(ZestDevice->allocator, memory)
 #endif
 
 //Helper macros
@@ -50,8 +50,8 @@
 #define STBI_REALLOC(p,newsz)     ZEST__REALLOCATE(p,newsz)
 #define STBI_FREE(p)              ZEST__FREE(p)
 
-#define TLOC_ENABLE_REMOTE_MEMORY
-#include "2loc.h"
+#define PKT_ENABLE_REMOTE_MEMORY
+#include "pkt_allocator.h"
 #include "lib_bundle.h"
 
 #ifndef ZEST_WARNING_COLOR
@@ -341,6 +341,7 @@ enum {
 	zest__VEC_HEADER_OVERHEAD = sizeof(zest_vec)
 };
 
+// --Pocket dynamic array
 #define zest__vec_header(T) ((zest_vec*)T - 1)
 zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_bump(T) zest__vec_header(T)->current_size++;
@@ -594,7 +595,7 @@ typedef void* zest_pool_range;
 
 typedef struct zest_buffer_allocator{
 	zest_buffer_info buffer_info;
-	tloc_allocator *allocator;
+	pkt_allocator *allocator;
 	zest_size alignment;
 	zest_device_memory_pool *memory_pools;
 	zest_pool_range *range_pools;
@@ -647,7 +648,7 @@ typedef struct zest_device{
 	zest_uint compute_queue_family_index;
 	void *memory_pools[32];
 	zest_uint memory_pool_count;
-	tloc_allocator *allocator;
+	pkt_allocator *allocator;
 	VkAllocationCallbacks allocation_callbacks;
 	VkInstance instance;
 	VkPhysicalDevice physical_device;
@@ -1319,11 +1320,11 @@ ZEST_PRIVATE zest_index zest__next_fif(void);
 ZEST_PRIVATE void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer, const char *name);
 ZEST_PRIVATE void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer);
 ZEST_PRIVATE zest_size zest__get_bytes_per_block(zest_size pool_size);
-ZEST_PRIVATE zest_size zest__get_remote_size(const tloc_header *block);
+ZEST_PRIVATE zest_size zest__get_remote_size(const pkt_header *block);
 ZEST_PRIVATE void zest__on_add_pool(void *user_data, void *block);
-ZEST_PRIVATE void zest__on_merge_next(void *user_data, tloc_header *block, tloc_header *next_block);
-ZEST_PRIVATE void zest__on_merge_prev(void *user_data, tloc_header *prev_block, tloc_header *block);
-ZEST_PRIVATE void zest__on_split_block(void *user_data, tloc_header* block, tloc_header *trimmed_block, zest_size remote_size);
+ZEST_PRIVATE void zest__on_merge_next(void *user_data, pkt_header *block, pkt_header *next_block);
+ZEST_PRIVATE void zest__on_merge_prev(void *user_data, pkt_header *prev_block, pkt_header *block);
+ZEST_PRIVATE void zest__on_split_block(void *user_data, pkt_header* block, pkt_header *trimmed_block, zest_size remote_size);
 // --End Buffer allocation funcitons
 
 //Device set up 
