@@ -1,3 +1,4 @@
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #include "zest.h"
 #define TLOC_IMPLEMENTATION
 #define TLOC_OUTPUT_ERROR_MESSAGES
@@ -2653,15 +2654,6 @@ void *zest_GetUniformBufferDataFIF(zest_index index, zest_index fif) { ZEST_ASSE
 void *zest_GetUniformBufferDataByNameFIF(const char *name, zest_index fif) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return (zest_map_at(ZestRenderer->uniform_buffers, name))->buffer[fif]->data; }
 zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
 void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }
-
-void zest_ShowFPSInTitle() {
-	ZestApp->flags |= zest_app_flag_show_fps_in_title;
-}
-
-void zest_HideFPSInTitle() {
-	ZestApp->flags &= ~zest_app_flag_show_fps_in_title;
-}
-
 void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
 
 zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
@@ -5406,6 +5398,7 @@ zest_microsecs zest__set_elapsed_time() {
 
 void zest__main_loop(void) {
 	ZestApp->current_elapsed_time = zest_Microsecs();
+	ZEST_ASSERT(ZestApp->update_callback);	//Must define an update callback function
 	while (!(ZestApp->flags & zest_app_flag_quit_application)) {
 
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
@@ -5415,28 +5408,18 @@ void zest__main_loop(void) {
 
 		zest__set_elapsed_time();
 
-		if (ZestApp->update_callback) {
-			ZestApp->update_callback(ZestApp->current_elapsed_time, ZestApp->user_data);
-		}
+		ZestApp->update_callback(ZestApp->current_elapsed_time, ZestApp->user_data);
 
 		zest__draw_renderer_frame();
 
-		if (ZestApp->flags & zest_app_flag_show_fps_in_title) {
-			ZestApp->frame_timer += ZestApp->current_elapsed;
-			ZestApp->frame_count++;
-			if (ZestApp->frame_timer >= ZEST_MICROSECS_SECOND) {
-				char fps_str[20];
-                zest_snprintf(fps_str, 20, "FPS: %u", ZestApp->frame_count);
-				//printf("FPS: %u\n", ZestApp->frame_count);
-                
-				//glfwSetWindowTitle(ZestApp->window->window_handle, fps_str);
-				SetWindowText(ZestApp->window->window_handle, fps_str);
-
-				ZestApp->last_fps = ZestApp->frame_count;
-				ZestApp->frame_count = 0;
-				ZestApp->frame_timer = ZestApp->frame_timer - ZEST_MICROSECS_SECOND;
-			}
+		ZestApp->frame_timer += ZestApp->current_elapsed;
+		ZestApp->frame_count++;
+		if (ZestApp->frame_timer >= ZEST_MICROSECS_SECOND) {
+			ZestApp->last_fps = ZestApp->frame_count;
+			ZestApp->frame_count = 0;
+			ZestApp->frame_timer = ZestApp->frame_timer - ZEST_MICROSECS_SECOND;
 		}
+
 	}
 }
 
@@ -5532,7 +5515,6 @@ int main(void) {
 	zest_SetUserUpdateCallback(test_update_callback);
 
 	InitExample(&example);
-	zest_ShowFPSInTitle();
 
 	zest_Start();
 

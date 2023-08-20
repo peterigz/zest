@@ -27,10 +27,8 @@
 #define ZEST_API
 #endif
 
-#ifndef _DEBUG
+#ifndef ZEST_ENABLE_VALIDATION_LAYER
 #define ZEST_ENABLE_VALIDATION_LAYER 0
-#else
-#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 #ifndef ZEST__FREE
@@ -197,13 +195,12 @@ typedef enum zest_create_flags {
 typedef enum zest_app_flags {
 	zest_app_flag_none =					0,
 	zest_app_flag_suspend_rendering =		1 << 0,
-	zest_app_flag_show_fps_in_title =		1 << 1,
-	zest_app_flag_shift_pressed =			1 << 2,
-	zest_app_flag_control_pressed =			1 << 3,
-	zest_app_flag_cmd_pressed =				1 << 4,
-	zest_app_flag_record_input  =			1 << 5,
-	zest_app_flag_enable_console =			1 << 6,
-	zest_app_flag_quit_application =		1 << 7
+	zest_app_flag_shift_pressed =			1 << 1,
+	zest_app_flag_control_pressed =			1 << 2,
+	zest_app_flag_cmd_pressed =				1 << 3,
+	zest_app_flag_record_input  =			1 << 4,
+	zest_app_flag_enable_console =			1 << 5,
+	zest_app_flag_quit_application =		1 << 6
 } zest_app_flags;
 
 enum zest__constants {
@@ -1621,8 +1618,6 @@ ZEST_API void *zest_GetUniformBufferData(zest_index index);
 ZEST_API void *zest_GetUniformBufferDataByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
-ZEST_API void zest_ShowFPSInTitle(void);
-ZEST_API void zest_HideFPSInTitle(void);
 //--End General Helper functions
 
 #endif // ! ZEST_POCKET_RENDERER
