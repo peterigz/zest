@@ -32,24 +32,56 @@ void zest__wait_for_events_callback(void *user_data) {
 	MsgWaitForMultipleObjects(0, NULL, FALSE, (DWORD)(1 * 1e3), QS_ALLEVENTS);
 }
 
-LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wParam, LPARAM lParam) {
 	LRESULT result = 0;
-	switch (msg) {
+	switch (message) {
 	case WM_CLOSE:
+	case WM_QUIT:
 		ZestApp->flags |= zest_app_flag_quit_application;
-		return 0;
 		break;
 	case WM_PAINT:
-		//ValidateRect(hWnd, NULL);
+		PAINTSTRUCT paint;
+		HDC DeviceContext = BeginPaint(window_handle, &paint);
+		EndPaint(window_handle, &paint);
 		break;
 	case WM_SIZE:
 		break;
+	case WM_DESTROY:
+		break;
 	default:
-		result = DefWindowProc(hWnd, msg, wParam, lParam);
+		result = DefWindowProc(window_handle, message, wParam, lParam);
 		break;
 	}
 
 	return result;
+}
+
+void zest__poll_events() {
+	MSG message = { 0 };
+
+	for (;;) {
+		BOOL result = 0;
+		DWORD SkipMessages[] = { 0x738, 0xFFFFFFFF };
+		DWORD LastMessage = 0;
+		for (zest_uint SkipIndex = 0; SkipIndex < 2; ++SkipIndex) {
+
+			DWORD Skip = SkipMessages[SkipIndex];
+			result = PeekMessage(&message, 0, LastMessage, Skip - 1, PM_REMOVE);
+			if (result)
+			{
+				TranslateMessage(&message);
+				DispatchMessage(&message);
+				break;
+			}
+
+			LastMessage = Skip + 1;
+		}
+
+		if (!result) {
+			break;
+		}
+	}
+
 }
 
 zest_window* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
@@ -1164,7 +1196,7 @@ void zest__initialise_app(zest_create_info *create_info) {
 	ZestApp->virtual_mouse_x = 0;
 	ZestApp->virtual_mouse_y = 0;
 
-	ZestApp->window = ZEST_CREATE_OS_WINDOW(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, 0, "Zest");
+	ZestApp->window = zest__create_window(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, 0, "Zest");
 }
 
 void zest__destroy(void) {
@@ -5351,24 +5383,12 @@ zest_microsecs zest__set_elapsed_time() {
 
 void zest__main_loop(void) {
 	ZestApp->current_elapsed_time = zest_Microsecs();
-	MSG msg;
 	while (!(ZestApp->flags & zest_app_flag_quit_application)) {
 
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
 		//DoScheduledTasks(ZestDevice->current_fif);
 
-		BOOL result = PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE);
-		if (result > 0) {
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
-		}
-		else if (result == 0) {
-			break;
-		}
-		else {
-			//Error;
-			ZEST_ASSERT(0);
-		}
+		zest__poll_events();
 
 		zest__set_elapsed_time();
 
@@ -5477,56 +5497,6 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_vec3 alignment = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_DrawBillboard(billboard_layer, zest_GetImageFromTexture(texture, example->image1), &position.x, zest_Pack8bitx3(&alignment), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
 }
-
-typedef void(*tloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
-
-static void tloc__output(void* ptr, size_t size, int free, void* user, int is_final_output)
-{
-	(void)user;
-	tloc_header *block = (tloc_header*)ptr;
-	printf("\t%p %s size: %zi (%p), (%p), (%p)\n", ptr, free ? "free" : "used", size, ptr, size ? block->next_free_block : 0, size ? block->prev_free_block : 0);
-	if (is_final_output) {
-		printf("\t------------- * ---------------\n");
-	}
-}
-
-tloc__error_codes tloc_VerifyBlocks(tloc_header *first_block, tloc__block_output output_function, void *user_data) {
-	tloc_header *current_block = first_block;
-	while (!tloc__is_last_block_in_pool(current_block)) {
-		if (output_function) {
-			tloc__output(current_block, tloc__block_size(current_block), tloc__is_free_block(current_block), user_data, 0);
-		}
-		tloc_header *last_block = current_block;
-		current_block = tloc__next_physical_block(current_block);
-		if (last_block != current_block->prev_physical_block) {
-			return tloc__PHYSICAL_BLOCK_MISALIGNMENT;
-		}
-	}
-	if (output_function) {
-		tloc__output(current_block, tloc__block_size(current_block), tloc__is_free_block(current_block), user_data, 1);
-	}
-	return tloc__OK;
-}
-
-typedef struct zest_image_test {
-	zest_index index;			//index within the QulkanTexture
-	const char *name;			//Filename of the image
-	zest_uint width;
-	zest_uint height;
-	zest_vec4 uv;				//UV coords are set after the ProcessImages function is called and the images are packed into the texture
-	zest_uint uv_xy;
-	zest_uint uv_zw;
-	zest_uint layer;			//the layer index of the image when it's packed into an image/texture array
-	zest_uint top, left;		//the top left location of the image on the layer or spritesheet
-	zest_vec2 min;				//The minimum coords of the vertices in the quad of the image
-	zest_vec2 max;				//The maximum coords of the vertices in the quad of the image
-	zest_vec2 scale;			//The scale of the image. 1.f if default, changing this will update the min/max coords
-	zest_vec2 handle;			//The handle of the image. 0.5f is the center of the image
-	float max_radius;			//You can load images and calculate the max radius of the image which is the furthest pixel from the center.
-	zest_index texture_index;	//The index of the texture in the Renderer
-} zest_image_test;
-
-zest_vec4 *images = 0;
 
 int main(void) {
 
