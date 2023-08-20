@@ -5458,7 +5458,6 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_SetActiveRenderQueue(0);
 	sprite_layer->multiply_blend_factor = 1.f;
 
-	/*
 	zest_SetSpriteDrawing(sprite_layer, texture, example->sprite_descriptor_index, example->sprite_pipeline);
 	for (float x = 0; x != 75; ++x) {
 		for (float y = 0; y != 15; ++y) {
@@ -5477,7 +5476,6 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_vec3 handle = { .x = .5f,.y = .5f };
 	zest_vec3 alignment = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_DrawBillboard(billboard_layer, zest_GetImageFromTexture(texture, example->image1), &position.x, zest_Pack8bitx3(&alignment), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
-*/
 }
 
 typedef void(*tloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
