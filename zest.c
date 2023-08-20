@@ -647,15 +647,17 @@ void zest_Initialise(zest_create_info *info) {
 
 	tloc_allocator *allocator = tloc_InitialiseAllocatorWithPool(memory_pool, info->memory_pool_size);
 	ZestDevice = tloc_Allocate(allocator, sizeof(zest_device));
+	ZestDevice->allocator = allocator;
+
 	ZestApp = tloc_Allocate(allocator, sizeof(zest_app));
 	ZestRenderer = tloc_Allocate(allocator, sizeof(zest_renderer));
 	ZestHasher = tloc_Allocate(allocator, sizeof(zest_hasher));
 	memset(ZestDevice, 0, sizeof(zest_device));
 	memset(ZestApp, 0, sizeof(zest_app));
 	memset(ZestRenderer, 0, sizeof(zest_renderer));
+	ZestDevice->allocator = allocator;
 	ZestDevice->memory_pools[0] = memory_pool;
 	ZestDevice->memory_pool_count = 1;
-	ZestDevice->allocator = allocator;
 	ZestDevice->color_format = info->color_format;
 	ZestDevice->allocation_callbacks.pfnAllocation = zest_vk_allocate_callback;
 	ZestDevice->allocation_callbacks.pfnReallocation = zest_vk_reallocate_callback;
@@ -2612,7 +2614,15 @@ void zest_HideFPSInTitle() {
 void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
 
 zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
-void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { if (T && new_capacity <= zest__vec_header(T)->capacity) return T; void* new_data = ZEST__REALLOCATE((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); ((zest_vec*)(new_data))->capacity = new_capacity; return T; }
+void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { 
+	if (T && new_capacity <= zest__vec_header(T)->capacity) 
+		return T; 
+	void* new_data = ZEST__REALLOCATE((T ? zest__vec_header(T) : T), new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD); 
+	if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD); 
+		T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD); 
+	((zest_vec*)(new_data))->capacity = new_capacity; 
+	return T; 
+}
 
 //End api functions
 
@@ -4975,11 +4985,9 @@ zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storag
 		zest_SetUseFiltering(&texture, use_filtering);
 	}
 	zest_vec_reserve(texture.images, reserve_images);
-	//texture.pipeline_index_premultiply = zest_map_get_index_by_name(ZestRenderer->pipeline_sets, "pipeline_premultiply_blend");
-	//texture.pipeline_index_premultiply_depth = zest_map_get_index_by_name(ZestRenderer->pipeline_sets, "pipeline_premultiply_blend_depth");
-	//texture.pipeline_index_premultiply_instanced = zest_map_get_index_by_name(ZestRenderer->pipeline_sets, "pipeline_instanced_premultiply_blend");
-	//texture.pipeline_index_billboard = zest_map_get_index_by_name(ZestRenderer->pipeline_sets, "pipeline_billboard");
-	//texture.imgui_pipeline_index = zest_map_get_index_by_name(ZestRenderer->pipeline_sets, "pipeline_imgui_texture");
+	_ReadBarrier();
+	_WriteBarrier();
+	//texture.images[0] = zest_CreateImage();
 	zest_map_insert(ZestRenderer->textures, name, texture);
 	zest_vec_back(zest_GetTextures()->data).index_in_renderer = zest_map_last_index(ZestRenderer->textures);
 	return zest_map_last_index(ZestRenderer->textures);
@@ -5472,7 +5480,58 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 */
 }
 
+typedef void(*tloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
+
+static void tloc__output(void* ptr, size_t size, int free, void* user, int is_final_output)
+{
+	(void)user;
+	tloc_header *block = (tloc_header*)ptr;
+	printf("\t%p %s size: %zi (%p), (%p), (%p)\n", ptr, free ? "free" : "used", size, ptr, size ? block->next_free_block : 0, size ? block->prev_free_block : 0);
+	if (is_final_output) {
+		printf("\t------------- * ---------------\n");
+	}
+}
+
+tloc__error_codes tloc_VerifyBlocks(tloc_header *first_block, tloc__block_output output_function, void *user_data) {
+	tloc_header *current_block = first_block;
+	while (!tloc__is_last_block_in_pool(current_block)) {
+		if (output_function) {
+			tloc__output(current_block, tloc__block_size(current_block), tloc__is_free_block(current_block), user_data, 0);
+		}
+		tloc_header *last_block = current_block;
+		current_block = tloc__next_physical_block(current_block);
+		if (last_block != current_block->prev_physical_block) {
+			return tloc__PHYSICAL_BLOCK_MISALIGNMENT;
+		}
+	}
+	if (output_function) {
+		tloc__output(current_block, tloc__block_size(current_block), tloc__is_free_block(current_block), user_data, 1);
+	}
+	return tloc__OK;
+}
+
+typedef struct zest_image_test {
+	zest_index index;			//index within the QulkanTexture
+	const char *name;			//Filename of the image
+	zest_uint width;
+	zest_uint height;
+	zest_vec4 uv;				//UV coords are set after the ProcessImages function is called and the images are packed into the texture
+	zest_uint uv_xy;
+	zest_uint uv_zw;
+	zest_uint layer;			//the layer index of the image when it's packed into an image/texture array
+	zest_uint top, left;		//the top left location of the image on the layer or spritesheet
+	zest_vec2 min;				//The minimum coords of the vertices in the quad of the image
+	zest_vec2 max;				//The maximum coords of the vertices in the quad of the image
+	zest_vec2 scale;			//The scale of the image. 1.f if default, changing this will update the min/max coords
+	zest_vec2 handle;			//The handle of the image. 0.5f is the center of the image
+	float max_radius;			//You can load images and calculate the max radius of the image which is the furthest pixel from the center.
+	zest_index texture_index;	//The index of the texture in the Renderer
+} zest_image_test;
+
+zest_vec4 *images = 0;
+
 int main(void) {
+
 	zest_example example = { 0 };
 
 	zest_create_info create_info = zest_CreateInfo();
@@ -5480,7 +5539,7 @@ int main(void) {
 	zest_Initialise(&create_info);
 	zest_SetUserData(&example);
 	zest_SetUserUpdateCallback(test_update_callback);
-    
+
 	InitExample(&example);
 	zest_ShowFPSInTitle();
 

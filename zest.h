@@ -356,7 +356,6 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_bump(T) zest__vec_header(T)->current_size++;
 #define zest_vec_clip(T) zest__vec_header(T)->current_size--;
 #define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
-#define zest_vec(T, name) T *name = ZEST_NULL
 #define zest_vec_empty(T) (!T || zest__vec_header(T)->current_size == 0)
 #define zest_vec_size(T) (T ? zest__vec_header(T)->current_size : 0)
 #define zest_vec_last_index(T) (zest__vec_header(T)->current_size - 1)
@@ -533,11 +532,14 @@ typedef struct zest_vec3 {
 	float x, y, z;
 } zest_vec3;
 
-typedef struct ZEST_ALIGN_PREFIX(16) zest_vec4 {
+//Note that using alignas on windows causes a crash in release mode relating to the allocator.
+//Not sure why though. We need the align as on Mac otherwise metal complains about the alignment
+//in the shaders
+typedef struct zest_vec4 {
 	float x, y, z, w;
 } zest_vec4 ZEST_ALIGN_AFFIX(16);
 
-typedef struct ZEST_ALIGN_PREFIX(16) zest_matrix4 {
+typedef struct zest_matrix4 {
 	zest_vec4 v[4];
 } zest_matrix4 ZEST_ALIGN_AFFIX(16);
 
