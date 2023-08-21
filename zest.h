@@ -2,6 +2,10 @@
 #ifndef ZEST_RENDERER_H
 #define ZEST_RENDERER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <vulkan/vulkan.h>
 #include <math.h>
 #include <string.h>
@@ -473,7 +477,7 @@ void zest__hash_initialise(zest_hasher *hasher, zest_ull seed);
 
 //The only command you need for the hasher
 zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed);
-zest_hasher *ZestHasher = 0;
+ZEST_GLOBAL zest_hasher *ZestHasher = 0;
 //-- End of Pocket Hasher
 
 // --Begin pocket hash map
@@ -485,9 +489,9 @@ typedef struct {
 #ifndef ZEST_HASH_SEED
 #define ZEST_HASH_SEED 0xABCDEF99
 #endif
-zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key) { zest_hash_pair *first = map; zest_hash_pair *last = map ? zest_vec_end(map) : 0; size_t count = (size_t)(last - first); while (count > 0) { size_t count2 = count >> 1; zest_hash_pair* mid = first + count2; if (mid->key < key) { first = ++mid; count -= count2 + 1; } else { count = count2; } } return first; }
-void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { for (zest_foreach_i(map)) { if (map[i].index < index) continue; map[i].index--; } }
-zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
+ZEST_PRIVATE zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key) { zest_hash_pair *first = map; zest_hash_pair *last = map ? zest_vec_end(map) : 0; size_t count = (size_t)(last - first); while (count > 0) { size_t count2 = count >> 1; zest_hash_pair* mid = first + count2; if (mid->key < key) { first = ++mid; count -= count2 + 1; } else { count = count2; } } return first; }
+ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { for (zest_foreach_i(map)) { if (map[i].index < index) continue; map[i].index--; } }
+ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
 #define zest_map_hash(hash_map, name) zest_Hash(ZestHasher, name, strlen(name), ZEST_HASH_SEED) 
 #define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ZestHasher, ptr, size, ZEST_HASH_SEED) 
 #define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; }
@@ -1244,9 +1248,11 @@ typedef struct zest_renderer{
 
 } zest_renderer;
 
-zest_device *ZestDevice = 0;
-zest_app *ZestApp = 0;
-zest_renderer *ZestRenderer = 0;
+extern zest_device *ZestDevice;
+extern zest_app *ZestApp;
+extern zest_renderer *ZestRenderer;
+
+inline zest_app* App() { return ZestApp; }
 
 ZEST_GLOBAL const char* zest_validation_layers[zest__validation_layer_count] = {
 	"VK_LAYER_KHRONOS_validation"
@@ -1674,10 +1680,14 @@ ZEST_API float zest_ScreenWidthf(void);
 ZEST_API float zest_ScreenHeightf(void);
 ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
-ZEST_API void *zest_GetUniformBufferData(zest_index index);
+ZEST_API zest_uniform_buffer_data *zest_GetUniformBufferData(zest_index index);
 ZEST_API void *zest_GetUniformBufferDataByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
 //--End General Helper functions
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // ! ZEST_POCKET_RENDERER
