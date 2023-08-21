@@ -154,7 +154,6 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 //Window creation
 int main(void);
 HINSTANCE zest_window_instance;
-#define ZEST_WINDOW_HANDLE HWND
 #define ZEST_WINDOW_INSTANCE HINSTANCE
 LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 //--
@@ -169,7 +168,6 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 #define zest_snprintf(buffer, bufferSize, format, ...) snprintf(buffer, bufferSize, format, __VA_ARGS__)
 
 //Window creation
-#define ZEST_WINDOW_HANDLE void*
 //--
 
 #endif
@@ -632,7 +630,7 @@ typedef struct zest_swapchain_support_details{
 } zest_swapchain_support_details;
 
 typedef struct zest_window {
-	ZEST_WINDOW_HANDLE window_handle;
+	void *window_handle;
 	VkSurfaceKHR surface;
 	zest_uint window_width;
 	zest_uint window_height;
@@ -640,7 +638,7 @@ typedef struct zest_window {
 	zest_create_flags flags;
 } zest_window;
 
-typedef struct zest_device{
+typedef struct zest_device {
 	zest_uint api_version;
 	zest_uint use_labels_address_bit;
 	zest_uint current_fif;
@@ -653,6 +651,7 @@ typedef struct zest_device{
 	zest_uint memory_pool_count;
 	pkt_allocator *allocator;
 	VkAllocationCallbacks allocation_callbacks;
+	char **extensions;
 	VkInstance instance;
 	VkPhysicalDevice physical_device;
 	VkDevice logical_device;
@@ -685,7 +684,9 @@ typedef struct zest_create_info {
 	void(*get_window_size_callback)(void *user_data, int *width, int *height);
 	void(*destroy_window_callback)(void *user_data);
 	void(*poll_events_callback)(ZEST_PROTOTYPE);
-	char**(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
+	void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
+	zest_window*(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
+	void(*create_window_surface_callback)(zest_window* window);
 } zest_create_info;
 
 typedef struct zest_app{
@@ -1244,7 +1245,9 @@ typedef struct zest_renderer{
 	void(*get_window_size_callback)(void *user_data, int *width, int *height);
 	void(*destroy_window_callback)(void *user_data);
 	void(*poll_events_callback)(ZEST_PROTOTYPE);
-	char**(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
+	void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
+	zest_window*(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
+	void(*create_window_surface_callback)(zest_window* window);
 
 } zest_renderer;
 
@@ -1268,7 +1271,7 @@ ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_
 ZEST_PRIVATE zest_window *zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
 ZEST_PRIVATE void zest__create_window_surface(zest_window* window);
 ZEST_PRIVATE void zest__poll_events(ZEST_PROTOTYPE);
-ZEST_PRIVATE char **zest__add_platform_extensions(ZEST_PROTOTYPE);
+ZEST_PRIVATE void zest__add_platform_extensions(ZEST_PROTOTYPE);
 //-- End Platform dependent functions
 
 ZEST_PRIVATE void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
@@ -1400,7 +1403,7 @@ ZEST_PRIVATE VkSampleCountFlagBits zest__get_max_useable_sample_count(void);
 ZEST_PRIVATE void zest__create_logical_device(void);
 ZEST_PRIVATE void zest__set_limit_data(void);
 ZEST_PRIVATE zest_bool zest__check_validation_layer_support(void);
-ZEST_PRIVATE const char** zest__get_required_extensions(void);
+ZEST_PRIVATE void zest__get_required_extensions(void);
 ZEST_PRIVATE zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
 ZEST_PRIVATE void zest__set_default_pool_sizes(void);
 ZEST_PRIVATE void *zest_vk_allocate_callback(void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
@@ -1423,7 +1426,9 @@ ZEST_PRIVATE void zest__update_window_size(zest_window* window, zest_uint width,
 //User API functions
 ZEST_API zest_create_info zest_CreateInfo(void);
 ZEST_API void zest_Initialise(zest_create_info *info);
+ZEST_API void zest_AddInstanceExtension(char *extension);
 ZEST_API void zest_Start(void);
+ZEST_API zest_window *zest_AllocateWindow();
 ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_index zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers);
@@ -1443,7 +1448,7 @@ ZEST_API void zest_SetActiveRenderQueue(zest_index command_queue_index);
 ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data));
 ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *width, int *height));
 ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
-ZEST_API void zest_SetPlatformExtensionsCallback(char**(*add_platform_extensions_callback)(void));
+ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
 //--End User API functions
 
 //Pipeline related 
@@ -1682,6 +1687,7 @@ ZEST_API zest_uniform_buffer_data *zest_GetUniformBufferData(zest_index index);
 ZEST_API void *zest_GetUniformBufferDataByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
+ZEST_API void zest_MaybeQuit(zest_bool condition);
 //--End General Helper functions
 
 #ifdef __cplusplus

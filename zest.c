@@ -125,11 +125,9 @@ void zest__create_window_surface(zest_window* window) {
 	ZEST_VK_CHECK_RESULT(vkCreateWin32SurfaceKHR(ZestDevice->instance, &surface_create_info, &ZestDevice->allocation_callbacks, &window->surface));
 }
 
-char **zest__add_platform_extensions() {
-	char **extensions = 0;
-	zest_vec_push(extensions, VK_KHR_SURFACE_EXTENSION_NAME);
-	zest_vec_push(extensions, VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-	return extensions;
+void zest__add_platform_extensions() {
+	zest_AddInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
+	zest_AddInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 }
 
 void zest__get_window_size_callback(void *user_data, int *width, int *height) {
@@ -185,15 +183,12 @@ void zest__poll_events(void) {
     ZestApp->flags |= glfwWindowShouldClose(ZestApp->window->window_handle) ? zest_app_flag_quit_application : 0;
 }
 
-char **zest__add_platform_extensions(void) {
+void zest__add_platform_extensions(void) {
     zest_uint count;
-    char **extensions = 0;
     const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
     for(int i = 0 ; i != count; ++i) {
-        zest_vec_push(extensions, (char*)glfw_extensions[i]);
+        zest_AddInstanceExtension((char*)glfw_extensions[i]);
     }
-    zest_uint size = zest_vec_size(extensions);
-    return extensions;
 }
 
 void zest__get_window_size_callback(void *user_data, int *width, int *height){
@@ -757,6 +752,8 @@ void zest_Initialise(zest_create_info *info) {
 	ZestRenderer->get_window_size_callback = info->get_window_size_callback;
 	ZestRenderer->poll_events_callback = info->poll_events_callback;
 	ZestRenderer->add_platform_extensions_callback = info->add_platform_extensions_callback;
+	ZestRenderer->create_window_callback = info->create_window_callback;
+	ZestRenderer->create_window_surface_callback = info->create_window_surface_callback;
 	zest__initialise_app(info);
 	zest__initialise_device();
 	zest__initialise_renderer(info);
@@ -816,7 +813,7 @@ void zest_SetPollEventsCallback(void(*poll_events_callback)(void)) {
 	ZestRenderer->poll_events_callback = poll_events_callback;
 }
 
-void zest_SetPlatformExtensionsCallback(char**(*add_platform_extensions_callback)(void)) {
+void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void)) {
 	ZestRenderer->add_platform_extensions_callback = add_platform_extensions_callback;
 }
 //-- End Initialisation and destruction
@@ -844,10 +841,10 @@ void zest__create_instance(void) {
 	create_info.flags = 0;
 	create_info.pNext = 0;
     
-    const char** extensions = zest__get_required_extensions();
-	zest_uint extension_count = zest_vec_size(extensions);
+    zest__get_required_extensions();
+	zest_uint extension_count = zest_vec_size(ZestDevice->extensions);
 	create_info.enabledExtensionCount = extension_count;
-	create_info.ppEnabledExtensionNames = extensions;
+	create_info.ppEnabledExtensionNames = ZestDevice->extensions;
 
 	if (ZEST_ENABLE_VALIDATION_LAYER) {
 		create_info.enabledLayerCount = (zest_uint)zest__validation_layer_count;
@@ -869,7 +866,7 @@ void zest__create_instance(void) {
 	ZEST_VK_CHECK_RESULT(result);
 
 	ZEST__FREE(available_extensions);
-	zest__create_window_surface(ZestApp->window);
+	ZestRenderer->create_window_surface_callback(ZestApp->window);
 
 }
 
@@ -914,18 +911,20 @@ void zest__setup_validation(void) {
 	ZestDevice->pfnSetDebugUtilsObjectNameEXT = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(ZestDevice->instance, "vkSetDebugUtilsObjectNameEXT");
 }
 
-//Get the extensions that we need for the app.
-const char** zest__get_required_extensions() {
-	char** platform_extensions = ZestRenderer->add_platform_extensions_callback();
+void zest_AddInstanceExtension(char *extension) {
+	zest_vec_push(ZestDevice->extensions, extension);
+}
 
-	ZEST_ASSERT(platform_extensions); //Vulkan not available
+//Get the extensions that we need for the app.
+void zest__get_required_extensions() {
+	ZestRenderer->add_platform_extensions_callback();
+
+	ZEST_ASSERT(ZestDevice->extensions); //Vulkan not available
 
 	if (ZEST_ENABLE_VALIDATION_LAYER) {
-		zest_vec_push(platform_extensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		zest_AddInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 	}
-	zest_vec_push(platform_extensions, VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
-	
-	return (const char**)platform_extensions;
+	zest_AddInstanceExtension(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
 }
 
 zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties) {
@@ -1276,7 +1275,7 @@ void zest__initialise_app(zest_create_info *create_info) {
 	ZestApp->virtual_mouse_x = 0;
 	ZestApp->virtual_mouse_y = 0;
 
-	ZestApp->window = zest__create_window(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, 0, "Zest");
+	ZestApp->window = ZestRenderer->create_window_callback(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, 0, "Zest");
 }
 
 void zest__destroy(void) {
@@ -2704,6 +2703,7 @@ zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
 zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
 float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
 float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
+zest_window *zest_AllocateWindow() { zest_window *window; window = (zest_window*)ZEST__ALLOCATE(sizeof(zest_window)); memset(window, 0, sizeof(zest_window)); return window; }
 zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); }
 zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); }
 zest_uniform_buffer_data *zest_GetUniformBufferData(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return (zest_uniform_buffer_data*)(zest_map_at_index(ZestRenderer->uniform_buffers, index))->buffer[ZEST_FIF]->data; }
@@ -2712,6 +2712,7 @@ void *zest_GetUniformBufferDataFIF(zest_index index, zest_index fif) { ZEST_ASSE
 void *zest_GetUniformBufferDataByNameFIF(const char *name, zest_index fif) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return (zest_map_at(ZestRenderer->uniform_buffers, name))->buffer[fif]->data; }
 zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
 void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }
+void zest_MaybeQuit(zest_bool condition) { ZestApp->flags |= condition != 0 ? zest_app_flag_quit_application : 0; }
 void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
 
 zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
@@ -3647,7 +3648,9 @@ zest_create_info zest_CreateInfo() {
 		.destroy_window_callback = zest__destroy_window_callback,
 		.get_window_size_callback = zest__get_window_size_callback,
 		.poll_events_callback = zest__poll_events,
-		.add_platform_extensions_callback = zest__add_platform_extensions
+		.add_platform_extensions_callback = zest__add_platform_extensions,
+		.create_window_callback = zest__create_window,
+		.create_window_surface_callback = zest__create_window_surface
 	};
 	return create_info;
 }
