@@ -1252,8 +1252,6 @@ extern zest_device *ZestDevice;
 extern zest_app *ZestApp;
 extern zest_renderer *ZestRenderer;
 
-inline zest_app* App() { return ZestApp; }
-
 ZEST_GLOBAL const char* zest_validation_layers[zest__validation_layer_count] = {
 	"VK_LAYER_KHRONOS_validation"
 };
