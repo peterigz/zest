@@ -107,7 +107,19 @@ zest_window* zest__create_window(int x, int y, int width, int height, zest_bool 
 		ZEST_ASSERT(0);		//Failed to register window
 	} 
 
-	window->window_handle = CreateWindowEx(0, window_class.lpszClassName, title, WS_OVERLAPPEDWINDOW | WS_VISIBLE, x, y, width, height, 0, 0, zest_window_instance, 0);
+	DWORD style = WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
+	style |= WS_SYSMENU | WS_MINIMIZEBOX;
+	style |= WS_CAPTION;
+	style |= WS_MAXIMIZEBOX | WS_THICKFRAME;
+
+	RECT rect = { 0, 0, width, height };
+
+	AdjustWindowRectEx(&rect, style, FALSE, 0);
+
+	int frame_width = rect.right - rect.left;
+	int frame_height = rect.bottom - rect.top;
+
+	window->window_handle = CreateWindowEx(0, window_class.lpszClassName, title, style | WS_VISIBLE, x, y, frame_width, frame_height, 0, 0, zest_window_instance, 0);
 	ZEST_ASSERT(window->window_handle);		//Unable to open a window!
 
 	SetForegroundWindow(window->window_handle);
@@ -1833,7 +1845,7 @@ VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities) {
 	}
 	else {
 		int width = 0, height = 0;
-		//glfwGetFramebufferSize(ZestApp->window->window_handle, &width, &height);
+		ZestRenderer->get_window_size_callback(ZestApp->user_data, &width, &height);
 
 		VkExtent2D actual_extent = {
 			.width	= (zest_uint)(width),
