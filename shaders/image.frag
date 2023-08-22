@@ -8,15 +8,15 @@ layout(location = 0) out vec4 outColor;
 
 layout(binding = 1) uniform sampler2DArray texSampler;
 
-layout(push_constant) uniform frag_pushes
+layout(push_constant) uniform quad_index
 {
     mat4 model;
-	mat4 view;
-	mat4 proj;
     vec4 parameters1;
 	vec4 parameters2;
+	vec4 parameters3;
+	vec4 camera;
 	uint flags;
-} settings;
+} pc;
 
 void main() {
 	vec4 texel = texture(texSampler, in_tex_coord);

@@ -18,3 +18,7 @@ del imgui_vert.spv
 del imgui_frag.spv
 del swap_vert.spv
 del swap_frag.spv
+
+xcopy "../spv" "../../zest-imgui-template/spv" /y
+xcopy "../spv" "../../zest-instance-layers/spv" /y
+xcopy "../spv" "../../zest-minimal-template/spv" /y
