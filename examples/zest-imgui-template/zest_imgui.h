@@ -9,10 +9,10 @@
 struct ImGuiApp {
 	zest_index imgui_layer_index;
 	zest_index imgui_draw_routine_index;
-	ImDrawData *imgui_draw_data;
 	zest_index imgui_pipeline;
 	zest_index imgui_font_texture_index;
 };
 
 void InitImGuiApp(ImGuiApp *app);
 void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer);
+void CopyImGuiBuffers(ImGuiApp *app);

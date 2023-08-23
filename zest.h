@@ -963,8 +963,6 @@ typedef struct zest_mesh_layer_buffers {
 	zest_buffer *staging_index_data;
 	zest_buffer *device_index_data;
 	zest_buffer *device_vertex_data;
-	VkDeviceSize max_index_memory_used;
-	VkDeviceSize max_vertex_memory_used;
 
 	zest_uint index_count;
 	zest_uint index_position;
@@ -1657,6 +1655,15 @@ ZEST_API void zest_DrawBillboard(zest_instance_layer *layer, zest_image *image, 
 //Draw mesh layers
 ZEST_API void zest_InitialiseMeshLayer(zest_mesh_layer *mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
 ZEST_API void zest_UploadMeshBuffersCallback(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer);
+ZEST_API void zest_BindMeshVertexBuffer(zest_mesh_layer *layer);
+ZEST_API void zest_BindMeshIndexBuffer(zest_mesh_layer *layer);
+ZEST_API zest_buffer *zest_GetVertexStagingBuffer(zest_mesh_layer *layer);
+ZEST_API zest_buffer *zest_GetIndexStagingBuffer(zest_mesh_layer *layer);
+ZEST_API zest_buffer *zest_GetVertexDeviceBuffer(zest_mesh_layer *layer);
+ZEST_API zest_buffer *zest_GetIndexDeviceBuffer(zest_mesh_layer *layer);
+ZEST_API zest_buffer *zest_GrowMeshVertexBuffers(zest_mesh_layer *layer);
+ZEST_API zest_buffer *zest_GrowMeshIndexBuffers(zest_mesh_layer *layer);
+
 //--End Draw billboard layers
 
 //Events and States
@@ -1690,6 +1697,10 @@ ZEST_API void *zest_GetUniformBufferDataByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
 ZEST_API void zest_MaybeQuit(zest_bool condition);
+ZEST_API void zest_BindVertexBuffer(zest_buffer *buffer);
+ZEST_API void zest_BindIndexBuffer(zest_buffer *buffer);
+ZEST_API void zest_SendPushConstants(zest_pipeline_set *pipeline_layout, VkShaderStageFlags shader_flags, zest_uint size, void *data);
+ZEST_API void zest_SendStandardPushConstants(zest_pipeline_set *pipeline_layout, void *data);
 //--End General Helper functions
 
 #ifdef __cplusplus

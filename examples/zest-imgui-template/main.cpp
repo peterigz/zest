@@ -57,7 +57,6 @@ void DestroyWindowCallback(void *user_data) {
 }
 
 void InitImGuiApp(ImGuiApp *app) {
-	app->imgui_draw_data = 0;
 	app->imgui_pipeline = zest_PipelineIndex("pipeline_imgui");
 
 	ImGui::CreateContext();
@@ -90,27 +89,23 @@ void InitImGuiApp(ImGuiApp *app) {
 }
 
 void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer) {
+	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 	zest_index last_pipeline_index = -1;
+
 	ImGuiApp *app = (ImGuiApp*)draw_routine->data;
 	zest_mesh_layer *imgui_layer = zest_GetMeshLayerByIndex(app->imgui_layer_index);
 
-	imgui_layer->mesh_memory_refs[ZEST_FIF].max_vertex_memory_used = ZEST__MAX(imgui_layer->mesh_memory_refs[ZEST_FIF].max_vertex_memory_used, imgui_layer->mesh_memory_refs[ZEST_FIF].device_vertex_data->memory_in_use);
-	imgui_layer->mesh_memory_refs[ZEST_FIF].max_index_memory_used = ZEST__MAX(imgui_layer->mesh_memory_refs[ZEST_FIF].max_index_memory_used, imgui_layer->mesh_memory_refs[ZEST_FIF].device_index_data->memory_in_use);
+	zest_BindMeshVertexBuffer(imgui_layer);
+	zest_BindMeshIndexBuffer(imgui_layer);
 
-	VkDeviceSize offsets[] = { imgui_layer->mesh_memory_refs[ZEST_FIF].device_vertex_data->memory_offset };
-
-	vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(imgui_layer->mesh_memory_refs[ZEST_FIF].device_vertex_data), offsets);
-	vkCmdBindIndexBuffer(command_buffer, *zest_GetBufferDeviceBuffer(imgui_layer->mesh_memory_refs[ZEST_FIF].device_index_data), imgui_layer->mesh_memory_refs[ZEST_FIF].device_index_data->memory_offset, VK_INDEX_TYPE_UINT32);
-
-	//We need to treat ImGui draw instructions a bit differently
-	if (app->imgui_draw_data && app->imgui_draw_data->CmdListsCount > 0) {
+	if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
 
 		int32_t vertex_offset = 0;
 		int32_t index_offset = 0;
 
-		for (int32_t i = 0; i < app->imgui_draw_data->CmdListsCount; i++)
+		for (int32_t i = 0; i < imgui_draw_data->CmdListsCount; i++)
 		{
-			const ImDrawList* cmd_list = app->imgui_draw_data->CmdLists[i];
+			const ImDrawList* cmd_list = imgui_draw_data->CmdLists[i];
 			for (int32_t j = 0; j < cmd_list->CmdBuffer.Size; j++)
 			{
 				const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[j];
@@ -133,13 +128,7 @@ void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buf
 				imgui_layer->push_constants.parameters2.x = current_image->layer;
 				imgui_layer->push_constants.flags = 0;
 
-				vkCmdPushConstants(
-					command_buffer,
-					zest_Pipeline(current_pipeline)->pipeline_layout,
-					VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-					0,
-					sizeof(zest_push_constants),
-					&imgui_layer->push_constants);
+				zest_SendStandardPushConstants(zest_Pipeline(current_pipeline), &imgui_layer->push_constants);
 
 				VkRect2D scissor_rect;
 				scissor_rect.offset.x = ZEST__MAX((int32_t)(pcmd->ClipRect.x), 0);
@@ -157,16 +146,16 @@ void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buf
 
 }
 
-void DrawImGui(ImGuiApp *app) {
-	app->imgui_draw_data = ImGui::GetDrawData();
+void CopyImGuiBuffers(ImGuiApp *app) {
+	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 	zest_mesh_layer *imgui_layer = zest_GetMeshLayerByIndex(app->imgui_layer_index);
 
-	zest_buffer *vertex_buffer = imgui_layer->mesh_memory_refs[ZEST_FIF].staging_vertex_data;
-	zest_buffer *index_buffer = imgui_layer->mesh_memory_refs[ZEST_FIF].staging_index_data;
+	zest_buffer *vertex_buffer = zest_GetVertexStagingBuffer(imgui_layer);
+	zest_buffer *index_buffer = zest_GetIndexStagingBuffer(imgui_layer);
 
-	if (app->imgui_draw_data) {
-		index_buffer->memory_in_use = app->imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
-		vertex_buffer->memory_in_use = app->imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
+	if (imgui_draw_data) {
+		index_buffer->memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
+		vertex_buffer->memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
 	}
 	else {
 		index_buffer->memory_in_use = 0;
@@ -176,23 +165,21 @@ void DrawImGui(ImGuiApp *app) {
 	imgui_layer->push_constants.parameters1 = zest_Vec4Set(2.0f / zest_ScreenWidthf(), 2.0f / zest_ScreenHeightf(), -1.f, -1.f);
 	imgui_layer->push_constants.parameters2 = zest_Vec4Set1(0.f);
 
-	zest_buffer *device_vertex_buffer = imgui_layer->mesh_memory_refs[ZEST_FIF].device_vertex_data;
-	zest_buffer *device_index_buffer = imgui_layer->mesh_memory_refs[ZEST_FIF].device_index_data;
+	zest_buffer *device_vertex_buffer = zest_GetVertexDeviceBuffer(imgui_layer);
+	zest_buffer *device_index_buffer = zest_GetIndexDeviceBuffer(imgui_layer);
 
-	if (app->imgui_draw_data) {
+	if (imgui_draw_data) {
 		if (index_buffer->memory_in_use > index_buffer->size) {
-			zest_GrowBuffer(&index_buffer, sizeof(zest_uint), index_buffer->memory_in_use);
-			zest_GrowBuffer(&device_index_buffer, sizeof(zest_uint), index_buffer->memory_in_use);
+			zest_GrowMeshIndexBuffers(imgui_layer);
 		}
 		if (vertex_buffer->memory_in_use > vertex_buffer->size) {
-			zest_GrowBuffer(&vertex_buffer, sizeof(ImDrawVert), vertex_buffer->memory_in_use);
-			zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawVert), vertex_buffer->memory_in_use);
+			zest_GrowMeshVertexBuffers(imgui_layer);
 		}
 		ImDrawIdx* idxDst = (ImDrawIdx*)index_buffer->data;
 		ImDrawVert* vtxDst = (ImDrawVert*)vertex_buffer->data;
 
-		for (int n = 0; n < app->imgui_draw_data->CmdListsCount; n++) {
-			const ImDrawList* cmd_list = app->imgui_draw_data->CmdLists[n];
+		for (int n = 0; n < imgui_draw_data->CmdListsCount; n++) {
+			const ImDrawList* cmd_list = imgui_draw_data->CmdLists[n];
 			memcpy(vtxDst, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert));
 			memcpy(idxDst, cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx));
 			vtxDst += cmd_list->VtxBuffer.Size;
@@ -216,7 +203,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::NewFrame();
 	ImGui::ShowDemoWindow();
 	ImGui::Render();
-	DrawImGui(app);
+	CopyImGuiBuffers(app);
 }
 
 int main(void) {

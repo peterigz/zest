@@ -2736,6 +2736,23 @@ void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }
 void zest_MaybeQuit(zest_bool condition) { ZestApp->flags |= condition != 0 ? zest_app_flag_quit_application : 0; }
 void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
 
+void zest_BindVertexBuffer(zest_buffer *buffer) {
+	VkDeviceSize offsets[] = { buffer->memory_offset };
+	vkCmdBindVertexBuffers(ZestRenderer->current_command_buffer, 0, 1, zest_GetBufferDeviceBuffer(buffer), offsets);
+}
+
+void zest_BindIndexBuffer(zest_buffer *buffer) {
+	vkCmdBindIndexBuffer(ZestRenderer->current_command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
+}
+
+void zest_SendPushConstants(zest_pipeline_set *pipeline, VkShaderStageFlags shader_flags, zest_uint size, void *data) {
+	vkCmdPushConstants(ZestRenderer->current_command_buffer, pipeline->pipeline_layout, shader_flags, 0, size, data);
+}
+
+void zest_SendStandardPushConstants(zest_pipeline_set *pipeline, void *data) {
+	vkCmdPushConstants(ZestRenderer->current_command_buffer, pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants), data);
+}
+
 zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
 void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { 
 	if (T && new_capacity <= zest__vec_header(T)->capacity) 
@@ -5581,8 +5598,6 @@ void zest_InitialiseMeshLayer(zest_mesh_layer *mesh_layer, zest_size vertex_stru
 		mesh_layer->mesh_memory_refs[i].index_count = 0;
 		mesh_layer->mesh_memory_refs[i].index_position = 0;
 		mesh_layer->mesh_memory_refs[i].last_index = 0;
-		mesh_layer->mesh_memory_refs[i].max_index_memory_used = 0;
-		mesh_layer->mesh_memory_refs[i].max_vertex_memory_used = 0;
 		mesh_layer->mesh_memory_refs[i].vertex_count = 0;
 		mesh_layer->mesh_memory_refs[i].vertex_ptr = mesh_layer->mesh_memory_refs[i].staging_vertex_data->data;
 		mesh_layer->mesh_memory_refs[i].index_ptr = mesh_layer->mesh_memory_refs[i].staging_index_data->data;
@@ -5591,7 +5606,47 @@ void zest_InitialiseMeshLayer(zest_mesh_layer *mesh_layer, zest_size vertex_stru
 	mesh_layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
 	mesh_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
 
-	//zest__reset_mesh_layer_drawing(mesh_layer);
+}
+
+void zest_BindMeshVertexBuffer(zest_mesh_layer *layer) {
+	zest_buffer *buffer = layer->mesh_memory_refs[ZEST_FIF].device_vertex_data;
+	VkDeviceSize offsets[] = { buffer->memory_offset };
+	vkCmdBindVertexBuffers(ZestRenderer->current_command_buffer, 0, 1, zest_GetBufferDeviceBuffer(buffer), offsets);
+}
+
+void zest_BindMeshIndexBuffer(zest_mesh_layer *layer) {
+	zest_buffer *buffer = layer->mesh_memory_refs[ZEST_FIF].device_index_data;
+	vkCmdBindIndexBuffer(ZestRenderer->current_command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
+}
+
+zest_buffer *zest_GetVertexStagingBuffer(zest_mesh_layer *layer) {
+	return layer->mesh_memory_refs[ZEST_FIF].staging_vertex_data;
+}
+
+zest_buffer *zest_GetIndexStagingBuffer(zest_mesh_layer *layer) {
+	return layer->mesh_memory_refs[ZEST_FIF].staging_index_data;
+}
+
+zest_buffer *zest_GetVertexDeviceBuffer(zest_mesh_layer *layer) {
+	return layer->mesh_memory_refs[ZEST_FIF].device_vertex_data;
+}
+
+zest_buffer *zest_GetIndexDeviceBuffer(zest_mesh_layer *layer) {
+	return layer->mesh_memory_refs[ZEST_FIF].device_index_data;
+}
+
+zest_buffer *zest_GrowMeshVertexBuffers(zest_mesh_layer *layer) {
+	zest_buffer *staging_buffer = zest_GetVertexStagingBuffer(layer);
+	zest_buffer *device_buffer = zest_GetVertexStagingBuffer(layer);
+	zest_GrowBuffer(&staging_buffer, layer->vertex_struct_size, staging_buffer->memory_in_use);
+	zest_GrowBuffer(&device_buffer, layer->vertex_struct_size, staging_buffer->memory_in_use);
+}
+
+zest_buffer *zest_GrowMeshIndexBuffers(zest_mesh_layer *layer) {
+	zest_buffer *staging_buffer = zest_GetIndexStagingBuffer(layer);
+	zest_buffer *device_buffer = zest_GetIndexStagingBuffer(layer);
+	zest_GrowBuffer(&staging_buffer, sizeof(zest_uint), staging_buffer->memory_in_use);
+	zest_GrowBuffer(&device_buffer, sizeof(zest_uint), staging_buffer->memory_in_use);
 }
 
 void zest_UploadMeshBuffersCallback(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer) {
