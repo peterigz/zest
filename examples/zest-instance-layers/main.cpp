@@ -40,9 +40,9 @@ void InitExample(zest_example *example) {
 	example->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&example->camera, 60.f);
 
-	zest_AppendCommandQueue(ZestApp->default_command_queue_index);
+	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
 	{
-		zest_AppendRenderPassSetup(ZestApp->default_render_commands_index);
+		zest_ModifyRenderCommands(ZestApp->default_render_commands_index);
 		{
 			//example->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
 		}

@@ -76,9 +76,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.Fonts->SetTexID(zest_GetImageFromTexture(font_texture, font_image_index));
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
-	zest_AppendCommandQueue(ZestApp->default_command_queue_index);
+	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
 	{
-		zest_AppendRenderPassSetup(ZestApp->default_render_commands_index);
+		zest_ModifyRenderCommands(ZestApp->default_render_commands_index);
 		{
 			app->imgui_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert), 10000);
 			zest_ContextDrawRoutine()->draw_callback = DrawImGuiLayer;

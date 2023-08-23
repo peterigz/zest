@@ -704,17 +704,6 @@ typedef struct zest_app{
 	float render_time;
 	zest_microsecs frame_timer;
 
-	double mouse_x;
-	double mouse_y;
-	double mouse_wheel_v;
-	double mouse_wheel_h;
-	double mouse_delta_x;
-	double mouse_delta_y;
-	double last_mouse_x;
-	double last_mouse_y;
-	double virtual_mouse_x;
-	double virtual_mouse_y;
-
 	zest_uint frame_count;
 	zest_uint last_fps;
 
@@ -748,7 +737,7 @@ typedef struct zest_frame_buffer{
 } zest_frame_buffer;
 
 //Struct to store all the necessary data for a render pass
-typedef struct zest_render_pass_data{
+typedef struct zest_render_pass_data {
 	int width, height;
 	VkFramebuffer frame_buffer;
 	zest_frame_buffer_attachment color, depth;
@@ -775,7 +764,7 @@ typedef struct zest_command_queue{
 	VkSemaphore *fif_incoming_semaphores[ZEST_MAX_FIF];				//command queues need to be synchronises with other command queues and the swap chain so
 	VkSemaphore *fif_outgoing_semaphores[ZEST_MAX_FIF];				//an array of incoming and outgoing (wait and signal) semaphores are maintained for this purpose
 	VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];		//Stage state_flags relavent to the incoming semaphores
-	zest_index *render_commands;									//A list of render commandsj indexes - mostly these will be render passes that are recorded to the command buffer
+	zest_index *draw_commands;									//A list of render command indexes - mostly these will be render passes that are recorded to the command buffer
 	zest_index *compute_items;										//Compute items to be recorded to the command buffer
 	zest_index index_in_renderer;									//A self reference of the index in the Renderer storage array for command queues
 	zest_index present_semaphore_index[ZEST_MAX_FIF];				//An index to the semaphore representing the swap chain if required. (command queues don't necessarily have to wait for the swap chain)
