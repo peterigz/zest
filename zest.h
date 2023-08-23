@@ -1507,8 +1507,8 @@ ZEST_API zest_index zest_NewBuiltinLayerSetup(const char *name, zest_builtin_lay
 ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void); 
 ZEST_API zest_command_queue *zest_CurrentCommandQueue(void);
 ZEST_API zest_command_queue_draw_commands *zest_CurrentRenderPass(void);
-ZEST_API void zest_AppendCommandQueue(zest_index render_index);
-ZEST_API void zest_AppendRenderPassSetup(zest_index render_commands_index);
+ZEST_API void zest_ModifyCommandQueue(zest_index render_index);
+ZEST_API void zest_ModifyRenderCommands(zest_index render_commands_index);
 ZEST_API zest_draw_routine *zest_ContextDrawRoutine();
 ZEST_API void zest_FinishQueueSetup(void);
 ZEST_API void zest_ValidateQueue(zest_index index);

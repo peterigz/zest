@@ -3808,14 +3808,14 @@ void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineS
 	}
 }
 
-void zest_AppendCommandQueue(zest_index render_index) {
+void zest_ModifyCommandQueue(zest_index render_index) {
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_none);	//Current setup context must be none.
 	zest__set_queue_context(zest_setup_context_type_command_queue);
 	ZestRenderer->setup_context.command_queue_index = render_index;
 	ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
 }
 
-void zest_AppendRenderPassSetup(zest_index render_commands_index) {
+void zest_ModifyRenderCommands(zest_index render_commands_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->command_queue_draw_commands, render_commands_index));		//Not a valid index for the render commands
 	zest__set_queue_context(zest_setup_context_type_render_pass);
 	ZestRenderer->setup_context.draw_commands_index = render_commands_index;
