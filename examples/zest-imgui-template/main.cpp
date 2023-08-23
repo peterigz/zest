@@ -1,4 +1,5 @@
 #include "zest_imgui.h"
+#include "imgui_internal.h"
 
 zest_window *CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char* title) {
 	ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
@@ -76,11 +77,16 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.Fonts->SetTexID(zest_GetImageFromTexture(font_texture, font_image_index));
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
+	app->test_texture_index = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, 10);
+	zest_texture *texture = zest_GetTextureByName("Bunny");
+	app->test_image_index = zest_LoadImageFile(texture, "wabbit_alpha.png");
+	zest_ProcessTextureImages(texture);
+
 	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
 	{
 		zest_ModifyDrawCommands(ZestApp->default_render_commands_index);
 		{
-			app->imgui_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert), 10000);
+			app->imgui_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
 			zest_ContextDrawRoutine()->draw_callback = DrawImGuiLayer;
 			zest_ContextDrawRoutine()->data = app;
 		}
@@ -91,6 +97,7 @@ void InitImGuiApp(ImGuiApp *app) {
 void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer) {
 	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 	zest_index last_pipeline_index = -1;
+	VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
 
 	ImGuiApp *app = (ImGuiApp*)draw_routine->data;
 	zest_mesh_layer *imgui_layer = zest_GetMeshLayerByIndex(app->imgui_layer_index);
@@ -120,8 +127,9 @@ void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buf
 				zest_texture *texture = zest_GetTextureByIndex(current_image->texture_index);
 				zest_index current_pipeline = app->imgui_pipeline;
 
-				if (last_pipeline_index != current_pipeline) {
-					zest_BindPipeline(command_buffer, zest_Pipeline(current_pipeline), zest_GetTextureDescriptorSet(texture, 0));
+				if (last_pipeline_index != current_pipeline || last_descriptor_set != zest_CurrentTextureDescriptorSet(texture)) {
+					zest_BindPipeline(command_buffer, zest_Pipeline(current_pipeline), zest_CurrentTextureDescriptorSet(texture));
+					last_descriptor_set = zest_CurrentTextureDescriptorSet(texture);
 					last_pipeline_index = current_pipeline;
 				}
 
@@ -188,20 +196,40 @@ void CopyImGuiBuffers(ImGuiApp *app) {
 	}
 }
 
+void DrawImGuiImage(zest_image *image, float width, float height) {
+	using namespace ImGui;
+
+	ImVec2 image_size((float)image->width, (float)image->height);
+	float ratio = image_size.x / image_size.y;
+	image_size.x = ratio > 1 ? width : width * ratio;
+	image_size.y = ratio > 1 ? height / ratio : height;
+	ImVec2 image_offset((width - image_size.x) * .5f, (height - image_size.y) * .5f);
+	ImGuiWindow* window = ImGui::GetCurrentWindow();
+	const ImRect image_bb(window->DC.CursorPos + image_offset, window->DC.CursorPos + image_offset + image_size);
+	ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
+	window->DrawList->AddImage(image, image_bb.Min, image_bb.Max, ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w), GetColorU32(tint_col));
+}
+
+void DrawImGuiImage2(zest_image *image, float width, float height) {
+	ImGui::Image(&image, ImVec2(width, height), ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w));
+}
+
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Don't forget to update the uniform buffer!
 	zest_UpdateStandardUniformBuffer();
 	zest_SetActiveRenderQueue(0);
 	ImGuiApp *app = (ImGuiApp*)user_data;
 	zest_instance_layer *sprite_layer = zest_GetInstanceLayerByIndex(0);
-	zest_texture *texture = zest_GetTextureByIndex(app->imgui_font_texture_index);
-	zest_SetSpriteDrawing(sprite_layer, texture, 0, 0);
-	sprite_layer->multiply_blend_factor = 1.f;
-	zest_DrawSprite(sprite_layer, zest_GetImageFromTexture(texture, 0), 20.f, 20.f, 0, 512.f, 64.f, 0.f, 0.f, 0, 0.f, 0);
+	zest_texture *texture = zest_GetTextureByIndex(app->test_texture_index);
+	zest_image *image = zest_GetImageFromTexture(texture, app->test_image_index);
 
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 	ImGui::ShowDemoWindow();
+	ImGui::Begin("Test Window");
+	ImGui::Text("FPS %i", ZestApp->last_fps);
+	DrawImGuiImage(image, 50.f, 50.f);
+	ImGui::End();
 	ImGui::Render();
 	CopyImGuiBuffers(app);
 }

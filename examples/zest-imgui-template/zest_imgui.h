@@ -11,6 +11,8 @@ struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
 	zest_index imgui_pipeline;
 	zest_index imgui_font_texture_index;
+	zest_index test_texture_index;
+	zest_index test_image_index;
 };
 
 void InitImGuiApp(ImGuiApp *app);
