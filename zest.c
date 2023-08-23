@@ -4661,6 +4661,7 @@ void zest_ProcessTextureImages(zest_texture *texture) {
 
 	if (!(texture->flags & zest_texture_flag_descriptor_sets_created)) {
 		zest_CreateTextureDescriptorSets(texture, "Default", "Standard 2d Uniform Buffer");
+		zest_SwitchTextureDescriptorSetByName(texture, "Default");
 	}
 
 	zest_DeleteTextureLayers(texture);
@@ -4698,6 +4699,23 @@ zest_index zest_GetTextureDescriptorSetIndex(zest_texture *texture, const char *
 VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture *texture, zest_index index) {
 	ZEST_ASSERT(zest_map_valid_index(texture->descriptor_sets, index));
 	return (zest_map_at_index(texture->descriptor_sets, index))->descriptor_set[ZEST_FIF];
+}
+void zest_SwitchTextureDescriptorSet(zest_texture *texture, zest_index index) {
+	ZEST_ASSERT(zest_map_valid_index(texture->descriptor_sets, index));
+	for (ZEST_EACH_FIF_i) {
+		texture->current_descriptor_set[i] = (zest_map_at_index(texture->descriptor_sets, index))->descriptor_set[i];
+	}
+}
+
+void zest_SwitchTextureDescriptorSetByName(zest_texture *texture, const char *name) {
+	ZEST_ASSERT(zest_map_valid_name(texture->descriptor_sets, name));
+	for (ZEST_EACH_FIF_i) {
+		texture->current_descriptor_set[i] = (zest_map_at(texture->descriptor_sets, name))->descriptor_set[i];
+	}
+}
+
+VkDescriptorSet zest_CurrentTextureDescriptorSet(zest_texture *texture) {
+	return texture->current_descriptor_set[ZEST_FIF];
 }
 
 void zest_UpdateTextureSingleDescriptorSet(zest_texture *texture, const char *name) {
