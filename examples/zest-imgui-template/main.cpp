@@ -211,7 +211,7 @@ void DrawImGuiImage(zest_image *image, float width, float height) {
 }
 
 void DrawImGuiImage2(zest_image *image, float width, float height) {
-	ImGui::Image(&image, ImVec2(width, height), ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w));
+	ImGui::Image(image, ImVec2(width, height), ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w));
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
