@@ -78,7 +78,7 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
 	{
-		zest_ModifyRenderCommands(ZestApp->default_render_commands_index);
+		zest_ModifyDrawCommands(ZestApp->default_render_commands_index);
 		{
 			app->imgui_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert), 10000);
 			zest_ContextDrawRoutine()->draw_callback = DrawImGuiLayer;

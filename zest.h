@@ -1313,7 +1313,7 @@ ZEST_PRIVATE void zest__draw_renderer_frame(void);
 // --Command Queue functions
 ZEST_PRIVATE void zest__cleanup_command_queue(zest_command_queue *command_queue);
 ZEST_PRIVATE void zest__record_and_commit_command_queue(zest_command_queue *command_queue, VkFence fence);
-ZEST_PRIVATE zest_index zest_create_command_queue_render_pass(const char *name);
+ZEST_PRIVATE zest_index zest_create_command_queue_draw_commands(const char *name);
 // --End Command Queue functions
 
 // --Command Queue Setup functions
@@ -1479,7 +1479,7 @@ ZEST_API zest_command_queue_draw_commands *zest_GetCommandQueueDrawCommands(zest
 ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineStageFlags stage_flags);
 ZEST_API VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue *command_queue);
-ZEST_API zest_index zest_NewRenderPassSetupSC(const char *name);
+ZEST_API zest_index zest_NewDrawCommandSetupSwap(const char *name);
 ZEST_API zest_draw_routine *zest_GetDrawRoutineByIndex(zest_index index);
 ZEST_API zest_draw_routine *zest_GetDrawRoutineByName(const char *name);
 ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
@@ -1497,7 +1497,7 @@ ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void);
 ZEST_API zest_command_queue *zest_CurrentCommandQueue(void);
 ZEST_API zest_command_queue_draw_commands *zest_CurrentRenderPass(void);
 ZEST_API void zest_ModifyCommandQueue(zest_index render_index);
-ZEST_API void zest_ModifyRenderCommands(zest_index render_commands_index);
+ZEST_API void zest_ModifyDrawCommands(zest_index render_commands_index);
 ZEST_API zest_draw_routine *zest_ContextDrawRoutine();
 ZEST_API void zest_FinishQueueSetup(void);
 ZEST_API void zest_ValidateQueue(zest_index index);
