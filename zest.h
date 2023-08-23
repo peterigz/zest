@@ -322,6 +322,18 @@ typedef enum zest_camera_flags {
 	zest_camera_flags_orthagonal						= 1 << 1,
 } zest_camera_flags;
 
+typedef enum zest_render_target_flags {
+	zest_render_target_flag_fixed_size					= 1 << 0,	//True if the render target is not tied to the size of the window
+	zest_render_target_flag_is_src						= 1 << 1,	//True if the render target is the source of another render target - adds transfer src and dst bits
+	zest_render_target_flag_use_msaa					= 1 << 2,	//True if the render target should render with MSAA enabled
+	zest_render_target_flag_sampler_size_match_texture	= 1 << 3,
+	zest_render_target_flag_single_frame_buffer_only	= 1 << 4,
+	zest_render_target_flag_use_depth_buffer			= 1 << 5,
+	zest_render_target_flag_render_to_swap_chain		= 1 << 6,
+	zest_render_target_flag_initialised 				= 1 << 7,
+	zest_render_target_flag_has_imgui_pipeline			= 1 << 8,
+} zest_render_target_flags;
+
 //Private structs with inline functions
 typedef struct zest_queue_family_indices {
 	zest_uint graphics_family;
@@ -1135,6 +1147,49 @@ struct zest_texture {
 	zest_texture_flags flags;
 };
 
+typedef struct zest_render_target_create_info {
+	VkRect2D viewport;												//The viewport/size of the render target
+	zest_vec2 ratio_of_screen_size;									//If you want the size of the target to be a ration of the current swap chain/window size
+	VkFormat render_format;											//Always set to the swap chain render format
+	zest_imgui_blendtype imgui_blend_type;							//Set the blend type for imgui. useful to change this if you're rendering this render target to an imgui window
+	VkSamplerAddressMode sampler_address_mode_u;
+	VkSamplerAddressMode sampler_address_mode_v;
+	VkSamplerAddressMode sampler_address_mode_w;
+	zest_render_target_flags flags;
+} zest_render_target_create_info;
+
+typedef struct zest_render_target zest_render_target;
+typedef struct zest_render_target {
+	const char *name;
+
+	zest_final_render_push_constants push_constants;
+	zest_render_target_create_info create_info;
+	zest_index index_in_renderer;
+
+	void(*post_process_callback)(zest_render_target *target, void *user_data);
+	void *post_process_user_data;
+
+	zest_frame_buffer *framebuffers;
+	zest_index render_pass_index;
+	VkRect2D viewport;
+	zest_vec4 cls_color;
+	VkRect2D render_viewport;
+	zest_index frames_in_flight;
+	zest_index input_source_index;
+	int32_t render_width, render_height;
+	VkFormat render_format;
+
+	zest_render_target_flags flags;
+
+	zest_image sampler_image;
+	zest_pipeline_template_create_info sampler_pipeline_template;
+	zest_pipeline_template_create_info im_gui_rt_pipeline_template;
+	zest_index final_render_index;
+
+	zest_index *sampler_textures;
+	VkCommandBuffer *layer_command_buffers;
+} zest_render_target;
+
 zest_hash_map(zest_command_queue) zest_map_command_queues;
 zest_hash_map(zest_render_pass) zest_map_render_passes;
 zest_hash_map(zest_descriptor_set_layout) zest_map_descriptor_layouts;
@@ -1627,6 +1682,11 @@ ZEST_API zest_texture *zest_GetTextureByName(const char *name);
 ZEST_API void zest_UpdateAllTextureDescriptorSets(zest_texture *texture);
 ZEST_API void zest_RefreshTextureDescriptors(zest_texture *texture);
 //-- End Images and textures
+
+//Render targets
+ZEST_API zest_render_target zest_NewRenderTarget(const char *name, zest_uint width, zest_uint height);
+ZEST_API zest_render_target_create_info zest_RenderTargetCreateInfo();
+//-- End Render targets
 
 //Draw Routines
 ZEST_API zest_index zest_CreateDrawRoutine(const char *name);

@@ -5305,8 +5305,31 @@ void zest_SetTextureLayerSize(zest_texture *texture, zest_uint size) {
 	ZEST_ASSERT(ZEST__POW2(size));
 	texture->texture_layer_size = size;
 }
-
 //-- End Texture and Image Functions
+
+zest_render_target zest_NewRenderTarget(const char *name, zest_uint width, zest_uint height) {
+	zest_render_target render_target = {
+		.render_width = 0,
+		.render_height = 0,
+		.flags = zest_render_target_flag_use_depth_buffer | zest_render_target_flag_render_to_swap_chain,
+		.post_process_callback = 0,
+		.post_process_user_data = 0,
+		.frames_in_flight = ZEST_MAX_FIF
+	};
+	return render_target;
+}
+
+zest_render_target_create_info zest_RenderTargetCreateInfo() {
+	zest_render_target_create_info create_info = {
+		.ratio_of_screen_size = zest_Vec2Set1(0.f),
+		.imgui_blend_type = zest_imgui_blendtype_pass,
+		.sampler_address_mode_u = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.flags = zest_render_target_flag_is_src | zest_render_target_flag_sampler_size_match_texture,
+	};
+	return create_info;
+}
 
 //-- Draw Layers
 //-- internal
