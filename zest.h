@@ -764,7 +764,7 @@ typedef struct zest_command_queue{
 	VkSemaphore *fif_incoming_semaphores[ZEST_MAX_FIF];				//command queues need to be synchronises with other command queues and the swap chain so
 	VkSemaphore *fif_outgoing_semaphores[ZEST_MAX_FIF];				//an array of incoming and outgoing (wait and signal) semaphores are maintained for this purpose
 	VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];		//Stage state_flags relavent to the incoming semaphores
-	zest_index *draw_commands;									//A list of render command indexes - mostly these will be render passes that are recorded to the command buffer
+	zest_index *draw_commands;										//A list of render command indexes - mostly these will be render passes that are recorded to the command buffer
 	zest_index *compute_items;										//Compute items to be recorded to the command buffer
 	zest_index index_in_renderer;									//A self reference of the index in the Renderer storage array for command queues
 	zest_index present_semaphore_index[ZEST_MAX_FIF];				//An index to the semaphore representing the swap chain if required. (command queues don't necessarily have to wait for the swap chain)
@@ -1650,8 +1650,8 @@ ZEST_API zest_buffer *zest_GetVertexStagingBuffer(zest_mesh_layer *layer);
 ZEST_API zest_buffer *zest_GetIndexStagingBuffer(zest_mesh_layer *layer);
 ZEST_API zest_buffer *zest_GetVertexDeviceBuffer(zest_mesh_layer *layer);
 ZEST_API zest_buffer *zest_GetIndexDeviceBuffer(zest_mesh_layer *layer);
-ZEST_API zest_buffer *zest_GrowMeshVertexBuffers(zest_mesh_layer *layer);
-ZEST_API zest_buffer *zest_GrowMeshIndexBuffers(zest_mesh_layer *layer);
+ZEST_API void zest_GrowMeshVertexBuffers(zest_mesh_layer *layer);
+ZEST_API void zest_GrowMeshIndexBuffers(zest_mesh_layer *layer);
 
 //--End Draw billboard layers
 

@@ -5625,14 +5625,14 @@ zest_buffer *zest_GetIndexDeviceBuffer(zest_mesh_layer *layer) {
 	return layer->mesh_memory_refs[ZEST_FIF].device_index_data;
 }
 
-zest_buffer *zest_GrowMeshVertexBuffers(zest_mesh_layer *layer) {
+void zest_GrowMeshVertexBuffers(zest_mesh_layer *layer) {
 	zest_buffer *staging_buffer = zest_GetVertexStagingBuffer(layer);
 	zest_buffer *device_buffer = zest_GetVertexStagingBuffer(layer);
 	zest_GrowBuffer(&staging_buffer, layer->vertex_struct_size, staging_buffer->memory_in_use);
 	zest_GrowBuffer(&device_buffer, layer->vertex_struct_size, staging_buffer->memory_in_use);
 }
 
-zest_buffer *zest_GrowMeshIndexBuffers(zest_mesh_layer *layer) {
+void zest_GrowMeshIndexBuffers(zest_mesh_layer *layer) {
 	zest_buffer *staging_buffer = zest_GetIndexStagingBuffer(layer);
 	zest_buffer *device_buffer = zest_GetIndexStagingBuffer(layer);
 	zest_GrowBuffer(&staging_buffer, sizeof(zest_uint), staging_buffer->memory_in_use);
