@@ -37,8 +37,8 @@ extern "C" {
 #define ZEST__POW2(x) ((x) && !((x) & ((x) - 1)))
 #define ZEST__FLAG(flag, bit) flag |= bit
 #define ZEST__UNFLAG(flag, bit) flag &= ~bit
-#define ZEST__FLAGGED(flag, bit) (flag &= bit) > 0
-#define ZEST__NOT_FLAGGED(flag, bit) (flag &= bit) == 0
+#define ZEST__FLAGGED(flag, bit) (flag & bit) > 0
+#define ZEST__NOT_FLAGGED(flag, bit) (flag & bit) == 0
 
 #ifndef ZEST__REALLOCATE
 #define ZEST__ALLOCATE(size) zest__allocate(size)
@@ -1519,6 +1519,8 @@ ZEST_API void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_
 ZEST_API zest_pipeline_set *zest_Pipeline(zest_index index);
 ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
 ZEST_API zest_index zest_PipelineIndex(const char *name);
+ZEST_API void zest_MakePipelineDescriptorWrites(zest_pipeline_set *pipeline);
+ZEST_API void zest_UpdatePipelineDescriptorSet(zest_pipeline_set *pipeline);
 //-- End Pipeline related 
 
 //Buffer related
@@ -1715,6 +1717,7 @@ ZEST_API zest_index zest_CreateRenderTarget(const char *name);
 ZEST_API zest_render_target zest_NewRenderTarget();
 ZEST_API zest_render_target_create_info zest_RenderTargetCreateInfo();
 ZEST_API void zest_CleanUpRenderTarget(zest_render_target *render_target);
+ZEST_API void zest_RecreateRenderTargetResources(zest_render_target *render_target);
 ZEST_API void zest_CreateRenderTargetSamplerImage(zest_render_target *render_target);
 ZEST_API zest_index zest_AddPostProcessRenderTarget(const char *name, float ratio_width, float ratio_height, zest_index input_source_index, void *user_data, void(*render_callback)(zest_render_target *target, void *user_data));
 ZEST_API void zest_SetRenderTargetPostProcessCallback(zest_render_target *render_target, void(*render_callback)(zest_render_target *target, void *user_data));
@@ -1727,8 +1730,9 @@ ZEST_API zest_texture *zest_GetRenderTargetTexture(zest_render_target *render_ta
 ZEST_API zest_image *zest_GetRenderTargetImage(zest_render_target *render_target);
 ZEST_API zest_frame_buffer *zest_RenderTargetFramebuffer(zest_render_target *render_target);
 ZEST_API zest_frame_buffer *zest_RenderTargetFramebufferByFIF(zest_render_target *render_target, zest_index fif);
-VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_draw_commands *item);
-VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_commands *item);
+ZEST_API VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_draw_commands *item);
+ZEST_API VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_commands *item);
+ZEST_API void zest_RefreshRenderTargetSampler(zest_render_target *render_target, zest_index fif);
 //-- End Render targets
 
 //Draw Routines
