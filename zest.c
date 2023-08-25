@@ -1784,8 +1784,6 @@ void zest__initialise_renderer(zest_create_info *create_info) {
 
 	ZestRenderer->standard_uniform_buffer_id = zest_CreateUniformBuffer("Standard 2d Uniform Buffer", sizeof(zest_uniform_buffer_data));
 
-	zest_UpdateStandardUniformBuffer();
-
 	zest__create_renderer_command_pools();
 	zest__create_descriptor_pools(create_info->pool_counts);
 	zest__make_standard_descriptor_layouts();
@@ -1796,6 +1794,7 @@ void zest__initialise_renderer(zest_create_info *create_info) {
 	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 	for (ZEST_EACH_FIF_i) {
 		ZEST_VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_info, &ZestDevice->allocation_callbacks, &ZestRenderer->fif_fence[i]));
+		zest_UpdateStandardUniformBufferFIF(i);
 	}
 
 	zest__create_final_render_command_buffer();
@@ -2200,6 +2199,18 @@ zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_s
 
 void zest_UpdateStandardUniformBuffer() {
 	zest_uniform_buffer_data *ubo_ptr = (zest_uniform_buffer_data*)zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer_id);
+	zest_vec3 eye = { .x = 0.f, .y = 0.f, .z = -1 };
+	zest_vec3 center = { 0 };
+	zest_vec3 up = { .x = 0.f, .y = -1.f, .z = 0.f };
+	ubo_ptr->view = zest_LookAt(eye, center, up);
+	ubo_ptr->proj = zest_Ortho(0.f, (float)ZestRenderer->swapchain_extent.width, 0.f, -(float)ZestRenderer->swapchain_extent.height, -1000.f, 1000.f);
+	ubo_ptr->screen_size.x = zest_ScreenWidthf();
+	ubo_ptr->screen_size.y = zest_ScreenHeightf();
+	ubo_ptr->millisecs = zest_Millisecs();
+}
+
+void zest_UpdateStandardUniformBufferFIF(zest_index fif) {
+	zest_uniform_buffer_data *ubo_ptr = (zest_uniform_buffer_data*)zest_GetUniformBufferDataFIF(ZestRenderer->standard_uniform_buffer_id, fif);
 	zest_vec3 eye = { .x = 0.f, .y = 0.f, .z = -1 };
 	zest_vec3 center = { 0 };
 	zest_vec3 up = { .x = 0.f, .y = -1.f, .z = 0.f };
@@ -2806,8 +2817,12 @@ zest_window *zest_AllocateWindow() { zest_window *window; window = (zest_window*
 zest_uniform_buffer *zest_GetUniformBuffer(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index); }
 zest_uniform_buffer *zest_GetUniformBufferByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name); }
 zest_uniform_buffer_data *zest_GetUniformBufferData(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return (zest_uniform_buffer_data*)(zest_map_at_index(ZestRenderer->uniform_buffers, index))->buffer[ZEST_FIF]->data; }
+zest_uniform_buffer_data *zest_GetUniformBufferDataFIF(zest_index index, zest_index fif) { 
+	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); //Not a valid uniform buffer index
+	ZEST_ASSERT(fif < ZEST_MAX_FIF);	//frame in flight index is out of bounds
+	return (zest_uniform_buffer_data*)(zest_map_at_index(ZestRenderer->uniform_buffers, index))->buffer[fif]->data; 
+}
 void *zest_GetUniformBufferDataByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return (zest_map_at(ZestRenderer->uniform_buffers, name))->buffer[ZEST_FIF]->data; }
-void *zest_GetUniformBufferDataFIF(zest_index index, zest_index fif) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return (zest_map_at_index(ZestRenderer->uniform_buffers, index))->buffer[fif]->data; }
 void *zest_GetUniformBufferDataByNameFIF(const char *name, zest_index fif) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return (zest_map_at(ZestRenderer->uniform_buffers, name))->buffer[fif]->data; }
 zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
 void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }

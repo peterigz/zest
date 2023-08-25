@@ -39,41 +39,42 @@ void InitExample(RenderTargetExample *example) {
 	//then we can draw the base target to the swap chain and draw the blur texture over the top by drawing it as a textured rectangle on a top layer that doesn't get blurred.
 
 	//First create a queue and set it's dependency to the present queue. This means that it will wait on the swap chain to present the final render to the screen before rendering again.
-	//But bear in mind that there are multiple frames in flight (as long as QULKAN_MAX_FIF is >1) so while one queue is being executed on the gpu the next one will be created in the meantime.
+	//But bear in mind that there are multiple frames in flight (as long as ZEST_MAX_FIF is >1) so while one queue is being executed on the gpu the next one will be created in the meantime.
 	//The best explaination I've seen of this can be found here: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
 	example->render_queue_index = zest_NewCommandQueue("Screen Blur", zest_command_queue_flag_present_dependency);
 	{
-		//Create a renderpass that renders to a base render target
+		//Create draw commands that render to a base render target
+		//Note: all draw commands will happen in the order that they're added here as they are a part of the same command buffer in "Screen Blur" command queue
 		zest_NewDrawCommandSetup("Base render pass", example->base_target_index);
 		{
-			//base target needs a layer that we can use to draw to
-			//You can also use AddLayer(layer_index) to add a layer that you already created with CreateLayer() previously in your code
+			//base target needs a layer that we can use to draw to so we just use a built in one but you could use
+			//your own custom layer and draw routine
 			example->base_layer_index = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
 		}
-		//Start the render pass that applies vertical blur to the base target
+		//Create draw commands that applies vertical blur to the base target
 		zest_NewDrawCommandSetup("Vertical blur render pass", vertical_blur_index);
 		{
-			//Use a render pass function that renders to the whole texture
+			//Use a draw function that renders to the whole texture
 			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
 		}
-		//Start the render pass that applies horizontal blur to the base target
+		//Create draw commands that applies horizontal blur to the vertical blur target
 		zest_NewDrawCommandSetup("Horizontal blur render pass", example->final_blur_index);
 		{
-			//Use a render pass function that renders to the whole texture
+			//Use a draw function that renders to the whole texture
 			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
 		}
-		//Start the render pass that we can use to draw on top of the blur effect
+		//Create draw commands that we can use to draw on top of the blur effect
 		zest_NewDrawCommandSetup("Top render pass", example->top_target_index);
 		{
-			//Create a draw layer to draw to it
+			//Create a sprite layer to draw to it
 			example->top_target_layer_index = zest_NewBuiltinLayerSetup("Top Layer", zest_builtin_layer_sprites);
 		}
 		//Finally we won't see anything unless we tell the render queue to render to the swap chain to be presented to the screen, but we
 		//need to specify which render targets we want to be drawn to the swap chain.
-		//We can use NewRenderPassSetupSC which sets up a render pass to the swap chain specifying the render target to draw to it
+		//We can use zest_NewDrawCommandSetupRenderTargetSwap which sets up a render pass to the swap chain specifying the render target to draw to it
 		zest_NewDrawCommandSetupRenderTargetSwap("Render render targets to swap", example->base_target_index);
 		{
-			//We can add as many render targets as we need to get drawn to the swap chain. In this case we'll add the top target where we can
+			//We can add as many other render targets as we need to get drawn to the swap chain. In this case we'll add the top target where we can
 			//draw a textured rectangle that samples the blurred texture.
 			zest_AddRenderTarget(example->top_target_index);
 		}

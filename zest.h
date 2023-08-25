@@ -1541,6 +1541,7 @@ ZEST_API zest_buffer_pool_size zest_GetDevicePoolSize(VkBufferUsageFlags usage_f
 ZEST_API void zest_SetDevicePoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
 ZEST_API zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
 ZEST_API void zest_UpdateStandardUniformBuffer(void);
+ZEST_API void zest_UpdateStandardUniformBufferFIF(zest_index fif);
 //--End Buffer related
 
 //Command queue setup and creation
@@ -1797,6 +1798,7 @@ ZEST_API float zest_FPSf();
 ZEST_API zest_uniform_buffer *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_uniform_buffer *zest_GetUniformBufferByName(const char *name);
 ZEST_API zest_uniform_buffer_data *zest_GetUniformBufferData(zest_index index);
+ZEST_API zest_uniform_buffer_data *zest_GetUniformBufferDataFIF(zest_index index, zest_index fif);
 ZEST_API void *zest_GetUniformBufferDataByName(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
