@@ -2025,7 +2025,7 @@ void zest__recreate_swapchain() {
 	while (width == 0 || height == 0) {
 		ZestRenderer->get_window_size_callback(ZestApp->user_data, &width, &height);
 		if (width == 0 || height == 0) {
-//			glfwWaitEvents();
+			zest__poll_events();
 		}
 	}
 
