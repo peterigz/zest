@@ -254,6 +254,7 @@ typedef enum {
 	zest_renderer_flag_vsync_enabled 							= 1 << 6,
 	zest_renderer_flag_disable_default_uniform_update 			= 1 << 7,
 	zest_renderer_flag_swapchain_was_recreated 					= 1 << 8,
+	zest_renderer_flag_has_depth_buffer		 					= 1 << 9,
 } zest_renderer_flags;
 
 typedef enum {
@@ -265,7 +266,8 @@ typedef enum {
 typedef enum {
 	zest_init_flag_none									= 0,
 	zest_init_flag_initialise_with_command_queue		= 1 << 0,
-} zest_create_info_flags;
+	zest_init_flag_use_depth_buffer						= 1 << 1,
+} zest_init_flags;
 
 typedef enum {
 	zest_buffer_upload_flag_initialised					= 1 << 0,				//Set to true once AddCopyCommand has been run at least once
@@ -587,6 +589,7 @@ typedef struct zest_buffer_info{
 } zest_buffer_info;
 
 typedef struct zest_buffer_pool_size {
+	const char *name;
 	zest_size pool_size;
 	zest_size minimum_allocation_size;
 } zest_buffer_pool_size;
@@ -699,7 +702,7 @@ typedef struct zest_create_info {
 	int virtual_width, virtual_height;					//The virtial width/height of the viewport
 	VkFormat color_format;								//Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
 	VkDescriptorPoolSize *pool_counts;					//You can define descriptor pool counts here.
-	zest_create_info_flags flags;						//Set flags to apply different initialisation options
+	zest_init_flags flags;						//Set flags to apply different initialisation options
 
 	//Callbacks use these to implement your own preferred window creation functionality
 	void(*get_window_size_callback)(void *user_data, int *width, int *height);
@@ -710,7 +713,7 @@ typedef struct zest_create_info {
 	void(*create_window_surface_callback)(zest_window* window);
 } zest_create_info;
 
-typedef struct zest_app{
+typedef struct zest_app {
 	zest_create_info create_info;
 
 	void(*update_callback)(zest_microsecs, void*);
@@ -735,19 +738,19 @@ typedef struct zest_app{
 	zest_app_flags flags;
 } zest_app;
 
-typedef struct zest_semaphores{
+typedef struct zest_semaphores {
 	VkSemaphore present_complete;
 	VkSemaphore render_complete;
 } zest_semaphores;
 
-typedef struct zest_frame_buffer_attachment{
+typedef struct zest_frame_buffer_attachment {
 	VkImage image;
 	zest_buffer *buffer;
 	VkImageView view;
 	VkFormat format;
 } zest_frame_buffer_attachment;
 
-typedef struct zest_frame_buffer{
+typedef struct zest_frame_buffer {
 	zest_uint width, height;
 	VkFormat format;
 	VkFramebuffer device_frame_buffer;
@@ -776,7 +779,7 @@ typedef struct FinalRenderPushConstants {
 } zest_final_render_push_constants;
 
 //command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects and also 
-typedef struct zest_command_queue{
+typedef struct zest_command_queue {
 	const char *name;
 	VkCommandPool command_pool;										//The command pool for command buffers
 	VkCommandBuffer command_buffer[ZEST_MAX_FIF];					//A vulkan command buffer for each frame in flight
@@ -1352,7 +1355,7 @@ ZEST_PRIVATE void zest__create_swapchain_image_views(void);
 ZEST_PRIVATE void zest__make_standard_render_passes(void);
 ZEST_PRIVATE zest_uint zest__add_render_pass(const char *name, VkRenderPass render_pass);
 ZEST_PRIVATE zest_buffer *zest__create_depth_resources(void);
-ZEST_PRIVATE void zest__create_frame_buffers(void);
+ZEST_PRIVATE void zest__create_swap_chain_frame_buffers(zest_bool depth_buffer);
 ZEST_PRIVATE void zest__create_sync_objects(void);
 ZEST_PRIVATE zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer *buffer);
 ZEST_PRIVATE void zest__create_renderer_command_pools(void);
@@ -1408,7 +1411,7 @@ ZEST_PRIVATE zest_buffer *zest__create_image_array(zest_uint width, zest_uint he
 ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout image_layout);
 ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image);
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount);
-ZEST_PRIVATE VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout final_layout, VkAttachmentLoadOp load_op);
+ZEST_PRIVATE VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout final_layout, VkAttachmentLoadOp load_op, zest_bool depth_buffer);
 ZEST_PRIVATE VkFormat zest__find_depth_format(void);
 ZEST_PRIVATE zest_bool zest__has_stencil_format(VkFormat format);
 ZEST_PRIVATE VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features);
@@ -1535,7 +1538,7 @@ ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer *buffer);
 ZEST_API void zest_AddCopyCommand(zest_buffer_uploader *uploader, zest_buffer *source_buffer, zest_buffer *target_buffer, VkDeviceSize target_offset);
 ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBuffer command_buffer);
 ZEST_API zest_buffer_pool_size zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
-ZEST_API void zest_SetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
+ZEST_API void zest_SetDevicePoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
 ZEST_API zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
 ZEST_API void zest_UpdateStandardUniformBuffer(void);
 //--End Buffer related

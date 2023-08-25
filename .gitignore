@@ -403,3 +403,4 @@ libs/*
 zest.app
 examples/zest-imgui-template/imgui.ini
 examples/zest-imgui-template/imgui.ini
+*.lib
