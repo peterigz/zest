@@ -693,6 +693,8 @@ typedef struct zest_device {
 	PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
 	VkFormat color_format;
 	zest_map_buffer_pool_sizes pool_sizes;
+	void *allocator_start;
+	void *allocator_end;
 } zest_device;
 
 typedef struct zest_create_info {
@@ -702,7 +704,7 @@ typedef struct zest_create_info {
 	int virtual_width, virtual_height;					//The virtial width/height of the viewport
 	VkFormat color_format;								//Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
 	VkDescriptorPoolSize *pool_counts;					//You can define descriptor pool counts here.
-	zest_init_flags flags;						//Set flags to apply different initialisation options
+	zest_uint flags;									//Set flags to apply different initialisation options
 
 	//Callbacks use these to implement your own preferred window creation functionality
 	void(*get_window_size_callback)(void *user_data, int *width, int *height);

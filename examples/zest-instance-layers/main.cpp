@@ -85,6 +85,7 @@ int main(void) {
 	zest_example example = { 0 };
 
 	zest_create_info create_info = zest_CreateInfo();
+	create_info.flags |= zest_init_flag_use_depth_buffer;
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&example);

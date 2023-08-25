@@ -658,6 +658,9 @@ static inline void pkt__push_block(pkt_allocator *allocator, pkt_header *block) 
 	pkt_index sli;
 	//Get the size class of the block
 	pkt__map(pkt__do_size_class_callback(block), &fli, &sli);
+	if (fli == 23 && sli == 18) {
+		int d = 0;
+	}
 	pkt_header *current_block_in_free_list = allocator->segregated_lists[fli][sli];
 	//Insert the block into the list by updating the next and prev free blocks of
 	//this and the current block in the free list. The current block in the free

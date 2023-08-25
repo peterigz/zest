@@ -128,7 +128,7 @@ void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buf
 				zest_index current_pipeline = app->imgui_pipeline;
 
 				if (last_pipeline_index != current_pipeline || last_descriptor_set != zest_CurrentTextureDescriptorSet(texture)) {
-					zest_BindPipeline(command_buffer, zest_Pipeline(current_pipeline), zest_CurrentTextureDescriptorSet(texture));
+					zest_BindPipeline(zest_Pipeline(current_pipeline), zest_CurrentTextureDescriptorSet(texture));
 					last_descriptor_set = zest_CurrentTextureDescriptorSet(texture);
 					last_pipeline_index = current_pipeline;
 				}

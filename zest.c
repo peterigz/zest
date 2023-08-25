@@ -760,6 +760,8 @@ void zest_Initialise(zest_create_info *info) {
 	memset(ZestApp, 0, sizeof(zest_app));
 	memset(ZestRenderer, 0, sizeof(zest_renderer));
 	ZestDevice->allocator = allocator;
+	ZestDevice->allocator_start = allocator;
+	ZestDevice->allocator_end = (char*)allocator + info->memory_pool_size;
 	ZestDevice->memory_pools[0] = memory_pool;
 	ZestDevice->memory_pool_count = 1;
 	ZestDevice->color_format = info->color_format;
@@ -1601,7 +1603,7 @@ zest_buffer *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info *buffer_info,
 
 		buffer_allocator.alignment = buffer_pool.alignment;
 		zest_vec_push(buffer_allocator.memory_pools, buffer_pool);
-		buffer_allocator.allocator = ZEST__REALLOCATE(buffer_allocator.allocator, pkt_AllocatorSize());
+		buffer_allocator.allocator = ZEST__ALLOCATE(pkt_AllocatorSize());
 		buffer_allocator.allocator = pkt_InitialiseAllocator(buffer_allocator.allocator);
 		pkt_SetBlockExtensionSize(buffer_allocator.allocator, sizeof(zest_buffer));
 		pkt_SetBytesPerBlock(buffer_allocator.allocator, zest__get_bytes_per_block(buffer_pool.size));
@@ -6061,7 +6063,7 @@ void zest__next_sprite_instance(zest_instance_layer *layer) {
 		zest_GrowBuffer(&layer->instance_memory_refs[ZEST_FIF].device_data, sizeof(zest_sprite_instance), 0);
 		if (grown) {
 			layer->instance_memory_refs[ZEST_FIF].instance_count++;
-			*instance_ptr = (zest_sprite_instance*)&(layer->instance_memory_refs[ZEST_FIF].staging_data->data) + layer->instance_memory_refs[ZEST_FIF].instance_count;
+			layer->instance_memory_refs[ZEST_FIF].instance_ptr = (zest_sprite_instance*)layer->instance_memory_refs[ZEST_FIF].staging_data->data + layer->instance_memory_refs[ZEST_FIF].instance_count;
 		}
 		else {
 			*instance_ptr = *instance_ptr - 1;
