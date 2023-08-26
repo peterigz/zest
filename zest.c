@@ -5477,6 +5477,10 @@ zest_index zest_CreateTextureBank(const char *name) {
 	return zest_CreateTexture(name, zest_texture_storage_type_bank, zest_texture_flag_use_filtering, 10);
 }
 
+void zest_SetTextureImageFormat(zest_texture *texture, VkFormat format) {
+	texture->image_format = format;
+}
+
 zest_byte *zest_BitmapArrayLookUp(zest_bitmap_array *bitmap_array, zest_index index) { 
 	ZEST_ASSERT((zest_uint)index < bitmap_array->size_of_array); 
 	return bitmap_array->data + index * bitmap_array->size_of_each_image; 

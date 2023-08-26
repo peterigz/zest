@@ -1159,7 +1159,7 @@ struct zest_texture {
 
 	VkSamplerCreateInfo sampler_info;
 	zest_uint desired_channels;
-	void(*process_texture_callback)(zest_texture *texture);
+
 	//Use this for adding samplers to bind to the shader
 	VkImageViewType image_view_type;
 	zest_texture_flags flags;
@@ -1654,6 +1654,7 @@ ZEST_API zest_index zest_CreateTexturePacked(const char *name);
 ZEST_API zest_index zest_CreateTextureSpritesheet(const char *name);
 ZEST_API zest_index zest_CreateTextureSingle(const char *name);
 ZEST_API zest_index zest_CreateTextureBank(const char *name);
+ZEST_API void zest_SetTextureImageFormat(zest_texture *texture, VkFormat format);
 ZEST_API zest_image zest_CreateImage(void);
 ZEST_API void zest_LoadBitmapImage(zest_bitmap *image, const char *file, int desired_channels);
 ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap *image, unsigned char *buffer, int size, int desired_no_channels);
