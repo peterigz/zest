@@ -607,6 +607,7 @@ typedef struct zest_device_memory_pool{
 	VkBuffer buffer;
 	VkDeviceMemory memory;
 	VkDeviceSize size;
+	VkDeviceSize minimum_allocation_size;
 	VkDeviceSize alignment;
 	VkImageUsageFlags usage_flags;
 	VkMemoryPropertyFlags property_flags;
@@ -1426,11 +1427,8 @@ ZEST_PRIVATE zest_index zest__next_fif(void);
 // --Buffer allocation funcitons
 ZEST_PRIVATE void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer, const char *name);
 ZEST_PRIVATE void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer);
-ZEST_PRIVATE zest_size zest__get_bytes_per_block(zest_size pool_size);
-ZEST_PRIVATE zest_size zest__get_remote_size(const pkt_header *block);
+ZEST_PRIVATE zest_size zest__get_minimum_block_size(zest_size pool_size);
 ZEST_PRIVATE void zest__on_add_pool(void *user_data, void *block);
-ZEST_PRIVATE void zest__on_merge_next(void *user_data, pkt_header *block, pkt_header *next_block);
-ZEST_PRIVATE void zest__on_merge_prev(void *user_data, pkt_header *prev_block, pkt_header *block);
 ZEST_PRIVATE void zest__on_split_block(void *user_data, pkt_header* block, pkt_header *trimmed_block, zest_size remote_size);
 // --End Buffer allocation funcitons
 
