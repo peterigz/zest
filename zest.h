@@ -1524,8 +1524,6 @@ ZEST_API void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_
 ZEST_API zest_pipeline_set *zest_Pipeline(zest_index index);
 ZEST_API zest_pipeline_set *zest_PipelineByName(const char *name);
 ZEST_API zest_index zest_PipelineIndex(const char *name);
-ZEST_API void zest_MakePipelineDescriptorWrites(zest_pipeline_set *pipeline);
-ZEST_API void zest_UpdatePipelineDescriptorSet(zest_pipeline_set *pipeline);
 //-- End Pipeline related 
 
 //Buffer related

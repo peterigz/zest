@@ -2744,27 +2744,6 @@ void zest_MakePipelineTemplate(zest_pipeline_set *pipeline, VkRenderPass render_
 		pipeline->create_info = *create_info;
 }
 
-void zest_MakePipelineDescriptorWrites(zest_pipeline_set *pipeline) {
-	zest_uint binding = 0;
-	for (ZEST_EACH_FIF_i) {
-		zest_vec_clear(pipeline->descriptor_writes[i]);
-		if (pipeline->uniforms) {
-			zest_AddPipelineDescriptorWrite(pipeline, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_set[i], zest_GetUniformBufferInfoByName("Standard 2d Uniform Buffer", i), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), i);
-			binding++;
-		}
-		for (zest_foreach_i(pipeline->textures)) {
-			zest_texture *texture = zest_GetTextureByIndex(pipeline->textures[i]);
-			zest_AddPipelineDescriptorWrite(pipeline, zest_CreateImageDescriptorWriteWithType(pipeline->descriptor_set[i], &texture->descriptor, binding++, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER), i);
-		}
-	}
-}
-
-void zest_UpdatePipelineDescriptorSet(zest_pipeline_set *pipeline) {
-	for (ZEST_EACH_FIF_i) {
-		zest_UpdateDescriptorSet(pipeline->descriptor_writes[i]);
-	}
-}
-
 VkShaderModule zest_CreateShaderModule(char *code) {
 	VkShaderModuleCreateInfo create_info = { 0 };
 	create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
