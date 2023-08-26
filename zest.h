@@ -26,10 +26,6 @@ extern "C" {
 #define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
-#ifndef ZEST__FREE
-#define ZEST__FREE(memory) zloc_Free(ZestDevice->allocator, memory)
-#endif
-
 //Helper macros
 #define ZEST__MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define ZEST__MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -39,6 +35,15 @@ extern "C" {
 #define ZEST__UNFLAG(flag, bit) flag &= ~bit
 #define ZEST__FLAGGED(flag, bit) (flag & bit) > 0
 #define ZEST__NOT_FLAGGED(flag, bit) (flag & bit) == 0
+
+//Override this if you'd prefer a different way to allocate the pools for sub allocation in host memory.
+#ifndef ZEST__ALLOCATE_POOL
+#define ZEST__ALLOCATE_POOL malloc
+#endif
+
+#ifndef ZEST__FREE
+#define ZEST__FREE(memory) zloc_Free(ZestDevice->allocator, memory)
+#endif
 
 #ifndef ZEST__REALLOCATE
 #define ZEST__ALLOCATE(size) zest__allocate(size)

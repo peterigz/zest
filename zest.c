@@ -745,7 +745,7 @@ float zest_Degrees(float radians) { return radians * 57.295779513082320876798154
 
 // Initialisation and destruction
 void zest_Initialise(zest_create_info *info) {
-	void *memory_pool = malloc(info->memory_pool_size);
+	void *memory_pool = ZEST__ALLOCATE_POOL(info->memory_pool_size);
 
 	ZEST_ASSERT(memory_pool);	//unable to allocate initial memory pool
 
@@ -1327,7 +1327,7 @@ void* zest__allocate(zest_size size) {
 		if (pool_size <= size) {
 			pool_size = zest_GetNextPower(size);
 		}
-		ZestDevice->memory_pools[ZestDevice->memory_pool_count] = malloc(pool_size);
+		ZestDevice->memory_pools[ZestDevice->memory_pool_count] = ZEST__ALLOCATE_POOL(pool_size);
 		ZEST_ASSERT(ZestDevice->memory_pools[ZestDevice->memory_pool_count]);	//Unable to allocate more memory. Out of memory?
 		zloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
 		allocation = zloc_Allocate(ZestDevice->allocator, size);
@@ -1346,7 +1346,7 @@ void* zest__reallocate(void *memory, zest_size size) {
 		if (pool_size <= size) {
 			pool_size = zest_GetNextPower(size);
 		}
-		ZestDevice->memory_pools[ZestDevice->memory_pool_count] = malloc(pool_size);
+		ZestDevice->memory_pools[ZestDevice->memory_pool_count] = ZEST__ALLOCATE_POOL(pool_size);
 		ZEST_ASSERT(ZestDevice->memory_pools[ZestDevice->memory_pool_count]);	//Unable to allocate more memory. Out of memory?
 		zloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
 		allocation = zloc_Reallocate(ZestDevice->allocator, memory, size);
