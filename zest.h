@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 #ifndef ZEST__FREE
-#define ZEST__FREE(memory) pkt_Free(ZestDevice->allocator, memory)
+#define ZEST__FREE(memory) zloc_Free(ZestDevice->allocator, memory)
 #endif
 
 //Helper macros
@@ -49,8 +49,8 @@ extern "C" {
 #define STBI_REALLOC(p,newsz)     ZEST__REALLOCATE(p,newsz)
 #define STBI_FREE(p)              ZEST__FREE(p)
 
-#define PKT_ENABLE_REMOTE_MEMORY
-#include "pkt_allocator.h"
+#define ZLOC_ENABLE_REMOTE_MEMORY
+#include "zloc.h"
 #include "lib_bundle.h"
 
 #ifndef ZEST_WARNING_COLOR
@@ -621,7 +621,7 @@ typedef void* zest_pool_range;
 
 typedef struct zest_buffer_allocator{
 	zest_buffer_info buffer_info;
-	pkt_allocator *allocator;
+	zloc_allocator *allocator;
 	zest_size alignment;
 	zest_device_memory_pool *memory_pools;
 	zest_pool_range *range_pools;
@@ -674,7 +674,7 @@ typedef struct zest_device {
 	zest_uint compute_queue_family_index;
 	void *memory_pools[32];
 	zest_uint memory_pool_count;
-	pkt_allocator *allocator;
+	zloc_allocator *allocator;
 	VkAllocationCallbacks allocation_callbacks;
 	char **extensions;
 	VkInstance instance;
@@ -1429,7 +1429,7 @@ ZEST_PRIVATE void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsa
 ZEST_PRIVATE void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool *buffer);
 ZEST_PRIVATE zest_size zest__get_minimum_block_size(zest_size pool_size);
 ZEST_PRIVATE void zest__on_add_pool(void *user_data, void *block);
-ZEST_PRIVATE void zest__on_split_block(void *user_data, pkt_header* block, pkt_header *trimmed_block, zest_size remote_size);
+ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc_header *trimmed_block, zest_size remote_size);
 // --End Buffer allocation funcitons
 
 //Device set up 
