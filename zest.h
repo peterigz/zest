@@ -1673,12 +1673,12 @@ ZEST_API zest_bitmap zest_GetImageFromArray(zest_bitmap_array *bitmap_array, zes
 ZEST_API zest_bitmap *zest_GetBitmap(zest_texture *texture, zest_index bitmap_index);
 ZEST_API zest_index zest_GetImageIndex(zest_texture *texture);
 ZEST_API zest_image *zest_GetImageFromTexture(zest_texture *texture, zest_index index);
-ZEST_API zest_index zest_LoadImageFile(zest_texture *texture, const char* name);
-ZEST_API zest_index zest_LoadImageBitmap(zest_texture *texture, zest_bitmap *bitmap_to_load);
-ZEST_API zest_index zest_LoadImageMemory(zest_texture *texture, const char* name, unsigned char* buffer, int buffer_size);
-ZEST_API zest_index zest_LoadAnimationFile(zest_texture *texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
-ZEST_API zest_index zest_LoadAnimationImage(zest_texture *texture, zest_bitmap *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
-ZEST_API zest_index zest_LoadAnimationMemory(zest_texture *texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_index zest_AddTextureImageFile(zest_texture *texture, const char* name);
+ZEST_API zest_index zest_AddTextureImageBitmap(zest_texture *texture, zest_bitmap *bitmap_to_load);
+ZEST_API zest_index zest_AddTextureImageMemory(zest_texture *texture, const char* name, unsigned char* buffer, int buffer_size);
+ZEST_API zest_index zest_AddTextureAnimationFile(zest_texture *texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_index zest_AddTextureAnimationImage(zest_texture *texture, zest_bitmap *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_index zest_AddTextureAnimationMemory(zest_texture *texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 ZEST_API float zest_CopyAnimationFrames(zest_texture *texture, zest_bitmap *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 ZEST_API void zest_ProcessTextureImages(zest_texture *texture);
 ZEST_API void zest_DeleteTextureLayers(zest_texture *texture);

@@ -72,14 +72,14 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	app->imgui_font_texture_index = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, 10);
 	zest_texture *font_texture = zest_GetTextureByName("imgui_font");
-	zest_index font_image_index = zest_LoadImageBitmap(font_texture, &font_bitmap);
+	zest_index font_image_index = zest_AddTextureImageBitmap(font_texture, &font_bitmap);
 	zest_ProcessTextureImages(font_texture);
 	io.Fonts->SetTexID(zest_GetImageFromTexture(font_texture, font_image_index));
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
 	app->test_texture_index = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, 10);
 	zest_texture *texture = zest_GetTextureByName("Bunny");
-	app->test_image_index = zest_LoadImageFile(texture, "wabbit_alpha.png");
+	app->test_image_index = zest_AddTextureImageFile(texture, "wabbit_alpha.png");
 	zest_ProcessTextureImages(texture);
 
 	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);

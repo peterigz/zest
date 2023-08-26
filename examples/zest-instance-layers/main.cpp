@@ -26,7 +26,7 @@ void UpdateUniformBuffer3d(zest_example *example) {
 void InitExample(zest_example *example) {
 	example->texture_index = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, 10);
 	zest_texture *texture = zest_GetTextureByIndex(example->texture_index);
-	example->image1 = zest_LoadImageFile(texture, "examples/wabbit_alpha.png");
+	example->image1 = zest_AddTextureImageFile(texture, "examples/wabbit_alpha.png");
 	zest_ProcessTextureImages(texture);
 	example->sprite_pipeline = zest_PipelineIndex("pipeline_2d_sprites");
 	example->sprite_layer = zest_GetInstanceLayerIndex("Sprite 2d Layer");
