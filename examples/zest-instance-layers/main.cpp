@@ -24,15 +24,14 @@ void UpdateUniformBuffer3d(zest_example *example) {
 }
 
 void InitExample(zest_example *example) {
-	example->texture_index = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, 10);
+	example->texture_index = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_alpha, 10);
 	zest_texture *texture = zest_GetTextureByIndex(example->texture_index);
-	zest_SetTextureImageFormat(texture, VK_FORMAT_R8_UNORM);
 	example->image1 = zest_AddTextureImageFile(texture, "examples/wabbit_alpha.png");
 	zest_ProcessTextureImages(texture);
 	example->sprite_pipeline = zest_PipelineIndex("pipeline_2d_sprites_alpha");
 	example->sprite_layer = zest_GetInstanceLayerIndex("Sprite 2d Layer");
 	example->sprite_descriptor_index = zest_GetTextureDescriptorSetIndex(texture, "Default");
-	example->billboard_pipeline = zest_PipelineIndex("pipeline_billboard");
+	example->billboard_pipeline = zest_PipelineIndex("pipeline_billboard_alpha");
 	example->billboard_layer = zest_GetInstanceLayerIndex("Sprite 2d Layer");
 	example->uniform_buffer_3d_index = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data));
 	example->billboard_descriptor_index = zest_CreateTextureDescriptorSets(texture, "3d", "example 3d uniform");
@@ -64,6 +63,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	sprite_layer->multiply_blend_factor = 1.f;
 
 	zest_SetSpriteDrawing(sprite_layer, texture, example->sprite_descriptor_index, example->sprite_pipeline);
+		sprite_layer->current_color.a = 0;
 	for (float x = 0; x != 75; ++x) {
 		for (float y = 0; y != 15; ++y) {
 			sprite_layer->current_color.r = (zest_byte)(1 - ((y + 1) / 16.f) * 255.f);

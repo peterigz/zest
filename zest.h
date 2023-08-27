@@ -349,6 +349,12 @@ typedef enum zest_render_target_flags {
 	zest_render_target_flag_has_imgui_pipeline			= 1 << 8,
 } zest_render_target_flags;
 
+typedef enum zest_texture_format {
+	zest_texture_format_alpha = VK_FORMAT_R8_UNORM,
+	zest_texture_format_rgba = VK_FORMAT_R8G8B8A8_UNORM,
+	zest_texture_format_bgra = VK_FORMAT_B8G8R8A8_UNORM,
+} zest_texture_format;
+
 //Private structs with inline functions
 typedef struct zest_queue_family_indices {
 	zest_uint graphics_family;
@@ -1651,12 +1657,12 @@ ZEST_API zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, fl
 //Images and textures
 ZEST_API zest_map_textures *zest_GetTextures(void);
 ZEST_API zest_texture zest_NewTexture(void);
-ZEST_API zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_uint reserve_images);
-ZEST_API zest_index zest_CreateTexturePacked(const char *name);
-ZEST_API zest_index zest_CreateTextureSpritesheet(const char *name);
-ZEST_API zest_index zest_CreateTextureSingle(const char *name);
-ZEST_API zest_index zest_CreateTextureBank(const char *name);
-ZEST_API void zest_SetTextureImageFormat(zest_texture *texture, VkFormat format);
+ZEST_API zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_texture_format format, zest_uint reserve_images);
+ZEST_API zest_index zest_CreateTexturePacked(const char *name, zest_texture_format format);
+ZEST_API zest_index zest_CreateTextureSpritesheet(const char *name, zest_texture_format format);
+ZEST_API zest_index zest_CreateTextureSingle(const char *name, zest_texture_format format);
+ZEST_API zest_index zest_CreateTextureBank(const char *name, zest_texture_format format);
+ZEST_API void zest_SetTextureImageFormat(zest_texture *texture, zest_texture_format format);
 ZEST_API zest_image zest_CreateImage(void);
 ZEST_API void zest_LoadBitmapImage(zest_bitmap *image, const char *file, int color_channels);
 ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap *image, unsigned char *buffer, int size, int desired_no_channels);
@@ -1667,6 +1673,8 @@ ZEST_API void zest_AllocateBitmap(zest_bitmap *bitmap, int width, int height, in
 ZEST_API void zest_CopyWholeBitmap(zest_bitmap *src, zest_bitmap *dst);
 ZEST_API void zest_CopyBitmap(zest_bitmap *src, int from_x, int from_y, int width, int height, zest_bitmap *dst, int to_x, int to_y);
 ZEST_API void zest_ConvertBitmapToTextureFormat(zest_bitmap *src, VkFormat format);
+ZEST_API void zest_ConvertBitmap(zest_bitmap *src, zest_texture_format format, zest_byte alpha_level);
+ZEST_API void zest_ConvertBitmapToBGRA(zest_bitmap *src, zest_byte alpha_level);
 ZEST_API void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level);
 ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap *image);
 ZEST_API void zest_ConvertBitmapTo1Channel(zest_bitmap *image);

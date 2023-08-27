@@ -2860,7 +2860,7 @@ void zest__prepare_standard_pipelines() {
 	zest_MakePipelineTemplate(sprite_instance_pipeline, render_pass, &instance_create_info);
 	sprite_instance_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
 	sprite_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
-	sprite_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
+	sprite_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(sprite_instance_pipeline);
 
 	index = zest_AddPipeline("pipeline_2d_sprites_alpha");
@@ -2869,7 +2869,7 @@ void zest__prepare_standard_pipelines() {
 	instance_create_info.fragShaderFile = "spv/instance_alpha.spv";
 	zest_MakePipelineTemplate(sprite_instance_pipeline_alpha, render_pass, &instance_create_info);
 	sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
-	sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
+	sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(sprite_instance_pipeline_alpha);
 
 	//3d billboards
@@ -2894,7 +2894,17 @@ void zest__prepare_standard_pipelines() {
 	instance_create_info.fragShaderFile = "spv/billboard.spv";
 	zest_MakePipelineTemplate(billboard_instance_pipeline, render_pass, &instance_create_info);
 	billboard_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	billboard_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(billboard_instance_pipeline);
+
+	index = zest_AddPipeline("pipeline_billboard_alpha");
+	zest_pipeline_set *billboard_pipeline_alpha = zest_Pipeline(index);
+	instance_create_info.vertShaderFile = "spv/billboard_alpha.spv";
+	instance_create_info.fragShaderFile = "spv/billboard_alpha.spv";
+	zest_MakePipelineTemplate(billboard_pipeline_alpha, render_pass, &instance_create_info);
+	billboard_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	billboard_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
+	zest_BuildPipeline(billboard_pipeline_alpha);
 
 	//ImGuiPipeline
 	zest_pipeline_template_create_info imgui_pipeline_template = zest_CreatePipelineTemplateCreateInfo();
@@ -4343,11 +4353,11 @@ zest_bitmap *zest_GetBitmap(zest_texture *texture, zest_index bitmap_index) {
 void zest_ConvertBitmapToTextureFormat(zest_bitmap *src, VkFormat format) {
 	if (format == VK_FORMAT_R8G8B8A8_UNORM) {
 		zest_ConvertBitmapToRGBA(src, 255);
-	}
-	else if (format == VK_FORMAT_R8_UNORM) {
+	} else if (format == VK_FORMAT_B8G8R8A8_UNORM) {
+		zest_ConvertBitmapToBGRA(src, 255);
+	} else if (format == VK_FORMAT_R8_UNORM) {
 		zest_ConvertBitmapTo1Channel(src);
-	}
-	else {
+	} else {
 		ZEST_ASSERT(0);	//Unknown texture format
 	}
 }
@@ -4414,7 +4424,7 @@ void zest_ConvertBitmapToAlpha(zest_bitmap *image) {
 	}
 }
 
-void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level) {
+void zest_ConvertBitmap(zest_bitmap *src, zest_texture_format format, zest_byte alpha_level) {
 	//Todo: simd this
 	if (src->channels == 4)
 		return;
@@ -4429,12 +4439,17 @@ void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level) {
 	zest_size pos = 0;
 	zest_size new_pos = 0;
 
+	zest_uint order[3] = { 1, 2, 3 };
+	if (format == zest_texture_format_bgra) {
+		order[0] = 3; order[2] = 1;
+	}
+
 	if (src->channels == 1) {
 		while (pos < src->size) {
 			*(new_image + new_pos) = *(src->data + pos);
-			*(new_image + new_pos + 1) = *(src->data + pos);
-			*(new_image + new_pos + 2) = *(src->data + pos);
-			*(new_image + new_pos + 3) = alpha_level;
+			*(new_image + new_pos + order[0]) = *(src->data + pos);
+			*(new_image + new_pos + order[1]) = *(src->data + pos);
+			*(new_image + new_pos + order[2]) = alpha_level;
 			pos += src->channels;
 			new_pos += 4;
 		}
@@ -4442,9 +4457,9 @@ void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level) {
 	else if (src->channels == 2) {
 		while (pos < src->size) {
 			*(new_image + new_pos) = *(src->data + pos);
-			*(new_image + new_pos + 1) = *(src->data + pos);
-			*(new_image + new_pos + 2) = *(src->data + pos);
-			*(new_image + new_pos + 3) = *(src->data + pos + 1);
+			*(new_image + new_pos + order[0]) = *(src->data + pos);
+			*(new_image + new_pos + order[1]) = *(src->data + pos);
+			*(new_image + new_pos + order[2]) = *(src->data + pos + 1);
 			pos += src->channels;
 			new_pos += 4;
 		}
@@ -4452,9 +4467,9 @@ void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level) {
 	else if (src->channels == 3) {
 		while (pos < src->size) {
 			*(new_image + new_pos) = *(src->data + pos);
-			*(new_image + new_pos + 1) = *(src->data + pos + 1);
-			*(new_image + new_pos + 2) = *(src->data + pos + 2);
-			*(new_image + new_pos + 3) = alpha_level;
+			*(new_image + new_pos + order[0]) = *(src->data + pos + 1);
+			*(new_image + new_pos + order[1]) = *(src->data + pos + 2);
+			*(new_image + new_pos + order[2]) = alpha_level;
 			pos += src->channels;
 			new_pos += 4;
 		}
@@ -4466,6 +4481,14 @@ void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level) {
 	src->stride = src->width * channels;
 	src->data = new_image;
 
+}
+
+void zest_ConvertBitmapToBGRA(zest_bitmap *src, zest_byte alpha_level) {
+	zest_ConvertBitmap(src, zest_texture_format_bgra, alpha_level);
+}
+
+void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level) {
+	zest_ConvertBitmap(src, zest_texture_format_rgba, alpha_level);
 }
 
 void zest_CopyWholeBitmap(zest_bitmap *src, zest_bitmap *dst) {
@@ -5534,10 +5557,11 @@ void zest_SetTextureStorageType(zest_texture *texture, zest_texture_storage_type
 	texture->storage_type = value;
 }
 
-zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_uint reserve_images) {
+zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_texture_format image_format, zest_uint reserve_images) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, name));	//That name already exists
 	zest_texture texture = zest_NewTexture();
 	texture.name = name;
+	zest_SetTextureImageFormat(&texture, image_format);
 	if (storage_type < zest_texture_storage_type_render_target) {
 		zest_SetTextureStorageType(&texture, storage_type);
 		zest_SetUseFiltering(&texture, use_filtering);
@@ -5550,32 +5574,36 @@ zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storag
 	return zest_map_last_index(ZestRenderer->textures);
 }
 
-zest_index zest_CreateTexturePacked(const char *name) {
-	return zest_CreateTexture(name, zest_texture_storage_type_packed, zest_texture_flag_use_filtering, 10);
+zest_index zest_CreateTexturePacked(const char *name, zest_texture_format image_format) {
+	return zest_CreateTexture(name, zest_texture_storage_type_packed, zest_texture_flag_use_filtering, image_format, 10);
 }
 
-zest_index zest_CreateTextureSpritesheet(const char *name) {
-	return zest_CreateTexture(name, zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, 10);
+zest_index zest_CreateTextureSpritesheet(const char *name, zest_texture_format image_format) {
+	return zest_CreateTexture(name, zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, image_format, 10);
 }
 
-zest_index zest_CreateTextureSingle(const char *name) {
-	return zest_CreateTexture(name, zest_texture_storage_type_single, zest_texture_flag_use_filtering, 10);
+zest_index zest_CreateTextureSingle(const char *name, zest_texture_format image_format) {
+	return zest_CreateTexture(name, zest_texture_storage_type_single, zest_texture_flag_use_filtering, image_format, 10);
 }
 
-zest_index zest_CreateTextureBank(const char *name) {
-	return zest_CreateTexture(name, zest_texture_storage_type_bank, zest_texture_flag_use_filtering, 10);
+zest_index zest_CreateTextureBank(const char *name, zest_texture_format image_format) {
+	return zest_CreateTexture(name, zest_texture_storage_type_bank, zest_texture_flag_use_filtering, image_format, 10);
 }
 
-void zest_SetTextureImageFormat(zest_texture *texture, VkFormat format) {
+void zest_SetTextureImageFormat(zest_texture *texture, zest_texture_format format) {
+	ZEST_ASSERT(zest_vec_size(texture->images) == 0);	//You cannot change the image format of a texture that already has images
 	texture->image_format = format;
-	if (format == VK_FORMAT_R8G8B8A8_UNORM) {
-		texture->color_channels = 4;
-	}
-	else if (format == VK_FORMAT_R8_UNORM) {
-		texture->color_channels = 1;
-	}
-	else {
-		ZEST_ASSERT(0);	//Unknown texture format
+	switch (format) {
+		case VK_FORMAT_R8G8B8A8_UNORM: 
+		case VK_FORMAT_B8G8R8A8_UNORM: {
+			texture->color_channels = 4;
+		} break;
+		case VK_FORMAT_R8_UNORM: {
+			texture->color_channels = 1;
+		} break;
+		default: {
+			 ZEST_ASSERT(0);	//Unknown texture format
+		} break;
 	}
 }
 
@@ -5695,7 +5723,7 @@ void zest_CreateRenderTargetSamplerImage(zest_render_target *render_target) {
 		char temp = 48 + i;
 		zest_vec_push(texture_name, temp);
 		zest_vec_push(texture_name, '\0');
-		render_target->sampler_textures[i] = zest_CreateTexture(texture_name, zest_texture_storage_type_render_target, 0, 0);
+		render_target->sampler_textures[i] = zest_CreateTexture(texture_name, zest_texture_storage_type_render_target, 0, render_target->render_format, 0);
 
 		zest_texture *texture = zest_GetTextureByIndex(render_target->sampler_textures[i]);
 		texture->imgui_blend_type = render_target->create_info.imgui_blend_type;

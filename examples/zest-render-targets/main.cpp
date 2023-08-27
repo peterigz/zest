@@ -84,7 +84,7 @@ void InitExample(RenderTargetExample *example) {
 		zest_FinishQueueSetup();
 	}
 
-	example->texture_index = zest_CreateTexturePacked("Statue texture");
+	example->texture_index = zest_CreateTexturePacked("Statue texture", zest_texture_format_rgba);
 	example->image_index = zest_AddTextureImageFile(zest_GetTextureByIndex(example->texture_index), "images/texture.jpg");
 	zest_ProcessTextureImages(zest_GetTextureByIndex(example->texture_index));
 }
