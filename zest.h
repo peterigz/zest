@@ -355,6 +355,13 @@ typedef enum zest_texture_format {
 	zest_texture_format_bgra = VK_FORMAT_B8G8R8A8_UNORM,
 } zest_texture_format;
 
+typedef enum zest_connector_type {
+	zest_connector_type_wait_present,
+	zest_connector_type_signal_present,
+	zest_connector_type_wait_queue,
+	zest_connector_type_signal_queue,
+} zest_connector_type;
+
 //Private structs with inline functions
 typedef struct zest_queue_family_indices {
 	zest_uint graphics_family;
@@ -753,8 +760,8 @@ typedef struct zest_app {
 } zest_app;
 
 typedef struct zest_semaphores {
-	VkSemaphore present_complete;
-	VkSemaphore render_complete;
+	VkSemaphore incoming;
+	VkSemaphore outgoing;
 } zest_semaphores;
 
 typedef struct zest_frame_buffer_attachment {
@@ -788,7 +795,7 @@ typedef struct zest_render_pass_data {
 	VkPipelineLayout pipeline_layout;
 } zest_render_pass_data;
 
-typedef struct FinalRenderPushConstants {
+typedef struct zest_final_render_push_constants {
 	zest_vec2 screen_resolution;			//the current size of the window/resolution
 } zest_final_render_push_constants;
 
@@ -797,11 +804,11 @@ typedef struct zest_command_queue {
 	const char *name;
 	VkCommandPool command_pool;										//The command pool for command buffers
 	VkCommandBuffer command_buffer[ZEST_MAX_FIF];					//A vulkan command buffer for each frame in flight
-	VkSemaphore *fif_incoming_semaphores[ZEST_MAX_FIF];				//command queues need to be synchronises with other command queues and the swap chain so
+	VkSemaphore *fif_incoming_semaphores[ZEST_MAX_FIF];				//command queues need to be synchronised with other command queues and the swap chain so
 	VkSemaphore *fif_outgoing_semaphores[ZEST_MAX_FIF];				//an array of incoming and outgoing (wait and signal) semaphores are maintained for this purpose
 	VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];		//Stage state_flags relavent to the incoming semaphores
 	zest_index *draw_commands;										//A list of render command indexes - mostly these will be render passes that are recorded to the command buffer
-	zest_index *compute_items;										//Compute items to be recorded to the command buffer
+	zest_index *compute_commands;									//Compute items to be recorded to the command buffer
 	zest_index index_in_renderer;									//A self reference of the index in the Renderer storage array for command queues
 	zest_index present_semaphore_index[ZEST_MAX_FIF];				//An index to the semaphore representing the swap chain if required. (command queues don't necessarily have to wait for the swap chain)
 	zest_command_queue_flags flags;									//Can be either dependent on the swap chain to present or another command queue
@@ -1243,7 +1250,6 @@ typedef struct zest_renderer{
 
 	zest_semaphores semaphores[ZEST_MAX_FIF];
 
-	//VkFence> images_in_flight_fences;
 	VkPipelineStageFlags *stage_flags[ZEST_MAX_FIF];
 	VkSemaphore *renderer_incoming_semaphores[ZEST_MAX_FIF];
 	zest_index standard_uniform_buffer_id;
@@ -1827,6 +1833,11 @@ ZEST_API void zest_SendStandardPushConstants(zest_pipeline_set *pipeline_layout,
 ZEST_API void zest_Draw(zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 ZEST_API void zest_DrawIndexed(zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 //--End General Helper functions
+
+//Debug Helpers
+ZEST_API const char *zest_DrawFunctionToString(void *function);
+ZEST_API void zest_OutputQueues();
+//--End Debug Helpers
 
 #ifdef __cplusplus
 }

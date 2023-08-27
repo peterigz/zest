@@ -814,11 +814,11 @@ void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*)) {
 }
 
 void zest_SetActiveRenderQueue(zest_index command_queue_index) {
-	ZEST_ASSERT(zest_vec_empty(ZestRenderer->frame_queues));									//You cannot specify more than one render queue per frame, try using SetActiveRenderSet instead for using multiple render queues
+	ZEST_ASSERT(zest_vec_empty(ZestRenderer->frame_queues));									//You cannot specify more than one render queue per frame
 	ZEST_ASSERT(command_queue_index < (zest_index)zest_map_size(ZestRenderer->command_queues));	//Must be a valid render queue index
 	ZEST_ASSERT((zest_map_at_index(ZestRenderer->command_queues, command_queue_index))->flags & zest_command_queue_flag_validated);	//Make sure that the command queue creation ended with the command: zest_FinishQueueSetup
 	zest_vec_push(ZestRenderer->frame_queues, command_queue_index);
-	ZestRenderer->semaphores[ZEST_FIF].render_complete = zest_GetCommandQueuePresentSemaphore(zest_GetCommandQueue(command_queue_index));
+	ZestRenderer->semaphores[ZEST_FIF].incoming = zest_GetCommandQueuePresentSemaphore(zest_GetCommandQueue(command_queue_index));
 }
 
 void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data)) {
@@ -1312,6 +1312,41 @@ void zest__destroy(void) {
 	ZestRenderer->destroy_window_callback(ZestApp->user_data);
 	free(ZestDevice->memory_pools[0]);
 }
+
+zest_microsecs zest__set_elapsed_time() {
+	ZestApp->current_elapsed = zest_Microsecs() - ZestApp->current_elapsed_time;
+	ZestApp->current_elapsed_time = zest_Microsecs();
+
+	return ZestApp->current_elapsed;
+}
+
+void zest__main_loop(void) {
+	ZestApp->current_elapsed_time = zest_Microsecs();
+	ZEST_ASSERT(ZestApp->update_callback);	//Must define an update callback function
+	while (!(ZestApp->flags & zest_app_flag_quit_application)) {
+
+		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
+		//DoScheduledTasks(ZestDevice->current_fif);
+
+		ZestRenderer->poll_events_callback();
+
+		zest__set_elapsed_time();
+
+		ZestApp->update_callback(ZestApp->current_elapsed_time, ZestApp->user_data);
+
+		zest__draw_renderer_frame();
+
+		ZestApp->frame_timer += ZestApp->current_elapsed;
+		ZestApp->frame_count++;
+		if (ZestApp->frame_timer >= ZEST_MICROSECS_SECOND) {
+			ZestApp->last_fps = ZestApp->frame_count;
+			ZestApp->frame_count = 0;
+			ZestApp->frame_timer = ZestApp->frame_timer - ZEST_MICROSECS_SECOND;
+		}
+
+	}
+}
+
 
 void zest__update_window_size(zest_window* window, zest_uint width, zest_uint height) {
 	window->window_width = width;
@@ -1978,7 +2013,7 @@ void zest__cleanup_renderer() {
 
 
 	for (ZEST_EACH_FIF_i) {
-		vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->semaphores[i].present_complete, &ZestDevice->allocation_callbacks);
+		vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->semaphores[i].outgoing, &ZestDevice->allocation_callbacks);
 		vkDestroyFence(ZestDevice->logical_device, ZestRenderer->fif_fence[i], &ZestDevice->allocation_callbacks);
 	}
 
@@ -2158,7 +2193,7 @@ void zest__create_sync_objects() {
 	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
 	for (ZEST_EACH_FIF_i) {
-		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &ZestRenderer->semaphores[i].present_complete));
+		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &ZestRenderer->semaphores[i].outgoing));
 	}
 }
 
@@ -3107,7 +3142,7 @@ void zest__create_empty_command_queue(zest_command_queue *command_queue) {
 	ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, command_queue->command_buffer));
 
 	for (ZEST_EACH_FIF_i) {
-		zest_vec_push(command_queue->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].present_complete);
+		zest_vec_push(command_queue->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].outgoing);
 		zest_vec_push(command_queue->fif_wait_stage_flags[i], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 	}
 	zest_command_queue_draw_commands draw_commands = { 0 };
@@ -3153,7 +3188,7 @@ void zest__add_draw_routine(zest_command_queue_draw_commands *command_queue_draw
 
 void zest__acquire_next_swapchain_image() {
 
-	VkResult result = vkAcquireNextImageKHR(ZestDevice->logical_device, ZestRenderer->swapchain, UINT64_MAX, ZestRenderer->semaphores[ZEST_FIF].present_complete, ZEST_NULL, &ZestRenderer->current_frame);
+	VkResult result = vkAcquireNextImageKHR(ZestDevice->logical_device, ZestRenderer->swapchain, UINT64_MAX, ZestRenderer->semaphores[ZEST_FIF].outgoing, ZEST_NULL, &ZestRenderer->current_frame);
 
 	//Has the window been resized? if so rebuild the swap chain.
 	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
@@ -3174,7 +3209,7 @@ void zest__draw_renderer_frame() {
 
 	if (zest_vec_empty(ZestRenderer->frame_queues)) {
 		//if there's no render queues at all, then we can draw this blank one to prevent errors when presenting the frame
-		ZestRenderer->semaphores[ZestDevice->current_fif].render_complete = zest_GetCommandQueuePresentSemaphore(&ZestRenderer->empty_queue);
+		ZestRenderer->semaphores[ZestDevice->current_fif].incoming = zest_GetCommandQueuePresentSemaphore(&ZestRenderer->empty_queue);
 		zest__record_and_commit_command_queue(&ZestRenderer->empty_queue, ZestRenderer->fif_fence[ZEST_FIF]);
 		//FlushLayers();
 	}
@@ -3194,7 +3229,7 @@ void zest__present_frame() {
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
 	presentInfo.waitSemaphoreCount = 1;
-	presentInfo.pWaitSemaphores = &ZestRenderer->semaphores[ZEST_FIF].render_complete;
+	presentInfo.pWaitSemaphores = &ZestRenderer->semaphores[ZEST_FIF].incoming;
 	VkSwapchainKHR swapChains[] = { ZestRenderer->swapchain };
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = swapChains;
@@ -3303,7 +3338,7 @@ void zest__record_and_commit_command_queue(zest_command_queue *command_queue, Vk
 
 	ZestRenderer->current_command_buffer = command_queue->command_buffer[ZEST_FIF];
 
-	//for (zest_foreach_i(command_queue->compute_items)) {
+	//for (zest_foreach_i(command_queue->compute_commands)) {
 		//zest_command_queue_compute &compute_item = GetCommandQueueCompute(compute_item_index);
 		//ZEST_ASSERT(compute_item.compute_function);		//Compute item must have its compute function callback set
 		//ZestRenderer->current_compute_routine = &compute_item;
@@ -3895,10 +3930,8 @@ zest_command_queue_draw_commands *zest_GetCommandQueueDrawCommands(zest_index in
 }
 
 void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineStageFlags stage_flags) {
-	VkSemaphoreCreateInfo semaphoreInfo = { 0 };
-	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 	for (ZEST_EACH_FIF_i) {
-		zest_vec_push(receiver->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].present_complete);
+		zest_vec_push(receiver->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].outgoing);
 		zest_vec_push(receiver->fif_wait_stage_flags[i], stage_flags);
 	}
 }
@@ -3941,7 +3974,7 @@ void zest_ValidateQueue(zest_index index) {
 		zest_bool present_flags_found = 0;
 		for (ZEST_EACH_FIF_i) {
 			for (zest_foreach_j(command_queue->fif_incoming_semaphores[i])) {
-				present_found += (command_queue->fif_incoming_semaphores[i][j] == ZestRenderer->semaphores[i].present_complete);
+				present_found += (command_queue->fif_incoming_semaphores[i][j] == ZestRenderer->semaphores[i].outgoing);
 			}
 			for (zest_foreach_j(command_queue->fif_wait_stage_flags[i])) {
 				present_flags_found += (command_queue->fif_wait_stage_flags[i][j] == VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
@@ -6418,38 +6451,75 @@ void zest_UploadMeshBuffersCallback(zest_draw_routine *draw_routine, VkCommandBu
 	zest_UploadBuffer(&mesh_layer->index_upload, command_buffer);
 
 }
+//-- End Mesh Drawing API
 
-zest_microsecs zest__set_elapsed_time() {
-	ZestApp->current_elapsed = zest_Microsecs() - ZestApp->current_elapsed_time;
-	ZestApp->current_elapsed_time = zest_Microsecs();
-
-	return ZestApp->current_elapsed;
-}
-
-void zest__main_loop(void) {
-	ZestApp->current_elapsed_time = zest_Microsecs();
-	ZEST_ASSERT(ZestApp->update_callback);	//Must define an update callback function
-	while (!(ZestApp->flags & zest_app_flag_quit_application)) {
-
-		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
-		//DoScheduledTasks(ZestDevice->current_fif);
-
-		ZestRenderer->poll_events_callback();
-
-		zest__set_elapsed_time();
-
-		ZestApp->update_callback(ZestApp->current_elapsed_time, ZestApp->user_data);
-
-		zest__draw_renderer_frame();
-
-		ZestApp->frame_timer += ZestApp->current_elapsed;
-		ZestApp->frame_count++;
-		if (ZestApp->frame_timer >= ZEST_MICROSECS_SECOND) {
-			ZestApp->last_fps = ZestApp->frame_count;
-			ZestApp->frame_count = 0;
-			ZestApp->frame_timer = ZestApp->frame_timer - ZEST_MICROSECS_SECOND;
-		}
-
+//-- Start debug helpers
+const char *zest_DrawFunctionToString(void *function) {
+	if (function == zest_RenderDrawRoutinesCallback) {
+		return "zest_RenderDrawRoutinesCallback";
+	} else if(function == zest__render_blank) {
+		return "zest__render_blank";
+	} else if (function == zest_DrawToRenderTargetCallback) {
+		return "zest_DrawToRenderTargetCallback";
+	} else if (function == zest_DrawRenderTargetsToSwapchain) {
+		return "zest_DrawRenderTargetsToSwapchain";
+	}
+	else {
+		return "Custom draw function";
 	}
 }
+
+void zest_OutputQueues() {
+	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
+		zest_index draw_order = 1;
+		zest_command_queue *command_queue = zest_GetCommandQueue(i);
+		printf("Command Queue: %s\n", command_queue->name);
+		if (!zest_vec_empty(command_queue->draw_commands)) {
+			printf("\tDraw Commands\n");
+			for (zest_foreach_j(command_queue->draw_commands)) {
+				zest_command_queue_draw_commands *draw_commands = zest_GetDrawCommandsByIndex(command_queue->draw_commands[j]);
+				printf("\t%i) %s\n", draw_order++, draw_commands->name);
+				if (!zest_vec_empty(draw_commands->draw_routines)) {
+					for (zest_foreach_k(draw_commands->draw_routines)) {
+						zest_draw_routine *draw_routine = zest_GetDrawRoutineByIndex(draw_commands->draw_routines[k]);
+						printf("\t\t-Draw Routine: %s\n", draw_routine->name);
+					}
+				}
+				else {
+					printf("\t\t(No draw routines)\n");
+				}
+				if (draw_commands->render_target_index != -1 && zest_vec_empty(draw_commands->render_targets)) {
+					zest_render_target *render_target = zest_GetRenderTargetByIndex(draw_commands->render_target_index);
+					printf("\t\t-Render target: %s\n", render_target->name);
+					if (render_target->post_process_callback) {
+						printf("\t\t\t-Has custom draw commands to render target\n");
+					}
+				}
+				if (draw_commands->render_pass_function) {
+					printf("\t\t-Draw function: %s\n", zest_DrawFunctionToString(draw_commands->render_pass_function));
+				}
+				if (!zest_vec_empty(draw_commands->render_targets)) {
+					for (zest_foreach_k(draw_commands->render_targets)) {
+						zest_render_target *render_target = zest_GetRenderTargetByIndex(draw_commands->render_targets[k]);
+						printf("\t\t-Render Target: %s\n", render_target->name);
+					}
+				}
+			}
+		}
+		else {
+			printf("\t(No draw commands in queue)\n");
+		}
+		if (!zest_vec_empty(command_queue->compute_commands)) {
+			for (zest_foreach_j(command_queue->compute_commands)) {
+			}
+		}
+		else {
+			printf("\t(No compute commands in queue)\n");
+		}
+		printf("\n");
+		printf("\t\t\t\t-- * --\n");
+		printf("\n");
+	}
+}
+//-- End Debug helpers
 
