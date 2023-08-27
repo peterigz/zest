@@ -939,7 +939,7 @@ struct zest_command_queue_draw_commands {
 	zest_render_viewport_type viewport_type;
 	zest_vec2 viewport_scale;
 	zest_index render_pass;
-	float cls_color[4];
+	zest_vec4 cls_color;
 	int render_target_index;
 	const char *name;
 };
@@ -1158,7 +1158,7 @@ struct zest_texture {
 	zest_texture_storage_type storage_type;
 
 	VkSamplerCreateInfo sampler_info;
-	zest_uint desired_channels;
+	zest_uint color_channels;
 
 	//Use this for adding samplers to bind to the shader
 	VkImageViewType image_view_type;
@@ -1561,6 +1561,8 @@ ZEST_API zest_index zest_NewDrawCommandSetup(const char *name, zest_index render
 ZEST_API void zest_SetDrawCommandsCallback(void(*render_pass_function)(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index draw_commands_index, VkFramebuffer framebuffer));
 ZEST_API zest_draw_routine *zest_GetDrawRoutineByIndex(zest_index index);
 ZEST_API zest_draw_routine *zest_GetDrawRoutineByName(const char *name);
+ZEST_API zest_command_queue_draw_commands *zest_GetDrawCommandsByIndex(zest_index index);
+ZEST_API zest_command_queue_draw_commands *zest_GetDrawCommandsByName(const char *name);
 ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index render_pass_index, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
@@ -1656,7 +1658,7 @@ ZEST_API zest_index zest_CreateTextureSingle(const char *name);
 ZEST_API zest_index zest_CreateTextureBank(const char *name);
 ZEST_API void zest_SetTextureImageFormat(zest_texture *texture, VkFormat format);
 ZEST_API zest_image zest_CreateImage(void);
-ZEST_API void zest_LoadBitmapImage(zest_bitmap *image, const char *file, int desired_channels);
+ZEST_API void zest_LoadBitmapImage(zest_bitmap *image, const char *file, int color_channels);
 ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap *image, unsigned char *buffer, int size, int desired_no_channels);
 ZEST_API void zest_FreeBitmap(zest_bitmap *image);
 ZEST_API zest_bitmap zest_NewBitmap(void);
@@ -1664,7 +1666,10 @@ ZEST_API zest_bitmap zest_CreateBitmapFromRawBuffer(const char *name, unsigned c
 ZEST_API void zest_AllocateBitmap(zest_bitmap *bitmap, int width, int height, int channels, zest_uint fill_color);
 ZEST_API void zest_CopyWholeBitmap(zest_bitmap *src, zest_bitmap *dst);
 ZEST_API void zest_CopyBitmap(zest_bitmap *src, int from_x, int from_y, int width, int height, zest_bitmap *dst, int to_x, int to_y);
+ZEST_API void zest_ConvertBitmapToTextureFormat(zest_bitmap *src, VkFormat format);
 ZEST_API void zest_ConvertBitmapToRGBA(zest_bitmap *src, zest_byte alpha_level);
+ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap *image);
+ZEST_API void zest_ConvertBitmapTo1Channel(zest_bitmap *image);
 ZEST_API zest_color zest_SampleBitmap(zest_bitmap *image, int x, int y);
 ZEST_API zest_byte *zest_BitmapArrayLookUp(zest_bitmap_array *bitmap_array, zest_index index);
 ZEST_API float zest_FindBitmapRadius(zest_bitmap *image);

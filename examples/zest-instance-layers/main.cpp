@@ -26,9 +26,10 @@ void UpdateUniformBuffer3d(zest_example *example) {
 void InitExample(zest_example *example) {
 	example->texture_index = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, 10);
 	zest_texture *texture = zest_GetTextureByIndex(example->texture_index);
+	zest_SetTextureImageFormat(texture, VK_FORMAT_R8_UNORM);
 	example->image1 = zest_AddTextureImageFile(texture, "examples/wabbit_alpha.png");
 	zest_ProcessTextureImages(texture);
-	example->sprite_pipeline = zest_PipelineIndex("pipeline_2d_sprites");
+	example->sprite_pipeline = zest_PipelineIndex("pipeline_2d_sprites_alpha");
 	example->sprite_layer = zest_GetInstanceLayerIndex("Sprite 2d Layer");
 	example->sprite_descriptor_index = zest_GetTextureDescriptorSetIndex(texture, "Default");
 	example->billboard_pipeline = zest_PipelineIndex("pipeline_billboard");
@@ -36,6 +37,8 @@ void InitExample(zest_example *example) {
 	example->uniform_buffer_3d_index = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data));
 	example->billboard_descriptor_index = zest_CreateTextureDescriptorSets(texture, "3d", "example 3d uniform");
 	zest_RefreshTextureDescriptors(texture);
+	zest_command_queue_draw_commands *sprite_draw = zest_GetDrawCommandsByName("Default Draw Commands");
+	sprite_draw->cls_color = zest_Vec4Set1(0.25f);
 
 	example->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&example->camera, 60.f);
@@ -85,7 +88,7 @@ int main(void) {
 	zest_example example = { 0 };
 
 	zest_create_info create_info = zest_CreateInfo();
-	create_info.flags |= zest_init_flag_use_depth_buffer;
+	//create_info.flags |= zest_init_flag_use_depth_buffer;
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&example);
