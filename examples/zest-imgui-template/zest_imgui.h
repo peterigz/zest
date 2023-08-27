@@ -1,7 +1,7 @@
 #pragma once
 
 #include <zest.h>
-#include <GLFW/glfw3.h>
+#include "../implementations/impl_glfw.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
@@ -16,15 +16,6 @@ struct ImGuiApp {
 };
 
 void InitImGuiApp(ImGuiApp *app);
-void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer);
-void CopyImGuiBuffers(ImGuiApp *app);
-
-zest_window *zest_implglfw_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char* title);
-void zest_implglfw_CreateWindowSurfaceCallback(zest_window* window);
-void zest_implglfw_PollEventsCallback(void);
-void zest_implglfw_AddPlatformExtensionsCallback(void);
-void zest_implglfw_GetWindowSizeCallback(void *user_data, int *width, int *height);
-void zest_implglfw_DestroyWindowCallback(void *user_data);
 
 void zest_DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer);
 void zest_CopyImGuiBuffers(zest_index mesh_layer_index);

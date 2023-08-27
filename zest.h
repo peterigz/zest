@@ -164,7 +164,7 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 
 //Window creation
 int main(void);
-HINSTANCE zest_window_instance;
+ZEST_PRIVATE HINSTANCE zest_window_instance;
 #define ZEST_WINDOW_INSTANCE HINSTANCE
 LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 //--
