@@ -54,13 +54,15 @@ void InitExample(RenderTargetExample *example) {
 		//Create draw commands that applies vertical blur to the base target
 		zest_NewDrawCommandSetup("Vertical blur render pass", vertical_blur_index);
 		{
-			//Use a draw function that renders to the whole texture
+			//Use a draw function that renders to the whole texture. Because we specified AddVerticalBlur callback when calling zest_AddPostProcessRenderTarget above
+			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
 			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
 		}
 		//Create draw commands that applies horizontal blur to the vertical blur target
 		zest_NewDrawCommandSetup("Horizontal blur render pass", example->final_blur_index);
 		{
-			//Use a draw function that renders to the whole texture
+			//Use a draw function that renders to the whole texture. Because we specified AddHorizontalBlur callback when calling zest_AddPostProcessRenderTarget above
+			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
 			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
 		}
 		//Create draw commands that we can use to draw on top of the blur effect
@@ -83,6 +85,8 @@ void InitExample(RenderTargetExample *example) {
 		zest_ConnectQueueToPresent();
 		zest_FinishQueueSetup();
 	}
+
+	zest_OutputQueues();
 
 	example->texture_index = zest_CreateTexturePacked("Statue texture", zest_texture_format_rgba);
 	example->image_index = zest_AddTextureImageFile(zest_GetTextureByIndex(example->texture_index), "images/texture.jpg");
