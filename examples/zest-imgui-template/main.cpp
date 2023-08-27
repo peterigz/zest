@@ -1,7 +1,7 @@
 #include "zest_imgui.h"
 #include "imgui_internal.h"
 
-zest_window *CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char* title) {
+zest_window *zest_implglfw_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char* title) {
 	ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
 
 	zest_window *window = zest_AllocateWindow();
@@ -31,16 +31,16 @@ zest_window *CreateWindowCallback(int x, int y, int width, int height, zest_bool
 	return window;
 }
 
-void CreateWindowSurfaceCallback(zest_window* window) {
+void zest_implglfw_CreateWindowSurfaceCallback(zest_window* window) {
 	ZEST_VK_CHECK_RESULT(glfwCreateWindowSurface(ZestDevice->instance, (GLFWwindow*)window->window_handle, &ZestDevice->allocation_callbacks, &window->surface));
 }
 
-void PollEventsCallback(void) {
+void zest_implglfw_PollEventsCallback(void) {
 	glfwPollEvents();
 	zest_MaybeQuit(glfwWindowShouldClose((GLFWwindow*)ZestApp->window->window_handle));
 }
 
-void AddPlatformExtensionsCallback(void) {
+void zest_implglfw_AddPlatformExtensionsCallback(void) {
 	zest_uint count;
 	char **extensions = 0;
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
@@ -49,11 +49,11 @@ void AddPlatformExtensionsCallback(void) {
 	}
 }
 
-void GetWindowSizeCallback(void *user_data, int *width, int *height) {
+void zest_implglfw_GetWindowSizeCallback(void *user_data, int *width, int *height) {
 	glfwGetFramebufferSize((GLFWwindow*)ZestApp->window->window_handle, width, height);
 }
 
-void DestroyWindowCallback(void *user_data) {
+void zest_implglfw_DestroyWindowCallback(void *user_data) {
 	glfwDestroyWindow((GLFWwindow*)ZestApp->window->window_handle);
 }
 
@@ -87,14 +87,14 @@ void InitImGuiApp(ImGuiApp *app) {
 		zest_ModifyDrawCommands(ZestApp->default_render_commands_index);
 		{
 			app->imgui_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
-			zest_ContextDrawRoutine()->draw_callback = DrawImGuiLayer;
+			zest_ContextDrawRoutine()->draw_callback = zest_DrawImGuiLayer;
 			zest_ContextDrawRoutine()->data = app;
 		}
 		zest_FinishQueueSetup();
 	}
 }
 
-void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer) {
+void zest_DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer) {
 	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 	zest_index last_pipeline_index = -1;
 	VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
@@ -154,9 +154,9 @@ void DrawImGuiLayer(zest_draw_routine *draw_routine, VkCommandBuffer command_buf
 
 }
 
-void CopyImGuiBuffers(ImGuiApp *app) {
+void zest_CopyImGuiBuffers(zest_index mesh_layer_index) {
 	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
-	zest_mesh_layer *imgui_layer = zest_GetMeshLayerByIndex(app->imgui_layer_index);
+	zest_mesh_layer *imgui_layer = zest_GetMeshLayerByIndex(mesh_layer_index);
 
 	zest_buffer *vertex_buffer = zest_GetVertexStagingBuffer(imgui_layer);
 	zest_buffer *index_buffer = zest_GetIndexStagingBuffer(imgui_layer);
@@ -196,7 +196,7 @@ void CopyImGuiBuffers(ImGuiApp *app) {
 	}
 }
 
-void DrawImGuiImage(zest_image *image, float width, float height) {
+void zest_DrawImGuiImage(zest_image *image, float width, float height) {
 	using namespace ImGui;
 
 	ImVec2 image_size((float)image->width, (float)image->height);
@@ -204,13 +204,13 @@ void DrawImGuiImage(zest_image *image, float width, float height) {
 	image_size.x = ratio > 1 ? width : width * ratio;
 	image_size.y = ratio > 1 ? height / ratio : height;
 	ImVec2 image_offset((width - image_size.x) * .5f, (height - image_size.y) * .5f);
-	ImGuiWindow* window = ImGui::GetCurrentWindow();
+	ImGuiWindow* window = GetCurrentWindow();
 	const ImRect image_bb(window->DC.CursorPos + image_offset, window->DC.CursorPos + image_offset + image_size);
 	ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
 	window->DrawList->AddImage(image, image_bb.Min, image_bb.Max, ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w), GetColorU32(tint_col));
 }
 
-void DrawImGuiImage2(zest_image *image, float width, float height) {
+void zest_DrawImGuiImage2(zest_image *image, float width, float height) {
 	ImGui::Image(image, ImVec2(width, height), ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w));
 }
 
@@ -228,22 +228,22 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::ShowDemoWindow();
 	ImGui::Begin("Test Window");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
-	DrawImGuiImage(image, 50.f, 50.f);
+	zest_DrawImGuiImage(image, 50.f, 50.f);
 	ImGui::End();
 	ImGui::Render();
-	CopyImGuiBuffers(app);
+	zest_CopyImGuiBuffers(app->imgui_layer_index);
 }
 
 int main(void) {
 
 	zest_create_info create_info = zest_CreateInfo();
 
-	create_info.add_platform_extensions_callback = AddPlatformExtensionsCallback;
-	create_info.create_window_callback = CreateWindowCallback;
-	create_info.poll_events_callback = PollEventsCallback;
-	create_info.get_window_size_callback = GetWindowSizeCallback;
-	create_info.destroy_window_callback = DestroyWindowCallback;
-	create_info.create_window_surface_callback = CreateWindowSurfaceCallback;
+	create_info.add_platform_extensions_callback = zest_implglfw_AddPlatformExtensionsCallback;
+	create_info.create_window_callback = zest_implglfw_CreateWindowCallback;
+	create_info.poll_events_callback = zest_implglfw_PollEventsCallback;
+	create_info.get_window_size_callback = zest_implglfw_GetWindowSizeCallback;
+	create_info.destroy_window_callback = zest_implglfw_DestroyWindowCallback;
+	create_info.create_window_surface_callback = zest_implglfw_CreateWindowSurfaceCallback;
 
 	ImGuiApp imgui_app;
 
