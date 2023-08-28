@@ -2898,6 +2898,7 @@ void zest__prepare_standard_pipelines() {
 	sprite_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(sprite_instance_pipeline);
 
+	//Sprites with 1 channel textures
 	index = zest_AddPipeline("pipeline_2d_sprites_alpha");
 	zest_pipeline_set *sprite_instance_pipeline_alpha = zest_Pipeline(index);
 	instance_create_info.vertShaderFile = "spv/instance_alpha.spv";
@@ -2906,6 +2907,16 @@ void zest__prepare_standard_pipelines() {
 	sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(sprite_instance_pipeline_alpha);
+
+	//Font Texture
+	index = zest_AddPipeline("pipeline_fonts");
+	zest_pipeline_set *font_pipeline = zest_Pipeline(index);
+	instance_create_info.vertShaderFile = "spv/font_instance.spv";
+	instance_create_info.fragShaderFile = "spv/font_instance.spv";
+	zest_MakePipelineTemplate(font_pipeline, render_pass, &instance_create_info);
+	font_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	font_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
+	zest_BuildPipeline(font_pipeline);
 
 	//3d billboards
 	instance_create_info.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_billboard_instance), VK_VERTEX_INPUT_RATE_INSTANCE);
@@ -3142,7 +3153,7 @@ void zest__create_empty_command_queue(zest_command_queue *command_queue) {
 	ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, command_queue->command_buffer));
 
 	for (ZEST_EACH_FIF_i) {
-		zest_vec_push(command_queue->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].outgoing);
+		zest_vec_push(command_queue->semaphores[i].fif_incoming_semaphores, ZestRenderer->semaphores[i].outgoing);
 		zest_vec_push(command_queue->fif_wait_stage_flags[i], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 	}
 	zest_command_queue_draw_commands draw_commands = { 0 };
@@ -3319,8 +3330,8 @@ zest_command_queue_draw_commands *zest_GetDrawCommandsByName(const char *name) {
 // --Command Queue functions
 void zest__cleanup_command_queue(zest_command_queue *command_queue) {	
 	for (ZEST_EACH_FIF_i) {
-		for (zest_foreach_j(command_queue->fif_outgoing_semaphores[i])) {
-			VkSemaphore semaphore = command_queue->fif_outgoing_semaphores[i][j];
+		for (zest_foreach_j(command_queue->semaphores[i].fif_outgoing_semaphores)) {
+			VkSemaphore semaphore = command_queue->semaphores[i].fif_outgoing_semaphores[j];
 			vkDestroySemaphore(ZestDevice->logical_device, semaphore, &ZestDevice->allocation_callbacks);
 		}
 	}
@@ -3360,9 +3371,9 @@ void zest__record_and_commit_command_queue(zest_command_queue *command_queue, Vk
 
 	VkSubmitInfo submit_info = { 0 };
 	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	if (!zest_vec_empty(command_queue->fif_incoming_semaphores[ZEST_FIF])) {
-		submit_info.pWaitSemaphores = command_queue->fif_incoming_semaphores[ZEST_FIF];
-		submit_info.waitSemaphoreCount = zest_vec_size(command_queue->fif_incoming_semaphores[ZEST_FIF]);
+	if (!zest_vec_empty(command_queue->semaphores[ZEST_FIF].fif_incoming_semaphores)) {
+		submit_info.pWaitSemaphores = command_queue->semaphores[ZEST_FIF].fif_incoming_semaphores;
+		submit_info.waitSemaphoreCount = zest_vec_size(command_queue->semaphores[ZEST_FIF].fif_incoming_semaphores);
 		submit_info.pWaitDstStageMask = command_queue->fif_wait_stage_flags[ZEST_FIF];
 	}
 	else {
@@ -3370,8 +3381,8 @@ void zest__record_and_commit_command_queue(zest_command_queue *command_queue, Vk
 		submit_info.waitSemaphoreCount = 0;
 		submit_info.pWaitDstStageMask = VK_NULL_HANDLE;
 	}
-	submit_info.signalSemaphoreCount = zest_vec_size(command_queue->fif_outgoing_semaphores[ZEST_FIF]);
-	submit_info.pSignalSemaphores = command_queue->fif_outgoing_semaphores[ZEST_FIF];
+	submit_info.signalSemaphoreCount = zest_vec_size(command_queue->semaphores[ZEST_FIF].fif_outgoing_semaphores);
+	submit_info.pSignalSemaphores = command_queue->semaphores[ZEST_FIF].fif_outgoing_semaphores;
 	submit_info.commandBufferCount = 1;
 	submit_info.pCommandBuffers = &command_queue->command_buffer[ZEST_FIF];
 
@@ -3386,8 +3397,8 @@ void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineSta
 	for (ZEST_EACH_FIF_i) {
 		VkSemaphore semaphore = VK_NULL_HANDLE;
 		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &semaphore));
-		zest_vec_push(sender->fif_outgoing_semaphores[i], semaphore);
-		sender->present_semaphore_index[ZEST_FIF] = zest_vec_last_index(sender->fif_outgoing_semaphores[i]);
+		zest_vec_push(sender->semaphores[i].fif_outgoing_semaphores, semaphore);
+		sender->present_semaphore_index[ZEST_FIF] = zest_vec_last_index(sender->semaphores[i].fif_outgoing_semaphores);
 	}
 }
 // --Command Queue functions
@@ -3931,7 +3942,7 @@ zest_command_queue_draw_commands *zest_GetCommandQueueDrawCommands(zest_index in
 
 void zest_ConnectPresentToCommandQueue(zest_command_queue *receiver, VkPipelineStageFlags stage_flags) {
 	for (ZEST_EACH_FIF_i) {
-		zest_vec_push(receiver->fif_incoming_semaphores[i], ZestRenderer->semaphores[i].outgoing);
+		zest_vec_push(receiver->semaphores[i].fif_incoming_semaphores, ZestRenderer->semaphores[i].outgoing);
 		zest_vec_push(receiver->fif_wait_stage_flags[i], stage_flags);
 	}
 }
@@ -3973,8 +3984,8 @@ void zest_ValidateQueue(zest_index index) {
 		zest_bool present_found = 0;
 		zest_bool present_flags_found = 0;
 		for (ZEST_EACH_FIF_i) {
-			for (zest_foreach_j(command_queue->fif_incoming_semaphores[i])) {
-				present_found += (command_queue->fif_incoming_semaphores[i][j] == ZestRenderer->semaphores[i].outgoing);
+			for (zest_foreach_j(command_queue->semaphores[i].fif_incoming_semaphores)) {
+				present_found += (command_queue->semaphores[i].fif_incoming_semaphores[j] == ZestRenderer->semaphores[i].outgoing);
 			}
 			for (zest_foreach_j(command_queue->fif_wait_stage_flags[i])) {
 				present_flags_found += (command_queue->fif_wait_stage_flags[i][j] == VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
@@ -4007,8 +4018,8 @@ void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_inde
 	for (ZEST_EACH_FIF_i) {
 		VkSemaphore semaphore = VK_NULL_HANDLE;
 		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphoreInfo, &ZestDevice->allocation_callbacks, &semaphore));
-		zest_vec_push(sender->fif_outgoing_semaphores[i], semaphore);
-		zest_vec_push(receiver->fif_incoming_semaphores[i], semaphore);
+		zest_vec_push(sender->semaphores[i].fif_outgoing_semaphores, semaphore);
+		zest_vec_push(receiver->semaphores[i].fif_incoming_semaphores, semaphore);
 		zest_vec_push(sender->fif_wait_stage_flags[i], stage_flags);
 	}
 }
@@ -4026,7 +4037,7 @@ void zest_ConnectQueueToPresent() {
 
 VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue *command_queue) {
 	ZEST_ASSERT(command_queue->present_semaphore_index[ZEST_FIF] != -1);
-	return command_queue->fif_outgoing_semaphores[ZEST_FIF][command_queue->present_semaphore_index[ZEST_FIF]];
+	return command_queue->semaphores[ZEST_FIF].fif_outgoing_semaphores[command_queue->present_semaphore_index[ZEST_FIF]];
 }
 
 zest_index zest_NewDrawCommandSetupSwap(const char *name) {

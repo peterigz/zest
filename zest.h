@@ -11,6 +11,7 @@ extern "C" {
 #include <string.h>
 
 #ifndef ZEST_MAX_FIF
+//The maximum number of frames in flight. If you're very tight on memory then 1 will use less resources.
 #define ZEST_MAX_FIF 2
 #endif
 
@@ -799,13 +800,18 @@ typedef struct zest_final_render_push_constants {
 	zest_vec2 screen_resolution;			//the current size of the window/resolution
 } zest_final_render_push_constants;
 
+typedef struct zest_semaphore_connector {
+	VkSemaphore *fif_incoming_semaphores;				//Must be waited on, eg a command queue waiting on present signal
+	VkSemaphore *fif_outgoing_semaphores;				//To signal the next process, eg a command queue signalling the present process
+	zest_connector_type type;
+} zest_semaphore_connector;
+
 //command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects and also 
 typedef struct zest_command_queue {
+	zest_semaphore_connector semaphores[ZEST_MAX_FIF];
 	const char *name;
 	VkCommandPool command_pool;										//The command pool for command buffers
 	VkCommandBuffer command_buffer[ZEST_MAX_FIF];					//A vulkan command buffer for each frame in flight
-	VkSemaphore *fif_incoming_semaphores[ZEST_MAX_FIF];				//command queues need to be synchronised with other command queues and the swap chain so
-	VkSemaphore *fif_outgoing_semaphores[ZEST_MAX_FIF];				//an array of incoming and outgoing (wait and signal) semaphores are maintained for this purpose
 	VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];		//Stage state_flags relavent to the incoming semaphores
 	zest_index *draw_commands;										//A list of render command indexes - mostly these will be render passes that are recorded to the command buffer
 	zest_index *compute_commands;									//Compute items to be recorded to the command buffer
@@ -1239,19 +1245,15 @@ zest_hash_map(zest_render_target) zest_map_render_targets;
 //zest_hash_map(QulkanFont) fonts;
 
 typedef struct zest_renderer{
+	zest_semaphores semaphores[ZEST_MAX_FIF];
+
 	VkFormat swapchain_image_format;
 	VkExtent2D swapchain_extent;
 	VkSwapchainKHR swapchain;
 
 	VkCommandPool present_command_pool;
 
-	//Frames in flight storage
 	VkFence fif_fence[ZEST_MAX_FIF];
-
-	zest_semaphores semaphores[ZEST_MAX_FIF];
-
-	VkPipelineStageFlags *stage_flags[ZEST_MAX_FIF];
-	VkSemaphore *renderer_incoming_semaphores[ZEST_MAX_FIF];
 	zest_index standard_uniform_buffer_id;
 
 	VkImage *swapchain_images;
