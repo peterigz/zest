@@ -4194,6 +4194,15 @@ zest_draw_routine *zest__create_draw_routine_with_builtin_layer(const char *name
 		draw_routine.draw_index = zest_map_last_index(ZestRenderer->mesh_layers);
 		draw_routine.update_buffers_callback = zest_UploadMeshBuffersCallback;
 	}
+	else if (builtin_layer == zest_builtin_layer_fonts) {
+		zest_instance_layer layer = { 0 };
+		layer.name = name;
+		draw_routine.draw_callback = zest__draw_font_layer_callback;
+		zest_InitialiseFontLayer(&layer, 1000);
+		zest_map_insert(ZestRenderer->instance_layers, name, layer);
+		draw_routine.draw_index = zest_map_last_index(ZestRenderer->instance_layers);
+		draw_routine.update_buffers_callback = zest__update_instance_layer_buffers_callback;
+	}
 	draw_routine.name = name;
 	draw_routine.cq_index = ZestRenderer->setup_context.command_queue_index;
 	draw_routine.cq_render_pass_index = ZestRenderer->setup_context.draw_commands_index;
@@ -5627,7 +5636,7 @@ zest_index zest_CreateTextureSpritesheet(const char *name, zest_texture_format i
 }
 
 zest_index zest_CreateTextureSingle(const char *name, zest_texture_format image_format) {
-	return zest_CreateTexture(name, zest_texture_storage_type_single, zest_texture_flag_use_filtering, image_format, 10);
+	return zest_CreateTexture(name, zest_texture_storage_type_single, zest_texture_flag_use_filtering, image_format, 1);
 }
 
 zest_index zest_CreateTextureBank(const char *name, zest_texture_format image_format) {
@@ -5699,6 +5708,91 @@ void zest_SetTextureLayerSize(zest_texture *texture, zest_uint size) {
 	texture->texture_layer_size = size;
 }
 //-- End Texture and Image Functions
+
+//-- Fonts
+zest_index zest_LoadFont(const char *filename) {
+	zest_font font = { 0 };
+	char *font_data = zest_ReadEntireFile(filename, 0);
+	zest_vec_resize(font.characters, 256);
+	
+	zest_font_character c;
+	uint32_t character_count = 0;
+
+	zest_uint position = 0;
+	char magic_number[6];
+	memcpy(magic_number, font_data + position, 6);
+	position += 6;
+	ZEST_ASSERT(strcmp((const char*)magic_number, "!TSEZ") == 0);		//Not a valid ztf file
+
+	memcpy(&character_count, font_data + position, sizeof(zest_uint));
+	position += sizeof(zest_uint);
+
+	for (zest_uint i = 0; i != character_count; ++i) {
+		memcpy(&c, font_data + position, sizeof(zest_font_character));
+		position += sizeof(zest_font_character);
+
+		const char key = c.character[0];
+		font.characters[key] = c;
+	}
+
+	memcpy(&font.font_size, font_data + position, sizeof(float));
+	position += sizeof(float);
+
+	zest_uint image_size;
+
+	memcpy(&image_size, font_data + position, sizeof(zest_uint));
+	position += sizeof(zest_uint);
+	zest_byte *image_data = 0;
+	zest_vec_resize(image_data, image_size);
+	memcpy(image_data, font_data + position, image_size);
+
+	font.texture_index = zest_CreateTextureSingle(filename, zest_texture_format_rgba);
+	zest_texture *font_texture = zest_GetTextureByIndex(font.texture_index);
+
+
+	stbi_set_flip_vertically_on_load(1);
+	zest_LoadBitmapImageMemory(zest_GetTextureSingleBitmap(font_texture), image_data, image_size, 0);
+
+	zest_image *image = &font_texture->texture;
+	image->width = zest_GetTextureSingleBitmap(font_texture)->width;
+	image->height = zest_GetTextureSingleBitmap(font_texture)->height;
+
+	zest_vec_free(image_data);
+	zest_vec_free(font_data);
+
+	zest_SetupFontTexture(&font);
+	stbi_set_flip_vertically_on_load(0);
+
+	font.index = zest_map_size(ZestRenderer->fonts);
+	font.name = filename;
+
+	return zest_AddFont(&font);
+}
+
+zest_index zest_AddFont(zest_font *font) {
+	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->fonts, font->name));	//A font already exists with that name
+	zest_map_insert(ZestRenderer->fonts, font->name, *font);
+	return zest_map_size(ZestRenderer->fonts) - 1;
+}
+
+zest_font *zest_GetFont(zest_index font_index) {
+	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->fonts, font_index));	//No font found with that index
+	return zest_map_at_index(ZestRenderer->fonts, font_index);
+}
+
+void zest_SetupFontTexture(zest_font *font) {
+	zest_texture *font_texture = zest_GetTextureByIndex(font->texture_index);
+	if (ZEST__FLAGGED(font_texture->flags, zest_texture_flag_textures_ready)) {
+		zest_CleanUpTexture(font_texture);
+	}
+
+	zest_SetUseFiltering(font_texture, ZEST_FALSE);
+	zest_ProcessTextureImages(font_texture);
+
+	font->pipeline_index = zest_PipelineIndex("pipeline_fonts");
+	font->descriptor_set_index = zest_GetTextureDescriptorSetIndex(font_texture, "Default");
+}
+//-- End Fonts
 
 //Render Targets
 void zest_InitialiseRenderTarget(zest_render_target *render_target, zest_render_target_create_info *info) {
@@ -6205,6 +6299,33 @@ void zest__next_sprite_instance(zest_instance_layer *layer) {
 }
 // End internal sprite layer functionality -----
 
+//Start internal sprite layer functionality -----
+void zest__draw_font_layer_callback(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer) {
+	zest_instance_layer *font_layer = zest_GetInstanceLayerByIndex(draw_routine->draw_index);
+	zest__draw_instance_layer(font_layer, command_buffer);
+	zest__reset_instance_layer_drawing(font_layer);
+}
+
+void zest__next_font_instance(zest_instance_layer *layer) {
+	zest_sprite_instance **instance_ptr = &(zest_sprite_instance*)layer->instance_memory_refs[ZEST_FIF].instance_ptr;
+	*instance_ptr = *instance_ptr + 1;
+	if (*instance_ptr == layer->instance_memory_refs[ZEST_FIF].staging_data->end) {
+		zest_bool grown = zest_GrowBuffer(&layer->instance_memory_refs[ZestDevice->current_fif].staging_data, sizeof(zest_sprite_instance), 0);
+		zest_GrowBuffer(&layer->instance_memory_refs[ZEST_FIF].device_data, sizeof(zest_sprite_instance), 0);
+		if (grown) {
+			layer->instance_memory_refs[ZEST_FIF].instance_count++;
+			layer->instance_memory_refs[ZEST_FIF].instance_ptr = (zest_sprite_instance*)layer->instance_memory_refs[ZEST_FIF].staging_data->data + layer->instance_memory_refs[ZEST_FIF].instance_count;
+		}
+		else {
+			*instance_ptr = *instance_ptr - 1;
+		}
+	}
+	else {
+		layer->instance_memory_refs[ZEST_FIF].instance_count++;
+	}
+}
+// End internal sprite layer functionality -----
+
 //Start internal 3d billboard layer functionality -----
 void zest__draw_billboard_layer_callback(zest_draw_routine *draw_routine, VkCommandBuffer command_buffer) {
 	zest_instance_layer *sprite_layer = zest_GetInstanceLayerByIndex(draw_routine->draw_index);
@@ -6286,7 +6407,7 @@ void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *text
 }
 
 void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type) {
-	ZEST_ASSERT(layer->current_instance_instruction.draw_mode = zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
+	ZEST_ASSERT(layer->current_instance_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
 
 	zest_sprite_instance *sprite = (zest_sprite_instance*)layer->instance_memory_refs[ZEST_FIF].instance_ptr;
 
@@ -6303,6 +6424,120 @@ void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, flo
 	zest__next_sprite_instance(layer);
 }
 //-- End Sprite Drawing API
+
+//-- Start Font Drawing API
+void zest_InitialiseFontLayer(zest_instance_layer *font_layer, zest_uint instance_pool_size) {
+	font_layer->current_color.r = 255;
+	font_layer->current_color.g = 255;
+	font_layer->current_color.b = 255;
+	font_layer->current_color.a = 255;
+	font_layer->multiply_blend_factor = 1;
+	font_layer->push_constants.model = zest_M4(1);
+	font_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
+	font_layer->push_constants.parameters2.x = 0.f;
+	font_layer->push_constants.parameters2.y = 0.f;
+	font_layer->push_constants.parameters2.z = 0.f;
+	font_layer->push_constants.parameters2.w = 0.f;
+	font_layer->layer_size = zest_Vec2Set1(1.f);
+	font_layer->instance_struct_size = sizeof(zest_sprite_instance);
+
+	zest_buffer_info device_buffer_info = zest_CreateVertexBufferInfo();
+	zest_buffer_info staging_buffer_info = zest_CreateStagingBufferInfo();
+	for (ZEST_EACH_FIF_i) {
+		font_layer->instance_memory_refs[i].device_data = zest_CreateBuffer(sizeof(zest_sprite_instance) * instance_pool_size, &device_buffer_info, ZEST_NULL);
+		font_layer->instance_memory_refs[i].staging_data = zest_CreateBuffer(sizeof(zest_sprite_instance) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
+		font_layer->instance_memory_refs[i].instance_count = 0;
+		font_layer->instance_memory_refs[i].instance_count = 0;
+		font_layer->instance_memory_refs[i].instance_ptr = font_layer->instance_memory_refs[i].staging_data->data;
+	}
+
+	font_layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
+	font_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
+
+	zest__reset_instance_layer_drawing(font_layer);
+}
+
+void zest_SetFontDrawing(zest_instance_layer *font_layer, zest_index font_index, zest_index descriptor_set_index, zest_index pipeline_index) {
+	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
+	zest__end_draw_instructions(font_layer);
+	zest__start_instance_instructions(font_layer);
+	zest_font *font = zest_GetFont(font_index);
+	font_layer->current_instance_instruction.pipeline = pipeline_index;
+	font_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(zest_GetTextureByIndex(font->texture_index), descriptor_set_index);
+	font_layer->current_instance_instruction.draw_mode = zest_draw_mode_text;
+	font_layer->current_instance_instruction.asset_index = font_index;
+	font_layer->last_draw_mode = zest_draw_mode_text;
+}
+
+float zest_DrawText(zest_instance_layer *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip) {
+	ZEST_ASSERT(font_layer->current_instance_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
+
+	zest_font *font = zest_GetFont(font_layer->current_instance_instruction.asset_index);
+	zest_texture *font_texture = zest_GetTextureByIndex(font->texture_index);
+
+	size_t length = strlen(text);
+	if (length <= 0) {
+		return 0;
+	}
+
+	if (handle_x || handle_y) {
+		x -= zest_TextWidth(font, text, size, letter_spacing) * handle_x;
+		y += font->font_size * size * handle_y * 0.5f;
+	}
+
+	float xpos = x;
+
+	for (int i = 0; i != length; ++i) {
+		zest_sprite_instance *font_instance = (zest_sprite_instance*)font_layer->instance_memory_refs[ZEST_FIF].instance_ptr;
+		zest_font_character *character = &font->characters[text[i]];
+
+		if (character->skip) {
+			xpos += character->xadvance * size + letter_spacing;
+			continue;
+		}
+
+		float width = character->width * size;
+		float height = character->height * size * flip;
+		float xoffset = character->xoffset * size;
+		float yoffset = character->yoffset * size * flip;
+
+		float uv_width = font_texture->texture.width * (character->uv.z - character->uv.x);
+		float uv_height = font_texture->texture.height * (character->uv.y - character->uv.w);
+		float scale = width / uv_width;
+
+		font_instance->size = zest_Vec2Set(width, height);
+		font_instance->handle = zest_Vec2Set1(0.f);
+		font_instance->position_rotation = zest_Vec4Set(xpos + xoffset, y + yoffset, 0.f, 0.f);
+		font_instance->uv = character->uv;
+		font_instance->intensity = font_layer->multiply_blend_factor;
+		font_instance->alignment = 1;
+		font_instance->color = font_layer->current_color;
+		font_instance->image_layer_index = 0;
+		font_layer->current_instance_instruction.total_instances++;
+
+		zest__next_font_instance(font_layer);
+
+		xpos += character->xadvance * size + letter_spacing;
+	}
+
+	return xpos;
+}
+
+float zest_TextWidth(zest_font *font, const char *text, float font_size, float letter_spacing) {
+
+	float width = 0;
+
+	size_t length = strlen(text);
+
+	for (int i = 0; i != length; ++i) {
+		zest_font_character *character = &font->characters[text[i]];
+
+		width += character->xadvance * font_size + letter_spacing;
+	}
+
+	return width;
+}
+//-- End Font Drawing API
 
 //-- Start Billboard Drawing API
 void zest_InitialiseBillboardLayer(zest_instance_layer *billboard_layer, zest_uint instance_pool_size) {
@@ -6336,18 +6571,18 @@ void zest_InitialiseBillboardLayer(zest_instance_layer *billboard_layer, zest_ui
 	zest__reset_instance_layer_drawing(billboard_layer);
 }
 
-void zest_SetBillboardDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index descriptor_set_index, zest_index pipeline_index) {
+void zest_SetBillboardDrawing(zest_instance_layer *billboard_layer, zest_texture *texture, zest_index descriptor_set_index, zest_index pipeline_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
-	zest__end_draw_instructions(sprite_layer);
-	zest__start_instance_instructions(sprite_layer);
-	sprite_layer->current_instance_instruction.pipeline = pipeline_index;
-	sprite_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
-	sprite_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
-	sprite_layer->last_draw_mode = zest_draw_mode_instance;
+	zest__end_draw_instructions(billboard_layer);
+	zest__start_instance_instructions(billboard_layer);
+	billboard_layer->current_instance_instruction.pipeline = pipeline_index;
+	billboard_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
+	billboard_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
+	billboard_layer->last_draw_mode = zest_draw_mode_instance;
 }
 
 void zest_DrawBillboard(zest_instance_layer *layer, zest_image *image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy) {
-	ZEST_ASSERT(layer->current_instance_instruction.draw_mode = zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
+	ZEST_ASSERT(layer->current_instance_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
 
 	zest_billboard_instance *billboard = (zest_billboard_instance*)layer->instance_memory_refs[ZEST_FIF].instance_ptr;
 
