@@ -1808,7 +1808,7 @@ void zest__initialise_renderer(zest_create_info *create_info) {
 	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 	for (ZEST_EACH_FIF_i) {
 		ZEST_VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_info, &ZestDevice->allocation_callbacks, &ZestRenderer->fif_fence[i]));
-		zest_UpdateStandardUniformBufferFIF(i);
+		zest_Update2dUniformBufferFIF(i);
 	}
 
 	zest__create_final_render_command_buffer();
@@ -2211,7 +2211,7 @@ zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_s
 	return zest_add_uniform_buffer(name, &uniform_buffer);
 }
 
-void zest_UpdateStandardUniformBuffer() {
+void zest_Update2dUniformBuffer() {
 	zest_uniform_buffer_data *ubo_ptr = (zest_uniform_buffer_data*)zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer_id);
 	zest_vec3 eye = { .x = 0.f, .y = 0.f, .z = -1 };
 	zest_vec3 center = { 0 };
@@ -2223,7 +2223,7 @@ void zest_UpdateStandardUniformBuffer() {
 	ubo_ptr->millisecs = zest_Millisecs();
 }
 
-void zest_UpdateStandardUniformBufferFIF(zest_index fif) {
+void zest_Update2dUniformBufferFIF(zest_index fif) {
 	zest_uniform_buffer_data *ubo_ptr = (zest_uniform_buffer_data*)zest_GetUniformBufferDataFIF(ZestRenderer->standard_uniform_buffer_id, fif);
 	zest_vec3 eye = { .x = 0.f, .y = 0.f, .z = -1 };
 	zest_vec3 center = { 0 };

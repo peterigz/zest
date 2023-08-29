@@ -1584,8 +1584,8 @@ ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader *uploader, VkCommandBu
 ZEST_API zest_buffer_pool_size zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
 ZEST_API void zest_SetDevicePoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
 ZEST_API zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
-ZEST_API void zest_UpdateStandardUniformBuffer(void);
-ZEST_API void zest_UpdateStandardUniformBufferFIF(zest_index fif);
+ZEST_API void zest_Update2dUniformBuffer(void);
+ZEST_API void zest_Update2dUniformBufferFIF(zest_index fif);
 //--End Buffer related
 
 //Command queue setup and creation
