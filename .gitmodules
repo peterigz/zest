@@ -4,3 +4,9 @@
 [submodule "submodules/imgui_test_engine"]
 	path = submodules/imgui_test_engine
 	url = https://github.com/ocornut/imgui_test_engine.git
+[submodule "submodules/imgui-file-dialog"]
+	path = submodules/imgui-file-dialog
+	url = https://github.com/aiekick/ImGuiFileDialog.git
+[submodule "submodules/imgui_file_dialog"]
+	path = submodules/imgui_file_dialog
+	url = https://github.com/aiekick/ImGuiFileDialog.git
