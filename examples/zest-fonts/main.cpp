@@ -20,7 +20,7 @@ void InitExample(zest_example *example) {
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_example *example = (zest_example*)user_data;
-	zest_UpdateStandardUniformBuffer();
+	zest_Update2dUniformBuffer();
 	zest_SetActiveRenderQueue(0);
 
 	zest_instance_layer *font_layer = zest_GetInstanceLayerByIndex(example->font_layer);

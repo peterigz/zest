@@ -177,7 +177,7 @@ bool GenerateAtlas(const char *fontFilename, const char *save_to, zest_font_conf
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Don't forget to update the uniform buffer!
-	zest_UpdateStandardUniformBuffer();
+	zest_Update2dUniformBuffer();
 	zest_SetActiveRenderQueue(0);
 	ImGuiApp *app = (ImGuiApp*)user_data;
 	zest_instance_layer *sprite_layer = zest_GetInstanceLayerByIndex(0);
