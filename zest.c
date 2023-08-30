@@ -2862,6 +2862,20 @@ void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) {
 	return T; 
 }
 
+void zest_SetText(zest_text *buffer, const char *text) {
+	zest_size length = strlen(text) + 1;
+	zest_vec_resize(buffer->str, strlen(text));
+	zest_strcpy(buffer->str, length, text);
+}
+
+void zest_FreeText(zest_text *buffer) { 
+	zest_vec_free(buffer->str); 
+}
+
+zest_uint zest_TextLength(zest_text *buffer) { 
+	return zest_vec_size(buffer->str); 
+}
+
 //End api functions
 
 void zest__prepare_standard_pipelines() {
@@ -4848,13 +4862,16 @@ void zest__delete_texture(zest_texture *texture) {
 	}
 	zest_vec_free(texture->buffer_copy_regions);
 	ZEST__UNFLAG(texture->flags, zest_texture_flag_textures_ready);
-	zest_map_remove(ZestRenderer->textures, texture->name);
-	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, texture->name));
+	zest_map_remove(ZestRenderer->textures, texture->name.str);
+	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, texture->name.str));
+	zest_FreeText(&texture->name);
 }
 
 void zest__delete_font(zest_font *font) {
-	zest_map_remove(ZestRenderer->fonts, font->name);
-	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->fonts, font->name));
+	zest_map_remove(ZestRenderer->fonts, font->name.str);
+	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->fonts, font->name.str));
+	zest_vec_free(font->characters);
+	zest_FreeText(&font->name);
 }
 
 void zest__cleanup_texture(zest_texture *texture) {
@@ -5655,7 +5672,7 @@ void zest_SetTextureStorageType(zest_texture *texture, zest_texture_storage_type
 zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_texture_format image_format, zest_uint reserve_images) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, name));	//That name already exists
 	zest_texture texture = zest_NewTexture();
-	texture.name = name;
+	zest_SetText(&texture.name, name);
 	zest_SetTextureImageFormat(&texture, image_format);
 	if (storage_type < zest_texture_storage_type_render_target) {
 		zest_SetTextureStorageType(&texture, storage_type);
@@ -5809,7 +5826,7 @@ zest_index zest_LoadFont(const char *filename) {
 	stbi_set_flip_vertically_on_load(0);
 
 	font.index = zest_map_size(ZestRenderer->fonts);
-	font.name = filename;
+	zest_SetText(&font.name, filename);
 
 	return zest_AddFont(&font);
 }
@@ -5817,14 +5834,13 @@ zest_index zest_LoadFont(const char *filename) {
 void zest_UnloadFont(zest_index font_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->fonts, font_index));
 	zest_font *font = zest_GetFont(font_index);
-	zest_vec_free(font->characters);
 	zest_DeleteTexture(font->texture_index);
 	zest__delete_font(font);
 }
 
 zest_index zest_AddFont(zest_font *font) {
-	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->fonts, font->name));	//A font already exists with that name
-	zest_map_insert(ZestRenderer->fonts, font->name, *font);
+	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->fonts, font->name.str));	//A font already exists with that name
+	zest_map_insert(ZestRenderer->fonts, font->name.str, *font);
 	return zest_map_size(ZestRenderer->fonts) - 1;
 }
 

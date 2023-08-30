@@ -558,8 +558,17 @@ ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) {
 #define zest_map_foreach_j(hash_map) zest_foreach_j(hash_map.map)
 // --End pocket hash map
 
-// --Matrix and vector structs
+// --Begin pocket text buffer
+typedef struct zest_text {
+	char *str;
+} zest_text;
 
+ZEST_API void zest_SetText(zest_text *buffer, const char *text);
+ZEST_API void zest_FreeText(zest_text *buffer);
+ZEST_API zest_uint zest_TextLength(zest_text *buffer);
+// --End pocket text buffer
+
+// --Matrix and vector structs
 typedef struct zest_vec2 {
 	float x, y;
 } zest_vec2;
@@ -1107,7 +1116,7 @@ typedef struct zest_font_character {
 } zest_font_character;
 
 typedef struct zest_font {
-	const char *name;
+	zest_text name;
 	zest_index texture_index;
 	zest_index pipeline_index;
 	zest_index descriptor_set_index;
@@ -1181,7 +1190,7 @@ struct zest_texture {
 	VkImageLayout image_layout;
 	VkFormat image_format;
 
-	const char *name;
+	zest_text name;
 
 	zest_imgui_blendtype imgui_blend_type;
 	VkSampler sampler;
