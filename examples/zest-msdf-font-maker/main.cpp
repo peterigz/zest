@@ -33,11 +33,14 @@ void InitImGuiApp(ImGuiApp *app) {
 			app->imgui_layer_info.mesh_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
 			zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
 			zest_ContextDrawRoutine()->data = &app->imgui_layer_info;
+			app->font_layer = zest_NewBuiltinLayerSetup("Font layer", zest_builtin_layer_fonts);
 		}
 		zest_FinishQueueSetup();
 	}
 	
 	app->config.font_file = "";
+
+	app->font_index = -1;
 }
 
 static void SaveFont(std::string filename, std::map<const char, zest_font_character> *characters, float size, zest_bitmap *bitmap) {
@@ -118,7 +121,6 @@ bool GenerateAtlas(const char *fontFilename, const char *save_to, zest_font_conf
 			generator.generate(glyphs.data(), (int)glyphs.size());
 			// The atlas bitmap can now be retrieved via atlasStorage as a BitmapConstRef.
 			// The glyphs array (or font_geometry) contains positioning data for typesetting text.
-			//success = myProject::submitAtlasBitmapAndLayout(generator.atlasStorage(), glyphs);
 			msdfgen::savePng(generator.atlasStorage(), "test.png");
 
 			msdfgen::BitmapConstRef<unsigned char, 4> atlas = (msdfgen::BitmapConstRef<unsigned char, 4>) generator.atlasStorage();
@@ -169,6 +171,7 @@ bool GenerateAtlas(const char *fontFilename, const char *save_to, zest_font_conf
 			zest_FreeBitmap(&bitmap);
 			// Cleanup
 			msdfgen::destroyFont(font);
+			success = true;
 		}
 		msdfgen::deinitializeFreetype(ft);
 	}
@@ -180,7 +183,21 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_Update2dUniformBuffer();
 	zest_SetActiveRenderQueue(0);
 	ImGuiApp *app = (ImGuiApp*)user_data;
-	zest_instance_layer *sprite_layer = zest_GetInstanceLayerByIndex(0);
+
+	if (app->load_next_font && !zest_map_valid_name(ZestRenderer->textures, app->config.font_save_file.c_str())) {
+		app->font_index = zest_LoadFont(app->config.font_save_file.c_str());
+		app->load_next_font = ZEST_FALSE;
+	}
+
+	if (app->font_index != -1) {
+		zest_instance_layer *font_layer = zest_GetInstanceLayerByIndex(app->font_layer);
+		zest_font *font = zest_GetFont(app->font_index);
+
+		font_layer->multiply_blend_factor = 1.f;
+		font_layer->push_constants = { 0 };
+		zest_SetFontDrawing(font_layer, app->font_index, font->descriptor_set_index, font->pipeline_index);
+		zest_DrawText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, 50.f, 0.f, 1.f);
+	}
 
 	ImGui_ImplGlfw_NewFrame();
 
@@ -226,13 +243,20 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 			std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
 			app->config.font_save_file = path.string();
 			app->config.font_folder = ImGuiFileDialog::Instance()->GetCurrentPath();
-			GenerateAtlas(app->config.font_path.c_str(), app->config.font_save_file.c_str(), &app->config);
+			if (GenerateAtlas(app->config.font_path.c_str(), app->config.font_save_file.c_str(), &app->config)) {
+				if (app->font_index != -1) {
+					zest_UnloadFont(app->font_index);
+					app->font_index = -1;
+				}
+				app->load_next_font = ZEST_TRUE;
+			}
 		}
 		ImGuiFileDialog::Instance()->Close();
 	}
 
 	ImGui::End();
 	ImGui::Render();
+
 	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer_index);
 }
 
@@ -241,7 +265,7 @@ int main(void) {
 	zest_create_info create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
 
-	ImGuiApp imgui_app;
+	ImGuiApp imgui_app = { 0 };
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&imgui_app);

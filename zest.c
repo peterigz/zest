@@ -1320,13 +1320,23 @@ zest_microsecs zest__set_elapsed_time() {
 	return ZestApp->current_elapsed;
 }
 
+void zest__do_scheduled_tasks(zest_index index) {
+	if (zest_vec_size(ZestRenderer->texture_delete_queue)) {
+		for (zest_foreach_i(ZestRenderer->texture_delete_queue)) {
+			zest_texture *texture = zest_GetTextureByIndex(ZestRenderer->texture_delete_queue[i]);
+			zest__delete_texture(texture);
+		}
+		zest_vec_clear(ZestRenderer->texture_delete_queue);
+	}
+}
+
 void zest__main_loop(void) {
 	ZestApp->current_elapsed_time = zest_Microsecs();
 	ZEST_ASSERT(ZestApp->update_callback);	//Must define an update callback function
 	while (!(ZestApp->flags & zest_app_flag_quit_application)) {
 
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
-		//DoScheduledTasks(ZestDevice->current_fif);
+		zest__do_scheduled_tasks(ZestDevice->current_fif);
 
 		ZestRenderer->poll_events_callback();
 
@@ -1939,32 +1949,20 @@ void zest__destroy_pipeline_set(zest_pipeline_set *p) {
 
 void zest__cleanup_pipelines() {
 	for (zest_map_foreach_i(ZestRenderer->pipeline_sets)) {
-		zest__destroy_pipeline_set(&ZestRenderer->pipeline_sets.data[i]);
+		zest_index pipeline_index = zest_map_index(ZestRenderer->pipeline_sets, i);
+		zest_pipeline_set *pipeline_set = zest_Pipeline(zest_map_index(ZestRenderer->pipeline_sets, pipeline_index));
+		zest__destroy_pipeline_set(pipeline_set);
 	}
 }
 
 void zest__cleanup_textures() {
 	for (zest_map_foreach_i(ZestRenderer->textures)) {
-		zest_texture *texture = zest_map_at_index(ZestRenderer->textures, i);
+		zest_index texture_index = zest_map_index(ZestRenderer->textures, i);
+		zest_texture *texture = zest_GetTextureByIndex(zest_map_index(ZestRenderer->textures, texture_index));
 		if (texture->flags & zest_texture_flag_textures_ready) {
 			zest__cleanup_texture(texture);
 		}
 	}
-}
-
-void zest__cleanup_texture(zest_texture *texture) {
-	//It would be nice if we didn't have to wait for the device to be idle here, but images can't be destroyed if they're currently used
-	//in a command buffer
-	zest_WaitForIdleDevice();
-	vkDestroySampler(ZestDevice->logical_device, texture->sampler, &ZestDevice->allocation_callbacks);
-	vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer.view, &ZestDevice->allocation_callbacks);
-	vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer.image, &ZestDevice->allocation_callbacks);
-	if (texture->stream_staging_buffer != ZEST_NULL) {
-		zloc_FreeRemote(texture->stream_staging_buffer->buffer_allocator->allocator, texture->stream_staging_buffer);
-		texture->stream_staging_buffer = ZEST_NULL;
-	}
-	zloc_FreeRemote(texture->frame_buffer.buffer->buffer_allocator->allocator, texture->frame_buffer.buffer);
-	texture->flags &= ~zest_texture_flag_textures_ready;
 }
 
 void zest__cleanup_framebuffer(zest_frame_buffer *frame_buffer) {
@@ -1988,17 +1986,20 @@ void zest__cleanup_renderer() {
 	zest__cleanup_textures();
 
 	for (zest_map_foreach_i(ZestRenderer->render_targets)) {
-		zest_CleanUpRenderTarget(zest_map_at_index(ZestRenderer->render_targets, i));
+		zest_index target_index = zest_map_index(ZestRenderer->render_targets, i);
+		zest_CleanUpRenderTarget(zest_map_at_index(ZestRenderer->render_targets, target_index));
 	}
 	zest_map_clear(ZestRenderer->render_targets);
 
 	for (zest_map_foreach_i(ZestRenderer->render_passes)) {
-		vkDestroyRenderPass(ZestDevice->logical_device, ZestRenderer->render_passes.data[i].render_pass, &ZestDevice->allocation_callbacks);
+		zest_index pass_index = zest_map_index(ZestRenderer->render_passes, i);
+		vkDestroyRenderPass(ZestDevice->logical_device, ZestRenderer->render_passes.data[pass_index].render_pass, &ZestDevice->allocation_callbacks);
 	}
 	zest_map_clear(ZestRenderer->render_passes);
 
 	for (zest_map_foreach_i(ZestRenderer->draw_routines)) {
-		zest_draw_routine *draw_routine = zest_map_at_index(ZestRenderer->draw_routines, i);
+		zest_index routine_index = zest_map_index(ZestRenderer->draw_routines, i);
+		zest_draw_routine *draw_routine = zest_map_at_index(ZestRenderer->draw_routines, routine_index);
 		if (draw_routine->clean_up_callback) {
 			draw_routine->clean_up_callback(draw_routine);
 		}
@@ -2007,7 +2008,8 @@ void zest__cleanup_renderer() {
 	zest_map_clear(ZestRenderer->draw_routines);
 
 	for (zest_map_foreach_i(ZestRenderer->descriptor_layouts)) {
-		vkDestroyDescriptorSetLayout(ZestDevice->logical_device, ZestRenderer->descriptor_layouts.data[i].descriptor_layout, &ZestDevice->allocation_callbacks);
+		zest_index layout_index = zest_map_index(ZestRenderer->descriptor_layouts, i);
+		vkDestroyDescriptorSetLayout(ZestDevice->logical_device, ZestRenderer->descriptor_layouts.data[layout_index].descriptor_layout, &ZestDevice->allocation_callbacks);
 	}
 	zest_map_clear(ZestRenderer->descriptor_layouts);
 
@@ -2018,13 +2020,15 @@ void zest__cleanup_renderer() {
 	}
 
 	for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
-		for (zest_foreach_j(ZestRenderer->buffer_allocators.data[i].memory_pools)) {
-			zest__destroy_memory(&ZestRenderer->buffer_allocators.data[i].memory_pools[j]);
+		zest_index buffer_index = zest_map_index(ZestRenderer->buffer_allocators, i);
+		for (zest_foreach_j(ZestRenderer->buffer_allocators.data[buffer_index].memory_pools)) {
+			zest__destroy_memory(&ZestRenderer->buffer_allocators.data[buffer_index].memory_pools[j]);
 		}
 	}
 
 	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
-		zest__cleanup_command_queue(zest_map_at_index(ZestRenderer->command_queues, i));
+		zest_index queue_index = zest_map_index(ZestRenderer->command_queues, i);
+		zest__cleanup_command_queue(zest_map_at_index(ZestRenderer->command_queues, queue_index));
 	}
 	zest__cleanup_command_queue(&ZestRenderer->empty_queue);
 
@@ -2060,13 +2064,15 @@ void zest__recreate_swapchain() {
 
 	zest__create_swap_chain_frame_buffers(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer));
 	for (zest_map_foreach_i(ZestRenderer->render_targets)) {
-		zest_RecreateRenderTargetResources(zest_map_at_index(ZestRenderer->render_targets, i));
+		zest_index target_index = zest_map_index(ZestRenderer->render_targets, i);
+		zest_RecreateRenderTargetResources(zest_map_at_index(ZestRenderer->render_targets, target_index));
 	}
 	VkExtent2D extent;
 	extent.width = width;
 	extent.height = height;
 	for (zest_map_foreach_i(ZestRenderer->pipeline_sets)) {
-		zest_pipeline_set *pipeline = &ZestRenderer->pipeline_sets.data[i];
+		zest_index pipeline_index = zest_map_index(ZestRenderer->pipeline_sets, i);
+		zest_pipeline_set *pipeline = &ZestRenderer->pipeline_sets.data[pipeline_index];
 		if (!pipeline->rebuild_pipeline_function) {
 			zest__rebuild_pipeline(pipeline);
 		}
@@ -2078,7 +2084,8 @@ void zest__recreate_swapchain() {
 	zest__create_final_render_command_buffer();
 
 	for (zest_map_foreach_i(ZestRenderer->draw_routines)) {
-		zest_draw_routine *draw_routine = zest_map_at_index(ZestRenderer->draw_routines, i);
+		zest_index routine_index = zest_map_index(ZestRenderer->draw_routines, i);
+		zest_draw_routine *draw_routine = zest_map_at_index(ZestRenderer->draw_routines, routine_index);
 		if (!draw_routine->update_resolution_callback && draw_routine->draw_index != -1) {
 			zest_instance_layer *layer = zest_GetInstanceLayerByIndex(draw_routine->draw_index);
 			zest__update_instance_layer_resolution(layer);
@@ -2086,6 +2093,7 @@ void zest__recreate_swapchain() {
 		else if (draw_routine->update_resolution_callback)
 			draw_routine->update_resolution_callback(draw_routine);
 	}
+
 	/*
 	for (auto &compute : App.computers) {
 		if (compute.is_active) {
@@ -2095,15 +2103,11 @@ void zest__recreate_swapchain() {
 			}
 		}
 	}
-
-	if (App.create_info.use_imgui) {
-		ImGuiIO& io = ImGui::GetIO();
-		io.DisplaySize = ImVec2(fScreenWidth(), fScreenHeight());
-	}
 	*/
 
 	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
-		zest_command_queue *command_queue = zest_map_at_index(ZestRenderer->command_queues, i);
+		zest_index command_index = zest_map_index(ZestRenderer->command_queues, i);
+		zest_command_queue *command_queue = zest_map_at_index(ZestRenderer->command_queues, command_index);
 		for (zest_foreach_j(command_queue->draw_commands)) {
 			zest_index render_command_index = command_queue->draw_commands[j];
 			zest_command_queue_draw_commands *render_command = zest_map_at_index(ZestRenderer->command_queue_draw_commands, render_command_index);
@@ -3088,7 +3092,7 @@ void zest__create_final_render_command_buffer() {
 
 		vkCmdBeginRenderPass(ZestRenderer->present_command_buffers[i], &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
-		VkViewport view = zest_CreateViewport((float)ZestRenderer->swapchain_extent.width, (float)ZestRenderer->swapchain_extent.height, 0.f, 1.f);
+		VkViewport view = zest_CreateViewport(0.f, 0.f, (float)ZestRenderer->swapchain_extent.width, (float)ZestRenderer->swapchain_extent.height, 0.f, 1.f);
 		VkRect2D scissor = zest_CreateRect2D(ZestRenderer->swapchain_extent.width, ZestRenderer->swapchain_extent.height, 0, 1);
 		vkCmdSetViewport(ZestRenderer->present_command_buffers[i], 0, 1, &view);
 		vkCmdSetScissor(ZestRenderer->present_command_buffers[i], 0, 1, &scissor);
@@ -3127,7 +3131,7 @@ void zest__rerecord_final_render_command_buffer() {
 
 		vkCmdBeginRenderPass(ZestRenderer->present_command_buffers[i], &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
-		VkViewport view = zest_CreateViewport((float)ZestRenderer->swapchain_extent.width, (float)ZestRenderer->swapchain_extent.height, 0.f, 1.f);
+		VkViewport view = zest_CreateViewport(0.f, 0.f, (float)ZestRenderer->swapchain_extent.width, (float)ZestRenderer->swapchain_extent.height, 0.f, 1.f);
 		VkRect2D scissor = zest_CreateRect2D(ZestRenderer->swapchain_extent.width, ZestRenderer->swapchain_extent.height, 0, 0);
 		vkCmdSetViewport(ZestRenderer->present_command_buffers[i], 0, 1, &view);
 		vkCmdSetScissor(ZestRenderer->present_command_buffers[i], 0, 1, &scissor);
@@ -3289,7 +3293,7 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands *item, VkC
 
 	vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
-	VkViewport view = zest_CreateViewport((float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
+	VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
 	VkRect2D scissor = zest_CreateRect2D(item->viewport.extent.width, item->viewport.extent.height, 0, 0);
 	vkCmdSetViewport(command_buffer, 0, 1, &view);
 	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
@@ -3404,7 +3408,7 @@ void zest_ConnectCommandQueueToPresent(zest_command_queue *sender, VkPipelineSta
 // --Command Queue functions
 
 // --General Helper Functions
-VkViewport zest_CreateViewport(float width, float height, float minDepth, float maxDepth) {
+VkViewport zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth) {
 	VkViewport viewport = { 0 };
 	viewport.width = width;
 	viewport.height = height;
@@ -4818,20 +4822,56 @@ float zest_CopyAnimationFrames(zest_texture *texture, zest_bitmap *spritesheet, 
 
 }
 
-void zest_CleanUpTexture(zest_texture *texture) {
+// --Internal Texture functions
+void zest__free_all_texture_images(zest_texture *texture) {
+	int count = 0;
+	for (zest_foreach_i(texture->image_bitmaps)) {
+		zest_FreeBitmap(&texture->image_bitmaps[i]);
+		count++;
+	}
+	zest_DeleteTextureLayers(texture);
+	zest_vec_clear(texture->images);
+	zest_vec_clear(texture->image_bitmaps);
+	if (texture->bitmap_array.data) {
+		ZEST__FREE(texture->bitmap_array.data);
+	}
+	texture->image_index = 0;
+	zest_FreeBitmap(&texture->texture_bitmap);
+}
+
+void zest__delete_texture(zest_texture *texture) {
+	zest__cleanup_texture(texture);
+	zest__free_all_texture_images(texture);
+	zest_map_free(texture->descriptor_sets);
+	if (texture->stream_staging_buffer) {
+		zest_FreeBuffer(texture->stream_staging_buffer);
+	}
+	zest_vec_free(texture->buffer_copy_regions);
+	ZEST__UNFLAG(texture->flags, zest_texture_flag_textures_ready);
+	zest_map_remove(ZestRenderer->textures, texture->name);
+	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, texture->name));
+}
+
+void zest__delete_font(zest_font *font) {
+	zest_map_remove(ZestRenderer->fonts, font->name);
+	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->fonts, font->name));
+}
+
+void zest__cleanup_texture(zest_texture *texture) {
 	//It would be nice if we didn't have to wait for the device to be idle here, but images can't be destroyed if they're currently used
 	//in a command buffer
 	zest_WaitForIdleDevice();
-	vkDestroySampler(ZestDevice->logical_device, texture->sampler, ZEST_NULL);
-	vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer.view, ZEST_NULL);
-	vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer.image, ZEST_NULL);
+	vkDestroySampler(ZestDevice->logical_device, texture->sampler, &ZestDevice->allocation_callbacks);
+	vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer.view, &ZestDevice->allocation_callbacks);
+	vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer.image, &ZestDevice->allocation_callbacks);
 	zest_FreeBuffer(texture->frame_buffer.buffer);
 	texture->flags &= ~zest_texture_flag_textures_ready;
 }
+// --End Internal Texture functions
 
 void zest_ProcessTextureImages(zest_texture *texture) {
 	if (texture->flags & zest_texture_flag_textures_ready) {
-		zest_CleanUpTexture(texture);
+		zest__cleanup_texture(texture);
 	}
 
 	if (zest_vec_empty(texture->images) && texture->storage_type != zest_texture_storage_type_storage && texture->storage_type != zest_texture_storage_type_single)
@@ -4978,7 +5018,7 @@ void zest_DeleteTextureLayers(zest_texture *texture) {
 	for (zest_foreach_i(texture->layers)) {
 		zest_FreeBitmap(&texture->layers[i]);
 	}
-	zest_vec_clear(texture->layers);
+	zest_vec_free(texture->layers);
 }
 
 zest_index zest_CreateTextureDescriptorSets(zest_texture *texture, const char *name, const char *uniform_buffer_name) {
@@ -5034,7 +5074,8 @@ void zest_UpdateTextureSingleDescriptorSet(zest_texture *texture, const char *na
 void zest_UpdateAllTextureDescriptorWrites(zest_texture *texture) {
 	for (ZEST_EACH_FIF_i) {
 		for (zest_map_foreach_j(texture->descriptor_sets)) {
-			zest_descriptor_set *set = zest_map_at_index(texture->descriptor_sets, j);
+			zest_index set_index = zest_map_index(texture->descriptor_sets, j);
+			zest_descriptor_set *set = zest_map_at_index(texture->descriptor_sets, set_index);
 			for (zest_foreach_k(set->descriptor_writes[i])) {
 				VkWriteDescriptorSet *write = &set->descriptor_writes[i][k];
 				write->dstSet = set->descriptor_set[i];
@@ -5052,7 +5093,8 @@ void zest_UpdateAllTextureDescriptorWrites(zest_texture *texture) {
 void zest_UpdateAllTextureDescriptorSets(zest_texture *texture) {
 	for (ZEST_EACH_FIF_i) {
 		for (zest_map_foreach_j(texture->descriptor_sets)) {
-			zest_descriptor_set *set = zest_map_at_index(texture->descriptor_sets, j);
+			zest_index set_index = zest_map_index(texture->descriptor_sets, j);
+			zest_descriptor_set *set = zest_map_at_index(texture->descriptor_sets, set_index);
 			zest_UpdateDescriptorSet(set->descriptor_writes[i]);
 		}
 	}
@@ -5643,6 +5685,10 @@ zest_index zest_CreateTextureBank(const char *name, zest_texture_format image_fo
 	return zest_CreateTexture(name, zest_texture_storage_type_bank, zest_texture_flag_use_filtering, image_format, 10);
 }
 
+void zest_DeleteTexture(zest_index texture_index) {
+	zest_vec_push(ZestRenderer->texture_delete_queue, texture_index);
+}
+
 void zest_SetTextureImageFormat(zest_texture *texture, zest_texture_format format) {
 	ZEST_ASSERT(zest_vec_size(texture->images) == 0);	//You cannot change the image format of a texture that already has images
 	texture->image_format = format;
@@ -5749,7 +5795,6 @@ zest_index zest_LoadFont(const char *filename) {
 	font.texture_index = zest_CreateTextureSingle(filename, zest_texture_format_rgba);
 	zest_texture *font_texture = zest_GetTextureByIndex(font.texture_index);
 
-
 	stbi_set_flip_vertically_on_load(1);
 	zest_LoadBitmapImageMemory(zest_GetTextureSingleBitmap(font_texture), image_data, image_size, 0);
 
@@ -5769,6 +5814,14 @@ zest_index zest_LoadFont(const char *filename) {
 	return zest_AddFont(&font);
 }
 
+void zest_UnloadFont(zest_index font_index) {
+	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->fonts, font_index));
+	zest_font *font = zest_GetFont(font_index);
+	zest_vec_free(font->characters);
+	zest_DeleteTexture(font->texture_index);
+	zest__delete_font(font);
+}
+
 zest_index zest_AddFont(zest_font *font) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->fonts, font->name));	//A font already exists with that name
 	zest_map_insert(ZestRenderer->fonts, font->name, *font);
@@ -5783,7 +5836,7 @@ zest_font *zest_GetFont(zest_index font_index) {
 void zest_SetupFontTexture(zest_font *font) {
 	zest_texture *font_texture = zest_GetTextureByIndex(font->texture_index);
 	if (ZEST__FLAGGED(font_texture->flags, zest_texture_flag_textures_ready)) {
-		zest_CleanUpTexture(font_texture);
+		zest__cleanup_texture(font_texture);
 	}
 
 	zest_SetUseFiltering(font_texture, ZEST_FALSE);
@@ -6104,7 +6157,7 @@ void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands *item, VkC
 
 	vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
-	VkViewport view = zest_CreateViewport((float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
+	VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
 	VkRect2D scissor = zest_CreateRect2D(item->viewport.extent.width, item->viewport.extent.height, 0, 0);
 	vkCmdSetViewport(command_buffer, 0, 1, &view);
 	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
@@ -6151,7 +6204,7 @@ void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands *item, V
 	for (zest_foreach_i(item->render_targets)) {
 		zest_render_target *target = zest_GetRenderTargetByIndex(item->render_targets[i]);
 		if (!target->post_process_callback) {
-			VkViewport view = zest_CreateViewport((float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
+			VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
 			VkRect2D scissor = zest_CreateRect2D(item->viewport.extent.width, item->viewport.extent.height, 0, 0);
 			vkCmdSetViewport(command_buffer, 0, 1, &view);
 			vkCmdSetScissor(command_buffer, 0, 1, &scissor);
@@ -6250,11 +6303,8 @@ void zest__draw_instance_layer(zest_instance_layer *instance_layer, VkCommandBuf
 	for (zest_foreach_i(instance_layer->instance_instructions[ZEST_FIF])) {
 		zest_instance_instruction *current = &instance_layer->instance_instructions[ZEST_FIF][i];
 
-		if (current->draw_mode == zest_draw_mode_viewport) {
-			vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
-			vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
-			continue;
-		}
+		vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
+		vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
 		
 		vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(instance_layer->instance_memory_refs[ZEST_FIF].device_data), instance_data_offsets);
 
@@ -6354,13 +6404,9 @@ void zest__next_billboard_instance(zest_instance_layer *layer) {
 // End internal 3d billboard layer functionality -----
 
 //-- Draw Layers API
-void zest_SetViewPort(zest_instance_layer *instance_layer, int x, int y, zest_uint width, zest_uint height, float viewport_width, float viewport_height) {
-	zest__end_draw_instructions(instance_layer);
-	zest__start_instance_instructions(instance_layer);
-	instance_layer->current_instance_instruction.draw_mode = zest_draw_mode_viewport;
-	instance_layer->last_draw_mode = zest_draw_mode_viewport;
-	instance_layer->current_instance_instruction.scissor = zest_CreateRect2D(width, height, x, y);
-	instance_layer->current_instance_instruction.viewport = zest_CreateViewport(viewport_width, viewport_height, 0.f, 1.f);
+void zest_SetInstanceLayerViewPort(zest_instance_layer *instance_layer, int x, int y, zest_uint width, zest_uint height, float viewport_width, float viewport_height) {
+	instance_layer->scissor = zest_CreateRect2D(width, height, x, y);
+	instance_layer->viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
 }
 //-- End Draw Layers
 
@@ -6393,6 +6439,8 @@ void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint ins
 	sprite_layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
 	sprite_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
 
+	zest_SetInstanceLayerViewPort(sprite_layer, 0, 0, (zest_uint)sprite_layer->viewport_size.x, (zest_uint)sprite_layer->viewport_size.y, sprite_layer->viewport_size.x, sprite_layer->viewport_size.y);
+
 	zest__reset_instance_layer_drawing(sprite_layer);
 }
 
@@ -6403,6 +6451,8 @@ void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *text
 	sprite_layer->current_instance_instruction.pipeline = pipeline_index;
 	sprite_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
 	sprite_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
+	sprite_layer->current_instance_instruction.scissor = sprite_layer->scissor;
+	sprite_layer->current_instance_instruction.viewport = sprite_layer->viewport;
 	sprite_layer->last_draw_mode = zest_draw_mode_instance;
 }
 
@@ -6453,6 +6503,7 @@ void zest_InitialiseFontLayer(zest_instance_layer *font_layer, zest_uint instanc
 
 	font_layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
 	font_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
+	zest_SetInstanceLayerViewPort(font_layer, 0, 0, (zest_uint)font_layer->viewport_size.x, (zest_uint)font_layer->viewport_size.y, font_layer->viewport_size.x, font_layer->viewport_size.y);
 
 	zest__reset_instance_layer_drawing(font_layer);
 }
@@ -6462,10 +6513,14 @@ void zest_SetFontDrawing(zest_instance_layer *font_layer, zest_index font_index,
 	zest__end_draw_instructions(font_layer);
 	zest__start_instance_instructions(font_layer);
 	zest_font *font = zest_GetFont(font_index);
+	zest_texture *texture = zest_GetTextureByIndex(font->texture_index);
+	ZEST_ASSERT(ZEST__FLAGGED(texture->flags, zest_texture_flag_textures_ready));		//Make sure the font is properly loaded or wasn't recently deleted
 	font_layer->current_instance_instruction.pipeline = pipeline_index;
-	font_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(zest_GetTextureByIndex(font->texture_index), descriptor_set_index);
+	font_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
 	font_layer->current_instance_instruction.draw_mode = zest_draw_mode_text;
 	font_layer->current_instance_instruction.asset_index = font_index;
+	font_layer->current_instance_instruction.scissor = font_layer->scissor;
+	font_layer->current_instance_instruction.viewport = font_layer->viewport;
 	font_layer->last_draw_mode = zest_draw_mode_text;
 }
 
@@ -6568,6 +6623,8 @@ void zest_InitialiseBillboardLayer(zest_instance_layer *billboard_layer, zest_ui
 	billboard_layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
 	billboard_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
 
+	zest_SetInstanceLayerViewPort(billboard_layer, 0, 0, (zest_uint)billboard_layer->viewport_size.x, (zest_uint)billboard_layer->viewport_size.y, billboard_layer->viewport_size.x, billboard_layer->viewport_size.y);
+
 	zest__reset_instance_layer_drawing(billboard_layer);
 }
 
@@ -6578,6 +6635,8 @@ void zest_SetBillboardDrawing(zest_instance_layer *billboard_layer, zest_texture
 	billboard_layer->current_instance_instruction.pipeline = pipeline_index;
 	billboard_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
 	billboard_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
+	billboard_layer->current_instance_instruction.scissor = billboard_layer->scissor;
+	billboard_layer->current_instance_instruction.viewport = billboard_layer->viewport;
 	billboard_layer->last_draw_mode = zest_draw_mode_instance;
 }
 
@@ -6718,7 +6777,8 @@ const char *zest_DrawFunctionToString(void *function) {
 void zest_OutputQueues() {
 	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
 		zest_index draw_order = 1;
-		zest_command_queue *command_queue = zest_GetCommandQueue(i);
+		zest_index queue_index = zest_map_index(ZestRenderer->command_queues, i);
+		zest_command_queue *command_queue = zest_GetCommandQueue(queue_index);
 		printf("Command Queue: %s\n", command_queue->name);
 		if (!zest_vec_empty(command_queue->draw_commands)) {
 			printf("\tDraw Commands\n");

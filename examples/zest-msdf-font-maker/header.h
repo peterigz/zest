@@ -29,6 +29,10 @@ struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
 	zest_index imgui_font_texture_index;
 	zest_font_configuration config;
+
+	zest_bool load_next_font;
+	zest_index font_index;
+	zest_index font_layer;
 };
 
 struct custom_stbi_mem_context{

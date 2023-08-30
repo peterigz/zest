@@ -398,13 +398,13 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_back(T) (T[zest__vec_header(T)->current_size - 1])
 #define zest_vec_end(T) (&(T[zest_vec_size(T)]))
 #define zest_vec_clear(T) if(T) zest__vec_header(T)->current_size = 0
-#define zest_vec_free(T) (ZEST__FREE(zest__vec_header(T)), T = ZEST_NULL)
+#define zest_vec_free(T) if(T) { ZEST__FREE(zest__vec_header(T)); T = ZEST_NULL;}
 #define zest_vec_reserve(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); 
 #define zest_vec_resize(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); zest__vec_header(T)->current_size = new_size
 #define zest_vec_push(T, value) zest_vec_grow(T); (T)[zest__vec_header(T)->current_size++] = value 
 #define zest_vec_pop(T) (zest__vec_header(T)->current_size--, T[zest__vec_header(T)->current_size])
 #define zest_vec_insert(T, location, value) { ptrdiff_t offset = location - T; zest_vec_grow(T); if(offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T) }
-#define zest_vec_erase(T, location) { ZEST_ASSERT(T && location >= T && location < zest_vec_end(T)); ptrdiff_t offset = location - T; memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); }
+#define zest_vec_erase(T, location) { ptrdiff_t offset = location - T; ZEST_ASSERT(T && offset >= 0 && location < zest_vec_end(T)); memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); }
 #define zest_foreach_i(T) int i = 0; i != zest_vec_size(T); ++i 
 #define zest_foreach_j(T) int j = 0; j != zest_vec_size(T); ++j 
 #define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k 
@@ -533,13 +533,13 @@ ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index inde
 ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
 #define zest_map_hash(hash_map, name) zest_Hash(ZestHasher, name, strlen(name), ZEST_HASH_SEED) 
 #define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ZestHasher, ptr, size, ZEST_HASH_SEED) 
-#define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; }
+#define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; zest_index *free_slots; zest_index last_index; }
 #define zest_map_valid_name(hash_map, name) (hash_map.map && zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
 #define zest_map_valid_key(hash_map, key) (hash_map.map && zest__map_get_index(hash_map.map, key) != -1)
 #define zest_map_valid_index(hash_map, index) (hash_map.map && (zest_uint)index < zest_vec_size(hash_map.data))
 #define zest_map_valid_hash(hash_map, ptr, size) (zest__map_get_index(hash_map.map, zest_map_hash_ptr(hash_map, ptr, size)) != -1)
-#define zest_map_set_index(hash_map, hash_key, value) zest_hash_pair *it = zest__lower_bound(hash_map.map, hash_key); if(!hash_map.map || it == zest_vec_end(hash_map.map) || it->key != hash_key) { zest_vec_push(hash_map.data, value); zest_hash_pair new_pair; new_pair.key = hash_key; new_pair.index = zest_vec_size(hash_map.data) - 1; zest_vec_insert(hash_map.map, it, new_pair); } else {hash_map.data[it->index] = value;}
-#define zest_map_insert(hash_map, name, value) { zest_key key = zest_map_hash(hash_map, name); zest_map_set_index(hash_map, key, value) }
+#define zest_map_set_index(hash_map, hash_key, value) zest_hash_pair *it = zest__lower_bound(hash_map.map, hash_key); if(!hash_map.map || it == zest_vec_end(hash_map.map) || it->key != hash_key) { if(zest_vec_size(hash_map.free_slots)) { hash_map.last_index = zest_vec_pop(hash_map.free_slots); hash_map.data[hash_map.last_index] = value; } else {hash_map.last_index = zest_vec_size(hash_map.data); zest_vec_push(hash_map.data, value);} zest_hash_pair new_pair; new_pair.key = hash_key; new_pair.index = hash_map.last_index; zest_vec_insert(hash_map.map, it, new_pair); } else {hash_map.data[it->index] = value;}
+#define zest_map_insert(hash_map, name, value) { zest_key key = zest_map_hash(hash_map, name); zest_map_set_index(hash_map, key, value); }
 #define zest_map_insert_key(hash_map, hash_key, value) { zest_map_set_index(hash_map, hash_key, value) }
 #define zest_map_insert_with_ptr_hash(hash_map, ptr, size, value) { zest_key key = zest_map_hash_ptr(hash_map, ptr, size); zest_map_set_index(hash_map, key, value) }
 #define zest_map_at(hash_map, name) &hash_map.data[zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name))]
@@ -547,12 +547,15 @@ ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) {
 #define zest_map_at_index(hash_map, index) &hash_map.data[index]
 #define zest_map_get_index_by_key(hash_map, key) zest__map_get_index(hash_map.map, key);
 #define zest_map_get_index_by_name(hash_map, name) zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name));
-#define zest_map_remove(hash_map, name) {zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_erase(hash_map.data, &hash_map.data[index]); zest__map_realign_indexes(hash_map.map, index); }
-#define zest_map_last_index(hash_map) (zest__vec_header(hash_map.data)->current_size - 1)
+#define zest_map_remove(hash_map, name) {zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(hash_map.free_slots, index); }
+#define zest_map_last_index(hash_map) (hash_map.last_index)
 #define zest_map_size(hash_map) (hash_map.map ? zest__vec_header(hash_map.data)->current_size : 0)
-#define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data);
-#define zest_map_foreach_i(hash_map) zest_foreach_i(hash_map.data)
-#define zest_map_foreach_j(hash_map) zest_foreach_j(hash_map.data)
+#define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data); zest_vec_clear(hash_map.free_slots)
+#define zest_map_free(hash_map) if(hash_map.map) ZEST__FREE(zest__vec_header(hash_map.map)); if(hash_map.data) ZEST__FREE(zest__vec_header(hash_map.data)); if(hash_map.free_slots) ZEST__FREE(zest__vec_header(hash_map.free_slots)); hash_map.data = 0; hash_map.map = 0; hash_map.free_slots = 0
+//Use inside a for loop to iterate over the map. The loop index should be be the index into the map array, to get the index into the data array.
+#define zest_map_index(hash_map, i) (hash_map.map[i].index)
+#define zest_map_foreach_i(hash_map) zest_foreach_i(hash_map.map)
+#define zest_map_foreach_j(hash_map) zest_foreach_j(hash_map.map)
 // --End pocket hash map
 
 // --Matrix and vector structs
@@ -1061,6 +1064,9 @@ typedef struct zest_instance_layer {
 	zest_vec2 viewport_size;
 	zest_vec2 screen_scale;
 
+	VkRect2D scissor;
+	VkViewport viewport;
+
 	zest_instance_instruction *instance_instructions[ZEST_MAX_FIF];
 	zest_draw_mode last_draw_mode;
 
@@ -1330,6 +1336,7 @@ typedef struct zest_renderer{
 	zest_index *rt_sampler_refresh_queue[ZEST_MAX_FIF];
 	zest_index *texture_refresh_queue[ZEST_MAX_FIF];
 	zest_index *texture_reprocess_queue[ZEST_MAX_FIF];
+	zest_index *texture_delete_queue;
 	zest_uint current_frame;
 
 	//Flags
@@ -1478,6 +1485,13 @@ ZEST_PRIVATE void zest__on_add_pool(void *user_data, void *block);
 ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc_header *trimmed_block, zest_size remote_size);
 // --End Buffer allocation funcitons
 
+// --Maintenance functions
+ZEST_PRIVATE void zest__delete_texture(zest_texture *texture);
+ZEST_PRIVATE void zest__delete_font(zest_font *font);
+ZEST_PRIVATE void zest__cleanup_texture(zest_texture *texture);
+ZEST_PRIVATE void zest__free_all_texture_images(zest_texture *texture);
+// --End Maintenance functions
+
 //Device set up 
 ZEST_PRIVATE void zest__create_instance(void);
 ZEST_PRIVATE void zest__setup_validation(void);
@@ -1506,6 +1520,7 @@ ZEST_PRIVATE void zest_vk_free_callback(void* pUserData, void *memory);
 //end device setup functions
 
 //App initialise/run functions
+ZEST_PRIVATE void zest__do_scheduled_tasks(zest_index index);
 ZEST_PRIVATE void zest__initialise_app(zest_create_info *create_info);
 ZEST_PRIVATE void zest__initialise_device(void);
 ZEST_PRIVATE void zest__destroy(void);
@@ -1534,7 +1549,7 @@ ZEST_API VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescrip
 ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorImageInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
 ZEST_API void zest_AllocateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSetLayout descriptor_layout, VkDescriptorSet *descriptor_set);
 ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
-ZEST_API VkViewport zest_CreateViewport(float width, float height, float minDepth, float maxDepth);
+ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 ZEST_API void zest_SetUserData(void* data);
 ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
@@ -1697,6 +1712,7 @@ ZEST_API zest_index zest_CreateTexturePacked(const char *name, zest_texture_form
 ZEST_API zest_index zest_CreateTextureSpritesheet(const char *name, zest_texture_format format);
 ZEST_API zest_index zest_CreateTextureSingle(const char *name, zest_texture_format format);
 ZEST_API zest_index zest_CreateTextureBank(const char *name, zest_texture_format format);
+ZEST_API void zest_DeleteTexture(zest_index texture);
 ZEST_API void zest_SetTextureImageFormat(zest_texture *texture, zest_texture_format format);
 ZEST_API zest_image zest_CreateImage(void);
 ZEST_API void zest_LoadBitmapImage(zest_bitmap *image, const char *file, int color_channels);
@@ -1747,7 +1763,6 @@ ZEST_API zest_byte zest_CalculateTextureLayers(stbrp_rect *rects, zest_uint size
 ZEST_API void zest_MakeImageBank(zest_texture *texture, zest_uint size);
 ZEST_API void zest_MakeSpriteSheet(zest_texture *texture);
 ZEST_API void zest_PackImages(zest_texture *texture, zest_uint size);
-ZEST_API void zest_CleanUpTexture(zest_texture *texture);
 ZEST_API void zest_UpdateImageVertices(zest_image *image);
 ZEST_API void zest_UpdateTextureSingleImageMeta(zest_texture *texture, zest_uint width, zest_uint height);
 ZEST_API void zest_SetTextureStorageType(zest_texture *texture, zest_texture_storage_type value);
@@ -1768,6 +1783,7 @@ ZEST_API void zest_RefreshTextureDescriptors(zest_texture *texture);
 
 //-- Fonts
 ZEST_API zest_index zest_LoadFont(const char *filename);
+ZEST_API void zest_UnloadFont(zest_index font_index);
 //-- End Fonts
 
 //Render targets
@@ -1798,6 +1814,10 @@ ZEST_API void zest_RefreshRenderTargetSampler(zest_render_target *render_target,
 //Draw Routines
 ZEST_API zest_index zest_CreateDrawRoutine(const char *name);
 //-- End Draw Routines
+
+//-- Draw Layers API
+ZEST_API void zest_SetInstanceLayerViewPort(zest_instance_layer *instance_layer, int x, int y, zest_uint width, zest_uint height, float viewport_width, float viewport_height);
+//-- End Draw Layers
 
 //Draw sprite layers
 ZEST_API void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint instance_pool_size);

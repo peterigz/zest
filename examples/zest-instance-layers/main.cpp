@@ -53,7 +53,7 @@ void InitExample(zest_example *example) {
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_example *example = (zest_example*)user_data;
-	zest_UpdateStandardUniformBuffer();
+	zest_Update2dUniformBuffer();
 	UpdateUniformBuffer3d(example);
 	zest_instance_layer *sprite_layer = zest_GetInstanceLayerByIndex(example->sprite_layer);
 	zest_instance_layer *billboard_layer = zest_GetInstanceLayerByIndex(example->billboard_layer);
