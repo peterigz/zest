@@ -414,7 +414,16 @@ float zest_LengthVec(zest_vec3 const v) {
 	return sqrtf(zest_LengthVec2(v));
 }
 
-zest_vec3 zest_NormalizeVec(zest_vec3 const v) {
+zest_vec2 zest_NormalizeVec2(zest_vec2 const v) {
+	float length = zest_Vec2Length(v);
+	zest_vec2 result = {
+		.x = v.x / length,
+		.y = v.y / length,
+	};
+	return result;
+}
+
+zest_vec3 zest_NormalizeVec3(zest_vec3 const v) {
 	float length = zest_LengthVec(v);
 	zest_vec3 result = {
 		.x = v.x / length,
@@ -525,8 +534,8 @@ float zest_DotProduct(const zest_vec3 a, const zest_vec3 b)
 
 zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up)
 {
-	zest_vec3 f = zest_NormalizeVec(zest_SubVec3(center, eye));
-	zest_vec3 s = zest_NormalizeVec(zest_CrossProduct(f, up));
+	zest_vec3 f = zest_NormalizeVec3(zest_SubVec3(center, eye));
+	zest_vec3 s = zest_NormalizeVec3(zest_CrossProduct(f, up));
 	zest_vec3 u = zest_CrossProduct(s, f);
 
 	zest_matrix4 result = { 0 };
@@ -591,7 +600,7 @@ void zest_CameraUpdateFront(zest_camera *camera) {
 	direction.x = cosf(camera->yaw) * cosf(camera->pitch);
 	direction.y = sinf(camera->pitch);
 	direction.z = sinf(camera->yaw) * cosf(camera->pitch);
-	camera->front = zest_NormalizeVec(direction);
+	camera->front = zest_NormalizeVec3(direction);
 }
 
 void zest_CameraMoveForward(zest_camera *camera, float speed) {
@@ -603,22 +612,22 @@ void zest_CameraMoveBackward(zest_camera *camera, float speed) {
 }
 
 void zest_CameraMoveUp(zest_camera *camera, float speed) {
-	zest_vec3 cross = zest_NormalizeVec(zest_CrossProduct(camera->front, camera->right));
+	zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(camera->front, camera->right));
 	camera->position = zest_AddVec3(camera->position, zest_ScaleVec3(&cross, speed));
 }
 
 void zest_CameraMoveDown(zest_camera *camera, float speed) {
-	zest_vec3 cross = zest_NormalizeVec(zest_CrossProduct(camera->front, camera->right));
+	zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(camera->front, camera->right));
 	camera->position = zest_SubVec3(camera->position, zest_ScaleVec3(&cross, speed));
 }
 
 void zest_CameraStrafLeft(zest_camera *camera, float speed) {
-	zest_vec3 cross = zest_NormalizeVec(zest_CrossProduct(camera->front, camera->up));
+	zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(camera->front, camera->up));
 	camera->position = zest_SubVec3(camera->position, zest_ScaleVec3(&cross, speed));
 }
 
 void zest_CameraStrafRight(zest_camera *camera, float speed) {
-	zest_vec3 cross = zest_NormalizeVec(zest_CrossProduct(camera->front, camera->up));
+	zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(camera->front, camera->up));
 	camera->position = zest_AddVec3(camera->position, zest_ScaleVec3(&cross, speed));
 }
 
@@ -3979,10 +3988,16 @@ void zest_ModifyDrawCommands(zest_index draw_commands_index) {
 	ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
 }
 
-ZEST_API zest_draw_routine *zest_ContextDrawRoutine() {
+zest_draw_routine *zest_ContextDrawRoutine() {
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_draw_routine || ZestRenderer->setup_context.type == zest_setup_context_type_layer);
 	zest_index *draw_routines = *zest_map_at_index(ZestRenderer->command_queue_draw_commands, ZestRenderer->setup_context.draw_commands_index).draw_routines;
 	return zest_map_at_index(ZestRenderer->draw_routines, draw_routines[ZestRenderer->setup_context.draw_routine_index]);
+}
+
+void zest_ContextSetClsColor(float r, float g, float b, float a) {
+	assert(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass);	//The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderItemSC
+	zest_command_queue_draw_commands *draw_commands = zest_GetCommandQueueDrawCommands(ZestRenderer->setup_context.draw_commands_index);
+	draw_commands->cls_color = zest_Vec4Set(r, g, b, a);
 }
 
 void zest_FinishQueueSetup() {
@@ -6549,6 +6564,20 @@ void zest_SetFontDrawing(zest_instance_layer *font_layer, zest_index font_index,
 	font_layer->current_instance_instruction.push_constants.parameters1.x = font->pixel_range;
 	font_layer->current_instance_instruction.push_constants.parameters1.y = font->miter_limit;
 	font_layer->last_draw_mode = zest_draw_mode_text;
+}
+
+void zest_SetFontShadow(zest_instance_layer *font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping) {
+	zest_vec2 shadow = zest_NormalizeVec2(zest_Vec2Set(1.f, 1.f));
+	font_layer->push_constants.parameters2.x = shadow.x * shadow_length;
+	font_layer->push_constants.parameters2.y = shadow.y * shadow_length;
+	font_layer->push_constants.parameters2.z = shadow_smoothing;
+	font_layer->push_constants.parameters2.w = shadow_clipping;
+	font_layer->current_instance_instruction.push_constants.parameters2 = font_layer->push_constants.parameters2;
+}
+
+void zest_SetFontShadowColor(zest_instance_layer *font_layer, zest_vec4 color) {
+	font_layer->push_constants.parameters3 = color;
+	font_layer->current_instance_instruction.push_constants.parameters3 = color;
 }
 
 float zest_DrawText(zest_instance_layer *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip) {

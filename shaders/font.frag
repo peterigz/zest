@@ -6,30 +6,31 @@ layout(location = 1) in vec3 frag_tex_coord;
 
 layout(location = 0) out vec4 out_color;
 
-layout(binding = 1) uniform sampler2DArray texSampler;
+layout(binding = 1) uniform sampler2DArray texture_sampler;
 
 layout(push_constant) uniform quad_index
 {
     mat4 model;
     vec4 parameters1;
-	vec4 parameters2;
-	vec4 parameters3;
+	vec4 shadow_parameters;
+	vec4 shadow_color;
 	vec4 camera;
 	uint flags;
-} pc;
+} font;
 
+/*
 float median(float r, float g, float b) {
     return max(min(r, g), min(max(r, g), b));
 }
 
 float screenPxRange() {
-    vec2 unitRange = vec2(pc.parameters1.x) / vec2(textureSize(texSampler, 0));
+    vec2 unitRange = vec2(font.parameters1.x) / vec2(textureSize(texture_sampler, 0));
     vec2 screenTexSize = vec2(1.0) / fwidth(frag_tex_coord.xy);
     return max(0.5*dot(unitRange, screenTexSize), 1.0);
 }
 
 void main() {
-    vec4 texel = texture(texSampler, frag_tex_coord);
+    vec4 texel = texture(texture_sampler, frag_tex_coord);
     float dist = median(texel.r, texel.g, texel.b);
 
     float pxDist = screenPxRange() * (dist - 0.5);
@@ -39,8 +40,8 @@ void main() {
 	out_color.rgb = glyph.rgb * glyph.a;
 	out_color.a = glyph.a;
 }
+*/
 
-/*
 float median(float r, float g, float b) {
     return max(min(r, g), min(max(r, g), b));
 }
@@ -69,7 +70,7 @@ void main() {
 
 	vec4 glyph;
 	float opacity;
-	vec3 sampled = texture(texSampler, frag_tex_coord).rgb;
+	vec3 sampled = texture(texture_sampler, frag_tex_coord).rgb;
 
 	if(font.flags == 0) {
 		//Simple rendering of the glyph
@@ -82,7 +83,7 @@ void main() {
 		glyph = vec4(frag_color.rgb, frag_color.a * opacity);
 	} else if((font.flags & 1) > 0) {
 		//More precise rendering of the glyph for smaller textures
-		vec3 uv = frag_tex_coord * textureSize( texSampler, 0 );
+		vec3 uv = frag_tex_coord * textureSize( texture_sampler, 0 );
 		// Calculate derivates
 		vec2 Jdx = dFdx( uv.xy );
 		vec2 Jdy = dFdy( uv.xy );
@@ -102,8 +103,8 @@ void main() {
 	}
 
 	if (font.shadow_color.a > 0) {
-		vec3 u_textureSize = textureSize( texSampler, 0 );
-		float sd = texture(texSampler, vec3(frag_tex_coord.xy - font.shadow_parameters.xy / u_textureSize.xy, 0)).a + font_weight;
+		vec3 u_textureSize = textureSize( texture_sampler, 0 );
+		float sd = texture(texture_sampler, vec3(frag_tex_coord.xy - font.shadow_parameters.xy / u_textureSize.xy, 0)).a + font_weight;
 		float shadowAlpha = linearstep(0.5 - font.shadow_parameters.z, 0.5 + font.shadow_parameters.z, sd) * font.shadow_color.a;
 		shadowAlpha *= 1.0 - opacity * font.shadow_parameters.w;
 		vec4 shadow = vec4(font.shadow_color.rgb, shadowAlpha);
@@ -114,4 +115,3 @@ void main() {
 		out_color.a = glyph.a;
 	}
 }
-*/

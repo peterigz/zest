@@ -1650,6 +1650,7 @@ ZEST_API zest_command_queue_draw_commands *zest_CurrentRenderPass(void);
 ZEST_API void zest_ModifyCommandQueue(zest_index render_index);
 ZEST_API void zest_ModifyDrawCommands(zest_index render_commands_index);
 ZEST_API zest_draw_routine *zest_ContextDrawRoutine();
+ZEST_API void zest_ContextSetClsColor(float r, float g, float b, float a);
 ZEST_API void zest_FinishQueueSetup(void);
 ZEST_API void zest_ValidateQueue(zest_index index);
 ZEST_API void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_index, VkPipelineStageFlags stage_flags);
@@ -1666,7 +1667,8 @@ ZEST_API float zest_LengthVec2(zest_vec3 const v);
 ZEST_API float zest_LengthVec(zest_vec3 const v);
 ZEST_API float zest_Vec2Length(zest_vec2 const v);
 ZEST_API float zest_Vec2Length2(zest_vec2 const v);
-ZEST_API zest_vec3 zest_NormalizeVec(zest_vec3 const v);
+ZEST_API zest_vec2 zest_NormalizeVec2(zest_vec2 const v);
+ZEST_API zest_vec3 zest_NormalizeVec3(zest_vec3 const v);
 ZEST_API zest_vec4 zest_MatrixTransformVector(zest_matrix4 *mat, zest_vec4 vec);
 ZEST_API zest_matrix4 zest_Inverse(zest_matrix4 *m);
 ZEST_API zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y);
@@ -1846,6 +1848,8 @@ ZEST_API void zest_DrawBillboard(zest_instance_layer *layer, zest_image *image, 
 //Draw font layers
 ZEST_API void zest_InitialiseFontLayer(zest_instance_layer *font_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetFontDrawing(zest_instance_layer *font_layer, zest_index font_index, zest_index descriptor_set_index, zest_index pipeline_index);
+ZEST_API void zest_SetFontShadow(zest_instance_layer *font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping);
+ZEST_API void zest_SetFontShadowColor(zest_instance_layer *font_layer, zest_vec4 color);
 ZEST_API float zest_DrawText(zest_instance_layer *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip);
 ZEST_API float zest_TextWidth(zest_font *font, const char *text, float font_size, float letter_spacing);
 //-- End Draw sprite layers

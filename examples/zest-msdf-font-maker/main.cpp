@@ -32,10 +32,13 @@ void InitImGuiApp(ImGuiApp *app) {
 	{
 		zest_ModifyDrawCommands(ZestApp->default_render_commands_index);
 		{
+			zest_ContextSetClsColor(0.15f, 0.15f, 0.15f, 1.f);
 			app->imgui_layer_info.mesh_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
-			zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
-			zest_ContextDrawRoutine()->data = &app->imgui_layer_info;
-			app->font_layer = zest_NewBuiltinLayerSetup("Font layer", zest_builtin_layer_fonts);
+			{
+				zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
+				zest_ContextDrawRoutine()->data = &app->imgui_layer_info;
+				app->font_layer = zest_NewBuiltinLayerSetup("Font layer", zest_builtin_layer_fonts);
+			}
 		}
 		zest_FinishQueueSetup();
 	}
@@ -244,14 +247,23 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		static float preview_size = 50.f;
 		static float preview_spacing = 0.f;
+		static float shadow_length = 2.f;
+		static float shadow_smoothing = 2.f;
+		static float shadow_clipping = 2.f;
 
 		ImGui::DragFloat("Preview Size", &preview_size, 0.1f, 0.f);
 		ImGui::DragFloat("Preview Spacing", &preview_spacing, 0.1f, 0.f);
 		ImGui::DragFloat("Preview Pixel Range", &font->pixel_range, 0.1f, 0.f);
 
+		ImGui::DragFloat("Shadow Length", &shadow_length, 0.1f, 0.f, 10.f);
+		ImGui::DragFloat("Shadow Smoothing", &shadow_smoothing, 0.01f, 0.f, .9f);
+		ImGui::DragFloat("Shadow Clipping", &shadow_clipping, 0.01f, 0.f, 1.f);
+
 		font_layer->multiply_blend_factor = 1.f;
 		font_layer->push_constants = { 0 };
 		zest_SetFontDrawing(font_layer, app->font_index, font->descriptor_set_index, font->pipeline_index);
+		zest_SetFontShadow(font_layer, shadow_length, shadow_smoothing, shadow_clipping);
+		zest_SetFontShadowColor(font_layer, zest_Vec4Set(0.f, 0.f, 0.f, 0.5f));
 		zest_DrawText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, preview_size, preview_spacing, 1.f);
 
 	}
