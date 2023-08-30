@@ -8,16 +8,39 @@ layout(location = 0) out vec4 out_color;
 
 layout(binding = 1) uniform sampler2DArray texSampler;
 
-layout(push_constant) uniform font_settings
+layout(push_constant) uniform quad_index
 {
     mat4 model;
-	mat4 view;
-	mat4 proj;
-    vec4 shadow_color;
-	vec4 shadow_parameters;
+    vec4 parameters1;
+	vec4 parameters2;
+	vec4 parameters3;
+	vec4 camera;
 	uint flags;
-} font;
+} pc;
 
+float median(float r, float g, float b) {
+    return max(min(r, g), min(max(r, g), b));
+}
+
+float screenPxRange() {
+    vec2 unitRange = vec2(pc.parameters1.x) / vec2(textureSize(texSampler, 0));
+    vec2 screenTexSize = vec2(1.0) / fwidth(frag_tex_coord.xy);
+    return max(0.5*dot(unitRange, screenTexSize), 1.0);
+}
+
+void main() {
+    vec4 texel = texture(texSampler, frag_tex_coord);
+    float dist = median(texel.r, texel.g, texel.b);
+
+    float pxDist = screenPxRange() * (dist - 0.5);
+    float opacity = clamp(pxDist + 0.5, 0.0, 1.0);
+
+	vec4 glyph = vec4(frag_color.rgb, frag_color.a * opacity);
+	out_color.rgb = glyph.rgb * glyph.a;
+	out_color.a = glyph.a;
+}
+
+/*
 float median(float r, float g, float b) {
     return max(min(r, g), min(max(r, g), b));
 }
@@ -91,3 +114,4 @@ void main() {
 		out_color.a = glyph.a;
 	}
 }
+*/

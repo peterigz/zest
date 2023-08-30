@@ -30,3 +30,5 @@ xcopy "../spv" "../examples/zest-imgui-template/spv" /y
 xcopy "../spv" "../examples/zest-instance-layers/spv" /y
 xcopy "../spv" "../examples/zest-minimal-template/spv" /y
 xcopy "../spv" "../examples/zest-render-targets/spv" /y
+xcopy "../spv" "../examples/zest-fonts/spv" /y
+xcopy "../spv" "../examples/zest-msdf-font-maker/spv" /y

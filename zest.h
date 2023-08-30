@@ -1121,6 +1121,9 @@ typedef struct zest_font {
 	zest_index pipeline_index;
 	zest_index descriptor_set_index;
 	zest_index index;
+	float pixel_range;
+	float miter_limit;
+	float padding;
 	float font_size;
 	zest_uint character_count;
 	zest_uint character_offset;

@@ -2863,8 +2863,8 @@ void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) {
 }
 
 void zest_SetText(zest_text *buffer, const char *text) {
-	zest_size length = strlen(text) + 1;
-	zest_vec_resize(buffer->str, strlen(text));
+	zest_uint length = (zest_uint)strlen(text) + 1;
+	zest_vec_resize(buffer->str, (zest_uint)strlen(text));
 	zest_strcpy(buffer->str, length, text);
 }
 
@@ -5779,7 +5779,8 @@ zest_index zest_LoadFont(const char *filename) {
 	zest_vec_resize(font.characters, 256);
 	
 	zest_font_character c;
-	uint32_t character_count = 0;
+	zest_uint character_count = 0;
+	zest_uint file_version = 0;
 
 	zest_uint position = 0;
 	char magic_number[6];
@@ -5789,6 +5790,14 @@ zest_index zest_LoadFont(const char *filename) {
 
 	memcpy(&character_count, font_data + position, sizeof(zest_uint));
 	position += sizeof(zest_uint);
+	memcpy(&file_version, font_data + position, sizeof(zest_uint));
+	position += sizeof(zest_uint);
+	memcpy(&font.pixel_range, font_data + position, sizeof(float));
+	position += sizeof(float);
+	memcpy(&font.miter_limit, font_data + position, sizeof(float));
+	position += sizeof(float);
+	memcpy(&font.padding, font_data + position, sizeof(float));
+	position += sizeof(float);
 
 	for (zest_uint i = 0; i != character_count; ++i) {
 		memcpy(&c, font_data + position, sizeof(zest_font_character));
@@ -6537,6 +6546,8 @@ void zest_SetFontDrawing(zest_instance_layer *font_layer, zest_index font_index,
 	font_layer->current_instance_instruction.asset_index = font_index;
 	font_layer->current_instance_instruction.scissor = font_layer->scissor;
 	font_layer->current_instance_instruction.viewport = font_layer->viewport;
+	font_layer->current_instance_instruction.push_constants.parameters1.x = font->pixel_range;
+	font_layer->current_instance_instruction.push_constants.parameters1.y = font->miter_limit;
 	font_layer->last_draw_mode = zest_draw_mode_text;
 }
 

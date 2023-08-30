@@ -6,6 +6,8 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#define ZEST_FONT_ZFT_VERSION 1
+
 void InitImGuiApp(ImGuiApp *app) {
 
 	ImGui::CreateContext();
@@ -43,13 +45,23 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->font_index = -1;
 }
 
-static void SaveFont(std::string filename, std::map<const char, zest_font_character> *characters, float size, zest_bitmap *bitmap) {
+static void SaveFont(std::string filename, std::map<const char, zest_font_character> *characters, float size, zest_bitmap *bitmap, zest_font_configuration *config) {
 	std::ofstream ofile(filename, std::ios::binary);
+
+	zest_uint version = ZEST_FONT_ZFT_VERSION;
+
+	float pixel_range = (float)config->px_range;
+	float miter_limit = (float)config->miter_limit;
+	float padding = (float)config->padding;
 
 	uint32_t character_count = uint32_t(characters->size());
 	char magic_number[] = "!TSEZ";
 	ofile.write((char*)magic_number, 6);
 	ofile.write((char*)&character_count, sizeof(uint32_t));
+	ofile.write((char*)&version, sizeof(uint32_t));
+	ofile.write((char*)&pixel_range, sizeof(float));
+	ofile.write((char*)&miter_limit, sizeof(float));
+	ofile.write((char*)&padding, sizeof(float));
 
 	for (const auto& c : *characters)
 	{
@@ -167,7 +179,7 @@ bool GenerateAtlas(const char *fontFilename, const char *save_to, zest_font_conf
 				characters.insert(std::pair<const char, zest_font_character>(key, c));
 			}
 
-			SaveFont(save_to, &characters, size, &bitmap);
+			SaveFont(save_to, &characters, size, &bitmap, config);
 			zest_FreeBitmap(&bitmap);
 			// Cleanup
 			msdfgen::destroyFont(font);
@@ -187,16 +199,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	if (app->load_next_font && !zest_map_valid_name(ZestRenderer->textures, app->config.font_save_file.c_str())) {
 		app->font_index = zest_LoadFont(app->config.font_save_file.c_str());
 		app->load_next_font = ZEST_FALSE;
-	}
-
-	if (app->font_index != -1) {
-		zest_instance_layer *font_layer = zest_GetInstanceLayerByIndex(app->font_layer);
-		zest_font *font = zest_GetFont(app->font_index);
-
-		font_layer->multiply_blend_factor = 1.f;
-		font_layer->push_constants = { 0 };
-		zest_SetFontDrawing(font_layer, app->font_index, font->descriptor_set_index, font->pipeline_index);
-		zest_DrawText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, 50.f, 0.f, 1.f);
 	}
 
 	ImGui_ImplGlfw_NewFrame();
@@ -234,6 +236,24 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
 		app->config.font_save_file = path.string();
 		ImGuiFileDialog::Instance()->OpenDialog("save_font", "Choose File", ".zft", app->config.font_save_file, 1, nullptr, ImGuiFileDialogFlags_Modal | ImGuiFileDialogFlags_ConfirmOverwrite);
+	}
+
+	if (app->font_index != -1) {
+		zest_instance_layer *font_layer = zest_GetInstanceLayerByIndex(app->font_layer);
+		zest_font *font = zest_GetFont(app->font_index);
+
+		static float preview_size = 50.f;
+		static float preview_spacing = 0.f;
+
+		ImGui::DragFloat("Preview Size", &preview_size, 0.1f, 0.f);
+		ImGui::DragFloat("Preview Spacing", &preview_spacing, 0.1f, 0.f);
+		ImGui::DragFloat("Preview Pixel Range", &font->pixel_range, 0.1f, 0.f);
+
+		font_layer->multiply_blend_factor = 1.f;
+		font_layer->push_constants = { 0 };
+		zest_SetFontDrawing(font_layer, app->font_index, font->descriptor_set_index, font->pipeline_index);
+		zest_DrawText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, preview_size, preview_spacing, 1.f);
+
 	}
 
 	if (ImGuiFileDialog::Instance()->Display("save_font"))
