@@ -1486,7 +1486,6 @@ ZEST_PRIVATE zest_bool zest__has_stencil_format(VkFormat format);
 ZEST_PRIVATE VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features);
 ZEST_PRIVATE VkCommandBuffer zest__begin_single_time_commands(void);
 ZEST_PRIVATE void zest__end_single_time_commands(VkCommandBuffer command_buffer);
-ZEST_PRIVATE char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
 ZEST_PRIVATE zest_index zest__next_fif(void);
 // --End General Helper Functions
 
@@ -1876,6 +1875,7 @@ ZEST_API zest_font *zest_GetFont(zest_index font_index);
 //--End Events and States
 
 //General Helper functions
+ZEST_API char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
 ZEST_API zest_camera zest_CreateCamera(void);
 ZEST_API VkRenderPass zest_GetRenderPassByIndex(zest_index index);
 ZEST_API zest_index zest_GetRenderPassIndex(const char *name);
