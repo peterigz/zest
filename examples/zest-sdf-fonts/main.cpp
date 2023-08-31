@@ -76,11 +76,11 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	static bool vsync = true;
 	static float size = 100.f;
-	static float expand = 1.5f;
+	static float expand = 2.f;
 	static float bleed = 0.25f;
 	static float detail = 0.5f;
 	static float radius = 25.f;
-	static float aa = 1.f;
+	static float aa = 5.f;
 
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();

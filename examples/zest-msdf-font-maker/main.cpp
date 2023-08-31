@@ -251,6 +251,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		static float shadow_smoothing = .1f;
 		static float shadow_clipping = 2.f;
 		static bool precise = false;
+		static float shadow_alpha = .75f;
 
 		ImGui::DragFloat("Preview Size", &preview_size, 0.1f, 0.f);
 		ImGui::DragFloat("Preview Spacing", &preview_spacing, 0.1f, 0.f);
@@ -259,14 +260,37 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGui::DragFloat("Shadow Length", &shadow_length, 0.1f, 0.f, 5.f);
 		ImGui::DragFloat("Shadow Smoothing", &shadow_smoothing, 0.01f, 0.f, .3f);
 		ImGui::DragFloat("Shadow Clipping", &shadow_clipping, 0.01f, 0.f, 1.f);
+		ImGui::DragFloat("Shadow Alpha", &shadow_alpha, .01f);
 		ImGui::Checkbox("Precise", &precise);
+
+		static bool vsync = true;
+		static float expand = 2.f;
+		static float bleed = 0.25f;
+		static float detail = 0.5f;
+		static float radius = 25.f;
+		static float aa = 5.f;
+
+		ImGui::Text("FPS %i", ZestApp->last_fps);
+		ImGui::Checkbox("VSync", &vsync);
+		ImGui::DragFloat("Radius", &radius, .01f);
+		ImGui::DragFloat("Expand", &expand, .01f);
+		ImGui::DragFloat("Bleed", &bleed, .01f);
+		ImGui::DragFloat("Detail", &detail, .01f);
+		ImGui::DragFloat("AA", &aa, .01f);
 
 		font_layer->multiply_blend_factor = 1.f;
 		font_layer->push_constants = { 0 };
 		zest_SetFontDrawing(font_layer, app->font_index, font->descriptor_set_index, font->pipeline_index);
 		zest_SetFontShadow(font_layer, shadow_length, shadow_smoothing, shadow_clipping);
-		zest_SetFontShadowColor(font_layer, zest_Vec4Set(0.f, 0.f, 0.f, 0.5f));
+		zest_SetFontShadowColor(font_layer, zest_Vec4Set(0.f, 0.f, 0.f, shadow_alpha));
 		font_layer->current_instance_instruction.push_constants.flags = (zest_uint)precise;
+
+		font_layer->current_instance_instruction.push_constants.parameters1.x = radius;
+		font_layer->current_instance_instruction.push_constants.parameters1.y = detail;
+		font_layer->current_instance_instruction.push_constants.parameters1.z = aa;
+		font_layer->current_instance_instruction.push_constants.parameters1.w = expand;
+		font_layer->current_instance_instruction.push_constants.camera.x = bleed;
+
 		zest_DrawText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, preview_size, preview_spacing, 1.f);
 
 	}
