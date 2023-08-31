@@ -1797,6 +1797,7 @@ void zest_SetDevicePoolSize(const char *name, VkBufferUsageFlags usage_flags, Vk
 
 // --Renderer and related functions
 void zest__initialise_renderer(zest_create_info *create_info) {
+	ZestRenderer->flags |= create_info->flags & zest_init_flag_enable_vsync;
 	zest__create_swapchain();
 	zest__create_swapchain_image_views();
 
@@ -2860,6 +2861,16 @@ void zest_DrawIndexed(zest_uint index_count, zest_uint instance_count, zest_uint
 	vkCmdDrawIndexed(ZestRenderer->current_command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 
+void zest_EnableVSync() {
+	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_vsync_enabled);
+	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
+}
+
+void zest_DisnableVSync() {
+	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_vsync_enabled);
+	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
+}
+
 zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
 void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { 
 	if (T && new_capacity <= zest__vec_header(T)->capacity) 
@@ -3278,7 +3289,7 @@ void zest__present_frame() {
 
 	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || ZestApp->window->framebuffer_resized || (ZestRenderer->flags & zest_renderer_flag_schedule_change_vsync)) {
 		ZestApp->window->framebuffer_resized = ZEST_FALSE;
-		ZestRenderer->flags &= ~zest_renderer_flag_schedule_change_vsync;
+		ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
 
 		zest__recreate_swapchain();
 		ZestRenderer->current_frame = 0;
@@ -3850,7 +3861,7 @@ zest_create_info zest_CreateInfo() {
 		.virtual_height = 768,
 		.color_format = VK_FORMAT_R8G8B8A8_UNORM,
 		.pool_counts = ZEST_NULL,
-		.flags = zest_init_flag_initialise_with_command_queue,
+		.flags = zest_init_flag_initialise_with_command_queue | zest_init_flag_enable_vsync,
 		.destroy_window_callback = zest__destroy_window_callback,
 		.get_window_size_callback = zest__get_window_size_callback,
 		.poll_events_callback = zest__poll_events,

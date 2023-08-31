@@ -271,6 +271,7 @@ typedef enum {
 	zest_init_flag_none									= 0,
 	zest_init_flag_initialise_with_command_queue		= 1 << 0,
 	zest_init_flag_use_depth_buffer						= 1 << 1,
+	zest_init_flag_enable_vsync							= 1 << 6,
 } zest_init_flags;
 
 typedef enum {
@@ -1911,6 +1912,8 @@ ZEST_API void zest_SendPushConstants(zest_pipeline_set *pipeline_layout, VkShade
 ZEST_API void zest_SendStandardPushConstants(zest_pipeline_set *pipeline_layout, void *data);
 ZEST_API void zest_Draw(zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 ZEST_API void zest_DrawIndexed(zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+ZEST_API void zest_EnableVSync();
+ZEST_API void zest_DisnableVSync();
 //--End General Helper functions
 
 //Debug Helpers
