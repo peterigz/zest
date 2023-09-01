@@ -15,7 +15,7 @@ void InitExample(zest_example *example) {
 		zest_FinishQueueSetup();
 	}
 
-	example->font_index = zest_LoadFont("fonts/Karla-Regular.zft");
+	example->font_index = zest_LoadFont("fonts/KaushanScript-Regular.zft");
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
@@ -27,9 +27,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_font *font = zest_GetFont(example->font_index);
 
 	font_layer->multiply_blend_factor = 1.f;
-	font_layer->push_constants = { 0 };
-	zest_SetFontDrawing(font_layer, example->font_index, font->descriptor_set_index, font->pipeline_index);
-	zest_DrawText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, 50.f, 0.f, 1.f);
+	zest_SetMSDFFontDrawing(font_layer, example->font_index, font->descriptor_set_index, font->pipeline_index);
+	zest_DrawMSDFText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, 50.f, 0.f, 1.f);
 }
 
 int main(void) {

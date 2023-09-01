@@ -4242,7 +4242,7 @@ zest_draw_routine *zest__create_draw_routine_with_builtin_layer(const char *name
 		zest_instance_layer layer = { 0 };
 		layer.name = name;
 		draw_routine.draw_callback = zest__draw_font_layer_callback;
-		zest_InitialiseFontLayer(&layer, 1000);
+		zest_InitialiseMSDFFontLayer(&layer, 1000);
 		zest_map_insert(ZestRenderer->instance_layers, name, layer);
 		draw_routine.draw_index = zest_map_last_index(ZestRenderer->instance_layers);
 		draw_routine.update_buffers_callback = zest__update_instance_layer_buffers_callback;
@@ -5802,6 +5802,7 @@ void zest_SetTextureLayerSize(zest_texture *texture, zest_uint size) {
 zest_index zest_LoadFont(const char *filename) {
 	zest_font font = { 0 };
 	char *font_data = zest_ReadEntireFile(filename, 0);
+	ZEST_ASSERT(font_data);	//File not found
 	zest_vec_resize(font.characters, 256);
 	
 	zest_font_character c;
@@ -6527,7 +6528,7 @@ void zest_DrawSprite(zest_instance_layer *layer, zest_image *image, float x, flo
 //-- End Sprite Drawing API
 
 //-- Start Font Drawing API
-void zest_InitialiseFontLayer(zest_instance_layer *font_layer, zest_uint instance_pool_size) {
+void zest_InitialiseMSDFFontLayer(zest_instance_layer *font_layer, zest_uint instance_pool_size) {
 	font_layer->current_color.r = 255;
 	font_layer->current_color.g = 255;
 	font_layer->current_color.b = 255;
@@ -6535,10 +6536,18 @@ void zest_InitialiseFontLayer(zest_instance_layer *font_layer, zest_uint instanc
 	font_layer->multiply_blend_factor = 1;
 	font_layer->push_constants.model = zest_M4(1);
 	font_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
-	font_layer->push_constants.parameters2.x = 0.f;
-	font_layer->push_constants.parameters2.y = 0.f;
-	font_layer->push_constants.parameters2.z = 0.f;
-	font_layer->push_constants.parameters2.w = 0.f;
+	font_layer->push_constants.parameters2.x = 1.f;		//Shadow Vector
+	font_layer->push_constants.parameters2.y = 1.f;
+	font_layer->push_constants.parameters2.z = 0.2f;	//Shadow Smoothing
+	font_layer->push_constants.parameters2.w = 0.f;		//Shadow Clipping
+
+	//Font defaults.
+	font_layer->push_constants.parameters1.x = 25.f;	//Radius
+	font_layer->push_constants.parameters1.y = 0.35f;	//Detail
+	font_layer->push_constants.parameters1.z = 5.f;		//AA factor
+	font_layer->push_constants.parameters1.w = 2.f;		//Expand
+	font_layer->push_constants.camera.w = .25f;			//Bleed
+
 	font_layer->layer_size = zest_Vec2Set1(1.f);
 	font_layer->instance_struct_size = sizeof(zest_sprite_instance);
 
@@ -6559,7 +6568,7 @@ void zest_InitialiseFontLayer(zest_instance_layer *font_layer, zest_uint instanc
 	zest__reset_instance_layer_drawing(font_layer);
 }
 
-void zest_SetFontDrawing(zest_instance_layer *font_layer, zest_index font_index, zest_index descriptor_set_index, zest_index pipeline_index) {
+void zest_SetMSDFFontDrawing(zest_instance_layer *font_layer, zest_index font_index, zest_index descriptor_set_index, zest_index pipeline_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
 	zest__end_draw_instructions(font_layer);
 	zest__start_instance_instructions(font_layer);
@@ -6572,12 +6581,11 @@ void zest_SetFontDrawing(zest_instance_layer *font_layer, zest_index font_index,
 	font_layer->current_instance_instruction.asset_index = font_index;
 	font_layer->current_instance_instruction.scissor = font_layer->scissor;
 	font_layer->current_instance_instruction.viewport = font_layer->viewport;
-	font_layer->current_instance_instruction.push_constants.parameters1.x = font->pixel_range;
-	font_layer->current_instance_instruction.push_constants.parameters1.y = font->miter_limit;
+	font_layer->current_instance_instruction.push_constants = font_layer->push_constants;
 	font_layer->last_draw_mode = zest_draw_mode_text;
 }
 
-void zest_SetFontShadow(zest_instance_layer *font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping) {
+void zest_SetMSDFFontShadow(zest_instance_layer *font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping) {
 	zest_vec2 shadow = zest_NormalizeVec2(zest_Vec2Set(1.f, 1.f));
 	font_layer->push_constants.parameters2.x = shadow.x * shadow_length;
 	font_layer->push_constants.parameters2.y = shadow.y * shadow_length;
@@ -6586,12 +6594,47 @@ void zest_SetFontShadow(zest_instance_layer *font_layer, float shadow_length, fl
 	font_layer->current_instance_instruction.push_constants.parameters2 = font_layer->push_constants.parameters2;
 }
 
-void zest_SetFontShadowColor(zest_instance_layer *font_layer, zest_vec4 color) {
+void zest_SetMSDFFontShadowColor(zest_instance_layer *font_layer, zest_vec4 color) {
 	font_layer->push_constants.parameters3 = color;
 	font_layer->current_instance_instruction.push_constants.parameters3 = color;
 }
 
-float zest_DrawText(zest_instance_layer *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip) {
+void zest_TweakMSDFFont(zest_instance_layer *font_layer, float bleed, float expand, float aa_factor, float radius, float detail) {
+	font_layer->push_constants.parameters1.x = radius;	
+	font_layer->push_constants.parameters1.y = detail;
+	font_layer->push_constants.parameters1.z = aa_factor;
+	font_layer->push_constants.parameters1.w = expand;
+	font_layer->push_constants.camera.w = bleed;
+	font_layer->current_instance_instruction.push_constants.parameters1 = font_layer->push_constants.parameters1;
+	font_layer->current_instance_instruction.push_constants.camera.w = bleed;
+}
+
+void zest_SetMSDFFontBleed(zest_instance_layer *font_layer, float bleed) {
+	font_layer->push_constants.camera.w = bleed;
+	font_layer->current_instance_instruction.push_constants.camera.w = bleed;
+}
+
+void zest_SetMSDFFontExpand(zest_instance_layer *font_layer, float expand) {
+	font_layer->push_constants.parameters1.w = expand;
+	font_layer->current_instance_instruction.push_constants.parameters1.w = expand;
+}
+
+void zest_SetMSDFFontAAFactor(zest_instance_layer *font_layer, float aa_factor) {
+	font_layer->push_constants.parameters1.z = aa_factor;
+	font_layer->current_instance_instruction.push_constants.parameters1.z = aa_factor;
+}
+
+void zest_SetMSDFFontRadius(zest_instance_layer *font_layer, float radius) {
+	font_layer->push_constants.parameters1.x = radius;	
+	font_layer->current_instance_instruction.push_constants.parameters1.x = radius;	
+}
+
+void zest_SetMSDFFontDetail(zest_instance_layer *font_layer, float detail) {
+	font_layer->push_constants.parameters1.y = detail;
+	font_layer->current_instance_instruction.push_constants.parameters1.y = detail;
+}
+
+float zest_DrawMSDFText(zest_instance_layer *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip) {
 	ZEST_ASSERT(font_layer->current_instance_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
 
 	zest_font *font = zest_GetFont(font_layer->current_instance_instruction.asset_index);

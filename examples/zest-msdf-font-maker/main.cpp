@@ -48,6 +48,16 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->font_index = -1;
 }
 
+void ShowToolTip(const char *tip) {
+	if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+		ImGui::BeginTooltip();
+		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+		ImGui::TextUnformatted(tip);
+		ImGui::PopTextWrapPos();
+		ImGui::EndTooltip();
+	}
+}
+
 static void SaveFont(std::string filename, std::map<const char, zest_font_character> *characters, float size, zest_bitmap *bitmap, zest_font_configuration *config) {
 	std::ofstream ofile(filename, std::ios::binary);
 
@@ -213,7 +223,15 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGuiFileDialog::Instance()->OpenDialog("load_font", "Choose File", ".ttf,.otf", ".", 1, nullptr, ImGuiFileDialogFlags_Modal);
 	}
 	ImGui::DragScalar("Pixel Range", ImGuiDataType_Double, &app->config.px_range, 0.1f);
+	ShowToolTip("This refers to the range of pixel values used to represent the signed distance field in the texture. In an SDF, each pixel stores a value that represents the signed distance from that pixel to the nearest boundary of a glyph (positive inside the glyph and negative outside). The pixel range determines how finely these distances are quantized."
+		"A larger pixel range results in a more accurate representation of the distances but requires more memory."
+		"A smaller pixel range can lead to loss of detail, especially for very thin or complex shapes, but requires less memory."
+		"The choice of pixel range depends on the precision needed for your specific font rendering application.");
 	ImGui::DragScalar("Miter Limit", ImGuiDataType_Double, &app->config.miter_limit, 0.1f);
+	ShowToolTip("The miter limit is a parameter that affects how sharp corners are rendered in the font. When rendering fonts, especially at small sizes, you may encounter very acute angles where two line segments meet. If the angle is too acute, the mitered corner can extend very far from the intersection point, causing visual artifacts."
+		"The miter limit sets a threshold for when a mitered corner should be \"clipped\" or \"beveled\" to prevent it from extending too far."
+		"If the mitered corner's length exceeds the miter limit times the line thickness, it is beveled (cut off) instead of extending excessively."
+		"Adjusting the miter limit can help control the rendering of sharp corners in your font to improve visual quality.");
 	ImGui::DragScalar("Minimim Scale", ImGuiDataType_Double, &app->config.minimum_scale, 0.1f, &minimum_size);
 	ImGui::DragInt("Padding", &app->config.padding, 1, 0, 32);
 
@@ -259,14 +277,14 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		ImGui::DragFloat("Shadow Length", &shadow_length, 0.1f, 0.f, 5.f);
 		ImGui::DragFloat("Shadow Smoothing", &shadow_smoothing, 0.01f, 0.f, .3f);
-		ImGui::DragFloat("Shadow Clipping", &shadow_clipping, 0.01f, 0.f, 1.f);
+		ImGui::DragFloat("Shadow Clipping", &shadow_clipping, 0.01f, -10.f, 10.f);
 		ImGui::DragFloat("Shadow Alpha", &shadow_alpha, .01f);
 		ImGui::Checkbox("Precise", &precise);
 
 		static bool vsync = true;
 		static float expand = 2.f;
 		static float bleed = 0.25f;
-		static float detail = 0.5f;
+		static float detail = 0.35f;
 		static float radius = 25.f;
 		static float aa = 5.f;
 
@@ -280,18 +298,16 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		font_layer->multiply_blend_factor = 1.f;
 		font_layer->push_constants = { 0 };
-		zest_SetFontDrawing(font_layer, app->font_index, font->descriptor_set_index, font->pipeline_index);
-		zest_SetFontShadow(font_layer, shadow_length, shadow_smoothing, shadow_clipping);
-		zest_SetFontShadowColor(font_layer, zest_Vec4Set(0.f, 0.f, 0.f, shadow_alpha));
+		zest_SetMSDFFontDrawing(font_layer, app->font_index, font->descriptor_set_index, font->pipeline_index);
+		zest_SetMSDFFontShadow(font_layer, shadow_length, shadow_smoothing, shadow_clipping);
+		zest_SetMSDFFontShadowColor(font_layer, zest_Vec4Set(0.f, 0.f, 0.f, shadow_alpha));
+		
 		font_layer->current_instance_instruction.push_constants.flags = (zest_uint)precise;
 
-		font_layer->current_instance_instruction.push_constants.parameters1.x = radius;
-		font_layer->current_instance_instruction.push_constants.parameters1.y = detail;
-		font_layer->current_instance_instruction.push_constants.parameters1.z = aa;
-		font_layer->current_instance_instruction.push_constants.parameters1.w = expand;
-		font_layer->current_instance_instruction.push_constants.camera.x = bleed;
+		zest_TweakMSDFFont(font_layer, bleed, expand, aa, radius, detail);
+		font_layer->current_color = zest_ColorSet(255, 100, 50, 255);
 
-		zest_DrawText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, preview_size, preview_spacing, 1.f);
+		zest_DrawMSDFText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, preview_size, preview_spacing, 1.f);
 
 	}
 
