@@ -186,7 +186,7 @@ bool GenerateAtlas(const char *fontFilename, const char *save_to, zest_font_conf
 				c.uv.y = (float)t / (float)config->height;
 				c.uv.z = (float)r / (float)config->width;
 				c.uv.w = (float)b / (float)config->height;
-				c.skip = glyph.isWhitespace() ? true : false;
+				c.flags = glyph.isWhitespace() ? true : false;
 
 				const char key = c.character[0];
 				characters.insert(std::pair<const char, zest_font_character>(key, c));
@@ -210,7 +210,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGuiApp *app = (ImGuiApp*)user_data;
 
 	if (app->load_next_font && !zest_map_valid_name(ZestRenderer->textures, app->config.font_save_file.c_str())) {
-		app->font_index = zest_LoadFont(app->config.font_save_file.c_str());
+		app->font_index = zest_LoadMSDFFont(app->config.font_save_file.c_str());
 		app->load_next_font = ZEST_FALSE;
 	}
 

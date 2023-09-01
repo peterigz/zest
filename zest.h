@@ -363,6 +363,12 @@ typedef enum zest_connector_type {
 	zest_connector_type_signal_queue,
 } zest_connector_type;
 
+typedef enum zest_character_flags {
+	zest_character_flag_none							= 0,
+	zest_character_flag_skip							= 1 << 0,
+	zest_character_flag_new_line						= 1 << 1,
+} zest_character_flags;
+
 //Private structs with inline functions
 typedef struct zest_queue_family_indices {
 	zest_uint graphics_family;
@@ -1113,7 +1119,7 @@ typedef struct zest_font_character {
 	float yoffset;
 	zest_vec4 uv;
 	float xadvance;
-	zest_bool skip;
+	zest_uint flags;
 } zest_font_character;
 
 typedef struct zest_font {
@@ -1126,6 +1132,7 @@ typedef struct zest_font {
 	float miter_limit;
 	float padding;
 	float font_size;
+	float max_yoffset;
 	zest_uint character_count;
 	zest_uint character_offset;
 	zest_font_character *characters;
@@ -1796,7 +1803,7 @@ ZEST_API void zest_RefreshTextureDescriptors(zest_texture *texture);
 //-- End Images and textures
 
 //-- Fonts
-ZEST_API zest_index zest_LoadFont(const char *filename);
+ZEST_API zest_index zest_LoadMSDFFont(const char *filename);
 ZEST_API void zest_UnloadFont(zest_index font_index);
 //-- End Fonts
 
@@ -1857,6 +1864,7 @@ ZEST_API void zest_SetMSDFFontAAFactor(zest_instance_layer *font_layer, float aa
 ZEST_API void zest_SetMSDFFontRadius(zest_instance_layer *font_layer, float radius);
 ZEST_API void zest_SetMSDFFontDetail(zest_instance_layer *font_layer, float detail);
 ZEST_API float zest_DrawMSDFText(zest_instance_layer *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip);
+ZEST_API float zest_DrawMSDFParagraph(zest_instance_layer *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float line_height, float flip);
 ZEST_API float zest_TextWidth(zest_font *font, const char *text, float font_size, float letter_spacing);
 //-- End Draw sprite layers
 

@@ -5799,11 +5799,12 @@ void zest_SetTextureLayerSize(zest_texture *texture, zest_uint size) {
 //-- End Texture and Image Functions
 
 //-- Fonts
-zest_index zest_LoadFont(const char *filename) {
+zest_index zest_LoadMSDFFont(const char *filename) {
 	zest_font font = { 0 };
 	char *font_data = zest_ReadEntireFile(filename, 0);
-	ZEST_ASSERT(font_data);	//File not found
+	ZEST_ASSERT(font_data);			//File not found
 	zest_vec_resize(font.characters, 256);
+	font.characters['\n'].flags = zest_character_flag_new_line;
 	
 	zest_font_character c;
 	zest_uint character_count = 0;
@@ -5829,6 +5830,8 @@ zest_index zest_LoadFont(const char *filename) {
 	for (zest_uint i = 0; i != character_count; ++i) {
 		memcpy(&c, font_data + position, sizeof(zest_font_character));
 		position += sizeof(zest_font_character);
+
+		font.max_yoffset = ZEST__MAX(fabsf(c.yoffset), font.max_yoffset);
 
 		const char key = c.character[0];
 		font.characters[key] = c;
@@ -6645,10 +6648,10 @@ float zest_DrawMSDFText(zest_instance_layer *font_layer, const char *text, float
 		return 0;
 	}
 
-	if (handle_x || handle_y) {
-		x -= zest_TextWidth(font, text, size, letter_spacing) * handle_x;
-		y += font->font_size * size * handle_y * 0.5f;
-	}
+	float scaled_line_height = font->font_size * size;
+	float scaled_offset = font->max_yoffset * size;
+	x -= zest_TextWidth(font, text, size, letter_spacing) * handle_x;
+	y -= (scaled_line_height * handle_y) - scaled_offset;
 
 	float xpos = x;
 
@@ -6656,8 +6659,75 @@ float zest_DrawMSDFText(zest_instance_layer *font_layer, const char *text, float
 		zest_sprite_instance *font_instance = (zest_sprite_instance*)font_layer->instance_memory_refs[ZEST_FIF].instance_ptr;
 		zest_font_character *character = &font->characters[text[i]];
 
-		if (character->skip) {
+		if (character->flags > 0) {
 			xpos += character->xadvance * size + letter_spacing;
+			continue;
+		}
+
+		float width = character->width * size;
+		float height = character->height * size * flip;
+		float xoffset = character->xoffset * size;
+		float yoffset = character->yoffset * size * flip;
+
+		float uv_width = font_texture->texture.width * (character->uv.z - character->uv.x);
+		float uv_height = font_texture->texture.height * (character->uv.y - character->uv.w);
+		float scale = width / uv_width;
+
+		font_instance->size = zest_Vec2Set(width, height);
+		font_instance->handle = zest_Vec2Set1(0.f);
+		font_instance->position_rotation = zest_Vec4Set(xpos + xoffset, y + yoffset, 0.f, 0.f);
+		font_instance->uv = character->uv;
+		font_instance->intensity = font_layer->multiply_blend_factor;
+		font_instance->alignment = 1;
+		font_instance->color = font_layer->current_color;
+		font_instance->image_layer_index = 0;
+		font_layer->current_instance_instruction.total_instances++;
+
+		zest__next_font_instance(font_layer);
+
+		xpos += character->xadvance * size + letter_spacing;
+	}
+
+	return xpos;
+}
+
+float zest_DrawMSDFParagraph(zest_instance_layer *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float line_height, float flip) {
+	ZEST_ASSERT(font_layer->current_instance_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
+
+	zest_font *font = zest_GetFont(font_layer->current_instance_instruction.asset_index);
+	zest_texture *font_texture = zest_GetTextureByIndex(font->texture_index);
+
+	size_t length = strlen(text);
+	if (length <= 0) {
+		return 0;
+	}
+
+	float scaled_line_height = line_height * font->font_size * size;
+	float scaled_offset = font->max_yoffset * size;
+	float paragraph_height = scaled_line_height * (handle_y);
+	for (int i = 0; i != length; ++i) {
+		zest_font_character *character = &font->characters[text[i]];
+		if (character->flags == zest_character_flag_new_line) {
+			paragraph_height += scaled_line_height;
+		}
+	}
+
+	x -= zest_TextWidth(font, text, size, letter_spacing) * handle_x;
+	y -= (paragraph_height * handle_y) - scaled_offset;
+
+	float xpos = x;
+
+	for (int i = 0; i != length; ++i) {
+		zest_sprite_instance *font_instance = (zest_sprite_instance*)font_layer->instance_memory_refs[ZEST_FIF].instance_ptr;
+		zest_font_character *character = &font->characters[text[i]];
+
+		if (character->flags == zest_character_flag_skip) {
+			xpos += character->xadvance * size + letter_spacing;
+			continue;
+		}
+		else if (character->flags == zest_character_flag_new_line) {
+			y += scaled_line_height;
+			xpos = x;
 			continue;
 		}
 
@@ -6691,16 +6761,22 @@ float zest_DrawMSDFText(zest_instance_layer *font_layer, const char *text, float
 float zest_TextWidth(zest_font *font, const char *text, float font_size, float letter_spacing) {
 
 	float width = 0;
+	float max_width = 0;
 
 	size_t length = strlen(text);
 
 	for (int i = 0; i != length; ++i) {
 		zest_font_character *character = &font->characters[text[i]];
 
+		if (character->flags == zest_character_flag_new_line) {
+			width = 0;
+		}
+
 		width += character->xadvance * font_size + letter_spacing;
+		max_width = ZEST__MAX(width, max_width);
 	}
 
-	return width;
+	return max_width;
 }
 //-- End Font Drawing API
 

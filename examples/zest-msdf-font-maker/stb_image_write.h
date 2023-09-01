@@ -641,7 +641,7 @@ static void stbiw__write_hdr_scanline(stbi__write_context *s, int width, int nco
    scanlineheader[2] = (width&0xff00)>>8;
    scanlineheader[3] = (width&0x00ff);
 
-   /* skip RLE for images too small or large */
+   /* flags RLE for images too small or large */
    if (width < 8 || width >= 32768) {
       for (x=0; x < width; x++) {
          switch (ncomp) {

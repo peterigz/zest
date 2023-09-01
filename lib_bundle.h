@@ -1060,7 +1060,7 @@ static void stbir__calculate_coefficients_upsample(stbir_filter filter, float sc
 		float in_pixel_center = (float)(i + in_first_pixel) + 0.5f;
 		coefficient_group[i] = stbir__filter_info_table[filter].kernel(in_center_of_out - in_pixel_center, 1 / scale);
 
-		// If the coefficient is zero, skip it. (Don't do the <0 check here, we want the influence of those outside pixels.)
+		// If the coefficient is zero, flags it. (Don't do the <0 check here, we want the influence of those outside pixels.)
 		if (i == 0 && !coefficient_group[i])
 		{
 			contributor->n0 = ++in_first_pixel;
@@ -1087,7 +1087,7 @@ static void stbir__calculate_coefficients_upsample(stbir_filter filter, float sc
 		if (coefficient_group[i])
 			break;
 
-		// This line has no weight. We can skip it.
+		// This line has no weight. We can flags it.
 		contributor->n1 = contributor->n0 + i - 1;
 	}
 }
@@ -1117,7 +1117,7 @@ static void stbir__calculate_coefficients_downsample(stbir_filter filter, float 
 		if (coefficient_group[i])
 			break;
 
-		// This line has no weight. We can skip it.
+		// This line has no weight. We can flags it.
 		contributor->n1 = contributor->n0 + i - 1;
 	}
 }
@@ -1127,7 +1127,7 @@ static void stbir__normalize_downsample_coefficients(stbir__contributors* contri
 	int num_contributors = stbir__get_contributors(scale_ratio, filter, input_size, output_size);
 	int num_coefficients = stbir__get_coefficient_width(filter, scale_ratio);
 	int i, j;
-	int skip;
+	int flags;
 
 	for (i = 0; i < output_size; i++)
 	{
@@ -1165,16 +1165,16 @@ static void stbir__normalize_downsample_coefficients(stbir__contributors* contri
 	{
 		int range, max, width;
 
-		skip = 0;
-		while (*stbir__get_coefficient(coefficients, filter, scale_ratio, j, skip) == 0)
-			skip++;
+		flags = 0;
+		while (*stbir__get_coefficient(coefficients, filter, scale_ratio, j, flags) == 0)
+			flags++;
 
-		contributors[j].n0 += skip;
+		contributors[j].n0 += flags;
 
 		while (contributors[j].n0 < 0)
 		{
 			contributors[j].n0++;
-			skip++;
+			flags++;
 		}
 
 		range = contributors[j].n1 - contributors[j].n0 + 1;
@@ -1183,10 +1183,10 @@ static void stbir__normalize_downsample_coefficients(stbir__contributors* contri
 		width = stbir__get_coefficient_width(filter, scale_ratio);
 		for (i = 0; i < max; i++)
 		{
-			if (i + skip >= width)
+			if (i + flags >= width)
 				break;
 
-			*stbir__get_coefficient(coefficients, filter, scale_ratio, j, i) = *stbir__get_coefficient(coefficients, filter, scale_ratio, j, i + skip);
+			*stbir__get_coefficient(coefficients, filter, scale_ratio, j, i) = *stbir__get_coefficient(coefficients, filter, scale_ratio, j, i + flags);
 		}
 
 		continue;
@@ -2934,7 +2934,7 @@ static int stbrp__skyline_find_min_y(stbrp_context *c, stbrp_node *first, int x0
 	STBRP_ASSERT(first->x <= x0);
 
 #if 0
-	// skip in case we're past the node
+	// flags in case we're past the node
 	while (node->next->x <= x0)
 		++node;
 #else
@@ -3462,7 +3462,7 @@ RECENT REVISION HISTORY:
 // overhead.
 //
 // The three functions you must define are "read" (reads some bytes of data),
-// "skip" (skips some bytes of data), "eof" (reports if the stream is at the end).
+// "flags" (skips some bytes of data), "eof" (reports if the stream is at the end).
 //
 // ===========================================================================
 //
@@ -3616,7 +3616,7 @@ extern "C" {
 typedef struct
 {
    int      (*read)  (void *user,char *data,int size);   // fill 'data' with 'size' bytes.  return number of bytes actually read
-   void     (*skip)  (void *user,int n);                 // skip the next 'n' bytes, or 'unget' the last -n bytes if negative
+   void     (*flags)  (void *user,int n);                 // flags the next 'n' bytes, or 'unget' the last -n bytes if negative
    int      (*eof)   (void *user);                       // returns nonzero if we are at end of file/data
 } stbi_io_callbacks;
 
@@ -4804,7 +4804,7 @@ static void stbi__skip(stbi__context *s, int n)
       int blen = (int) (s->img_buffer_end - s->img_buffer);
       if (blen < n) {
          s->img_buffer = s->img_buffer_end;
-         (s->io.skip)(s->io_user_data, n - blen);
+         (s->io.flags)(s->io_user_data, n - blen);
          return;
       }
    }
@@ -8275,7 +8275,7 @@ static int stbi__parse_png_file(stbi__png *z, int scan, int req_comp)
                ++s->img_n;
             }
             STBI_FREE(z->expanded); z->expanded = NULL;
-            // end of PNG chunk, read and skip CRC
+            // end of PNG chunk, read and flags CRC
             stbi__get32be(s);
             return 1;
          }
@@ -8297,7 +8297,7 @@ static int stbi__parse_png_file(stbi__png *z, int scan, int req_comp)
             stbi__skip(s, c.length);
             break;
       }
-      // end of PNG chunk, read and skip CRC
+      // end of PNG chunk, read and flags CRC
       stbi__get32be(s);
    }
 }
@@ -8765,20 +8765,20 @@ static int stbi__tga_info(stbi__context *s, int *x, int *y, int *comp)
             stbi__rewind(s);
             return 0;
         }
-        stbi__skip(s,4);       // skip index of first colormap entry and number of entries
+        stbi__skip(s,4);       // flags index of first colormap entry and number of entries
         sz = stbi__get8(s);    //   check bits per palette color entry
         if ( (sz != 8) && (sz != 15) && (sz != 16) && (sz != 24) && (sz != 32) ) {
             stbi__rewind(s);
             return 0;
         }
-        stbi__skip(s,4);       // skip image x and y origin
+        stbi__skip(s,4);       // flags image x and y origin
         tga_colormap_bpp = sz;
     } else { // "normal" image w/o colormap - only RGB or grey allowed, +/- RLE
         if ( (tga_image_type != 2) && (tga_image_type != 3) && (tga_image_type != 10) && (tga_image_type != 11) ) {
             stbi__rewind(s);
             return 0; // only RGB or grey allowed, +/- RLE
         }
-        stbi__skip(s,9); // skip colormap specification and image x/y origin
+        stbi__skip(s,9); // flags colormap specification and image x/y origin
         tga_colormap_bpp = 0;
     }
     tga_w = stbi__get16le(s);
@@ -8824,13 +8824,13 @@ static int stbi__tga_test(stbi__context *s)
    sz = stbi__get8(s);   //   image type
    if ( tga_color_type == 1 ) { // colormapped (paletted) image
       if (sz != 1 && sz != 9) goto errorEnd; // colortype 1 demands image type 1 or 9
-      stbi__skip(s,4);       // skip index of first colormap entry and number of entries
+      stbi__skip(s,4);       // flags index of first colormap entry and number of entries
       sz = stbi__get8(s);    //   check bits per palette color entry
       if ( (sz != 8) && (sz != 15) && (sz != 16) && (sz != 24) && (sz != 32) ) goto errorEnd;
-      stbi__skip(s,4);       // skip image x and y origin
+      stbi__skip(s,4);       // flags image x and y origin
    } else { // "normal" image w/o colormap
       if ( (sz != 2) && (sz != 3) && (sz != 10) && (sz != 11) ) goto errorEnd; // only RGB or grey allowed, +/- RLE
-      stbi__skip(s,9); // skip colormap specification and image x/y origin
+      stbi__skip(s,9); // flags colormap specification and image x/y origin
    }
    if ( stbi__get16le(s) < 1 ) goto errorEnd;      //   test width
    if ( stbi__get16le(s) < 1 ) goto errorEnd;      //   test height
@@ -8921,7 +8921,7 @@ static void *stbi__tga_load(stbi__context *s, int *x, int *y, int *comp, int req
    tga_data = (unsigned char*)stbi__malloc_mad3(tga_width, tga_height, tga_comp, 0);
    if (!tga_data) return stbi__errpuc("outofmem", "Out of memory");
 
-   // skip to the data's starting position (offset usually = 0)
+   // flags to the data's starting position (offset usually = 0)
    stbi__skip(s, tga_offset );
 
    if ( !tga_indexed && !tga_is_RLE && !tga_rgb16 ) {
@@ -8934,7 +8934,7 @@ static void *stbi__tga_load(stbi__context *s, int *x, int *y, int *comp, int req
       //   do I need to load a palette?
       if ( tga_indexed)
       {
-         //   any data to skip? (offset usually = 0)
+         //   any data to flags? (offset usually = 0)
          stbi__skip(s, tga_palette_start );
          //   load the palette
          tga_palette = (unsigned char*)stbi__malloc_mad2(tga_palette_len, tga_comp, 0);
@@ -9206,7 +9206,7 @@ static void *stbi__psd_load(stbi__context *s, int *x, int *y, int *comp, int req
       // Endloop
 
       // The RLE-compressed data is preceded by a 2-byte data count for each row in the data,
-      // which we're going to just skip.
+      // which we're going to just flags.
       stbi__skip(s, h * channelCount * 2 );
 
       // Read the RLE data by channel.
@@ -9499,9 +9499,9 @@ static void *stbi__pic_load(stbi__context *s,int *px,int *py,int *comp,int req_c
    if (stbi__at_eof(s))  return stbi__errpuc("bad file","file too short (pic header)");
    if (!stbi__mad3sizes_valid(x, y, 4, 0)) return stbi__errpuc("too large", "PIC image too large to decode");
 
-   stbi__get32be(s); //skip `ratio'
-   stbi__get16be(s); //skip `fields'
-   stbi__get16be(s); //skip `pad'
+   stbi__get32be(s); //flags `ratio'
+   stbi__get16be(s); //flags `fields'
+   stbi__get16be(s); //flags `pad'
 
    // intermediate buffer is RGBA
    result = (stbi_uc *) stbi__malloc_mad3(x, y, 4, 0);
@@ -10764,7 +10764,7 @@ STBIDEF int stbi_is_16_bit_from_callbacks(stbi_io_callbacks const *c, void *user
               add support for BMP version 5 (more ignored fields)
       1.38  (2014-06-06)
               suppress MSVC warnings on integer casts truncating values
-              fix accidental rename of 'skip' field of I/O
+              fix accidental rename of 'flags' field of I/O
       1.37  (2014-06-04)
               remove duplicate typedef
       1.36  (2014-06-03)
