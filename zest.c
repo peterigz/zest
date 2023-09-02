@@ -5771,12 +5771,15 @@ void zest_SetTextureLayerSize(zest_texture texture, zest_uint size) {
 //-- End Texture and Image Functions
 
 //-- Fonts
-zest_index zest_LoadMSDFFont(const char *filename) {
-	zest_font_t font = { 0 };
+zest_font zest_LoadMSDFFont(const char *filename) {
+	zest_font_t blank_font = { 0 };
+	zest_font font = ZEST__NEW(zest_font);
+	*font = blank_font;
+
 	char *font_data = zest_ReadEntireFile(filename, 0);
 	ZEST_ASSERT(font_data);			//File not found
-	zest_vec_resize(font.characters, 256);
-	font.characters['\n'].flags = zest_character_flag_new_line;
+	zest_vec_resize(font->characters, 256);
+	font->characters['\n'].flags = zest_character_flag_new_line;
 	
 	zest_font_character_t c;
 	zest_uint character_count = 0;
@@ -5792,24 +5795,24 @@ zest_index zest_LoadMSDFFont(const char *filename) {
 	position += sizeof(zest_uint);
 	memcpy(&file_version, font_data + position, sizeof(zest_uint));
 	position += sizeof(zest_uint);
-	memcpy(&font.pixel_range, font_data + position, sizeof(float));
+	memcpy(&font->pixel_range, font_data + position, sizeof(float));
 	position += sizeof(float);
-	memcpy(&font.miter_limit, font_data + position, sizeof(float));
+	memcpy(&font->miter_limit, font_data + position, sizeof(float));
 	position += sizeof(float);
-	memcpy(&font.padding, font_data + position, sizeof(float));
+	memcpy(&font->padding, font_data + position, sizeof(float));
 	position += sizeof(float);
 
 	for (zest_uint i = 0; i != character_count; ++i) {
 		memcpy(&c, font_data + position, sizeof(zest_font_character_t));
 		position += sizeof(zest_font_character_t);
 
-		font.max_yoffset = ZEST__MAX(fabsf(c.yoffset), font.max_yoffset);
+		font->max_yoffset = ZEST__MAX(fabsf(c.yoffset), font->max_yoffset);
 
 		const char key = c.character[0];
-		font.characters[key] = c;
+		font->characters[key] = c;
 	}
 
-	memcpy(&font.font_size, font_data + position, sizeof(float));
+	memcpy(&font->font_size, font_data + position, sizeof(float));
 	position += sizeof(float);
 
 	zest_uint image_size;
@@ -5820,46 +5823,43 @@ zest_index zest_LoadMSDFFont(const char *filename) {
 	zest_vec_resize(image_data, image_size);
 	memcpy(image_data, font_data + position, image_size);
 
-	font.texture = zest_CreateTextureSingle(filename, zest_texture_format_rgba);
+	font->texture = zest_CreateTextureSingle(filename, zest_texture_format_rgba);
 
 	stbi_set_flip_vertically_on_load(1);
-	zest_LoadBitmapImageMemory(zest_GetTextureSingleBitmap(font.texture), image_data, image_size, 0);
+	zest_LoadBitmapImageMemory(zest_GetTextureSingleBitmap(font->texture), image_data, image_size, 0);
 
-	zest_image_t *image = &font.texture->texture;
-	image->width = zest_GetTextureSingleBitmap(font.texture)->width;
-	image->height = zest_GetTextureSingleBitmap(font.texture)->height;
+	zest_image_t *image = &font->texture->texture;
+	image->width = zest_GetTextureSingleBitmap(font->texture)->width;
+	image->height = zest_GetTextureSingleBitmap(font->texture)->height;
 
 	zest_vec_free(image_data);
 	zest_vec_free(font_data);
 
-	zest_SetupFontTexture(&font);
+	zest_SetupFontTexture(font);
 	stbi_set_flip_vertically_on_load(0);
 
-	font.index = zest_map_size(ZestRenderer->fonts);
-	zest_SetText(&font.name, filename);
+	zest_SetText(&font->name, filename);
 
-	return zest_AddFont(&font);
+	return zest_AddFont(font);
 }
 
-void zest_UnloadFont(zest_index font_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->fonts, font_index));
-	zest_font_t *font = zest_GetFont(font_index);
+void zest_UnloadFont(zest_font font) {
 	zest_DeleteTexture(font->texture);
 	zest__delete_font(font);
 }
 
-zest_index zest_AddFont(zest_font_t *font) {
+zest_font zest_AddFont(zest_font font) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->fonts, font->name.str));	//A font already exists with that name
-	zest_map_insert(ZestRenderer->fonts, font->name.str, *font);
-	return zest_map_size(ZestRenderer->fonts) - 1;
+	zest_map_insert(ZestRenderer->fonts, font->name.str, font);
+	return font;
 }
 
-zest_font_t *zest_GetFont(zest_index font_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->fonts, font_index));	//No font found with that index
-	return zest_map_at_index(ZestRenderer->fonts, font_index);
+zest_font zest_GetFont(const char *name) {
+	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->fonts, name));	//No font found with that index
+	return *zest_map_at(ZestRenderer->fonts, name);
 }
 
-void zest_SetupFontTexture(zest_font_t *font) {
+void zest_SetupFontTexture(zest_font font) {
 	if (ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready)) {
 		zest__cleanup_texture(font->texture);
 	}
@@ -6541,16 +6541,15 @@ void zest_InitialiseMSDFFontLayer(zest_instance_layer_t *font_layer, zest_uint i
 	zest__reset_instance_layer_drawing(font_layer);
 }
 
-void zest_SetMSDFFontDrawing(zest_instance_layer_t *font_layer, zest_index font_index, zest_index descriptor_set_index, zest_index pipeline_index) {
+void zest_SetMSDFFontDrawing(zest_instance_layer_t *font_layer, zest_font font, zest_index descriptor_set_index, zest_index pipeline_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
 	zest__end_draw_instructions(font_layer);
 	zest__start_instance_instructions(font_layer);
-	zest_font_t *font = zest_GetFont(font_index);
 	ZEST_ASSERT(ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready));		//Make sure the font is properly loaded or wasn't recently deleted
 	font_layer->current_instance_instruction.pipeline = pipeline_index;
 	font_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(font->texture, descriptor_set_index);
 	font_layer->current_instance_instruction.draw_mode = zest_draw_mode_text;
-	font_layer->current_instance_instruction.asset_index = font_index;
+	font_layer->current_instance_instruction.asset = font;
 	font_layer->current_instance_instruction.scissor = font_layer->scissor;
 	font_layer->current_instance_instruction.viewport = font_layer->viewport;
 	font_layer->current_instance_instruction.push_constants = font_layer->push_constants;
@@ -6609,7 +6608,7 @@ void zest_SetMSDFFontDetail(zest_instance_layer_t *font_layer, float detail) {
 float zest_DrawMSDFText(zest_instance_layer_t *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip) {
 	ZEST_ASSERT(font_layer->current_instance_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
 
-	zest_font_t *font = zest_GetFont(font_layer->current_instance_instruction.asset_index);
+	zest_font font = (zest_font)(font_layer->current_instance_instruction.asset);
 
 	size_t length = strlen(text);
 	if (length <= 0) {
@@ -6662,7 +6661,7 @@ float zest_DrawMSDFText(zest_instance_layer_t *font_layer, const char *text, flo
 float zest_DrawMSDFParagraph(zest_instance_layer_t *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float line_height, float flip) {
 	ZEST_ASSERT(font_layer->current_instance_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
 
-	zest_font_t *font = zest_GetFont(font_layer->current_instance_instruction.asset_index);
+	zest_font font = (zest_font)(font_layer->current_instance_instruction.asset);
 
 	size_t length = strlen(text);
 	if (length <= 0) {

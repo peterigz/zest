@@ -44,7 +44,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	
 	app->config.font_file = "";
 
-	app->font_index = -1;
+	app->font = ZEST_NULL;
 }
 
 void ShowToolTip(const char *tip) {
@@ -205,11 +205,11 @@ bool GenerateAtlas(const char *fontFilename, const char *save_to, zest_font_conf
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Don't forget to update the uniform buffer!
 	zest_Update2dUniformBuffer();
-	zest_SetActiveRenderQueue(0);
+	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
 	ImGuiApp *app = (ImGuiApp*)user_data;
 
 	if (app->load_next_font && !zest_map_valid_name(ZestRenderer->textures, app->config.font_save_file.c_str())) {
-		app->font_index = zest_LoadMSDFFont(app->config.font_save_file.c_str());
+		app->font = zest_LoadMSDFFont(app->config.font_save_file.c_str());
 		app->load_next_font = ZEST_FALSE;
 	}
 
@@ -258,9 +258,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGuiFileDialog::Instance()->OpenDialog("save_font", "Choose File", ".zft", app->config.font_save_file, 1, nullptr, ImGuiFileDialogFlags_Modal | ImGuiFileDialogFlags_ConfirmOverwrite);
 	}
 
-	if (app->font_index != -1) {
+	if (app->font != ZEST_NULL) {
 		zest_instance_layer_t *font_layer = zest_GetInstanceLayerByIndex(app->font_layer);
-		zest_font_t *font = zest_GetFont(app->font_index);
 
 		static float preview_size = 50.f;
 		static float preview_spacing = 0.f;
@@ -272,7 +271,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		ImGui::DragFloat("Preview Size", &preview_size, 0.1f, 0.f);
 		ImGui::DragFloat("Preview Spacing", &preview_spacing, 0.1f, 0.f);
-		ImGui::DragFloat("Preview Pixel Range", &font->pixel_range, 0.1f, 0.f);
+		ImGui::DragFloat("Preview Pixel Range", &app->font->pixel_range, 0.1f, 0.f);
 
 		ImGui::DragFloat("Shadow Length", &shadow_length, 0.1f, 0.f, 5.f);
 		ImGui::DragFloat("Shadow Smoothing", &shadow_smoothing, 0.01f, 0.f, .3f);
@@ -297,7 +296,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		font_layer->multiply_blend_factor = 1.f;
 		font_layer->push_constants = { 0 };
-		zest_SetMSDFFontDrawing(font_layer, app->font_index, font->descriptor_set_index, font->pipeline_index);
+		zest_SetMSDFFontDrawing(font_layer, app->font, app->font->descriptor_set_index, app->font->pipeline_index);
 		zest_SetMSDFFontShadow(font_layer, shadow_length, shadow_smoothing, shadow_clipping);
 		zest_SetMSDFFontShadowColor(font_layer, zest_Vec4Set(0.f, 0.f, 0.f, shadow_alpha));
 		
@@ -318,9 +317,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 			app->config.font_save_file = path.string();
 			app->config.font_folder = ImGuiFileDialog::Instance()->GetCurrentPath();
 			if (GenerateAtlas(app->config.font_path.c_str(), app->config.font_save_file.c_str(), &app->config)) {
-				if (app->font_index != -1) {
-					zest_UnloadFont(app->font_index);
-					app->font_index = -1;
+				if (app->font != ZEST_NULL) {
+					zest_UnloadFont(app->font);
+					app->font = ZEST_NULL;
 				}
 				app->load_next_font = ZEST_TRUE;
 			}

@@ -31,7 +31,7 @@ struct ImGuiApp {
 	zest_font_configuration config;
 
 	zest_bool load_next_font;
-	zest_index font_index;
+	zest_font font;
 	zest_index font_layer;
 };
 

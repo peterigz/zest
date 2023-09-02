@@ -1,7 +1,7 @@
 #include <zest.h>
 
 typedef struct zest_example {
-	zest_index font_index;
+	zest_font font;
 	zest_index font_layer;
 } zest_example;
 
@@ -15,7 +15,7 @@ void InitExample(zest_example *example) {
 		zest_FinishQueueSetup();
 	}
 
-	example->font_index = zest_LoadMSDFFont("fonts/KaushanScript-Regular.zft");
+	example->font = zest_LoadMSDFFont("fonts/KaushanScript-Regular.zft");
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
@@ -24,10 +24,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
 
 	zest_instance_layer_t *font_layer = zest_GetInstanceLayerByIndex(example->font_layer);
-	zest_font_t *font = zest_GetFont(example->font_index);
 
 	font_layer->multiply_blend_factor = 1.f;
-	zest_SetMSDFFontDrawing(font_layer, example->font_index, font->descriptor_set_index, font->pipeline_index);
+	zest_SetMSDFFontDrawing(font_layer, example->font, example->font->descriptor_set_index, example->font->pipeline_index);
 	zest_DrawMSDFParagraph(font_layer, "Zest fonts drawn using MSDF!\nHere are some numbers 12345\nLorem ipsum and all that\nHello Sailer!\n", 0.f, 0.f, 0.f, 0.f, 50.f, 0.f, 1.f, 1.f);
 	zest_DrawMSDFText(font_layer, "(This should be centered)", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 50.f, 0.f, 1.f);
 

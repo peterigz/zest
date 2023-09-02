@@ -383,11 +383,13 @@ typedef struct zest_texture_t zest_texture_t;
 typedef struct zest_draw_routine_t zest_draw_routine_t;
 typedef struct zest_command_queue_draw_commands_t zest_command_queue_draw_commands_t;
 typedef struct zest_command_queue_t zest_command_queue_t;
+typedef struct zest_font_t zest_font_t;
 
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_draw_routine)
 ZEST__MAKE_HANDLE(zest_command_queue_draw_commands)
 ZEST__MAKE_HANDLE(zest_command_queue)
+ZEST__MAKE_HANDLE(zest_font)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -1071,7 +1073,7 @@ typedef struct zest_instance_instruction_t {
 	VkRect2D scissor;							//The drawinstruction can also clip whats drawn
 	VkViewport viewport;						//The viewport size of the draw call 
 	zest_draw_mode draw_mode;
-	zest_index asset_index;						//Optional index to either texture, font etc
+	void *asset;							//Optional pointer to either texture, font etc
 } zest_instance_instruction_t;
 
 typedef struct zest_instance_layer_t {
@@ -1143,7 +1145,6 @@ typedef struct zest_font_t {
 	zest_texture texture;
 	zest_index pipeline_index;
 	zest_index descriptor_set_index;
-	zest_index index;
 	float pixel_range;
 	float miter_limit;
 	float padding;
@@ -1306,7 +1307,7 @@ zest_hash_map(zest_uniform_buffer_t) zest_map_uniform_buffers;
 zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
 zest_hash_map(zest_texture) zest_map_textures;
 zest_hash_map(zest_render_target_t) zest_map_render_targets;
-zest_hash_map(zest_font_t) zest_map_fonts;
+zest_hash_map(zest_font) zest_map_fonts;
 
 typedef struct zest_renderer_t {
 	zest_semaphores_t semaphores[ZEST_MAX_FIF];
@@ -1811,8 +1812,8 @@ ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
 //-- End Images and textures
 
 //-- Fonts
-ZEST_API zest_index zest_LoadMSDFFont(const char *filename);
-ZEST_API void zest_UnloadFont(zest_index font_index);
+ZEST_API zest_font zest_LoadMSDFFont(const char *filename);
+ZEST_API void zest_UnloadFont(zest_font font);
 //-- End Fonts
 
 //Render targets
@@ -1862,7 +1863,7 @@ ZEST_API void zest_DrawBillboard(zest_instance_layer_t *layer, zest_image_t *ima
 
 //Draw MSDF font layers
 ZEST_API void zest_InitialiseMSDFFontLayer(zest_instance_layer_t *font_layer, zest_uint instance_pool_size);
-ZEST_API void zest_SetMSDFFontDrawing(zest_instance_layer_t *font_layer, zest_index font_index, zest_index descriptor_set_index, zest_index pipeline_index);
+ZEST_API void zest_SetMSDFFontDrawing(zest_instance_layer_t *font_layer, zest_font font, zest_index descriptor_set_index, zest_index pipeline_index);
 ZEST_API void zest_SetMSDFFontShadow(zest_instance_layer_t *font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping);
 ZEST_API void zest_SetMSDFFontShadowColor(zest_instance_layer_t *font_layer, zest_vec4 color);
 ZEST_API void zest_TweakMSDFFont(zest_instance_layer_t *font_layer, float bleed, float expand, float aa_factor, float radius, float detail);
@@ -1891,9 +1892,9 @@ ZEST_API void zest_GrowMeshIndexBuffers(zest_mesh_layer_t *layer);
 
 //Events and States
 ZEST_API zest_bool zest_SwapchainWasRecreated(void);
-ZEST_API void zest_SetupFontTexture(zest_font_t *font);
-ZEST_API zest_index zest_AddFont(zest_font_t *font);
-ZEST_API zest_font_t *zest_GetFont(zest_index font_index);
+ZEST_API void zest_SetupFontTexture(zest_font font);
+ZEST_API zest_font zest_AddFont(zest_font font);
+ZEST_API zest_font zest_GetFont(const char *font);
 //--End Events and States
 
 //General Helper functions
