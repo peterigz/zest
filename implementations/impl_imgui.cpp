@@ -3,7 +3,7 @@
 
 void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer) {
 	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
-	zest_index last_pipeline_index = -1;
+	zest_pipeline last_pipeline = ZEST_NULL;
 	VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
 
 	zest_imgui_layer_info *layer_info = (zest_imgui_layer_info*)draw_routine->data;
@@ -31,18 +31,17 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 					//QulkanRenderTarget *render_target = static_cast<QulkanRenderTarget*>(pcmd->UserCallbackData);
 					//current_image = &render_target->GetRenderTargetImage();
 				}
-				zest_index current_pipeline = layer_info->pipeline_index;
 
-				if (last_pipeline_index != current_pipeline || last_descriptor_set != zest_CurrentTextureDescriptorSet(current_image->texture)) {
-					zest_BindPipeline(zest_Pipeline(current_pipeline), zest_CurrentTextureDescriptorSet(current_image->texture));
+				if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_CurrentTextureDescriptorSet(current_image->texture)) {
+					zest_BindPipeline(layer_info->pipeline, zest_CurrentTextureDescriptorSet(current_image->texture));
 					last_descriptor_set = zest_CurrentTextureDescriptorSet(current_image->texture);
-					last_pipeline_index = current_pipeline;
+					last_pipeline = layer_info->pipeline;
 				}
 
 				imgui_layer->push_constants.parameters2.x = current_image->layer;
 				imgui_layer->push_constants.flags = 0;
 
-				zest_SendStandardPushConstants(zest_Pipeline(current_pipeline), &imgui_layer->push_constants);
+				zest_SendStandardPushConstants(layer_info->pipeline, &imgui_layer->push_constants);
 
 				VkRect2D scissor_rect;
 				scissor_rect.offset.x = ZEST__MAX((int32_t)(pcmd->ClipRect.x), 0);

@@ -26,7 +26,6 @@ struct zest_font_configuration {
 
 struct ImGuiApp {
 	zest_imgui_layer_info imgui_layer_info;
-	zest_index imgui_draw_routine_index;
 	zest_texture imgui_font_texture;
 	zest_font_configuration config;
 

@@ -21,7 +21,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.Fonts->SetTexID(font_image);
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
-	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");
+	app->imgui_layer_info.pipeline = zest_Pipeline("pipeline_imgui");
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
@@ -35,14 +35,13 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	RasteriseFont("fonts/Lato-Regular.ttf", app);
 
-	zest_pipeline_set_t *sprite_pipeline = zest_PipelineByName("pipeline_2d_sprites_alpha");
+	zest_pipeline sprite_pipeline = zest_Pipeline("pipeline_2d_sprites_alpha");
 	zest_pipeline_template_create_info_t sdf_pipeline_template = sprite_pipeline->create_info;
-	app->sdf_pipeline_index = zest_AddPipeline("sdf_fonts");
-	zest_pipeline_set_t *sdf_pipeline = zest_Pipeline(app->sdf_pipeline_index);
+	app->sdf_pipeline = zest_AddPipeline("sdf_fonts");
 	sdf_pipeline_template.vertShaderFile = "spv/sdf.spv";
 	sdf_pipeline_template.fragShaderFile = "spv/sdf.spv";
-	zest_MakePipelineTemplate(sdf_pipeline, zest_GetStandardRenderPass(), &sdf_pipeline_template);
-	zest_BuildPipeline(sdf_pipeline);
+	zest_MakePipelineTemplate(app->sdf_pipeline, zest_GetStandardRenderPass(), &sdf_pipeline_template);
+	zest_BuildPipeline(app->sdf_pipeline);
 
 }
 
@@ -109,7 +108,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::Render();
 	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
 
-	zest_SetSpriteDrawing(sprite_layer, app->glyph_texture, zest_GetTextureDescriptorSetIndex(app->glyph_texture, "Default"), app->sdf_pipeline_index);
+	zest_SetSpriteDrawing(sprite_layer, app->glyph_texture, zest_GetTextureDescriptorSetIndex(app->glyph_texture, "Default"), app->sdf_pipeline);
 	sprite_layer->current_color.a = 0;
 	sprite_layer->current_instance_instruction.push_constants.parameters2.x = expand;
 	sprite_layer->current_instance_instruction.push_constants.parameters2.y = bleed;

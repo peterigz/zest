@@ -24,7 +24,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->test_image = zest_AddTextureImageFile(app->test_texture, "wabbit_alpha.png");
 	zest_ProcessTextureImages(app->test_texture);
 
-	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");
+	app->imgui_layer_info.pipeline = zest_Pipeline("pipeline_imgui");
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);

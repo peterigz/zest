@@ -17,7 +17,7 @@ struct ImGuiApp {
 	zest_image glyph_image;
 	unsigned char *font_buffer;
 
-	zest_index sdf_pipeline_index;
+	zest_pipeline sdf_pipeline;
 };
 
 void RasteriseFont(const char *name, ImGuiApp *app);

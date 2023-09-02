@@ -1951,16 +1951,15 @@ void zest__cleanup_swapchain() {
 	vkDestroySwapchainKHR(ZestDevice->logical_device, ZestRenderer->swapchain, &ZestDevice->allocation_callbacks);
 }
 
-void zest__destroy_pipeline_set(zest_pipeline_set_t *p) {
+void zest__destroy_pipeline_set(zest_pipeline_t *p) {
 	vkDestroyPipeline(ZestDevice->logical_device, p->pipeline, &ZestDevice->allocation_callbacks);
 	vkDestroyPipelineLayout(ZestDevice->logical_device, p->pipeline_layout, &ZestDevice->allocation_callbacks);
 }
 
 void zest__cleanup_pipelines() {
-	for (zest_map_foreach_i(ZestRenderer->pipeline_sets)) {
-		zest_index pipeline_index = zest_map_index(ZestRenderer->pipeline_sets, i);
-		zest_pipeline_set_t *pipeline_set = zest_Pipeline(zest_map_index(ZestRenderer->pipeline_sets, pipeline_index));
-		zest__destroy_pipeline_set(pipeline_set);
+	for (zest_map_foreach_i(ZestRenderer->pipelines)) {
+		zest_pipeline pipeline = *zest_map_at_index(ZestRenderer->pipelines, i);
+		zest__destroy_pipeline_set(pipeline);
 	}
 }
 
@@ -1989,7 +1988,7 @@ void zest__cleanup_renderer() {
 	vkDestroyDescriptorPool(ZestDevice->logical_device, ZestRenderer->descriptor_pool, &ZestDevice->allocation_callbacks);
 
 	zest__cleanup_pipelines();
-	zest_map_clear(ZestRenderer->pipeline_sets);
+	zest_map_clear(ZestRenderer->pipelines);
 
 	zest__cleanup_textures();
 
@@ -2077,9 +2076,8 @@ void zest__recreate_swapchain() {
 	VkExtent2D extent;
 	extent.width = width;
 	extent.height = height;
-	for (zest_map_foreach_i(ZestRenderer->pipeline_sets)) {
-		zest_index pipeline_index = zest_map_index(ZestRenderer->pipeline_sets, i);
-		zest_pipeline_set_t *pipeline = &ZestRenderer->pipeline_sets.data[pipeline_index];
+	for (zest_map_foreach_i(ZestRenderer->pipelines)) {
+		zest_pipeline pipeline = *zest_map_at_index(ZestRenderer->pipelines, i);
 		if (!pipeline->rebuild_pipeline_function) {
 			zest__rebuild_pipeline(pipeline);
 		}
@@ -2430,8 +2428,8 @@ void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes) {
 	vkUpdateDescriptorSets(ZestDevice->logical_device, zest_vec_size(descriptor_writes), descriptor_writes, 0, ZEST_NULL);
 }
 
-zest_pipeline_set_t zest_CreatePipelineSet() {
-	zest_pipeline_set_t pipeline_set = {
+zest_pipeline zest_CreatePipeline() {
+	zest_pipeline_t blank_pipeline = {
 		.create_info = {0},
 		.pipeline_template = {0},
 		.descriptor_layout = 0,
@@ -2443,7 +2441,9 @@ zest_pipeline_set_t zest_CreatePipelineSet() {
 		.rebuild_pipeline_function = ZEST_NULL,
 		.flags = zest_pipeline_set_flag_none,
 	};
-	return pipeline_set;
+	zest_pipeline pipeline = ZEST__NEW(zest_pipeline);
+	*pipeline = blank_pipeline;
+	return pipeline;
 }
 
 zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void) {
@@ -2575,24 +2575,14 @@ VkPipelineColorBlendAttachmentState zest_ImGuiBlendState() {
 	return color_blend_attachment;
 }
 
-void zest_BindPipeline(zest_pipeline_set_t *pipeline, VkDescriptorSet descriptor_set) {
+void zest_BindPipeline(zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set) {
 	vkCmdBindPipeline(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 	vkCmdBindDescriptorSets(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, &descriptor_set, 0, 0);
 }
 
-void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_set_t *pipeline, VkDescriptorSet descriptor_set) {
+void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set) {
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, &descriptor_set, 0, 0);
-}
-
-zest_pipeline_set_t *zest_Pipeline(zest_index pipeline_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage
-	return zest_map_at_index(ZestRenderer->pipeline_sets, pipeline_index);
-}
-
-zest_index zest_PipelineIndex(const char *name) {
-	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name));	//That index could not be found in the pipeline storage
-	return zest_map_get_index_by_name(ZestRenderer->pipeline_sets, name);
 }
 
 void zest_SetPipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info) {
@@ -2690,7 +2680,7 @@ void zest_SetPipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_
 	pipeline_template->dynamicState.flags = 0;
 }
 
-void zest_BuildPipeline(zest_pipeline_set_t *pipeline) {
+void zest_BuildPipeline(zest_pipeline_t *pipeline) {
 	ZEST_VK_CHECK_RESULT(vkCreatePipelineLayout(ZestDevice->logical_device, &pipeline->pipeline_template.pipelineLayoutInfo, &ZestDevice->allocation_callbacks, &pipeline->pipeline_layout));
 
 	if (!pipeline->pipeline_template.vertShaderFile || !pipeline->pipeline_template.fragShaderFile) {
@@ -2745,11 +2735,11 @@ void zest_BuildPipeline(zest_pipeline_set_t *pipeline) {
 	vkDestroyShaderModule(ZestDevice->logical_device, vert_shader_module, &ZestDevice->allocation_callbacks);
 }
 
-void zest_AddPipelineDescriptorWrite(zest_pipeline_set_t *pipeline, VkWriteDescriptorSet set, zest_index fif) { 
+void zest_AddPipelineDescriptorWrite(zest_pipeline_t *pipeline, VkWriteDescriptorSet set, zest_index fif) { 
 	zest_vec_push(pipeline->descriptor_writes[fif], set); 
 }
 
-void zest_MakePipelineTemplate(zest_pipeline_set_t *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info) {
+void zest_MakePipelineTemplate(zest_pipeline_t *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->descriptor_layouts, pipeline->descriptor_layout));	//Must be a valid descriptor layout index in the pipeline
 
 	if (!(pipeline->flags & zest_pipeline_set_flag_is_render_target_pipeline))
@@ -2775,7 +2765,7 @@ VkShaderModule zest_CreateShaderModule(char *code) {
 	return shader_module;
 }
 
-void zest__rebuild_pipeline(zest_pipeline_set_t *pipeline) {
+void zest__rebuild_pipeline(zest_pipeline_t *pipeline) {
 	//Note: not setting this for pipelines messes with scaling, but not sure if some pipelines need this to be fixed
 	pipeline->create_info.viewport.extent = zest_GetSwapChainExtent();
 	pipeline->pipeline_template.renderPass = zest_GetStandardRenderPass();
@@ -2786,7 +2776,12 @@ void zest__rebuild_pipeline(zest_pipeline_set_t *pipeline) {
 	}
 }
 
-zest_index zest_AddPipeline(const char *name) { zest_map_insert(ZestRenderer->pipeline_sets, name, zest_CreatePipelineSet()); return zest_map_last_index(ZestRenderer->pipeline_sets); }
+zest_pipeline zest_AddPipeline(const char *name) { 
+	zest_pipeline pipeline = zest_CreatePipeline();
+	zest_map_insert(ZestRenderer->pipelines, name, pipeline); 
+	return pipeline;
+}
+
 VkRenderPass zest_GetStandardRenderPass() { 
 	if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {
 		return *zest_map_at(ZestRenderer->render_passes, "Render pass standard").render_pass;
@@ -2803,9 +2798,8 @@ zest_index zest_GetDescriptorSetLayoutIndexByName(const char *name) { return zes
 VkDescriptorBufferInfo *zest_GetUniformBufferInfoByName(const char *name, zest_index fif) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name).view_buffer_info[fif]; }
 VkDescriptorBufferInfo *zest_GetUniformBufferInfoByIndex(zest_index index, zest_index fif) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index).view_buffer_info[fif]; }
 VkRenderPass zest_GetRenderPassByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->render_passes, name)); return *zest_map_at(ZestRenderer->render_passes, name).render_pass; }
-zest_pipeline_set_t *zest_PipelineByIndex(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, index)); return zest_map_at_index(ZestRenderer->pipeline_sets, index); }
-zest_pipeline_set_t *zest_PipelineByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); return zest_map_at(ZestRenderer->pipeline_sets, name); }
-zest_pipeline_template_create_info_t zest_PipelineCreateInfo(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipeline_sets, name)); zest_pipeline_set_t *pipeline = zest_map_at(ZestRenderer->pipeline_sets, name); return pipeline->create_info; }
+zest_pipeline zest_Pipeline(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipelines, name)); return *zest_map_at(ZestRenderer->pipelines, name); }
+zest_pipeline_template_create_info_t zest_PipelineCreateInfo(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipelines, name)); zest_pipeline pipeline = *zest_map_at(ZestRenderer->pipelines, name); return pipeline->create_info; }
 VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->swapchain_extent; }
 zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
 zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
@@ -2838,11 +2832,11 @@ void zest_BindIndexBuffer(zest_buffer_t *buffer) {
 	vkCmdBindIndexBuffer(ZestRenderer->current_command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
 }
 
-void zest_SendPushConstants(zest_pipeline_set_t *pipeline, VkShaderStageFlags shader_flags, zest_uint size, void *data) {
+void zest_SendPushConstants(zest_pipeline_t *pipeline, VkShaderStageFlags shader_flags, zest_uint size, void *data) {
 	vkCmdPushConstants(ZestRenderer->current_command_buffer, pipeline->pipeline_layout, shader_flags, 0, size, data);
 }
 
-void zest_SendStandardPushConstants(zest_pipeline_set_t *pipeline, void *data) {
+void zest_SendStandardPushConstants(zest_pipeline_t *pipeline, void *data) {
 	vkCmdPushConstants(ZestRenderer->current_command_buffer, pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), data);
 }
 
@@ -2904,8 +2898,7 @@ void zest__prepare_standard_pipelines() {
 	zest_vec_push(create_info.pushConstantRange, image_pushconstant_range);
 
 	//2d sprite rendering
-	zest_index index = zest_AddPipeline("pipeline_2d_sprites");
-	zest_pipeline_set_t *sprite_instance_pipeline = zest_Pipeline(index);
+	zest_pipeline sprite_instance_pipeline = zest_AddPipeline("pipeline_2d_sprites");
 	zest_pipeline_template_create_info_t instance_create_info = create_info;
 	//instance_create_info.bindingDescriptions.push_back(CreateVertexInputBindingDescription(0, sizeof(InstanceVertex), VK_VERTEX_INPUT_RATE_VERTEX));
 	instance_create_info.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
@@ -2930,8 +2923,7 @@ void zest__prepare_standard_pipelines() {
 	zest_BuildPipeline(sprite_instance_pipeline);
 
 	//Sprites with 1 channel textures
-	index = zest_AddPipeline("pipeline_2d_sprites_alpha");
-	zest_pipeline_set_t *sprite_instance_pipeline_alpha = zest_Pipeline(index);
+	zest_pipeline sprite_instance_pipeline_alpha = zest_AddPipeline("pipeline_2d_sprites_alpha");
 	instance_create_info.vertShaderFile = "spv/instance_alpha.spv";
 	instance_create_info.fragShaderFile = "spv/instance_alpha.spv";
 	zest_MakePipelineTemplate(sprite_instance_pipeline_alpha, render_pass, &instance_create_info);
@@ -2940,8 +2932,7 @@ void zest__prepare_standard_pipelines() {
 	zest_BuildPipeline(sprite_instance_pipeline_alpha);
 
 	//Font Texture
-	index = zest_AddPipeline("pipeline_fonts");
-	zest_pipeline_set_t *font_pipeline = zest_Pipeline(index);
+	zest_pipeline font_pipeline = zest_AddPipeline("pipeline_fonts");
 	instance_create_info.vertShaderFile = "spv/font_instance.spv";
 	instance_create_info.fragShaderFile = "spv/font_instance.spv";
 	zest_MakePipelineTemplate(font_pipeline, render_pass, &instance_create_info);
@@ -2964,9 +2955,8 @@ void zest__prepare_standard_pipelines() {
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));				// Location 8: Instance Color
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));			// Location 9: Alignment
 
-	index = zest_AddPipeline("pipeline_billboard");
+	zest_pipeline billboard_instance_pipeline = zest_AddPipeline("pipeline_billboard");
 	instance_create_info.attributeDescriptions = billboard_vertex_input_attributes;
-	zest_pipeline_set_t *billboard_instance_pipeline = zest_Pipeline(index);
 	instance_create_info.vertShaderFile = "spv/billboard.spv";
 	instance_create_info.fragShaderFile = "spv/billboard.spv";
 	zest_MakePipelineTemplate(billboard_instance_pipeline, render_pass, &instance_create_info);
@@ -2974,8 +2964,7 @@ void zest__prepare_standard_pipelines() {
 	billboard_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(billboard_instance_pipeline);
 
-	index = zest_AddPipeline("pipeline_billboard_alpha");
-	zest_pipeline_set_t *billboard_pipeline_alpha = zest_Pipeline(index);
+	zest_pipeline billboard_pipeline_alpha = zest_AddPipeline("pipeline_billboard_alpha");
 	instance_create_info.vertShaderFile = "spv/billboard_alpha.spv";
 	instance_create_info.fragShaderFile = "spv/billboard_alpha.spv";
 	zest_MakePipelineTemplate(billboard_pipeline_alpha, render_pass, &instance_create_info);
@@ -3002,8 +2991,7 @@ void zest__prepare_standard_pipelines() {
 	imgui_pipeline_template.vertShaderFile = "spv/imgui.spv";
 	imgui_pipeline_template.fragShaderFile = "spv/imgui.spv";
 
-	index = zest_AddPipeline("pipeline_imgui");
-	zest_pipeline_set_t *imgui_pipeline = zest_Pipeline(index);
+	zest_pipeline imgui_pipeline = zest_AddPipeline("pipeline_imgui");
 
 	imgui_pipeline_template.viewport.extent = zest_GetSwapChainExtent();
 	imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
@@ -3022,8 +3010,7 @@ void zest__prepare_standard_pipelines() {
 	zest_BuildPipeline(imgui_pipeline);
 
 	//Final Render Pipelines
-	zest_uint final_render_index = zest_AddPipeline("pipeline_final_render");
-	zest_pipeline_set_t *final_render = zest_PipelineByIndex(final_render_index);
+	zest_pipeline final_render = zest_AddPipeline("pipeline_final_render");
 
 	final_render->create_info = zest_CreatePipelineTemplateCreateInfo();
 	final_render->create_info.viewport.extent = zest_GetSwapChainExtent();
@@ -5845,7 +5832,7 @@ void zest_SetupFontTexture(zest_font font) {
 	zest_SetUseFiltering(font->texture, ZEST_FALSE);
 	zest_ProcessTextureImages(font->texture);
 
-	font->pipeline_index = zest_PipelineIndex("pipeline_fonts");
+	font->pipeline = zest_Pipeline("pipeline_fonts");
 	font->descriptor_set_index = zest_GetTextureDescriptorSetIndex(font->texture, "Default");
 }
 //-- End Fonts
@@ -5890,7 +5877,7 @@ void zest_InitialiseRenderTarget(zest_render_target_t *render_target, zest_rende
 	}
 
 	zest_CreateRenderTargetSamplerImage(render_target);
-	render_target->final_render_index = zest_PipelineIndex("pipeline_final_render");
+	render_target->final_render = zest_Pipeline("pipeline_final_render");
 
 	render_target->push_constants.screen_resolution.x = (float)(info->viewport.extent.width);
 	render_target->push_constants.screen_resolution.y = (float)(info->viewport.extent.height);
@@ -6089,9 +6076,8 @@ void zest_RecreateRenderTargetResources(zest_render_target_t *render_target) {
 
 	render_target->viewport.extent.width = width;
 	render_target->viewport.extent.height = height;
-	zest_pipeline_set_t *pipeline = zest_Pipeline(render_target->final_render_index);
-	pipeline->create_info.viewport.extent = render_target->viewport.extent;
-	pipeline->create_info.viewport.offset = render_target->viewport.offset;
+	render_target->final_render->create_info.viewport.extent = render_target->viewport.extent;
+	render_target->final_render->create_info.viewport.offset = render_target->viewport.offset;
 	render_target->render_width = width;
 	render_target->render_height = height;
 	render_target->create_info.viewport.extent.width = width;
@@ -6167,12 +6153,12 @@ void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCo
 
 	if (!target->post_process_callback) {
 
-		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, zest_PipelineByIndex(target->final_render_index)->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSet(target), 0, NULL);
-		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, zest_PipelineByIndex(target->final_render_index)->pipeline);
+		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, target->final_render->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSet(target), 0, NULL);
+		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, target->final_render->pipeline);
 
 		vkCmdPushConstants(
 			command_buffer,
-			zest_PipelineByIndex(target->final_render_index)->pipeline_layout,
+			target->final_render->pipeline_layout,
 			VK_SHADER_STAGE_VERTEX_BIT,
 			0,
 			sizeof(zest_final_render_push_constants_t),
@@ -6212,12 +6198,12 @@ void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, Vk
 			vkCmdSetViewport(command_buffer, 0, 1, &view);
 			vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-			vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, zest_PipelineByIndex(target->final_render_index)->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSet(target), 0, NULL);
-			vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, zest_PipelineByIndex(target->final_render_index)->pipeline);
+			vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, target->final_render->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSet(target), 0, NULL);
+			vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, target->final_render->pipeline);
 
 			vkCmdPushConstants(
 				command_buffer,
-				zest_PipelineByIndex(target->final_render_index)->pipeline_layout,
+				target->final_render->pipeline_layout,
 				VK_SHADER_STAGE_VERTEX_BIT,
 				0,
 				sizeof(zest_final_render_push_constants_t),
@@ -6248,7 +6234,7 @@ void zest_CleanUpRenderTarget(zest_render_target_t *render_target) {
 //-- internal
 ZEST_API zest_instance_instruction_t zest__instance_instruction() {
 	zest_instance_instruction_t instruction = { 0 };
-	instruction.pipeline = ZEST_INVALID;
+	instruction.pipeline = ZEST_NULL;
 	return instruction;
 }
 
@@ -6311,11 +6297,11 @@ void zest__draw_instance_layer(zest_layer instance_layer, VkCommandBuffer comman
 		
 		vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(instance_layer->memory_refs[ZEST_FIF].device_instance_data), instance_data_offsets);
 
-		zest_BindPipelineCB(command_buffer, zest_Pipeline(current->pipeline), current->descriptor_set);
+		zest_BindPipelineCB(command_buffer, current->pipeline, current->descriptor_set);
         
 		vkCmdPushConstants(
 			command_buffer,
-			zest_Pipeline(current->pipeline)->pipeline_layout,
+			current->pipeline->pipeline_layout,
 			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			0,
 			sizeof(zest_push_constants_t),
@@ -6454,11 +6440,10 @@ void zest_InitialiseSpriteLayer(zest_layer sprite_layer, zest_uint instance_pool
 	zest__reset_instance_layer_drawing(sprite_layer);
 }
 
-void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
+void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_pipeline pipeline) {
 	zest__end_draw_instructions(sprite_layer);
 	zest__start_instance_instructions(sprite_layer);
-	sprite_layer->current_instance_instruction.pipeline = pipeline_index;
+	sprite_layer->current_instance_instruction.pipeline = pipeline;
 	sprite_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
 	sprite_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
 	sprite_layer->current_instance_instruction.scissor = sprite_layer->scissor;
@@ -6526,12 +6511,11 @@ void zest_InitialiseMSDFFontLayer(zest_layer font_layer, zest_uint instance_pool
 	zest__reset_instance_layer_drawing(font_layer);
 }
 
-void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_index descriptor_set_index, zest_index pipeline_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
+void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_index descriptor_set_index, zest_pipeline pipeline) {
 	zest__end_draw_instructions(font_layer);
 	zest__start_instance_instructions(font_layer);
 	ZEST_ASSERT(ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready));		//Make sure the font is properly loaded or wasn't recently deleted
-	font_layer->current_instance_instruction.pipeline = pipeline_index;
+	font_layer->current_instance_instruction.pipeline = pipeline;
 	font_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(font->texture, descriptor_set_index);
 	font_layer->current_instance_instruction.draw_mode = zest_draw_mode_text;
 	font_layer->current_instance_instruction.asset = font;
@@ -6765,11 +6749,10 @@ void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instanc
 	zest__reset_instance_layer_drawing(billboard_layer);
 }
 
-void zest_SetBillboardDrawing(zest_layer billboard_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
+void zest_SetBillboardDrawing(zest_layer billboard_layer, zest_texture texture, zest_index descriptor_set_index, zest_pipeline pipeline) {
 	zest__end_draw_instructions(billboard_layer);
 	zest__start_instance_instructions(billboard_layer);
-	billboard_layer->current_instance_instruction.pipeline = pipeline_index;
+	billboard_layer->current_instance_instruction.pipeline = pipeline;
 	billboard_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
 	billboard_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
 	billboard_layer->current_instance_instruction.scissor = billboard_layer->scissor;

@@ -6,7 +6,7 @@ struct PushConstants {
 } push;
 
 struct RenderTargetExample {
-	zest_index blur_pipeline_index;
+	zest_pipeline blur_pipeline;
 	zest_index top_target_index;
 	zest_index base_target_index;
 	zest_index final_blur_index;

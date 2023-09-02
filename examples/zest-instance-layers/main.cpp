@@ -3,10 +3,10 @@
 typedef struct zest_example {
 	zest_texture texture;
 	zest_image image;
-	zest_index sprite_pipeline;
+	zest_pipeline sprite_pipeline;
 	zest_layer sprite_layer;
 	zest_layer billboard_layer;
-	zest_index billboard_pipeline;
+	zest_pipeline billboard_pipeline;
 	zest_camera_t camera;
 	zest_index uniform_buffer_3d_index;
 	zest_index sprite_descriptor_index;
@@ -27,10 +27,10 @@ void InitExample(zest_example *example) {
 	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_alpha, 10);
 	example->image = zest_AddTextureImageFile(example->texture, "examples/wabbit_alpha.png");
 	zest_ProcessTextureImages(example->texture);
-	example->sprite_pipeline = zest_PipelineIndex("pipeline_2d_sprites_alpha");
+	example->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites_alpha");
 	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
 	example->sprite_descriptor_index = zest_GetTextureDescriptorSetIndex(example->texture, "Default");
-	example->billboard_pipeline = zest_PipelineIndex("pipeline_billboard_alpha");
+	example->billboard_pipeline = zest_Pipeline("pipeline_billboard_alpha");
 	example->uniform_buffer_3d_index = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
 	example->billboard_descriptor_index = zest_CreateTextureDescriptorSets(example->texture, "3d", "example 3d uniform");
 	zest_RefreshTextureDescriptors(example->texture);

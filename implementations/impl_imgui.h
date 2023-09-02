@@ -8,7 +8,7 @@
 //This struct must be filled and attached to the draw routine that implements imgui as user data
 struct zest_imgui_layer_info {
 	zest_layer mesh_layer;
-	zest_index pipeline_index;
+	zest_pipeline pipeline;
 };
 
 void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer);
