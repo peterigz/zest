@@ -25,7 +25,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_ProcessTextureImages(app->test_texture);
 
 	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");
-	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
+	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{

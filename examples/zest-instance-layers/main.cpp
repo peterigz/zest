@@ -40,7 +40,7 @@ void InitExample(zest_example *example) {
 	example->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&example->camera, 60.f);
 
-	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
+	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{

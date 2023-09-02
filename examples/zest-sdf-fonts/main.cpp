@@ -22,7 +22,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
 	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");
-	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
+	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{

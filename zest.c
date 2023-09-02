@@ -788,7 +788,7 @@ void zest_Initialise(zest_create_info_t *info) {
 	zest__initialise_renderer(info);
 	zest__create_empty_command_queue(&ZestRenderer->empty_queue);
 	if (info->flags & zest_init_flag_initialise_with_command_queue) {
-		ZestApp->default_command_queue_index = zest_NewCommandQueue("Default command queue", zest_command_queue_flag_present_dependency);
+		ZestApp->default_command_queue = zest_NewCommandQueue("Default command queue", zest_command_queue_flag_present_dependency);
 		{
 			ZestApp->default_draw_commands = zest_NewDrawCommandSetupSwap("Default Draw Commands");
 			{
@@ -822,12 +822,11 @@ void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*)) {
 	ZestApp->update_callback = callback;
 }
 
-void zest_SetActiveRenderQueue(zest_index command_queue_index) {
+void zest_SetActiveRenderQueue(zest_command_queue command_queue) {
 	ZEST_ASSERT(zest_vec_empty(ZestRenderer->frame_queues));									//You cannot specify more than one render queue per frame
-	ZEST_ASSERT(command_queue_index < (zest_index)zest_map_size(ZestRenderer->command_queues));	//Must be a valid render queue index
-	ZEST_ASSERT((zest_map_at_index(ZestRenderer->command_queues, command_queue_index))->flags & zest_command_queue_flag_validated);	//Make sure that the command queue creation ended with the command: zest_FinishQueueSetup
-	zest_vec_push(ZestRenderer->frame_queues, command_queue_index);
-	ZestRenderer->semaphores[ZEST_FIF].incoming = zest_GetCommandQueuePresentSemaphore(zest_GetCommandQueue(command_queue_index));
+	ZEST_ASSERT(ZEST__FLAGGED(command_queue->flags, zest_command_queue_flag_validated));	//Make sure that the command queue creation ended with the command: zest_FinishQueueSetup
+	zest_vec_push(ZestRenderer->frame_queues, command_queue);
+	ZestRenderer->semaphores[ZEST_FIF].incoming = zest_GetCommandQueuePresentSemaphore(command_queue);
 }
 
 void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data)) {
@@ -2035,8 +2034,8 @@ void zest__cleanup_renderer() {
 	}
 
 	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
-		zest_index queue_index = zest_map_index(ZestRenderer->command_queues, i);
-		zest__cleanup_command_queue(zest_map_at_index(ZestRenderer->command_queues, queue_index));
+		zest_command_queue command_queue = *zest_map_at_index(ZestRenderer->command_queues, i);
+		zest__cleanup_command_queue(command_queue);
 	}
 	zest__cleanup_command_queue(&ZestRenderer->empty_queue);
 
@@ -2113,8 +2112,7 @@ void zest__recreate_swapchain() {
 	*/
 
 	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
-		zest_index command_index = zest_map_index(ZestRenderer->command_queues, i);
-		zest_command_queue_t *command_queue = zest_map_at_index(ZestRenderer->command_queues, command_index);
+		zest_command_queue command_queue = *zest_map_at_index(ZestRenderer->command_queues, i);
 		for (zest_foreach_j(command_queue->draw_commands)) {
 			zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[j];
 			if (draw_commands->viewport_type == zest_render_viewport_type_scale_with_window) {
@@ -3171,7 +3169,7 @@ void zest__rerecord_final_render_command_buffer() {
 	}
 }
 
-void zest__create_empty_command_queue(zest_command_queue_t *command_queue) {
+void zest__create_empty_command_queue(zest_command_queue command_queue) {
 	VkCommandPoolCreateInfo cmd_pool_info = { 0 };
 	cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	cmd_pool_info.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
@@ -3261,8 +3259,8 @@ void zest__draw_renderer_frame() {
 	}
 	else {
 		for (zest_foreach_i(ZestRenderer->frame_queues)) {
-			zest_index command_queue_index = ZestRenderer->frame_queues[i];
-			zest__record_and_commit_command_queue(zest_map_at_index(ZestRenderer->command_queues, command_queue_index), ZestRenderer->fif_fence[ZEST_FIF]);
+			zest_command_queue command_queue = ZestRenderer->frame_queues[i];
+			zest__record_and_commit_command_queue(command_queue, ZestRenderer->fif_fence[ZEST_FIF]);
 		}
 	}
 	zest_vec_clear(ZestRenderer->frame_queues);
@@ -3346,7 +3344,7 @@ zest_command_queue_draw_commands zest_GetDrawCommands(const char *name) {
 // --End Renderer functions
 
 // --Command Queue functions
-void zest__cleanup_command_queue(zest_command_queue_t *command_queue) {	
+void zest__cleanup_command_queue(zest_command_queue command_queue) {	
 	for (ZEST_EACH_FIF_i) {
 		for (zest_foreach_j(command_queue->semaphores[i].fif_outgoing_semaphores)) {
 			VkSemaphore semaphore = command_queue->semaphores[i].fif_outgoing_semaphores[j];
@@ -3357,7 +3355,7 @@ void zest__cleanup_command_queue(zest_command_queue_t *command_queue) {
 	vkDestroyCommandPool(ZestDevice->logical_device, command_queue->command_pool, &ZestDevice->allocation_callbacks);
 }
 
-void zest__record_and_commit_command_queue(zest_command_queue_t *command_queue, VkFence fence) {
+void zest__record_and_commit_command_queue(zest_command_queue command_queue, VkFence fence) {
 	ZestRenderer->current_command_queue = command_queue;
 	VkCommandBufferBeginInfo begin_info = { 0 };
 	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -3409,7 +3407,7 @@ void zest__record_and_commit_command_queue(zest_command_queue_t *command_queue, 
 
 }
 
-void zest_ConnectCommandQueueToPresent(zest_command_queue_t *sender, VkPipelineStageFlags stage_flags) {
+void zest_ConnectCommandQueueToPresent(zest_command_queue sender, VkPipelineStageFlags stage_flags) {
 	VkSemaphoreCreateInfo semaphore_info = { 0 };
 	semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 	for (ZEST_EACH_FIF_i) {
@@ -3909,13 +3907,12 @@ void zest__set_queue_context(zest_setup_context_type context) {
 	}
 }
 
-zest_index zest_NewCommandQueue(const char *name, zest_command_queue_flags flags) {
+zest_command_queue zest_NewCommandQueue(const char *name, zest_command_queue_flags flags) {
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_none);	//Current setup context must be none. You can't setup a new command queue within another one
 	zest__set_queue_context(zest_setup_context_type_command_queue);
-	zest_index command_queue_index = zest__create_command_queue(name);
-	zest_command_queue_t *command_queue = zest_GetCommandQueue(command_queue_index);
+	zest_command_queue command_queue = zest__create_command_queue(name);
 	command_queue->flags = flags;
-	ZestRenderer->setup_context.command_queue_index = command_queue_index;
+	ZestRenderer->setup_context.command_queue = command_queue;
 	ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
 	if (flags & zest_command_queue_flag_present_dependency) {
 		zest_ConnectPresentToCommandQueue(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
@@ -3923,34 +3920,35 @@ zest_index zest_NewCommandQueue(const char *name, zest_command_queue_flags flags
 	else if (flags & zest_command_queue_flag_command_queue_dependency) {
 		//Todo: Or maybe this is just a separate function
 	}
-	return command_queue_index;
+	return command_queue;
 }
 
-zest_index zest__create_command_queue(const char *name) {
-	zest_command_queue_t command_queue = { 0 };
-	command_queue.name = name;
+zest_command_queue zest__create_command_queue(const char *name) {
+	zest_command_queue_t blank_command_queue = { 0 };
+	zest_command_queue command_queue = ZEST__NEW(zest_command_queue);
+	*command_queue = blank_command_queue;
+	command_queue->name = name;
 
 	VkCommandPoolCreateInfo cmd_pool_info = { 0 };
 	cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	cmd_pool_info.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
 	cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_pool_info, &ZestDevice->allocation_callbacks, &command_queue.command_pool));
+	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_pool_info, &ZestDevice->allocation_callbacks, &command_queue->command_pool));
 
 	VkCommandBufferAllocateInfo alloc_info = { 0 };
 	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	alloc_info.commandBufferCount = ZEST_MAX_FIF;
-	alloc_info.commandPool = command_queue.command_pool;
-	ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, command_queue.command_buffer));
+	alloc_info.commandPool = command_queue->command_pool;
+	ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, command_queue->command_buffer));
 
 	zest_map_insert(ZestRenderer->command_queues, name, command_queue);
-	zest_vec_back(ZestRenderer->command_queues.data).index_in_renderer = zest_map_last_index(ZestRenderer->command_queues);
-	return zest_map_last_index(ZestRenderer->command_queues);
+	return command_queue;
 }
 
-zest_command_queue_t *zest_GetCommandQueue(zest_index index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->command_queues, index)); //Not a valid command queue index
-	return zest_map_at_index(ZestRenderer->command_queues, index);
+zest_command_queue zest_GetCommandQueue(const char *name) {
+	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->command_queues, name)); //Not a valid command queue index
+	return *zest_map_at(ZestRenderer->command_queues, name);
 }
 
 zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(zest_index index) {
@@ -3958,17 +3956,17 @@ zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(zest_index ind
 	return *zest_map_at_index(ZestRenderer->command_queue_draw_commands, index);
 }
 
-void zest_ConnectPresentToCommandQueue(zest_command_queue_t *receiver, VkPipelineStageFlags stage_flags) {
+void zest_ConnectPresentToCommandQueue(zest_command_queue receiver, VkPipelineStageFlags stage_flags) {
 	for (ZEST_EACH_FIF_i) {
 		zest_vec_push(receiver->semaphores[i].fif_incoming_semaphores, ZestRenderer->semaphores[i].outgoing);
 		zest_vec_push(receiver->fif_wait_stage_flags[i], stage_flags);
 	}
 }
 
-void zest_ModifyCommandQueue(zest_index render_index) {
+void zest_ModifyCommandQueue(zest_command_queue command_queue) {
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_none);	//Current setup context must be none.
 	zest__set_queue_context(zest_setup_context_type_command_queue);
-	ZestRenderer->setup_context.command_queue_index = render_index;
+	ZestRenderer->setup_context.command_queue = command_queue;
 	ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
 }
 
@@ -3989,18 +3987,16 @@ void zest_ContextSetClsColor(float r, float g, float b, float a) {
 }
 
 void zest_FinishQueueSetup() {
-	ZEST_ASSERT(ZestRenderer->setup_context.command_queue_index != -1);		//Trying to validate a queue that has no context. Finish queue setup must me run at the end of a queue setup
-	zest_ValidateQueue(ZestRenderer->setup_context.command_queue_index);
-	ZestRenderer->setup_context.command_queue_index = -1;
+	ZEST_ASSERT(ZestRenderer->setup_context.command_queue != ZEST_NULL);		//Trying to validate a queue that has no context. Finish queue setup must me run at the end of a queue setup
+	zest_ValidateQueue(ZestRenderer->setup_context.command_queue);
+	ZestRenderer->setup_context.command_queue = ZEST_NULL;
 	ZestRenderer->setup_context.draw_commands = ZEST_NULL;
 	ZestRenderer->setup_context.draw_routine = ZEST_NULL;
 	ZestRenderer->setup_context.layer_index = -1;
 	ZestRenderer->setup_context.type = zest_setup_context_type_none;
 }
 
-void zest_ValidateQueue(zest_index index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->command_queues, index));
-	zest_command_queue_t *command_queue = zest_GetCommandQueue(index);
+void zest_ValidateQueue(zest_command_queue command_queue) {
 	if (command_queue->flags & zest_command_queue_flag_present_dependency) {
 		zest_bool present_found = 0;
 		zest_bool present_flags_found = 0;
@@ -4022,7 +4018,7 @@ VkCommandBuffer zest_CurrentCommandBuffer() {
 	return ZestRenderer->current_command_buffer; 
 }
 
-zest_command_queue_t *zest_CurrentCommandQueue() { 
+zest_command_queue zest_CurrentCommandQueue() { 
 	return ZestRenderer->current_command_queue; 
 }
 
@@ -4031,9 +4027,7 @@ zest_command_queue_draw_commands_t *zest_CurrentRenderPass() {
 }
 
 
-void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_index, VkPipelineStageFlags stage_flags) {
-	zest_command_queue_t *sender = zest_GetCommandQueue(sender_index);
-	zest_command_queue_t *receiver = zest_GetCommandQueue(receiver_index);
+void zest_ConnectCommandQueues(zest_command_queue sender, zest_command_queue receiver, VkPipelineStageFlags stage_flags) {
 	VkSemaphoreCreateInfo semaphoreInfo = { 0 };
 	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 	for (ZEST_EACH_FIF_i) {
@@ -4045,25 +4039,25 @@ void zest_ConnectCommandQueues(zest_index sender_index, zest_index receiver_inde
 	}
 }
 
-void zest_ConnectQueueTo(zest_index receiver, VkPipelineStageFlags stage_flags) {
+void zest_ConnectQueueTo(zest_command_queue receiver, VkPipelineStageFlags stage_flags) {
 	ZEST_ASSERT(ZestRenderer->setup_context.type != zest_setup_context_type_none);	//Must be within a command queue setup context
-	zest_ConnectCommandQueues(ZestRenderer->setup_context.command_queue_index, receiver, stage_flags);
+	zest_ConnectCommandQueues(ZestRenderer->setup_context.command_queue, receiver, stage_flags);
 }
 
 void zest_ConnectQueueToPresent() {
 	ZEST_ASSERT(ZestRenderer->setup_context.type != zest_setup_context_type_none);	//Must be within a command queue setup context
-	zest_command_queue_t *command_queue = zest_GetCommandQueue(ZestRenderer->setup_context.command_queue_index);
+	zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
 	zest_ConnectCommandQueueToPresent(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 }
 
-VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue_t *command_queue) {
+VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue command_queue) {
 	ZEST_ASSERT(command_queue->present_semaphore_index[ZEST_FIF] != -1);
 	return command_queue->semaphores[ZEST_FIF].fif_outgoing_semaphores[command_queue->present_semaphore_index[ZEST_FIF]];
 }
 
 zest_command_queue_draw_commands zest_NewDrawCommandSetupSwap(const char *name) {
 	zest__set_queue_context(zest_setup_context_type_render_pass);
-	zest_command_queue_t *command_queue = zest_GetCommandQueue(ZestRenderer->setup_context.command_queue_index);
+	zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
 	zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
 	zest_vec_push(command_queue->draw_commands, draw_commands);
 	draw_commands->name = name;
@@ -4080,7 +4074,7 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetupSwap(const char *name) 
 zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char *name, zest_index render_target_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_targets, render_target_index));	//render_target_index must be a valid index to a render target
 	zest__set_queue_context(zest_setup_context_type_render_pass);
-	zest_command_queue_t *command_queue = zest_GetCommandQueue(ZestRenderer->setup_context.command_queue_index);
+	zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
 	zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
 	zest_vec_push(command_queue->draw_commands, draw_commands);
 	draw_commands->name = name;
@@ -4106,7 +4100,7 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char *name, zest
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_targets, render_target_index));	//render_target_index must be a valid index to a render target
 	zest__set_queue_context(zest_setup_context_type_render_pass);
 	zest_render_target_t *target = zest_GetRenderTargetByIndex(render_target_index);
-	zest_command_queue_t *command_queue = zest_GetCommandQueue(ZestRenderer->setup_context.command_queue_index);
+	zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
 	zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
 	zest_vec_push(command_queue->draw_commands, draw_commands);
 	draw_commands->name = name;
@@ -4230,7 +4224,7 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name,
 		draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
 	}
 	draw_routine->name = name;
-	draw_routine->cq_index = ZestRenderer->setup_context.command_queue_index;
+	draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
 	draw_routine->draw_commands = ZestRenderer->setup_context.draw_commands;
 
 	zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
@@ -4258,14 +4252,14 @@ void zest_AddDrawRoutine(zest_draw_routine draw_routine) {
 	zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
 	ZestRenderer->setup_context.type = zest_setup_context_type_layer;
 	ZestRenderer->setup_context.draw_routine = draw_routine;
-	draw_routine->cq_index = ZestRenderer->setup_context.command_queue_index;
+	draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
 	draw_routine->draw_commands = ZestRenderer->setup_context.draw_commands;
 	zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
 }
 
 void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine) {
 	zest_vec_push(draw_commands->draw_routines, draw_routine);
-	//draw_routine.cq_index = command_queue_index;
+	//draw_routine.command_queue = command_queue_index;
 	draw_routine->draw_commands = draw_commands;
 }
 
@@ -4285,17 +4279,17 @@ zest_index zest_GetInstanceLayerIndex(const char *name) {
 }
 
 zest_mesh_layer_t *zest_GetMeshLayerByIndex(zest_index index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->mesh_layers, index));	//That index could not be found in the storage
+	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->mesh_layers, index));		//That index could not be found in the storage
 	return zest_map_at_index(ZestRenderer->mesh_layers, index);
 }
 
 zest_mesh_layer_t *zest_GetMeshLayerByName(const char *name) {
-	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->mesh_layers, name));	//That index could not be found in the storage
+	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->mesh_layers, name));			//That index could not be found in the storage
 	return zest_map_at(ZestRenderer->mesh_layers, name);
 }
 
 zest_index zest_GetMeshLayerIndex(const char *name) {
-	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->mesh_layers, name));	//That index could not be found in the storage
+	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->mesh_layers, name));			//That index could not be found in the storage
 	return zest_map_get_index_by_name(ZestRenderer->mesh_layers, name);
 }
 
@@ -6936,8 +6930,7 @@ const char *zest_DrawFunctionToString(void *function) {
 void zest_OutputQueues() {
 	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
 		zest_index draw_order = 1;
-		zest_index queue_index = zest_map_index(ZestRenderer->command_queues, i);
-		zest_command_queue_t *command_queue = zest_GetCommandQueue(queue_index);
+		zest_command_queue command_queue = *zest_map_at_index(ZestRenderer->command_queues, i);
 		printf("Command Queue: %s\n", command_queue->name);
 		if (!zest_vec_empty(command_queue->draw_commands)) {
 			printf("\tDraw Commands\n");

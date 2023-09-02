@@ -10,7 +10,7 @@ struct RenderTargetExample {
 	zest_index top_target_index;
 	zest_index base_target_index;
 	zest_index final_blur_index;
-	zest_index render_queue_index;
+	zest_command_queue command_queue;
 	zest_index base_layer_index;
 	zest_index top_target_layer_index;
 	zest_texture texture;
