@@ -1332,7 +1332,7 @@ zest_microsecs zest__set_elapsed_time() {
 void zest__do_scheduled_tasks(zest_index index) {
 	if (zest_vec_size(ZestRenderer->texture_delete_queue)) {
 		for (zest_foreach_i(ZestRenderer->texture_delete_queue)) {
-			zest_texture *texture = zest_GetTextureByIndex(ZestRenderer->texture_delete_queue[i]);
+			zest_texture texture = ZestRenderer->texture_delete_queue[i];
 			zest__delete_texture(texture);
 		}
 		zest_vec_clear(ZestRenderer->texture_delete_queue);
@@ -1967,8 +1967,7 @@ void zest__cleanup_pipelines() {
 
 void zest__cleanup_textures() {
 	for (zest_map_foreach_i(ZestRenderer->textures)) {
-		zest_index texture_index = zest_map_index(ZestRenderer->textures, i);
-		zest_texture *texture = zest_GetTextureByIndex(zest_map_index(ZestRenderer->textures, texture_index));
+		zest_texture texture = *zest_map_at_index(ZestRenderer->textures, i);
 		if (texture->flags & zest_texture_flag_textures_ready) {
 			zest__cleanup_texture(texture);
 		}
@@ -4326,38 +4325,41 @@ zest_map_textures *zest_GetTextures() {
 }
 
 zest_texture zest_NewTexture() {
-	zest_texture texture = { 0 };
-	texture.flags = zest_texture_flag_use_filtering;
-	texture.sampler = VK_NULL_HANDLE;
-	texture.storage_type = zest_texture_storage_type_single;
-	texture.image_index = 1;
-	texture.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	texture.image_format = VK_FORMAT_R8G8B8A8_UNORM;
-	texture.color_channels = 4;
-	texture.imgui_blend_type = zest_imgui_blendtype_none;
-	texture.image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-	texture.packed_border_size = 0;
-	texture.sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	texture.sampler_info.magFilter = VK_FILTER_LINEAR;
-	texture.sampler_info.minFilter = VK_FILTER_LINEAR;
-	texture.sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	texture.sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	texture.sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	texture.sampler_info.anisotropyEnable = VK_FALSE;
-	texture.sampler_info.maxAnisotropy = 1.f;
-	texture.sampler_info.unnormalizedCoordinates = VK_FALSE;
-	texture.sampler_info.compareEnable = VK_FALSE;
-	texture.sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
-	texture.sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-	texture.sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-	texture.sampler_info.mipLodBias = 0.f;
-	texture.sampler_info.minLod = 0.0f;
-	texture.sampler_info.maxLod = 1.0f;
-	texture.sampler_info.pNext = VK_NULL_HANDLE;
-	texture.sampler_info.flags = 0;
-	texture.sampler = VK_NULL_HANDLE;
-	texture.texture_layer_size = 2048;
-	texture.stream_staging_buffer = ZEST_NULL;
+	zest_texture_t blank = { 0 };
+	zest_texture texture = ZEST__NEW(zest_texture);
+	*texture = blank;
+	texture->struct_type = zest_stuct_type_texture;
+	texture->flags = zest_texture_flag_use_filtering;
+	texture->sampler = VK_NULL_HANDLE;
+	texture->storage_type = zest_texture_storage_type_single;
+	texture->image_index = 1;
+	texture->image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	texture->image_format = VK_FORMAT_R8G8B8A8_UNORM;
+	texture->color_channels = 4;
+	texture->imgui_blend_type = zest_imgui_blendtype_none;
+	texture->image_view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+	texture->packed_border_size = 0;
+	texture->sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	texture->sampler_info.magFilter = VK_FILTER_LINEAR;
+	texture->sampler_info.minFilter = VK_FILTER_LINEAR;
+	texture->sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	texture->sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	texture->sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	texture->sampler_info.anisotropyEnable = VK_FALSE;
+	texture->sampler_info.maxAnisotropy = 1.f;
+	texture->sampler_info.unnormalizedCoordinates = VK_FALSE;
+	texture->sampler_info.compareEnable = VK_FALSE;
+	texture->sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+	texture->sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	texture->sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+	texture->sampler_info.mipLodBias = 0.f;
+	texture->sampler_info.minLod = 0.0f;
+	texture->sampler_info.maxLod = 1.0f;
+	texture->sampler_info.pNext = VK_NULL_HANDLE;
+	texture->sampler_info.flags = 0;
+	texture->sampler = VK_NULL_HANDLE;
+	texture->texture_layer_size = 2048;
+	texture->stream_staging_buffer = ZEST_NULL;
 
 	return texture;
 }
@@ -4443,7 +4445,7 @@ zest_bitmap zest_CreateBitmapFromRawBuffer(const char *name, unsigned char *pixe
 	return bitmap;
 }
 
-zest_bitmap *zest_GetBitmap(zest_texture *texture, zest_index bitmap_index) {
+zest_bitmap *zest_GetBitmap(zest_texture texture, zest_index bitmap_index) {
 	return &texture->image_bitmaps[bitmap_index];
 }
 
@@ -4669,7 +4671,7 @@ float zest_FindBitmapRadius(zest_bitmap *image) {
 	return ceilf(max_radius);
 }
 
-zest_index zest_GetImageIndex(zest_texture *texture) {
+zest_index zest_GetImageIndex(zest_texture texture) {
 	return texture->image_index;
 }
 
@@ -4691,7 +4693,7 @@ zest_bitmap zest_GetImageFromArray(zest_bitmap_array *bitmap_array, zest_index i
 	return image;
 }
 
-zest_index zest_AddTextureImageFile(zest_texture *texture, const char* filename) {
+zest_index zest_AddTextureImageFile(zest_texture texture, const char* filename) {
 	zest_vec_push(texture->images, zest_CreateImage());
 	texture->image_index = zest_vec_last_index(texture->images);
 	zest_image *image = &zest_vec_back(texture->images);
@@ -4705,7 +4707,7 @@ zest_index zest_AddTextureImageFile(zest_texture *texture, const char* filename)
 
 	image->width = bitmap->width;
 	image->height = bitmap->height;
-	image->texture_index = texture->index_in_renderer;
+	image->texture = texture;
 	if (texture->flags & zest_texture_flag_get_max_radius) {
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
@@ -4715,7 +4717,7 @@ zest_index zest_AddTextureImageFile(zest_texture *texture, const char* filename)
 	return image->index;
 }
 
-zest_index zest_AddTextureImageBitmap(zest_texture *texture, zest_bitmap *bitmap_to_load) {
+zest_index zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap *bitmap_to_load) {
 	zest_vec_push(texture->images, zest_CreateImage());
 	texture->image_index = zest_vec_last_index(texture->images);
 	zest_image *image = &zest_vec_back(texture->images);
@@ -4730,7 +4732,7 @@ zest_index zest_AddTextureImageBitmap(zest_texture *texture, zest_bitmap *bitmap
 
 	image->width = bitmap->width;
 	image->height = bitmap->height;
-	image->texture_index = texture->index_in_renderer;
+	image->texture = texture;
 	if (texture->flags & zest_texture_flag_get_max_radius) {
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
@@ -4740,7 +4742,7 @@ zest_index zest_AddTextureImageBitmap(zest_texture *texture, zest_bitmap *bitmap
 	return image->index;
 }
 
-zest_index zest_AddTextureImageMemory(zest_texture *texture, const char* name, unsigned char* buffer, int buffer_size) {
+zest_index zest_AddTextureImageMemory(zest_texture texture, const char* name, unsigned char* buffer, int buffer_size) {
 	zest_vec_push(texture->images, zest_CreateImage());
 	texture->image_index = zest_vec_last_index(texture->images);
 	zest_image *image = &zest_vec_back(texture->images);
@@ -4754,7 +4756,7 @@ zest_index zest_AddTextureImageMemory(zest_texture *texture, const char* name, u
 
 	image->width = bitmap->width;
 	image->height = bitmap->height;
-	image->texture_index = texture->index_in_renderer;
+	image->texture = texture;
 	if (texture->flags & zest_texture_flag_get_max_radius) {
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
@@ -4764,7 +4766,7 @@ zest_index zest_AddTextureImageMemory(zest_texture *texture, const char* name, u
 	return image->index;
 }
 
-zest_index zest_AddTextureAnimationFile(zest_texture *texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
+zest_index zest_AddTextureAnimationFile(zest_texture texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
 	zest_bitmap spritesheet;
 
 	zest_LoadBitmapImage(&spritesheet, filename, 0);
@@ -4785,7 +4787,7 @@ zest_index zest_AddTextureAnimationFile(zest_texture *texture, const char* filen
 	return first_index;
 }
 
-zest_index zest_AddTextureAnimationImage(zest_texture *texture, zest_bitmap *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
+zest_index zest_AddTextureAnimationImage(zest_texture texture, zest_bitmap *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
 
 	ZEST_ASSERT(spritesheet->data != ZEST_NULL);
 	zest_ConvertBitmapToTextureFormat(spritesheet, texture->image_format);
@@ -4804,7 +4806,7 @@ zest_index zest_AddTextureAnimationImage(zest_texture *texture, zest_bitmap *spr
 	return first_index;
 }
 
-zest_index zest_AddTextureAnimationMemory(zest_texture *texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
+zest_index zest_AddTextureAnimationMemory(zest_texture texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
 	zest_bitmap spritesheet = { 0 };
 
 	zest_LoadBitmapImageMemory(&spritesheet, buffer, buffer_size, texture->color_channels);
@@ -4826,7 +4828,7 @@ zest_index zest_AddTextureAnimationMemory(zest_texture *texture, const char* nam
 	return first_index;
 }
 
-float zest_CopyAnimationFrames(zest_texture *texture, zest_bitmap *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row) {
+float zest_CopyAnimationFrames(zest_texture texture, zest_bitmap *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row) {
 	zest_uint rows = spritesheet->height / height;
 	zest_uint cols = spritesheet->width / width;
 
@@ -4849,7 +4851,7 @@ float zest_CopyAnimationFrames(zest_texture *texture, zest_bitmap *spritesheet, 
 			frame->width = image_bitmap->width;
 			frame->height = image_bitmap->height;
 			zest_UpdateImageVertices(frame);
-			frame->texture_index = texture->index_in_renderer;
+			frame->texture = texture;
 			if (texture->flags & zest_texture_flag_get_max_radius) {
 				frame->max_radius = zest_FindBitmapRadius(image_bitmap);
 				max_radius = ZEST__MAX(max_radius, frame->max_radius);
@@ -4863,7 +4865,7 @@ float zest_CopyAnimationFrames(zest_texture *texture, zest_bitmap *spritesheet, 
 }
 
 // --Internal Texture functions
-void zest__free_all_texture_images(zest_texture *texture) {
+void zest__free_all_texture_images(zest_texture texture) {
 	int count = 0;
 	for (zest_foreach_i(texture->image_bitmaps)) {
 		zest_FreeBitmap(&texture->image_bitmaps[i]);
@@ -4879,7 +4881,7 @@ void zest__free_all_texture_images(zest_texture *texture) {
 	zest_FreeBitmap(&texture->texture_bitmap);
 }
 
-void zest__delete_texture(zest_texture *texture) {
+void zest__delete_texture(zest_texture texture) {
 	zest__cleanup_texture(texture);
 	zest__free_all_texture_images(texture);
 	zest_map_free(texture->descriptor_sets);
@@ -4900,7 +4902,7 @@ void zest__delete_font(zest_font *font) {
 	zest_FreeText(&font->name);
 }
 
-void zest__cleanup_texture(zest_texture *texture) {
+void zest__cleanup_texture(zest_texture texture) {
 	//It would be nice if we didn't have to wait for the device to be idle here, but images can't be destroyed if they're currently used
 	//in a command buffer
 	zest_WaitForIdleDevice();
@@ -4912,7 +4914,7 @@ void zest__cleanup_texture(zest_texture *texture) {
 }
 // --End Internal Texture functions
 
-void zest_ProcessTextureImages(zest_texture *texture) {
+void zest_ProcessTextureImages(zest_texture texture) {
 	if (texture->flags & zest_texture_flag_textures_ready) {
 		zest__cleanup_texture(texture);
 	}
@@ -5057,14 +5059,14 @@ void zest_ProcessTextureImages(zest_texture *texture) {
 	return;
 }
 
-void zest_DeleteTextureLayers(zest_texture *texture) {
+void zest_DeleteTextureLayers(zest_texture texture) {
 	for (zest_foreach_i(texture->layers)) {
 		zest_FreeBitmap(&texture->layers[i]);
 	}
 	zest_vec_free(texture->layers);
 }
 
-zest_index zest_CreateTextureDescriptorSets(zest_texture *texture, const char *name, const char *uniform_buffer_name) {
+zest_index zest_CreateTextureDescriptorSets(zest_texture texture, const char *name, const char *uniform_buffer_name) {
 	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, uniform_buffer_name));	//No uniform buffer found with that name
 	zest_descriptor_set set = { 0 };
 	set.uniform_buffer_index = zest_map_get_index_by_name(ZestRenderer->uniform_buffers, uniform_buffer_name);
@@ -5079,34 +5081,34 @@ zest_index zest_CreateTextureDescriptorSets(zest_texture *texture, const char *n
 	return set_index;
 }
 
-zest_index zest_GetTextureDescriptorSetIndex(zest_texture *texture, const char *name) {
+zest_index zest_GetTextureDescriptorSetIndex(zest_texture texture, const char *name) {
 	ZEST_ASSERT(zest_map_valid_name(texture->descriptor_sets, name));
 	return zest_map_get_index_by_name(texture->descriptor_sets, name);
 }
 
-VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture *texture, zest_index index) {
+VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture texture, zest_index index) {
 	ZEST_ASSERT(zest_map_valid_index(texture->descriptor_sets, index));
 	return (zest_map_at_index(texture->descriptor_sets, index))->descriptor_set[ZEST_FIF];
 }
-void zest_SwitchTextureDescriptorSet(zest_texture *texture, zest_index index) {
+void zest_SwitchTextureDescriptorSet(zest_texture texture, zest_index index) {
 	ZEST_ASSERT(zest_map_valid_index(texture->descriptor_sets, index));
 	for (ZEST_EACH_FIF_i) {
 		texture->current_descriptor_set[i] = (zest_map_at_index(texture->descriptor_sets, index))->descriptor_set[i];
 	}
 }
 
-void zest_SwitchTextureDescriptorSetByName(zest_texture *texture, const char *name) {
+void zest_SwitchTextureDescriptorSetByName(zest_texture texture, const char *name) {
 	ZEST_ASSERT(zest_map_valid_name(texture->descriptor_sets, name));
 	for (ZEST_EACH_FIF_i) {
 		texture->current_descriptor_set[i] = (zest_map_at(texture->descriptor_sets, name))->descriptor_set[i];
 	}
 }
 
-VkDescriptorSet zest_CurrentTextureDescriptorSet(zest_texture *texture) {
+VkDescriptorSet zest_CurrentTextureDescriptorSet(zest_texture texture) {
 	return texture->current_descriptor_set[ZEST_FIF];
 }
 
-void zest_UpdateTextureSingleDescriptorSet(zest_texture *texture, const char *name) {
+void zest_UpdateTextureSingleDescriptorSet(zest_texture texture, const char *name) {
 	ZEST_ASSERT(zest_map_valid_name(texture->descriptor_sets, name));
 	zest_descriptor_set *set = zest_map_at(texture->descriptor_sets, name);
 	for (ZEST_EACH_FIF_i) {
@@ -5114,7 +5116,7 @@ void zest_UpdateTextureSingleDescriptorSet(zest_texture *texture, const char *na
 	}
 }
 
-void zest_UpdateAllTextureDescriptorWrites(zest_texture *texture) {
+void zest_UpdateAllTextureDescriptorWrites(zest_texture texture) {
 	for (ZEST_EACH_FIF_i) {
 		for (zest_map_foreach_j(texture->descriptor_sets)) {
 			zest_index set_index = zest_map_index(texture->descriptor_sets, j);
@@ -5133,7 +5135,7 @@ void zest_UpdateAllTextureDescriptorWrites(zest_texture *texture) {
 	}
 }
 
-void zest_UpdateAllTextureDescriptorSets(zest_texture *texture) {
+void zest_UpdateAllTextureDescriptorSets(zest_texture texture) {
 	for (ZEST_EACH_FIF_i) {
 		for (zest_map_foreach_j(texture->descriptor_sets)) {
 			zest_index set_index = zest_map_index(texture->descriptor_sets, j);
@@ -5143,17 +5145,17 @@ void zest_UpdateAllTextureDescriptorSets(zest_texture *texture) {
 	}
 }
 
-void zest_RefreshTextureDescriptors(zest_texture *texture) {
+void zest_RefreshTextureDescriptors(zest_texture texture) {
 	zest_UpdateAllTextureDescriptorWrites(texture);
 	zest_UpdateAllTextureDescriptorSets(texture);
 }
 
-zest_index zest_AddTextureDescriptorSet(zest_texture *texture, const char *name, zest_descriptor_set descriptor_set) { 
+zest_index zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set descriptor_set) { 
 	zest_map_insert(texture->descriptor_sets, name, descriptor_set); 
 	return zest_map_last_index(texture->descriptor_sets);
 }
 
-zest_bitmap *zest_GetTextureSingleBitmap(zest_texture *texture) {
+zest_bitmap *zest_GetTextureSingleBitmap(zest_texture texture) {
 	if (texture->texture_bitmap.data) {
 		return &texture->texture_bitmap;
 	}
@@ -5165,7 +5167,7 @@ zest_bitmap *zest_GetTextureSingleBitmap(zest_texture *texture) {
 	return &texture->texture_bitmap;
 }
 
-void zest_CreateTextureImage(zest_texture *texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap) {
+void zest_CreateTextureImage(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap) {
 	int channels = texture->color_channels;
 	VkDeviceSize image_size = zest_GetTextureSingleBitmap(texture)->width * zest_GetTextureSingleBitmap(texture)->height * channels;
 
@@ -5190,7 +5192,7 @@ void zest_CreateTextureImage(zest_texture *texture, zest_uint mip_levels, VkImag
 	}
 }
 
-void zest_CreateTextureImageArray(zest_texture *texture, zest_uint mip_levels) {
+void zest_CreateTextureImageArray(zest_texture texture, zest_uint mip_levels) {
 	VkDeviceSize image_size = texture->bitmap_array.total_mem_size;
 
 	zest_buffer_info buffer_info = zest_CreateStagingBufferInfo();
@@ -5211,7 +5213,7 @@ void zest_CreateTextureImageArray(zest_texture *texture, zest_uint mip_levels) {
 	zest__generate_mipmaps(texture->frame_buffer.image, texture->image_format, texture->bitmap_array.width, texture->bitmap_array.height, mip_levels, texture->layer_count, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
-void zest_CreateTextureStream(zest_texture *texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap) {
+void zest_CreateTextureStream(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap) {
 	int channels = texture->color_channels;
 
 	VkDeviceSize image_size = zest_GetTextureSingleBitmap(texture)->width * zest_GetTextureSingleBitmap(texture)->height * channels;
@@ -5235,11 +5237,11 @@ void zest_CreateTextureStream(zest_texture *texture, zest_uint mip_levels, VkIma
 	}
 }
 
-void zest_CreateTextureImageView(zest_texture *texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count) {
+void zest_CreateTextureImageView(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count) {
 	texture->frame_buffer.view = zest__create_image_view(texture->frame_buffer.image, texture->image_format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels, view_type, layer_count);
 }
 
-void zest_CreateTextureSampler(zest_texture *texture, VkSamplerCreateInfo sampler_info, zest_uint mip_levels) {
+void zest_CreateTextureSampler(zest_texture texture, VkSamplerCreateInfo sampler_info, zest_uint mip_levels) {
 
 	sampler_info.maxLod = (float)mip_levels;
 
@@ -5352,7 +5354,7 @@ void zest_ClearBitmapArray(zest_bitmap_array *images) {
 	images->size_of_array = 0;
 }
 
-void zest_MakeImageBank(zest_texture *texture, zest_uint size) {
+void zest_MakeImageBank(zest_texture texture, zest_uint size) {
 
 	//array_texture = gli::texture2d_array(gli::FORMAT_RGBA8_UNORM_PACK8, gli::texture2d_array::extent_type(size, size), images.size());
 	zest_CreateBitmapArray(&texture->bitmap_array, size, size, 4, zest_vec_size(texture->images));
@@ -5371,7 +5373,7 @@ void zest_MakeImageBank(zest_texture *texture, zest_uint size) {
 		image->left = 0;
 		image->top = 0;
 		image->layer = id;
-		image->texture_index = texture->index_in_renderer;
+		image->texture = texture;
 
 		zest_bitmap tmp_image = zest_NewBitmap();;
 		zest_AllocateBitmap(&tmp_image, image->width, image->height, texture->color_channels, 0);
@@ -5426,7 +5428,7 @@ void zest_MakeImageBank(zest_texture *texture, zest_uint size) {
 
 }
 
-void zest_MakeSpriteSheet(zest_texture *texture) {
+void zest_MakeSpriteSheet(zest_texture texture) {
 	stbrp_rect *rects = 0;
 	stbrp_rect *rects_to_process = 0;
 
@@ -5507,7 +5509,7 @@ void zest_MakeSpriteSheet(zest_texture *texture) {
 			image->left = (zest_uint)rect_x;
 			image->top = (zest_uint)rect_y;
 			image->layer = current_layer;
-			image->texture_index = texture->index_in_renderer;
+			image->texture = texture;
 
 			zest_CopyBitmap(&texture->image_bitmaps[rect->id], 0, 0, image->width, image->height, &texture->texture_bitmap, image->left, image->top);
 		}
@@ -5522,7 +5524,7 @@ void zest_MakeSpriteSheet(zest_texture *texture) {
 	zest_vec_free(current_rects);
 }
 
-void zest_PackImages(zest_texture *texture, zest_uint size) {
+void zest_PackImages(zest_texture texture, zest_uint size) {
 	stbrp_rect *rects = 0;
 	stbrp_rect *rects_to_process = 0;
 
@@ -5608,7 +5610,7 @@ void zest_PackImages(zest_texture *texture, zest_uint size) {
 				image->left = (zest_uint)rect_x;
 				image->top = (zest_uint)rect_y;
 				image->layer = current_layer;
-				image->texture_index = texture->index_in_renderer;
+				image->texture = texture;
 
 				zest_CopyBitmap(&texture->image_bitmaps[rect->id], 0, 0, image->width, image->height, &tmp_image, image->left, image->top);
 
@@ -5662,7 +5664,7 @@ void zest_UpdateImageVertices(zest_image *image) {
 	image->max.y = image->height * (1.f - image->handle.y) * image->scale.y;
 }
 
-void zest_UpdateTextureSingleImageMeta(zest_texture *texture, zest_uint width, zest_uint height) {
+void zest_UpdateTextureSingleImageMeta(zest_texture texture, zest_uint width, zest_uint height) {
 	zest_image image = { 0 };
 	image.width = width;
 	image.height = height;
@@ -5673,7 +5675,7 @@ void zest_UpdateTextureSingleImageMeta(zest_texture *texture, zest_uint width, z
 	image.uv.w = 1.f;
 	image.uv_xy = zest_Pack16bit(image.uv.x, image.uv.y);
 	image.uv_zw = zest_Pack16bit(image.uv.z, image.uv.w);
-	image.texture_index = texture->index_in_renderer;
+	image.texture = texture;
 	image.layer = 0;
 	if (zest_vec_empty(texture->images)) {
 		zest_vec_push(texture->images, zest_CreateImage());
@@ -5682,7 +5684,7 @@ void zest_UpdateTextureSingleImageMeta(zest_texture *texture, zest_uint width, z
 	texture->images[0] = image;
 }
 
-void zest_SetUseFiltering(zest_texture *texture, zest_bool value) {
+void zest_SetUseFiltering(zest_texture texture, zest_bool value) {
 	if (value) {
 		texture->flags |= zest_texture_flag_use_filtering;
 	}
@@ -5691,48 +5693,47 @@ void zest_SetUseFiltering(zest_texture *texture, zest_bool value) {
 	}
 }
 
-void zest_SetTextureStorageType(zest_texture *texture, zest_texture_storage_type value) {
+void zest_SetTextureStorageType(zest_texture texture, zest_texture_storage_type value) {
 	texture->storage_type = value;
 }
 
-zest_index zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_texture_format image_format, zest_uint reserve_images) {
+zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_texture_format image_format, zest_uint reserve_images) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, name));	//That name already exists
 	zest_texture texture = zest_NewTexture();
-	zest_SetText(&texture.name, name);
-	zest_SetTextureImageFormat(&texture, image_format);
+	zest_SetText(&texture->name, name);
+	zest_SetTextureImageFormat(texture, image_format);
 	if (storage_type < zest_texture_storage_type_render_target) {
-		zest_SetTextureStorageType(&texture, storage_type);
-		zest_SetUseFiltering(&texture, use_filtering);
+		zest_SetTextureStorageType(texture, storage_type);
+		zest_SetUseFiltering(texture, use_filtering);
 	}
 	if (reserve_images) {
-		zest_vec_reserve(texture.images, reserve_images);
+		zest_vec_reserve(texture->images, reserve_images);
 	}
 	zest_map_insert(ZestRenderer->textures, name, texture);
-	zest_vec_back(zest_GetTextures()->data).index_in_renderer = zest_map_last_index(ZestRenderer->textures);
-	return zest_map_last_index(ZestRenderer->textures);
+	return texture;
 }
 
-zest_index zest_CreateTexturePacked(const char *name, zest_texture_format image_format) {
+zest_texture zest_CreateTexturePacked(const char *name, zest_texture_format image_format) {
 	return zest_CreateTexture(name, zest_texture_storage_type_packed, zest_texture_flag_use_filtering, image_format, 10);
 }
 
-zest_index zest_CreateTextureSpritesheet(const char *name, zest_texture_format image_format) {
+zest_texture zest_CreateTextureSpritesheet(const char *name, zest_texture_format image_format) {
 	return zest_CreateTexture(name, zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, image_format, 10);
 }
 
-zest_index zest_CreateTextureSingle(const char *name, zest_texture_format image_format) {
+zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format image_format) {
 	return zest_CreateTexture(name, zest_texture_storage_type_single, zest_texture_flag_use_filtering, image_format, 1);
 }
 
-zest_index zest_CreateTextureBank(const char *name, zest_texture_format image_format) {
+zest_texture zest_CreateTextureBank(const char *name, zest_texture_format image_format) {
 	return zest_CreateTexture(name, zest_texture_storage_type_bank, zest_texture_flag_use_filtering, image_format, 10);
 }
 
-void zest_DeleteTexture(zest_index texture_index) {
-	zest_vec_push(ZestRenderer->texture_delete_queue, texture_index);
+void zest_DeleteTexture(zest_texture texture) {
+	zest_vec_push(ZestRenderer->texture_delete_queue, texture);
 }
 
-void zest_SetTextureImageFormat(zest_texture *texture, zest_texture_format format) {
+void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format) {
 	ZEST_ASSERT(zest_vec_size(texture->images) == 0);	//You cannot change the image format of a texture that already has images
 	texture->image_format = format;
 	switch (format) {
@@ -5754,45 +5755,40 @@ zest_byte *zest_BitmapArrayLookUp(zest_bitmap_array *bitmap_array, zest_index in
 	return bitmap_array->data + index * bitmap_array->size_of_each_image; 
 }
 
-zest_image *zest_GetImageFromTexture(zest_texture *texture, zest_index index) {
+zest_image *zest_GetImageFromTexture(zest_texture texture, zest_index index) {
 	return &texture->images[index];
 }
 
-zest_texture *zest_GetTextureByIndex(zest_index index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->textures, index));	//That index could not be found in the storage
-	return zest_map_at_index(ZestRenderer->textures, index);
-}
-
-zest_texture *zest_GetTextureByName(const char *name) {
+zest_texture zest_GetTexture(const char *name) {
 	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->textures, name));	//That name could not be found in the storage
-	return zest_map_at(ZestRenderer->textures, name);
+	return *zest_map_at(ZestRenderer->textures, name);
 }
 
-void zest_SetTextureWrapping(zest_texture *texture, VkSamplerAddressMode u, VkSamplerAddressMode v, VkSamplerAddressMode w) {
+void zest_SetTextureWrapping(zest_texture texture, VkSamplerAddressMode u, VkSamplerAddressMode v, VkSamplerAddressMode w) {
 	texture->sampler_info.addressModeU = u;
 	texture->sampler_info.addressModeV = v;
 	texture->sampler_info.addressModeW = w;
 }
 
-void zest_SetTextureWrappingClamp(zest_texture *texture) {
+void zest_SetTextureWrappingClamp(zest_texture texture) {
 	texture->sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	texture->sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	texture->sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 }
 
-void zest_SetTextureWrappingBorder(zest_texture *texture) {
+void zest_SetTextureWrappingBorder(zest_texture texture) {
 	texture->sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 	texture->sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 	texture->sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 }
 
-void zest_SetTextureWrappingRepeat(zest_texture *texture) {
+void zest_SetTextureWrappingRepeat(zest_texture texture) {
 	texture->sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	texture->sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	texture->sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 }
 
-void zest_SetTextureLayerSize(zest_texture *texture, zest_uint size) {
+void zest_SetTextureLayerSize(zest_texture texture, zest_uint size) {
 	ZEST_ASSERT(ZEST__POW2(size));
 	texture->texture_layer_size = size;
 }
@@ -5848,15 +5844,14 @@ zest_index zest_LoadMSDFFont(const char *filename) {
 	zest_vec_resize(image_data, image_size);
 	memcpy(image_data, font_data + position, image_size);
 
-	font.texture_index = zest_CreateTextureSingle(filename, zest_texture_format_rgba);
-	zest_texture *font_texture = zest_GetTextureByIndex(font.texture_index);
+	font.texture = zest_CreateTextureSingle(filename, zest_texture_format_rgba);
 
 	stbi_set_flip_vertically_on_load(1);
-	zest_LoadBitmapImageMemory(zest_GetTextureSingleBitmap(font_texture), image_data, image_size, 0);
+	zest_LoadBitmapImageMemory(zest_GetTextureSingleBitmap(font.texture), image_data, image_size, 0);
 
-	zest_image *image = &font_texture->texture;
-	image->width = zest_GetTextureSingleBitmap(font_texture)->width;
-	image->height = zest_GetTextureSingleBitmap(font_texture)->height;
+	zest_image *image = &font.texture->texture;
+	image->width = zest_GetTextureSingleBitmap(font.texture)->width;
+	image->height = zest_GetTextureSingleBitmap(font.texture)->height;
 
 	zest_vec_free(image_data);
 	zest_vec_free(font_data);
@@ -5873,7 +5868,7 @@ zest_index zest_LoadMSDFFont(const char *filename) {
 void zest_UnloadFont(zest_index font_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->fonts, font_index));
 	zest_font *font = zest_GetFont(font_index);
-	zest_DeleteTexture(font->texture_index);
+	zest_DeleteTexture(font->texture);
 	zest__delete_font(font);
 }
 
@@ -5889,16 +5884,15 @@ zest_font *zest_GetFont(zest_index font_index) {
 }
 
 void zest_SetupFontTexture(zest_font *font) {
-	zest_texture *font_texture = zest_GetTextureByIndex(font->texture_index);
-	if (ZEST__FLAGGED(font_texture->flags, zest_texture_flag_textures_ready)) {
-		zest__cleanup_texture(font_texture);
+	if (ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready)) {
+		zest__cleanup_texture(font->texture);
 	}
 
-	zest_SetUseFiltering(font_texture, ZEST_FALSE);
-	zest_ProcessTextureImages(font_texture);
+	zest_SetUseFiltering(font->texture, ZEST_FALSE);
+	zest_ProcessTextureImages(font->texture);
 
 	font->pipeline_index = zest_PipelineIndex("pipeline_fonts");
-	font->descriptor_set_index = zest_GetTextureDescriptorSetIndex(font_texture, "Default");
+	font->descriptor_set_index = zest_GetTextureDescriptorSetIndex(font->texture, "Default");
 }
 //-- End Fonts
 
@@ -5971,7 +5965,7 @@ void zest_CreateRenderTargetSamplerImage(zest_render_target *render_target) {
 		zest_vec_push(texture_name, '\0');
 		render_target->sampler_textures[i] = zest_CreateTexture(texture_name, zest_texture_storage_type_render_target, 0, render_target->render_format, 0);
 
-		zest_texture *texture = zest_GetTextureByIndex(render_target->sampler_textures[i]);
+		zest_texture texture = render_target->sampler_textures[i];
 		texture->imgui_blend_type = render_target->create_info.imgui_blend_type;
 		zest_UpdateTextureSingleImageMeta(texture, render_target->sampler_image.width, render_target->sampler_image.height);
 
@@ -6081,7 +6075,7 @@ void zest_SetRenderTargetPostProcessUserData(zest_render_target *render_target, 
 }
 
 VkDescriptorSet *zest_GetRenderTargetSamplerDescriptorSet(zest_render_target *render_target) {
-	return &zest_GetTextureByIndex(render_target->sampler_textures[ZEST_FIF])->descriptor_sets.data[0].descriptor_set[ZEST_FIF];
+	return &render_target->sampler_textures[ZEST_FIF]->descriptor_sets.data[0].descriptor_set[ZEST_FIF];
 }
 
 VkDescriptorSet *zest_GetRenderTargetSourceDescriptorSet(zest_render_target *render_target) {
@@ -6089,12 +6083,12 @@ VkDescriptorSet *zest_GetRenderTargetSourceDescriptorSet(zest_render_target *ren
 	return zest_GetRenderTargetSamplerDescriptorSet(source_target);
 }
 
-zest_texture *zest_GetRenderTargetTexture(zest_render_target *render_target) {
-	return zest_GetTextureByIndex(render_target->sampler_textures[ZEST_FIF]);
+zest_texture zest_GetRenderTargetTexture(zest_render_target *render_target) {
+	return render_target->sampler_textures[ZEST_FIF];
 }
 
 zest_image *zest_GetRenderTargetImage(zest_render_target *render_target) {
-	zest_texture *texture = zest_GetTextureByIndex(render_target->sampler_textures[ZEST_FIF]);
+	zest_texture texture = render_target->sampler_textures[ZEST_FIF];
 	return zest_GetImageFromTexture(texture, 0);
 }
 
@@ -6178,10 +6172,10 @@ void zest_RecreateRenderTargetResources(zest_render_target *render_target) {
 }
 
 void zest_RefreshRenderTargetSampler(zest_render_target *render_target, zest_index fif) {
-	if (zest_GetTextureByIndex(render_target->sampler_textures[fif])->sampler != VK_NULL_HANDLE) {
-		vkDestroySampler(ZestDevice->logical_device, zest_GetTextureByIndex(render_target->sampler_textures[fif])->sampler, &ZestDevice->allocation_callbacks);
+	if (render_target->sampler_textures[fif]->sampler != VK_NULL_HANDLE) {
+		vkDestroySampler(ZestDevice->logical_device, render_target->sampler_textures[fif]->sampler, &ZestDevice->allocation_callbacks);
 	}
-	zest_texture *texture = zest_GetTextureByIndex(render_target->sampler_textures[fif]);
+	zest_texture texture = render_target->sampler_textures[fif];
 	zest_UpdateTextureSingleImageMeta(texture, render_target->sampler_image.width, render_target->sampler_image.height);
 
 	zest_CreateTextureSampler(texture, texture->sampler_info, 1);
@@ -6288,9 +6282,9 @@ void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands *item, V
 void zest_CleanUpRenderTarget(zest_render_target *render_target) {
 	for (ZEST_EACH_FIF_i) {
 		zest__cleanup_framebuffer(&render_target->framebuffers[i]);
-		if (zest_GetTextureByIndex(render_target->sampler_textures[i])->sampler != VK_NULL_HANDLE) {
-			vkDestroySampler(ZestDevice->logical_device, zest_GetTextureByIndex(render_target->sampler_textures[i])->sampler, &ZestDevice->allocation_callbacks);
-			zest_GetTextureByIndex(render_target->sampler_textures[i])->sampler = VK_NULL_HANDLE;
+		if (render_target->sampler_textures[i]->sampler != VK_NULL_HANDLE) {
+			vkDestroySampler(ZestDevice->logical_device, render_target->sampler_textures[i]->sampler, &ZestDevice->allocation_callbacks);
+			render_target->sampler_textures[i]->sampler = VK_NULL_HANDLE;
 		}
 	}
 }
@@ -6499,7 +6493,7 @@ void zest_InitialiseSpriteLayer(zest_instance_layer *sprite_layer, zest_uint ins
 	zest__reset_instance_layer_drawing(sprite_layer);
 }
 
-void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture *texture, zest_index descriptor_set_index, zest_index pipeline_index) {
+void zest_SetSpriteDrawing(zest_instance_layer *sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
 	zest__end_draw_instructions(sprite_layer);
 	zest__start_instance_instructions(sprite_layer);
@@ -6576,10 +6570,9 @@ void zest_SetMSDFFontDrawing(zest_instance_layer *font_layer, zest_index font_in
 	zest__end_draw_instructions(font_layer);
 	zest__start_instance_instructions(font_layer);
 	zest_font *font = zest_GetFont(font_index);
-	zest_texture *texture = zest_GetTextureByIndex(font->texture_index);
-	ZEST_ASSERT(ZEST__FLAGGED(texture->flags, zest_texture_flag_textures_ready));		//Make sure the font is properly loaded or wasn't recently deleted
+	ZEST_ASSERT(ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready));		//Make sure the font is properly loaded or wasn't recently deleted
 	font_layer->current_instance_instruction.pipeline = pipeline_index;
-	font_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture, descriptor_set_index);
+	font_layer->current_instance_instruction.descriptor_set = zest_GetTextureDescriptorSet(font->texture, descriptor_set_index);
 	font_layer->current_instance_instruction.draw_mode = zest_draw_mode_text;
 	font_layer->current_instance_instruction.asset_index = font_index;
 	font_layer->current_instance_instruction.scissor = font_layer->scissor;
@@ -6641,7 +6634,6 @@ float zest_DrawMSDFText(zest_instance_layer *font_layer, const char *text, float
 	ZEST_ASSERT(font_layer->current_instance_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
 
 	zest_font *font = zest_GetFont(font_layer->current_instance_instruction.asset_index);
-	zest_texture *font_texture = zest_GetTextureByIndex(font->texture_index);
 
 	size_t length = strlen(text);
 	if (length <= 0) {
@@ -6669,8 +6661,8 @@ float zest_DrawMSDFText(zest_instance_layer *font_layer, const char *text, float
 		float xoffset = character->xoffset * size;
 		float yoffset = character->yoffset * size * flip;
 
-		float uv_width = font_texture->texture.width * (character->uv.z - character->uv.x);
-		float uv_height = font_texture->texture.height * (character->uv.y - character->uv.w);
+		float uv_width = font->texture->texture.width * (character->uv.z - character->uv.x);
+		float uv_height = font->texture->texture.height * (character->uv.y - character->uv.w);
 		float scale = width / uv_width;
 
 		font_instance->size = zest_Vec2Set(width, height);
@@ -6695,7 +6687,6 @@ float zest_DrawMSDFParagraph(zest_instance_layer *font_layer, const char *text, 
 	ZEST_ASSERT(font_layer->current_instance_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
 
 	zest_font *font = zest_GetFont(font_layer->current_instance_instruction.asset_index);
-	zest_texture *font_texture = zest_GetTextureByIndex(font->texture_index);
 
 	size_t length = strlen(text);
 	if (length <= 0) {
@@ -6736,8 +6727,8 @@ float zest_DrawMSDFParagraph(zest_instance_layer *font_layer, const char *text, 
 		float xoffset = character->xoffset * size;
 		float yoffset = character->yoffset * size * flip;
 
-		float uv_width = font_texture->texture.width * (character->uv.z - character->uv.x);
-		float uv_height = font_texture->texture.height * (character->uv.y - character->uv.w);
+		float uv_width = font->texture->texture.width * (character->uv.z - character->uv.x);
+		float uv_height = font->texture->texture.height * (character->uv.y - character->uv.w);
 		float scale = width / uv_width;
 
 		font_instance->size = zest_Vec2Set(width, height);
@@ -6814,7 +6805,7 @@ void zest_InitialiseBillboardLayer(zest_instance_layer *billboard_layer, zest_ui
 	zest__reset_instance_layer_drawing(billboard_layer);
 }
 
-void zest_SetBillboardDrawing(zest_instance_layer *billboard_layer, zest_texture *texture, zest_index descriptor_set_index, zest_index pipeline_index) {
+void zest_SetBillboardDrawing(zest_instance_layer *billboard_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index) {
 	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->pipeline_sets, pipeline_index));	//That index could not be found in the pipeline storage, you must use a valid pipeline index
 	zest__end_draw_instructions(billboard_layer);
 	zest__start_instance_instructions(billboard_layer);
