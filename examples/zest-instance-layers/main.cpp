@@ -2,7 +2,7 @@
 
 typedef struct zest_example {
 	zest_texture texture;
-	zest_index image1;
+	zest_image image;
 	zest_index sprite_pipeline;
 	zest_index sprite_layer;
 	zest_index billboard_layer;
@@ -25,7 +25,7 @@ void UpdateUniformBuffer3d(zest_example *example) {
 
 void InitExample(zest_example *example) {
 	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_alpha, 10);
-	example->image1 = zest_AddTextureImageFile(example->texture, "examples/wabbit_alpha.png");
+	example->image = zest_AddTextureImageFile(example->texture, "examples/wabbit_alpha.png");
 	zest_ProcessTextureImages(example->texture);
 	example->sprite_pipeline = zest_PipelineIndex("pipeline_2d_sprites_alpha");
 	example->sprite_layer = zest_GetInstanceLayerIndex("Sprite 2d Layer");
@@ -56,7 +56,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	UpdateUniformBuffer3d(example);
 	zest_instance_layer_t *sprite_layer = zest_GetInstanceLayerByIndex(example->sprite_layer);
 	zest_instance_layer_t *billboard_layer = zest_GetInstanceLayerByIndex(example->billboard_layer);
-	zest_SetActiveRenderQueue(0);
+	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
 	sprite_layer->multiply_blend_factor = 1.f;
 
 	zest_SetSpriteDrawing(sprite_layer, example->texture, example->sprite_descriptor_index, example->sprite_pipeline);
@@ -66,7 +66,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 			sprite_layer->current_color.r = (zest_byte)(1 - ((y + 1) / 16.f) * 255.f);
 			sprite_layer->current_color.g = (zest_byte)(y / 15.f * 255.f);
 			sprite_layer->current_color.b = (zest_byte)(x / 75.f * 255.f);
-			zest_DrawSprite(sprite_layer, zest_GetImageFromTexture(example->texture, example->image1), x * 16.f + 20.f, y * 40.f + 20.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
+			zest_DrawSprite(sprite_layer, example->image, x * 16.f + 20.f, y * 40.f + 20.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
 		}
 	}
 
@@ -77,7 +77,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_vec3 angles = { 0 };
 	zest_vec3 handle = { .5f, .5f };
 	zest_vec3 alignment = zest_Vec3Set(1.f, 0.f, 0.f);
-	zest_DrawBillboard(billboard_layer, zest_GetImageFromTexture(example->texture, example->image1), &position.x, zest_Pack8bitx3(&alignment), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
+	zest_DrawBillboard(billboard_layer, example->image, &position.x, zest_Pack8bitx3(&alignment), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
 }
 
 int main(void) {

@@ -12,7 +12,7 @@ struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;
-	zest_index test_image_index;
+	zest_image test_image;
 };
 
 void InitImGuiApp(ImGuiApp *app);

@@ -14,7 +14,7 @@ struct ImGuiApp {
 	zest_texture imgui_font_texture;
 
 	zest_texture glyph_texture;
-	zest_index glyph_image_index;
+	zest_image glyph_image;
 	unsigned char *font_buffer;
 
 	zest_index sdf_pipeline_index;

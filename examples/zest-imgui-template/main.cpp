@@ -15,13 +15,13 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	app->imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
 	zest_texture font_texture = zest_GetTexture("imgui_font");
-	zest_index font_image_index = zest_AddTextureImageBitmap(font_texture, &font_bitmap);
+	zest_image font_image = zest_AddTextureImageBitmap(font_texture, &font_bitmap);
 	zest_ProcessTextureImages(font_texture);
-	io.Fonts->SetTexID(zest_GetImageFromTexture(font_texture, font_image_index));
+	io.Fonts->SetTexID(font_image);
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
 	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
-	app->test_image_index = zest_AddTextureImageFile(app->test_texture, "wabbit_alpha.png");
+	app->test_image = zest_AddTextureImageFile(app->test_texture, "wabbit_alpha.png");
 	zest_ProcessTextureImages(app->test_texture);
 
 	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");
@@ -40,17 +40,16 @@ void InitImGuiApp(ImGuiApp *app) {
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Don't forget to update the uniform buffer!
 	zest_Update2dUniformBuffer();
-	zest_SetActiveRenderQueue(0);
+	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
 	ImGuiApp *app = (ImGuiApp*)user_data;
 	zest_instance_layer_t *sprite_layer = zest_GetInstanceLayerByIndex(0);
-	zest_image_t *image = zest_GetImageFromTexture(app->test_texture, app->test_image_index);
 
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 	ImGui::ShowDemoWindow();
 	ImGui::Begin("Test Window");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
-	zest_imgui_DrawImage(image, 50.f, 50.f);
+	zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 	ImGui::End();
 	ImGui::Render();
 	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer_index);

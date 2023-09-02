@@ -380,12 +380,14 @@ typedef enum zest_character_flags {
 
 // --Forward declarations
 typedef struct zest_texture_t zest_texture_t;
+typedef struct zest_image_t zest_image_t;
 typedef struct zest_draw_routine_t zest_draw_routine_t;
 typedef struct zest_command_queue_draw_commands_t zest_command_queue_draw_commands_t;
 typedef struct zest_command_queue_t zest_command_queue_t;
 typedef struct zest_font_t zest_font_t;
 
 ZEST__MAKE_HANDLE(zest_texture)
+ZEST__MAKE_HANDLE(zest_image)
 ZEST__MAKE_HANDLE(zest_draw_routine)
 ZEST__MAKE_HANDLE(zest_command_queue_draw_commands)
 ZEST__MAKE_HANDLE(zest_command_queue)
@@ -1234,7 +1236,7 @@ typedef struct zest_texture_t {
 	zest_frame_buffer_attachment_t frame_buffer;
 	//Todo: option to not keep the images in memory after they're uploaded to the graphics card
 	zest_bitmap_t *image_bitmaps;
-	zest_image_t *images;
+	zest_image *images;
 	zest_bitmap_t *layers;
 	zest_bitmap_array_t bitmap_array;
 	zest_uint layer_count;
@@ -1284,7 +1286,7 @@ typedef struct zest_render_target_t {
 
 	zest_render_target_flags flags;
 
-	zest_image_t sampler_image;
+	zest_image sampler_image;
 	zest_pipeline_template_create_info_t sampler_pipeline_template;
 	zest_pipeline_template_create_info_t im_gui_rt_pipeline_template;
 	zest_index final_render_index;
@@ -1745,7 +1747,7 @@ ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_fo
 ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_format format);
 ZEST_API void zest_DeleteTexture(zest_texture texture);
 ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
-ZEST_API zest_image_t zest_CreateImage(void);
+ZEST_API zest_image zest_CreateImage(void);
 ZEST_API void zest_LoadBitmapImage(zest_bitmap_t *image, const char *file, int color_channels);
 ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap_t *image, unsigned char *buffer, int size, int desired_no_channels);
 ZEST_API void zest_FreeBitmap(zest_bitmap_t *image);
@@ -1767,13 +1769,13 @@ ZEST_API void zest_DestroyBitmapArray(zest_bitmap_array_t *bitmap_array);
 ZEST_API zest_bitmap_t zest_GetImageFromArray(zest_bitmap_array_t *bitmap_array, zest_index index);
 ZEST_API zest_bitmap_t *zest_GetBitmap(zest_texture texture, zest_index bitmap_index);
 ZEST_API zest_index zest_GetImageIndex(zest_texture texture);
-ZEST_API zest_image_t *zest_GetImageFromTexture(zest_texture texture, zest_index index);
-ZEST_API zest_index zest_AddTextureImageFile(zest_texture texture, const char* name);
-ZEST_API zest_index zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t *bitmap_to_load);
-ZEST_API zest_index zest_AddTextureImageMemory(zest_texture texture, const char* name, unsigned char* buffer, int buffer_size);
-ZEST_API zest_index zest_AddTextureAnimationFile(zest_texture texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
-ZEST_API zest_index zest_AddTextureAnimationImage(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
-ZEST_API zest_index zest_AddTextureAnimationMemory(zest_texture texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_image zest_GetImageFromTexture(zest_texture texture, zest_index index);
+ZEST_API zest_image zest_AddTextureImageFile(zest_texture texture, const char* name);
+ZEST_API zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t *bitmap_to_load);
+ZEST_API zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, unsigned char* buffer, int buffer_size);
+ZEST_API zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_image zest_AddTextureAnimationImage(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 ZEST_API float zest_CopyAnimationFrames(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 ZEST_API void zest_ProcessTextureImages(zest_texture texture);
 ZEST_API void zest_DeleteTextureLayers(zest_texture texture);
@@ -1794,7 +1796,7 @@ ZEST_API zest_byte zest_CalculateTextureLayers(stbrp_rect *rects, zest_uint size
 ZEST_API void zest_MakeImageBank(zest_texture texture, zest_uint size);
 ZEST_API void zest_MakeSpriteSheet(zest_texture texture);
 ZEST_API void zest_PackImages(zest_texture texture, zest_uint size);
-ZEST_API void zest_UpdateImageVertices(zest_image_t *image);
+ZEST_API void zest_UpdateImageVertices(zest_image image);
 ZEST_API void zest_UpdateTextureSingleImageMeta(zest_texture texture, zest_uint width, zest_uint height);
 ZEST_API void zest_SetTextureStorageType(zest_texture texture, zest_texture_storage_type value);
 ZEST_API void zest_SetUseFiltering(zest_texture texture, zest_bool value);
@@ -1833,7 +1835,7 @@ ZEST_API zest_render_target_t *zest_GetRenderTargetByName(const char *name);
 ZEST_API VkDescriptorSet *zest_GetRenderTargetSamplerDescriptorSet(zest_render_target_t *render_target);
 ZEST_API VkDescriptorSet *zest_GetRenderTargetSourceDescriptorSet(zest_render_target_t *render_target);
 ZEST_API zest_texture zest_GetRenderTargetTexture(zest_render_target_t *render_target);
-ZEST_API zest_image_t *zest_GetRenderTargetImage(zest_render_target_t *render_target);
+ZEST_API zest_image zest_GetRenderTargetImage(zest_render_target_t *render_target);
 ZEST_API zest_frame_buffer_t *zest_RenderTargetFramebuffer(zest_render_target_t *render_target);
 ZEST_API zest_frame_buffer_t *zest_RenderTargetFramebufferByFIF(zest_render_target_t *render_target, zest_index fif);
 ZEST_API VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_draw_commands item);
@@ -1852,13 +1854,13 @@ ZEST_API void zest_SetInstanceLayerViewPort(zest_instance_layer_t *instance_laye
 //Draw sprite layers
 ZEST_API void zest_InitialiseSpriteLayer(zest_instance_layer_t *sprite_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetSpriteDrawing(zest_instance_layer_t *sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index);
-ZEST_API void zest_DrawSprite(zest_instance_layer_t *layer, zest_image_t *image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
+ZEST_API void zest_DrawSprite(zest_instance_layer_t *layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 //-- End Draw sprite layers
 
 //Draw billboard layers
 ZEST_API void zest_InitialiseBillboardLayer(zest_instance_layer_t *billboard_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetBillboardDrawing(zest_instance_layer_t *sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index);
-ZEST_API void zest_DrawBillboard(zest_instance_layer_t *layer, zest_image_t *image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
+ZEST_API void zest_DrawBillboard(zest_instance_layer_t *layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
 //--End Draw billboard layers
 
 //Draw MSDF font layers

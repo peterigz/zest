@@ -21,9 +21,9 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	app->imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
-	zest_index font_image_index = zest_AddTextureImageBitmap(app->imgui_font_texture, &font_bitmap);
+	zest_image font_image = zest_AddTextureImageBitmap(app->imgui_font_texture, &font_bitmap);
 	zest_ProcessTextureImages(app->imgui_font_texture);
-	io.Fonts->SetTexID(zest_GetImageFromTexture(app->imgui_font_texture, font_image_index));
+	io.Fonts->SetTexID(font_image);
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
 	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");

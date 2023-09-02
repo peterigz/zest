@@ -16,9 +16,9 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	app->imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
-	zest_index font_image_index = zest_AddTextureImageBitmap(app->imgui_font_texture, &font_bitmap);
+	zest_image font_image = zest_AddTextureImageBitmap(app->imgui_font_texture, &font_bitmap);
 	zest_ProcessTextureImages(app->imgui_font_texture);
-	io.Fonts->SetTexID(zest_GetImageFromTexture(app->imgui_font_texture, font_image_index));
+	io.Fonts->SetTexID(font_image);
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
 	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");
@@ -61,14 +61,14 @@ void RasteriseFont(const char *name, ImGuiApp *app) {
 
 	app->glyph_texture = zest_CreateTextureSingle("Glyph", zest_texture_format_alpha);
 	zest_SetUseFiltering(app->glyph_texture, ZEST_FALSE);
-	app->glyph_image_index = zest_AddTextureImageBitmap(app->glyph_texture, &font_bitmap);
+	app->glyph_image = zest_AddTextureImageBitmap(app->glyph_texture, &font_bitmap);
 	zest_ProcessTextureImages(app->glyph_texture);
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Don't forget to update the uniform buffer!
 	zest_Update2dUniformBuffer();
-	zest_SetActiveRenderQueue(0);
+	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
 	ImGuiApp *app = (ImGuiApp*)user_data;
 	zest_instance_layer_t *sprite_layer = zest_GetInstanceLayerByIndex(0);
 
@@ -116,7 +116,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	sprite_layer->current_instance_instruction.push_constants.parameters1.x = radius;
 	sprite_layer->current_instance_instruction.push_constants.parameters1.y = detail;
 	sprite_layer->current_instance_instruction.push_constants.parameters1.z = aa;
-	zest_DrawSprite(sprite_layer, zest_GetImageFromTexture(app->glyph_texture, app->glyph_image_index), zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, 0.f, size, size, 0.5f, 0.5f, 0, 0.f, 0);
+	zest_DrawSprite(sprite_layer, app->glyph_image, zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, 0.f, size, size, 0.5f, 0.5f, 0, 0.f, 0);
 }
 
 int main(void) {

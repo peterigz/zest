@@ -89,7 +89,7 @@ void InitExample(RenderTargetExample *example) {
 	zest_OutputQueues();
 
 	example->texture = zest_CreateTexturePacked("Statue texture", zest_texture_format_rgba);
-	example->image_index = zest_AddTextureImageFile(example->texture, "images/texture.jpg");
+	example->image = zest_AddTextureImageFile(example->texture, "images/texture.jpg");
 	zest_ProcessTextureImages(example->texture);
 }
 
@@ -129,7 +129,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	zest_SetSpriteDrawing(base_layer, example->texture, 0, zest_PipelineIndex("pipeline_2d_sprites"));
 	base_layer->multiply_blend_factor = 1.f;
-	zest_DrawSprite(base_layer, zest_GetImageFromTexture(example->texture, example->image_index), zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);
+	zest_DrawSprite(base_layer, example->image, zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);
 
 	zest_texture target_texture = zest_GetRenderTargetTexture(zest_GetRenderTargetByIndex(example->final_blur_index));
 	//base_layer.DrawImage(GetRenderTarget(example->hb_target_index).GetRenderTargetImage(), fMouseX(), fMouseY());
