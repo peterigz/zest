@@ -39,23 +39,21 @@ float get_uv_scale(vec2 uv) {
 	return (length(dx) + length(dy)) * 0.5;
 }
 
-const float font_weight = 0;
-
 void main() {
 
 	vec4 glyph = frag_color;
 	float opacity;
 	vec4 sampled = texture(texture_sampler, frag_tex_coord);
 
-	float scale = get_uv_scale(frag_tex_coord.xy * textureSize(texture_sampler, 0).xy) * font.parameters.z;
+	vec2 texture_size = textureSize( texture_sampler, 0 ).xy;
+	float scale = get_uv_scale(frag_tex_coord.xy * texture_size) * font.parameters.z;
 	float d = (median(sampled.r, sampled.g, sampled.b) - 0.75) * font.parameters.x;
 	float sdf = (d + font.parameters.w / font.parameters.y) / scale + 0.5 + font.camera.w;
 	float mask = clamp(sdf, 0.0, 1.0);
 	glyph = vec4(glyph.rgb, glyph.a * mask);
 
 	if (font.shadow_color.a > 0) {
-		vec3 u_textureSize = textureSize( texture_sampler, 0 );
-		float sd = texture(texture_sampler, vec3(frag_tex_coord.xy - font.shadow_parameters.xy / u_textureSize.xy, 0)).a + font_weight;
+		float sd = texture(texture_sampler, vec3(frag_tex_coord.xy - font.shadow_parameters.xy / texture_size.xy, 0)).a;
 		float shadowAlpha = linearstep(0.5 - font.shadow_parameters.z, 0.5 + font.shadow_parameters.z, sd) * font.shadow_color.a;
 		shadowAlpha *= 1.0 - mask * font.shadow_parameters.w;
 		vec4 shadow = vec4(font.shadow_color.rgb, shadowAlpha);
