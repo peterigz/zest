@@ -13,17 +13,16 @@ void InitImGuiApp(ImGuiApp *app) {
 	int upload_size = width * height * 4 * sizeof(char);
 
 	zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-	app->imgui_font_texture_index = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
-	zest_texture *font_texture = zest_GetTextureByName("imgui_font");
+	app->imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
+	zest_texture font_texture = zest_GetTexture("imgui_font");
 	zest_index font_image_index = zest_AddTextureImageBitmap(font_texture, &font_bitmap);
 	zest_ProcessTextureImages(font_texture);
 	io.Fonts->SetTexID(zest_GetImageFromTexture(font_texture, font_image_index));
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
-	app->test_texture_index = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
-	zest_texture *texture = zest_GetTextureByName("Bunny");
-	app->test_image_index = zest_AddTextureImageFile(texture, "wabbit_alpha.png");
-	zest_ProcessTextureImages(texture);
+	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	app->test_image_index = zest_AddTextureImageFile(app->test_texture, "wabbit_alpha.png");
+	zest_ProcessTextureImages(app->test_texture);
 
 	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");
 	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
@@ -44,8 +43,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_SetActiveRenderQueue(0);
 	ImGuiApp *app = (ImGuiApp*)user_data;
 	zest_instance_layer *sprite_layer = zest_GetInstanceLayerByIndex(0);
-	zest_texture *texture = zest_GetTextureByIndex(app->test_texture_index);
-	zest_image *image = zest_GetImageFromTexture(texture, app->test_image_index);
+	zest_image *image = zest_GetImageFromTexture(app->test_texture, app->test_image_index);
 
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();

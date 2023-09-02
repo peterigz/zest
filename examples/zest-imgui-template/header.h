@@ -10,8 +10,8 @@
 struct ImGuiApp {
 	zest_imgui_layer_info imgui_layer_info;
 	zest_index imgui_draw_routine_index;
-	zest_index imgui_font_texture_index;
-	zest_index test_texture_index;
+	zest_texture imgui_font_texture;
+	zest_texture test_texture;
 	zest_index test_image_index;
 };
 

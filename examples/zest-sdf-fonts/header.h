@@ -11,9 +11,9 @@
 struct ImGuiApp {
 	zest_imgui_layer_info imgui_layer_info;
 	zest_index imgui_draw_routine_index;
-	zest_index imgui_font_texture_index;
+	zest_texture imgui_font_texture;
 
-	zest_index glyph_texture_index;
+	zest_texture glyph_texture;
 	zest_index glyph_image_index;
 	unsigned char *font_buffer;
 

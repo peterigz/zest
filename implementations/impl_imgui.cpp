@@ -31,12 +31,11 @@ void zest_imgui_DrawLayer(zest_draw_routine *draw_routine, VkCommandBuffer comma
 					//QulkanRenderTarget *render_target = static_cast<QulkanRenderTarget*>(pcmd->UserCallbackData);
 					//current_image = &render_target->GetRenderTargetImage();
 				}
-				zest_texture *texture = zest_GetTextureByIndex(current_image->texture_index);
 				zest_index current_pipeline = layer_info->pipeline_index;
 
-				if (last_pipeline_index != current_pipeline || last_descriptor_set != zest_CurrentTextureDescriptorSet(texture)) {
-					zest_BindPipeline(zest_Pipeline(current_pipeline), zest_CurrentTextureDescriptorSet(texture));
-					last_descriptor_set = zest_CurrentTextureDescriptorSet(texture);
+				if (last_pipeline_index != current_pipeline || last_descriptor_set != zest_CurrentTextureDescriptorSet(current_image->texture)) {
+					zest_BindPipeline(zest_Pipeline(current_pipeline), zest_CurrentTextureDescriptorSet(current_image->texture));
+					last_descriptor_set = zest_CurrentTextureDescriptorSet(current_image->texture);
 					last_pipeline_index = current_pipeline;
 				}
 
