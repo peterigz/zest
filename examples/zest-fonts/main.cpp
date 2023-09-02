@@ -8,7 +8,7 @@ typedef struct zest_example {
 void InitExample(zest_example *example) {
 	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
 	{
-		zest_ModifyDrawCommands(ZestApp->default_render_commands_index);
+		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			example->font_layer = zest_NewBuiltinLayerSetup("Fonts", zest_builtin_layer_fonts);
 		}
@@ -21,7 +21,7 @@ void InitExample(zest_example *example) {
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_example *example = (zest_example*)user_data;
 	zest_Update2dUniformBuffer();
-	zest_SetActiveRenderQueue(0);
+	zest_SetActiveRenderQueue(ZestApp->default_command_queue_index);
 
 	zest_instance_layer_t *font_layer = zest_GetInstanceLayerByIndex(example->font_layer);
 	zest_font_t *font = zest_GetFont(example->font_index);

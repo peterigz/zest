@@ -29,7 +29,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");
 	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
 	{
-		zest_ModifyDrawCommands(ZestApp->default_render_commands_index);
+		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			zest_ContextSetClsColor(0.15f, 0.15f, 0.15f, 1.f);
 			app->imgui_layer_info.mesh_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));

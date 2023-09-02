@@ -34,7 +34,7 @@ void InitExample(zest_example *example) {
 	example->uniform_buffer_3d_index = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
 	example->billboard_descriptor_index = zest_CreateTextureDescriptorSets(example->texture, "3d", "example 3d uniform");
 	zest_RefreshTextureDescriptors(example->texture);
-	zest_command_queue_draw_commands_t *sprite_draw = zest_GetDrawCommandsByName("Default Draw Commands");
+	zest_command_queue_draw_commands sprite_draw = zest_GetDrawCommands("Default Draw Commands");
 	sprite_draw->cls_color = zest_Vec4Set1(0.25f);
 
 	example->camera = zest_CreateCamera();
@@ -42,7 +42,7 @@ void InitExample(zest_example *example) {
 
 	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
 	{
-		zest_ModifyDrawCommands(ZestApp->default_render_commands_index);
+		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			example->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
 		}

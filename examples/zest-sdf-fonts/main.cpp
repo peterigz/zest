@@ -24,7 +24,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->imgui_layer_info.pipeline_index = zest_PipelineIndex("pipeline_imgui");
 	zest_ModifyCommandQueue(ZestApp->default_command_queue_index);
 	{
-		zest_ModifyDrawCommands(ZestApp->default_render_commands_index);
+		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			app->imgui_layer_info.mesh_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
 			zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
