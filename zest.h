@@ -380,8 +380,10 @@ typedef enum zest_character_flags {
 
 // --Forward declarations
 typedef struct zest_texture_t zest_texture_t;
+typedef struct zest_draw_routine_t zest_draw_routine_t;
 
 ZEST__MAKE_HANDLE(zest_texture)
+ZEST__MAKE_HANDLE(zest_draw_routine)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -946,7 +948,7 @@ typedef struct zest_pipeline_set_t {
 typedef struct zest_command_setup_context_t {
 	zest_index command_queue_index;
 	zest_index draw_commands_index;
-	zest_index draw_routine_index;
+	zest_draw_routine draw_routine;
 	zest_index layer_index;
 	zest_index compute_index;
 	zest_setup_context_type type;
@@ -955,19 +957,17 @@ typedef struct zest_command_setup_context_t {
 ZEST_PRIVATE inline void zest__reset_command_setup_context(zest_command_setup_context_t *context) {
 	context->command_queue_index = -1;
 	context->draw_commands_index = -1;
-	context->draw_routine_index = -1;
+	context->draw_routine = ZEST_NULL;
 	context->layer_index = -1;
 	context->type = zest_setup_context_type_none;
 }
 
 //A draw routine is used to actually draw things to the render target. Qulkan provides Layers that have a set of draw commands for doing this or you can develop your own
 //By settting the callbacks and data pointers in the draw routine
-typedef struct zest_draw_routine_t zest_draw_routine_t;
 struct zest_draw_routine_t {
 	const char *name;
 	zest_index cq_index;														//The index of the render queue that this draw routine is within
 	zest_index cq_render_pass_index;											//The index of the render pass within the command queue of this draw routine
-	zest_index routine_id;														//The index of the draw routine within the renderer
 	int draw_index;																//The user index of the draw routine. Use this to index the routine in your own lists. For Qulkan layers, this is used to hold the index of the layer in the renderer
 	zest_index *command_queues;													//A list of the render queues that this draw routine belongs to
 	void *data;																	//Pointer to some user data
@@ -984,7 +984,7 @@ typedef struct zest_command_queue_draw_commands_t zest_command_queue_draw_comman
 struct zest_command_queue_draw_commands_t {
 	VkFramebuffer(*get_frame_buffer)(zest_command_queue_draw_commands_t *item);
 	void(*render_pass_function)(zest_command_queue_draw_commands_t *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
-	zest_index *draw_routines;
+	zest_draw_routine *draw_routines;
 	zest_index *render_targets;
 	VkRect2D viewport;
 	zest_render_viewport_type viewport_type;
@@ -1100,7 +1100,7 @@ typedef struct zest_instance_layer_t {
 	zest_instance_instruction_t *instance_instructions[ZEST_MAX_FIF];
 	zest_draw_mode last_draw_mode;
 
-	zest_index draw_routine_index;
+	zest_draw_routine draw_routine;
 } zest_instance_layer_t;
 
 typedef struct zest_mesh_layer_t {
@@ -1122,7 +1122,7 @@ typedef struct zest_mesh_layer_t {
 	zest_vec2 viewport_size;
 	zest_vec2 screen_scale;
 
-	zest_index draw_routine_index;
+	zest_draw_routine draw_routine;
 } zest_mesh_layer_t;
 
 typedef struct zest_font_character_t {
@@ -1296,7 +1296,7 @@ zest_hash_map(zest_descriptor_set_layout_t) zest_map_descriptor_layouts;
 zest_hash_map(zest_pipeline_set_t) zest_map_pipeline_sets;
 zest_hash_map(zest_command_queue_draw_commands_t) zest_map_command_queue_draw_commands;
 zest_hash_map(zest_command_queue_compute_t) zest_map_command_queue_computes;
-zest_hash_map(zest_draw_routine_t) zest_map_draw_routines;
+zest_hash_map(zest_draw_routine) zest_map_draw_routines;
 zest_hash_map(zest_buffer_allocator_t) zest_map_buffer_allocators;
 zest_hash_map(zest_instance_layer_t) zest_map_instance_layers;
 zest_hash_map(zest_mesh_layer_t) zest_map_mesh_layers;
@@ -1433,7 +1433,7 @@ ZEST_PRIVATE void zest__cleanup_swapchain(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
 ZEST_PRIVATE void zest__recreate_swapchain(void);
 ZEST_PRIVATE void zest__add_push_constant(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange push_constant);
-ZEST_PRIVATE void zest__add_draw_routine(zest_command_queue_draw_commands_t *command_queue_draw, zest_draw_routine_t *draw_routine);
+ZEST_PRIVATE void zest__add_draw_routine(zest_command_queue_draw_commands_t *command_queue_draw, zest_draw_routine draw_routine);
 ZEST_PRIVATE void zest__create_swapchain_image_views(void);
 ZEST_PRIVATE void zest__make_standard_render_passes(void);
 ZEST_PRIVATE zest_uint zest__add_render_pass(const char *name, VkRenderPass render_pass);
@@ -1468,7 +1468,7 @@ ZEST_PRIVATE zest_index zest__create_command_queue_draw_commands(const char *nam
 // --Command Queue Setup functions
 ZEST_PRIVATE zest_index zest__create_command_queue(const char *name);
 ZEST_PRIVATE void zest__set_queue_context(zest_setup_context_type context);
-ZEST_PRIVATE zest_draw_routine_t *zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer);
+ZEST_PRIVATE zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer);
 
 // --Draw layer internal functions
 ZEST_PRIVATE void zest__start_instance_instructions(zest_instance_layer_t *instance_layer);
@@ -1644,15 +1644,14 @@ ZEST_API zest_index zest_NewDrawCommandSetupRenderTargetSwap(const char *name, z
 ZEST_API void zest_AddRenderTarget(zest_index render_target_index);
 ZEST_API zest_index zest_NewDrawCommandSetup(const char *name, zest_index render_target_index);
 ZEST_API void zest_SetDrawCommandsCallback(void(*render_pass_function)(zest_command_queue_draw_commands_t *item, VkCommandBuffer command_buffer, zest_index draw_commands_index, VkFramebuffer framebuffer));
-ZEST_API zest_draw_routine_t *zest_GetDrawRoutineByIndex(zest_index index);
-ZEST_API zest_draw_routine_t *zest_GetDrawRoutineByName(const char *name);
+ZEST_API zest_draw_routine zest_GetDrawRoutine(const char *name);
 ZEST_API zest_command_queue_draw_commands_t *zest_GetDrawCommandsByIndex(zest_index index);
 ZEST_API zest_command_queue_draw_commands_t *zest_GetDrawCommandsByName(const char *name);
 ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands_t *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands_t *item, VkCommandBuffer command_buffer, zest_index render_pass_index, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands_t *item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
-ZEST_API void zest_AddDrawRoutine(zest_index index);
-ZEST_API void zest_AddDrawRoutineToRenderPass(zest_command_queue_draw_commands_t *render_pass, zest_draw_routine_t *draw_routine);
+ZEST_API void zest_AddDrawRoutine(zest_draw_routine draw_routine);
+ZEST_API void zest_AddDrawRoutineToRenderPass(zest_command_queue_draw_commands_t *render_pass, zest_draw_routine draw_routine);
 ZEST_API zest_instance_layer_t *zest_GetInstanceLayerByIndex(zest_index index);
 ZEST_API zest_instance_layer_t *zest_GetInstanceLayerByName(const char *name);
 ZEST_API zest_mesh_layer_t *zest_GetMeshLayerByIndex(zest_index index);
@@ -1666,7 +1665,7 @@ ZEST_API zest_command_queue_t *zest_CurrentCommandQueue(void);
 ZEST_API zest_command_queue_draw_commands_t *zest_CurrentRenderPass(void);
 ZEST_API void zest_ModifyCommandQueue(zest_index render_index);
 ZEST_API void zest_ModifyDrawCommands(zest_index render_commands_index);
-ZEST_API zest_draw_routine_t *zest_ContextDrawRoutine();
+ZEST_API zest_draw_routine zest_ContextDrawRoutine();
 ZEST_API void zest_ContextSetClsColor(float r, float g, float b, float a);
 ZEST_API void zest_FinishQueueSetup(void);
 ZEST_API void zest_ValidateQueue(zest_index index);
@@ -1842,7 +1841,7 @@ ZEST_API void zest_RefreshRenderTargetSampler(zest_render_target_t *render_targe
 //-- End Render targets
 
 //Draw Routines
-ZEST_API zest_index zest_CreateDrawRoutine(const char *name);
+ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
 //-- End Draw Routines
 
 //-- Draw Layers API

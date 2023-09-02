@@ -2007,10 +2007,9 @@ void zest__cleanup_renderer() {
 	zest_map_clear(ZestRenderer->render_passes);
 
 	for (zest_map_foreach_i(ZestRenderer->draw_routines)) {
-		zest_index routine_index = zest_map_index(ZestRenderer->draw_routines, i);
-		zest_draw_routine_t *draw_routine = zest_map_at_index(ZestRenderer->draw_routines, routine_index);
-		if (draw_routine->clean_up_callback) {
-			draw_routine->clean_up_callback(draw_routine);
+		zest_draw_routine routine = *zest_map_at_index(ZestRenderer->draw_routines, i);
+		if (routine->clean_up_callback) {
+			routine->clean_up_callback(routine);
 		}
 	}
 
@@ -2093,8 +2092,7 @@ void zest__recreate_swapchain() {
 	zest__create_final_render_command_buffer();
 
 	for (zest_map_foreach_i(ZestRenderer->draw_routines)) {
-		zest_index routine_index = zest_map_index(ZestRenderer->draw_routines, i);
-		zest_draw_routine_t *draw_routine = zest_map_at_index(ZestRenderer->draw_routines, routine_index);
+		zest_draw_routine draw_routine = *zest_map_at_index(ZestRenderer->draw_routines, i);
 		if (!draw_routine->update_resolution_callback && draw_routine->draw_index != -1) {
 			zest_instance_layer_t *layer = zest_GetInstanceLayerByIndex(draw_routine->draw_index);
 			zest__update_instance_layer_resolution(layer);
@@ -3229,8 +3227,8 @@ void zest__add_push_constant(zest_pipeline_template_create_info_t *create_info, 
 	zest_vec_push(create_info->pushConstantRange, push_constant);
 }
 
-void zest__add_draw_routine(zest_command_queue_draw_commands_t *command_queue_draw, zest_draw_routine_t *draw_routine) {
-	zest_vec_push(command_queue_draw->draw_routines, draw_routine->routine_id);
+void zest__add_draw_routine(zest_command_queue_draw_commands_t *command_queue_draw, zest_draw_routine draw_routine) {
+	zest_vec_push(command_queue_draw->draw_routines, draw_routine);
 	draw_routine->cq_render_pass_index = zest_vec_size(command_queue_draw->draw_routines) - 1;
 }
 
@@ -3317,8 +3315,7 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands_t *item, V
 	//Copy the buffers
 
 	for (zest_foreach_i(item->draw_routines)) {
-		zest_index index = item->draw_routines[i];
-		zest_draw_routine_t *draw_routine = zest_GetDrawRoutineByIndex(index);
+		zest_draw_routine draw_routine = item->draw_routines[i];
 		if (draw_routine->update_buffers_callback) {
 			draw_routine->update_buffers_callback(draw_routine, command_buffer);
 		}
@@ -3332,8 +3329,7 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands_t *item, V
 	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
 	for (zest_foreach_i(item->draw_routines)) {
-		zest_index index = item->draw_routines[i];
-		zest_draw_routine_t *draw_routine = zest_GetDrawRoutineByIndex(index);
+		zest_draw_routine draw_routine = item->draw_routines[i];
 		if (draw_routine->draw_callback) {
 			draw_routine->draw_callback(draw_routine, command_buffer);
 		}
@@ -3341,16 +3337,6 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands_t *item, V
 
 	vkCmdEndRenderPass(command_buffer);
 
-}
-
-zest_draw_routine_t *zest_GetDrawRoutineByIndex(zest_index index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->draw_routines, index));	//That index could not be found in the storage
-	return zest_map_at_index(ZestRenderer->draw_routines, index);
-}
-
-zest_draw_routine_t *zest_GetDrawRoutineByName(const char *name) {
-	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->draw_routines, name));	//That index could not be found in the storage
-	return zest_map_at(ZestRenderer->draw_routines, name);
 }
 
 zest_command_queue_draw_commands_t *zest_GetDrawCommandsByIndex(zest_index index) {
@@ -3918,13 +3904,13 @@ void zest__set_queue_context(zest_setup_context_type context) {
 	if (ZestRenderer->setup_context.type == zest_setup_context_type_command_queue) {
 		ZestRenderer->setup_context.draw_commands_index = -1;
 		ZestRenderer->setup_context.layer_index = -1;
-		ZestRenderer->setup_context.draw_routine_index = -1;
+		ZestRenderer->setup_context.draw_routine = ZEST_NULL;
 		ZestRenderer->setup_context.compute_index = -1;
 	}
 	else if (ZestRenderer->setup_context.type == zest_setup_context_type_render_pass) {
 		ZestRenderer->setup_context.layer_index = -1;
 		ZestRenderer->setup_context.compute_index = -1;
-		ZestRenderer->setup_context.draw_routine_index = -1;
+		ZestRenderer->setup_context.draw_routine = ZEST_NULL;
 	}
 }
 
@@ -3998,10 +3984,9 @@ void zest_ModifyDrawCommands(zest_index draw_commands_index) {
 	ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
 }
 
-zest_draw_routine_t *zest_ContextDrawRoutine() {
+zest_draw_routine zest_ContextDrawRoutine() {
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_draw_routine || ZestRenderer->setup_context.type == zest_setup_context_type_layer);
-	zest_index *draw_routines = *zest_map_at_index(ZestRenderer->command_queue_draw_commands, ZestRenderer->setup_context.draw_commands_index).draw_routines;
-	return zest_map_at_index(ZestRenderer->draw_routines, draw_routines[ZestRenderer->setup_context.draw_routine_index]);
+	return ZestRenderer->setup_context.draw_routine;
 }
 
 void zest_ContextSetClsColor(float r, float g, float b, float a) {
@@ -4015,7 +4000,7 @@ void zest_FinishQueueSetup() {
 	zest_ValidateQueue(ZestRenderer->setup_context.command_queue_index);
 	ZestRenderer->setup_context.command_queue_index = -1;
 	ZestRenderer->setup_context.draw_commands_index = -1;
-	ZestRenderer->setup_context.draw_routine_index = -1;
+	ZestRenderer->setup_context.draw_routine = ZEST_NULL;
 	ZestRenderer->setup_context.layer_index = -1;
 	ZestRenderer->setup_context.type = zest_setup_context_type_none;
 }
@@ -4163,6 +4148,11 @@ void zest_SetDrawCommandsCallback(void(*render_pass_function)(zest_command_queue
 	draw_commands->render_pass_function = render_pass_function;
 }
 
+zest_draw_routine zest_GetDrawRoutine(const char *name) {
+	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->draw_routines, name));
+	return *zest_map_at(ZestRenderer->draw_routines, name);
+}
+
 zest_index zest__create_command_queue_draw_commands(const char *name) {
 	zest_command_queue_draw_commands_t draw_commands = { 0 };
 	draw_commands.name = name;
@@ -4208,81 +4198,83 @@ zest_index zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type b
 	return draw_routine->draw_index;
 }
 
-zest_draw_routine_t *zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer) {
+zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));	//A draw routine with that name already exists
 
-	zest_draw_routine_t draw_routine = { 0 };
+	zest_draw_routine_t blank_draw_routine = { 0 };
+	zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
+	*draw_routine = blank_draw_routine;
+
 	if (builtin_layer == zest_builtin_layer_sprites) {
 		zest_instance_layer_t layer = { 0 };
 		layer.name = name;
-		draw_routine.draw_callback = zest__draw_sprite_layer_callback;
+		draw_routine->draw_callback = zest__draw_sprite_layer_callback;
 		zest_InitialiseSpriteLayer(&layer, 1000);
 		zest_map_insert(ZestRenderer->instance_layers, name, layer);
-		draw_routine.draw_index = zest_map_last_index(ZestRenderer->instance_layers);
-		draw_routine.update_buffers_callback = zest__update_instance_layer_buffers_callback;
+		draw_routine->draw_index = zest_map_last_index(ZestRenderer->instance_layers);
+		draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
 	}
 	else if (builtin_layer == zest_builtin_layer_billboards) {
 		zest_instance_layer_t layer = { 0 };
 		layer.name = name;
-		draw_routine.draw_callback = zest__draw_billboard_layer_callback;
+		draw_routine->draw_callback = zest__draw_billboard_layer_callback;
 		zest_InitialiseBillboardLayer(&layer, 1000);
 		zest_map_insert(ZestRenderer->instance_layers, name, layer);
-		draw_routine.draw_index = zest_map_last_index(ZestRenderer->instance_layers);
-		draw_routine.update_buffers_callback = zest__update_instance_layer_buffers_callback;
+		draw_routine->draw_index = zest_map_last_index(ZestRenderer->instance_layers);
+		draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
 	}
 	else if (builtin_layer == zest_builtin_layer_mesh) {
 		zest_mesh_layer_t layer = { 0 };
 		layer.name = name;
 		zest_map_insert(ZestRenderer->mesh_layers, name, layer);
-		draw_routine.draw_index = zest_map_last_index(ZestRenderer->mesh_layers);
-		draw_routine.update_buffers_callback = zest_UploadMeshBuffersCallback;
+		draw_routine->draw_index = zest_map_last_index(ZestRenderer->mesh_layers);
+		draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
 	}
 	else if (builtin_layer == zest_builtin_layer_fonts) {
 		zest_instance_layer_t layer = { 0 };
 		layer.name = name;
-		draw_routine.draw_callback = zest__draw_font_layer_callback;
+		draw_routine->draw_callback = zest__draw_font_layer_callback;
 		zest_InitialiseMSDFFontLayer(&layer, 1000);
 		zest_map_insert(ZestRenderer->instance_layers, name, layer);
-		draw_routine.draw_index = zest_map_last_index(ZestRenderer->instance_layers);
-		draw_routine.update_buffers_callback = zest__update_instance_layer_buffers_callback;
+		draw_routine->draw_index = zest_map_last_index(ZestRenderer->instance_layers);
+		draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
 	}
-	draw_routine.name = name;
-	draw_routine.cq_index = ZestRenderer->setup_context.command_queue_index;
-	draw_routine.cq_render_pass_index = ZestRenderer->setup_context.draw_commands_index;
+	draw_routine->name = name;
+	draw_routine->cq_index = ZestRenderer->setup_context.command_queue_index;
+	draw_routine->cq_render_pass_index = ZestRenderer->setup_context.draw_commands_index;
 
 	zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
-	zest_index index = zest_map_last_index(ZestRenderer->draw_routines);
-	ZestRenderer->setup_context.draw_routine_index = index;
+	ZestRenderer->setup_context.draw_routine = draw_routine;
 
-	zest_GetDrawRoutineByIndex(index)->routine_id = index;
-	zest_GetInstanceLayerByIndex(draw_routine.draw_index)->draw_routine_index = index;
-	return zest_GetDrawRoutineByIndex(index);
+	zest_GetInstanceLayerByIndex(draw_routine->draw_index)->draw_routine = draw_routine;
+	return draw_routine;
 }
 
-zest_index zest_CreateDrawRoutine(const char *name) {
+zest_draw_routine zest_CreateDrawRoutine(const char *name) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));	//A draw routine with that name already exists
-	zest_draw_routine_t draw_routine = { 0 };
-	draw_routine.name = name;
-	draw_routine.routine_id = zest_map_size(ZestRenderer->draw_routines);
+
+	zest_draw_routine_t blank_draw_routine = { 0 };
+	zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
+	*draw_routine = blank_draw_routine;
+
+	draw_routine->name = name;
 	zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
-	return zest_map_last_index(ZestRenderer->draw_routines);
+	return draw_routine;
 }
 
-void zest_AddDrawRoutine(zest_index index) {
+void zest_AddDrawRoutine(zest_draw_routine draw_routine) {
 	zest__set_queue_context(zest_setup_context_type_layer);
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);	//The current setup context must be a render pass, layer or compute
-	ZEST_ASSERT(index < (zest_index)zest_map_size(ZestRenderer->draw_routines));							//Must use a valid draw routine you made with CreateDrawRoutine (outside of a render queue setup)
 	zest_command_queue_draw_commands_t *draw_commands = zest_GetCommandQueueDrawCommands(ZestRenderer->setup_context.draw_commands_index);
 	ZestRenderer->setup_context.type = zest_setup_context_type_layer;
-	ZestRenderer->setup_context.draw_routine_index = index;
-	zest_draw_routine_t *draw_routine = zest_GetDrawRoutineByIndex(index);
+	ZestRenderer->setup_context.draw_routine = draw_routine;
 	draw_routine->cq_index = ZestRenderer->setup_context.command_queue_index;
 	draw_routine->cq_render_pass_index = ZestRenderer->setup_context.draw_commands_index;
 	zest_AddDrawRoutineToRenderPass(draw_commands, draw_routine);
 }
 
-void zest_AddDrawRoutineToRenderPass(zest_command_queue_draw_commands_t *render_pass, zest_draw_routine_t *draw_routine) {
-	zest_vec_push(render_pass->draw_routines, draw_routine->routine_id);
+void zest_AddDrawRoutineToRenderPass(zest_command_queue_draw_commands_t *render_pass, zest_draw_routine draw_routine) {
+	zest_vec_push(render_pass->draw_routines, draw_routine);
 	//draw_routine.cq_index = command_queue_index;
 	draw_routine->cq_render_pass_index = zest_vec_last_index(render_pass->draw_routines);
 }
@@ -6964,7 +6956,7 @@ void zest_OutputQueues() {
 				printf("\t%i) %s\n", draw_order++, draw_commands->name);
 				if (!zest_vec_empty(draw_commands->draw_routines)) {
 					for (zest_foreach_k(draw_commands->draw_routines)) {
-						zest_draw_routine_t *draw_routine = zest_GetDrawRoutineByIndex(draw_commands->draw_routines[k]);
+						zest_draw_routine draw_routine = draw_commands->draw_routines[k];
 						printf("\t\t-Draw Routine: %s\n", draw_routine->name);
 					}
 				}
