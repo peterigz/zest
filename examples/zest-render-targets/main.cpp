@@ -6,10 +6,10 @@ void InitExample(RenderTargetExample *example) {
 	//QulkanRenderTarget &base_target = GetCurrentRenderTarget();
 	//base_target.HideTargetFromRender();
 
-	zest_pipeline_template_create_info create_info = zest_CreatePipelineTemplateCreateInfo();
+	zest_pipeline_template_create_info_t create_info = zest_CreatePipelineTemplateCreateInfo();
 
 	VkPushConstantRange image_pushconstant_range;
-	image_pushconstant_range.size = sizeof(zest_push_constants);
+	image_pushconstant_range.size = sizeof(zest_push_constants_t);
 	image_pushconstant_range.offset = 0;
 	image_pushconstant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 	zest_AddPipelineTemplatePushConstantRange(&create_info, image_pushconstant_range);
@@ -18,7 +18,7 @@ void InitExample(RenderTargetExample *example) {
 	create_info.viewport.extent = zest_GetSwapChainExtent();
 	create_info.no_vertex_input = true;
 	example->blur_pipeline_index = zest_AddPipeline("blur effect");
-	zest_pipeline_set *blur_pipeline = zest_Pipeline(example->blur_pipeline_index);
+	zest_pipeline_set_t *blur_pipeline = zest_Pipeline(example->blur_pipeline_index);
 	zest_MakePipelineTemplate(blur_pipeline, zest_GetStandardRenderPass(), &create_info);
 	blur_pipeline->pipeline_template.depthStencil.depthWriteEnable = false;
 	blur_pipeline->pipeline_template.multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
@@ -93,9 +93,9 @@ void InitExample(RenderTargetExample *example) {
 	zest_ProcessTextureImages(example->texture);
 }
 
-void AddHorizontalBlur(zest_render_target *target, void *data) {
+void AddHorizontalBlur(zest_render_target_t *target, void *data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(data);
-	zest_pipeline_set *pipeline = zest_Pipeline(example->blur_pipeline_index);
+	zest_pipeline_set_t *pipeline = zest_Pipeline(example->blur_pipeline_index);
 	zest_BindPipeline(pipeline, *zest_GetRenderTargetSourceDescriptorSet(target));
 	example->push_constants.blur.x = 1.f;
 	example->push_constants.blur.y = 1.f;
@@ -106,9 +106,9 @@ void AddHorizontalBlur(zest_render_target *target, void *data) {
 	zest_Draw(3, 1, 0, 0);
 }
 
-void AddVerticalBlur(zest_render_target *target, void *data) {
+void AddVerticalBlur(zest_render_target_t *target, void *data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(data);
-	zest_pipeline_set *pipeline = zest_Pipeline(example->blur_pipeline_index);
+	zest_pipeline_set_t *pipeline = zest_Pipeline(example->blur_pipeline_index);
 	zest_BindPipeline(pipeline, *zest_GetRenderTargetSourceDescriptorSet(target));
 	example->push_constants.blur.x = 1.f;
 	example->push_constants.blur.y = 1.f;
@@ -123,8 +123,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(user_data);
 	zest_SetActiveRenderQueue(example->render_queue_index);
 	zest_Update2dUniformBuffer();
-	zest_instance_layer *base_layer = zest_GetInstanceLayerByIndex(example->base_layer_index);
-	zest_instance_layer *top_layer = zest_GetInstanceLayerByIndex(example->top_target_layer_index);
+	zest_instance_layer_t *base_layer = zest_GetInstanceLayerByIndex(example->base_layer_index);
+	zest_instance_layer_t *top_layer = zest_GetInstanceLayerByIndex(example->top_target_layer_index);
 	base_layer->current_color = zest_ColorSet(255, 255, 255, 255);
 
 	zest_SetSpriteDrawing(base_layer, example->texture, 0, zest_PipelineIndex("pipeline_2d_sprites"));
@@ -148,7 +148,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 int main(void) {
 
-	zest_create_info create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfo();
 	zest_Initialise(&create_info);
 
 	RenderTargetExample example;

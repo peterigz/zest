@@ -14,7 +14,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 	int upload_size = width * height * 4 * sizeof(char);
 
-	zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	app->imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
 	zest_index font_image_index = zest_AddTextureImageBitmap(app->imgui_font_texture, &font_bitmap);
 	zest_ProcessTextureImages(app->imgui_font_texture);
@@ -35,10 +35,10 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	RasteriseFont("fonts/Lato-Regular.ttf", app);
 
-	zest_pipeline_set *sprite_pipeline = zest_PipelineByName("pipeline_2d_sprites_alpha");
-	zest_pipeline_template_create_info sdf_pipeline_template = sprite_pipeline->create_info;
+	zest_pipeline_set_t *sprite_pipeline = zest_PipelineByName("pipeline_2d_sprites_alpha");
+	zest_pipeline_template_create_info_t sdf_pipeline_template = sprite_pipeline->create_info;
 	app->sdf_pipeline_index = zest_AddPipeline("sdf_fonts");
-	zest_pipeline_set *sdf_pipeline = zest_Pipeline(app->sdf_pipeline_index);
+	zest_pipeline_set_t *sdf_pipeline = zest_Pipeline(app->sdf_pipeline_index);
 	sdf_pipeline_template.vertShaderFile = "spv/sdf.spv";
 	sdf_pipeline_template.fragShaderFile = "spv/sdf.spv";
 	zest_MakePipelineTemplate(sdf_pipeline, zest_GetStandardRenderPass(), &sdf_pipeline_template);
@@ -57,7 +57,7 @@ void RasteriseFont(const char *name, ImGuiApp *app) {
 	int width, height, xoff, yoff;
 
 	unsigned char *bitmap = stbtt_GetCodepointSDF(&font_info, scale, 'Z', padding, onedge_value, pixel_dist_scale, &width, &height, &xoff, &yoff);
-	zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("Font Glyph", bitmap, width * height, width, height, 1);
+	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("Font Glyph", bitmap, width * height, width, height, 1);
 
 	app->glyph_texture = zest_CreateTextureSingle("Glyph", zest_texture_format_alpha);
 	zest_SetUseFiltering(app->glyph_texture, ZEST_FALSE);
@@ -70,7 +70,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_Update2dUniformBuffer();
 	zest_SetActiveRenderQueue(0);
 	ImGuiApp *app = (ImGuiApp*)user_data;
-	zest_instance_layer *sprite_layer = zest_GetInstanceLayerByIndex(0);
+	zest_instance_layer_t *sprite_layer = zest_GetInstanceLayerByIndex(0);
 
 	static bool vsync = true;
 	static float size = 100.f;
@@ -121,7 +121,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 int main(void) {
 
-	zest_create_info create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
 
 	ImGuiApp imgui_app;

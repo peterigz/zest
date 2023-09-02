@@ -1,9 +1,9 @@
 #include "impl_glfw.h"
 
-zest_window *zest_implglfw_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char* title) {
+zest_window_t *zest_implglfw_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char* title) {
 	ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
 
-	zest_window *window = zest_AllocateWindow();
+	zest_window_t *window = zest_AllocateWindow();
 
 	glfwInit();
 
@@ -30,7 +30,7 @@ zest_window *zest_implglfw_CreateWindowCallback(int x, int y, int width, int hei
 	return window;
 }
 
-void zest_implglfw_CreateWindowSurfaceCallback(zest_window* window) {
+void zest_implglfw_CreateWindowSurfaceCallback(zest_window_t* window) {
 	ZEST_VK_CHECK_RESULT(glfwCreateWindowSurface(ZestDevice->instance, (GLFWwindow*)window->window_handle, &ZestDevice->allocation_callbacks, &window->surface));
 }
 
@@ -56,7 +56,7 @@ void zest_implglfw_DestroyWindowCallback(void *user_data) {
 	glfwDestroyWindow((GLFWwindow*)ZestApp->window->window_handle);
 }
 
-void zest_implglfw_SetCallbacks(zest_create_info *create_info) {
+void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {
 	create_info->add_platform_extensions_callback = zest_implglfw_AddPlatformExtensionsCallback;
 	create_info->create_window_callback = zest_implglfw_CreateWindowCallback;
 	create_info->poll_events_callback = zest_implglfw_PollEventsCallback;

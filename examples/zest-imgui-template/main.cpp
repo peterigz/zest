@@ -12,7 +12,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 	int upload_size = width * height * 4 * sizeof(char);
 
-	zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	app->imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
 	zest_texture font_texture = zest_GetTexture("imgui_font");
 	zest_index font_image_index = zest_AddTextureImageBitmap(font_texture, &font_bitmap);
@@ -42,8 +42,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_Update2dUniformBuffer();
 	zest_SetActiveRenderQueue(0);
 	ImGuiApp *app = (ImGuiApp*)user_data;
-	zest_instance_layer *sprite_layer = zest_GetInstanceLayerByIndex(0);
-	zest_image *image = zest_GetImageFromTexture(app->test_texture, app->test_image_index);
+	zest_instance_layer_t *sprite_layer = zest_GetInstanceLayerByIndex(0);
+	zest_image_t *image = zest_GetImageFromTexture(app->test_texture, app->test_image_index);
 
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
@@ -58,7 +58,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 int main(void) {
 
-	zest_create_info create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
 
 	ImGuiApp imgui_app;

@@ -23,8 +23,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_Update2dUniformBuffer();
 	zest_SetActiveRenderQueue(0);
 
-	zest_instance_layer *font_layer = zest_GetInstanceLayerByIndex(example->font_layer);
-	zest_font *font = zest_GetFont(example->font_index);
+	zest_instance_layer_t *font_layer = zest_GetInstanceLayerByIndex(example->font_layer);
+	zest_font_t *font = zest_GetFont(example->font_index);
 
 	font_layer->multiply_blend_factor = 1.f;
 	zest_SetMSDFFontDrawing(font_layer, example->font_index, font->descriptor_set_index, font->pipeline_index);
@@ -35,7 +35,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 int main(void) {
 
-	zest_create_info create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfo();
 
 	zest_example example;
 

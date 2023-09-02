@@ -7,14 +7,14 @@ typedef struct zest_example {
 	zest_index sprite_layer;
 	zest_index billboard_layer;
 	zest_index billboard_pipeline;
-	zest_camera camera;
+	zest_camera_t camera;
 	zest_index uniform_buffer_3d_index;
 	zest_index sprite_descriptor_index;
 	zest_index billboard_descriptor_index;
 } zest_example;
 
 void UpdateUniformBuffer3d(zest_example *example) {
-	zest_uniform_buffer_data *buffer_3d = zest_GetUniformBufferData(example->uniform_buffer_3d_index);
+	zest_uniform_buffer_data_t *buffer_3d = zest_GetUniformBufferData(example->uniform_buffer_3d_index);
 	buffer_3d->view = zest_LookAt(example->camera.position, zest_AddVec3(example->camera.position, example->camera.front), example->camera.up);
 	buffer_3d->proj = zest_Perspective(example->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.1f, 10000.f);
 	buffer_3d->proj.v[1].y *= -1.f;
@@ -31,10 +31,10 @@ void InitExample(zest_example *example) {
 	example->sprite_layer = zest_GetInstanceLayerIndex("Sprite 2d Layer");
 	example->sprite_descriptor_index = zest_GetTextureDescriptorSetIndex(example->texture, "Default");
 	example->billboard_pipeline = zest_PipelineIndex("pipeline_billboard_alpha");
-	example->uniform_buffer_3d_index = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data));
+	example->uniform_buffer_3d_index = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
 	example->billboard_descriptor_index = zest_CreateTextureDescriptorSets(example->texture, "3d", "example 3d uniform");
 	zest_RefreshTextureDescriptors(example->texture);
-	zest_command_queue_draw_commands *sprite_draw = zest_GetDrawCommandsByName("Default Draw Commands");
+	zest_command_queue_draw_commands_t *sprite_draw = zest_GetDrawCommandsByName("Default Draw Commands");
 	sprite_draw->cls_color = zest_Vec4Set1(0.25f);
 
 	example->camera = zest_CreateCamera();
@@ -54,8 +54,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_example *example = (zest_example*)user_data;
 	zest_Update2dUniformBuffer();
 	UpdateUniformBuffer3d(example);
-	zest_instance_layer *sprite_layer = zest_GetInstanceLayerByIndex(example->sprite_layer);
-	zest_instance_layer *billboard_layer = zest_GetInstanceLayerByIndex(example->billboard_layer);
+	zest_instance_layer_t *sprite_layer = zest_GetInstanceLayerByIndex(example->sprite_layer);
+	zest_instance_layer_t *billboard_layer = zest_GetInstanceLayerByIndex(example->billboard_layer);
 	zest_SetActiveRenderQueue(0);
 	sprite_layer->multiply_blend_factor = 1.f;
 
@@ -71,7 +71,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	}
 
 	zest_SetBillboardDrawing(billboard_layer, example->texture, example->billboard_descriptor_index, example->billboard_pipeline);
-	zest_uniform_buffer_data *buffer_3d = zest_GetUniformBufferData(example->uniform_buffer_3d_index);
+	zest_uniform_buffer_data_t *buffer_3d = zest_GetUniformBufferData(example->uniform_buffer_3d_index);
 	zest_vec3 ray = zest_ScreenRay(200.f, 200.f, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
 	zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&ray, 10.f), example->camera.position);
 	zest_vec3 angles = { 0 };
@@ -84,7 +84,7 @@ int main(void) {
 
 	zest_example example = { 0 };
 
-	zest_create_info create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfo();
 	//create_info.flags |= zest_init_flag_use_depth_buffer;
 
 	zest_Initialise(&create_info);

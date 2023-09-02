@@ -19,7 +19,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 	int upload_size = width * height * 4 * sizeof(char);
 
-	zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	app->imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
 	zest_index font_image_index = zest_AddTextureImageBitmap(app->imgui_font_texture, &font_bitmap);
 	zest_ProcessTextureImages(app->imgui_font_texture);
@@ -57,7 +57,7 @@ void ShowToolTip(const char *tip) {
 	}
 }
 
-static void SaveFont(std::string filename, std::map<const char, zest_font_character> *characters, float size, zest_bitmap *bitmap, zest_font_configuration *config) {
+static void SaveFont(std::string filename, std::map<const char, zest_font_character_t> *characters, float size, zest_bitmap_t *bitmap, zest_font_configuration *config) {
 	std::ofstream ofile(filename, std::ios::binary);
 
 	zest_uint version = ZEST_FONT_ZFT_VERSION;
@@ -77,7 +77,7 @@ static void SaveFont(std::string filename, std::map<const char, zest_font_charac
 
 	for (const auto& c : *characters)
 	{
-		ofile.write((char*)&c.second.character, sizeof(zest_font_character));
+		ofile.write((char*)&c.second.character, sizeof(zest_font_character_t));
 	}
 
 	ofile.write((char*)&size, sizeof(float));
@@ -159,17 +159,17 @@ bool GenerateAtlas(const char *fontFilename, const char *save_to, zest_font_conf
 				}
 			}
 
-			zest_bitmap bitmap = zest_NewBitmap();
+			zest_bitmap_t bitmap = zest_NewBitmap();
 			zest_AllocateBitmap(&bitmap, config->width, config->height, 4, 0);
 
 			memcpy(bitmap.data, pixels.data(), pixels.size());
 
-			std::map<const char, zest_font_character> characters;
+			std::map<const char, zest_font_character_t> characters;
 			float size = 0;
 			for (auto &glyph : font_geometry.getGlyphs()) {
 
 				double l, b, r, t;
-				zest_font_character c;
+				zest_font_character_t c;
 
 				glyph.getQuadPlaneBounds(l, b, r, t);
 				c.width = float(r - l);
@@ -188,7 +188,7 @@ bool GenerateAtlas(const char *fontFilename, const char *save_to, zest_font_conf
 				c.flags = glyph.isWhitespace() ? true : false;
 
 				const char key = c.character[0];
-				characters.insert(std::pair<const char, zest_font_character>(key, c));
+				characters.insert(std::pair<const char, zest_font_character_t>(key, c));
 			}
 
 			SaveFont(save_to, &characters, size, &bitmap, config);
@@ -259,8 +259,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	}
 
 	if (app->font_index != -1) {
-		zest_instance_layer *font_layer = zest_GetInstanceLayerByIndex(app->font_layer);
-		zest_font *font = zest_GetFont(app->font_index);
+		zest_instance_layer_t *font_layer = zest_GetInstanceLayerByIndex(app->font_layer);
+		zest_font_t *font = zest_GetFont(app->font_index);
 
 		static float preview_size = 50.f;
 		static float preview_spacing = 0.f;
@@ -336,7 +336,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 int main(void) {
 
-	zest_create_info create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
 
 	ImGuiApp imgui_app = { 0 };
