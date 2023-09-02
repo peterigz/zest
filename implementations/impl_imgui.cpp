@@ -7,7 +7,7 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 	VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
 
 	zest_imgui_layer_info *layer_info = (zest_imgui_layer_info*)draw_routine->data;
-	zest_mesh_layer_t *imgui_layer = zest_GetMeshLayerByIndex(layer_info->mesh_layer_index);
+	zest_layer_t *imgui_layer = layer_info->mesh_layer;
 
 	zest_BindMeshVertexBuffer(imgui_layer);
 	zest_BindMeshIndexBuffer(imgui_layer);
@@ -60,9 +60,8 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 
 }
 
-void zest_imgui_CopyBuffers(zest_index mesh_layer_index) {
+void zest_imgui_CopyBuffers(zest_layer imgui_layer) {
 	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
-	zest_mesh_layer_t *imgui_layer = zest_GetMeshLayerByIndex(mesh_layer_index);
 
 	zest_buffer_t *vertex_buffer = zest_GetVertexStagingBuffer(imgui_layer);
 	zest_buffer_t *index_buffer = zest_GetIndexStagingBuffer(imgui_layer);
@@ -102,7 +101,7 @@ void zest_imgui_CopyBuffers(zest_index mesh_layer_index) {
 	}
 }
 
-void zest_imgui_DrawImage(zest_image_t *image, float width, float height) {
+void zest_imgui_DrawImage(zest_image image, float width, float height) {
 	using namespace ImGui;
 
 	ImVec2 image_size((float)image->width, (float)image->height);
@@ -116,6 +115,6 @@ void zest_imgui_DrawImage(zest_image_t *image, float width, float height) {
 	window->DrawList->AddImage(image, image_bb.Min, image_bb.Max, ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w), GetColorU32(tint_col));
 }
 
-void zest_imgui_DrawImage2(zest_image_t *image, float width, float height) {
+void zest_imgui_DrawImage2(zest_image image, float width, float height) {
 	ImGui::Image(image, ImVec2(width, height), ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w));
 }

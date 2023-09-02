@@ -32,7 +32,7 @@ void InitImGuiApp(ImGuiApp *app) {
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			zest_ContextSetClsColor(0.15f, 0.15f, 0.15f, 1.f);
-			app->imgui_layer_info.mesh_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
+			app->imgui_layer_info.mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
 			{
 				zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
 				zest_ContextDrawRoutine()->data = &app->imgui_layer_info;
@@ -259,8 +259,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	}
 
 	if (app->font != ZEST_NULL) {
-		zest_instance_layer_t *font_layer = zest_GetInstanceLayerByIndex(app->font_layer);
-
 		static float preview_size = 50.f;
 		static float preview_spacing = 0.f;
 		static float shadow_length = 2.f;
@@ -294,18 +292,18 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGui::DragFloat("Detail", &detail, .01f);
 		ImGui::DragFloat("AA", &aa, .01f);
 
-		font_layer->multiply_blend_factor = 1.f;
-		font_layer->push_constants = { 0 };
-		zest_SetMSDFFontDrawing(font_layer, app->font, app->font->descriptor_set_index, app->font->pipeline_index);
-		zest_SetMSDFFontShadow(font_layer, shadow_length, shadow_smoothing, shadow_clipping);
-		zest_SetMSDFFontShadowColor(font_layer, zest_Vec4Set(0.f, 0.f, 0.f, shadow_alpha));
+		app->font_layer->multiply_blend_factor = 1.f;
+		app->font_layer->push_constants = { 0 };
+		zest_SetMSDFFontDrawing(app->font_layer, app->font, app->font->descriptor_set_index, app->font->pipeline_index);
+		zest_SetMSDFFontShadow(app->font_layer, shadow_length, shadow_smoothing, shadow_clipping);
+		zest_SetMSDFFontShadowColor(app->font_layer, zest_Vec4Set(0.f, 0.f, 0.f, shadow_alpha));
 		
-		font_layer->current_instance_instruction.push_constants.flags = (zest_uint)precise;
+		app->font_layer->current_instance_instruction.push_constants.flags = (zest_uint)precise;
 
-		zest_TweakMSDFFont(font_layer, bleed, expand, aa, radius, detail);
-		font_layer->current_color = zest_ColorSet(255, 100, 50, 255);
+		zest_TweakMSDFFont(app->font_layer, bleed, expand, aa, radius, detail);
+		app->font_layer->current_color = zest_ColorSet(255, 100, 50, 255);
 
-		zest_DrawMSDFText(font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, preview_size, preview_spacing, 1.f);
+		zest_DrawMSDFText(app->font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, preview_size, preview_spacing, 1.f);
 
 	}
 
@@ -330,7 +328,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::End();
 	ImGui::Render();
 
-	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer_index);
+	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
 }
 
 int main(void) {

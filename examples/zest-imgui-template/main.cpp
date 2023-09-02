@@ -29,7 +29,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
-			app->imgui_layer_info.mesh_layer_index = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
+			app->imgui_layer_info.mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
 			zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
 			zest_ContextDrawRoutine()->data = &app->imgui_layer_info;
 		}
@@ -42,7 +42,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_Update2dUniformBuffer();
 	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
 	ImGuiApp *app = (ImGuiApp*)user_data;
-	zest_instance_layer_t *sprite_layer = zest_GetInstanceLayerByIndex(0);
 
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
@@ -52,7 +51,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 	ImGui::End();
 	ImGui::Render();
-	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer_index);
+	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
 }
 
 int main(void) {

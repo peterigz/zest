@@ -49,7 +49,7 @@ void InitExample(RenderTargetExample *example) {
 		{
 			//base target needs a layer that we can use to draw to so we just use a built in one but you could use
 			//your own custom layer and draw routine
-			example->base_layer_index = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
+			example->base_layer = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
 		}
 		//Create draw commands that applies vertical blur to the base target
 		zest_NewDrawCommandSetup("Vertical blur render pass", vertical_blur_index);
@@ -69,7 +69,7 @@ void InitExample(RenderTargetExample *example) {
 		zest_NewDrawCommandSetup("Top render pass", example->top_target_index);
 		{
 			//Create a sprite layer to draw to it
-			example->top_target_layer_index = zest_NewBuiltinLayerSetup("Top Layer", zest_builtin_layer_sprites);
+			example->top_layer = zest_NewBuiltinLayerSetup("Top Layer", zest_builtin_layer_sprites);
 		}
 		//Finally we won't see anything unless we tell the render queue to render to the swap chain to be presented to the screen, but we
 		//need to specify which render targets we want to be drawn to the swap chain.
@@ -123,27 +123,25 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(user_data);
 	zest_SetActiveRenderQueue(example->command_queue);
 	zest_Update2dUniformBuffer();
-	zest_instance_layer_t *base_layer = zest_GetInstanceLayerByIndex(example->base_layer_index);
-	zest_instance_layer_t *top_layer = zest_GetInstanceLayerByIndex(example->top_target_layer_index);
-	base_layer->current_color = zest_ColorSet(255, 255, 255, 255);
+	example->base_layer->current_color = zest_ColorSet(255, 255, 255, 255);
 
-	zest_SetSpriteDrawing(base_layer, example->texture, 0, zest_PipelineIndex("pipeline_2d_sprites"));
-	base_layer->multiply_blend_factor = 1.f;
-	zest_DrawSprite(base_layer, example->image, zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);
+	zest_SetSpriteDrawing(example->base_layer, example->texture, 0, zest_PipelineIndex("pipeline_2d_sprites"));
+	example->base_layer->multiply_blend_factor = 1.f;
+	zest_DrawSprite(example->base_layer, example->image, zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);
 
 	zest_texture target_texture = zest_GetRenderTargetTexture(zest_GetRenderTargetByIndex(example->final_blur_index));
-	//base_layer.DrawImage(GetRenderTarget(example->hb_target_index).GetRenderTargetImage(), fMouseX(), fMouseY());
-	//top_layer.SetBlendType(BlendType_pre_multiply);
+	//example->base_layer.DrawImage(GetRenderTarget(example->hb_target_index).GetRenderTargetImage(), fMouseX(), fMouseY());
+	//example->top_layer.SetBlendType(BlendType_pre_multiply);
 	//float alpha = fMouseX() / fScreenWidth();
 	float alpha = 1.f;
 	if (alpha > 1.f) alpha = 1.f;
 	if (alpha < 0) alpha = 0;
-	top_layer->multiply_blend_factor = alpha;
-	top_layer->current_color = zest_ColorSet(255, 255, 255, 255);
-	zest_SetSpriteDrawing(top_layer, target_texture, 0, zest_PipelineIndex("pipeline_2d_sprites"));
-	zest_DrawSprite(top_layer, zest_GetRenderTargetImage(zest_GetRenderTargetByIndex(example->final_blur_index)), zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);
-	//top_layer->SetColor(255, 255, 255, MouseDown(App.Mouse.LeftButton) ? 150 : 255);
-	//top_layer->DrawTexturedRect(GetRenderTarget(example->final_blur_index).GetRenderTargetImage(), 0.f, 0.f, fScreenWidth(), fScreenHeight(), true, QVec2(1.f, 1.f), QVec2(0.f, 0.f));
+	example->top_layer->multiply_blend_factor = alpha;
+	example->top_layer->current_color = zest_ColorSet(255, 255, 255, 255);
+	zest_SetSpriteDrawing(example->top_layer, target_texture, 0, zest_PipelineIndex("pipeline_2d_sprites"));
+	zest_DrawSprite(example->top_layer, zest_GetRenderTargetImage(zest_GetRenderTargetByIndex(example->final_blur_index)), zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);
+	//example->top_layer->SetColor(255, 255, 255, MouseDown(App.Mouse.LeftButton) ? 150 : 255);
+	//example->top_layer->DrawTexturedRect(GetRenderTarget(example->final_blur_index).GetRenderTargetImage(), 0.f, 0.f, fScreenWidth(), fScreenHeight(), true, QVec2(1.f, 1.f), QVec2(0.f, 0.f));
 }
 
 int main(void) {

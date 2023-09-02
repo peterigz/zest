@@ -32,7 +32,7 @@ struct ImGuiApp {
 
 	zest_bool load_next_font;
 	zest_font font;
-	zest_index font_layer;
+	zest_layer font_layer;
 };
 
 struct custom_stbi_mem_context{

@@ -11,8 +11,8 @@ struct RenderTargetExample {
 	zest_index base_target_index;
 	zest_index final_blur_index;
 	zest_command_queue command_queue;
-	zest_index base_layer_index;
-	zest_index top_target_layer_index;
+	zest_layer base_layer;
+	zest_layer top_layer;
 	zest_texture texture;
 	zest_image image;
 	PushConstants push_constants;

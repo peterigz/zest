@@ -385,6 +385,7 @@ typedef struct zest_draw_routine_t zest_draw_routine_t;
 typedef struct zest_command_queue_draw_commands_t zest_command_queue_draw_commands_t;
 typedef struct zest_command_queue_t zest_command_queue_t;
 typedef struct zest_font_t zest_font_t;
+typedef struct zest_layer_t zest_layer_t;
 
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image)
@@ -392,6 +393,7 @@ ZEST__MAKE_HANDLE(zest_draw_routine)
 ZEST__MAKE_HANDLE(zest_command_queue_draw_commands)
 ZEST__MAKE_HANDLE(zest_command_queue)
 ZEST__MAKE_HANDLE(zest_font)
+ZEST__MAKE_HANDLE(zest_layer)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -794,7 +796,7 @@ typedef struct zest_app_t {
 	zest_uint frame_count;
 	zest_uint last_fps;
 
-	zest_uint default_layer_index;
+	zest_layer default_layer;
 	zest_command_queue default_command_queue;
 	zest_command_queue_draw_commands default_draw_commands;
 	zest_uint default_font_index;
@@ -956,7 +958,7 @@ typedef struct zest_command_setup_context_t {
 	zest_command_queue command_queue;
 	zest_command_queue_draw_commands draw_commands;
 	zest_draw_routine draw_routine;
-	zest_index layer_index;
+	zest_layer layer;
 	zest_index compute_index;
 	zest_setup_context_type type;
 } zest_command_setup_context_t ;
@@ -965,7 +967,7 @@ ZEST_PRIVATE inline void zest__reset_command_setup_context(zest_command_setup_co
 	context->command_queue = ZEST_NULL;
 	context->draw_commands = ZEST_NULL;
 	context->draw_routine = ZEST_NULL;
-	context->layer_index = -1;
+	context->layer = ZEST_NULL;
 	context->type = zest_setup_context_type_none;
 }
 
@@ -975,7 +977,7 @@ struct zest_draw_routine_t {
 	const char *name;
 	zest_command_queue command_queue;											//The index of the render queue that this draw routine is within
 	zest_command_queue_draw_commands draw_commands;								//The draw commands within the command queue that this draw routine belongs to
-	int draw_index;																//The user index of the draw routine. Use this to index the routine in your own lists. For Qulkan layers, this is used to hold the index of the layer in the renderer
+	void *draw_data;															//The user index of the draw routine. Use this to index the routine in your own lists. For Qulkan layers, this is used to hold the index of the layer in the renderer
 	zest_index *command_queues;													//A list of the render queues that this draw routine belongs to
 	void *data;																	//Pointer to some user data
 	void(*update_buffers_callback)(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer);			//The callback used to update and upload the buffers before rendering
@@ -1034,27 +1036,33 @@ typedef struct zest_ImDrawVert_t
 	zest_uint col;
 } zest_ImDrawVert_t;
 
-typedef struct zest_mesh_layer_buffers_t {
-	zest_buffer_t *staging_vertex_data;
-	zest_buffer_t *staging_index_data;
+typedef struct zest_layer_buffers_t {
+	union {
+		struct {
+			zest_buffer_t *staging_vertex_data;
+			zest_buffer_t *staging_index_data;
+		};
+		struct {
+			zest_buffer_t *staging_instance_data;
+			zest_buffer_t *device_instance_data;
+		};
+	};
+
+	union {
+		struct { void *instance_ptr; };
+		struct { void *vertex_ptr; };
+	};
+	zest_uint *index_ptr;
+
 	zest_buffer_t *device_index_data;
 	zest_buffer_t *device_vertex_data;
 
+	zest_uint instance_count;
 	zest_uint index_count;
 	zest_uint index_position;
 	zest_uint last_index;
 	zest_uint vertex_count;
-
-	void *vertex_ptr;
-	zest_uint *index_ptr;
-} zest_mesh_layer_buffers_t;
-
-typedef struct zest_instance_layer_buffers_t {
-	zest_buffer_t *staging_data;					//The cpu visible staging buffer containing the transform data of every sprite instance
-	zest_buffer_t *device_data;					//The gpu visible buffer containing the transform data of every sprite instance, this will be uploaded to every frame
-	zest_uint instance_count;
-	void *instance_ptr;
-} zest_instance_layer_buffers_t;
+} zest_layer_buffers_t;
 
 typedef struct zest_push_constants_t {
 	zest_matrix4 model;				//Can be used for anything
@@ -1071,26 +1079,31 @@ typedef struct zest_instance_instruction_t {
 	zest_index last_instance;					//The last instance that was drawn in the previous instance instruction
 	zest_index pipeline;						//The pipeline index to draw the instances. 
 	VkDescriptorSet descriptor_set; 			//The descriptor set used to draw the quads.
-	zest_push_constants_t push_constants;			//Each draw instruction can have different values in the push constants push_constants
+	zest_push_constants_t push_constants;		//Each draw instruction can have different values in the push constants push_constants
 	VkRect2D scissor;							//The drawinstruction can also clip whats drawn
 	VkViewport viewport;						//The viewport size of the draw call 
 	zest_draw_mode draw_mode;
-	void *asset;							//Optional pointer to either texture, font etc
+	void *asset;								//Optional pointer to either texture, font etc
 } zest_instance_instruction_t;
 
-typedef struct zest_instance_layer_t {
+typedef struct zest_layer_t {
 
 	const char *name;
 
-	zest_instance_layer_buffers_t instance_memory_refs[ZEST_MAX_FIF];
+	zest_layer_buffers_t memory_refs[ZEST_MAX_FIF];
 	zest_uint initial_instance_pool_size;
 	zest_command_queue_draw_commands draw_commands;
 	zest_buffer_uploader_t vertex_upload;
+	zest_buffer_uploader_t index_upload;
 
 	zest_index sprite_pipeline_index;
 
 	zest_instance_instruction_t current_instance_instruction;
-	zest_size instance_struct_size;
+
+	union {
+		struct { zest_size instance_struct_size; };
+		struct { zest_size vertex_struct_size; };
+	};
 
 	zest_color current_color;
 	float multiply_blend_factor;
@@ -1107,29 +1120,7 @@ typedef struct zest_instance_layer_t {
 	zest_draw_mode last_draw_mode;
 
 	zest_draw_routine draw_routine;
-} zest_instance_layer_t;
-
-typedef struct zest_mesh_layer_t {
-	const char *name;
-
-	zest_mesh_layer_buffers_t mesh_memory_refs[ZEST_MAX_FIF];
-	zest_uint initial_vertex_pool_size;
-	zest_command_queue_draw_commands draw_commands;
-	zest_buffer_uploader_t vertex_upload;
-	zest_buffer_uploader_t index_upload;
-
-	zest_size vertex_struct_size;
-
-	zest_color current_color;
-	float multiply_blend_factor;
-	zest_push_constants_t push_constants;
-
-	zest_vec2 layer_size;
-	zest_vec2 viewport_size;
-	zest_vec2 screen_scale;
-
-	zest_draw_routine draw_routine;
-} zest_mesh_layer_t;
+} zest_layer_t;
 
 typedef struct zest_font_character_t {
 	char character[4];
@@ -1303,8 +1294,7 @@ zest_hash_map(zest_command_queue_draw_commands) zest_map_command_queue_draw_comm
 zest_hash_map(zest_command_queue_compute_t) zest_map_command_queue_computes;
 zest_hash_map(zest_draw_routine) zest_map_draw_routines;
 zest_hash_map(zest_buffer_allocator_t) zest_map_buffer_allocators;
-zest_hash_map(zest_instance_layer_t) zest_map_instance_layers;
-zest_hash_map(zest_mesh_layer_t) zest_map_mesh_layers;
+zest_hash_map(zest_layer) zest_map_layers;
 zest_hash_map(zest_uniform_buffer_t) zest_map_uniform_buffers;
 zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
 zest_hash_map(zest_texture) zest_map_textures;
@@ -1352,8 +1342,7 @@ typedef struct zest_renderer_t {
 	zest_map_command_queue_draw_commands command_queue_draw_commands;
 	zest_map_command_queue_computes command_queue_computes;
 	zest_map_draw_routines draw_routines;
-	zest_map_instance_layers instance_layers;
-	zest_map_mesh_layers mesh_layers;
+	zest_map_layers layers;
 	zest_map_textures textures;
 	zest_map_render_targets render_targets;
 	zest_map_fonts fonts;
@@ -1476,24 +1465,24 @@ ZEST_PRIVATE void zest__set_queue_context(zest_setup_context_type context);
 ZEST_PRIVATE zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer);
 
 // --Draw layer internal functions
-ZEST_PRIVATE void zest__start_instance_instructions(zest_instance_layer_t *instance_layer);
+ZEST_PRIVATE void zest__start_instance_instructions(zest_layer instance_layer);
 ZEST_PRIVATE void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_instance_layer_t *layer);
-ZEST_PRIVATE void zest__draw_instance_layer(zest_instance_layer_t *instance_layer, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
+ZEST_PRIVATE void zest__draw_instance_layer(zest_layer instance_layer, VkCommandBuffer command_buffer);
 ZEST_PRIVATE zest_instance_instruction_t zest__instance_instruction(void);
-ZEST_PRIVATE void zest__reset_instance_layer_drawing(zest_instance_layer_t *sprite_layer);
+ZEST_PRIVATE void zest__reset_instance_layer_drawing(zest_layer sprite_layer);
 
 // --Sprite layer internal functions
 ZEST_PRIVATE void zest__draw_sprite_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__next_sprite_instance(zest_instance_layer_t *layer);
+ZEST_PRIVATE void zest__next_sprite_instance(zest_layer layer);
 
 // --Font layer internal functions
 ZEST_PRIVATE void zest__draw_font_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__next_font_instance(zest_instance_layer_t *layer);
+ZEST_PRIVATE void zest__next_font_instance(zest_layer layer);
 
 // --Billboard layer internal functions
 ZEST_PRIVATE void zest__draw_billboard_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__next_billboard_instance(zest_instance_layer_t *layer);
+ZEST_PRIVATE void zest__next_billboard_instance(zest_layer layer);
 
 // --General Helper Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
@@ -1656,14 +1645,9 @@ ZEST_API void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands i
 ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_AddDrawRoutine(zest_draw_routine draw_routine);
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
-ZEST_API zest_instance_layer_t *zest_GetInstanceLayerByIndex(zest_index index);
-ZEST_API zest_instance_layer_t *zest_GetInstanceLayerByName(const char *name);
-ZEST_API zest_mesh_layer_t *zest_GetMeshLayerByIndex(zest_index index);
-ZEST_API zest_mesh_layer_t *zest_GetMeshLayerByName(const char *name);
-ZEST_API zest_index zest_GetInstanceLayerIndex(const char *name);
-ZEST_API zest_index zest_GetMeshLayerIndex(const char *name);
-ZEST_API zest_index zest_NewMeshLayer(const char *name, zest_size vertex_struct_size);
-ZEST_API zest_index zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type builtin_layer);
+ZEST_API zest_layer zest_Getayer(const char *name);
+ZEST_API zest_layer zest_NewMeshLayer(const char *name, zest_size vertex_struct_size);
+ZEST_API zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type builtin_layer);
 ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void); 
 ZEST_API zest_command_queue zest_CurrentCommandQueue(void);
 ZEST_API void zest_ModifyCommandQueue(zest_command_queue command_queue);
@@ -1848,48 +1832,50 @@ ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
 //-- End Draw Routines
 
 //-- Draw Layers API
-ZEST_API void zest_SetInstanceLayerViewPort(zest_instance_layer_t *instance_layer, int x, int y, zest_uint width, zest_uint height, float viewport_width, float viewport_height);
+ZEST_API zest_layer zest_NewLayer();
+ZEST_API void zest_SetInstanceLayerViewPort(zest_layer instance_layer, int x, int y, zest_uint width, zest_uint height, float viewport_width, float viewport_height);
+ZEST_API zest_layer zest_GetLayer(const char *name);
 //-- End Draw Layers
 
 //Draw sprite layers
-ZEST_API void zest_InitialiseSpriteLayer(zest_instance_layer_t *sprite_layer, zest_uint instance_pool_size);
-ZEST_API void zest_SetSpriteDrawing(zest_instance_layer_t *sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index);
-ZEST_API void zest_DrawSprite(zest_instance_layer_t *layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
+ZEST_API void zest_InitialiseSpriteLayer(zest_layer sprite_layer, zest_uint instance_pool_size);
+ZEST_API void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index);
+ZEST_API void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 //-- End Draw sprite layers
 
 //Draw billboard layers
-ZEST_API void zest_InitialiseBillboardLayer(zest_instance_layer_t *billboard_layer, zest_uint instance_pool_size);
-ZEST_API void zest_SetBillboardDrawing(zest_instance_layer_t *sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index);
-ZEST_API void zest_DrawBillboard(zest_instance_layer_t *layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
+ZEST_API void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instance_pool_size);
+ZEST_API void zest_SetBillboardDrawing(zest_layer sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_index pipeline_index);
+ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
 //--End Draw billboard layers
 
 //Draw MSDF font layers
-ZEST_API void zest_InitialiseMSDFFontLayer(zest_instance_layer_t *font_layer, zest_uint instance_pool_size);
-ZEST_API void zest_SetMSDFFontDrawing(zest_instance_layer_t *font_layer, zest_font font, zest_index descriptor_set_index, zest_index pipeline_index);
-ZEST_API void zest_SetMSDFFontShadow(zest_instance_layer_t *font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping);
-ZEST_API void zest_SetMSDFFontShadowColor(zest_instance_layer_t *font_layer, zest_vec4 color);
-ZEST_API void zest_TweakMSDFFont(zest_instance_layer_t *font_layer, float bleed, float expand, float aa_factor, float radius, float detail);
-ZEST_API void zest_SetMSDFFontBleed(zest_instance_layer_t *font_layer, float bleed);
-ZEST_API void zest_SetMSDFFontExpand(zest_instance_layer_t *font_layer, float expand);
-ZEST_API void zest_SetMSDFFontAAFactor(zest_instance_layer_t *font_layer, float aa_factor);
-ZEST_API void zest_SetMSDFFontRadius(zest_instance_layer_t *font_layer, float radius);
-ZEST_API void zest_SetMSDFFontDetail(zest_instance_layer_t *font_layer, float detail);
-ZEST_API float zest_DrawMSDFText(zest_instance_layer_t *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip);
-ZEST_API float zest_DrawMSDFParagraph(zest_instance_layer_t *font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float line_height, float flip);
+ZEST_API void zest_InitialiseMSDFFontLayer(zest_layer font_layer, zest_uint instance_pool_size);
+ZEST_API void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_index descriptor_set_index, zest_index pipeline_index);
+ZEST_API void zest_SetMSDFFontShadow(zest_layer font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping);
+ZEST_API void zest_SetMSDFFontShadowColor(zest_layer font_layer, zest_vec4 color);
+ZEST_API void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float expand, float aa_factor, float radius, float detail);
+ZEST_API void zest_SetMSDFFontBleed(zest_layer font_layer, float bleed);
+ZEST_API void zest_SetMSDFFontExpand(zest_layer font_layer, float expand);
+ZEST_API void zest_SetMSDFFontAAFactor(zest_layer font_layer, float aa_factor);
+ZEST_API void zest_SetMSDFFontRadius(zest_layer font_layer, float radius);
+ZEST_API void zest_SetMSDFFontDetail(zest_layer font_layer, float detail);
+ZEST_API float zest_DrawMSDFText(zest_layer font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip);
+ZEST_API float zest_DrawMSDFParagraph(zest_layer font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float line_height, float flip);
 ZEST_API float zest_TextWidth(zest_font_t *font, const char *text, float font_size, float letter_spacing);
 //-- End Draw sprite layers
 
 //Draw mesh layers
-ZEST_API void zest_InitialiseMeshLayer(zest_mesh_layer_t *mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
+ZEST_API void zest_InitialiseMeshLayer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
 ZEST_API void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_API void zest_BindMeshVertexBuffer(zest_mesh_layer_t *layer);
-ZEST_API void zest_BindMeshIndexBuffer(zest_mesh_layer_t *layer);
-ZEST_API zest_buffer_t *zest_GetVertexStagingBuffer(zest_mesh_layer_t *layer);
-ZEST_API zest_buffer_t *zest_GetIndexStagingBuffer(zest_mesh_layer_t *layer);
-ZEST_API zest_buffer_t *zest_GetVertexDeviceBuffer(zest_mesh_layer_t *layer);
-ZEST_API zest_buffer_t *zest_GetIndexDeviceBuffer(zest_mesh_layer_t *layer);
-ZEST_API void zest_GrowMeshVertexBuffers(zest_mesh_layer_t *layer);
-ZEST_API void zest_GrowMeshIndexBuffers(zest_mesh_layer_t *layer);
+ZEST_API void zest_BindMeshVertexBuffer(zest_layer layer);
+ZEST_API void zest_BindMeshIndexBuffer(zest_layer layer);
+ZEST_API zest_buffer_t *zest_GetVertexStagingBuffer(zest_layer layer);
+ZEST_API zest_buffer_t *zest_GetIndexStagingBuffer(zest_layer layer);
+ZEST_API zest_buffer_t *zest_GetVertexDeviceBuffer(zest_layer layer);
+ZEST_API zest_buffer_t *zest_GetIndexDeviceBuffer(zest_layer layer);
+ZEST_API void zest_GrowMeshVertexBuffers(zest_layer layer);
+ZEST_API void zest_GrowMeshIndexBuffers(zest_layer layer);
 //--End Draw mesh layers
 
 //Events and States
