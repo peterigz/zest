@@ -836,18 +836,7 @@ typedef struct zest_frame_buffer_t {
 
 //Struct to store all the necessary data for a render pass
 typedef struct zest_render_pass_data_t {
-	int width, height;
-	VkFramebuffer frame_buffer;
-	zest_frame_buffer_attachment_t color, depth;
 	zest_render_pass render_pass;
-	VkSampler sampler;
-	VkDescriptorImageInfo descriptor;
-	VkCommandBuffer command_buffer;
-	VkDescriptorSetLayout descriptor_layout;
-	VkDescriptorSet descriptor_set;
-	VkDescriptorSet descriptor_set_aa;
-	VkPipeline pipeline;
-	VkPipelineLayout pipeline_layout;
 } zest_render_pass_data_t;
 
 typedef struct zest_final_render_push_constants_t {
@@ -1330,7 +1319,8 @@ typedef struct zest_renderer_t {
 	zest_frame_buffer_t *framebuffer;
 	VkCommandBuffer *present_command_buffers;
 
-	zest_render_pass_data_t final_render_pass;
+	zest_render_pass final_render_pass;
+	zest_frame_buffer_attachment_t final_render_pass_depth_attachment;
 	zest_final_render_push_constants_t push_constants;
 	VkDescriptorBufferInfo view_buffer_info[ZEST_MAX_FIF];
 
