@@ -1803,12 +1803,12 @@ void zest__initialise_renderer(zest_create_info_t *create_info) {
 	zest__make_standard_render_passes();
 
 	if (ZEST__FLAGGED(create_info->flags, zest_init_flag_use_depth_buffer)) {
-		ZestRenderer->final_render_pass.render_pass = zest__map_get_index(ZestRenderer->render_passes.map, zest_map_hash(ZestHasher, "Render pass present"));
+		ZestRenderer->final_render_pass.render_pass = *zest_map_at(ZestRenderer->render_passes, "Render pass present");
 		ZestRenderer->flags |= zest_renderer_flag_has_depth_buffer;
 		ZestRenderer->depth_resource_buffer = zest__create_depth_resources();
 	}
 	else {
-		ZestRenderer->final_render_pass.render_pass = zest__map_get_index(ZestRenderer->render_passes.map, zest_map_hash(ZestHasher, "Render pass present no depth"));
+		ZestRenderer->final_render_pass.render_pass = *zest_map_at(ZestRenderer->render_passes, "Render pass present no depth");
 	}
 	zest__create_swap_chain_frame_buffers(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer));
 	zest__create_sync_objects();
@@ -1999,8 +1999,8 @@ void zest__cleanup_renderer() {
 	zest_map_clear(ZestRenderer->render_targets);
 
 	for (zest_map_foreach_i(ZestRenderer->render_passes)) {
-		zest_index pass_index = zest_map_index(ZestRenderer->render_passes, i);
-		vkDestroyRenderPass(ZestDevice->logical_device, ZestRenderer->render_passes.data[pass_index].render_pass, &ZestDevice->allocation_callbacks);
+		zest_render_pass render_pass = *zest_map_at_index(ZestRenderer->render_passes, i);
+		vkDestroyRenderPass(ZestDevice->logical_device, render_pass->render_pass, &ZestDevice->allocation_callbacks);
 	}
 	zest_map_clear(ZestRenderer->render_passes);
 
@@ -2145,12 +2145,14 @@ void zest__make_standard_render_passes() {
 	zest__add_render_pass("Render pass standard no clear no depth", zest__create_render_pass(ZestRenderer->swapchain_image_format, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ATTACHMENT_LOAD_OP_DONT_CARE, ZEST_FALSE));
 }
 
-zest_uint zest__add_render_pass(const char *name, VkRenderPass render_pass) {
-	zest_render_pass_t r;
-	r.render_pass = render_pass;
-	r.name = name;
+zest_render_pass zest__add_render_pass(const char *name, VkRenderPass render_pass) {
+	zest_render_pass_t blank_r = { 0 };
+	zest_render_pass r = ZEST__NEW(zest_render_pass);
+	*r = blank_r;
+	r->render_pass = render_pass;
+	r->name = name;
 	zest_map_insert(ZestRenderer->render_passes, name, r);
-	return zest_map_last_index(ZestRenderer->render_passes);
+	return r;
 }
 
 zest_buffer_t *zest__create_depth_resources() {
@@ -2178,7 +2180,7 @@ void zest__create_swap_chain_frame_buffers(zest_bool depth_buffer) {
 		frame_buffer_info.attachmentCount = zest_vec_size(attachments);
 		frame_buffer_info.pAttachments = attachments;
 		frame_buffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		frame_buffer_info.renderPass = zest_GetRenderPassByIndex(ZestRenderer->final_render_pass.render_pass);
+		frame_buffer_info.renderPass = ZestRenderer->final_render_pass.render_pass->render_pass;
 		frame_buffer_info.width = ZestRenderer->swapchain_extent.width;
 		frame_buffer_info.height = ZestRenderer->swapchain_extent.height;
 		frame_buffer_info.layers = 1;
@@ -2300,8 +2302,7 @@ void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes) {
 	ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_info, &ZestDevice->allocation_callbacks, &ZestRenderer->descriptor_pool));
 }
 
-VkRenderPass zest_GetRenderPassByIndex(zest_index index) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_passes, index)); return *zest_map_at_index(ZestRenderer->render_passes, index).render_pass; }
-zest_index zest_GetRenderPassIndex(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->render_passes, name)); return zest_map_get_index_by_name(ZestRenderer->render_passes, name); }
+zest_render_pass zest_GetRenderPass(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->render_passes, name)); return *zest_map_at(ZestRenderer->render_passes, name); }
 
 void zest__make_standard_descriptor_layouts() {
 	zest_AddDescriptorLayout("Standard 1 uniform 1 sampler", zest_CreateDescriptorSetLayout(1, 1, 0));
@@ -2784,10 +2785,10 @@ zest_pipeline zest_AddPipeline(const char *name) {
 
 VkRenderPass zest_GetStandardRenderPass() { 
 	if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {
-		return *zest_map_at(ZestRenderer->render_passes, "Render pass standard").render_pass;
+		return *zest_map_at(ZestRenderer->render_passes, "Render pass standard")->render_pass;
 	}
 	else {
-		return *zest_map_at(ZestRenderer->render_passes, "Render pass standard no depth").render_pass;
+		return *zest_map_at(ZestRenderer->render_passes, "Render pass standard no depth")->render_pass;
 	}
 }
 zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed) { zest__hash_initialise(hasher, seed); zest__hasher_add(hasher, input, length); return (zest_key)zest__get_hash(hasher); }
@@ -2797,7 +2798,6 @@ VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name) { ret
 zest_index zest_GetDescriptorSetLayoutIndexByName(const char *name) { return zest_map_get_index_by_name(ZestRenderer->descriptor_layouts, name); }
 VkDescriptorBufferInfo *zest_GetUniformBufferInfoByName(const char *name, zest_index fif) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return zest_map_at(ZestRenderer->uniform_buffers, name).view_buffer_info[fif]; }
 VkDescriptorBufferInfo *zest_GetUniformBufferInfoByIndex(zest_index index, zest_index fif) { ZEST_ASSERT(zest_map_valid_index(ZestRenderer->uniform_buffers, index)); return zest_map_at_index(ZestRenderer->uniform_buffers, index).view_buffer_info[fif]; }
-VkRenderPass zest_GetRenderPassByName(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->render_passes, name)); return *zest_map_at(ZestRenderer->render_passes, name).render_pass; }
 zest_pipeline zest_Pipeline(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipelines, name)); return *zest_map_at(ZestRenderer->pipelines, name); }
 zest_pipeline_template_create_info_t zest_PipelineCreateInfo(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipelines, name)); zest_pipeline pipeline = *zest_map_at(ZestRenderer->pipelines, name); return pipeline->create_info; }
 VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->swapchain_extent; }
@@ -3019,7 +3019,7 @@ void zest__prepare_standard_pipelines() {
 	final_render_pushconstant_range.size = sizeof(zest_final_render_push_constants_t);
 	final_render_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	zest_vec_push(final_render->create_info.pushConstantRange, final_render_pushconstant_range);
-	final_render->create_info.renderPass = zest_GetRenderPassByIndex(ZestRenderer->final_render_pass.render_pass);
+	final_render->create_info.renderPass = ZestRenderer->final_render_pass.render_pass->render_pass;
 	final_render->create_info.no_vertex_input = ZEST_TRUE;
 	final_render->create_info.vertShaderFile = "spv/swap.spv";
 	final_render->create_info.fragShaderFile = "spv/swap.spv";
@@ -3095,7 +3095,7 @@ void zest__create_final_render_command_buffer() {
 
 		VkRenderPassBeginInfo render_pass_info = { 0 };
 		render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		render_pass_info.renderPass = zest_GetRenderPassByIndex(ZestRenderer->final_render_pass.render_pass);
+		render_pass_info.renderPass = ZestRenderer->final_render_pass.render_pass->render_pass;
 		render_pass_info.framebuffer = ZestRenderer->swapchain_frame_buffers[i];
 		render_pass_info.renderArea.offset.x = 0;
 		render_pass_info.renderArea.offset.y = 0;
@@ -3134,7 +3134,7 @@ void zest__rerecord_final_render_command_buffer() {
 
 		VkRenderPassBeginInfo render_pass_info = { 0 };
 		render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		render_pass_info.renderPass = zest_GetRenderPassByIndex(ZestRenderer->final_render_pass.render_pass);
+		render_pass_info.renderPass = ZestRenderer->final_render_pass.render_pass->render_pass;
 		render_pass_info.framebuffer = ZestRenderer->swapchain_frame_buffers[i];
 		render_pass_info.renderArea.offset.x = 0;
 		render_pass_info.renderArea.offset.y = 0;
@@ -3189,10 +3189,10 @@ void zest__create_empty_command_queue(zest_command_queue command_queue) {
 	zest_vec_push(command_queue->draw_commands, draw_commands);
 }
 
-void zest__render_blank(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer) {
+void zest__render_blank(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer) {
 	VkRenderPassBeginInfo render_pass_info = { 0 };
 	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	render_pass_info.renderPass = zest_GetRenderPassByIndex(render_pass);
+	render_pass_info.renderPass = render_pass->render_pass;
 	render_pass_info.framebuffer = framebuffer;
 	render_pass_info.renderArea = item->viewport;
 
@@ -3283,10 +3283,10 @@ void zest__present_frame() {
 
 }
 
-void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer) {
+void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer) {
 	VkRenderPassBeginInfo render_pass_info = { 0 };
 	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	render_pass_info.renderPass = zest_GetRenderPassByIndex(render_pass);
+	render_pass_info.renderPass = render_pass->render_pass;
 	render_pass_info.framebuffer = framebuffer;
 	render_pass_info.renderArea = item->viewport;
 	VkClearValue clear_values[2] = {
@@ -4091,7 +4091,7 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char *name, zest
 	zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
 	zest_vec_push(command_queue->draw_commands, draw_commands);
 	draw_commands->name = name;
-	draw_commands->render_pass = target->render_pass_index;
+	draw_commands->render_pass = target->render_pass;
 	draw_commands->get_frame_buffer = zest_GetRenderTargetFrameBufferCallback;
 	draw_commands->render_pass_function = zest_RenderDrawRoutinesCallback;
 	draw_commands->viewport = target->viewport;
@@ -4112,7 +4112,7 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char *name, zest
 	return draw_commands;
 }
 
-void zest_SetDrawCommandsCallback(void(*render_pass_function)(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_index draw_commands_index, VkFramebuffer framebuffer)) {
+void zest_SetDrawCommandsCallback(void(*render_pass_function)(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer)) {
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass);	//The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderPassSetupSC
 	ZestRenderer->setup_context.draw_commands->render_pass_function = render_pass_function;
 }
@@ -5865,13 +5865,13 @@ void zest_InitialiseRenderTarget(zest_render_target_t *render_target, zest_rende
 
 	render_target->render_format = info->render_format;
 	if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer)) {
-		render_target->render_pass_index = zest_GetRenderPassIndex("Render pass standard");
+		render_target->render_pass = zest_GetRenderPass("Render pass standard");
 	}
 	else {
-		render_target->render_pass_index = zest_GetRenderPassIndex("Render pass standard no depth");
+		render_target->render_pass = zest_GetRenderPass("Render pass standard no depth");
 	}
 	for (ZEST_EACH_FIF_i) {
-		render_target->framebuffers[i] = zest_CreateFrameBuffer(zest_GetRenderPassByIndex(render_target->render_pass_index), 
+		render_target->framebuffers[i] = zest_CreateFrameBuffer(render_target->render_pass->render_pass, 
 																render_target->render_width, render_target->render_height, info->render_format, 
 																ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer), ZEST__FLAGGED(info->flags, zest_render_target_flag_is_src));
 	}
@@ -6090,7 +6090,7 @@ void zest_RecreateRenderTargetResources(zest_render_target_t *render_target) {
 		if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer)) {
 			zest_FreeBuffer(render_target->framebuffers[i].depth_buffer.buffer);
 		}
-		render_target->framebuffers[i] = zest_CreateFrameBuffer(zest_GetRenderPassByIndex(render_target->render_pass_index), render_target->render_width, render_target->render_height, 
+		render_target->framebuffers[i] = zest_CreateFrameBuffer(render_target->render_pass->render_pass, render_target->render_width, render_target->render_height, 
 																render_target->render_format, 
 																ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer), 
 																ZEST__FLAGGED(render_target->flags, zest_render_target_flag_is_src));
@@ -6128,10 +6128,10 @@ void zest_RefreshRenderTargetSampler(zest_render_target_t *render_target, zest_i
 	zest_RefreshTextureDescriptors(texture);
 }
 
-void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_index render_pass_index, VkFramebuffer framebuffer) {
+void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer) {
 	VkRenderPassBeginInfo render_pass_info = { 0 };
 	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	render_pass_info.renderPass = zest_GetRenderPassByIndex(render_pass_index);
+	render_pass_info.renderPass = render_pass->render_pass;
 	render_pass_info.framebuffer = framebuffer;
 	render_pass_info.renderArea = item->viewport;
 
@@ -6173,10 +6173,10 @@ void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCo
 	vkCmdEndRenderPass(command_buffer);
 }
 
-void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_index render_pass, VkFramebuffer framebuffer) {
+void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer) {
 	VkRenderPassBeginInfo render_pass_info = { 0 };
 	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	render_pass_info.renderPass = zest_GetRenderPassByIndex(render_pass);
+	render_pass_info.renderPass = render_pass->render_pass;
 	render_pass_info.framebuffer = framebuffer;
 	render_pass_info.renderArea = item->viewport;
 
