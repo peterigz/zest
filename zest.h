@@ -391,6 +391,7 @@ typedef struct zest_render_pass_t zest_render_pass_t;
 typedef struct zest_descriptor_set_layout_t zest_descriptor_set_layout_t;
 typedef struct zest_uniform_buffer_t zest_uniform_buffer_t;
 typedef struct zest_render_target_t zest_render_target_t;
+typedef struct zest_buffer_allocator_t zest_buffer_allocator_t;
 
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image)
@@ -404,6 +405,7 @@ ZEST__MAKE_HANDLE(zest_render_pass)
 ZEST__MAKE_HANDLE(zest_descriptor_set_layout)
 ZEST__MAKE_HANDLE(zest_uniform_buffer)
 ZEST__MAKE_HANDLE(zest_render_target)
+ZEST__MAKE_HANDLE(zest_buffer_allocator)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -704,7 +706,7 @@ typedef struct zest_buffer_t {
 	VkDeviceSize size;
 	VkDeviceSize memory_offset;
 	zest_index memory_pool;
-	zest_buffer_allocator_t *buffer_allocator;
+	zest_buffer_allocator buffer_allocator;
 	zest_size memory_in_use;
 	void *data;
 	void *end;
@@ -1290,7 +1292,7 @@ zest_hash_map(zest_pipeline) zest_map_pipelines;
 zest_hash_map(zest_command_queue_draw_commands) zest_map_command_queue_draw_commands;
 zest_hash_map(zest_command_queue_compute_t) zest_map_command_queue_computes;
 zest_hash_map(zest_draw_routine) zest_map_draw_routines;
-zest_hash_map(zest_buffer_allocator_t) zest_map_buffer_allocators;
+zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 zest_hash_map(zest_layer) zest_map_layers;
 zest_hash_map(zest_uniform_buffer) zest_map_uniform_buffers;
 zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
@@ -1411,8 +1413,8 @@ ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool_t *memory_allocatio
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool_t *memory_allocation);
 ZEST_PRIVATE VkResult zest__flush_memory(zest_device_memory_pool_t *memory_allocation, VkDeviceSize size, VkDeviceSize offset);
 ZEST_PRIVATE zest_device_memory_pool_t zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_size size);
-ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator_t *buffer_allocator, zest_device_memory_pool_t *buffer_pool);
-ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator_t *buffer_allocator, zest_buffer_t *buffer, zest_bool is_host_visible);
+ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool_t *buffer_pool);
+ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer_t *buffer, zest_bool is_host_visible);
 //End Buffer Management
 
 //Renderer functions

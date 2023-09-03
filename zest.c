@@ -1598,7 +1598,7 @@ zest_device_memory_pool_t zest__create_vk_memory_pool(zest_buffer_info_t *buffer
 	return buffer_pool;
 }
 
-void zest__add_remote_range_pool(zest_buffer_allocator_t *buffer_allocator, zest_device_memory_pool_t *buffer_pool) {
+void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool_t *buffer_pool) {
 	zest_vec_push(buffer_allocator->memory_pools, *buffer_pool);
 	zloc_size range_pool_size = zloc_CalculateRemoteBlockPoolSize(buffer_allocator->allocator, buffer_pool->size);
 	zest_pool_range *range_pool = ZEST__ALLOCATE(range_pool_size);
@@ -1607,7 +1607,7 @@ void zest__add_remote_range_pool(zest_buffer_allocator_t *buffer_allocator, zest
 	ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %zu. ", buffer_pool->name, buffer_pool->size);
 }
 
-void zest__set_buffer_details(zest_buffer_allocator_t *buffer_allocator, zest_buffer_t *buffer, zest_bool is_host_visible) {
+void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer_t *buffer, zest_bool is_host_visible) {
 	buffer->buffer_allocator = buffer_allocator;
 	buffer->memory_in_use = 0;
 	if (is_host_visible) {
@@ -1630,28 +1630,30 @@ zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_i
 	zest_key key = zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t));
 	if (!zest_map_valid_key(ZestRenderer->buffer_allocators, key)) {
 		//If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
-		zest_buffer_allocator_t buffer_allocator = { 0 };
-		buffer_allocator.buffer_info = *buffer_info;
+		zest_buffer_allocator_t blank_buffer_allocator = { 0 };
+		zest_buffer_allocator buffer_allocator = ZEST__NEW(zest_buffer_allocator);
+		*buffer_allocator = blank_buffer_allocator;
+		buffer_allocator->buffer_info = *buffer_info;
 		zest_device_memory_pool_t buffer_pool = zest__create_vk_memory_pool(buffer_info, image, size);
 
-		buffer_allocator.alignment = buffer_pool.alignment;
-		zest_vec_push(buffer_allocator.memory_pools, buffer_pool);
-		buffer_allocator.allocator = ZEST__ALLOCATE(zloc_AllocatorSize());
-		buffer_allocator.allocator = zloc_InitialiseAllocatorForRemote(buffer_allocator.allocator);
-		zloc_SetBlockExtensionSize(buffer_allocator.allocator, sizeof(zest_buffer_t));
-		zloc_SetMinimumAllocationSize(buffer_allocator.allocator, buffer_pool.minimum_allocation_size);
-		zloc_size range_pool_size = zloc_CalculateRemoteBlockPoolSize(buffer_allocator.allocator, buffer_pool.size);
+		buffer_allocator->alignment = buffer_pool.alignment;
+		zest_vec_push(buffer_allocator->memory_pools, buffer_pool);
+		buffer_allocator->allocator = ZEST__ALLOCATE(zloc_AllocatorSize());
+		buffer_allocator->allocator = zloc_InitialiseAllocatorForRemote(buffer_allocator->allocator);
+		zloc_SetBlockExtensionSize(buffer_allocator->allocator, sizeof(zest_buffer_t));
+		zloc_SetMinimumAllocationSize(buffer_allocator->allocator, buffer_pool.minimum_allocation_size);
+		zloc_size range_pool_size = zloc_CalculateRemoteBlockPoolSize(buffer_allocator->allocator, buffer_pool.size);
 		zest_pool_range *range_pool = ZEST__ALLOCATE(range_pool_size);
-		zest_vec_push(buffer_allocator.range_pools, range_pool);
+		zest_vec_push(buffer_allocator->range_pools, range_pool);
 		zest_map_insert_key(ZestRenderer->buffer_allocators, key, buffer_allocator);
-		buffer_allocator.allocator->user_data = zest_map_at_key(ZestRenderer->buffer_allocators, key);
-		buffer_allocator.allocator->add_pool_callback = zest__on_add_pool;
-		buffer_allocator.allocator->split_block_callback = zest__on_split_block;
-		buffer_allocator.allocator->unable_to_reallocate_callback = zest__on_reallocation_copy;
-		zloc_AddRemotePool(buffer_allocator.allocator, range_pool, range_pool_size, buffer_pool.size);
+		buffer_allocator->allocator->user_data = *zest_map_at_key(ZestRenderer->buffer_allocators, key);
+		buffer_allocator->allocator->add_pool_callback = zest__on_add_pool;
+		buffer_allocator->allocator->split_block_callback = zest__on_split_block;
+		buffer_allocator->allocator->unable_to_reallocate_callback = zest__on_reallocation_copy;
+		zloc_AddRemotePool(buffer_allocator->allocator, range_pool, range_pool_size, buffer_pool.size);
 	}
 
-	zest_buffer_allocator_t *buffer_allocator = zest_map_at_key(ZestRenderer->buffer_allocators, key);
+	zest_buffer_allocator buffer_allocator = *zest_map_at_key(ZestRenderer->buffer_allocators, key);
 	zloc_size adjusted_size = zloc__align_size_up(size, buffer_allocator->alignment);
 	zest_buffer_t *buffer = zloc_AllocateRemote(buffer_allocator->allocator, adjusted_size);
 	if (buffer) {
@@ -2027,8 +2029,8 @@ void zest__cleanup_renderer() {
 
 	for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
 		zest_index buffer_index = zest_map_index(ZestRenderer->buffer_allocators, i);
-		for (zest_foreach_j(ZestRenderer->buffer_allocators.data[buffer_index].memory_pools)) {
-			zest__destroy_memory(&ZestRenderer->buffer_allocators.data[buffer_index].memory_pools[j]);
+		for (zest_foreach_j(ZestRenderer->buffer_allocators.data[buffer_index]->memory_pools)) {
+			zest__destroy_memory(&ZestRenderer->buffer_allocators.data[buffer_index]->memory_pools[j]);
 		}
 	}
 
