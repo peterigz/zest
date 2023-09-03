@@ -389,6 +389,7 @@ typedef struct zest_layer_t zest_layer_t;
 typedef struct zest_pipeline_t zest_pipeline_t;
 typedef struct zest_render_pass_t zest_render_pass_t;
 typedef struct zest_descriptor_set_layout_t zest_descriptor_set_layout_t;
+typedef struct zest_uniform_buffer_t zest_uniform_buffer_t;
 
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image)
@@ -400,6 +401,7 @@ ZEST__MAKE_HANDLE(zest_layer)
 ZEST__MAKE_HANDLE(zest_pipeline)
 ZEST__MAKE_HANDLE(zest_render_pass)
 ZEST__MAKE_HANDLE(zest_descriptor_set_layout)
+ZEST__MAKE_HANDLE(zest_uniform_buffer)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -880,7 +882,7 @@ typedef struct zest_descriptor_set_layout_t {
 } zest_descriptor_set_layout_t;
 
 typedef struct zest_descriptor_set_t {
-	zest_index uniform_buffer_index;
+	zest_uniform_buffer uniform_buffer;
 	VkWriteDescriptorSet *descriptor_writes[ZEST_MAX_FIF];
 	VkDescriptorSet descriptor_set[ZEST_MAX_FIF];
 } zest_descriptor_set_t;
@@ -1301,7 +1303,7 @@ zest_hash_map(zest_command_queue_compute_t) zest_map_command_queue_computes;
 zest_hash_map(zest_draw_routine) zest_map_draw_routines;
 zest_hash_map(zest_buffer_allocator_t) zest_map_buffer_allocators;
 zest_hash_map(zest_layer) zest_map_layers;
-zest_hash_map(zest_uniform_buffer_t) zest_map_uniform_buffers;
+zest_hash_map(zest_uniform_buffer) zest_map_uniform_buffers;
 zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
 zest_hash_map(zest_texture) zest_map_textures;
 zest_hash_map(zest_render_target_t) zest_map_render_targets;
@@ -1317,7 +1319,7 @@ typedef struct zest_renderer_t {
 	VkCommandPool present_command_pool;
 
 	VkFence fif_fence[ZEST_MAX_FIF];
-	zest_index standard_uniform_buffer_id;
+	zest_uniform_buffer standard_uniform_buffer;
 
 	VkImage *swapchain_images;
 	VkImageView *swapchain_image_views;
@@ -1440,7 +1442,7 @@ ZEST_PRIVATE zest_render_pass zest__add_render_pass(const char *name, VkRenderPa
 ZEST_PRIVATE zest_buffer_t *zest__create_depth_resources(void);
 ZEST_PRIVATE void zest__create_swap_chain_frame_buffers(zest_bool depth_buffer);
 ZEST_PRIVATE void zest__create_sync_objects(void);
-ZEST_PRIVATE zest_index zest_add_uniform_buffer(const char *name, zest_uniform_buffer_t *buffer);
+ZEST_PRIVATE zest_uniform_buffer zest_add_uniform_buffer(const char *name, zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__create_renderer_command_pools(void);
 ZEST_PRIVATE void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes);
 ZEST_PRIVATE void zest__make_standard_descriptor_layouts(void);
@@ -1567,7 +1569,6 @@ ZEST_API void zest_Initialise(zest_create_info_t *info);
 ZEST_API void zest_AddInstanceExtension(char *extension);
 ZEST_API void zest_Start(void);
 ZEST_API zest_window_t *zest_AllocateWindow();
-ZEST_API zest_uniform_buffer_t *zest_GetUniformBuffer(zest_index index);
 ZEST_API zest_descriptor_set_layout zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers);
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint binding);
@@ -1625,7 +1626,7 @@ ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer_
 ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader_t *uploader, VkCommandBuffer command_buffer);
 ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
 ZEST_API void zest_SetDevicePoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
-ZEST_API zest_index zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
+ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
 ZEST_API void zest_Update2dUniformBuffer(void);
 ZEST_API void zest_Update2dUniformBufferFIF(zest_index fif);
 //--End Buffer related
@@ -1897,8 +1898,9 @@ ZEST_API VkRenderPass zest_GetStandardRenderPass(void);
 ZEST_API zest_pipeline zest_CreatePipeline(void);
 ZEST_API VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands item);
 ZEST_API zest_descriptor_set_layout zest_GetDescriptorSetLayout(const char *name);
-ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfoByName(const char *name, zest_index fif);
-ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfoByIndex(zest_index index, zest_index fif);
+ZEST_API void *zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer);
+ZEST_API void *zest_GetUniformBufferDataFIF(zest_uniform_buffer uniform_buffer, zest_index fif);
+ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfo(const char *name, zest_index fif);
 ZEST_API zest_pipeline_template_create_info_t zest_PipelineCreateInfo(const char *name);
 ZEST_API VkExtent2D zest_GetSwapChainExtent(void);
 ZEST_API zest_uint zest_ScreenWidth(void);
@@ -1907,11 +1909,7 @@ ZEST_API float zest_ScreenWidthf(void);
 ZEST_API float zest_ScreenHeightf(void);
 ZEST_API zest_uint zest_FPS();
 ZEST_API float zest_FPSf();
-ZEST_API zest_uniform_buffer_t *zest_GetUniformBuffer(zest_index index);
-ZEST_API zest_uniform_buffer_t *zest_GetUniformBufferByName(const char *name);
-ZEST_API zest_uniform_buffer_data_t *zest_GetUniformBufferData(zest_index index);
-ZEST_API zest_uniform_buffer_data_t *zest_GetUniformBufferDataFIF(zest_index index, zest_index fif);
-ZEST_API void *zest_GetUniformBufferDataByName(const char *name);
+ZEST_API zest_uniform_buffer zest_GetUniformBuffer(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
 ZEST_API void zest_MaybeQuit(zest_bool condition);
