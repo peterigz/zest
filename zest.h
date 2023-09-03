@@ -388,6 +388,7 @@ typedef struct zest_font_t zest_font_t;
 typedef struct zest_layer_t zest_layer_t;
 typedef struct zest_pipeline_t zest_pipeline_t;
 typedef struct zest_render_pass_t zest_render_pass_t;
+typedef struct zest_descriptor_set_layout_t zest_descriptor_set_layout_t;
 
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image)
@@ -398,6 +399,7 @@ ZEST__MAKE_HANDLE(zest_font)
 ZEST__MAKE_HANDLE(zest_layer)
 ZEST__MAKE_HANDLE(zest_pipeline)
 ZEST__MAKE_HANDLE(zest_render_pass)
+ZEST__MAKE_HANDLE(zest_descriptor_set_layout)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -901,7 +903,7 @@ typedef struct zest_uniform_buffer_data_t {
 //further if needed before calling CreatePipeline
 typedef struct zest_pipeline_template_create_info_t {
 	VkRect2D viewport;
-	zest_index descriptorSetLayout;
+	zest_descriptor_set_layout descriptorSetLayout;
 	VkPushConstantRange *pushConstantRange;
 	VkRenderPass renderPass;
 	VkVertexInputAttributeDescription *attributeDescriptions;
@@ -945,7 +947,7 @@ typedef struct zest_pipeline_template_t {
 typedef struct zest_pipeline_t {
 	zest_pipeline_template_create_info_t create_info;								//A copy of the create info and template is stored so that they can be used to update the pipeline later for any reason (like the swap chain is recreated)
 	zest_pipeline_template_t pipeline_template;
-	zest_index descriptor_layout;												//An index for the descriptor layout being used which is stored in the Renderer. Layouts can be reused an shared between pipelines
+	zest_descriptor_set_layout descriptor_layout;								//The descriptor layout being used which is stored in the Renderer. Layouts can be reused an shared between pipelines
 	VkDescriptorSet descriptor_set[ZEST_MAX_FIF];								//Descriptor sets are only stored here for certain pipelines like non textured drawing or the final render pipelines for render targets in the swap chain
 	VkPipeline pipeline;														//The vulkan handle for the pipeline
 	VkPipelineLayout pipeline_layout;											//The vulkan handle for the pipeline layout
@@ -1281,7 +1283,7 @@ typedef struct zest_render_target_t {
 
 	zest_render_target_flags flags;
 
-	zest_image sampler_image;
+	zest_image_t sampler_image;
 	zest_pipeline_template_create_info_t sampler_pipeline_template;
 	zest_pipeline_template_create_info_t im_gui_rt_pipeline_template;
 	zest_pipeline final_render;
@@ -1292,7 +1294,7 @@ typedef struct zest_render_target_t {
 
 zest_hash_map(zest_command_queue) zest_map_command_queues;
 zest_hash_map(zest_render_pass) zest_map_render_passes;
-zest_hash_map(zest_descriptor_set_layout_t) zest_map_descriptor_layouts;
+zest_hash_map(zest_descriptor_set_layout) zest_map_descriptor_layouts;
 zest_hash_map(zest_pipeline) zest_map_pipelines;
 zest_hash_map(zest_command_queue_draw_commands) zest_map_command_queue_draw_commands;
 zest_hash_map(zest_command_queue_compute_t) zest_map_command_queue_computes;
@@ -1566,7 +1568,7 @@ ZEST_API void zest_AddInstanceExtension(char *extension);
 ZEST_API void zest_Start(void);
 ZEST_API zest_window_t *zest_AllocateWindow();
 ZEST_API zest_uniform_buffer_t *zest_GetUniformBuffer(zest_index index);
-ZEST_API zest_index zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
+ZEST_API zest_descriptor_set_layout zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers);
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint binding);
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateSamplerLayoutBinding(zest_uint binding);
@@ -1894,9 +1896,7 @@ ZEST_API zest_render_pass zest_GetRenderPass(const char *name);
 ZEST_API VkRenderPass zest_GetStandardRenderPass(void);
 ZEST_API zest_pipeline zest_CreatePipeline(void);
 ZEST_API VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands item);
-ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByIndex(zest_index index);
-ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutByName(const char *name);
-ZEST_API zest_index zest_GetDescriptorSetLayoutIndexByName(const char *name);
+ZEST_API zest_descriptor_set_layout zest_GetDescriptorSetLayout(const char *name);
 ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfoByName(const char *name, zest_index fif);
 ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfoByIndex(zest_index index, zest_index fif);
 ZEST_API zest_pipeline_template_create_info_t zest_PipelineCreateInfo(const char *name);
