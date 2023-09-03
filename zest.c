@@ -1778,7 +1778,7 @@ zest_buffer_pool_size_t zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, V
 }
 
 void zest_SetDevicePoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size) {
-	ZEST_ASSERT(minimum_allocation > zloc__MEMORY_ALIGNMENT);	//minimum_allocation must be higher then the memoryalignment
+	ZEST_ASSERT(minimum_allocation > sizeof(zloc_header) + sizeof(zest_buffer_t));	//minimum_allocation must be higher the size of a zloc_header and zest_buffer_t which extends the zloc_header
 	ZEST_ASSERT(pool_size);					//Must set a pool size
 	ZEST_ASSERT(ZEST__POW2(pool_size));		//Pool size must be a power of 2
 	zest_index size_index = ZEST__MAX(zloc__scan_forward(pool_size) - 20, 0);

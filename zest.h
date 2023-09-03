@@ -1053,6 +1053,7 @@ typedef struct zest_layer_buffers_t {
 		struct { void *instance_ptr; };
 		struct { void *vertex_ptr; };
 	};
+
 	zest_uint *index_ptr;
 
 	zest_buffer_t *device_index_data;
