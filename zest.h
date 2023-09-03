@@ -1394,10 +1394,10 @@ ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_
 //Platform dependent functions
 //These functions need a different implementation depending on the platform being run on
 //See definitions at the top of zest.c
-ZEST_PRIVATE zest_window_t *zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
-ZEST_PRIVATE void zest__create_window_surface(zest_window_t* window);
-ZEST_PRIVATE void zest__poll_events(ZEST_PROTOTYPE);
-ZEST_PRIVATE void zest__add_platform_extensions(ZEST_PROTOTYPE);
+ZEST_PRIVATE zest_window_t *zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
+ZEST_PRIVATE void zest__os_create_window_surface(zest_window_t* window);
+ZEST_PRIVATE void zest__os_poll_events(ZEST_PROTOTYPE);
+ZEST_PRIVATE void zest__os_add_platform_extensions(ZEST_PROTOTYPE);
 //-- End Platform dependent functions
 
 ZEST_PRIVATE void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);

@@ -57,7 +57,7 @@ LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wPar
 	return result;
 }
 
-void zest__poll_events() {
+void zest__os_poll_events() {
 	MSG message = { 0 };
 
 	for (;;) {
@@ -85,7 +85,7 @@ void zest__poll_events() {
 
 }
 
-zest_window_t* zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
+zest_window_t* zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
 	ZEST_ASSERT(ZestDevice);		//Must initialise the ZestDevice first
 
 	zest_window_instance = GetModuleHandle(NULL);
@@ -128,7 +128,7 @@ zest_window_t* zest__create_window(int x, int y, int width, int height, zest_boo
 	return window;
 }
 
-void zest__create_window_surface(zest_window_t* window) {
+void zest__os_create_window_surface(zest_window_t* window) {
 	VkWin32SurfaceCreateInfoKHR surface_create_info;
 	surface_create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 	surface_create_info.pNext = NULL;
@@ -138,7 +138,7 @@ void zest__create_window_surface(zest_window_t* window) {
 	ZEST_VK_CHECK_RESULT(vkCreateWin32SurfaceKHR(ZestDevice->instance, &surface_create_info, &ZestDevice->allocation_callbacks, &window->surface));
 }
 
-void zest__add_platform_extensions() {
+void zest__os_add_platform_extensions() {
 	zest_AddInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
 	zest_AddInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 }
@@ -157,7 +157,7 @@ FILE *zest__open_file(const char *file_name, const char *mode) {
 	return fopen(file_name, mode);
 }
 
-zest_window_t *zest__create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
+zest_window_t *zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
     ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
 
     zest_window_t *window = ZEST__ALLOCATE(sizeof(zest_window_t));
@@ -187,16 +187,16 @@ zest_window_t *zest__create_window(int x, int y, int width, int height, zest_boo
     return window;
 }
 
-void zest__create_window_surface(zest_window_t* window) {
+void zest__os_create_window_surface(zest_window_t* window) {
     ZEST_VK_CHECK_RESULT(glfwCreateWindowSurface(ZestDevice->instance, window->window_handle, &ZestDevice->allocation_callbacks, &window->surface));
 }
 
-void zest__poll_events(void) {
+void zest__os_poll_events(void) {
     glfwPollEvents();
     ZestApp->flags |= glfwWindowShouldClose(ZestApp->window->window_handle) ? zest_app_flag_quit_application : 0;
 }
 
-void zest__add_platform_extensions(void) {
+void zest__os_add_platform_extensions(void) {
     zest_uint count;
     const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
     for(int i = 0 ; i != count; ++i) {
@@ -2047,7 +2047,7 @@ void zest__recreate_swapchain() {
 	while (width == 0 || height == 0) {
 		ZestRenderer->get_window_size_callback(ZestApp->user_data, &width, &height);
 		if (width == 0 || height == 0) {
-			zest__poll_events();
+			zest__os_poll_events();
 		}
 	}
 
@@ -3827,10 +3827,10 @@ zest_create_info_t zest_CreateInfo() {
 		.flags = zest_init_flag_initialise_with_command_queue | zest_init_flag_enable_vsync,
 		.destroy_window_callback = zest__destroy_window_callback,
 		.get_window_size_callback = zest__get_window_size_callback,
-		.poll_events_callback = zest__poll_events,
-		.add_platform_extensions_callback = zest__add_platform_extensions,
-		.create_window_callback = zest__create_window,
-		.create_window_surface_callback = zest__create_window_surface
+		.poll_events_callback = zest__os_poll_events,
+		.add_platform_extensions_callback = zest__os_add_platform_extensions,
+		.create_window_callback = zest__os_create_window,
+		.create_window_surface_callback = zest__os_create_window_surface
 	};
 	return create_info;
 }
