@@ -7,9 +7,9 @@ struct PushConstants {
 
 struct RenderTargetExample {
 	zest_pipeline blur_pipeline;
-	zest_index top_target_index;
-	zest_index base_target_index;
-	zest_index final_blur_index;
+	zest_render_target top_target;
+	zest_render_target base_target;
+	zest_render_target final_blur;
 	zest_command_queue command_queue;
 	zest_layer base_layer;
 	zest_layer top_layer;

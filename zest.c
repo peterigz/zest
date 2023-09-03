@@ -1993,8 +1993,8 @@ void zest__cleanup_renderer() {
 	zest__cleanup_textures();
 
 	for (zest_map_foreach_i(ZestRenderer->render_targets)) {
-		zest_index target_index = zest_map_index(ZestRenderer->render_targets, i);
-		zest_CleanUpRenderTarget(zest_map_at_index(ZestRenderer->render_targets, target_index));
+		zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
+		zest_CleanUpRenderTarget(render_target);
 	}
 	zest_map_clear(ZestRenderer->render_targets);
 
@@ -2070,8 +2070,8 @@ void zest__recreate_swapchain() {
 
 	zest__create_swap_chain_frame_buffers(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer));
 	for (zest_map_foreach_i(ZestRenderer->render_targets)) {
-		zest_index target_index = zest_map_index(ZestRenderer->render_targets, i);
-		zest_RecreateRenderTargetResources(zest_map_at_index(ZestRenderer->render_targets, target_index));
+		zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
+		zest_RecreateRenderTargetResources(render_target);
 	}
 	VkExtent2D extent;
 	extent.width = width;
@@ -4056,8 +4056,8 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetupSwap(const char *name) 
 	return draw_commands;
 }
 
-zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char *name, zest_index render_target_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_targets, render_target_index));	//render_target_index must be a valid index to a render target
+zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char *name, zest_render_target render_target) {
+	ZEST_ASSERT(render_target);	//render_target must be valid
 	zest__set_queue_context(zest_setup_context_type_render_pass);
 	zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
 	zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
@@ -4066,8 +4066,8 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const 
 	draw_commands->render_pass = ZestRenderer->final_render_pass.render_pass;
 	draw_commands->get_frame_buffer = zest_GetRendererFrameBuffer;
 	draw_commands->render_pass_function = zest_DrawRenderTargetsToSwapchain;
-	draw_commands->render_target_index = render_target_index;
-	zest_vec_push(draw_commands->render_targets, render_target_index);
+	draw_commands->render_target = render_target;
+	zest_vec_push(draw_commands->render_targets, render_target);
 	draw_commands->viewport.extent = zest_GetSwapChainExtent();
 	draw_commands->viewport.offset.x = draw_commands->viewport.offset.y = 0;
 	ZestRenderer->setup_context.draw_commands = draw_commands;
@@ -4075,30 +4075,29 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const 
 	return draw_commands;
 }
 
-void zest_AddRenderTarget(zest_index render_target_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_targets, render_target_index));		//render_target_index must be a valid index to a render target
+void zest_AddRenderTarget(zest_render_target render_target) {
+	ZEST_ASSERT(render_target);		//render_target must be a valid render target
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass);	//The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderPassSetupSC
-	zest_vec_push(ZestRenderer->setup_context.draw_commands->render_targets, render_target_index);
+	zest_vec_push(ZestRenderer->setup_context.draw_commands->render_targets, render_target);
 }
 
-zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char *name, zest_index render_target_index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_targets, render_target_index));	//render_target_index must be a valid index to a render target
+zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char *name, zest_render_target render_target) {
+	ZEST_ASSERT(render_target);		//render_target must be a valid index to a render target
 	zest__set_queue_context(zest_setup_context_type_render_pass);
-	zest_render_target_t *target = zest_GetRenderTargetByIndex(render_target_index);
 	zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
 	zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
 	zest_vec_push(command_queue->draw_commands, draw_commands);
 	draw_commands->name = name;
-	draw_commands->render_pass = target->render_pass;
+	draw_commands->render_pass = render_target->render_pass;
 	draw_commands->get_frame_buffer = zest_GetRenderTargetFrameBufferCallback;
 	draw_commands->render_pass_function = zest_RenderDrawRoutinesCallback;
-	draw_commands->viewport = target->viewport;
-	draw_commands->render_target_index = render_target_index;
-	if (zest_Vec2Length2(target->create_info.ratio_of_screen_size)) {
-		draw_commands->viewport_scale = target->create_info.ratio_of_screen_size;
+	draw_commands->viewport = render_target->viewport;
+	draw_commands->render_target = render_target;
+	if (zest_Vec2Length2(render_target->create_info.ratio_of_screen_size)) {
+		draw_commands->viewport_scale = render_target->create_info.ratio_of_screen_size;
 		draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
 	}
-	else if (ZEST__FLAGGED(target->create_info.flags, zest_render_target_flag_fixed_size)) {
+	else if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_fixed_size)) {
 		draw_commands->viewport_type = zest_render_viewport_type_fixed;
 	}
 	else {
@@ -4127,7 +4126,7 @@ zest_command_queue_draw_commands zest__create_command_queue_draw_commands(const 
 	draw_commands->name = name;
 	draw_commands->viewport_scale.x = 1.f;
 	draw_commands->viewport_scale.y = 1.f;
-	draw_commands->render_target_index = -1;
+	draw_commands->render_target = ZEST_NULL;
 	draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
 
 	//draw_commands.command_queue_index = command_queue.index_in_renderer;
@@ -5836,7 +5835,7 @@ void zest_SetupFontTexture(zest_font font) {
 //-- End Fonts
 
 //Render Targets
-void zest_InitialiseRenderTarget(zest_render_target_t *render_target, zest_render_target_create_info_t *info) {
+void zest_InitialiseRenderTarget(zest_render_target render_target, zest_render_target_create_info_t *info) {
 	if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_initialised)) {
 		for (ZEST_EACH_FIF_i) {
 			zest__cleanup_framebuffer(&render_target->framebuffers[i]);
@@ -5883,7 +5882,7 @@ void zest_InitialiseRenderTarget(zest_render_target_t *render_target, zest_rende
 	ZEST__FLAG(render_target->flags, zest_render_target_flag_initialised);
 }
 
-void zest_CreateRenderTargetSamplerImage(zest_render_target_t *render_target) {
+void zest_CreateRenderTargetSamplerImage(zest_render_target render_target) {
 	if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_sampler_size_match_texture)) {
 		render_target->sampler_image.width = render_target->create_info.viewport.extent.width;
 		render_target->sampler_image.height = render_target->create_info.viewport.extent.height;
@@ -5925,14 +5924,15 @@ void zest_CreateRenderTargetSamplerImage(zest_render_target_t *render_target) {
 	}
 }
 
-zest_render_target_t zest_NewRenderTarget() {
-	zest_render_target_t render_target = { 0 };
-	render_target.render_width = 0;
-	render_target.render_height = 0;
-	render_target.flags = zest_render_target_flag_render_to_swap_chain;
-	render_target.post_process_callback = 0;
-	render_target.post_process_user_data = 0;
-	render_target.frames_in_flight = ZEST_MAX_FIF;
+zest_render_target zest_NewRenderTarget() {
+	zest_render_target_t blank_render_target = { 0 };
+	zest_render_target render_target = ZEST__NEW(zest_render_target);
+	render_target->render_width = 0;
+	render_target->render_height = 0;
+	render_target->flags = zest_render_target_flag_render_to_swap_chain;
+	render_target->post_process_callback = 0;
+	render_target->post_process_user_data = 0;
+	render_target->frames_in_flight = ZEST_MAX_FIF;
 	return render_target;
 }
 
@@ -5951,14 +5951,14 @@ zest_render_target_create_info_t zest_RenderTargetCreateInfo() {
 	return create_info;
 }
 
-zest_index zest_CreateRenderTarget(const char *name) {
+zest_render_target zest_CreateRenderTarget(const char *name) {
 	return zest_CreateRenderTargetWithInfo(name, zest_RenderTargetCreateInfo(), ZEST_FALSE);
 }
 
-zest_index zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info, zest_bool set_as_current) {
+zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info, zest_bool set_as_current) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->render_targets, name));
-	zest_render_target_t new_render_target = zest_NewRenderTarget();
-	new_render_target.name = name;
+	zest_render_target render_target = zest_NewRenderTarget();
+	render_target->name = name;
 	if (create_info.viewport.extent.width == 0 || create_info.viewport.extent.height == 0) {
 		create_info.viewport.extent = ZestRenderer->swapchain_extent;
 		ZEST__UNFLAG(create_info.flags, zest_render_target_flag_fixed_size);
@@ -5970,83 +5970,73 @@ zest_index zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_
 
 	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_schedule_rerecord_final_render_buffer);
 
-	zest_index index = zest_map_size(ZestRenderer->render_targets);
-	new_render_target.index_in_renderer = index;
-	new_render_target.create_info = create_info;
-	new_render_target.input_source_index = create_info.input_source_index;
-	ZEST__FLAG(new_render_target.flags, create_info.flags);
+	render_target->create_info = create_info;
+	render_target->input_source = create_info.input_source;
+	ZEST__FLAG(render_target->flags, create_info.flags);
 
-	zest_map_insert(ZestRenderer->render_targets, name, new_render_target);
+	zest_map_insert(ZestRenderer->render_targets, name, render_target);
 	if (set_as_current) {
-		ZestRenderer->current_rt_index = index;
+		ZestRenderer->current_render_target = render_target;
 	}
 
-	zest_render_target_t *render_target = zest_map_at_index(ZestRenderer->render_targets, index);
 	zest_InitialiseRenderTarget(render_target, &render_target->create_info);
 
-	return index;
+	return render_target;
 }
 
-zest_index zest_AddPostProcessRenderTarget(const char *name, float ratio_width, float ratio_height, zest_index input_source_index, void *user_data, void(*render_callback)(zest_render_target_t *target, void *user_data)) {
+zest_render_target zest_AddPostProcessRenderTarget(const char *name, float ratio_width, float ratio_height, zest_render_target input_source, void *user_data, void(*render_callback)(zest_render_target target, void *user_data)) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->render_targets, name));	//Couldn't find a render target by that name
 	zest_render_target_create_info_t create_info = { 0 };
 	create_info.ratio_of_screen_size = zest_Vec2Set(ratio_width, ratio_height);
 	create_info.viewport.extent.width = (zest_uint)((float)zest_GetSwapChainExtent().width * ratio_width);
 	create_info.viewport.extent.height = (zest_uint)((float)zest_GetSwapChainExtent().height * ratio_height);
-	create_info.input_source_index = input_source_index;
+	create_info.input_source = input_source;
 	create_info.sampler_address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	create_info.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	create_info.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	ZEST__UNFLAG(create_info.flags, zest_render_target_flag_sampler_size_match_texture);
-	zest_uint index = zest_CreateRenderTargetWithInfo(name, create_info, 0);
-	zest_render_target_t *target = zest_GetRenderTargetByIndex(index);
+	zest_render_target target = zest_CreateRenderTargetWithInfo(name, create_info, 0);
 	zest_SetRenderTargetPostProcessCallback(target, render_callback);
 	zest_SetRenderTargetPostProcessUserData(target, user_data);
-	return index;
+	return target;
 }
 
-void zest_SetRenderTargetPostProcessCallback(zest_render_target_t *render_target, void(*render_callback)(zest_render_target_t *target, void *user_data)) {
+void zest_SetRenderTargetPostProcessCallback(zest_render_target render_target, void(*render_callback)(zest_render_target target, void *user_data)) {
 	render_target->post_process_callback = render_callback;
 }
 
-void zest_SetRenderTargetPostProcessUserData(zest_render_target_t *render_target, void *user_data) {
+void zest_SetRenderTargetPostProcessUserData(zest_render_target render_target, void *user_data) {
 	render_target->post_process_user_data = user_data;
 }
 
-VkDescriptorSet *zest_GetRenderTargetSamplerDescriptorSet(zest_render_target_t *render_target) {
+VkDescriptorSet *zest_GetRenderTargetSamplerDescriptorSet(zest_render_target render_target) {
 	return &render_target->sampler_textures[ZEST_FIF]->descriptor_sets.data[0].descriptor_set[ZEST_FIF];
 }
 
-VkDescriptorSet *zest_GetRenderTargetSourceDescriptorSet(zest_render_target_t *render_target) {
-	zest_render_target_t *source_target = zest_GetRenderTargetByIndex(render_target->input_source_index);
-	return zest_GetRenderTargetSamplerDescriptorSet(source_target);
+VkDescriptorSet *zest_GetRenderTargetSourceDescriptorSet(zest_render_target render_target) {
+	return zest_GetRenderTargetSamplerDescriptorSet(render_target->input_source);
 }
 
-zest_texture zest_GetRenderTargetTexture(zest_render_target_t *render_target) {
+zest_texture zest_GetRenderTargetTexture(zest_render_target render_target) {
 	return render_target->sampler_textures[ZEST_FIF];
 }
 
-zest_image_t *zest_GetRenderTargetImage(zest_render_target_t *render_target) {
+zest_image zest_GetRenderTargetImage(zest_render_target render_target) {
 	zest_texture texture = render_target->sampler_textures[ZEST_FIF];
 	return zest_GetImageFromTexture(texture, 0);
 }
 
-zest_frame_buffer_t *zest_RenderTargetFramebuffer(zest_render_target_t *render_target) {
+zest_frame_buffer_t *zest_RenderTargetFramebuffer(zest_render_target render_target) {
 	return &render_target->framebuffers[ZEST_FIF];
 }
 
-zest_frame_buffer_t *zest_RenderTargetFramebufferByFIF(zest_render_target_t *render_target, zest_index fif) {
+zest_frame_buffer_t *zest_RenderTargetFramebufferByFIF(zest_render_target render_target, zest_index fif) {
 	return &render_target->framebuffers[fif];
 }
 
-zest_render_target_t *zest_GetRenderTargetByIndex(zest_index index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->render_targets, index));	//No render target found with that index
-	return zest_map_at_index(ZestRenderer->render_targets, index);
-}
-
-zest_render_target_t *zest_GetRenderTargetByName(const char *name) {
+zest_render_target zest_GetRenderTarget(const char *name) {
 	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->render_targets, name));	//No render target found with that index
-	return zest_map_at(ZestRenderer->render_targets, name);
+	return *zest_map_at(ZestRenderer->render_targets, name);
 }
 
 VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_draw_commands item) {
@@ -6054,10 +6044,10 @@ VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_draw_comman
 }
 
 VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_commands item) {
-	return zest_GetRenderTargetByIndex(item->render_target_index)->framebuffers[ZEST_FIF].device_frame_buffer;
+	return item->render_target->framebuffers[ZEST_FIF].device_frame_buffer;
 }
 
-void zest_RecreateRenderTargetResources(zest_render_target_t *render_target) {
+void zest_RecreateRenderTargetResources(zest_render_target render_target) {
 	int width, height;
 	if (zest_Vec2Length(render_target->create_info.ratio_of_screen_size)) {
 		width = (zest_uint)((float)zest_GetSwapChainExtent().width * render_target->create_info.ratio_of_screen_size.x);
@@ -6109,7 +6099,7 @@ void zest_RecreateRenderTargetResources(zest_render_target_t *render_target) {
 
 }
 
-void zest_RefreshRenderTargetSampler(zest_render_target_t *render_target, zest_index fif) {
+void zest_RefreshRenderTargetSampler(zest_render_target render_target, zest_index fif) {
 	if (render_target->sampler_textures[fif]->sampler != VK_NULL_HANDLE) {
 		vkDestroySampler(ZestDevice->logical_device, render_target->sampler_textures[fif]->sampler, &ZestDevice->allocation_callbacks);
 	}
@@ -6140,7 +6130,7 @@ void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCo
 
 	render_pass_info.clearValueCount = 2;
 	render_pass_info.pClearValues = clear_values;
-	zest_render_target_t *target = zest_GetRenderTargetByIndex(item->render_target_index);
+	zest_render_target target = item->render_target;
 
 	vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -6189,7 +6179,7 @@ void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, Vk
 	vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
 	for (zest_foreach_i(item->render_targets)) {
-		zest_render_target_t *target = zest_GetRenderTargetByIndex(item->render_targets[i]);
+		zest_render_target target = item->render_targets[i];
 		if (!target->post_process_callback) {
 			VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
 			VkRect2D scissor = zest_CreateRect2D(item->viewport.extent.width, item->viewport.extent.height, 0, 0);
@@ -6217,7 +6207,7 @@ void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, Vk
 	vkCmdEndRenderPass(command_buffer);
 }
 
-void zest_CleanUpRenderTarget(zest_render_target_t *render_target) {
+void zest_CleanUpRenderTarget(zest_render_target render_target) {
 	for (ZEST_EACH_FIF_i) {
 		zest__cleanup_framebuffer(&render_target->framebuffers[i]);
 		if (render_target->sampler_textures[i]->sampler != VK_NULL_HANDLE) {
@@ -6911,8 +6901,8 @@ void zest_OutputQueues() {
 				else {
 					printf("\t\t(No draw routines)\n");
 				}
-				if (draw_commands->render_target_index != -1 && zest_vec_empty(draw_commands->render_targets)) {
-					zest_render_target_t *render_target = zest_GetRenderTargetByIndex(draw_commands->render_target_index);
+				if (draw_commands->render_target != ZEST_NULL && zest_vec_empty(draw_commands->render_targets)) {
+					zest_render_target render_target = draw_commands->render_target;
 					printf("\t\t-Render target: %s\n", render_target->name);
 					if (render_target->post_process_callback) {
 						printf("\t\t\t-Has custom draw commands to render target\n");
@@ -6923,7 +6913,7 @@ void zest_OutputQueues() {
 				}
 				if (!zest_vec_empty(draw_commands->render_targets)) {
 					for (zest_foreach_k(draw_commands->render_targets)) {
-						zest_render_target_t *render_target = zest_GetRenderTargetByIndex(draw_commands->render_targets[k]);
+						zest_render_target render_target = draw_commands->render_targets[k];
 						printf("\t\t-Render Target: %s\n", render_target->name);
 					}
 				}
