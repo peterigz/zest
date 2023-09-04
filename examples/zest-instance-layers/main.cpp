@@ -8,7 +8,7 @@ typedef struct zest_example {
 	zest_layer billboard_layer;
 	zest_pipeline billboard_pipeline;
 	zest_camera_t camera;
-	zest_uniform_buffer uniform_buffer_3d;
+	zest_descriptor_buffer uniform_buffer_3d;
 	zest_index sprite_descriptor_index;
 	zest_index billboard_descriptor_index;
 } zest_example;
