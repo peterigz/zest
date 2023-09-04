@@ -6,7 +6,7 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 	zest_pipeline last_pipeline = ZEST_NULL;
 	VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
 
-	zest_imgui_layer_info *layer_info = (zest_imgui_layer_info*)draw_routine->data;
+	zest_imgui_layer_info *layer_info = (zest_imgui_layer_info*)draw_routine->user_data;
 	zest_layer_t *imgui_layer = layer_info->mesh_layer;
 
 	zest_BindMeshVertexBuffer(imgui_layer);

@@ -1,4 +1,4 @@
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #include "zest.h"
 #define ZLOC_IMPLEMENTATION
 #define ZLOC_OUTPUT_ERROR_MESSAGES
@@ -1350,7 +1350,7 @@ void zest__main_loop(void) {
 
 		zest__set_elapsed_time();
 
-		ZestApp->update_callback(ZestApp->current_elapsed_time, ZestApp->user_data);
+		ZestApp->update_callback(ZestApp->current_elapsed, ZestApp->user_data);
 
 		zest__draw_renderer_frame();
 
@@ -1410,22 +1410,22 @@ void* zest__reallocate(void *memory, zest_size size) {
 	return allocation;
 }
 
-VkResult zest__bind_memory(zest_device_memory_pool_t *memory_allocation, VkDeviceSize offset) {
+VkResult zest__bind_memory(zest_device_memory_pool memory_allocation, VkDeviceSize offset) {
 	return vkBindBufferMemory(ZestDevice->logical_device, memory_allocation->buffer, memory_allocation->memory, offset);
 }
 
-VkResult zest__map_memory(zest_device_memory_pool_t *memory_allocation, VkDeviceSize size, VkDeviceSize offset) {
+VkResult zest__map_memory(zest_device_memory_pool memory_allocation, VkDeviceSize size, VkDeviceSize offset) {
 	return vkMapMemory(ZestDevice->logical_device, memory_allocation->memory, offset, size, 0, &memory_allocation->mapped);
 }
 
-void zest__unmap_memory(zest_device_memory_pool_t *memory_allocation) {
+void zest__unmap_memory(zest_device_memory_pool memory_allocation) {
 	if (memory_allocation->mapped) {
 		vkUnmapMemory(ZestDevice->logical_device, memory_allocation->memory);
 		memory_allocation->mapped = ZEST_NULL;
 	}
 }
 
-void zest__destroy_memory(zest_device_memory_pool_t *memory_allocation) {
+void zest__destroy_memory(zest_device_memory_pool memory_allocation) {
 	if (memory_allocation->buffer) {
 		vkDestroyBuffer(ZestDevice->logical_device, memory_allocation->buffer, &ZestDevice->allocation_callbacks);
 	}
@@ -1435,7 +1435,7 @@ void zest__destroy_memory(zest_device_memory_pool_t *memory_allocation) {
 	memory_allocation->mapped = ZEST_NULL;
 }
 
-VkResult zest__flush_memory(zest_device_memory_pool_t *memory_allocation, VkDeviceSize size, VkDeviceSize offset) {
+VkResult zest__flush_memory(zest_device_memory_pool memory_allocation, VkDeviceSize size, VkDeviceSize offset) {
 	VkMappedMemoryRange mappedRange = { 0 };
 	mappedRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
 	mappedRange.memory = memory_allocation->memory;
@@ -1444,7 +1444,7 @@ VkResult zest__flush_memory(zest_device_memory_pool_t *memory_allocation, VkDevi
 	return vkFlushMappedMemoryRanges(ZestDevice->logical_device, 1, &mappedRange);
 }
 
-void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool_t *buffer, const char *name) {
+void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer, const char *name) {
 	VkBufferCreateInfo buffer_info = { 0 };
 	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	buffer_info.size = size;
@@ -1498,7 +1498,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
 	ZEST_VK_CHECK_RESULT(zest__bind_memory(buffer, 0));
 }
 
-void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool_t *buffer) {
+void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer) {
 	VkMemoryRequirements memory_requirements;
 	vkGetImageMemoryRequirements(ZestDevice->logical_device, image, &memory_requirements);
 
@@ -1521,8 +1521,8 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, V
 void zest__on_add_pool(void *user_data, void *block) {
 	zest_buffer_allocator_t *pools = (zest_buffer_allocator_t*)user_data;
 	zest_buffer_t *buffer = (zest_buffer_t*)block;
-	buffer->size = pools->memory_pools[zest_vec_last_index(pools->memory_pools)].size;
-	buffer->memory_pool = zest_vec_last_index(pools->memory_pools);
+	buffer->size = pools->memory_pools[zest_vec_last_index(pools->memory_pools)]->size;
+	buffer->memory_pool = pools->memory_pools[zest_vec_last_index(pools->memory_pools)];
 	buffer->memory_offset = 0;
 }
 
@@ -1538,7 +1538,7 @@ void zest__on_split_block(void *user_data, zloc_header* block, zloc_header *trim
 	trimmed_buffer->buffer_allocator = buffer->buffer_allocator;
 	trimmed_buffer->memory_in_use = 0;
 	if (pools->buffer_info.property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-		buffer->data = (void*)((char*)pools->memory_pools[buffer->memory_pool].mapped + buffer->memory_offset);
+		buffer->data = (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset);
 		buffer->end = (void*)((char*)buffer->data + buffer->size);
 	}
 }
@@ -1548,7 +1548,7 @@ void zest__on_reallocation_copy(void *user_data, zloc_header* block, zloc_header
 	zest_buffer_t *buffer = zloc_BlockUserExtensionPtr(block);
 	zest_buffer_t *new_buffer = zloc_BlockUserExtensionPtr(new_block);
 	if (pools->buffer_info.property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-		new_buffer->data = (void*)((char*)new_buffer->buffer_allocator->memory_pools[new_buffer->memory_pool].mapped + new_buffer->memory_offset);
+		new_buffer->data = (void*)((char*)new_buffer->memory_pool->mapped + new_buffer->memory_offset);
 		new_buffer->end = (void*)((char*)new_buffer->data + new_buffer->size);
 		memcpy(new_buffer->data, buffer->data, buffer->size);
 	}
@@ -1558,48 +1558,49 @@ zloc_size zest__get_minimum_block_size(zest_size pool_size) {
 	return pool_size > zloc__MEGABYTE(1) ? pool_size / 128 : 256;
 }
 
-zest_device_memory_pool_t zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_size minimum_size) {
-	zest_device_memory_pool_t buffer_pool = { 0 };
+zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_size minimum_size) {
+	zest_device_memory_pool_t blank_buffer_pool = { 0 };
+	zest_device_memory_pool buffer_pool = ZEST__NEW(zest_device_memory_pool);
 	if (image == VK_NULL_HANDLE) {
 		zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDevicePoolSize(buffer_info->usage_flags, buffer_info->property_flags, buffer_info->image_usage_flags);
 		if (pre_defined_pool_size.pool_size > 0) {
-			buffer_pool.name = pre_defined_pool_size.name;
-			buffer_pool.size = pre_defined_pool_size.pool_size > minimum_size ? pre_defined_pool_size.pool_size : zest_GetNextPower(minimum_size + minimum_size / 2);
-			buffer_pool.minimum_allocation_size = pre_defined_pool_size.minimum_allocation_size;
+			buffer_pool->name = pre_defined_pool_size.name;
+			buffer_pool->size = pre_defined_pool_size.pool_size > minimum_size ? pre_defined_pool_size.pool_size : zest_GetNextPower(minimum_size + minimum_size / 2);
+			buffer_pool->minimum_allocation_size = pre_defined_pool_size.minimum_allocation_size;
 		}
 		else {
 			ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating memory where no default pool size was found for usage flags: %i and property flags: %i. Defaulting to next power from size + size / 2",
 				buffer_info->usage_flags, buffer_info->property_flags);
-			buffer_pool.size = zest_GetNextPower(minimum_size + minimum_size / 2);
-			buffer_pool.name = "Unknown";
-			buffer_pool.minimum_allocation_size = zest__get_minimum_block_size(buffer_pool.size);
+			buffer_pool->size = zest_GetNextPower(minimum_size + minimum_size / 2);
+			buffer_pool->name = "Unknown";
+			buffer_pool->minimum_allocation_size = zest__get_minimum_block_size(buffer_pool->size);
 		}
-		zest__create_device_memory_pool(buffer_pool.size, buffer_info->usage_flags, buffer_info->property_flags, &buffer_pool, "");
+		zest__create_device_memory_pool(buffer_pool->size, buffer_info->usage_flags, buffer_info->property_flags, buffer_pool, "");
 	}
 	else {
 		zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDevicePoolSize(buffer_info->usage_flags, buffer_info->property_flags, buffer_info->image_usage_flags);
 		if (pre_defined_pool_size.pool_size > 0) {
-			buffer_pool.name = pre_defined_pool_size.name;
-			buffer_pool.size = pre_defined_pool_size.pool_size > minimum_size ? pre_defined_pool_size.pool_size : zest_GetNextPower(minimum_size + minimum_size / 2);
-			buffer_pool.minimum_allocation_size = pre_defined_pool_size.minimum_allocation_size;
+			buffer_pool->name = pre_defined_pool_size.name;
+			buffer_pool->size = pre_defined_pool_size.pool_size > minimum_size ? pre_defined_pool_size.pool_size : zest_GetNextPower(minimum_size + minimum_size / 2);
+			buffer_pool->minimum_allocation_size = pre_defined_pool_size.minimum_allocation_size;
 		}
 		else {
 			ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating image memory where no default pool size was found for image usage flags: %i, and property flags: %i. Defaulting to next power from size + size / 2",
 				buffer_info->image_usage_flags, buffer_info->property_flags);
-			buffer_pool.size = zest_GetNextPower(minimum_size + minimum_size / 2);
-			buffer_pool.name = "Unknown";
-			buffer_pool.minimum_allocation_size = zest__get_minimum_block_size(buffer_pool.size);
+			buffer_pool->size = zest_GetNextPower(minimum_size + minimum_size / 2);
+			buffer_pool->name = "Unknown";
+			buffer_pool->minimum_allocation_size = zest__get_minimum_block_size(buffer_pool->size);
 		}
-		zest__create_image_memory_pool(buffer_pool.size, image, buffer_info->property_flags, &buffer_pool);
+		zest__create_image_memory_pool(buffer_pool->size, image, buffer_info->property_flags, buffer_pool);
 	}
 	if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
-		zest__map_memory(&buffer_pool, VK_WHOLE_SIZE, 0);
+		zest__map_memory(buffer_pool, VK_WHOLE_SIZE, 0);
 	}
 	return buffer_pool;
 }
 
-void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool_t *buffer_pool) {
-	zest_vec_push(buffer_allocator->memory_pools, *buffer_pool);
+void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool) {
+	zest_vec_push(buffer_allocator->memory_pools, buffer_pool);
 	zloc_size range_pool_size = zloc_CalculateRemoteBlockPoolSize(buffer_allocator->allocator, buffer_pool->size);
 	zest_pool_range *range_pool = ZEST__ALLOCATE(range_pool_size);
 	zest_vec_push(buffer_allocator->range_pools, range_pool);
@@ -1611,11 +1612,12 @@ void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffe
 	buffer->buffer_allocator = buffer_allocator;
 	buffer->memory_in_use = 0;
 	if (is_host_visible) {
-		buffer->data = (void*)((char*)buffer_allocator->memory_pools[buffer->memory_pool].mapped + buffer->memory_offset);
+		buffer->data = (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset);
 		buffer->end = (void*)((char*)buffer->data + buffer->size);
 	}
 	else {
 		buffer->data = ZEST_NULL;
+		buffer->end = ZEST_NULL;
 	}
 }
 
@@ -1634,15 +1636,15 @@ zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_i
 		zest_buffer_allocator buffer_allocator = ZEST__NEW(zest_buffer_allocator);
 		*buffer_allocator = blank_buffer_allocator;
 		buffer_allocator->buffer_info = *buffer_info;
-		zest_device_memory_pool_t buffer_pool = zest__create_vk_memory_pool(buffer_info, image, size);
+		zest_device_memory_pool buffer_pool = zest__create_vk_memory_pool(buffer_info, image, size);
 
-		buffer_allocator->alignment = buffer_pool.alignment;
+		buffer_allocator->alignment = buffer_pool->alignment;
 		zest_vec_push(buffer_allocator->memory_pools, buffer_pool);
 		buffer_allocator->allocator = ZEST__ALLOCATE(zloc_AllocatorSize());
 		buffer_allocator->allocator = zloc_InitialiseAllocatorForRemote(buffer_allocator->allocator);
 		zloc_SetBlockExtensionSize(buffer_allocator->allocator, sizeof(zest_buffer_t));
-		zloc_SetMinimumAllocationSize(buffer_allocator->allocator, buffer_pool.minimum_allocation_size);
-		zloc_size range_pool_size = zloc_CalculateRemoteBlockPoolSize(buffer_allocator->allocator, buffer_pool.size);
+		zloc_SetMinimumAllocationSize(buffer_allocator->allocator, buffer_pool->minimum_allocation_size);
+		zloc_size range_pool_size = zloc_CalculateRemoteBlockPoolSize(buffer_allocator->allocator, buffer_pool->size);
 		zest_pool_range *range_pool = ZEST__ALLOCATE(range_pool_size);
 		zest_vec_push(buffer_allocator->range_pools, range_pool);
 		zest_map_insert_key(ZestRenderer->buffer_allocators, key, buffer_allocator);
@@ -1650,7 +1652,7 @@ zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_i
 		buffer_allocator->allocator->add_pool_callback = zest__on_add_pool;
 		buffer_allocator->allocator->split_block_callback = zest__on_split_block;
 		buffer_allocator->allocator->unable_to_reallocate_callback = zest__on_reallocation_copy;
-		zloc_AddRemotePool(buffer_allocator->allocator, range_pool, range_pool_size, buffer_pool.size);
+		zloc_AddRemotePool(buffer_allocator->allocator, range_pool, range_pool_size, buffer_pool->size);
 	}
 
 	zest_buffer_allocator buffer_allocator = *zest_map_at_key(ZestRenderer->buffer_allocators, key);
@@ -1660,17 +1662,86 @@ zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_i
 		zest__set_buffer_details(buffer_allocator, buffer, buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 	}
 	else {
-		zest_device_memory_pool_t buffer_pool = zest__create_vk_memory_pool(buffer_info, image, size);
-		ZEST_ASSERT(buffer_pool.alignment == buffer_allocator->alignment);	//The new pool should have the same alignment as the alignment set in the allocator, this
+		zest_device_memory_pool buffer_pool = zest__create_vk_memory_pool(buffer_info, image, size);
+		ZEST_ASSERT(buffer_pool->alignment == buffer_allocator->alignment);	//The new pool should have the same alignment as the alignment set in the allocator, this
 																			//would have been set when the first pool was created
 
-		zest__add_remote_range_pool(buffer_allocator, &buffer_pool);
+		zest__add_remote_range_pool(buffer_allocator, buffer_pool);
 		buffer = zloc_AllocateRemote(buffer_allocator->allocator, adjusted_size);
 		ZEST_ASSERT(buffer);	//Unable to allocate memory. Out of memory?
 		zest__set_buffer_details(buffer_allocator, buffer, buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 	}
 
 	return buffer;
+}
+
+zest_buffer_t *zest_CreateStagingBuffer(VkDeviceSize size, void *data) {
+	zest_buffer_info_t buffer_info = zest_CreateStagingBufferInfo();
+	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+	if (data) {
+		memcpy(buffer->data, data, size);
+	}
+	return buffer;
+}
+
+zest_buffer_t *zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+	zest_buffer_info_t buffer_info = zest_CreateIndexBufferInfo();
+	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+	if (staging_buffer) {
+		ZEST_ASSERT(buffer->size >= staging_buffer->size);
+		zest_CopyBuffer(staging_buffer, buffer);
+	}
+	return buffer;
+}
+
+zest_buffer_t *zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+	zest_buffer_info_t buffer_info = zest_CreateVertexBufferInfo();
+	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+	if (staging_buffer) {
+		ZEST_ASSERT(buffer->size >= staging_buffer->size);
+		zest_CopyBuffer(staging_buffer, buffer);
+	}
+	return buffer;
+}
+
+zest_buffer_t *zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+	zest_buffer_info_t buffer_info = zest_CreateStorageBufferInfo();
+	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+	if (staging_buffer) {
+		ZEST_ASSERT(buffer->size >= staging_buffer->size);
+		zest_CopyBuffer(staging_buffer, buffer);
+	}
+	return buffer;
+}
+
+zest_buffer_t *zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+	zest_buffer_info_t buffer_info = zest_CreateComputeVertexBufferInfo();
+	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+	if (staging_buffer) {
+		ZEST_ASSERT(buffer->size >= staging_buffer->size);
+		zest_CopyBuffer(staging_buffer, buffer);
+	}
+	return buffer;
+}
+
+zest_buffer_t *zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+	zest_buffer_info_t buffer_info = zest_CreateComputeVertexBufferInfo();
+	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+	if (staging_buffer) {
+		ZEST_ASSERT(buffer->size >= staging_buffer->size);
+		zest_CopyBuffer(staging_buffer, buffer);
+	}
+	return buffer;
+}
+
+void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer) {
+	VkBufferCopy copyInfo = { 0 };
+	copyInfo.srcOffset = staging_buffer->memory_offset;
+	copyInfo.dstOffset = device_buffer->memory_offset;
+	copyInfo.size = staging_buffer->size;
+	VkCommandBuffer command_buffer = zest__begin_single_time_commands();
+	vkCmdCopyBuffer(command_buffer, staging_buffer->memory_pool->buffer, device_buffer->memory_pool->buffer, 1, &copyInfo);
+	zest__end_single_time_commands(command_buffer);
 }
 
 zest_bool zest_GrowBuffer(zest_buffer_t **buffer, zest_size unit_size, zest_size minimum_bytes) {
@@ -1688,16 +1759,23 @@ zest_bool zest_GrowBuffer(zest_buffer_t **buffer, zest_size unit_size, zest_size
 	}
 	else {
 		//Create a new memory pool and try again
-		zest_device_memory_pool_t buffer_pool = zest__create_vk_memory_pool(&buffer_allocator->buffer_info, ZEST_NULL, new_size);
-		ZEST_ASSERT(buffer_pool.alignment == buffer_allocator->alignment);	//The new pool should have the same alignment as the alignment set in the allocator, this
+		zest_device_memory_pool buffer_pool = zest__create_vk_memory_pool(&buffer_allocator->buffer_info, ZEST_NULL, new_size);
+		ZEST_ASSERT(buffer_pool->alignment == buffer_allocator->alignment);	//The new pool should have the same alignment as the alignment set in the allocator, this
 																			//would have been set when the first pool was created
-		zest__add_remote_range_pool(buffer_allocator, &buffer_pool);
+		zest__add_remote_range_pool(buffer_allocator, buffer_pool);
 		zest_buffer_t *new_buffer = zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 		ZEST_ASSERT(new_buffer);	//Unable to allocate memory. Out of memory?
 		*buffer = new_buffer;
 		zest__set_buffer_details(buffer_allocator, *buffer, buffer_allocator->buffer_info.property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 	}
 	return new_buffer ? ZEST_TRUE : ZEST_FALSE;
+}
+
+zest_buffer_info_t zest_CreateIndexBufferInfo() {
+	zest_buffer_info_t buffer_info = { 0 };
+	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+	buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	return buffer_info;
 }
 
 zest_buffer_info_t zest_CreateVertexBufferInfo() {
@@ -1707,9 +1785,23 @@ zest_buffer_info_t zest_CreateVertexBufferInfo() {
 	return buffer_info;
 }
 
-zest_buffer_info_t zest_CreateIndexBufferInfo() {
+zest_buffer_info_t zest_CreateStorageBufferInfo() {
 	zest_buffer_info_t buffer_info = { 0 };
-	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	return buffer_info;
+}
+
+zest_buffer_info_t zest_CreateComputeVertexBufferInfo() {
+	zest_buffer_info_t buffer_info = { 0 };
+	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	return buffer_info;
+}
+
+zest_buffer_info_t zest_CreateComputeIndexBufferInfo() {
+	zest_buffer_info_t buffer_info = { 0 };
+	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 	buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	return buffer_info;
 }
@@ -1727,11 +1819,11 @@ void zest_FreeBuffer(zest_buffer_t *buffer) {
 }
 
 VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer_t *buffer) { 
-	return buffer->buffer_allocator->memory_pools[buffer->memory_pool].memory; 
+	return buffer->memory_pool->memory; 
 }
 
 VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer_t *buffer) { 
-	return &buffer->buffer_allocator->memory_pools[buffer->memory_pool].buffer; 
+	return &buffer->memory_pool->buffer; 
 }
 
 void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer_t *source_buffer, zest_buffer_t *target_buffer, VkDeviceSize target_offset) {
@@ -2029,7 +2121,7 @@ void zest__cleanup_renderer() {
 	for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
 		zest_index buffer_index = zest_map_index(ZestRenderer->buffer_allocators, i);
 		for (zest_foreach_j(ZestRenderer->buffer_allocators.data[buffer_index]->memory_pools)) {
-			zest__destroy_memory(&ZestRenderer->buffer_allocators.data[buffer_index]->memory_pools[j]);
+			zest__destroy_memory(ZestRenderer->buffer_allocators.data[buffer_index]->memory_pools[j]);
 		}
 	}
 
@@ -2205,8 +2297,9 @@ void zest__create_sync_objects() {
 	}
 }
 
-zest_descriptor_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size) {
-	zest_descriptor_buffer uniform_buffer = ZEST__NEW(zest_descriptor_buffer);
+zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size) {
+	zest_uniform_buffer uniform_buffer = ZEST__NEW(zest_descriptor_buffer);
+	uniform_buffer->all_frames_in_flight = ZEST_TRUE;
 	zest_buffer_info_t buffer_info = { 0 };
 	buffer_info.usage_flags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 	buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -2216,7 +2309,7 @@ zest_descriptor_buffer zest_CreateUniformBuffer(const char *name, zest_size unif
 		uniform_buffer->descriptor_info[i].offset = uniform_buffer->buffer[i]->memory_offset;
 		uniform_buffer->descriptor_info[i].range = uniform_struct_size;
 	}
-	return zest_add_uniform_buffer(name, uniform_buffer);
+	return zest__add_uniform_buffer(name, uniform_buffer);
 }
 
 void zest_Update2dUniformBuffer() {
@@ -2245,16 +2338,17 @@ void zest_Update2dUniformBufferFIF(zest_index fif) {
 
 zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_info, zest_size size, zest_bool all_frames_in_flight) {
 	zest_descriptor_buffer descriptor_buffer = ZEST__NEW(zest_descriptor_buffer);
-	for (int i = 0; i != all_frames_in_flight ? ZEST_MAX_FIF : 1; ++i) {
+	for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
 		descriptor_buffer->buffer[i] = zest_CreateBuffer(size, buffer_info, ZEST_NULL);
 		descriptor_buffer->descriptor_info[i].buffer = *zest_GetBufferDeviceBuffer(descriptor_buffer->buffer[i]);
 		descriptor_buffer->descriptor_info[i].offset = descriptor_buffer->buffer[i]->memory_offset;
 		descriptor_buffer->descriptor_info[i].range = size;
 	}
+	descriptor_buffer->all_frames_in_flight = all_frames_in_flight;
 	return descriptor_buffer;
 }
 
-zest_descriptor_buffer zest_add_uniform_buffer(const char *name, zest_descriptor_buffer buffer) { 
+zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_descriptor_buffer buffer) { 
 	zest_map_insert(ZestRenderer->uniform_buffers, name, buffer); 
 	return buffer;
 }
@@ -2367,36 +2461,36 @@ VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDescriptorSet
 }
 
 VkDescriptorSetLayoutBinding zest_CreateDescriptorLayoutBinding(VkDescriptorType type, VkShaderStageFlags stageFlags, zest_uint binding, zest_uint descriptorCount) {
-	VkDescriptorSetLayoutBinding setLayoutBinding = { 0 };
-	setLayoutBinding.descriptorType = type;
-	setLayoutBinding.stageFlags = stageFlags;
-	setLayoutBinding.binding = binding;
-	setLayoutBinding.descriptorCount = descriptorCount;
-	return setLayoutBinding;;
+	VkDescriptorSetLayoutBinding set_layout_binding = { 0 };
+	set_layout_binding.descriptorType = type;
+	set_layout_binding.stageFlags = stageFlags;
+	set_layout_binding.binding = binding;
+	set_layout_binding.descriptorCount = descriptorCount;
+	return set_layout_binding;;
 }
 
 VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint binding) {
 
-	VkDescriptorSetLayoutBinding viewLayoutBinding = { 0 };
-	viewLayoutBinding.binding = binding;
-	viewLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	viewLayoutBinding.descriptorCount = 1;
-	viewLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	viewLayoutBinding.pImmutableSamplers = ZEST_NULL; 
+	VkDescriptorSetLayoutBinding view_layout_binding = { 0 };
+	view_layout_binding.binding = binding;
+	view_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	view_layout_binding.descriptorCount = 1;
+	view_layout_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	view_layout_binding.pImmutableSamplers = ZEST_NULL; 
 
-	return viewLayoutBinding;
+	return view_layout_binding;
 }
 
 VkDescriptorSetLayoutBinding zest_CreateSamplerLayoutBinding(zest_uint binding) {
 
-	VkDescriptorSetLayoutBinding samplerLayoutBinding = { 0 };
-	samplerLayoutBinding.binding = binding;
-	samplerLayoutBinding.descriptorCount = 1;
-	samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	samplerLayoutBinding.pImmutableSamplers = ZEST_NULL;
-	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	VkDescriptorSetLayoutBinding sampler_layout_binding = { 0 };
+	sampler_layout_binding.binding = binding;
+	sampler_layout_binding.descriptorCount = 1;
+	sampler_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	sampler_layout_binding.pImmutableSamplers = ZEST_NULL;
+	sampler_layout_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-	return samplerLayoutBinding;
+	return sampler_layout_binding;
 }
 
 VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding) {
@@ -2434,6 +2528,46 @@ VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet des
 	write.descriptorCount = 1;
 	write.pImageInfo = view_image_info;
 	return write;
+}
+
+void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type) {
+	VkWriteDescriptorSet write = { 0 };
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = 0;
+	write.dstBinding = dst_binding;
+	write.dstArrayElement = 0;
+	write.descriptorType = type;
+	write.descriptorCount = 1;
+	write.pImageInfo = view_image_info;
+	zest_vec_push(builder->writes, write);
+}
+
+void zest_AddBuilderDescriptorWriteBuffer(zest_descriptor_set_builder_t *builder, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type) {
+	VkWriteDescriptorSet write = { 0 };
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = 0;
+	write.dstBinding = dst_binding;
+	write.dstArrayElement = 0;
+	write.descriptorType = type;
+	write.descriptorCount = 1;
+	write.pBufferInfo = view_buffer_info;
+	zest_vec_push(builder->writes, write);
+}
+
+zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *builder, zest_descriptor_set_layout layout) {
+	zest_descriptor_set_t set = { 0 };
+	for (ZEST_EACH_FIF_i) {
+		zest_AllocateDescriptorSet(ZestRenderer->descriptor_pool, layout->descriptor_layout, &set.descriptor_set[i]);
+		for (zest_foreach_j(builder->writes)) {
+			VkWriteDescriptorSet write = builder->writes[j];
+			write.dstSet = set.descriptor_set[i];
+			zest_vec_push(set.descriptor_writes[i], write);
+		}
+	}
+	for (ZEST_EACH_FIF_i) {
+		zest_UpdateDescriptorSet(set.descriptor_writes[i]);
+	}
+	return set;
 }
 
 void zest_AllocateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSetLayout descriptor_layout, VkDescriptorSet *descriptor_set) {
@@ -2519,6 +2653,19 @@ VkPipelineColorBlendAttachmentState zest_AdditiveBlendState() {
 	return color_blend_attachment;
 }
 
+VkPipelineColorBlendAttachmentState zest_AdditiveBlendState2() {
+	VkPipelineColorBlendAttachmentState color_blend_attachment;
+	color_blend_attachment.blendEnable = VK_TRUE;
+	color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	color_blend_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	color_blend_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+	color_blend_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	color_blend_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_DST_ALPHA;
+	color_blend_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+	return color_blend_attachment;
+}
+
 VkPipelineColorBlendAttachmentState zest_AlphaOnlyBlendState() {
 	VkPipelineColorBlendAttachmentState color_blend_attachment;
 	color_blend_attachment.blendEnable = VK_TRUE;
@@ -2600,6 +2747,11 @@ VkPipelineColorBlendAttachmentState zest_ImGuiBlendState() {
 void zest_BindPipeline(zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set) {
 	vkCmdBindPipeline(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 	vkCmdBindDescriptorSets(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, &descriptor_set, 0, 0);
+}
+
+void zest_BindComputePipeline(zest_compute compute, zest_index shader_index) {
+	vkCmdBindPipeline(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipelines[shader_index]);
+	vkCmdBindDescriptorSets(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline_layout, 0, 1, &compute->descriptor_set[ZEST_FIF], 0, 0);
 }
 
 void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set) {
@@ -2761,6 +2913,15 @@ void zest_AddPipelineDescriptorWrite(zest_pipeline_t *pipeline, VkWriteDescripto
 	zest_vec_push(pipeline->descriptor_writes[fif], set); 
 }
 
+void zest_SetPipelineTemplatePushConstant(zest_pipeline_template_create_info_t *create_info, zest_uint size, zest_uint offset, VkShaderStageFlags stage_flags) {
+	zest_vec_clear(create_info->pushConstantRange);
+	VkPushConstantRange range;
+	range.size = size;
+	range.offset = offset;
+	range.stageFlags = stage_flags;
+	zest_vec_push(create_info->pushConstantRange, range);
+}
+
 void zest_MakePipelineTemplate(zest_pipeline_t *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info) {
 	if (!(pipeline->flags & zest_pipeline_set_flag_is_render_target_pipeline))
 		create_info->renderPass = render_pass;
@@ -2802,6 +2963,15 @@ zest_pipeline zest_AddPipeline(const char *name) {
 	return pipeline;
 }
 
+zest_vertex_input_descriptions zest_NewVertexInputDescriptions() {
+	zest_vertex_input_descriptions descriptions = 0;
+	return descriptions;
+}
+
+void zest_AddVertexInputDescription(zest_vertex_input_descriptions *descriptions, VkVertexInputAttributeDescription description) {
+	zest_vec_push(*descriptions, description);
+}
+
 VkRenderPass zest_GetStandardRenderPass() { 
 	if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {
 		return *zest_map_at(ZestRenderer->render_passes, "Render pass standard")->render_pass;
@@ -2834,11 +3004,11 @@ VkDescriptorBufferInfo *zest_GetUniformBufferInfo(const char *name, zest_index f
 	return zest_map_at(ZestRenderer->uniform_buffers, name)->descriptor_info[fif]; 
 }
 
-void *zest_GetUniformBufferData(zest_descriptor_buffer uniform_buffer) {
+void *zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer) {
 	return uniform_buffer->buffer[ZEST_FIF]->data;
 }
 
-void *zest_GetUniformBufferDataFIF(zest_descriptor_buffer uniform_buffer, zest_index fif) {
+void *zest_GetUniformBufferDataFIF(zest_uniform_buffer uniform_buffer, zest_index fif) {
 	return uniform_buffer->buffer[fif]->data;
 }
 
@@ -2865,6 +3035,18 @@ void zest_Draw(zest_uint vertex_count, zest_uint instance_count, zest_uint first
 
 void zest_DrawIndexed(zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
 	vkCmdDrawIndexed(ZestRenderer->current_command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void zest_ComputeToVertexBarrier() {
+	VkMemoryBarrier memory_barrier = { 0 };
+	memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+	memory_barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+	memory_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	vkCmdPipelineBarrier(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 1, &memory_barrier, 0, VK_NULL_HANDLE, 0, VK_NULL_HANDLE);
+}
+
+void zest_DispatchCompute(zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+	vkCmdDispatch(ZestRenderer->current_command_buffer, group_count_x, group_count_y, group_count_z);
 }
 
 void zest_EnableVSync() {
@@ -3371,12 +3553,12 @@ void zest__record_and_commit_command_queue(zest_command_queue command_queue, VkF
 
 	ZestRenderer->current_command_buffer = command_queue->command_buffer[ZEST_FIF];
 
-	//for (zest_foreach_i(command_queue->compute_commands)) {
-		//zest_command_queue_compute_t &compute_item = GetCommandQueueCompute(compute_item_index);
-		//ZEST_ASSERT(compute_item.compute_function);		//Compute item must have its compute function callback set
-		//ZestRenderer->current_compute_routine = &compute_item;
-		//compute_item.compute_function(compute_item);
-	//}
+	for (zest_foreach_i(command_queue->compute_commands)) {
+		zest_command_queue_compute compute_commands = command_queue->compute_commands[i];
+		ZEST_ASSERT(compute_commands->compute_function);		//Compute item must have its compute function callback set
+		ZestRenderer->current_compute_routine = compute_commands;
+		compute_commands->compute_function(compute_commands);
+	}
 
 	for (zest_foreach_i(command_queue->draw_commands)) {
 		zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[i];
@@ -4185,6 +4367,26 @@ zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type b
 	zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
 	ZestRenderer->setup_context.type = zest_setup_context_type_layer;
 	return layer;
+}
+
+zest_command_queue_compute zest_CreateComputeItem(const char *name, zest_command_queue command_queue) {
+	zest_command_queue_compute_t blank_compute_item = { 0 };
+	zest_command_queue_compute compute_commands = ZEST__NEW(zest_command_queue_compute);
+	*compute_commands = blank_compute_item;
+	zest_map_insert(ZestRenderer->command_queue_computes, name, compute_commands);
+	zest_vec_push(command_queue->compute_commands, compute_commands);
+	return compute_commands;
+}
+
+zest_command_queue_compute zest_NewComputeSetup(const char *name, zest_compute compute_shader, void(*compute_function)(zest_command_queue_compute item)) {
+	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_command_queue);				//Current setup context must be command_queue.
+	zest__set_queue_context(zest_setup_context_type_compute);
+
+	zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
+	zest_command_queue_compute compute_commands = zest_CreateComputeItem(name, command_queue);
+	zest_vec_push(compute_commands->compute_shaders, compute_shader);
+	compute_commands->compute_function = compute_function;
+	return compute_commands;
 }
 
 zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer) {
@@ -5047,6 +5249,7 @@ VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture texture, zest_index in
 	ZEST_ASSERT(zest_map_valid_index(texture->descriptor_sets, index));
 	return (zest_map_at_index(texture->descriptor_sets, index))->descriptor_set[ZEST_FIF];
 }
+
 void zest_SwitchTextureDescriptorSet(zest_texture texture, zest_index index) {
 	ZEST_ASSERT(zest_map_valid_index(texture->descriptor_sets, index));
 	for (ZEST_EACH_FIF_i) {
@@ -5281,7 +5484,7 @@ zest_byte zest_CalculateTextureLayers(stbrp_rect *rects, zest_uint size, const z
 		layers++;
 	}
 
-	zest_vec_free( nodes);
+	zest_vec_free(nodes);
 	zest_vec_free(current_rects);
 	zest_vec_free(rects_copy);
 	return layers;
@@ -6888,7 +7091,7 @@ void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuf
 //-- End Mesh Drawing API
 
 //Compute shaders
-zest_compute zest_NewCompute() {
+zest_compute zest_CreateCompute(const char *name) {
 	zest_compute_t blank_compute = { 0 };
 	zest_compute compute = ZEST__NEW(zest_compute);
 	*compute = blank_compute;
@@ -6908,6 +7111,7 @@ zest_compute zest_NewCompute() {
 		compute->fif_incoming_semaphore[i] = VK_NULL_HANDLE;
 		compute->fif_outgoing_semaphore[i] = VK_NULL_HANDLE;
 	}
+	zest_map_insert(ZestRenderer->computes, name, compute);
 	return compute;
 }
 
@@ -6917,19 +7121,23 @@ zest_compute_builder_t zest_NewComputeBuilder() {
 	return builder;
 }
 
-void zest_AddComputeLayoutBinding(zest_compute_builder_t *builder, VkDescriptorType descriptor_type, int count) {
-	ZEST_ASSERT(count);		//Use must bind more then descriptor
-	for (int i = 0; i != count; ++i) {
-		zest_vec_push(builder->layout_bindings, zest_CreateDescriptorLayoutBinding(descriptor_type, VK_SHADER_STAGE_COMPUTE_BIT, i, 1));
-	}
+zest_compute zest_RegisterCompute() {
+	zest_compute_t blank_compute = { 0 };
+	zest_compute compute = ZEST__NEW(zest_compute);
+	*compute = blank_compute;
+	return compute;
 }
 
-void zest_AddComputeBufferForBinding(zest_compute_builder_t *builder, zest_descriptor_buffer buffer, zest_index fif) {
+void zest_AddComputeLayoutBinding(zest_compute_builder_t *builder, VkDescriptorType descriptor_type, int binding) {
+	zest_vec_push(builder->layout_bindings, zest_CreateDescriptorLayoutBinding(descriptor_type, VK_SHADER_STAGE_COMPUTE_BIT, binding, 1));
+}
+
+void zest_AddComputeBufferForBinding(zest_compute_builder_t *builder, zest_descriptor_buffer buffer) {
 	zest_vec_push(builder->buffers, buffer);
 }
 
 zest_index zest_AddComputeShader(zest_compute_builder_t *builder, const char *path) {
-	zest_text path_text;
+	zest_text path_text = { 0 };
 	zest_SetText(&path_text, path);
 	zest_vec_push(builder->shader_names, path_text);
 	return zest_vec_last_index(builder->shader_names);
@@ -6952,7 +7160,7 @@ void zest_SetComputeExtraCleanUpCallback(zest_compute_builder_t *builder, void(*
 	builder->extra_cleanup_callback = extra_cleanup_callback;
 }
 
-inline void zest_SetComputeUserData(zest_compute_builder_t *builder, void *data) {
+void zest_SetComputeUserData(zest_compute_builder_t *builder, void *data) {
 	builder->user_data = data;
 }
 
@@ -6989,12 +7197,11 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 		compute->pushConstantRange.size = builder->push_constant_size;
 		compute->pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 		pipeline_layout_create_info.pPushConstantRanges = &compute->pushConstantRange;
-		pipeline_layout_create_info.pushConstantRangeCount = 0;
+		pipeline_layout_create_info.pushConstantRangeCount = 1;
 	}
 	pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipeline_layout_create_info.setLayoutCount = 1;
 	pipeline_layout_create_info.pSetLayouts = &compute->descriptor_set_layout;
-	pipeline_layout_create_info.pushConstantRangeCount = 1;
 
 	ZEST_VK_CHECK_RESULT(vkCreatePipelineLayout(ZestDevice->logical_device, &pipeline_layout_create_info, &ZestDevice->allocation_callbacks, &compute->pipeline_layout));
 
@@ -7003,15 +7210,16 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 		zest_AllocateDescriptorSet(compute->descriptor_pool, compute->descriptor_set_layout, &compute->descriptor_set[i]);
 		int binding_index = 0;
 		for (zest_foreach_j(builder->buffers)) {
-			zest_descriptor_buffer buffer = compute->buffers[i];
+			zest_descriptor_buffer buffer = builder->buffers[j];
 			if (buffer->all_frames_in_flight) {
-				zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &buffer->descriptor_info[i], binding_index++, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER));
+				zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &buffer->descriptor_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
 			}
 			else {
-				zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &buffer->descriptor_info[0], binding_index++, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER));
+				zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &buffer->descriptor_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
 			}
 		}
 		zest_UpdateDescriptorSet(compute_write_descriptor_sets);
+		zest_vec_clear(compute_write_descriptor_sets);
 	}
 	zest_vec_free(compute_write_descriptor_sets);
 	compute->buffers = builder->buffers;

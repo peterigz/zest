@@ -28,7 +28,7 @@ void InitImGuiApp(ImGuiApp *app) {
 		{
 			app->imgui_layer_info.mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
 			zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
-			zest_ContextDrawRoutine()->data = &app->imgui_layer_info;
+			zest_ContextDrawRoutine()->user_data = &app->imgui_layer_info;
 		}
 		zest_FinishQueueSetup();
 	}
