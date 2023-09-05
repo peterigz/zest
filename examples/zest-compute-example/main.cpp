@@ -83,6 +83,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->particle_pipeline->pipeline_template.rasterizer.cullMode = VK_CULL_MODE_NONE;
 	app->particle_pipeline->pipeline_template.rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	app->particle_pipeline->pipeline_template.colorBlendAttachment = zest_AdditiveBlendState2();
+	app->particle_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	app->particle_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
 	zest_BuildPipeline(app->particle_pipeline);
 
 	//Setup a uniform buffer
@@ -190,7 +192,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 	ImGui::Begin("Test Window");
-	ImGui::Text("FPS %i", ZestApp->last_fps);
+	ImGui::Text("FPS %zu", ZestApp->last_fps);
 	ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
 	ImGui::End();
 	ImGui::Render();

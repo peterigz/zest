@@ -32,10 +32,10 @@ extern "C" {
 #define ZEST__MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define ZEST__CLAMP(v, min_v, max_v) ((v < min_v) ? min_v : ((v > max_v) ? max_v : v))
 #define ZEST__POW2(x) ((x) && !((x) & ((x) - 1)))
-#define ZEST__FLAG(flag, bit) flag |= bit
-#define ZEST__UNFLAG(flag, bit) flag &= ~bit
-#define ZEST__FLAGGED(flag, bit) (flag & bit) > 0
-#define ZEST__NOT_FLAGGED(flag, bit) (flag & bit) == 0
+#define ZEST__FLAG(flag, bit) flag |= (bit)
+#define ZEST__UNFLAG(flag, bit) flag &= ~(bit)
+#define ZEST__FLAGGED(flag, bit) (flag & (bit)) > 0
+#define ZEST__NOT_FLAGGED(flag, bit) (flag & (bit)) == 0
 
 //Override this if you'd prefer a different way to allocate the pools for sub allocation in host memory.
 #ifndef ZEST__ALLOCATE_POOL
@@ -1541,7 +1541,8 @@ ZEST_PRIVATE void zest__draw_renderer_frame(void);
 
 // --Command Queue functions
 ZEST_PRIVATE void zest__cleanup_command_queue(zest_command_queue command_queue);
-ZEST_PRIVATE void zest__record_and_commit_command_queue(zest_command_queue command_queue, VkFence fence);
+ZEST_PRIVATE void zest__record_command_queue(zest_command_queue command_queue, zest_index fif);
+ZEST_PRIVATE void zest__submit_command_queue(zest_command_queue command_queue, VkFence fence);
 ZEST_PRIVATE zest_command_queue_draw_commands zest__create_command_queue_draw_commands(const char *name);
 // --End Command Queue functions
 
@@ -1734,7 +1735,7 @@ ZEST_API zest_command_queue zest_NewCommandQueue(const char *name, zest_command_
 ZEST_API zest_command_queue zest_GetCommandQueue(const char *name);
 ZEST_API zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(zest_index index);
 ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue receiver, VkPipelineStageFlags stage_flags);
-ZEST_API void zest_ConnectCommandQueueToPresent(zest_command_queue sender, VkPipelineStageFlags stage_flags);
+ZEST_API void zest_ConnectCommandQueueToPresent(zest_command_queue sender);
 ZEST_API VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue command_queue);
 ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupSwap(const char *name);
 ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char *name, zest_render_target render_target);
