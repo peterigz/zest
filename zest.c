@@ -3477,7 +3477,6 @@ void zest__cleanup_command_queue(zest_command_queue command_queue) {
 void zest__record_command_queue(zest_command_queue command_queue, zest_index fif) {
 	VkCommandBufferBeginInfo begin_info = { 0 };
 	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	vkResetCommandBuffer(command_queue->command_buffer[fif], 0);
 	ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(command_queue->command_buffer[fif], &begin_info));
 
