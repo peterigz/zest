@@ -1,4 +1,4 @@
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #include "zest.h"
 #define ZLOC_IMPLEMENTATION
 #define ZLOC_OUTPUT_ERROR_MESSAGES
@@ -1561,6 +1561,7 @@ zloc_size zest__get_minimum_block_size(zest_size pool_size) {
 zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_size minimum_size) {
 	zest_device_memory_pool_t blank_buffer_pool = { 0 };
 	zest_device_memory_pool buffer_pool = ZEST__NEW(zest_device_memory_pool);
+	*buffer_pool = blank_buffer_pool;
 	if (image == VK_NULL_HANDLE) {
 		zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDevicePoolSize(buffer_info->usage_flags, buffer_info->property_flags, buffer_info->image_usage_flags);
 		if (pre_defined_pool_size.pool_size > 0) {
@@ -2119,9 +2120,9 @@ void zest__cleanup_renderer() {
 	}
 
 	for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
-		zest_index buffer_index = zest_map_index(ZestRenderer->buffer_allocators, i);
-		for (zest_foreach_j(ZestRenderer->buffer_allocators.data[buffer_index]->memory_pools)) {
-			zest__destroy_memory(ZestRenderer->buffer_allocators.data[buffer_index]->memory_pools[j]);
+		zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
+		for (zest_foreach_j(buffer_allocator->memory_pools)) {
+			zest__destroy_memory(buffer_allocator->memory_pools[j]);
 		}
 	}
 
@@ -2130,6 +2131,11 @@ void zest__cleanup_renderer() {
 		zest__cleanup_command_queue(command_queue);
 	}
 	zest__cleanup_command_queue(&ZestRenderer->empty_queue);
+
+	for (zest_map_foreach_i(ZestRenderer->computes)) {
+		zest_compute compute = *zest_map_at_index(ZestRenderer->computes, i);
+		zest__clean_up_compute(compute);
+	}
 
 	vkDestroyCommandPool(ZestDevice->logical_device, ZestRenderer->present_command_pool, &ZestDevice->allocation_callbacks);
 }
@@ -2348,7 +2354,7 @@ zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_in
 	return descriptor_buffer;
 }
 
-zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_descriptor_buffer buffer) { 
+zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buffer buffer) { 
 	zest_map_insert(ZestRenderer->uniform_buffers, name, buffer); 
 	return buffer;
 }
@@ -7346,6 +7352,36 @@ void zest_StandardComputeDescriptorUpdate(zest_compute compute) {
 		zest_vec_clear(compute_write_descriptor_sets);
 	}
 	zest_vec_free(compute_write_descriptor_sets);
+}
+
+void zest__clean_up_compute(zest_compute compute) {
+	if (!ZEST__FLAGGED(compute->flags, zest_compute_flag_is_active)) {
+		return;
+	}
+	for (ZEST_EACH_FIF_i) {
+		if (compute->fence[i]) {
+			vkDestroyFence(ZestDevice->logical_device, compute->fence[i], &ZestDevice->allocation_callbacks);
+		}
+	}
+	for (zest_foreach_i(compute->pipelines)) {
+		vkDestroyPipeline(ZestDevice->logical_device, compute->pipelines[i], &ZestDevice->allocation_callbacks);
+	}
+	if (compute->descriptor_set_layout != VK_NULL_HANDLE) {
+		vkDestroyDescriptorSetLayout(ZestDevice->logical_device, compute->descriptor_set_layout, &ZestDevice->allocation_callbacks);
+	}
+	vkDestroyPipelineLayout(ZestDevice->logical_device, compute->pipeline_layout, &ZestDevice->allocation_callbacks);
+	vkDestroyDescriptorPool(ZestDevice->logical_device, compute->descriptor_pool, &ZestDevice->allocation_callbacks);
+	vkDestroyCommandPool(ZestDevice->logical_device, compute->command_pool, &ZestDevice->allocation_callbacks);
+	if (ZEST__FLAGGED(compute->flags, zest_compute_flag_sync_required)) {
+		for (ZEST_EACH_FIF_i) {
+			if (compute->fif_outgoing_semaphore[i])
+				vkDestroySemaphore(ZestDevice->logical_device, compute->fif_outgoing_semaphore[i], &ZestDevice->allocation_callbacks);
+		}
+	}
+	if (compute->extra_cleanup_callback) {
+		compute->extra_cleanup_callback(compute);
+	}
+
 }
 //--End Compute shaders
 
