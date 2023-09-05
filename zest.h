@@ -33,7 +33,7 @@ extern "C" {
 #define ZEST__CLAMP(v, min_v, max_v) ((v < min_v) ? min_v : ((v > max_v) ? max_v : v))
 #define ZEST__POW2(x) ((x) && !((x) & ((x) - 1)))
 #define ZEST__FLAG(flag, bit) flag |= (bit)
-#define ZEST__UNFLAG(flag, bit) flag &= ~(bit)
+#define ZEST__UNFLAG(flag, bit) flag &= ~bit
 #define ZEST__FLAGGED(flag, bit) (flag & (bit)) > 0
 #define ZEST__NOT_FLAGGED(flag, bit) (flag & (bit)) == 0
 
@@ -200,20 +200,6 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 typedef enum zest_struct_type {
 	zest_stuct_type_texture = VK_STRUCTURE_TYPE_MAX_ENUM - 1,
 } zest_struct_type;
-
-typedef enum zest_create_flags {
-	zest_create_flag_none							= 0,
-	zest_create_flag_hide_mouse_pointer				= 1 << 0,		//Start the app with the mouse pointer hidden
-	zest_create_flag_maximised						= 1 << 1,		//Start the application maximized
-	zest_create_flag_initialise_with_command_queue	= 1 << 2,		//A render queue with layer draw operations will be createdon app initialization
-	zest_create_flag_enable_console					= 1 << 3,		//Redundant, will probably redo a console using imgui
-	zest_create_flag_enable_vsync					= 1 << 4,		//Enable vysnc
-	zest_create_flag_show_fps_in_title				= 1 << 5,		//Show the FPS in the window title
-	zest_create_flag_use_imgui						= 1 << 6,		//Initialise the App with ImGui
-	zest_create_flag_create_imgui_layer				= 1 << 7,		//Add a layer to the default render queue created with the app. NA if initialise_with_command_queue = false or use_imgui = false
-	zest_create_flag_enable_multi_sampling			= 1 << 8,		//Enable multisampling anti aliasing. May remove this at some point, not sure.
-	zest_create_flag_output_memory_usage_on_exit	= 1 << 9		//Outputs a report on the amount of memory used by the various vulkan buffers.
-} zest_create_flags;
 
 typedef enum zest_app_flags {
 	zest_app_flag_none =					0,
@@ -754,7 +740,6 @@ typedef struct zest_window_t {
 	zest_uint window_width;
 	zest_uint window_height;
 	zest_bool framebuffer_resized;
-	zest_create_flags flags;
 } zest_window_t;
 
 typedef struct zest_device_t {
@@ -1389,8 +1374,6 @@ typedef struct zest_renderer_t {
 	VkExtent2D swapchain_extent;
 	VkSwapchainKHR swapchain;
 
-	VkCommandPool present_command_pool;
-
 	VkFence fif_fence[ZEST_MAX_FIF];
 	zest_descriptor_buffer standard_uniform_buffer;
 
@@ -1401,12 +1384,13 @@ typedef struct zest_renderer_t {
 	zest_buffer_t *image_resource_buffer;
 	zest_buffer_t *depth_resource_buffer;
 	zest_frame_buffer_t *framebuffer;
-	VkCommandBuffer *present_command_buffers;
 
 	zest_render_pass final_render_pass;
 	zest_frame_buffer_attachment_t final_render_pass_depth_attachment;
 	zest_final_render_push_constants_t push_constants;
 	VkDescriptorBufferInfo view_buffer_info[ZEST_MAX_FIF];
+
+	VkPipelineCache pipeline_cache;
 
 	zest_map_buffer_allocators buffer_allocators;									//For non frame in flight buffers
 
@@ -1483,6 +1467,7 @@ ZEST_PRIVATE zest_window_t *zest__os_create_window(int x, int y, int width, int 
 ZEST_PRIVATE void zest__os_create_window_surface(zest_window_t* window);
 ZEST_PRIVATE void zest__os_poll_events(ZEST_PROTOTYPE);
 ZEST_PRIVATE void zest__os_add_platform_extensions(ZEST_PROTOTYPE);
+ZEST_PRIVATE void zest__os_set_window_title(const char *title);
 //-- End Platform dependent functions
 
 ZEST_PRIVATE void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
@@ -1506,6 +1491,7 @@ ZEST_PRIVATE void zest__create_swapchain(void);
 ZEST_PRIVATE VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *availableFormats);
 ZEST_PRIVATE VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_modes, zest_bool use_vsync);
 ZEST_PRIVATE VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
+ZEST_PRIVATE void zest__create_pipeline_cache();
 ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *width, int *height);
 ZEST_PRIVATE void zest__destroy_window_callback(void *user_data);
 ZEST_PRIVATE void zest__cleanup_swapchain(void);
@@ -1521,12 +1507,9 @@ ZEST_PRIVATE zest_buffer_t *zest__create_depth_resources(void);
 ZEST_PRIVATE void zest__create_swap_chain_frame_buffers(zest_bool depth_buffer);
 ZEST_PRIVATE void zest__create_sync_objects(void);
 ZEST_PRIVATE zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buffer buffer);
-ZEST_PRIVATE void zest__create_renderer_command_pools(void);
 ZEST_PRIVATE void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes);
 ZEST_PRIVATE void zest__make_standard_descriptor_layouts(void);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
-ZEST_PRIVATE void zest__create_final_render_command_buffer(void);
-ZEST_PRIVATE void zest__rerecord_final_render_command_buffer(void);
 ZEST_PRIVATE void zest__create_empty_command_queue(zest_command_queue command_queue);
 ZEST_PRIVATE void zest__render_blank(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
 ZEST_PRIVATE void zest__destroy_pipeline_set(zest_pipeline_t *p);
