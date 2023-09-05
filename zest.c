@@ -894,6 +894,12 @@ void zest__create_instance(void) {
 	if (ZEST_ENABLE_VALIDATION_LAYER) {
 		create_info.enabledLayerCount = (zest_uint)zest__validation_layer_count;
 		create_info.ppEnabledLayerNames = zest_validation_layers;
+		VkDebugUtilsMessengerCreateInfoEXT debug_create_info = { 0 };
+		debug_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		debug_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+		debug_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+		debug_create_info.pfnUserCallback = zest_debug_callback;
+		create_info.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debug_create_info;
 	}
 	else {
 		create_info.enabledLayerCount = 0;
@@ -1331,6 +1337,7 @@ void zest__destroy(void) {
 	zest__cleanup_renderer();
 	vkDestroySurfaceKHR(ZestDevice->instance, ZestApp->window->surface, &ZestDevice->allocation_callbacks);
 	zest_destroy_debug_messenger();
+	vkDestroyPipelineCache(ZestDevice->logical_device, ZestRenderer->pipeline_cache, &ZestDevice->allocation_callbacks);
 	vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->command_pool, &ZestDevice->allocation_callbacks);
 	vkDestroyDevice(ZestDevice->logical_device, &ZestDevice->allocation_callbacks);
 	vkDestroyInstance(ZestDevice->instance, &ZestDevice->allocation_callbacks);
