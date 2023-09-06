@@ -1096,7 +1096,7 @@ zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_de
 		VkBool32 present_support = VK_FALSE;
 		vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, ZestApp->window->surface, &present_support);
 
-		if (queue_families[f].queueCount > 0 && present_support) {
+		if (queue_families[f].queueCount > 0 && present_support && indices.present_set == 0) {
 			zest__set_present_family(&indices, i);
 		}
 
