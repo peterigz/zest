@@ -15,3 +15,4 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 void zest_imgui_CopyBuffers(zest_layer imgui_layer);
 void zest_imgui_DrawImage(zest_image image, float width, float height);
 void zest_imgui_DrawImage2(zest_image image, float width, float height);
+void zest_imgui_Initialise();
