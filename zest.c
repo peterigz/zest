@@ -1381,14 +1381,12 @@ void zest__main_loop(void) {
 		ZestApp->frame_timer += ZestApp->current_elapsed;
 		ZestApp->frame_count++;
 		if (ZestApp->frame_timer >= ZEST_MICROSECS_SECOND) {
-			char fps_str[20];
-			zest_snprintf(fps_str, 20, "FPS: %u", ZestApp->frame_count);
-			//printf("FPS: %u\n", ZestApp->frame_count);
-			//glfwSetWindowTitle(ZestApp->window->window_handle, fps_str);
-			SetWindowText(ZestApp->window->window_handle, fps_str);
 			ZestApp->last_fps = ZestApp->frame_count;
 			ZestApp->frame_count = 0;
 			ZestApp->frame_timer = ZestApp->frame_timer - ZEST_MICROSECS_SECOND;
+			if (ZEST__FLAGGED(ZestApp->flags, zest_app_flag_output_fps)) {
+				printf("FPS: %u\n", ZestApp->last_fps);
+			}
 		}
 
 	}
@@ -3076,6 +3074,15 @@ void zest_EnableVSync() {
 void zest_DisnableVSync() {
 	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_vsync_enabled);
 	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
+}
+
+void zest_LogFPSToConsole(zest_bool yesno) {
+	if (yesno) {
+		ZEST__FLAG(ZestApp->flags, zest_app_flag_output_fps);
+	}
+	else {
+		ZEST__UNFLAG(ZestApp->flags, zest_app_flag_output_fps);
+	}
 }
 
 zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }

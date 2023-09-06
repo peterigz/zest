@@ -209,7 +209,8 @@ typedef enum zest_app_flags {
 	zest_app_flag_cmd_pressed =				1 << 3,
 	zest_app_flag_record_input  =			1 << 4,
 	zest_app_flag_enable_console =			1 << 5,
-	zest_app_flag_quit_application =		1 << 6
+	zest_app_flag_quit_application =		1 << 6,
+	zest_app_flag_output_fps =				1 << 7
 } zest_app_flags;
 
 enum zest__constants {
@@ -2024,6 +2025,7 @@ ZEST_API void zest_ComputeToVertexBarrier();
 ZEST_API void zest_DispatchCompute(zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 ZEST_API void zest_EnableVSync();
 ZEST_API void zest_DisnableVSync();
+ZEST_API void zest_LogFPSToConsole(zest_bool yesno);
 //--End General Helper functions
 
 //Debug Helpers
