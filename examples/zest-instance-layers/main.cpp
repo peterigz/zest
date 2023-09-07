@@ -83,9 +83,10 @@ int main(void) {
 	zest_example example = { 0 };
 
 	zest_create_info_t create_info = zest_CreateInfo();
-	//create_info.flags |= zest_init_flag_use_depth_buffer;
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
 	zest_Initialise(&create_info);
+	zest_LogFPSToConsole(1);
 	zest_SetUserData(&example);
 	zest_SetUserUpdateCallback(test_update_callback);
 
