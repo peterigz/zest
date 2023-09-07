@@ -2374,7 +2374,7 @@ zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_in
 }
 
 zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer descriptor_buffer) {
-	descriptor_buffer->buffer[descriptor_buffer->all_frames_in_flight ? ZEST_FIF : 0];
+	return descriptor_buffer->buffer[descriptor_buffer->all_frames_in_flight ? ZEST_FIF : 0];
 }
 
 zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buffer buffer) { 
@@ -2907,7 +2907,7 @@ void zest_SetPipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_
 	pipeline_template->dynamicState.flags = 0;
 }
 
-void zest_BuildPipeline(zest_pipeline_t *pipeline) {
+void zest_BuildPipeline(zest_pipeline pipeline) {
 	ZEST_VK_CHECK_RESULT(vkCreatePipelineLayout(ZestDevice->logical_device, &pipeline->pipeline_template.pipelineLayoutInfo, &ZestDevice->allocation_callbacks, &pipeline->pipeline_layout));
 
 	if (!pipeline->pipeline_template.vertShaderFile || !pipeline->pipeline_template.fragShaderFile) {
@@ -2962,10 +2962,6 @@ void zest_BuildPipeline(zest_pipeline_t *pipeline) {
 	vkDestroyShaderModule(ZestDevice->logical_device, vert_shader_module, &ZestDevice->allocation_callbacks);
 }
 
-void zest_AddPipelineDescriptorWrite(zest_pipeline_t *pipeline, VkWriteDescriptorSet set, zest_index fif) { 
-	zest_vec_push(pipeline->descriptor_writes[fif], set); 
-}
-
 void zest_SetPipelineTemplatePushConstant(zest_pipeline_template_create_info_t *create_info, zest_uint size, zest_uint offset, VkShaderStageFlags stage_flags) {
 	zest_vec_clear(create_info->pushConstantRange);
 	VkPushConstantRange range;
@@ -2975,7 +2971,11 @@ void zest_SetPipelineTemplatePushConstant(zest_pipeline_template_create_info_t *
 	zest_vec_push(create_info->pushConstantRange, range);
 }
 
-void zest_MakePipelineTemplate(zest_pipeline_t *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info) {
+zest_pipeline_template_t *zest_PipelineTemplate(zest_pipeline pipeline) {
+	return &pipeline->pipeline_template;
+}
+
+void zest_MakePipelineTemplate(zest_pipeline pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info) {
 	if (!(pipeline->flags & zest_pipeline_set_flag_is_render_target_pipeline))
 		create_info->renderPass = render_pass;
 	pipeline->create_info.viewport.extent = zest_GetSwapChainExtent();
@@ -3037,6 +3037,10 @@ zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest
 VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands item) { return ZestRenderer->swapchain_frame_buffers[ZestRenderer->current_frame]; }
 zest_descriptor_set_layout zest_GetDescriptorSetLayout(const char *name) { return *zest_map_at(ZestRenderer->descriptor_layouts, name); }
 zest_pipeline zest_Pipeline(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipelines, name)); return *zest_map_at(ZestRenderer->pipelines, name); }
+zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(const char *pipeline_name) {
+	zest_pipeline_template_create_info_t copy = zest_Pipeline(pipeline_name)->create_info;
+	return copy;
+}
 zest_pipeline_template_create_info_t zest_PipelineCreateInfo(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipelines, name)); zest_pipeline pipeline = *zest_map_at(ZestRenderer->pipelines, name); return pipeline->create_info; }
 VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->swapchain_extent; }
 zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
@@ -7268,8 +7272,12 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &compute->fif_outgoing_semaphore[i]))
 	}
 
-	compute->descriptor_update_callback = builder->descriptor_update_callback;
-	compute->command_buffer_update_callback = builder->command_buffer_update_callback;
+	if (!builder->descriptor_update_callback) {
+		compute->descriptor_update_callback = builder->descriptor_update_callback;
+	}
+	if (!builder->command_buffer_update_callback) {
+		compute->command_buffer_update_callback = builder->command_buffer_update_callback;
+	}
 
 	ZEST__FLAG(compute->flags, zest_compute_flag_is_active);
 }

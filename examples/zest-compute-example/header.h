@@ -49,6 +49,5 @@ static inline float Radians(float degrees) { return degrees * 0.0174532925199432
 static inline float Degrees(float radians) { return radians * 57.295779513082320876798154814105f; }
 void InitImGuiApp(ImGuiApp *app);
 void UpdateComputeUniformBuffers(ImGuiApp *app);
-void UpdateComputeDescriptors(zest_compute compute);
 void UpdateComputeCommands(zest_command_queue_compute compute_commands);
 void DrawComputeSprites(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);

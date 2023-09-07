@@ -1673,11 +1673,12 @@ ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_c
 ZEST_API zest_pipeline zest_AddPipeline(const char *name);
 ZEST_API zest_vertex_input_descriptions zest_NewVertexInputDescriptions();
 ZEST_API void zest_AddVertexInputDescription(zest_vertex_input_descriptions *descriptions, VkVertexInputAttributeDescription description);
-ZEST_API void zest_BuildPipeline(zest_pipeline_t *pipeline);
+ZEST_API void zest_BuildPipeline(zest_pipeline pipeline);
 ZEST_API void zest_UpdatePipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info);
 ZEST_API void zest_SetPipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info);
-ZEST_API void zest_MakePipelineTemplate(zest_pipeline_t *pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info);
+ZEST_API void zest_MakePipelineTemplate(zest_pipeline pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info);
 ZEST_API void zest_SetPipelineTemplatePushConstant(zest_pipeline_template_create_info_t *create_info, zest_uint size, zest_uint offset, VkShaderStageFlags stage_flags);
+ZEST_API zest_pipeline_template_t *zest_PipelineTemplate(zest_pipeline pipeline);
 ZEST_API VkShaderModule zest_CreateShaderModule(char *code);
 ZEST_API zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void);
 ZEST_API void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range);
@@ -1695,6 +1696,7 @@ ZEST_API void zest_BindPipeline(zest_pipeline_t *pipeline, VkDescriptorSet descr
 ZEST_API void zest_BindComputePipeline(zest_compute compute, zest_index shader_index);
 ZEST_API void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set);
 ZEST_API zest_pipeline zest_Pipeline(const char *name);
+ZEST_API zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(const char *pipeline_name);
 //-- End Pipeline related 
 
 //Buffer related

@@ -10,6 +10,10 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Grab the imgui pipeline so we can use it later
 	app->imgui_layer_info.pipeline = zest_Pipeline("pipeline_imgui");
 
+	app->frame_timer = 1.f;
+	app->timer = 0.f;
+	app->anim_start = 20.f;
+	app->attach_to_cursor = false;
 
 	//Set up the compute shader example starts here
 	//Prepare a couple of textures:
@@ -59,40 +63,40 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_FreeBuffer(staging_buffer);
 
 	//Prepare a pipeline for the compute sprites based on the built in pipeline 2d sprites
-	zest_pipeline sprite_pipeline = zest_Pipeline("pipeline_2d_sprites");
-	//Copy the sprite 2d pipeline info
-	zest_pipeline_template_create_info_t create_info = sprite_pipeline->create_info;
+	zest_pipeline_template_create_info_t create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
+	//Create a new pipeline in the renderer
+	app->particle_pipeline = zest_AddPipeline("particles");
+
+	//Change some things in the create info to set up our pipeline
 	create_info.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(Particle), VK_VERTEX_INPUT_RATE_VERTEX);
-
-	app->frame_timer = 1.f;
-	app->timer = 0.f;
-	app->anim_start = 20.f;
-	app->attach_to_cursor = false;
-
 	app->vertice_attributes = zest_NewVertexInputDescriptions();
 	zest_AddVertexInputDescription(&app->vertice_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Particle, pos)));
 	zest_AddVertexInputDescription(&app->vertice_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Particle, gradient_pos)));
 
 	create_info.attributeDescriptions = app->vertice_attributes;
-	app->particle_pipeline = zest_AddPipeline("particles");
 	create_info.vertShaderFile = "spv/particle.spv";
 	create_info.fragShaderFile = "spv/particle.spv";
 	create_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 	create_info.descriptorSetLayout = app->descriptor_layout;
 	zest_SetPipelineTemplatePushConstant(&create_info, sizeof(zest_vec2), 0, VK_SHADER_STAGE_VERTEX_BIT);
+
+	//Using the create_info we prepared build the template for the pipeline
 	zest_MakePipelineTemplate(app->particle_pipeline, zest_GetStandardRenderPass(), &create_info);
-	app->particle_pipeline->pipeline_template.rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-	app->particle_pipeline->pipeline_template.rasterizer.cullMode = VK_CULL_MODE_NONE;
-	app->particle_pipeline->pipeline_template.rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	app->particle_pipeline->pipeline_template.colorBlendAttachment = zest_AdditiveBlendState2();
-	app->particle_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
-	app->particle_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
+	//Alter a few things in the template to tweak it to how we want
+	zest_PipelineTemplate(app->particle_pipeline)->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	zest_PipelineTemplate(app->particle_pipeline)->rasterizer.cullMode = VK_CULL_MODE_NONE;
+	zest_PipelineTemplate(app->particle_pipeline)->rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	zest_PipelineTemplate(app->particle_pipeline)->colorBlendAttachment = zest_AdditiveBlendState2();
+	zest_PipelineTemplate(app->particle_pipeline)->depthStencil.depthWriteEnable = VK_FALSE;
+	zest_PipelineTemplate(app->particle_pipeline)->depthStencil.depthTestEnable = VK_FALSE;
+	//Build the pipeline so it's ready to use
 	zest_BuildPipeline(app->particle_pipeline);
 
 	//Setup a uniform buffer
 	app->compute_uniform_buffer = zest_CreateUniformBuffer("Compute Uniform", sizeof(ComputeUniformBuffer));
 
 	//Set up the compute shader
+	//Create a new empty compute shader in the renderer
 	app->compute = zest_CreateCompute("particles");
 	//A builder is used to simplify the compute shader setup process
 	zest_compute_builder_t builder = zest_NewComputeBuilder();
@@ -104,10 +108,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_AddComputeBufferForBinding(&builder, app->compute_uniform_buffer);
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
-	zest_SetComputeDescriptorUpdateCallback(&builder, UpdateComputeDescriptors);
 	//Declare the actual shader to use
 	zest_AddComputeShader(&builder, "spv/particle_comp.spv");
-	//Finally, make the compute shader
+	//Finally, make the compute shader using the builder
 	zest_MakeCompute(&builder, app->compute);
 
 	//Set up our own draw routine
@@ -144,11 +147,6 @@ void DrawComputeSprites(zest_draw_routine draw_routine, VkCommandBuffer command_
 	zest_SendPushConstants(app->particle_pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_vec2), &screen_size);
 	zest_BindVertexBuffer(app->particle_buffer->buffer[0]);
 	zest_Draw(PARTICLE_COUNT, 1, 0, 0);
-}
-
-void UpdateComputeDescriptors(zest_compute compute) {
-	ImGuiApp *app = (ImGuiApp*)compute->user_data;
-
 }
 
 void UpdateComputeCommands(zest_command_queue_compute compute_commands) {
