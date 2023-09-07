@@ -1130,7 +1130,6 @@ typedef struct zest_layer_t {
 	zest_push_constants_t push_constants;
 
 	zest_vec2 layer_size;
-	zest_vec2 viewport_size;
 	zest_vec2 screen_scale;
 
 	VkRect2D scissor;
@@ -1935,7 +1934,8 @@ ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
 
 //-- Draw Layers API
 ZEST_API zest_layer zest_NewLayer();
-ZEST_API void zest_SetInstanceLayerViewPort(zest_layer instance_layer, int x, int y, zest_uint width, zest_uint height, float viewport_width, float viewport_height);
+ZEST_API void zest_SetInstanceLayerViewPort(zest_layer instance_layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
+ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
 ZEST_API zest_layer zest_GetLayer(const char *name);
 //-- End Draw Layers
 

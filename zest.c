@@ -4335,6 +4335,7 @@ zest_layer zest_NewMeshLayer(const char *name, zest_size vertex_struct_size) {
 	ZestRenderer->setup_context.layer = (zest_layer)draw_routine->draw_data;
 	layer->draw_commands = draw_commands;
 	layer->name = name;
+	zest_SetLayerSize(layer, (float)draw_commands->viewport.extent.width, (float)draw_commands->viewport.extent.height);
 	zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
 	ZestRenderer->setup_context.type = zest_setup_context_type_layer;
 	return layer;
@@ -4350,6 +4351,7 @@ zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type b
 	ZestRenderer->setup_context.layer = layer;
 	layer->draw_commands = ZestRenderer->setup_context.draw_commands;
 	layer->name = name;
+	zest_SetLayerSize(layer, (float)draw_commands->viewport.extent.width, (float)draw_commands->viewport.extent.height);
 	zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
 	ZestRenderer->setup_context.type = zest_setup_context_type_layer;
 	return layer;
@@ -6467,10 +6469,12 @@ void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine
 }
 
 void zest__update_instance_layer_resolution(zest_layer layer) {
-	layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
-	layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
-	layer->screen_scale.x = layer->viewport_size.x / layer->layer_size.x;
-	layer->screen_scale.y = layer->viewport_size.y / layer->layer_size.y;
+	layer->viewport.width = (float)zest_GetSwapChainExtent().width;
+	layer->viewport.height = (float)zest_GetSwapChainExtent().height;
+	layer->screen_scale.x = layer->viewport.width / layer->layer_size.x;
+	layer->screen_scale.y = layer->viewport.height / layer->layer_size.y;
+	layer->scissor.extent.width = (zest_uint)layer->viewport.width;
+	layer->scissor.extent.height = (zest_uint)layer->viewport.height;
 }
 
 void zest__draw_instance_layer(zest_layer instance_layer, VkCommandBuffer command_buffer) {
@@ -6587,9 +6591,14 @@ zest_layer zest_NewLayer() {
 	return layer;
 }
 
-void zest_SetInstanceLayerViewPort(zest_layer instance_layer, int x, int y, zest_uint width, zest_uint height, float viewport_width, float viewport_height) {
-	instance_layer->scissor = zest_CreateRect2D(width, height, x, y);
+void zest_SetInstanceLayerViewPort(zest_layer instance_layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
+	instance_layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
 	instance_layer->viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
+}
+
+void zest_SetLayerSize(zest_layer layer, float width, float height) {
+	layer->layer_size.x = width;
+	layer->layer_size.y = height;
 }
 //-- End Draw Layers
 
@@ -6619,10 +6628,7 @@ void zest_InitialiseSpriteLayer(zest_layer sprite_layer, zest_uint instance_pool
 		sprite_layer->memory_refs[i].instance_ptr = sprite_layer->memory_refs[i].staging_instance_data->data;
 	}
 
-	sprite_layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
-	sprite_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
-
-	zest_SetInstanceLayerViewPort(sprite_layer, 0, 0, (zest_uint)sprite_layer->viewport_size.x, (zest_uint)sprite_layer->viewport_size.y, sprite_layer->viewport_size.x, sprite_layer->viewport_size.y);
+	zest_SetInstanceLayerViewPort(sprite_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
 
 	zest__reset_instance_layer_drawing(sprite_layer);
 }
@@ -6696,9 +6702,7 @@ void zest_InitialiseMSDFFontLayer(zest_layer font_layer, zest_uint instance_pool
 		font_layer->memory_refs[i].instance_ptr = font_layer->memory_refs[i].staging_instance_data->data;
 	}
 
-	font_layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
-	font_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
-	zest_SetInstanceLayerViewPort(font_layer, 0, 0, (zest_uint)font_layer->viewport_size.x, (zest_uint)font_layer->viewport_size.y, font_layer->viewport_size.x, font_layer->viewport_size.y);
+	zest_SetInstanceLayerViewPort(font_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
 
 	zest__reset_instance_layer_drawing(font_layer);
 }
@@ -6938,10 +6942,7 @@ void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instanc
 		billboard_layer->memory_refs[i].instance_ptr = billboard_layer->memory_refs[i].staging_instance_data->data;
 	}
 
-	billboard_layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
-	billboard_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
-
-	zest_SetInstanceLayerViewPort(billboard_layer, 0, 0, (zest_uint)billboard_layer->viewport_size.x, (zest_uint)billboard_layer->viewport_size.y, billboard_layer->viewport_size.x, billboard_layer->viewport_size.y);
+	zest_SetInstanceLayerViewPort(billboard_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
 
 	zest__reset_instance_layer_drawing(billboard_layer);
 }
@@ -7015,8 +7016,8 @@ void zest_InitialiseMeshLayer(zest_layer mesh_layer, zest_size vertex_struct_siz
 		mesh_layer->memory_refs[i].index_ptr = mesh_layer->memory_refs[i].staging_index_data->data;
 	}
 
-	mesh_layer->viewport_size.x = (float)zest_GetSwapChainExtent().width;
-	mesh_layer->viewport_size.y = (float)zest_GetSwapChainExtent().height;
+	mesh_layer->viewport.width = (float)zest_GetSwapChainExtent().width;
+	mesh_layer->viewport.height = (float)zest_GetSwapChainExtent().height;
 
 }
 
