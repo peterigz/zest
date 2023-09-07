@@ -1295,7 +1295,6 @@ typedef struct zest_texture_t {
 	zest_index image_index;									//Tracks the UID of image indexes in the qvec
 	VkDescriptorSet current_descriptor_set[ZEST_MAX_FIF];
 	zest_map_texture_descriptor_sets descriptor_sets;
-	zest_map_texture_descriptor_builders descriptor_builders;
 	unsigned short packed_border_size;
 
 	zest_buffer stream_staging_buffer;						//Used for stream buffers only if you need to update the texture every frame
@@ -1651,6 +1650,7 @@ ZEST_API VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint 
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDescriptorSetLayoutBinding *bindings);
 ZEST_API VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
 ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorImageInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API zest_descriptor_set_builder_t zest_NewDescriptorSetBuilder();
 ZEST_API void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
 ZEST_API void zest_AddBuilderDescriptorWriteBuffer(zest_descriptor_set_builder_t *builder, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
 ZEST_API zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *builder, zest_descriptor_set_layout layout);

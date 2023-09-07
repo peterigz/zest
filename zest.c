@@ -2547,6 +2547,11 @@ VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet des
 	return write;
 }
 
+zest_descriptor_set_builder_t zest_NewDescriptorSetBuilder() {
+	zest_descriptor_set_builder_t builder = { 0 };
+	return builder;
+}
+
 void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type) {
 	VkWriteDescriptorSet write = { 0 };
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2572,6 +2577,8 @@ void zest_AddBuilderDescriptorWriteBuffer(zest_descriptor_set_builder_t *builder
 }
 
 zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *builder, zest_descriptor_set_layout layout) {
+	ZEST_ASSERT(zest_vec_size(builder));		//Nothing to build.  Call AddBuilder functions to add descriptor writes first.
+												//Note that calling this function will free the builder descriptor so you will need to add to the builder again 
 	zest_descriptor_set_t set = { 0 };
 	for (ZEST_EACH_FIF_i) {
 		zest_AllocateDescriptorSet(ZestRenderer->descriptor_pool, layout->descriptor_layout, &set.descriptor_set[i]);
@@ -2584,6 +2591,7 @@ zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *bui
 	for (ZEST_EACH_FIF_i) {
 		zest_UpdateDescriptorSet(set.descriptor_writes[i]);
 	}
+	zest_vec_free(builder->writes);
 	return set;
 }
 
@@ -6581,7 +6589,12 @@ void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_d
 	zest__end_draw_instructions(sprite_layer);
 	zest__start_instance_instructions(sprite_layer);
 	sprite_layer->current_instance_instruction.pipeline = pipeline;
-	sprite_layer->current_instance_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+	if (descriptor_set) {
+		sprite_layer->current_instance_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+	}
+	else {
+		sprite_layer->current_instance_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+	}
 	sprite_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
 	sprite_layer->current_instance_instruction.scissor = sprite_layer->scissor;
 	sprite_layer->current_instance_instruction.viewport = sprite_layer->viewport;
@@ -6653,7 +6666,12 @@ void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_descrip
 	zest__start_instance_instructions(font_layer);
 	ZEST_ASSERT(ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready));		//Make sure the font is properly loaded or wasn't recently deleted
 	font_layer->current_instance_instruction.pipeline = pipeline;
-	font_layer->current_instance_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+	if (descriptor_set) {
+		font_layer->current_instance_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+	}
+	else {
+		font_layer->current_instance_instruction.descriptor_set = font->texture->current_descriptor_set[ZEST_FIF];
+	}
 	font_layer->current_instance_instruction.draw_mode = zest_draw_mode_text;
 	font_layer->current_instance_instruction.asset = font;
 	font_layer->current_instance_instruction.scissor = font_layer->scissor;
@@ -6890,7 +6908,12 @@ void zest_SetBillboardDrawing(zest_layer billboard_layer, zest_texture texture, 
 	zest__end_draw_instructions(billboard_layer);
 	zest__start_instance_instructions(billboard_layer);
 	billboard_layer->current_instance_instruction.pipeline = pipeline;
-	billboard_layer->current_instance_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+	if (descriptor_set) {
+		billboard_layer->current_instance_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+	}
+	else {
+		billboard_layer->current_instance_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+	}
 	billboard_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
 	billboard_layer->current_instance_instruction.scissor = billboard_layer->scissor;
 	billboard_layer->current_instance_instruction.viewport = billboard_layer->viewport;
