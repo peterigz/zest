@@ -27,7 +27,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//We'll need to create our own descriptor layout for the vertex and fragment shaders that can 
 	//sample from both textures
 	app->descriptor_layout = zest_AddDescriptorLayout("Particles descriptor layout", zest_CreateDescriptorSetLayout(0, 2, 0));
-	zest_descriptor_set_builder_t set_builder = { 0 };
+	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
 	zest_AddBuilderDescriptorWriteImage(&set_builder, &app->particle_texture->descriptor, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 	zest_AddBuilderDescriptorWriteImage(&set_builder, &app->gradient_texture->descriptor, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 	app->descriptor_set = zest_BuildDescriptorSet(&set_builder, app->descriptor_layout);

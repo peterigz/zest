@@ -35,7 +35,7 @@ void InitImGuiApp(ImGuiApp *app) {
 			app->imgui_layer_info.mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
 			{
 				zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
-				zest_ContextDrawRoutine()->data = &app->imgui_layer_info;
+				zest_ContextDrawRoutine()->user_data = &app->imgui_layer_info;
 				app->font_layer = zest_NewBuiltinLayerSetup("Font layer", zest_builtin_layer_fonts);
 			}
 		}
@@ -294,7 +294,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		app->font_layer->multiply_blend_factor = 1.f;
 		app->font_layer->push_constants = { 0 };
-		zest_SetMSDFFontDrawing(app->font_layer, app->font, app->font->descriptor_set_index, app->font->pipeline);
+		zest_SetMSDFFontDrawing(app->font_layer, app->font, app->font->descriptor_set, app->font->pipeline);
 		zest_SetMSDFFontShadow(app->font_layer, shadow_length, shadow_smoothing, shadow_clipping);
 		zest_SetMSDFFontShadowColor(app->font_layer, zest_Vec4Set(0.f, 0.f, 0.f, shadow_alpha));
 		

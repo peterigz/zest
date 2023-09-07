@@ -108,7 +108,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::Render();
 	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
 
-	zest_SetSpriteDrawing(sprite_layer, app->glyph_texture, zest_GetTextureDescriptorSetIndex(app->glyph_texture, "Default"), app->sdf_pipeline);
+	zest_SetSpriteDrawing(sprite_layer, app->glyph_texture, 0, app->sdf_pipeline);
 	sprite_layer->current_color.a = 0;
 	sprite_layer->current_instance_instruction.push_constants.parameters2.x = expand;
 	sprite_layer->current_instance_instruction.push_constants.parameters2.y = bleed;
