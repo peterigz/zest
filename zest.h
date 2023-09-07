@@ -391,6 +391,7 @@ typedef struct zest_layer_t zest_layer_t;
 typedef struct zest_pipeline_t zest_pipeline_t;
 typedef struct zest_render_pass_t zest_render_pass_t;
 typedef struct zest_descriptor_set_layout_t zest_descriptor_set_layout_t;
+typedef struct zest_descriptor_set_t zest_descriptor_set_t;
 typedef struct zest_descriptor_buffer_t zest_descriptor_buffer_t;
 typedef struct zest_render_target_t zest_render_target_t;
 typedef struct zest_buffer_allocator_t zest_buffer_allocator_t;
@@ -409,6 +410,7 @@ ZEST__MAKE_HANDLE(zest_layer)
 ZEST__MAKE_HANDLE(zest_pipeline)
 ZEST__MAKE_HANDLE(zest_render_pass)
 ZEST__MAKE_HANDLE(zest_descriptor_set_layout)
+ZEST__MAKE_HANDLE(zest_descriptor_set)
 ZEST__MAKE_HANDLE(zest_descriptor_buffer)
 ZEST__MAKE_HANDLE(zest_render_target)
 ZEST__MAKE_HANDLE(zest_buffer_allocator)
@@ -896,7 +898,7 @@ typedef struct zest_descriptor_set_builder_t {
 } zest_descriptor_set_builder_t;
 
 typedef struct zest_descriptor_buffer_t {
-	zest_buffer *buffer[ZEST_MAX_FIF];
+	zest_buffer buffer[ZEST_MAX_FIF];
 	VkDescriptorBufferInfo descriptor_info[ZEST_MAX_FIF];
 	zest_bool all_frames_in_flight;
 } zest_descriptor_buffer_t;
@@ -1155,7 +1157,7 @@ typedef struct zest_font_t {
 	zest_text name;
 	zest_texture texture;
 	zest_pipeline pipeline;
-	zest_index descriptor_set_index;
+	zest_descriptor_set descriptor_set;
 	float pixel_range;
 	float miter_limit;
 	float padding;
@@ -1230,7 +1232,7 @@ struct zest_command_queue_compute_t {
 	const char *name;
 };
 
-zest_hash_map(zest_descriptor_set_t) zest_map_texture_descriptor_sets;
+zest_hash_map(zest_descriptor_set) zest_map_texture_descriptor_sets;
 zest_hash_map(zest_descriptor_set_builder_t) zest_map_texture_descriptor_builders;
 
 typedef struct zest_bitmap_t {
@@ -1861,11 +1863,9 @@ ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const c
 ZEST_API float zest_CopyAnimationFrames(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 ZEST_API void zest_ProcessTextureImages(zest_texture texture);
 ZEST_API void zest_DeleteTextureLayers(zest_texture texture);
-ZEST_API zest_index zest_CreateTextureDescriptorSets(zest_texture texture, const char *name, const char *uniform_buffer_name);
-ZEST_API zest_index zest_GetTextureDescriptorSetIndex(zest_texture texture, const char *name);
-ZEST_API VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture texture, zest_index index);
-ZEST_API void zest_SwitchTextureDescriptorSet(zest_texture texture, zest_index index);
-ZEST_API void zest_SwitchTextureDescriptorSetByName(zest_texture texture, const char *index);
+ZEST_API zest_descriptor_set zest_CreateTextureSpriteDescriptorSets(zest_texture texture, const char *name, const char *uniform_buffer_name);
+ZEST_API zest_descriptor_set zest_GetTextureDescriptorSet(zest_texture texture, const char *name);
+ZEST_API void zest_SwitchTextureDescriptorSet(zest_texture texture, const char *name);
 ZEST_API VkDescriptorSet zest_CurrentTextureDescriptorSet(zest_texture texture);
 ZEST_API void zest_UpdateTextureSingleDescriptorSet(zest_texture texture, const char *name);
 ZEST_API void zest_UpdateAllTextureDescriptorWrites(zest_texture texture);
@@ -1889,7 +1889,7 @@ ZEST_API void zest_SetTextureWrappingRepeat(zest_texture texture);
 ZEST_API void zest_SetTextureLayerSize(zest_texture texture, zest_uint size);
 ZEST_API zest_bitmap_t *zest_GetTextureSingleBitmap(zest_texture texture);
 ZEST_API void zest_CreateTextureImageView(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
-ZEST_API zest_index zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set_t descriptor_set);
+ZEST_API void zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set descriptor_set);
 ZEST_API zest_texture zest_GetTexture(const char *name);
 ZEST_API void zest_UpdateAllTextureDescriptorSets(zest_texture texture);
 ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
@@ -1936,19 +1936,19 @@ ZEST_API zest_layer zest_GetLayer(const char *name);
 
 //Draw sprite layers
 ZEST_API void zest_InitialiseSpriteLayer(zest_layer sprite_layer, zest_uint instance_pool_size);
-ZEST_API void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_pipeline pipeline);
+ZEST_API void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 ZEST_API void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 //-- End Draw sprite layers
 
 //Draw billboard layers
 ZEST_API void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instance_pool_size);
-ZEST_API void zest_SetBillboardDrawing(zest_layer sprite_layer, zest_texture texture, zest_index descriptor_set_index, zest_pipeline pipeline);
+ZEST_API void zest_SetBillboardDrawing(zest_layer sprite_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
 //--End Draw billboard layers
 
 //Draw MSDF font layers
 ZEST_API void zest_InitialiseMSDFFontLayer(zest_layer font_layer, zest_uint instance_pool_size);
-ZEST_API void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_index descriptor_set_index, zest_pipeline pipeline);
+ZEST_API void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 ZEST_API void zest_SetMSDFFontShadow(zest_layer font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping);
 ZEST_API void zest_SetMSDFFontShadowColor(zest_layer font_layer, zest_vec4 color);
 ZEST_API void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float expand, float aa_factor, float radius, float detail);
