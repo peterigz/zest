@@ -5164,10 +5164,10 @@ void zest_DeleteTextureLayers(zest_texture texture) {
 zest_index zest_CreateTextureDescriptorSets(zest_texture texture, const char *name, const char *uniform_buffer_name) {
 	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, uniform_buffer_name));	//No uniform buffer found with that name
 	zest_descriptor_set_t set = { 0 };
-	set.uniform_buffer = zest_GetUniformBuffer(uniform_buffer_name);
+	set.buffer = zest_GetUniformBuffer(uniform_buffer_name);
 	for (ZEST_EACH_FIF_i) {
 		zest_AllocateDescriptorSet(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler")->descriptor_layout, &set.descriptor_set[i]);
-		zest_vec_push(set.descriptor_writes[i], zest_CreateBufferDescriptorWriteWithType(set.descriptor_set[i], &set.uniform_buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
+		zest_vec_push(set.descriptor_writes[i], zest_CreateBufferDescriptorWriteWithType(set.descriptor_set[i], &set.buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
 		zest_vec_push(set.descriptor_writes[i], zest_CreateImageDescriptorWriteWithType(set.descriptor_set[i], &texture->descriptor, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
 	}
 	zest_index set_index = zest_AddTextureDescriptorSet(texture, name, set);
@@ -5221,7 +5221,7 @@ void zest_UpdateAllTextureDescriptorWrites(zest_texture texture) {
 				VkWriteDescriptorSet *write = &set->descriptor_writes[i][k];
 				write->dstSet = set->descriptor_set[i];
 				if (write->descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
-					write->pBufferInfo = &set->uniform_buffer->descriptor_info[i];
+					write->pBufferInfo = &set->buffer->descriptor_info[i];
 				}
 				else if (write->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
 					write->pImageInfo = &texture->descriptor;

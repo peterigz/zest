@@ -88,6 +88,10 @@ extern "C" {
 #define ZEST_MICROSECS_SECOND 1000000ULL
 #define ZEST_MICROSECS_MILLISECOND 1000
 
+#ifndef ZEST_MAX_DEVICE_MEMORY_POOLS
+#define ZEST_MAX_DEVICE_MEMORY_POOLS 64
+#endif
+
 #define ZEST_NULL 0
 //For each frame in flight macro
 #define ZEST_EACH_FIF_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
@@ -115,9 +119,10 @@ typedef unsigned char zest_byte;
 typedef unsigned int zest_bool;
 typedef VkVertexInputAttributeDescription *zest_vertex_input_descriptions;
 
-//Handles. These are pointers that remain stable until the object is freed
+//Handles. These are pointers that remain stable until the object is freed.
 #define ZEST__MAKE_HANDLE(handle) typedef struct handle##_t* handle;
 
+//For allocating a new object with handle. Only used internally.
 #define ZEST__NEW(type) ZEST__ALLOCATE(sizeof(type##_t))
 
 //For global variables
@@ -321,7 +326,7 @@ typedef enum {
 
 typedef enum zest_texture_storage_type {
 	zest_texture_storage_type_packed,						//Pack all of the images into a sprite sheet and onto multiple layers in an image array on the GPU
-	zest_texture_storage_type_bank,							//Packs all images one per layer, best used for repeating textures
+	zest_texture_storage_type_bank,							//Packs all images one per layer, best used for repeating textures or color/bump/specular etc
 	zest_texture_storage_type_sprite_sheet,					//Packs all the images onto a single layer spritesheet
 	zest_texture_storage_type_single,						//A single image texture
 	zest_texture_storage_type_storage,						//A storage texture useful for manipulation and other things in a compute shader
@@ -565,7 +570,7 @@ ZEST_PRIVATE inline zest_ull zest__get_hash(zest_hasher *hasher)
 }
 void zest__hash_initialise(zest_hasher *hasher, zest_ull seed);
 
-//The only command you need for the hasher
+//The only command you need for the hasher. Just used internally by the hash map.
 zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed);
 extern zest_hasher *ZestHasher;
 //-- End of Pocket Hasher
@@ -584,6 +589,7 @@ ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index inde
 ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
 #define zest_map_hash(hash_map, name) zest_Hash(ZestHasher, name, strlen(name), ZEST_HASH_SEED) 
 #define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ZestHasher, ptr, size, ZEST_HASH_SEED) 
+//Free slots isn't really needed now, I should probably remove it.
 #define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; zest_index *free_slots; zest_index last_index; }
 #define zest_map_valid_name(hash_map, name) (hash_map.map && zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
 #define zest_map_valid_key(hash_map, key) (hash_map.map && zest__map_get_index(hash_map.map, key) != -1)
@@ -752,7 +758,7 @@ typedef struct zest_device_t {
 	zest_uint graphics_queue_family_index;
 	zest_uint present_queue_family_index;
 	zest_uint compute_queue_family_index;
-	void *memory_pools[32];
+	void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
 	zest_uint memory_pool_count;
 	zloc_allocator *allocator;
 	VkAllocationCallbacks allocation_callbacks;
@@ -880,7 +886,7 @@ typedef struct zest_descriptor_set_layout_t {
 } zest_descriptor_set_layout_t;
 
 typedef struct zest_descriptor_set_t {
-	zest_descriptor_buffer uniform_buffer;
+	zest_descriptor_buffer buffer;
 	VkWriteDescriptorSet *descriptor_writes[ZEST_MAX_FIF];
 	VkDescriptorSet descriptor_set[ZEST_MAX_FIF];
 } zest_descriptor_set_t;
@@ -890,7 +896,7 @@ typedef struct zest_descriptor_set_builder_t {
 } zest_descriptor_set_builder_t;
 
 typedef struct zest_descriptor_buffer_t {
-	zest_buffer_t *buffer[ZEST_MAX_FIF];
+	zest_buffer *buffer[ZEST_MAX_FIF];
 	VkDescriptorBufferInfo descriptor_info[ZEST_MAX_FIF];
 	zest_bool all_frames_in_flight;
 } zest_descriptor_buffer_t;
@@ -1225,6 +1231,7 @@ struct zest_command_queue_compute_t {
 };
 
 zest_hash_map(zest_descriptor_set_t) zest_map_texture_descriptor_sets;
+zest_hash_map(zest_descriptor_set_builder_t) zest_map_texture_descriptor_builders;
 
 typedef struct zest_bitmap_t {
 	int width;
@@ -1263,7 +1270,7 @@ typedef struct zest_image_t {
 	zest_vec2 scale;			//The scale of the image. 1.f if default, changing this will update the min/max coords
 	zest_vec2 handle;			//The handle of the image. 0.5f is the center of the image
 	float max_radius;			//You can load images and calculate the max radius of the image which is the furthest pixel from the center.
-	zest_texture texture;		//The index of the texture in the Renderer
+	zest_texture texture;		//Pointer to the texture that this image belongs to
 } zest_image_t;
 
 typedef struct zest_framebuffer_attachment_t {
@@ -1286,9 +1293,10 @@ typedef struct zest_texture_t {
 	zest_index image_index;									//Tracks the UID of image indexes in the qvec
 	VkDescriptorSet current_descriptor_set[ZEST_MAX_FIF];
 	zest_map_texture_descriptor_sets descriptor_sets;
+	zest_map_texture_descriptor_builders descriptor_builders;
 	unsigned short packed_border_size;
 
-	zest_buffer_t *stream_staging_buffer;		//Used for stream buffers only if you need to update the texture every frame
+	zest_buffer stream_staging_buffer;						//Used for stream buffers only if you need to update the texture every frame
 	zest_uint texture_layer_size;
 	zest_image_t texture;
 	zest_bitmap_t texture_bitmap;
