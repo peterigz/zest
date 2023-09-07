@@ -3,11 +3,9 @@
 
 void InitExample(RenderTargetExample *example) {
 
-	//QulkanRenderTarget &base_target = GetCurrentRenderTarget();
-	//base_target.HideTargetFromRender();
-
 	zest_pipeline_template_create_info_t create_info = zest_CreatePipelineTemplateCreateInfo();
 
+	//Make a pipeline to handle the blur effect
 	VkPushConstantRange image_pushconstant_range;
 	image_pushconstant_range.size = sizeof(zest_push_constants_t);
 	image_pushconstant_range.offset = 0;
