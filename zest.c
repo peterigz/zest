@@ -2373,6 +2373,10 @@ zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_in
 	return descriptor_buffer;
 }
 
+zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer descriptor_buffer) {
+	descriptor_buffer->buffer[descriptor_buffer->all_frames_in_flight ? ZEST_FIF : 0];
+}
+
 zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buffer buffer) { 
 	zest_map_insert(ZestRenderer->uniform_buffers, name, buffer); 
 	return buffer;

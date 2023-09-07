@@ -1724,6 +1724,7 @@ ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_siz
 ZEST_API void zest_Update2dUniformBuffer(void);
 ZEST_API void zest_Update2dUniformBufferFIF(zest_index fif);
 ZEST_API zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_info, zest_size size, zest_bool all_frames_in_flight);
+ZEST_API zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer descriptor_buffer);
 //--End Buffer related
 
 //Command queue setup and creation
