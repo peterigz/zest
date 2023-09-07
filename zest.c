@@ -2576,6 +2576,30 @@ void zest_AddBuilderDescriptorWriteBuffer(zest_descriptor_set_builder_t *builder
 	zest_vec_push(builder->writes, write);
 }
 
+void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t *builder, zest_uint image_count, VkDescriptorImageInfo *view_image_infos, zest_uint dst_binding, VkDescriptorType type) {
+	VkWriteDescriptorSet write = { 0 };
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = 0;
+	write.dstBinding = dst_binding;
+	write.dstArrayElement = 0;
+	write.descriptorType = type;
+	write.descriptorCount = image_count;
+	write.pImageInfo = view_image_infos;
+	zest_vec_push(builder->writes, write);
+}
+
+void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t *builder, zest_uint buffer_count, VkDescriptorBufferInfo *view_buffer_infos, zest_uint dst_binding, VkDescriptorType type) {
+	VkWriteDescriptorSet write = { 0 };
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = 0;
+	write.dstBinding = dst_binding;
+	write.dstArrayElement = 0;
+	write.descriptorType = type;
+	write.descriptorCount = buffer_count;
+	write.pBufferInfo = view_buffer_infos;
+	zest_vec_push(builder->writes, write);
+}
+
 zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *builder, zest_descriptor_set_layout layout) {
 	ZEST_ASSERT(zest_vec_size(builder));		//Nothing to build.  Call AddBuilder functions to add descriptor writes first.
 												//Note that calling this function will free the builder descriptor so you will need to add to the builder again 

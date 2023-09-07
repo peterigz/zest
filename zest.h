@@ -1653,6 +1653,8 @@ ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescript
 ZEST_API zest_descriptor_set_builder_t zest_NewDescriptorSetBuilder();
 ZEST_API void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
 ZEST_API void zest_AddBuilderDescriptorWriteBuffer(zest_descriptor_set_builder_t *builder, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t *builder, zest_uint image_count, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t *builder, zest_uint buffer_count, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
 ZEST_API zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *builder, zest_descriptor_set_layout layout);
 ZEST_API void zest_AllocateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSetLayout descriptor_layout, VkDescriptorSet *descriptor_set);
 ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
