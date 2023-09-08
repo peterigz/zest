@@ -296,7 +296,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		app->font_layer->push_constants = { 0 };
 		zest_SetMSDFFontDrawing(app->font_layer, app->font, app->font->descriptor_set, app->font->pipeline);
 		zest_SetMSDFFontShadow(app->font_layer, shadow_length, shadow_smoothing, shadow_clipping);
-		zest_SetMSDFFontShadowColor(app->font_layer, zest_Vec4Set(0.f, 0.f, 0.f, shadow_alpha));
+		zest_SetMSDFFontShadowColor(app->font_layer, 0.f, 0.f, 0.f, shadow_alpha);
 		
 		app->font_layer->current_instance_instruction.push_constants.flags = (zest_uint)precise;
 

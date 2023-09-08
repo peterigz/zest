@@ -28,8 +28,11 @@ void InitExample(RenderTargetExample *example) {
 	example->base_target = zest_CreateRenderTarget("Base render target");
 	//Post render targets can be created by passing the width and height as a ratio of the screen size, which is what we do here 
 	//to create the render targets for the blur effect. One target is for the vertical blur and the other is for the horizontal blur.
-	zest_render_target vertical_blur = zest_AddPostProcessRenderTarget("Vertical blur render target", 0.0625, 0.0625, example->base_target, example, AddVerticalBlur);
-	example->final_blur = zest_AddPostProcessRenderTarget("Horizontal blur render target", 0.0625, 0.0625, vertical_blur, example, AddHorizontalBlur);
+	//In order to reduce flicker we can blur once at a smaller size, then reduce the size again and do the blue again.
+	zest_render_target vertical_blur1 = zest_AddPostProcessRenderTarget("Vertical blur render target", 0.25, 0.25, example->base_target, example, AddVerticalBlur);
+	zest_render_target horizontal_blur1 = zest_AddPostProcessRenderTarget("Horizontal blur render target", 1.f, 1.f, vertical_blur1, example, AddHorizontalBlur);
+	zest_render_target vertical_blur2 = zest_AddPostProcessRenderTarget("Vertical blur 2 render target", 0.5, 0.5, horizontal_blur1, example, AddVerticalBlur);
+	example->final_blur = zest_AddPostProcessRenderTarget("Final blur render target", 1.f, 1.f, vertical_blur2, example, AddHorizontalBlur);
 
 	//Create the render queue
 	//For blur effect we need to draw the scene to a base render target first, then have 2 render passes that draw to a smaller texture with horizontal and then vertical blur effects
@@ -49,7 +52,19 @@ void InitExample(RenderTargetExample *example) {
 			example->base_layer = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
 		}
 		//Create draw commands that applies vertical blur to the base target
-		zest_NewDrawCommandSetup("Vertical blur render pass", vertical_blur);
+		zest_NewDrawCommandSetup("Vertical blur render pass", vertical_blur1);
+		{
+			//Use a draw function that renders to the whole texture. Because we specified AddVerticalBlur callback when calling zest_AddPostProcessRenderTarget above
+			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
+			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
+		}
+		zest_NewDrawCommandSetup("Horizontal blur render pass", horizontal_blur1);
+		{
+			//Use a draw function that renders to the whole texture. Because we specified AddVerticalBlur callback when calling zest_AddPostProcessRenderTarget above
+			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
+			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
+		}
+		zest_NewDrawCommandSetup("Vertical blur 2 render pass", vertical_blur2);
 		{
 			//Use a draw function that renders to the whole texture. Because we specified AddVerticalBlur callback when calling zest_AddPostProcessRenderTarget above
 			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
@@ -67,6 +82,7 @@ void InitExample(RenderTargetExample *example) {
 		{
 			//Create a sprite layer to draw to it
 			example->top_layer = zest_NewBuiltinLayerSetup("Top Layer", zest_builtin_layer_sprites);
+			example->font_layer = zest_NewBuiltinLayerSetup("Fonts", zest_builtin_layer_fonts);
 		}
 		//Finally we won't see anything unless we tell the render queue to render to the swap chain to be presented to the screen, but we
 		//need to specify which render targets we want to be drawn to the swap chain.
@@ -86,8 +102,14 @@ void InitExample(RenderTargetExample *example) {
 	zest_OutputQueues();
 
 	example->texture = zest_CreateTexturePacked("Statue texture", zest_texture_format_rgba);
-	example->image = zest_AddTextureImageFile(example->texture, "images/texture.jpg");
+	example->image = zest_AddTextureImageFile(example->texture, "assets/texture.jpg");
+	example->wabbit = zest_AddTextureImageFile(example->texture, "assets/wabbit_alpha.png");
 	zest_ProcessTextureImages(example->texture);
+	example->font = zest_LoadMSDFFont("assets/SourceSansPro-Regular.zft");
+	example->wabbit_pos.x = 10.f;
+	example->wabbit_pos.y = 10.f;
+	example->wabbit_pos.vx = 200.f;
+	example->wabbit_pos.vy = 200.f;
 }
 
 void AddHorizontalBlur(zest_render_target_t *target, void *data) {
@@ -120,23 +142,34 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_Update2dUniformBuffer();
 	example->base_layer->current_color = zest_ColorSet(255, 255, 255, 255);
 
+	float delta = (float)elapsed / ZEST_MICROSECS_SECOND;
+
 	zest_SetSpriteDrawing(example->base_layer, example->texture, 0, zest_Pipeline("pipeline_2d_sprites"));
 	example->base_layer->multiply_blend_factor = 1.f;
 	zest_DrawSprite(example->base_layer, example->image, zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);
+	if (example->wabbit_pos.x >= zest_ScreenWidthf()) example->wabbit_pos.vx *= -1.f;
+	if (example->wabbit_pos.y >= zest_ScreenHeightf()) example->wabbit_pos.vy *= -1.f;
+	if (example->wabbit_pos.x <= 0.f) example->wabbit_pos.vx *= -1.f;
+	if (example->wabbit_pos.y <= 0.f) example->wabbit_pos.vy *= -1.f;
+	example->wabbit_pos.x += example->wabbit_pos.vx * delta;
+	example->wabbit_pos.y += example->wabbit_pos.vy * delta;
+	zest_DrawSprite(example->base_layer, example->wabbit, example->wabbit_pos.x, example->wabbit_pos.y, 0.f, 200.f, 200.f, 0.5f, 0.5f, 0, 0.f, 0);
 
 	zest_texture target_texture = zest_GetRenderTargetTexture(example->final_blur);
-	//example->base_layer.DrawImage(GetRenderTarget(example->hb_target_index).GetRenderTargetImage(), fMouseX(), fMouseY());
-	//example->top_layer.SetBlendType(BlendType_pre_multiply);
-	//float alpha = fMouseX() / fScreenWidth();
-	float alpha = 1.f;
-	if (alpha > 1.f) alpha = 1.f;
-	if (alpha < 0) alpha = 0;
+	float alpha = ZestApp->mouse_x / zest_ScreenWidthf();
+	float blend = (ZestApp->mouse_y < 0 ? 0 : ZestApp->mouse_y) / zest_ScreenHeightf();
+	blend = ZEST__CLAMP(blend, 0.f, 1.f);
+	alpha = ZEST__CLAMP(alpha, 0.f, 5.f);
+
 	example->top_layer->multiply_blend_factor = alpha;
-	example->top_layer->current_color = zest_ColorSet(255, 255, 255, 255);
+	zest_SetLayerColor(example->top_layer, 255, 255, 255, (zest_byte)(blend * 255));
 	zest_SetSpriteDrawing(example->top_layer, target_texture, 0, zest_Pipeline("pipeline_2d_sprites"));
 	zest_DrawSprite(example->top_layer, zest_GetRenderTargetImage(example->final_blur), zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);
-	//example->top_layer->SetColor(255, 255, 255, MouseDown(App.Mouse.LeftButton) ? 150 : 255);
-	//example->top_layer->DrawTexturedRect(GetRenderTarget(example->final_blur_index).GetRenderTargetImage(), 0.f, 0.f, fScreenWidth(), fScreenHeight(), true, QVec2(1.f, 1.f), QVec2(0.f, 0.f));
+	zest_SetMSDFFontDrawing(example->font_layer, example->font, example->font->descriptor_set, example->font->pipeline);
+	zest_SetMSDFFontShadow(example->font_layer, 2.f, .25f, 1.f);
+	zest_SetMSDFFontShadowColor(example->font_layer, 0.f, 0.f, 0.f, 0.75f);
+	zest_SetLayerColor(example->font_layer, 200, 200, 200, 255);
+	zest_DrawMSDFText(example->font_layer, "Mouse x = alpha level, Mouse y = additive/alpha blend", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .05f, .5f, .5f, 40.f, 0.f, 1.f);
 }
 
 int main(void) {
@@ -144,6 +177,7 @@ int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	zest_Initialise(&create_info);
+	zest_LogFPSToConsole(1);
 
 	RenderTargetExample example;
 	InitExample(&example);

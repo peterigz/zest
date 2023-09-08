@@ -13,9 +13,17 @@ struct RenderTargetExample {
 	zest_command_queue command_queue;
 	zest_layer base_layer;
 	zest_layer top_layer;
+	zest_layer font_layer;
 	zest_texture texture;
 	zest_image image;
+	zest_image wabbit;
+	zest_font font;
 	PushConstants push_constants;
+
+	struct wabbit_pos {
+		float x, y;
+		float vx, vy;
+	} wabbit_pos;
 };
 
 void InitExample(RenderTargetExample * example);
