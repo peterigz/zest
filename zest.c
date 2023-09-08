@@ -57,6 +57,12 @@ LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wPar
 		HDC DeviceContext = BeginPaint(window_handle, &paint);
 		EndPaint(window_handle, &paint);
 	} break;
+	case WM_LBUTTONDOWN: {
+		ZestApp->mouse_button = 1;
+	} break;
+	case WM_RBUTTONDOWN: {
+		ZestApp->mouse_button = 2;
+	} break;
 	case WM_SIZE: {
 	} break;
 	case WM_DESTROY: {
@@ -72,6 +78,13 @@ LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wPar
 
 void zest__os_poll_events() {
 	MSG message = { 0 };
+
+	POINT cursor_position;
+	GetCursorPos(&cursor_position);
+	ScreenToClient(ZestApp->window->window_handle, &cursor_position);
+	ZestApp->mouse_x = (float)cursor_position.x;
+	ZestApp->mouse_y = (float)cursor_position.y;
+	ZestApp->mouse_button = 0;
 
 	for (;;) {
 		BOOL result = 0;
@@ -1395,7 +1408,7 @@ void zest__main_loop(void) {
 			ZestApp->frame_count = 0;
 			ZestApp->frame_timer = ZestApp->frame_timer - ZEST_MICROSECS_SECOND;
 			if (ZEST__FLAGGED(ZestApp->flags, zest_app_flag_output_fps)) {
-				printf("FPS: %u\n", ZestApp->last_fps);
+				printf("FPS: %u Mouse x/y: %f, %f\n", ZestApp->last_fps, ZestApp->mouse_x, ZestApp->mouse_y);
 			}
 		}
 
@@ -6185,12 +6198,12 @@ zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render
 	return render_target;
 }
 
-zest_render_target zest_AddPostProcessRenderTarget(const char *name, float ratio_width, float ratio_height, zest_render_target input_source, void *user_data, void(*render_callback)(zest_render_target target, void *user_data)) {
+zest_render_target zest_AddPostProcessRenderTarget(const char *name, float width_ratio_of_input, float height_ration_of_input, zest_render_target input_source, void *user_data, void(*render_callback)(zest_render_target target, void *user_data)) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->render_targets, name));	//Couldn't find a render target by that name
 	zest_render_target_create_info_t create_info = { 0 };
-	create_info.ratio_of_screen_size = zest_Vec2Set(ratio_width, ratio_height);
-	create_info.viewport.extent.width = (zest_uint)((float)zest_GetSwapChainExtent().width * ratio_width);
-	create_info.viewport.extent.height = (zest_uint)((float)zest_GetSwapChainExtent().height * ratio_height);
+	create_info.ratio_of_screen_size = zest_Vec2Set(width_ratio_of_input, height_ration_of_input);
+	create_info.viewport.extent.width = (zest_uint)((float)input_source->render_width * width_ratio_of_input);
+	create_info.viewport.extent.height = (zest_uint)((float)input_source->render_height * height_ration_of_input);
 	create_info.input_source = input_source;
 	create_info.sampler_address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	create_info.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -6600,6 +6613,10 @@ void zest_SetLayerSize(zest_layer layer, float width, float height) {
 	layer->layer_size.x = width;
 	layer->layer_size.y = height;
 }
+
+void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha) {
+	layer->current_color = zest_ColorSet(red, green, blue, alpha);
+}
 //-- End Draw Layers
 
 //-- Start Sprite Drawing API
@@ -6735,9 +6752,9 @@ void zest_SetMSDFFontShadow(zest_layer font_layer, float shadow_length, float sh
 	font_layer->current_instance_instruction.push_constants.parameters2 = font_layer->push_constants.parameters2;
 }
 
-void zest_SetMSDFFontShadowColor(zest_layer font_layer, zest_vec4 color) {
-	font_layer->push_constants.parameters3 = color;
-	font_layer->current_instance_instruction.push_constants.parameters3 = color;
+void zest_SetMSDFFontShadowColor(zest_layer font_layer, float red, float green, float blue, float alpha) {
+	font_layer->push_constants.parameters3 = zest_Vec4Set(red, green, blue, alpha);
+	font_layer->current_instance_instruction.push_constants.parameters3 = font_layer->push_constants.parameters3;
 }
 
 void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float expand, float aa_factor, float radius, float detail) {

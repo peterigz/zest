@@ -818,6 +818,10 @@ typedef struct zest_app_t {
 	float render_time;
 	zest_microsecs frame_timer;
 
+	float mouse_x;
+	float mouse_y;
+	int mouse_button;
+
 	zest_uint frame_count;
 	zest_uint last_fps;
 
@@ -1937,6 +1941,7 @@ ZEST_API zest_layer zest_NewLayer();
 ZEST_API void zest_SetInstanceLayerViewPort(zest_layer instance_layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
 ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
 ZEST_API zest_layer zest_GetLayer(const char *name);
+ZEST_API void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha);
 //-- End Draw Layers
 
 //Draw sprite layers
@@ -1955,7 +1960,7 @@ ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float posit
 ZEST_API void zest_InitialiseMSDFFontLayer(zest_layer font_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 ZEST_API void zest_SetMSDFFontShadow(zest_layer font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping);
-ZEST_API void zest_SetMSDFFontShadowColor(zest_layer font_layer, zest_vec4 color);
+ZEST_API void zest_SetMSDFFontShadowColor(zest_layer font_layer, float red, float green, float blue, float alpha);
 ZEST_API void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float expand, float aa_factor, float radius, float detail);
 ZEST_API void zest_SetMSDFFontBleed(zest_layer font_layer, float bleed);
 ZEST_API void zest_SetMSDFFontExpand(zest_layer font_layer, float expand);
@@ -1965,7 +1970,7 @@ ZEST_API void zest_SetMSDFFontDetail(zest_layer font_layer, float detail);
 ZEST_API float zest_DrawMSDFText(zest_layer font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip);
 ZEST_API float zest_DrawMSDFParagraph(zest_layer font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float line_height, float flip);
 ZEST_API float zest_TextWidth(zest_font_t *font, const char *text, float font_size, float letter_spacing);
-//-- End Draw sprite layers
+//-- End Draw MSDF font layers
 
 //Draw mesh layers
 ZEST_API void zest_InitialiseMeshLayer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
