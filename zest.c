@@ -6149,9 +6149,9 @@ zest_render_target_create_info_t zest_RenderTargetCreateInfo() {
 	zest_render_target_create_info_t create_info = {
 		.ratio_of_screen_size = zest_Vec2Set1(0.f),
 		.imgui_blend_type = zest_imgui_blendtype_pass,
-		.sampler_address_mode_u = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.sampler_address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 		.flags = zest_render_target_flag_is_src | zest_render_target_flag_sampler_size_match_texture,
 	};
 	if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {

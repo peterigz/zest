@@ -101,10 +101,12 @@ void InitExample(RenderTargetExample *example) {
 
 	zest_OutputQueues();
 
+	//Load the images into a texture
 	example->texture = zest_CreateTexturePacked("Statue texture", zest_texture_format_rgba);
 	example->image = zest_AddTextureImageFile(example->texture, "assets/texture.jpg");
 	example->wabbit = zest_AddTextureImageFile(example->texture, "assets/wabbit_alpha.png");
 	zest_ProcessTextureImages(example->texture);
+	//Load a font
 	example->font = zest_LoadMSDFFont("assets/SourceSansPro-Regular.zft");
 	example->wabbit_pos.x = 10.f;
 	example->wabbit_pos.y = 10.f;
