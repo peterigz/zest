@@ -852,10 +852,10 @@ void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*)) {
 	ZestApp->update_callback = callback;
 }
 
-void zest_SetActiveRenderQueue(zest_command_queue command_queue) {
-	ZEST_ASSERT(zest_vec_empty(ZestRenderer->frame_queues));									//You cannot specify more than one render queue per frame
+void zest_SetActiveCommandQueue(zest_command_queue command_queue) {
+	ZEST_ASSERT(!ZestRenderer->active_command_queue);											//You already have an active queue for this frame.
 	ZEST_ASSERT(ZEST__FLAGGED(command_queue->flags, zest_command_queue_flag_validated));		//Make sure that the command queue creation ended with the command: zest_FinishQueueSetup
-	zest_vec_push(ZestRenderer->frame_queues, command_queue);
+	ZestRenderer->active_command_queue = command_queue;
 	ZestRenderer->semaphores[ZEST_FIF].incoming = zest_GetCommandQueuePresentSemaphore(command_queue);
 }
 
@@ -3438,21 +3438,17 @@ void zest__draw_renderer_frame() {
 
 	zest__acquire_next_swapchain_image();
 
-	if (zest_vec_empty(ZestRenderer->frame_queues)) {
+	if (!ZestRenderer->active_command_queue) {
 		//if there's no render queues at all, then we can draw this blank one to prevent errors when presenting the frame
 		ZestRenderer->semaphores[ZEST_FIF].incoming = zest_GetCommandQueuePresentSemaphore(&ZestRenderer->empty_queue);
 		zest__record_command_queue(&ZestRenderer->empty_queue, ZEST_FIF);
 		zest__submit_command_queue(&ZestRenderer->empty_queue, ZestRenderer->fif_fence[ZEST_FIF]);
 	}
 	else {
-		for (zest_foreach_i(ZestRenderer->frame_queues)) {
-			zest_command_queue command_queue = ZestRenderer->frame_queues[i];
-			ZestRenderer->current_command_queue = command_queue;
-			zest__record_command_queue(command_queue, ZEST_FIF);
-			zest__submit_command_queue(command_queue, ZestRenderer->fif_fence[ZEST_FIF]);
-		}
+		zest__record_command_queue(ZestRenderer->active_command_queue, ZEST_FIF);
+		zest__submit_command_queue(ZestRenderer->active_command_queue, ZestRenderer->fif_fence[ZEST_FIF]);
 	}
-	zest_vec_clear(ZestRenderer->frame_queues);
+	ZestRenderer->active_command_queue = ZEST_NULL;
 
 	zest__present_frame();
 }
@@ -3566,7 +3562,6 @@ void zest__record_command_queue(zest_command_queue command_queue, zest_index fif
 
 	ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(command_queue->command_buffer[fif]));
 
-	ZestRenderer->current_command_queue = ZEST_NULL;
 	ZestRenderer->current_command_buffer = ZEST_NULL;
 	ZestRenderer->current_compute_routine = ZEST_NULL;
 	ZestRenderer->current_draw_commands = ZEST_NULL;
@@ -4200,7 +4195,7 @@ VkCommandBuffer zest_CurrentCommandBuffer() {
 }
 
 zest_command_queue zest_CurrentCommandQueue() { 
-	return ZestRenderer->current_command_queue; 
+	return ZestRenderer->active_command_queue; 
 }
 
 zest_command_queue_draw_commands_t *zest_CurrentRenderPass() { 

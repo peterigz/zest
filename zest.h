@@ -1409,7 +1409,6 @@ typedef struct zest_renderer_t {
 
 	//Context data
 	VkCommandBuffer current_command_buffer;
-	zest_command_queue current_command_queue;
 	zest_command_queue_draw_commands current_draw_commands;
 	zest_command_queue_compute current_compute_routine;
 
@@ -1429,7 +1428,7 @@ typedef struct zest_renderer_t {
 	zest_map_descriptor_sets descriptor_sets;
 	zest_map_computes computes;
 
-	zest_command_queue *frame_queues;
+	zest_command_queue active_command_queue;
 	zest_command_queue_t empty_queue;
 	VkDescriptorPool descriptor_pool;
 	zest_command_setup_context_t setup_context;
@@ -1665,7 +1664,7 @@ ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float hei
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 ZEST_API void zest_SetUserData(void* data);
 ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
-ZEST_API void zest_SetActiveRenderQueue(zest_command_queue command_queue);
+ZEST_API void zest_SetActiveCommandQueue(zest_command_queue command_queue);
 ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data));
 ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *width, int *height));
 ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
