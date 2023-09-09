@@ -25,7 +25,7 @@ void UpdateUniformBuffer3d(zest_example *example) {
 
 void InitExample(zest_example *example) {
 	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_alpha, 10);
-	example->image = zest_AddTextureImageFile(example->texture, "examples/wabbit_alpha.png");
+	example->image = zest_AddTextureImageFile(example->texture, "examples/assets/wabbit_alpha.png");
 	zest_ProcessTextureImages(example->texture);
 	example->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites_alpha");
 	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
@@ -78,8 +78,10 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawBillboard(example->billboard_layer, example->image, &position.x, zest_Pack8bitx3(&alignment), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
 }
 
-int main(void) {
-
+#if defined(_WIN32)
+// Windows entry point
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+{
 	zest_example example = { 0 };
 
 	zest_create_info_t create_info = zest_CreateInfo();
@@ -96,3 +98,22 @@ int main(void) {
 
 	return 0;
 }
+#else
+int main(void) {
+	zest_example example = { 0 };
+
+	zest_create_info_t create_info = zest_CreateInfo();
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+
+	zest_Initialise(&create_info);
+	zest_LogFPSToConsole(1);
+	zest_SetUserData(&example);
+	zest_SetUserUpdateCallback(test_update_callback);
+
+	InitExample(&example);
+
+	zest_Start();
+
+	return 0;
+}
+#endif

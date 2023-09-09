@@ -406,3 +406,5 @@ examples/zest-imgui-template/imgui.ini
 *.lib
 *.lib
 examples/zest-msdf-font-maker/msdfatlas/
+*.cmake
+build-test/CMakeCache.txt

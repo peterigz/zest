@@ -15,7 +15,7 @@ void InitExample(zest_example *example) {
 		zest_FinishQueueSetup();
 	}
 
-	example->font = zest_LoadMSDFFont("fonts/KaushanScript-Regular.zft");
+	example->font = zest_LoadMSDFFont("examples/assets/KaushanScript-Regular.zft");
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
@@ -30,6 +30,25 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 }
 
+#if defined(_WIN32)
+// Windows entry point
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+{
+	zest_create_info_t create_info = zest_CreateInfo();
+
+	zest_example example;
+
+	zest_Initialise(&create_info);
+	zest_SetUserData(&example);
+	zest_SetUserUpdateCallback(UpdateCallback);
+
+	InitExample(&example);
+
+	zest_Start();
+
+	return 0;
+}
+#else
 int main(void) {
 
 	zest_create_info_t create_info = zest_CreateInfo();
@@ -46,3 +65,4 @@ int main(void) {
 
 	return 0;
 }
+#endif

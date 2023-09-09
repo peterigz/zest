@@ -1,5 +1,5 @@
 #include <zest.h>
-#include "render_targets.h"
+#include "zest-render-targets.h"
 
 void InitExample(RenderTargetExample *example) {
 
@@ -175,6 +175,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_SetLayerColor(example->font_layer, 200, 200, 200, 255);
 	zest_DrawMSDFText(example->font_layer, "Mouse x = alpha level, Mouse y = additive/alpha blend", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .05f, .5f, .5f, 40.f, 0.f, 1.f);
 }
+
 #if defined(_WIN32)
 // Windows entry point
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
