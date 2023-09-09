@@ -138,7 +138,7 @@ void AddVerticalBlur(zest_render_target_t *target, void *data) {
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(user_data);
-	zest_SetActiveRenderQueue(example->command_queue);
+	zest_SetActiveCommandQueue(example->command_queue);
 	zest_Update2dUniformBuffer();
 	example->base_layer->current_color = zest_ColorSet(255, 255, 255, 255);
 

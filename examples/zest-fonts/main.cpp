@@ -21,7 +21,7 @@ void InitExample(zest_example *example) {
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_example *example = (zest_example*)user_data;
 	zest_Update2dUniformBuffer();
-	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
+	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 
 	example->font_layer->multiply_blend_factor = 1.f;
 	zest_SetMSDFFontDrawing(example->font_layer, example->font, example->font->descriptor_set, example->font->pipeline);

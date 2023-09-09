@@ -186,7 +186,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	UpdateComputeUniformBuffers(app);
 
 	//Set the active render queue to the default one that we modified earlier
-	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
+	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 
 	//Set timing variables that are used to update the uniform buffer
 	app->frame_timer = (float)elapsed / ZEST_MICROSECS_SECOND;

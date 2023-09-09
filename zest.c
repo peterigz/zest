@@ -1408,7 +1408,7 @@ void zest__main_loop(void) {
 			ZestApp->frame_count = 0;
 			ZestApp->frame_timer = ZestApp->frame_timer - ZEST_MICROSECS_SECOND;
 			if (ZEST__FLAGGED(ZestApp->flags, zest_app_flag_output_fps)) {
-				printf("FPS: %u Mouse x/y: %f, %f\n", ZestApp->last_fps, ZestApp->mouse_x, ZestApp->mouse_y);
+				printf("FPS: %u\n", ZestApp->last_fps);
 			}
 		}
 

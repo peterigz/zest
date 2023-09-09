@@ -54,7 +54,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_example *example = (zest_example*)user_data;
 	zest_Update2dUniformBuffer();
 	UpdateUniformBuffer3d(example);
-	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
+	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 	example->sprite_layer->multiply_blend_factor = 1.f;
 
 	zest_SetSpriteDrawing(example->sprite_layer, example->texture, example->sprite_descriptor, example->sprite_pipeline);

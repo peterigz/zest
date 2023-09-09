@@ -205,7 +205,7 @@ bool GenerateAtlas(const char *fontFilename, const char *save_to, zest_font_conf
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Don't forget to update the uniform buffer!
 	zest_Update2dUniformBuffer();
-	zest_SetActiveRenderQueue(ZestApp->default_command_queue);
+	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 	ImGuiApp *app = (ImGuiApp*)user_data;
 
 	if (app->load_next_font && !zest_map_valid_name(ZestRenderer->textures, app->config.font_save_file.c_str())) {
