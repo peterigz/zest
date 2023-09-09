@@ -13,8 +13,11 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 # Add the zest library target
-add_library(zest-lib zest/zest.c)
-target_include_directories(zest-lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/zest)
+file(GLOB LIB_SRC "*.c" "*.h")
+file(GLOB LIB_HEADERS  "*.h")
+
+add_library(zest-lib STATIC ${LIB_SRC})
+target_include_directories(zest-lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Use FindVulkan module added with CMAKE 3.7
 if (NOT CMAKE_VERSION VERSION_LESS 3.7.0)
@@ -53,32 +56,28 @@ if (glfw3_FOUND)
     target_link_libraries(glfw INTERFACE glfw)
     
     # Add the example projects that require GLFW3
-    add_subdirectory(examples/zest-compute-example)
-    add_subdirectory(examples/zest-imgui-template)
-	add_subdirectory(examples/zest-msdf-font-maker)
+    #add_subdirectory(examples/zest-compute-example)
+    #add_subdirectory(examples/zest-imgui-template)
+	#add_subdirectory(examples/zest-msdf-font-maker)
 else ()
     message(STATUS "GLFW3 not found. Examples requiring GLFW3 will be skipped.")
 endif ()
 
-# Add the remaining example projects
-add_subdirectory(examples/zest-render-targets)
-add_subdirectory(examples/zest-fonts)
-add_subdirectory(examples/zest-instance-layers)
-add_subdirectory(examples/zest-minimal-template)
-
-# Link zest-lib with Vulkan
-target_link_libraries(zest-lib Vulkan::Vulkan)
-
-# Link the examples with zest-lib and GLFW3 (if available)
-target_link_libraries(zest-fonts zest-lib)
-target_link_libraries(zest-instance-layers zest-lib)
-target_link_libraries(zest-minimal-template zest-lib)
-target_link_libraries(zest-msdf-font-maker zest-lib)
+function(buildExamples)
+	foreach(EXAMPLE ${EXAMPLES})
+		buildExample(${EXAMPLE})
+	endforeach(EXAMPLE)
+endfunction(buildExamples)
 
 IF(WIN32)
 	# Nothing here (yet)
 ELSEIF(APPLE)
 	link_libraries(${Vulkan_LIBRARY} "-framework AppKit" "-framework QuartzCore")
 ELSE(WIN32)
-	link_libraries(${XCB_LIBRARIES} ${Vulkan_LIBRARY} ${Vulkan_LIBRARY} ${DIRECTFB_LIBRARIES} ${WAYLAND_CLIENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+#	link_libraries(${XCB_LIBRARIES} ${Vulkan_LIBRARY} ${Vulkan_LIBRARY} ${DIRECTFB_LIBRARIES} ${WAYLAND_CLIENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 ENDIF(WIN32)
+
+# Link zest-lib with Vulkan
+target_link_libraries(zest-lib Vulkan::Vulkan)
+# Add the remaining example projects
+add_subdirectory(examples/Simple)
