@@ -1,4 +1,4 @@
-#include "header.h"
+#include "zest-compute-example.h"
 #include "imgui_internal.h"
 #include <random>
 
@@ -20,12 +20,12 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Particle image for point sprites
 	app->particle_texture = zest_CreateTextureSingle("particle", zest_texture_format_rgba);
 	app->particle_texture->image_view_type = VK_IMAGE_VIEW_TYPE_2D;
-	zest_AddTextureImageFile(app->particle_texture, "particle.png");
+	zest_AddTextureImageFile(app->particle_texture, "examples/assets/particle.png");
 	zest_ProcessTextureImages(app->particle_texture);
 	//A gradient texture to sample the colour from
 	app->gradient_texture = zest_CreateTextureSingle("gradient", zest_texture_format_rgba);
 	app->gradient_texture->image_view_type = VK_IMAGE_VIEW_TYPE_2D;
-	zest_AddTextureImageFile(app->gradient_texture, "gradient.png");
+	zest_AddTextureImageFile(app->gradient_texture, "examples/assets/gradient.png");
 	zest_ProcessTextureImages(app->gradient_texture);
 
 	//We'll need to create our own descriptor layout for the vertex and fragment shaders that can 
@@ -74,8 +74,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_AddVertexInputDescription(&app->vertice_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Particle, gradient_pos)));
 
 	create_info.attributeDescriptions = app->vertice_attributes;
-	create_info.vertShaderFile = "spv/particle.spv";
-	create_info.fragShaderFile = "spv/particle.spv";
+	create_info.vertShaderFile = "examples/assets/spv/particle.spv";
+	create_info.fragShaderFile = "examples/assets/spv/particle.spv";
 	create_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 	create_info.descriptorSetLayout = app->descriptor_layout;
 	zest_SetPipelineTemplatePushConstant(&create_info, sizeof(zest_vec2), 0, VK_SHADER_STAGE_VERTEX_BIT);
@@ -109,7 +109,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
 	//Declare the actual shader to use
-	zest_AddComputeShader(&builder, "spv/particle_comp.spv");
+	zest_AddComputeShader(&builder, "examples/assets/spv/particle_comp.spv");
 	//Finally, make the compute shader using the builder
 	zest_MakeCompute(&builder, app->compute);
 
@@ -216,8 +216,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
 }
 
-int main(void) {
-
+#if defined(_WIN32)
+// Windows entry point
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	zest_implglfw_SetCallbacks(&create_info);
@@ -233,3 +234,21 @@ int main(void) {
 
 	return 0;
 }
+#else
+int main(void) {
+	zest_create_info_t create_info = zest_CreateInfo();
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	zest_implglfw_SetCallbacks(&create_info);
+
+	ImGuiApp imgui_app;
+
+	zest_Initialise(&create_info);
+	zest_SetUserData(&imgui_app);
+	zest_SetUserUpdateCallback(UpdateCallback);
+	InitImGuiApp(&imgui_app);
+
+	zest_Start();
+
+	return 0;
+}
+#endif

@@ -1,4 +1,4 @@
-#include "header.h"
+#include "zest-imgui-template.h"
 #include "imgui_internal.h"
 
 void InitImGuiApp(ImGuiApp *app) {
@@ -21,7 +21,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 
 	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
-	app->test_image = zest_AddTextureImageFile(app->test_texture, "wabbit_alpha.png");
+	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
 	zest_ProcessTextureImages(app->test_texture);
 
 	app->imgui_layer_info.pipeline = zest_Pipeline("pipeline_imgui");
@@ -54,8 +54,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
 }
 
-int main(void) {
-
+#if defined(_WIN32)
+// Windows entry point
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
 
@@ -70,3 +71,20 @@ int main(void) {
 
 	return 0;
 }
+#else
+int main(void) {
+	zest_create_info_t create_info = zest_CreateInfo();
+	zest_implglfw_SetCallbacks(&create_info);
+
+	ImGuiApp imgui_app;
+
+	zest_Initialise(&create_info);
+	zest_SetUserData(&imgui_app);
+	zest_SetUserUpdateCallback(UpdateCallback);
+	InitImGuiApp(&imgui_app);
+
+	zest_Start();
+
+	return 0;
+}
+#endif

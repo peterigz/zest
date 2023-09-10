@@ -1,4 +1,4 @@
-#include "header.h"
+#include "zest-msdf-font-maker.h"
 #include "imgui_internal.h"
 #include <filesystem>
 #include <fstream>
@@ -331,8 +331,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
 }
 
-int main(void) {
-
+#if defined(_WIN32)
+// Windows entry point
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
 
@@ -347,3 +348,20 @@ int main(void) {
 
 	return 0;
 }
+#else
+int main(void) {
+	zest_create_info_t create_info = zest_CreateInfo();
+	zest_implglfw_SetCallbacks(&create_info);
+
+	ImGuiApp imgui_app = { 0 };
+
+	zest_Initialise(&create_info);
+	zest_SetUserData(&imgui_app);
+	zest_SetUserUpdateCallback(UpdateCallback);
+	InitImGuiApp(&imgui_app);
+
+	zest_Start();
+
+	return 0;
+}
+#endif
