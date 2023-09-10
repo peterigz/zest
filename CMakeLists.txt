@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.4 FATAL_ERROR)
 
-set(NAME zest-pocket-renderer)
+set(NAME Zest)
 project(${NAME})
 
 include_directories(submodules/)
@@ -60,7 +60,11 @@ if (glfw3_FOUND)
     #add_subdirectory(examples/zest-imgui-template)
 	#add_subdirectory(examples/zest-msdf-font-maker)
 else ()
-    message(STATUS "GLFW3 not found. Examples requiring GLFW3 will be skipped.")
+	IF(APPLE)
+		message(FATAL_ERROR "Mac builds currently require GLFW3 - not found.")
+	ELSE(APPLE)
+		message(STATUS "GLFW3 not found. Examples requiring GLFW3 will be skipped.")
+	ENDIF(APPLE)
 endif ()
 
 function(buildExamples)
@@ -72,12 +76,15 @@ endfunction(buildExamples)
 IF(WIN32)
 	# Nothing here (yet)
 ELSEIF(APPLE)
-	link_libraries(${Vulkan_LIBRARY} "-framework AppKit" "-framework QuartzCore")
+	link_libraries(${Vulkan_LIBRARY} ${glfw_LIBRARY} "-framework AppKit" "-framework QuartzCore")
 ELSE(WIN32)
-#	link_libraries(${XCB_LIBRARIES} ${Vulkan_LIBRARY} ${Vulkan_LIBRARY} ${DIRECTFB_LIBRARIES} ${WAYLAND_CLIENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+#	link_libraries(${XCB_LIBRARIES} ${Vulkan_LIBRARY} ${DIRECTFB_LIBRARIES} ${WAYLAND_CLIENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 ENDIF(WIN32)
 
 # Link zest-lib with Vulkan
 target_link_libraries(zest-lib Vulkan::Vulkan)
 # Add the remaining example projects
 add_subdirectory(examples/Simple)
+if (glfw3_FOUND)
+add_subdirectory(examples/GLFW)
+endif ()
