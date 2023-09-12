@@ -1422,21 +1422,25 @@ void zest__update_window_size(zest_window_t* window, zest_uint width, zest_uint 
 }
 
 // --Buffer & Memory Management
+void zest__add_host_memory_pool(zest_size size) {
+    ZEST_ASSERT(ZestDevice->memory_pool_count < 32);    //Reached the max number of memory pools
+    zest_size pool_size = ZestApp->create_info.memory_pool_size;
+    if (pool_size <= size) {
+        pool_size = zest_GetNextPower(size);
+    }
+    ZestDevice->memory_pools[ZestDevice->memory_pool_count] = ZEST__ALLOCATE_POOL(pool_size);
+    ZEST_ASSERT(ZestDevice->memory_pools[ZestDevice->memory_pool_count]);    //Unable to allocate more memory. Out of memory?
+    zloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
+    ZestDevice->memory_pool_count++;
+    ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %zu. ", pool_size);
+}
+
 void* zest__allocate(zest_size size) {
 	void *allocation = zloc_Allocate(ZestDevice->allocator, size);
 	if (!allocation) {
-		ZEST_ASSERT(ZestDevice->memory_pool_count < 32);	//Reached the max number of memory pools
-		zest_size pool_size = ZestApp->create_info.memory_pool_size;
-		if (pool_size <= size) {
-			pool_size = zest_GetNextPower(size);
-		}
-		ZestDevice->memory_pools[ZestDevice->memory_pool_count] = ZEST__ALLOCATE_POOL(pool_size);
-		ZEST_ASSERT(ZestDevice->memory_pools[ZestDevice->memory_pool_count]);	//Unable to allocate more memory. Out of memory?
-		zloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
-		allocation = zloc_Allocate(ZestDevice->allocator, size);
-		ZEST_ASSERT(allocation);	//Unable to allocate even after adding a pool
-		ZestDevice->memory_pool_count++;
-		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %zu. ", pool_size);
+        zest__add_host_memory_pool(size);
+        void *allocation = zloc_Allocate(ZestDevice->allocator, size);
+        ZEST_ASSERT(allocation);    //Unable to allocate even after adding a pool
 	}
 	return allocation;
 }
@@ -1444,20 +1448,21 @@ void* zest__allocate(zest_size size) {
 void* zest__reallocate(void *memory, zest_size size) {
 	void *allocation = zloc_Reallocate(ZestDevice->allocator, memory, size);
 	if (!allocation) {
-		ZEST_ASSERT(ZestDevice->memory_pool_count < 32);	//Reached the max number of memory pools
-		zest_size pool_size = ZestApp->create_info.memory_pool_size;
-		if (pool_size <= size) {
-			pool_size = zest_GetNextPower(size);
-		}
-		ZestDevice->memory_pools[ZestDevice->memory_pool_count] = ZEST__ALLOCATE_POOL(pool_size);
-		ZEST_ASSERT(ZestDevice->memory_pools[ZestDevice->memory_pool_count]);	//Unable to allocate more memory. Out of memory?
-		zloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
+        zest__add_host_memory_pool(size);
 		allocation = zloc_Reallocate(ZestDevice->allocator, memory, size);
 		ZEST_ASSERT(allocation);	//Unable to allocate even after adding a pool
-		ZestDevice->memory_pool_count++;
-		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %zu. ", pool_size);
 	}
 	return allocation;
+}
+
+ZEST_PRIVATE void *zest__allocate_aligned(zest_size size, zest_size alignment) {
+    void *allocation = zloc_AllocateAligned(ZestDevice->allocator, size, alignment);
+    if (!allocation) {
+        zest__add_host_memory_pool(size);
+        allocation = zloc_AllocateAligned(ZestDevice->allocator, size, alignment);
+        ZEST_ASSERT(allocation);    //Unable to allocate even after adding a pool
+    }
+    return allocation;
 }
 
 VkResult zest__bind_memory(zest_device_memory_pool memory_allocation, VkDeviceSize offset) {
@@ -3378,8 +3383,10 @@ void zest__create_empty_command_queue(zest_command_queue command_queue) {
 		zest_vec_push(command_queue->fif_wait_stage_flags[i], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 	}
 	zest_command_queue_draw_commands_t blank_draw_commands = { 0 };
-	zest_command_queue_draw_commands draw_commands = ZEST__NEW(zest_command_queue_draw_commands);
-	*draw_commands = blank_draw_commands;
+	zest_command_queue_draw_commands draw_commands = ZEST__NEW_ALIGNED(zest_command_queue_draw_commands, 16);
+    memcpy(draw_commands, &blank_draw_commands, sizeof(zest_command_queue_draw_commands_t));
+	//*draw_commands = blank_draw_commands;
+    zest_bool is_aligned = zest__is_aligned(draw_commands, 16);
 	draw_commands->render_pass = ZestRenderer->final_render_pass;
 	draw_commands->get_frame_buffer = zest_GetRendererFrameBuffer;
 	draw_commands->render_pass_function = zest__render_blank;
@@ -6597,8 +6604,10 @@ void zest__next_billboard_instance(zest_layer layer) {
 //-- Draw Layers API
 zest_layer zest_NewLayer() {
 	zest_layer_t blank_layer = { 0 };
-	zest_layer layer = ZEST__NEW(zest_layer);
+	zest_layer layer = ZEST__NEW_ALIGNED(zest_layer, 16);
+    //zest_layer layer = malloc(sizeof(zest_layer_t));
 	*layer = blank_layer;
+    ZEST_ASSERT(sizeof(*layer) == sizeof(blank_layer));
 	return layer;
 }
 

@@ -48,6 +48,7 @@ extern "C" {
 
 #ifndef ZEST__REALLOCATE
 #define ZEST__ALLOCATE(size) zest__allocate(size)
+#define ZEST__ALLOCATE_ALIGNED(size, alignment) zest__allocate_aligned(size, alignment)
 #define ZEST__REALLOCATE(ptr, size) zest__reallocate(ptr, size)
 #endif
 
@@ -124,6 +125,7 @@ typedef VkVertexInputAttributeDescription *zest_vertex_input_descriptions;
 
 //For allocating a new object with handle. Only used internally.
 #define ZEST__NEW(type) ZEST__ALLOCATE(sizeof(type##_t))
+#define ZEST__NEW_ALIGNED(type, alignment) ZEST__ALLOCATE_ALIGNED(sizeof(type##_t), alignment)
 
 //For global variables
 #define ZEST_GLOBAL static
@@ -489,9 +491,26 @@ typedef struct zest_hasher {
 	zest_ull      total_length;
 } zest_hasher;
 
-ZEST_PRIVATE inline zest_ull zest__hash_rotate_left(zest_hasher *hasher, zest_ull x, unsigned char bits) { return (x << bits) | (x >> (64 - bits)); }
-ZEST_PRIVATE inline zest_ull zest__hash_process_single(zest_hasher *hasher, zest_ull previous, zest_ull input) { return zest__hash_rotate_left(hasher, previous + input * zest__PRIME2, 31) * zest__PRIME1; }
-ZEST_PRIVATE inline void zest__hasher_process(zest_hasher *hasher, const void* data, zest_ull *state0, zest_ull *state1, zest_ull *state2, zest_ull *state3) { zest_ull* block = (zest_ull*)data; *state0 = zest__hash_process_single(hasher, *state0, block[0]); *state1 = zest__hash_process_single(hasher, *state1, block[1]); *state2 = zest__hash_process_single(hasher, *state2, block[2]); *state3 = zest__hash_process_single(hasher, *state3, block[3]); }
+ZEST_PRIVATE zest_bool zest__is_aligned(void *ptr, size_t alignment) {
+    uintptr_t address = (uintptr_t)ptr;
+    return (address % alignment) == 0;
+}
+
+ZEST_PRIVATE inline zest_ull zest__hash_rotate_left(zest_ull x, unsigned char bits) {
+    return (x << bits) | (x >> (64 - bits));
+}
+ZEST_PRIVATE inline zest_ull zest__hash_process_single(zest_ull previous, zest_ull input) {
+    return zest__hash_rotate_left(previous + input * zest__PRIME2, 31) * zest__PRIME1;
+}
+ZEST_PRIVATE inline void zest__hasher_process(const void* data, zest_ull *state0, zest_ull *state1, zest_ull *state2, zest_ull *state3) {
+    zest_ull *block = (zest_ull*)data;
+    zest_ull blocks[4];
+    memcpy(blocks, data, sizeof(zest_ull) * 4);
+    *state0 = zest__hash_process_single(*state0, blocks[0]);
+    *state1 = zest__hash_process_single(*state1, blocks[1]);
+    *state2 = zest__hash_process_single(*state2, blocks[2]);
+    *state3 = zest__hash_process_single(*state3, blocks[3]);
+}
 ZEST_PRIVATE inline zest_bool zest__hasher_add(zest_hasher *hasher, const void* input, zest_ull length)
 {
 	if (!input || length == 0) return ZEST_FALSE;
@@ -514,13 +533,14 @@ ZEST_PRIVATE inline zest_bool zest__hasher_add(zest_hasher *hasher, const void* 
 		while (hasher->buffer_size < zest__HASH_MAX_BUFFER_SIZE)
 			hasher->buffer[hasher->buffer_size++] = *data++;
 
-		zest__hasher_process(hasher, hasher->buffer, &hasher->state[0], &hasher->state[1], &hasher->state[2], &hasher->state[3]);
+		zest__hasher_process(hasher->buffer, &hasher->state[0], &hasher->state[1], &hasher->state[2], &hasher->state[3]);
 	}
 
 	zest_ull s0 = hasher->state[0], s1 = hasher->state[1], s2 = hasher->state[2], s3 = hasher->state[3];
+    zest_bool test = zest__is_aligned(&s0, 8);
 	while (data <= stopBlock)
 	{
-		zest__hasher_process(hasher, data, &s0, &s1, &s2, &s3);
+		zest__hasher_process(data, &s0, &s1, &s2, &s3);
 		data += 32;
 	}
 	hasher->state[0] = s0; hasher->state[1] = s1; hasher->state[2] = s2; hasher->state[3] = s3;
@@ -537,14 +557,14 @@ ZEST_PRIVATE inline zest_ull zest__get_hash(zest_hasher *hasher)
 	zest_ull result;
 	if (hasher->total_length >= zest__HASH_MAX_BUFFER_SIZE)
 	{
-		result = zest__hash_rotate_left(hasher, hasher->state[0], 1) +
-			zest__hash_rotate_left(hasher, hasher->state[1], 7) +
-			zest__hash_rotate_left(hasher, hasher->state[2], 12) +
-			zest__hash_rotate_left(hasher, hasher->state[3], 18);
-		result = (result ^ zest__hash_process_single(hasher, 0, hasher->state[0])) * zest__PRIME1 + zest__PRIME4;
-		result = (result ^ zest__hash_process_single(hasher, 0, hasher->state[1])) * zest__PRIME1 + zest__PRIME4;
-		result = (result ^ zest__hash_process_single(hasher, 0, hasher->state[2])) * zest__PRIME1 + zest__PRIME4;
-		result = (result ^ zest__hash_process_single(hasher, 0, hasher->state[3])) * zest__PRIME1 + zest__PRIME4;
+		result = zest__hash_rotate_left(hasher->state[0], 1) +
+			zest__hash_rotate_left(hasher->state[1], 7) +
+			zest__hash_rotate_left(hasher->state[2], 12) +
+			zest__hash_rotate_left(hasher->state[3], 18);
+		result = (result ^ zest__hash_process_single(0, hasher->state[0])) * zest__PRIME1 + zest__PRIME4;
+		result = (result ^ zest__hash_process_single(0, hasher->state[1])) * zest__PRIME1 + zest__PRIME4;
+		result = (result ^ zest__hash_process_single(0, hasher->state[2])) * zest__PRIME1 + zest__PRIME4;
+		result = (result ^ zest__hash_process_single(0, hasher->state[3])) * zest__PRIME1 + zest__PRIME4;
 	}
 	else
 	{
@@ -555,14 +575,14 @@ ZEST_PRIVATE inline zest_ull zest__get_hash(zest_hasher *hasher)
 	const unsigned char* data = hasher->buffer;
 	const unsigned char* stop = data + hasher->buffer_size;
 	for (; data + 8 <= stop; data += 8)
-		result = zest__hash_rotate_left(hasher, result ^ zest__hash_process_single(hasher, 0, *(zest_ull*)data), 27) * zest__PRIME1 + zest__PRIME4;
+		result = zest__hash_rotate_left(result ^ zest__hash_process_single(0, *(zest_ull*)data), 27) * zest__PRIME1 + zest__PRIME4;
 	if (data + 4 <= stop)
 	{
-		result = zest__hash_rotate_left(hasher, result ^ (*(zest_uint*)data) * zest__PRIME1, 23) * zest__PRIME2 + zest__PRIME3;
+		result = zest__hash_rotate_left(result ^ (*(zest_uint*)data) * zest__PRIME1, 23) * zest__PRIME2 + zest__PRIME3;
 		data += 4;
 	}
 	while (data != stop)
-		result = zest__hash_rotate_left(hasher, result ^ (*data++) * zest__PRIME5, 11) * zest__PRIME1;
+		result = zest__hash_rotate_left(result ^ (*data++) * zest__PRIME5, 11) * zest__PRIME1;
 	result ^= result >> 33;
 	result *= zest__PRIME2;
 	result ^= result >> 29;
@@ -1012,7 +1032,7 @@ struct zest_draw_routine_t {
 //Every command queue will have either one or more render passes (unless it's purely for compute shading). Render pass contains various data for drawing things during the render pass.
 //These can be draw routines that you can use to draw various things to the screen. You can set the render_pass_function to whatever you need to record the command buffer. See existing render pass functions such as:
 //RenderDrawRoutine, RenderRenderTarget and RenderTargetToSwapChain.
-struct zest_command_queue_draw_commands_t {
+typedef struct zest_command_queue_draw_commands_t {
 	VkFramebuffer(*get_frame_buffer)(zest_command_queue_draw_commands_t *item);
 	void(*render_pass_function)(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
 	zest_draw_routine *draw_routines;
@@ -1024,7 +1044,7 @@ struct zest_command_queue_draw_commands_t {
 	zest_vec4 cls_color;
 	zest_render_target render_target;
 	const char *name;
-};
+} zest_command_queue_draw_commands_t;
 
 typedef struct zest_sprite_instance_t {			//64 bytes
 	zest_vec2 size;						//Size of the sprite in pixels
@@ -1095,7 +1115,7 @@ typedef struct zest_push_constants_t {
     zest_vec4 parameters3;			//Can be used for anything		
 	zest_vec4 camera;				//For 3d drawing
 	zest_uint flags;				//bit flag field
-}zest_push_constants_t;
+} zest_push_constants_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_instance_instruction_t {
 	zest_index start_index;						//The starting index
@@ -1143,7 +1163,7 @@ typedef struct zest_layer_t {
 	zest_draw_mode last_draw_mode;
 
 	zest_draw_routine draw_routine;
-} zest_layer_t;
+} zest_layer_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_font_character_t {
 	char character[4];
@@ -1485,8 +1505,10 @@ ZEST_PRIVATE void zest__os_set_window_title(const char *title);
 ZEST_PRIVATE void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
 
 //Buffer & Memory Management
-ZEST_PRIVATE void* zest__allocate(zest_size size);
-ZEST_PRIVATE void* zest__reallocate(void *memory, zest_size size);
+ZEST_PRIVATE void zest__add_host_memory_pool(zest_size size);
+ZEST_PRIVATE void *zest__allocate(zest_size size);
+ZEST_PRIVATE void *zest__allocate_aligned(zest_size size, zest_size alignment);
+ZEST_PRIVATE void *zest__reallocate(void *memory, zest_size size);
 ZEST_PRIVATE VkResult zest__bind_memory(zest_device_memory_pool memory_allocation, VkDeviceSize offset);
 ZEST_PRIVATE VkResult zest__map_memory(zest_device_memory_pool memory_allocation, VkDeviceSize size, VkDeviceSize offset);
 ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
