@@ -1554,7 +1554,7 @@ ZEST_PRIVATE void zest__cleanup_textures(void);
 ZEST_PRIVATE void zest__cleanup_framebuffer(zest_frame_buffer_t *frame_buffer);
 ZEST_PRIVATE void zest__rebuild_pipeline(zest_pipeline_t *pipeline);
 ZEST_PRIVATE void zest__present_frame(void);
-ZEST_PRIVATE void zest__acquire_next_swapchain_image(void);
+ZEST_PRIVATE zest_bool zest__acquire_next_swapchain_image(void);
 ZEST_PRIVATE void zest__draw_renderer_frame(void);
 // --End Renderer functions
 

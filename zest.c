@@ -1411,7 +1411,8 @@ void zest__main_loop(void) {
 				printf("FPS: %u\n", ZestApp->last_fps);
 			}
 		}
-
+        
+        ZestRenderer->active_command_queue = ZEST_NULL;
 	}
 }
 
@@ -1439,7 +1440,7 @@ void* zest__allocate(zest_size size) {
 	void *allocation = zloc_Allocate(ZestDevice->allocator, size);
 	if (!allocation) {
         zest__add_host_memory_pool(size);
-        void *allocation = zloc_Allocate(ZestDevice->allocator, size);
+        allocation = zloc_Allocate(ZestDevice->allocator, size);
         ZEST_ASSERT(allocation);    //Unable to allocate even after adding a pool
 	}
 	return allocation;
@@ -2414,13 +2415,13 @@ void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes) {
 	if (zest_vec_empty(pool_sizes)) {
 		VkDescriptorPoolSize pool_size;
 		pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLER;
-		pool_size.descriptorCount = 10;
+		pool_size.descriptorCount = 100;
 		zest_vec_push(pool_sizes, pool_size);
 		pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		pool_size.descriptorCount = 100;
 		zest_vec_push(pool_sizes, pool_size);
 		pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-		pool_size.descriptorCount = 10;
+		pool_size.descriptorCount = 100;
 		zest_vec_push(pool_sizes, pool_size);
 		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 		pool_size.descriptorCount = 10;
@@ -2432,7 +2433,7 @@ void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes) {
 		pool_size.descriptorCount = 10;
 		zest_vec_push(pool_sizes, pool_size);
 		pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		pool_size.descriptorCount = 10;
+		pool_size.descriptorCount = 100;
 		zest_vec_push(pool_sizes, pool_size);
 		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		pool_size.descriptorCount = 10;
@@ -3427,15 +3428,16 @@ void zest__add_draw_routine(zest_command_queue_draw_commands draw_commands, zest
 	draw_routine->draw_commands = draw_commands;
 }
 
-void zest__acquire_next_swapchain_image() {
-	VkResult result = vkAcquireNextImageKHR(ZestDevice->logical_device, ZestRenderer->swapchain, UINT64_MAX, ZestRenderer->semaphores[ZEST_FIF].outgoing, ZEST_NULL, &ZestRenderer->current_frame);
-
-	//Has the window been resized? if so rebuild the swap chain.
-	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-		zest__recreate_swapchain();
-		return;
-	}
-	ZEST_VK_CHECK_RESULT(result);
+zest_bool zest__acquire_next_swapchain_image() {
+    VkResult result = vkAcquireNextImageKHR(ZestDevice->logical_device, ZestRenderer->swapchain, UINT64_MAX, ZestRenderer->semaphores[ZEST_FIF].outgoing, ZEST_NULL, &ZestRenderer->current_frame);
+    
+    //Has the window been resized? if so rebuild the swap chain.
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+        zest__recreate_swapchain();
+        return ZEST_FALSE;
+    }
+    ZEST_VK_CHECK_RESULT(result);
+    return ZEST_TRUE;
 }
 
 void zest__draw_renderer_frame() {
@@ -3443,7 +3445,9 @@ void zest__draw_renderer_frame() {
 	ZestRenderer->flags |= zest_renderer_flag_drawing_loop_running;
 	ZestRenderer->flags &= ~zest_renderer_flag_swapchain_was_recreated;
 
-	zest__acquire_next_swapchain_image();
+    if(!zest__acquire_next_swapchain_image()) {
+        return;
+    }
 
 	if (!ZestRenderer->active_command_queue) {
 		//if there's no render queues at all, then we can draw this blank one to prevent errors when presenting the frame
@@ -3455,7 +3459,6 @@ void zest__draw_renderer_frame() {
 		zest__record_command_queue(ZestRenderer->active_command_queue, ZEST_FIF);
 		zest__submit_command_queue(ZestRenderer->active_command_queue, ZestRenderer->fif_fence[ZEST_FIF]);
 	}
-	ZestRenderer->active_command_queue = ZEST_NULL;
 
 	zest__present_frame();
 }
@@ -4325,7 +4328,7 @@ zest_draw_routine zest_GetDrawRoutine(const char *name) {
 
 zest_command_queue_draw_commands zest__create_command_queue_draw_commands(const char *name) {
 	zest_command_queue_draw_commands_t blank_draw_commands = { 0 };
-	zest_command_queue_draw_commands draw_commands = ZEST__NEW(zest_command_queue_draw_commands);
+	zest_command_queue_draw_commands draw_commands = ZEST__NEW_ALIGNED(zest_command_queue_draw_commands, 16);
 	*draw_commands = blank_draw_commands;
 	draw_commands->name = name;
 	draw_commands->viewport_scale.x = 1.f;
@@ -6142,7 +6145,7 @@ void zest_CreateRenderTargetSamplerImage(zest_render_target render_target) {
 
 zest_render_target zest_NewRenderTarget() {
 	zest_render_target_t blank_render_target = { 0 };
-	zest_render_target render_target = ZEST__NEW(zest_render_target);
+	zest_render_target render_target = ZEST__NEW_ALIGNED(zest_render_target, 16);
 	render_target->render_width = 0;
 	render_target->render_height = 0;
 	render_target->flags = zest_render_target_flag_render_to_swap_chain;
