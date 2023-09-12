@@ -16,6 +16,8 @@ file(GLOB LIB_HEADERS  "*.h")
 add_library(zest-lib STATIC ${LIB_SRC})
 target_include_directories(zest-lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+option(ADD_MSDF_FONT_BUILDER "Add the msdf font builder project - you'll need to set up msdf libraries yourself")
+
 # Use FindVulkan module added with CMAKE 3.7
 if (NOT CMAKE_VERSION VERSION_LESS 3.7.0)
 	message(STATUS "Using module to find Vulkan")
@@ -64,6 +66,12 @@ function(buildExamples)
 		buildExample(${EXAMPLE})
 	endforeach(EXAMPLE)
 endfunction(buildExamples)
+
+function(buildExtraExamples)
+	foreach(EXAMPLE ${EXTRA_EXAMPLES})
+		buildExample(${EXAMPLE})
+	endforeach(EXAMPLE)
+endfunction(buildExtraExamples)
 
 IF(WIN32)
 	# Nothing here (yet)

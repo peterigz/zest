@@ -59,7 +59,15 @@ endfunction(buildExample)
 set(EXAMPLES
 	zest-compute-example
 	zest-imgui-template
-	#zest-msdf-font-maker
 )
 
 buildExamples()
+
+if(${ADD_MSDF_FONT_BUILDER})
+	set(EXTRA_EXAMPLES
+		zest-msdf-font-maker
+	)
+	buildExtraExamples()
+endif()
+
+
