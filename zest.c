@@ -818,7 +818,7 @@ void zest_Initialise(zest_create_info_t *info) {
 	zest__initialise_renderer(info);
 	zest__create_empty_command_queue(&ZestRenderer->empty_queue);
 	if (info->flags & zest_init_flag_initialise_with_command_queue) {
-		ZestApp->default_command_queue = zest_NewCommandQueue("Default command queue", zest_command_queue_flag_present_dependency);
+		ZestApp->default_command_queue = zest_NewCommandQueue("Default command queue");
 		{
 			ZestApp->default_draw_commands = zest_NewDrawCommandSetupSwap("Default Draw Commands");
 			{
@@ -2212,8 +2212,13 @@ void zest__recreate_swapchain() {
 	zest__cleanup_swapchain();
 	zest__cleanup_pipelines();
 
+	for (ZEST_EACH_FIF_i) {
+		vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->semaphores[i].outgoing, &ZestDevice->allocation_callbacks);
+	}
+
 	zest__create_swapchain();
 	zest__create_swapchain_image_views();
+	zest__create_sync_objects();
 
 	if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {
 		zest_FreeBuffer(ZestRenderer->depth_resource_buffer);
@@ -2259,10 +2264,15 @@ void zest__recreate_swapchain() {
 	}
 	*/
 
-	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
-		zest_command_queue command_queue = *zest_map_at_index(ZestRenderer->command_queues, i);
-		for (zest_foreach_j(command_queue->draw_commands)) {
-			zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[j];
+	for (zest_map_foreach_j(ZestRenderer->command_queues)) {
+		zest_command_queue command_queue = *zest_map_at_index(ZestRenderer->command_queues, j);
+		for (ZEST_EACH_FIF_i) {
+			zest_vec_clear(command_queue->semaphores[i].fif_incoming_semaphores);
+			zest_vec_clear(command_queue->fif_wait_stage_flags[i]);
+		}
+		zest_ConnectPresentToCommandQueue(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+		for (zest_foreach_k(command_queue->draw_commands)) {
+			zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[k];
 			if (draw_commands->viewport_type == zest_render_viewport_type_scale_with_window) {
 				draw_commands->viewport.extent.width = (zest_uint)((float)width * draw_commands->viewport_scale.x);
 				draw_commands->viewport.extent.height = (zest_uint)((float)height * draw_commands->viewport_scale.y);
@@ -3604,7 +3614,7 @@ void zest_ConnectCommandQueueToPresent(zest_command_queue sender) {
 		VkSemaphore semaphore = VK_NULL_HANDLE;
 		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &semaphore));
 		zest_vec_push(sender->semaphores[i].fif_outgoing_semaphores, semaphore);
-		sender->present_semaphore_index[ZEST_FIF] = zest_vec_last_index(sender->semaphores[i].fif_outgoing_semaphores);
+		sender->present_semaphore_index[i] = zest_vec_last_index(sender->semaphores[i].fif_outgoing_semaphores);
 	}
 }
 // --Command Queue functions
@@ -4097,19 +4107,14 @@ void zest__set_queue_context(zest_setup_context_type context) {
 	}
 }
 
-zest_command_queue zest_NewCommandQueue(const char *name, zest_command_queue_flags flags) {
+zest_command_queue zest_NewCommandQueue(const char *name) {
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_none);	//Current setup context must be none. You can't setup a new command queue within another one
 	zest__set_queue_context(zest_setup_context_type_command_queue);
 	zest_command_queue command_queue = zest__create_command_queue(name);
-	command_queue->flags = flags;
+	command_queue->flags = zest_command_queue_flag_present_dependency;
 	ZestRenderer->setup_context.command_queue = command_queue;
 	ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
-	if (flags & zest_command_queue_flag_present_dependency) {
-		zest_ConnectPresentToCommandQueue(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-	}
-	else if (flags & zest_command_queue_flag_command_queue_dependency) {
-		//Todo: Or maybe this is just a separate function
-	}
+	zest_ConnectPresentToCommandQueue(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 	return command_queue;
 }
 
@@ -4118,6 +4123,10 @@ zest_command_queue zest__create_command_queue(const char *name) {
 	zest_command_queue command_queue = ZEST__NEW(zest_command_queue);
 	*command_queue = blank_command_queue;
 	command_queue->name = name;
+
+	for (ZEST_EACH_FIF_i) {
+		command_queue->present_semaphore_index[i] = -1;
+	}
 
 	VkCommandPoolCreateInfo cmd_pool_info = { 0 };
 	cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;

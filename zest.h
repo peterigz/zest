@@ -1756,7 +1756,7 @@ ZEST_API zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer d
 //--End Buffer related
 
 //Command queue setup and creation
-ZEST_API zest_command_queue zest_NewCommandQueue(const char *name, zest_command_queue_flags flags);
+ZEST_API zest_command_queue zest_NewCommandQueue(const char *name);
 ZEST_API zest_command_queue zest_GetCommandQueue(const char *name);
 ZEST_API zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(zest_index index);
 ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue receiver, VkPipelineStageFlags stage_flags);
