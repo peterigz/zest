@@ -94,11 +94,9 @@ extern "C" {
 
 	enum zloc__constants {
 		zloc__MEMORY_ALIGNMENT = 1 << MEMORY_ALIGNMENT_LOG2,
-		zloc__MINIMUM_POOL_SIZE = zloc__MEGABYTE(1),
 		zloc__SECOND_LEVEL_INDEX_LOG2 = 5,
 		zloc__FIRST_LEVEL_INDEX_COUNT = ZLOC_MAX_SIZE_INDEX,
 		zloc__SECOND_LEVEL_INDEX_COUNT = 1 << zloc__SECOND_LEVEL_INDEX_LOG2,
-		zloc__FIRST_LEVEL_INDEX_MAX = (1 << (MEMORY_ALIGNMENT_LOG2 + 3)) - 1,
 		zloc__BLOCK_POINTER_OFFSET = sizeof(void*) + sizeof(zloc_size),
 		zloc__MINIMUM_BLOCK_SIZE = 16,
 		zloc__BLOCK_SIZE_OVERHEAD = sizeof(zloc_size),
@@ -345,6 +343,16 @@ extern "C" {
 	ZLOC_API void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size);
 
 	/*
+	Allocate some memory within a zloc_allocator of the specified size. Minimum size is 16 bytes.
+
+	@param	zloc_allocator			A pointer to an initialised zloc_allocator
+	@param	zloc_size				The size of the memory you're passing
+	@returns void*					A pointer to the block of memory that is allocated. Returns 0 if it was unable to allocate the memory due to
+									no free memory. If that happens then you may want to add a pool at that point.
+*/
+	ZLOC_API void *zloc_AllocateAligned(zloc_allocator *allocator, zloc_size size, zloc_size alignment);
+
+	/*
 		Free an allocation from a zloc_allocator. When freeing a block of memory any adjacent free blocks are merged together to keep on top of
 		fragmentation as much as possible. A check is also done to confirm that the block being freed is still valid and detect any memory corruption
 		due to out of bounds writing of this or potentially other blocks.
@@ -437,13 +445,9 @@ extern "C" {
 
 	ZLOC_API void zloc_AddRemotePool(zloc_allocator *allocator, void *block_memory, zloc_size block_memory_size, zloc_size remote_pool_size);
 
-	ZLOC_API inline void* zloc_BlockUserExtensionPtr(const zloc_header *block) {
-		return (char*)block + sizeof(zloc_header);
-	}
+    ZLOC_API void* zloc_BlockUserExtensionPtr(const zloc_header *block);
 
-	ZLOC_API inline void* zloc_AllocationFromExtensionPtr(const void *block) {
-		return (void*)((char*)block - zloc__MINIMUM_BLOCK_SIZE);
-	}
+    ZLOC_API void* zloc_AllocationFromExtensionPtr(const void *block);
 
 #endif
 
@@ -485,8 +489,19 @@ extern "C" {
 		return block->size & zloc__PREV_BLOCK_IS_FREE;
 	}
 
+	static inline void* zloc__align_ptr(const void* ptr, zloc_size align) {
+		ptrdiff_t aligned = (((ptrdiff_t)ptr) + (align - 1)) & ~(align - 1);
+		ZLOC_ASSERT(0 == (align & (align - 1)) && "must align to a power of two");
+		return (void*)aligned;
+	}
+
 	static inline zloc_bool zloc__is_aligned(zloc_size size, zloc_size alignment) {
 		return (size % alignment) == 0;
+	}
+
+	static inline zloc_bool zloc__ptr_is_aligned(void *ptr, zloc_size alignment) {
+		uintptr_t address = (uintptr_t)ptr;
+		return (address % alignment) == 0;
 	}
 
 	static inline zloc_size zloc__align_size_down(zloc_size size, zloc_size alignment) {
@@ -501,7 +516,7 @@ extern "C" {
 		return size;
 	}
 
-	static inline zloc_size zloc__adjust_size(zloc_size size, zloc_size minimum_size, zloc_index alignment) {
+	static inline zloc_size zloc__adjust_size(zloc_size size, zloc_size minimum_size, zloc_size alignment) {
 		return zloc__Min(zloc__Max(zloc__align_size_up(size, alignment), minimum_size), zloc__MAXIMUM_BLOCK_SIZE);
 	}
 
@@ -698,11 +713,11 @@ extern "C" {
 		If not then it simply returns the free block as it is without splitting.
 		If split then the trimmed amount is added back to the segregated list of free blocks.
 	*/
-	static inline void *zloc__maybe_split_block(zloc_allocator *allocator, zloc_header *block, zloc_size size, zloc_size remote_size) {
+	static inline zloc_header *zloc__maybe_split_block(zloc_allocator *allocator, zloc_header *block, zloc_size size, zloc_size remote_size) {
 		ZLOC_ASSERT(!zloc__is_last_block_in_pool(block));
 		zloc_size size_plus_overhead = size + zloc__BLOCK_POINTER_OFFSET + zloc__block_extension_size;
 		if (size_plus_overhead + zloc__MINIMUM_BLOCK_SIZE >= zloc__block_size(block) - zloc__block_extension_size) {
-			return (void*)((char*)block + zloc__BLOCK_POINTER_OFFSET);
+			return block;
 		}
 		zloc_header *trimmed = (zloc_header*)((char*)zloc__block_user_ptr(block) + size + zloc__block_extension_size);
 		trimmed->size = 0;
@@ -713,7 +728,22 @@ extern "C" {
 		zloc__set_block_size(block, size + zloc__block_extension_size);
 		zloc__do_split_block_callback;
 		zloc__push_block(allocator, trimmed);
-		return (void*)((char*)block + zloc__BLOCK_POINTER_OFFSET);
+		return block;
+	}
+
+	//For splitting blocks when allocating to a specific memory alignment
+	static inline zloc_header *zloc__split_aligned_block(zloc_allocator *allocator, zloc_header *block, zloc_size size) {
+		ZLOC_ASSERT(!zloc__is_last_block_in_pool(block));
+		zloc_size size_minus_overhead = size - zloc__BLOCK_POINTER_OFFSET;
+		zloc_header *trimmed = (zloc_header*)((char*)zloc__block_user_ptr(block) + size_minus_overhead);
+		trimmed->size = 0;
+		zloc__set_block_size(trimmed, zloc__block_size(block) - size);
+		zloc_header *next_block = zloc__next_physical_block(block);
+		zloc__set_prev_physical_block(next_block, trimmed);
+		zloc__set_prev_physical_block(trimmed, block);
+		zloc__set_block_size(block, size_minus_overhead);
+		zloc__push_block(allocator, block);
+		return trimmed;
 	}
 
 	/*
@@ -749,6 +779,44 @@ extern "C" {
 		zloc__set_prev_physical_block(block_after_next, block);
 		zloc__zero_block(next_block);
 	}
+
+	static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc_size size, zloc_size remote_size) {
+		zloc_index fli;
+		zloc_index sli;
+		zloc__map(zloc__map_size, &fli, &sli);
+		//Note that there may well be an appropriate size block in the class but that block may not be at the head of the list
+		//In this situation we could opt to loop through the list of the size class to see if there is an appropriate size but instead
+		//we stick to the paper and just move on to the next class up to keep a O1 speed at the cost of some extra fragmentation
+		if (zloc__has_free_block(allocator, fli, sli) && zloc__block_size(allocator->segregated_lists[fli][sli]) >= zloc__map_size) {
+			zloc_header *block = zloc__pop_block(allocator, fli, sli);
+			zloc__unlock_thread_access;
+			return block;
+		}
+		if (sli == zloc__SECOND_LEVEL_INDEX_COUNT - 1) {
+			sli = -1;
+		}
+		else {
+			sli = zloc__find_next_size_up(allocator->second_level_bitmaps[fli], sli);
+		}
+		if (sli == -1) {
+			fli = zloc__find_next_size_up(allocator->first_level_bitmap, fli);
+			if (fli > -1) {
+				sli = zloc__scan_forward(allocator->second_level_bitmaps[fli]);
+				zloc_header *block = zloc__pop_block(allocator, fli, sli);
+				zloc_header *split_block = zloc__call_maybe_split_block;
+				zloc__unlock_thread_access;
+				return split_block;
+			}
+		}
+		else {
+			zloc_header *block = zloc__pop_block(allocator, fli, sli);
+			zloc_header *split_block = zloc__call_maybe_split_block;
+			zloc__unlock_thread_access;
+			return split_block;
+		}
+
+		return 0;
+	}
 	//--End of internal functions
 
 	//--End of header declarations
@@ -768,6 +836,14 @@ extern "C" {
 #include <string.h>
 
 //Definitions
+ZLOC_API void* zloc_BlockUserExtensionPtr(const zloc_header *block) {
+    return (char*)block + sizeof(zloc_header);
+}
+
+ZLOC_API void* zloc_AllocationFromExtensionPtr(const void *block) {
+    return (void*)((char*)block - zloc__MINIMUM_BLOCK_SIZE);
+}
+
 zloc_allocator *zloc_InitialiseAllocator(void *memory) {
 	if (!memory) {
 		ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: The memory pointer passed in to the initialiser was NULL, did it allocate properly?\n", ZLOC_ERROR_NAME);
@@ -878,42 +954,16 @@ zloc_bool zloc_RemovePool(zloc_allocator *allocator, zloc_pool *pool) {
 void *zloc__allocate(zloc_allocator *allocator, zloc_size size, zloc_size remote_size) {
 #else
 void *zloc_Allocate(zloc_allocator *allocator, zloc_size size) {
+	zloc_size remote_size = 0;
 #endif
 	zloc__lock_thread_access;
-	zloc_index fli;
-	zloc_index sli;
 	size = zloc__adjust_size(size, zloc__MINIMUM_BLOCK_SIZE, zloc__MEMORY_ALIGNMENT);
-	zloc__map(zloc__map_size, &fli, &sli);
-	//Note that there may well be an appropriate size block in the class but that block may not be at the head of the list
-	//In this situation we could opt to loop through the list of the size class to see if there is an appropriate size but instead
-	//we stick to the paper and just move on to the next class up to keep a O1 speed at the cost of some extra fragmentation
-	if (zloc__has_free_block(allocator, fli, sli) && zloc__block_size(allocator->segregated_lists[fli][sli]) >= zloc__map_size) {
-		void *user_ptr = zloc__block_user_ptr(zloc__pop_block(allocator, fli, sli));
-		zloc__unlock_thread_access;
-		return user_ptr;
+	zloc_header *block = zloc__find_free_block(allocator, size, remote_size);
+
+	if (block) {
+		return zloc__block_user_ptr(block);
 	}
-	if (sli == zloc__SECOND_LEVEL_INDEX_COUNT - 1) {
-		sli = -1;
-	}
-	else {
-		sli = zloc__find_next_size_up(allocator->second_level_bitmaps[fli], sli);
-	}
-	if (sli == -1) {
-		fli = zloc__find_next_size_up(allocator->first_level_bitmap, fli);
-		if (fli > -1) {
-			sli = zloc__scan_forward(allocator->second_level_bitmaps[fli]);
-			zloc_header *block = zloc__pop_block(allocator, fli, sli);
-			void *allocation = zloc__call_maybe_split_block;
-			zloc__unlock_thread_access;
-			return allocation;
-		}
-	}
-	else {
-		zloc_header *block = zloc__pop_block(allocator, fli, sli);
-		void *allocation = zloc__call_maybe_split_block;
-		zloc__unlock_thread_access;
-		return allocation;
-	}
+
 	//Out of memory;
 	ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: Not enough memory in pool to allocate %zu bytes\n", ZLOC_ERROR_NAME, zloc__map_size);
 	zloc__unlock_thread_access;
@@ -956,11 +1006,51 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 			zloc__merge_with_next_block(allocator, block);
 			zloc__mark_block_as_used(block);
 		}
-		allocation = zloc__maybe_split_block(allocator, block, adjusted_size, 0);
+		zloc_header *split_block = zloc__maybe_split_block(allocator, block, adjusted_size, 0);
+		allocation = zloc__block_user_ptr(split_block);
 	}
 
 	zloc__unlock_thread_access;
 	return allocation;
+}
+
+void *zloc_AllocateAligned(zloc_allocator *allocator, zloc_size size, zloc_size alignment) {
+	zloc_size adjusted_size = zloc__adjust_size(size, allocator->minimum_allocation_size, alignment);
+	zloc_size gap_minimum = sizeof(zloc_header);
+	zloc_size size_with_gap = zloc__adjust_size(adjusted_size + alignment + gap_minimum, allocator->minimum_allocation_size, alignment);
+	size_t aligned_size = (adjusted_size && alignment > zloc__MEMORY_ALIGNMENT) ? size_with_gap : adjusted_size;
+
+	zloc_header *block = zloc__find_free_block(allocator, aligned_size, 0);
+
+	if (block) {
+		void *user_ptr = zloc__block_user_ptr(block);
+		void *aligned_ptr = zloc__align_ptr(user_ptr, alignment);
+		zloc_size gap = (zloc_size)(((ptrdiff_t)aligned_ptr) - (ptrdiff_t)user_ptr);
+
+		/* If gap size is too small, offset to next aligned boundary. */
+		if (gap && gap < gap_minimum)
+		{
+			zloc_size gap_remain = gap_minimum - gap;
+			zloc_size offset = zloc__Max(gap_remain, alignment);
+			const void* next_aligned = (void*)((ptrdiff_t)aligned_ptr + offset);
+
+			aligned_ptr = zloc__align_ptr(next_aligned, alignment);
+			gap = (zloc_size)((ptrdiff_t)aligned_ptr - (ptrdiff_t)user_ptr);
+		}
+
+		if (gap)
+		{
+			ZLOC_ASSERT(gap >= gap_minimum && "gap size too small");
+			block = zloc__split_aligned_block(allocator, block, gap);
+			zloc__block_set_used(block);
+		}
+		ZLOC_ASSERT(zloc__ptr_is_aligned(zloc__block_user_ptr(block), alignment));	//pointer not aligned to requested alignment
+	}
+	else {
+		return 0;
+	}
+
+	return zloc__block_user_ptr(block);
 }
 
 int zloc_Free(zloc_allocator *allocator, void* allocation) {
@@ -1083,8 +1173,6 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 		zloc__access_override;
 		allocation = zloc__allocate(allocator, size, remote_size);
 		if (allocation) {
-			zloc_remote_header *remote_block = (zloc_remote_header*)zloc_BlockUserExtensionPtr(block);
-			zloc_size test_remote_size = zloc__do_size_class_callback(block);
 			zloc__do_unable_to_reallocate_callback;
 			zloc_Free(allocator, ptr);
 		}
@@ -1096,7 +1184,8 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 			zloc__merge_with_next_block(allocator, block);
 			zloc__mark_block_as_used(block);
 		}
-		allocation = zloc__maybe_split_block(allocator, block, adjusted_size, remote_size);
+		zloc_header *split_block = zloc__maybe_split_block(allocator, block, adjusted_size, remote_size);
+		allocation = zloc__block_user_ptr(split_block);
 	}
 
 	zloc__unlock_thread_access;
