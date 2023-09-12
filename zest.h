@@ -1171,9 +1171,11 @@ typedef struct zest_font_character_t {
 	float height;
 	float xoffset;
 	float yoffset;
-	zest_vec4 uv;
 	float xadvance;
-	zest_uint flags;
+    zest_uint flags;
+    float reserved1;
+    zest_vec4 uv;
+    float reserved2[4];
 } zest_font_character_t;
 
 typedef struct zest_font_t {

@@ -4527,7 +4527,7 @@ zest_texture zest_NewTexture() {
 
 zest_image zest_CreateImage() {
 	zest_image_t blank_image = { 0 };
-	zest_image image = ZEST__NEW(zest_image);
+	zest_image image = ZEST__NEW_ALIGNED(zest_image, 16);
 	*image = blank_image;
 	image->scale = zest_Vec2Set1(1.f);
 	image->handle = zest_Vec2Set1(0.5f);
