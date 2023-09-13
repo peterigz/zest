@@ -3115,7 +3115,7 @@ zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
 float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
 float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
 float zest_DPIScale(void) { return ZestRenderer->dpi_scale; }
-float zest_SetDPIScale(float scale) { ZestRenderer->dpi_scale = scale; }
+void zest_SetDPIScale(float scale) { ZestRenderer->dpi_scale = scale; }
 zest_uint zest_FPS() { return ZestApp->last_fps; }
 float zest_FPSf() { return (float)ZestApp->last_fps; }
 zest_window_t *zest_AllocateWindow() { zest_window_t *window; window = (zest_window_t*)ZEST__ALLOCATE(sizeof(zest_window_t)); memset(window, 0, sizeof(zest_window_t)); return window; }

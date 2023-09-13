@@ -2061,7 +2061,7 @@ ZEST_API zest_uint zest_ScreenHeight(void);
 ZEST_API float zest_ScreenWidthf(void);
 ZEST_API float zest_ScreenHeightf(void);
 ZEST_API float zest_DPIScale(void);
-ZEST_API float zest_SetDPIScale(float scale);
+ZEST_API void zest_SetDPIScale(float scale);
 ZEST_API zest_uint zest_FPS();
 ZEST_API float zest_FPSf();
 ZEST_API zest_descriptor_buffer zest_GetUniformBuffer(const char *name);
