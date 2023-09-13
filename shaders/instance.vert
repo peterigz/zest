@@ -61,7 +61,6 @@ void main() {
 
 	int index = indexes[gl_VertexIndex];
 
-	out_tex_coord = vec3(uvs[index], (texture_array_index & uint(0xFF000000)) >> 24);
 	vec2 vertex_position = bounds[index];
 
 	mat3 matrix = mat3(1.0);
@@ -80,5 +79,6 @@ void main() {
 	gl_Position = uboView.proj * modelView * vec4(pos, 1.0);
 
 	//----------------
+	out_tex_coord = vec3(uvs[index], (texture_array_index & uint(0xFF000000)) >> 24);
 	out_frag_color = in_color * intensity;
 }
