@@ -208,7 +208,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 	ImGui::Begin("Test Window");
-	ImGui::Text("FPS %zu", ZestApp->last_fps);
+	ImGui::Text("FPS %u", ZestApp->last_fps);
 	ImGui::Text("Particle Count: %u", PARTICLE_COUNT);
 	ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
 	ImGui::End();

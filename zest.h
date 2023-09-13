@@ -816,7 +816,7 @@ typedef struct zest_create_info_t {
 	zest_uint flags;									//Set flags to apply different initialisation options
 
 	//Callbacks use these to implement your own preferred window creation functionality
-	void(*get_window_size_callback)(void *user_data, int *width, int *height);
+	void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 	void(*destroy_window_callback)(void *user_data);
 	void(*poll_events_callback)(ZEST_PROTOTYPE);
 	void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
@@ -1475,7 +1475,7 @@ typedef struct zest_renderer_t {
 	zest_renderer_flags flags;
 
 	//Callbacks for customising window and surface creation
-	void(*get_window_size_callback)(void *user_data, int *width, int *height);
+	void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 	void(*destroy_window_callback)(void *user_data);
 	void(*poll_events_callback)(ZEST_PROTOTYPE);
 	void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
@@ -1533,7 +1533,7 @@ ZEST_PRIVATE VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR
 ZEST_PRIVATE VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_modes, zest_bool use_vsync);
 ZEST_PRIVATE VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
 ZEST_PRIVATE void zest__create_pipeline_cache();
-ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *width, int *height);
+ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 ZEST_PRIVATE void zest__destroy_window_callback(void *user_data);
 ZEST_PRIVATE void zest__cleanup_swapchain(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
@@ -1695,7 +1695,7 @@ ZEST_API void zest_SetUserData(void* data);
 ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
 ZEST_API void zest_SetActiveCommandQueue(zest_command_queue command_queue);
 ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data));
-ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *width, int *height));
+ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height));
 ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
 ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
 //--End User API functions

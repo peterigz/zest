@@ -48,8 +48,9 @@ void zest_implglfw_AddPlatformExtensionsCallback(void) {
 	}
 }
 
-void zest_implglfw_GetWindowSizeCallback(void *user_data, int *width, int *height) {
-	glfwGetFramebufferSize((GLFWwindow*)ZestApp->window->window_handle, width, height);
+void zest_implglfw_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
+    glfwGetFramebufferSize((GLFWwindow*)ZestApp->window->window_handle, fb_width, fb_height);
+	glfwGetWindowSize((GLFWwindow*)ZestApp->window->window_handle, window_width, window_height);
 }
 
 void zest_implglfw_DestroyWindowCallback(void *user_data) {

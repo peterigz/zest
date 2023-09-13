@@ -169,11 +169,13 @@ void zest__os_add_platform_extensions() {
 	zest_AddInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 }
 
-void zest__get_window_size_callback(void *user_data, int *width, int *height) {
+void zest__get_window_size_callback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
 	RECT window_rect;
 	GetClientRect(ZestApp->window->window_handle, &window_rect);
-	*width = window_rect.right - window_rect.left;
-	*height = window_rect.bottom - window_rect.top;
+	*fb_width = window_rect.right - window_rect.left;
+	*fb_height = window_rect.bottom - window_rect.top;
+    *window_width = *fb_width;
+    *window_height = *fb_height;
 }
 
 void zest__os_set_window_title(const char *title) {
@@ -238,8 +240,9 @@ void zest__os_add_platform_extensions(void) {
     }
 }
 
-void zest__get_window_size_callback(void *user_data, int *width, int *height){
-    glfwGetFramebufferSize(ZestApp->window->window_handle, width, height);
+void zest__get_window_size_callback(void *user_data,  int *fb_width, int *fb_height, int *window_width, int *window_height){
+    glfwGetFramebufferSize(ZestApp->window->window_handle, fb_width, fb_height);
+    glfwGetWindowSize(ZestApp->window->window_handle, window_width, window_height);
 }
 
 void zest__destroy_window_callback(void *user_data){
@@ -867,7 +870,7 @@ void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_dat
 	ZestRenderer->destroy_window_callback = destroy_window_callback;
 }
 
-void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *width, int *height)) {
+void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height)) {
 	ZestRenderer->get_window_size_callback = get_window_size_callback;
 }
 
@@ -1991,7 +1994,7 @@ void zest__create_swapchain() {
 	VkSurfaceFormatKHR surfaceFormat = zest__choose_swapchain_format(swapchain_support.formats);
 	VkPresentModeKHR presentMode = zest_choose_present_mode(swapchain_support.present_modes, ZestRenderer->flags & zest_renderer_flag_vsync_enabled);
 	VkExtent2D extent = zest_choose_swap_extent(&swapchain_support.capabilities);
-    ZestRenderer->dpi_scale = (float)extent.width / (float)ZestApp->create_info.screen_width;
+    ZestRenderer->dpi_scale = (float)extent.width / (float)ZestApp->window->window_width;
 
 	ZestRenderer->swapchain_image_format = surfaceFormat.format;
     ZestRenderer->swapchain_extent = extent;
@@ -2051,12 +2054,13 @@ VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities) {
 		return capabilities->currentExtent;
 	}
 	else {
-		int width = 0, height = 0;
-		ZestRenderer->get_window_size_callback(ZestApp->user_data, &width, &height);
+        int fb_width = 0, fb_height = 0;
+		int window_width = 0, window_height = 0;
+		ZestRenderer->get_window_size_callback(ZestApp->user_data, &fb_width, &fb_height, &window_width, &window_height);
 
 		VkExtent2D actual_extent = {
-			.width	= (zest_uint)(width),
-			.height = (zest_uint)(height)
+			.width	= (zest_uint)(fb_width),
+			.height = (zest_uint)(fb_height)
 		};
 
 		actual_extent.width = ZEST__MAX(capabilities->minImageExtent.width, ZEST__MIN(capabilities->maxImageExtent.width, actual_extent.width));
@@ -2202,18 +2206,19 @@ void zest__cleanup_renderer() {
 }
 
 void zest__recreate_swapchain() {
-	int width = 0, height = 0;
+	int fb_width = 0, fb_height = 0;
+    int window_width = 0, window_height = 0;
 	ZestRenderer->flags |= zest_renderer_flag_swapchain_was_recreated;
-	while (width == 0 || height == 0) {
-		ZestRenderer->get_window_size_callback(ZestApp->user_data, &width, &height);
-		if (width == 0 || height == 0) {
+	while (fb_width == 0 || fb_height == 0) {
+		ZestRenderer->get_window_size_callback(ZestApp->user_data, &fb_width, &fb_height, &window_width, &window_height);
+		if (fb_width == 0 || fb_height == 0) {
 			zest__os_poll_events();
 		}
 	}
 
-	zest__update_window_size(ZestApp->window, width, height);
-	ZestRenderer->push_constants.screen_resolution.x = 1.f / width;
-	ZestRenderer->push_constants.screen_resolution.y = 1.f / height;
+	zest__update_window_size(ZestApp->window, window_width, window_height);
+	ZestRenderer->push_constants.screen_resolution.x = 1.f / fb_width;
+	ZestRenderer->push_constants.screen_resolution.y = 1.f / fb_height;
 
 	zest_WaitForIdleDevice();
 
@@ -2239,8 +2244,8 @@ void zest__recreate_swapchain() {
 		zest_RecreateRenderTargetResources(render_target);
 	}
 	VkExtent2D extent;
-	extent.width = width;
-	extent.height = height;
+	extent.width = fb_width;
+	extent.height = fb_height;
 	for (zest_map_foreach_i(ZestRenderer->pipelines)) {
 		zest_pipeline pipeline = *zest_map_at_index(ZestRenderer->pipelines, i);
 		if (!pipeline->rebuild_pipeline_function) {
@@ -2281,17 +2286,21 @@ void zest__recreate_swapchain() {
 		zest_ConnectPresentToCommandQueue(command_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 		for (zest_foreach_k(command_queue->draw_commands)) {
 			zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[k];
-			if (draw_commands->viewport_type == zest_render_viewport_type_scale_with_window) {
-				draw_commands->viewport.extent.width = (zest_uint)((float)width * draw_commands->viewport_scale.x);
-				draw_commands->viewport.extent.height = (zest_uint)((float)height * draw_commands->viewport_scale.y);
-			}
+            if(draw_commands->render_target) {
+                draw_commands->viewport = draw_commands->render_target->viewport;
+            }else {
+                if (draw_commands->viewport_type == zest_render_viewport_type_scale_with_window) {
+                    draw_commands->viewport.extent.width = (zest_uint)((float)fb_width * draw_commands->viewport_scale.x);
+                    draw_commands->viewport.extent.height = (zest_uint)((float)fb_height * draw_commands->viewport_scale.y);
+                }
+            }
 		}
 	}
 
 	for (zest_foreach_i(ZestRenderer->empty_queue.draw_commands)) {
 		zest_command_queue_draw_commands draw_commands = ZestRenderer->empty_queue.draw_commands[i];
-		draw_commands->viewport.extent.width = width;
-		draw_commands->viewport.extent.height = height;
+		draw_commands->viewport.extent.width = fb_width;
+		draw_commands->viewport.extent.height = fb_height;
 	}
 
 }
@@ -6292,12 +6301,12 @@ VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_co
 void zest_RecreateRenderTargetResources(zest_render_target render_target) {
 	int width, height;
 	if (zest_Vec2Length(render_target->create_info.ratio_of_screen_size)) {
-		width = (zest_uint)((float)zest_GetSwapChainExtent().width * render_target->create_info.ratio_of_screen_size.x);
-		height = (zest_uint)((float)zest_GetSwapChainExtent().height * render_target->create_info.ratio_of_screen_size.y);
+		width = (zest_uint)((float)render_target->create_info.input_source->render_width * render_target->create_info.ratio_of_screen_size.x);
+		height = (zest_uint)((float)render_target->create_info.input_source->render_height * render_target->create_info.ratio_of_screen_size.y);
 	}
 	else if (ZEST__NOT_FLAGGED(render_target->create_info.flags, zest_render_target_flag_fixed_size)) {
-		width = ZestApp->window->window_width;
-		height = ZestApp->window->window_height;
+		width = zest_SwapChainWidth();
+		height = zest_SwapChainHeight();
 	}
 	else {
 		width = render_target->create_info.viewport.extent.width;
