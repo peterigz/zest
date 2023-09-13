@@ -400,6 +400,7 @@ typedef struct zest_buffer_allocator_t zest_buffer_allocator_t;
 typedef struct zest_compute_t zest_compute_t;
 typedef struct zest_buffer_t zest_buffer_t;
 typedef struct zest_device_memory_pool_t zest_device_memory_pool_t;
+typedef struct zest_timer_t zest_timer_t;
 
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image)
@@ -419,6 +420,7 @@ ZEST__MAKE_HANDLE(zest_buffer_allocator)
 ZEST__MAKE_HANDLE(zest_compute)
 ZEST__MAKE_HANDLE(zest_buffer)
 ZEST__MAKE_HANDLE(zest_device_memory_pool)
+ZEST__MAKE_HANDLE(zest_timer)
 
 typedef zest_descriptor_buffer zest_uniform_buffer;
 
@@ -674,6 +676,19 @@ typedef struct zest_rgba8 {
 	};
 } zest_rgba8;
 typedef zest_rgba8 zest_color;
+
+typedef struct zest_timer_t {
+	double start_time;
+	double delta_time;
+	double update_frequency;
+	double update_tick_length;
+	double update_time;
+	double ticker;
+	double accumulator;
+	double accumulator_delta;
+	double current_time;
+	double lerp;
+} zest_timer_t;
 
 typedef struct zest_camera_t {
 	zest_vec3 position;
@@ -1150,7 +1165,7 @@ typedef struct zest_layer_t {
 	};
 
 	zest_color current_color;
-	float multiply_blend_factor;
+	float intensity;
 	zest_push_constants_t push_constants;
 
 	zest_vec2 layer_size;
@@ -1763,7 +1778,8 @@ ZEST_API zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer d
 //Command queue setup and creation
 ZEST_API zest_command_queue zest_NewCommandQueue(const char *name);
 ZEST_API zest_command_queue zest_GetCommandQueue(const char *name);
-ZEST_API zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(zest_index index);
+ZEST_API zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(const char *name);
+ZEST_API void zest_SetDrawCommandsClsColor(zest_command_queue_draw_commands draw_commands, float r, float g, float b, float a);
 ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue receiver, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectCommandQueueToPresent(zest_command_queue sender);
 ZEST_API VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue command_queue);
@@ -1868,6 +1884,7 @@ ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_form
 ZEST_API void zest_DeleteTexture(zest_texture texture);
 ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
 ZEST_API zest_image zest_CreateImage(void);
+ZEST_API zest_image zest_CreateAnimation(zest_uint frames);
 ZEST_API void zest_LoadBitmapImage(zest_bitmap_t *image, const char *file, int color_channels);
 ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap_t *image, unsigned char *buffer, int size, int desired_no_channels);
 ZEST_API void zest_FreeBitmap(zest_bitmap_t *image);
@@ -1970,6 +1987,7 @@ ZEST_API void zest_SetInstanceLayerViewPort(zest_layer instance_layer, int x, in
 ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
 ZEST_API zest_layer zest_GetLayer(const char *name);
 ZEST_API void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha);
+ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
 //-- End Draw Layers
 
 //Draw sprite layers
@@ -1981,7 +1999,8 @@ ZEST_API void zest_DrawSprite(zest_layer layer, zest_image image, float x, float
 //Draw billboard layers
 ZEST_API void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetBillboardDrawing(zest_layer sprite_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
-ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
+ZEST_API void zest_DrawBillboardComplex(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
+ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy);
 //--End Draw billboard layers
 
 //Draw MSDF font layers
@@ -2037,6 +2056,22 @@ ZEST_API void zest_SetupFontTexture(zest_font font);
 ZEST_API zest_font zest_AddFont(zest_font font);
 ZEST_API zest_font zest_GetFont(const char *font);
 //--End Events and States
+
+//Timer functions
+ZEST_API zest_timer zest_CreateTimer(double update_frequency);									//Create a new timer and return its handle
+ZEST_API void zest_FreeTimer(zest_timer timer);													//Free a timer and its memory
+ZEST_API void zest_TimerSetUpdateFrequency(zest_timer timer, double update_frequency);			//Set the update frequency for timing loop functions, accumulators and such
+ZEST_API void zest_TimerReset(zest_timer timer);												//Set the clock time to now
+ZEST_API double zest_TimerDeltaTime(zest_timer timer);											//The amount of time passed since the last tick
+ZEST_API void zest_TimerTick(zest_timer timer);													//Update the delta time
+ZEST_API double zest_TimerUpdateTime(zest_timer timer);											//Gets the update time (1.f / update_frequency)
+ZEST_API double zest_TimerFrameLength(zest_timer timer);										//Gets the update_tick_length (1000.f / update_frequency)
+ZEST_API double zest_TimerAccumulate(zest_timer timer);											//Accumulate the amount of time that has passed since the last render
+ZEST_API void zest_TimerUnAccumulate(zest_timer timer);											//Unaccumulate 1 tick length from the accumulator. While the accumulator is more then the tick length an update should be done
+ZEST_API zest_bool zest_TimerDoUpdate(zest_timer timer);										//Return true if accumulator is more or equal to the update_tick_length
+ZEST_API double zest_TimerLerp(zest_timer timer);												//Return the current tween/lerp value
+ZEST_API void zest_TimerSet(zest_timer timer);													//Set the current tween value
+//--End Timer Functions
 
 //General Helper functions
 ZEST_API char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);

@@ -758,7 +758,7 @@ zest_uint zest_Pack16bit(float x, float y) {
 	return u.out;
 }
 
-inline zest_uint zest_Pack10bit(zest_vec3 *v, zest_uint extra) {
+zest_uint zest_Pack10bit(zest_vec3 *v, zest_uint extra) {
 	zest_vec3 converted = zest_ScaleVec3(v, 511.f);
 	zest_packed10bit result;
 	result.pack = 0;
@@ -3280,15 +3280,15 @@ void zest__prepare_standard_pipelines() {
 	instance_create_info.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 	VkVertexInputAttributeDescription *billboard_vertex_input_attributes = 0;
 
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));			// Location 0: Position
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));		// Location 0: Position
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance_t, uv_xy)));				// Location 1: uv_xy
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, rotations)));		// Location 2: scale pitch yaw
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance_t, uv_zw)));				// Location 3: uv_zw
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, scale)));				// Location 4: Handle
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, handle)));				// Location 5: Handle
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, handle)));			// Location 5: Handle
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_SFLOAT, offsetof(zest_billboard_instance_t, stretch)));				// Location 6: Stretch amount
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, blend_texture_array)));		// Location 7: texture array index
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));				// Location 8: Instance Color
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, blend_texture_array)));	// Location 7: texture array index
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			// Location 8: Instance Color
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));			// Location 9: Alignment
 
 	zest_pipeline billboard_instance_pipeline = zest_AddPipeline("pipeline_billboard");
@@ -4183,9 +4183,13 @@ zest_command_queue zest_GetCommandQueue(const char *name) {
 	return *zest_map_at(ZestRenderer->command_queues, name);
 }
 
-zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(zest_index index) {
-	ZEST_ASSERT(zest_map_valid_index(ZestRenderer->command_queue_draw_commands, index));	//index of command queue render pass not found
-	return *zest_map_at_index(ZestRenderer->command_queue_draw_commands, index);
+zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(const char *name) {
+	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));	//name of command queue draw commands not found
+	return *zest_map_at(ZestRenderer->command_queue_draw_commands, name);
+}
+
+void zest_SetDrawCommandsClsColor(zest_command_queue_draw_commands draw_commands, float r, float g, float b, float a) {
+	draw_commands->cls_color = zest_Vec4Set(r, g, b, a);
 }
 
 void zest_ModifyCommandQueue(zest_command_queue command_queue) {
@@ -4578,6 +4582,11 @@ zest_image zest_CreateImage() {
 	image->uv.z = 1.f;
 	image->uv.w = 1.f;
 	image->layer = 0;
+	return image;
+}
+
+zest_image zest_CreateAnimation(zest_uint frames) {
+	zest_image image = (zest_image)ZEST__ALLOCATE_ALIGNED(sizeof(zest_image_t) * frames, 16);
 	return image;
 }
 
@@ -5039,13 +5048,15 @@ float zest_CopyAnimationFrames(zest_texture texture, zest_bitmap_t *spritesheet,
 
 	zest_uint frame_count = 0;
 	float max_radius = 0;
+	zest_image_t blank_image = { 0 };
+	zest_image frame = zest_CreateAnimation(frames);
 
 	for (zest_uint r = 0; r != (row_by_row ? rows : cols); ++r) {
 		for (zest_uint c = 0; c != (row_by_row ? cols : rows); ++c) {
 			if (frame_count >= frames) {
 				break;
 			}
-			zest_image frame = zest_CreateImage();
+			*frame = blank_image;
 			zest_vec_push(texture->images, frame);
 			texture->image_index = zest_vec_last_index(texture->images);
 			frame->index = texture->image_index;
@@ -5061,6 +5072,7 @@ float zest_CopyAnimationFrames(zest_texture texture, zest_bitmap_t *spritesheet,
 				frame->max_radius = zest_FindBitmapRadius(image_bitmap);
 				max_radius = ZEST__MAX(max_radius, frame->max_radius);
 			}
+			frame = frame + 1;
 			frame_count++;
 		}
 	}
@@ -6666,6 +6678,10 @@ void zest_SetLayerSize(zest_layer layer, float width, float height) {
 void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha) {
 	layer->current_color = zest_ColorSet(red, green, blue, alpha);
 }
+
+void zest_SetLayerIntensity(zest_layer layer, float value) {
+	layer->intensity = value;
+}
 //-- End Draw Layers
 
 //-- Start Sprite Drawing API
@@ -6674,7 +6690,7 @@ void zest_InitialiseSpriteLayer(zest_layer sprite_layer, zest_uint instance_pool
 	sprite_layer->current_color.g = 255;
 	sprite_layer->current_color.b = 255;
 	sprite_layer->current_color.a = 255;
-	sprite_layer->multiply_blend_factor = 1;
+	sprite_layer->intensity = 1;
 	sprite_layer->push_constants.model = zest_M4(1);
 	sprite_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
 	sprite_layer->push_constants.parameters2.x = 0.f;
@@ -6724,7 +6740,7 @@ void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float
 	sprite->handle = zest_Vec2Set(hx, hy);
 	sprite->position_rotation = zest_Vec4Set(x, y, stretch, r);
 	sprite->uv = image->uv;
-	sprite->intensity = layer->multiply_blend_factor;
+	sprite->intensity = layer->intensity;
 	sprite->alignment = alignment;
 	sprite->color = layer->current_color;
 	sprite->image_layer_index = (image->layer << 24) + align_type;
@@ -6740,7 +6756,7 @@ void zest_InitialiseMSDFFontLayer(zest_layer font_layer, zest_uint instance_pool
 	font_layer->current_color.g = 255;
 	font_layer->current_color.b = 255;
 	font_layer->current_color.a = 255;
-	font_layer->multiply_blend_factor = 1;
+	font_layer->intensity = 1;
 	font_layer->push_constants.model = zest_M4(1);
 	font_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
 	font_layer->push_constants.parameters2.x = 1.f;		//Shadow Vector
@@ -6880,7 +6896,7 @@ float zest_DrawMSDFText(zest_layer font_layer, const char *text, float x, float 
 		font_instance->handle = zest_Vec2Set1(0.f);
 		font_instance->position_rotation = zest_Vec4Set(xpos + xoffset, y + yoffset, 0.f, 0.f);
 		font_instance->uv = character->uv;
-		font_instance->intensity = font_layer->multiply_blend_factor;
+		font_instance->intensity = font_layer->intensity;
 		font_instance->alignment = 1;
 		font_instance->color = font_layer->current_color;
 		font_instance->image_layer_index = 0;
@@ -6946,7 +6962,7 @@ float zest_DrawMSDFParagraph(zest_layer font_layer, const char *text, float x, f
 		font_instance->handle = zest_Vec2Set1(0.f);
 		font_instance->position_rotation = zest_Vec4Set(xpos + xoffset, y + yoffset, 0.f, 0.f);
 		font_instance->uv = character->uv;
-		font_instance->intensity = font_layer->multiply_blend_factor;
+		font_instance->intensity = font_layer->intensity;
 		font_instance->alignment = 1;
 		font_instance->color = font_layer->current_color;
 		font_instance->image_layer_index = 0;
@@ -6988,7 +7004,7 @@ void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instanc
 	billboard_layer->current_color.g = 255;
 	billboard_layer->current_color.b = 255;
 	billboard_layer->current_color.a = 255;
-	billboard_layer->multiply_blend_factor = 1;
+	billboard_layer->intensity = 1;
 	billboard_layer->push_constants.model = zest_M4(1);
 	billboard_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
 	billboard_layer->push_constants.parameters2.x = 0.f;
@@ -7029,7 +7045,7 @@ void zest_SetBillboardDrawing(zest_layer billboard_layer, zest_texture texture, 
 	billboard_layer->last_draw_mode = zest_draw_mode_instance;
 }
 
-void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy) {
+void zest_DrawBillboardComplex(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy) {
 	ZEST_ASSERT(layer->current_instance_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
 
 	zest_billboard_instance_t *billboard = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
@@ -7043,7 +7059,27 @@ void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], z
 	billboard->handle = zest_Vec2Set(handle[0], handle[1]);
 	billboard->stretch = stretch;
 	billboard->color = layer->current_color;
-	billboard->blend_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->multiply_blend_factor * 0.125f * 4194303.f);
+	billboard->blend_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
+	layer->current_instance_instruction.total_instances++;
+
+	zest__next_billboard_instance(layer);
+}
+
+void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3],  float angle, float sx, float sy) {
+	ZEST_ASSERT(layer->current_instance_instruction.draw_mode == zest_draw_mode_instance);		//Call zest_StartSpriteDrawing before calling this function
+
+	zest_billboard_instance_t *billboard = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+
+	billboard->scale = zest_Vec2Set(sx, sy);
+	billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
+	billboard->rotations = zest_Vec3Set(0.f, 0.f, angle);
+	billboard->alignment = 16711680;
+	billboard->uv_xy = image->uv_xy;
+	billboard->uv_zw = image->uv_zw;
+	billboard->handle = zest_Vec2Set(0.5f, 0.5f);
+	billboard->stretch = 1.f;
+	billboard->color = layer->current_color;
+	billboard->blend_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
 	layer->current_instance_instruction.total_instances++;
 
 	zest__next_billboard_instance(layer);
@@ -7056,7 +7092,7 @@ void zest_InitialiseMeshLayer(zest_layer mesh_layer, zest_size vertex_struct_siz
 	mesh_layer->current_color.g = 255;
 	mesh_layer->current_color.b = 255;
 	mesh_layer->current_color.a = 255;
-	mesh_layer->multiply_blend_factor = 1;
+	mesh_layer->intensity = 1;
 	mesh_layer->push_constants.model = zest_M4(1);
 	mesh_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
 	mesh_layer->push_constants.parameters2.x = 0.f;
@@ -7513,4 +7549,77 @@ void zest_OutputQueues() {
 	}
 }
 //-- End Debug helpers
+
+//-- Timer functions
+zest_timer zest_CreateTimer(double update_frequency) {
+	zest_timer_t blank_timer = { 0 };
+	zest_timer timer = ZEST__NEW(zest_timer);
+	*timer = blank_timer;
+	zest_TimerSetUpdateFrequency(timer, update_frequency);
+	return timer;
+}
+
+void zest_FreeTimer(zest_timer timer) {
+	ZEST__FREE(timer);
+}
+
+void zest_TimerReset(zest_timer timer) {
+	timer->start_time = (double)zest_Microsecs();
+	timer->current_time = (double)zest_Microsecs();
+}
+
+double zest_TimerDeltaTime(zest_timer timer) {
+	return timer->delta_time;
+}
+
+void zest_TimerTick(zest_timer timer) {
+	timer->delta_time = (double)zest_Microsecs() - timer->start_time;
+}
+
+double zest_TimerUpdateTime(zest_timer timer) {
+	return timer->update_time;
+}
+
+double zest_TimerFrameLength(zest_timer timer) {
+	return timer->update_tick_length;
+}
+
+double zest_TimerAccumulate(zest_timer timer) {
+	double new_time = (double)zest_Microsecs();
+	double frame_time = fabs(new_time - timer->current_time);
+	timer->current_time = new_time;
+
+	timer->accumulator_delta = timer->accumulator;
+	timer->accumulator += frame_time;
+	return frame_time;
+}
+
+void zest_TimerUnAccumulate(zest_timer timer) {
+	timer->accumulator -= timer->update_tick_length;
+	timer->accumulator_delta = timer->accumulator_delta - timer->accumulator;
+}
+
+zest_bool zest_TimerDoUpdate(zest_timer timer) {
+	return timer->accumulator >= timer->update_tick_length;
+}
+
+double zest_TimerLerp(zest_timer timer) {
+	return timer->lerp;
+}
+
+void zest_TimerSet(zest_timer timer) {
+	timer->lerp = timer->accumulator / timer->update_tick_length;
+}
+
+void zest_TimerSetUpdateFrequency(zest_timer timer, double frequency) {
+	timer->update_frequency = frequency;
+	timer->update_tick_length = ZEST_MICROSECS_SECOND / timer->update_frequency;
+	timer->update_time = 1.f / timer->update_frequency;
+	timer->ticker = zest_Microsecs() - timer->update_tick_length;
+}
+
+double zest_TimerUpdateFrequency(zest_timer timer) {
+	return timer->update_frequency;
+}
+//-- End Timer Functions
 
