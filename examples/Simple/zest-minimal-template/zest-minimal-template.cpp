@@ -23,6 +23,7 @@ int main(void) {
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
 	zest_Initialise(&create_info);
+    zest_LogFPSToConsole(1);
 	zest_SetUserUpdateCallback(UpdateCallback);
 
 	zest_Start();

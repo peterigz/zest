@@ -2296,6 +2296,13 @@ void zest__recreate_swapchain() {
             }
 		}
 	}
+    
+    for (ZEST_EACH_FIF_i) {
+        zest_vec_clear(ZestRenderer->empty_queue.semaphores[i].fif_incoming_semaphores);
+        zest_vec_clear(ZestRenderer->empty_queue.fif_wait_stage_flags[i]);
+    }
+    
+    zest_ConnectPresentToCommandQueue(&ZestRenderer->empty_queue, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
 	for (zest_foreach_i(ZestRenderer->empty_queue.draw_commands)) {
 		zest_command_queue_draw_commands draw_commands = ZestRenderer->empty_queue.draw_commands[i];
