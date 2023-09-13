@@ -7170,6 +7170,15 @@ zest_compute zest_RegisterCompute() {
 
 void zest_AddComputeLayoutBinding(zest_compute_builder_t *builder, VkDescriptorType descriptor_type, int binding) {
 	zest_vec_push(builder->layout_bindings, zest_CreateDescriptorLayoutBinding(descriptor_type, VK_SHADER_STAGE_COMPUTE_BIT, binding, 1));
+    if(zest_map_valid_key(builder->descriptor_pool_sizes, descriptor_type)) {
+        VkDescriptorPoolSize *pool_size = zest_map_at_key(builder->descriptor_pool_sizes, descriptor_type);
+        pool_size->descriptorCount += ZEST_MAX_FIF;
+    } else {
+        VkDescriptorPoolSize pool_size;
+        pool_size.type = descriptor_type;
+        pool_size.descriptorCount = ZEST_MAX_FIF;
+        zest_map_insert_key(builder->descriptor_pool_sizes, descriptor_type, pool_size);
+    }
 }
 
 void zest_AddComputeBufferForBinding(zest_compute_builder_t *builder, zest_descriptor_buffer buffer) {
@@ -7206,15 +7215,11 @@ void zest_SetComputeUserData(zest_compute_builder_t *builder, void *data) {
 
 void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 	compute->user_data = builder->user_data;
-	VkDescriptorPoolSize pool_sizes = { 0 };
-
-	pool_sizes.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	pool_sizes.descriptorCount = zest_vec_size(builder->buffers) * ZEST_MAX_FIF;
 
 	VkDescriptorPoolCreateInfo pool_info = { 0 };
 	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	pool_info.poolSizeCount = 1;
-	pool_info.pPoolSizes = &pool_sizes;
+	pool_info.poolSizeCount = zest_map_size(builder->descriptor_pool_sizes);
+	pool_info.pPoolSizes = builder->descriptor_pool_sizes.data;
 	pool_info.maxSets = zest_vec_size(builder->buffers[0]);
 
 	ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_info, &ZestDevice->allocation_callbacks, &compute->descriptor_pool));

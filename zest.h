@@ -1236,7 +1236,10 @@ struct zest_compute_t {
 	void(*extra_cleanup_callback)(zest_compute compute);				
 };
 
+zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
+
 typedef struct zest_compute_builder_t {
+    zest_map_descriptor_pool_sizes descriptor_pool_sizes;
 	VkDescriptorSetLayoutBinding *layout_bindings;
 	zest_descriptor_buffer *buffers;
 	zest_text *shader_names;
