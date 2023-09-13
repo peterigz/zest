@@ -43,7 +43,7 @@ void InitExample(RenderTargetExample *example) {
 	//First create a queue and set it's dependency to the present queue. This means that it will wait on the swap chain to present the final render to the screen before rendering again.
 	//But bear in mind that there are multiple frames in flight (as long as ZEST_MAX_FIF is >1) so while one queue is being executed on the gpu the next one will be created in the meantime.
 	//The best explaination I've seen of this can be found here: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
-	example->command_queue = zest_NewCommandQueue("Screen Blur", zest_command_queue_flag_present_dependency);
+	example->command_queue = zest_NewCommandQueue("Screen Blur");
 	{
 		//Create draw commands that render to a base render target
 		//Note: all draw commands will happen in the order that they're added here as they are a part of the same command buffer in "Screen Blur" command queue
