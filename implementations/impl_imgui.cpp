@@ -35,6 +35,9 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 
 		int32_t vertex_offset = 0;
 		int32_t index_offset = 0;
+        
+        ImVec2 clip_off = imgui_draw_data->DisplayPos;
+        ImVec2 clip_scale = imgui_draw_data->FramebufferScale;
 
 		for (int32_t i = 0; i < imgui_draw_data->CmdListsCount; i++)
 		{
@@ -61,12 +64,21 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 				imgui_layer->push_constants.flags = 0;
 
 				zest_SendStandardPushConstants(layer_info->pipeline, &imgui_layer->push_constants);
+                
+                ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
+                ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
+
+                // Clamp to viewport as vkCmdSetScissor() won't accept values that are off bounds
+                if (clip_max.x > zest_SwapChainWidth()) { clip_max.x = zest_SwapChainWidthf(); }
+                if (clip_max.y > zest_SwapChainHeight()) { clip_max.y = zest_SwapChainHeightf(); }
+                if (clip_max.x <= clip_min.x || clip_max.y <= clip_min.y)
+                    continue;
 
 				VkRect2D scissor_rect;
-				scissor_rect.offset.x = ZEST__MAX((int32_t)(pcmd->ClipRect.x), 0);
-				scissor_rect.offset.y = ZEST__MAX((int32_t)(pcmd->ClipRect.y), 0);
-				scissor_rect.extent.width = (zest_uint)(pcmd->ClipRect.z - pcmd->ClipRect.x);
-				scissor_rect.extent.height = (zest_uint)(pcmd->ClipRect.w - pcmd->ClipRect.y);
+				scissor_rect.offset.x = ZEST__MAX((int32_t)(clip_min.x), 0);
+				scissor_rect.offset.y = ZEST__MAX((int32_t)(clip_min.y), 0);
+				scissor_rect.extent.width = (zest_uint)(clip_max.x - clip_min.x);
+				scissor_rect.extent.height = (zest_uint)(clip_max.y - clip_min.y);
 
 				vkCmdSetScissor(command_buffer, 0, 1, &scissor_rect);
 				vkCmdDrawIndexed(command_buffer, pcmd->ElemCount, 1, index_offset + pcmd->IdxOffset, vertex_offset, 0);
@@ -75,7 +87,6 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 			vertex_offset += cmd_list->VtxBuffer.Size;
 		}
 	}
-
 }
 
 void zest_imgui_CopyBuffers(zest_layer imgui_layer) {

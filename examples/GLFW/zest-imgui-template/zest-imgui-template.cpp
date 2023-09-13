@@ -5,7 +5,7 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
-	io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());
+	io.DisplaySize = ImVec2(zest_SwapChainWidthf(), zest_SwapChainHeightf());
 	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
 	unsigned char* pixels;
 	int width, height;
