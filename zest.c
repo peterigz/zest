@@ -223,6 +223,10 @@ void zest__os_create_window_surface(zest_window_t* window) {
 
 void zest__os_poll_events(void) {
     glfwPollEvents();
+    double mouse_x, mouse_y;
+    glfwGetCursorPos(ZestApp->window->window_handle, &mouse_x, &mouse_y);
+    ZestApp->mouse_x = (float)mouse_x;
+    ZestApp->mouse_y = (float)mouse_y;
     ZestApp->flags |= glfwWindowShouldClose(ZestApp->window->window_handle) ? zest_app_flag_quit_application : 0;
 }
 
