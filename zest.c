@@ -1,4 +1,4 @@
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #include "zest.h"
 #define ZLOC_IMPLEMENTATION
 #define ZLOC_OUTPUT_ERROR_MESSAGES
@@ -1987,9 +1987,12 @@ void zest__create_swapchain() {
 	VkSurfaceFormatKHR surfaceFormat = zest__choose_swapchain_format(swapchain_support.formats);
 	VkPresentModeKHR presentMode = zest_choose_present_mode(swapchain_support.present_modes, ZestRenderer->flags & zest_renderer_flag_vsync_enabled);
 	VkExtent2D extent = zest_choose_swap_extent(&swapchain_support.capabilities);
+    ZestRenderer->dpi_scale = (float)extent.width / (float)ZestApp->create_info.screen_width;
 
 	ZestRenderer->swapchain_image_format = surfaceFormat.format;
-	ZestRenderer->swapchain_extent = extent;
+    ZestRenderer->swapchain_extent = extent;
+    ZestRenderer->window_extent.width = ZestApp->window->window_width;
+	ZestRenderer->window_extent.height = ZestApp->window->window_height;
 
     zest_uint image_count = swapchain_support.capabilities.minImageCount + 1;
 
@@ -2382,7 +2385,7 @@ void zest_Update2dUniformBuffer() {
 	zest_vec3 center = { 0 };
 	zest_vec3 up = { .x = 0.f, .y = -1.f, .z = 0.f };
 	ubo_ptr->view = zest_LookAt(eye, center, up);
-	ubo_ptr->proj = zest_Ortho(0.f, (float)ZestRenderer->swapchain_extent.width, 0.f, -(float)ZestRenderer->swapchain_extent.height, -1000.f, 1000.f);
+	ubo_ptr->proj = zest_Ortho(0.f, zest_SwapChainWidthf() / ZestRenderer->dpi_scale, 0.f, -zest_SwapChainHeightf() /  ZestRenderer->dpi_scale, -1000.f, 1000.f);
 	ubo_ptr->screen_size.x = zest_ScreenWidthf();
 	ubo_ptr->screen_size.y = zest_ScreenHeightf();
 	ubo_ptr->millisecs = zest_Millisecs();
@@ -3082,10 +3085,17 @@ zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(const char *p
 }
 zest_pipeline_template_create_info_t zest_PipelineCreateInfo(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipelines, name)); zest_pipeline pipeline = *zest_map_at(ZestRenderer->pipelines, name); return pipeline->create_info; }
 VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->swapchain_extent; }
+VkExtent2D zest_GetWindowExtent(void) { return ZestRenderer->window_extent; }
+zest_uint zest_SwapChainWidth(void) { return ZestRenderer->swapchain_extent.width; }
+zest_uint zest_SwapChainHeight(void) { return ZestRenderer->swapchain_extent.height; }
+float zest_SwapChainWidthf(void) { return (float)ZestRenderer->swapchain_extent.width; }
+float zest_SwapChainHeightf(void) { return (float)ZestRenderer->swapchain_extent.height; }
 zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
 zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
 float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
 float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
+float zest_DPIScale(void) { return ZestRenderer->dpi_scale; }
+float zest_SetDPIScale(float scale) { ZestRenderer->dpi_scale = scale; }
 zest_uint zest_FPS() { return ZestApp->last_fps; }
 float zest_FPSf() { return (float)ZestApp->last_fps; }
 zest_window_t *zest_AllocateWindow() { zest_window_t *window; window = (zest_window_t*)ZEST__ALLOCATE(sizeof(zest_window_t)); memset(window, 0, sizeof(zest_window_t)); return window; }
@@ -6664,7 +6674,7 @@ void zest_InitialiseSpriteLayer(zest_layer sprite_layer, zest_uint instance_pool
 		sprite_layer->memory_refs[i].instance_ptr = sprite_layer->memory_refs[i].staging_instance_data->data;
 	}
 
-	zest_SetInstanceLayerViewPort(sprite_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
+	zest_SetInstanceLayerViewPort(sprite_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
 
 	zest__reset_instance_layer_drawing(sprite_layer);
 }
@@ -6738,7 +6748,7 @@ void zest_InitialiseMSDFFontLayer(zest_layer font_layer, zest_uint instance_pool
 		font_layer->memory_refs[i].instance_ptr = font_layer->memory_refs[i].staging_instance_data->data;
 	}
 
-	zest_SetInstanceLayerViewPort(font_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
+    zest_SetInstanceLayerViewPort(font_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
 
 	zest__reset_instance_layer_drawing(font_layer);
 }
@@ -6978,7 +6988,7 @@ void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instanc
 		billboard_layer->memory_refs[i].instance_ptr = billboard_layer->memory_refs[i].staging_instance_data->data;
 	}
 
-	zest_SetInstanceLayerViewPort(billboard_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
+    zest_SetInstanceLayerViewPort(billboard_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
 
 	zest__reset_instance_layer_drawing(billboard_layer);
 }
@@ -7051,9 +7061,8 @@ void zest_InitialiseMeshLayer(zest_layer mesh_layer, zest_size vertex_struct_siz
 		mesh_layer->memory_refs[i].vertex_ptr = mesh_layer->memory_refs[i].staging_vertex_data->data;
 		mesh_layer->memory_refs[i].index_ptr = mesh_layer->memory_refs[i].staging_index_data->data;
 	}
-
-	mesh_layer->viewport.width = (float)zest_GetSwapChainExtent().width;
-	mesh_layer->viewport.height = (float)zest_GetSwapChainExtent().height;
+    
+    zest_SetInstanceLayerViewPort(mesh_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
 
 }
 
