@@ -1406,7 +1406,9 @@ typedef struct zest_renderer_t {
 	zest_semaphores_t semaphores[ZEST_MAX_FIF];
 
 	VkFormat swapchain_image_format;
-	VkExtent2D swapchain_extent;
+    VkExtent2D swapchain_extent;
+	VkExtent2D window_extent;
+    float dpi_scale;
 	VkSwapchainKHR swapchain;
 
 	VkFence fif_fence[ZEST_MAX_FIF];
@@ -1554,7 +1556,7 @@ ZEST_PRIVATE void zest__cleanup_textures(void);
 ZEST_PRIVATE void zest__cleanup_framebuffer(zest_frame_buffer_t *frame_buffer);
 ZEST_PRIVATE void zest__rebuild_pipeline(zest_pipeline_t *pipeline);
 ZEST_PRIVATE void zest__present_frame(void);
-ZEST_PRIVATE void zest__acquire_next_swapchain_image(void);
+ZEST_PRIVATE zest_bool zest__acquire_next_swapchain_image(void);
 ZEST_PRIVATE void zest__draw_renderer_frame(void);
 // --End Renderer functions
 
@@ -2046,10 +2048,17 @@ ZEST_API void *zest_GetUniformBufferDataFIF(zest_uniform_buffer uniform_buffer, 
 ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfo(const char *name, zest_index fif);
 ZEST_API zest_pipeline_template_create_info_t zest_PipelineCreateInfo(const char *name);
 ZEST_API VkExtent2D zest_GetSwapChainExtent(void);
+ZEST_API VkExtent2D zest_GetWindowExtent(void);
+ZEST_API zest_uint zest_SwapChainWidth(void);
+ZEST_API zest_uint zest_SwapChainHeight(void);
+ZEST_API float zest_SwapChainWidthf(void);
+ZEST_API float zest_SwapChainHeightf(void);
 ZEST_API zest_uint zest_ScreenWidth(void);
 ZEST_API zest_uint zest_ScreenHeight(void);
 ZEST_API float zest_ScreenWidthf(void);
 ZEST_API float zest_ScreenHeightf(void);
+ZEST_API float zest_DPIScale(void);
+ZEST_API float zest_SetDPIScale(float scale);
 ZEST_API zest_uint zest_FPS();
 ZEST_API float zest_FPSf();
 ZEST_API zest_descriptor_buffer zest_GetUniformBuffer(const char *name);
