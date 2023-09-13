@@ -61,7 +61,6 @@ void main() {
 
 	int index = indexes[gl_VertexIndex];
 
-	out_tex_coord = vec3(uvs[index], texture_array_index);
 	out_tex_coord = vec3(uvs[index], (texture_array_index & uint(0xFF000000)) >> 24);
 	vec2 vertex_position = bounds[index];
 

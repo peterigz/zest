@@ -3,7 +3,6 @@
 layout (binding = 1) uniform sampler2DArray samplerColor;
 
 layout (location = 0) in vec2 inUV;
-layout (location = 1) in vec2 inRes;
 layout (location = 0) out vec4 outFragColor;
 
 void main(void)
