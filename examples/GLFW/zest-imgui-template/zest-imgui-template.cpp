@@ -58,6 +58,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 // Windows entry point
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 	zest_create_info_t create_info = zest_CreateInfo();
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	zest_implglfw_SetCallbacks(&create_info);
 
 	ImGuiApp imgui_app;

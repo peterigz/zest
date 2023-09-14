@@ -59,6 +59,8 @@ endfunction(buildExample)
 set(EXAMPLES
 	zest-compute-example
 	zest-imgui-template
+	zest-vaders
+	zest-timelinefx
 )
 
 buildExamples()

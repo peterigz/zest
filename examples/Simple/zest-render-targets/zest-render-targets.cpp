@@ -149,7 +149,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	float delta = (float)elapsed / ZEST_MICROSECS_SECOND;
 
 	zest_SetSpriteDrawing(example->base_layer, example->texture, 0, zest_Pipeline("pipeline_2d_sprites"));
-	example->base_layer->multiply_blend_factor = 1.f;
+	example->base_layer->intensity = 1.f;
 	zest_DrawSprite(example->base_layer, example->image, zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);
 	if (example->wabbit_pos.x >= zest_ScreenWidthf()) example->wabbit_pos.vx *= -1.f;
 	if (example->wabbit_pos.y >= zest_ScreenHeightf()) example->wabbit_pos.vy *= -1.f;
@@ -165,7 +165,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	blend = ZEST__CLAMP(blend, 0.f, 1.f);
 	alpha = ZEST__CLAMP(alpha, 0.f, 5.f);
 
-	example->top_layer->multiply_blend_factor = alpha;
+	example->top_layer->intensity = alpha;
 	zest_SetLayerColor(example->top_layer, 255, 255, 255, (zest_byte)(blend * 255));
 	zest_SetSpriteDrawing(example->top_layer, target_texture, 0, zest_Pipeline("pipeline_2d_sprites"));
 	zest_DrawSprite(example->top_layer, zest_GetRenderTargetImage(example->final_blur), zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f, 0);

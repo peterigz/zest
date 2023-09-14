@@ -24,13 +24,13 @@ void UpdateUniformBuffer3d(zest_example *example) {
 }
 
 void InitExample(zest_example *example) {
-	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_alpha, 10);
+	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
 	example->image = zest_AddTextureImageFile(example->texture, "examples/assets/wabbit_alpha.png");
 	zest_ProcessTextureImages(example->texture);
-	example->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites_alpha");
+	example->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites");
 	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
 	example->sprite_descriptor = zest_GetTextureDescriptorSet(example->texture, "Default");
-	example->billboard_pipeline = zest_Pipeline("pipeline_billboard_alpha");
+	example->billboard_pipeline = zest_Pipeline("pipeline_billboard");
 	example->uniform_buffer_3d = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
 	example->billboard_descriptor = zest_CreateTextureSpriteDescriptorSets(example->texture, "3d", "example 3d uniform");
 	zest_RefreshTextureDescriptors(example->texture);
@@ -55,7 +55,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_Update2dUniformBuffer();
 	UpdateUniformBuffer3d(example);
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
-	example->sprite_layer->multiply_blend_factor = 1.f;
+	example->sprite_layer->intensity = 1.f;
 
 	zest_SetSpriteDrawing(example->sprite_layer, example->texture, example->sprite_descriptor, example->sprite_pipeline);
 	example->sprite_layer->current_color.a = 0;
@@ -74,8 +74,9 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&ray, 10.f), example->camera.position);
 	zest_vec3 angles = { 0 };
 	zest_vec3 handle = { .5f, .5f };
-	zest_vec3 alignment = zest_Vec3Set(1.f, 0.f, 0.f);
-	zest_DrawBillboard(example->billboard_layer, example->image, &position.x, zest_Pack8bitx3(&alignment), &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
+	zest_vec3 alignment = zest_Vec3Set(0.5f, 0.5f, 1.f);
+	alignment = zest_NormalizeVec3(alignment);
+	zest_DrawBillboardComplex(example->billboard_layer, example->image, &position.x, zest_Pack10bit(&alignment, 0), &angles.x, &handle.x, 10.f, 0, 1.f, 1.f);
 }
 
 #if defined(_WIN32)

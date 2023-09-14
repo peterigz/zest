@@ -36,6 +36,10 @@ void zest_implglfw_CreateWindowSurfaceCallback(zest_window_t* window) {
 
 void zest_implglfw_PollEventsCallback(void) {
 	glfwPollEvents();
+	double mouse_x, mouse_y;
+	glfwGetCursorPos((GLFWwindow*)ZestApp->window->window_handle, &mouse_x, &mouse_y);
+	ZestApp->mouse_x = (float)mouse_x;
+	ZestApp->mouse_y = (float)mouse_y;
 	zest_MaybeQuit(glfwWindowShouldClose((GLFWwindow*)ZestApp->window->window_handle));
 }
 
