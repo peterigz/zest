@@ -1,4 +1,4 @@
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #include "zest.h"
 #define ZLOC_IMPLEMENTATION
 #define ZLOC_OUTPUT_ERROR_MESSAGES
@@ -1685,6 +1685,43 @@ void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffe
 	}
 }
 
+void zloc__output_buffer_info(void* ptr, size_t size, int free, void* user, int count)
+{
+	zest_buffer_t *buffer = (zest_buffer_t*)user;
+	printf("%i) \t%s range size: \t%zi \tbuffer size: %zu \toffset: %zu \n", count, free ? "free" : "used", size, buffer->size, buffer->memory_offset);
+}
+
+zloc__error_codes zloc_VerifyRemoteBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data) {
+	zloc_header *current_block = first_block;
+	int count = 0;
+	while (!zloc__is_last_block_in_pool(current_block)) {
+		void *remote_block = zloc_BlockUserExtensionPtr(current_block);
+		if (output_function) {
+			output_function(current_block, zloc__block_size(current_block), zloc__is_free_block(current_block), remote_block, ++count);
+		}
+		zloc_header *last_block = current_block;
+		current_block = zloc__next_physical_block(current_block);
+		if (last_block != current_block->prev_physical_block) {
+			ZEST_ASSERT(0);
+			return zloc__PHYSICAL_BLOCK_MISALIGNMENT;
+		}
+	}
+	return zloc__OK;
+}
+
+zest_uint zloc_CountBlocks(zloc_header *first_block) {
+	zloc_header *current_block = first_block;
+	int count = 0;
+	while (!zloc__is_last_block_in_pool(current_block)) {
+		void *remote_block = zloc_BlockUserExtensionPtr(current_block);
+		zloc_header *last_block = current_block;
+		current_block = zloc__next_physical_block(current_block);
+		ZEST_ASSERT(last_block == current_block->prev_physical_block);
+		count++;
+	}
+	return count;
+}
+
 zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image) {
 	if (image != VK_NULL_HANDLE) {
 		VkMemoryRequirements memory_requirements;
@@ -3289,7 +3326,7 @@ void zest__prepare_standard_pipelines() {
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_SFLOAT, offsetof(zest_billboard_instance_t, stretch)));				// Location 6: Stretch amount
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, blend_texture_array)));	// Location 7: texture array index
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			// Location 8: Instance Color
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));			// Location 9: Alignment
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_A2R10G10B10_SNORM_PACK32, offsetof(zest_billboard_instance_t, alignment)));			// Location 9: Alignment
 
 	zest_pipeline billboard_instance_pipeline = zest_AddPipeline("pipeline_billboard");
 	instance_create_info.attributeDescriptions = billboard_vertex_input_attributes;
@@ -5905,7 +5942,7 @@ void zest_SetTextureStorageType(zest_texture texture, zest_texture_storage_type 
 	texture->storage_type = value;
 }
 
-zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_texture_format image_format, zest_uint reserve_images) {
+zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format image_format, zest_uint reserve_images) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, name));	//That name already exists
 	zest_texture texture = zest_NewTexture();
 	zest_SetText(&texture->name, name);
@@ -6581,6 +6618,8 @@ void zest__draw_sprite_layer_callback(zest_draw_routine draw_routine, VkCommandB
 void zest__next_sprite_instance(zest_layer layer) {
 	zest_sprite_instance_t *instance_ptr = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 	instance_ptr = instance_ptr + 1;
+	//Make sure we're not trying to write outside of the buffer range
+	ZEST_ASSERT(instance_ptr >= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data && instance_ptr <= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->end);
 	if (instance_ptr == layer->memory_refs[ZEST_FIF].staging_instance_data->end) {
 		zest_bool grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].staging_instance_data, sizeof(zest_sprite_instance_t), 0);
 		zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_sprite_instance_t), 0);
@@ -6609,6 +6648,8 @@ void zest__draw_font_layer_callback(zest_draw_routine draw_routine, VkCommandBuf
 void zest__next_font_instance(zest_layer layer) {
 	zest_sprite_instance_t *instance_ptr = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 	instance_ptr = instance_ptr + 1;
+	//Make sure we're not trying to write outside of the buffer range
+	ZEST_ASSERT(instance_ptr >= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data && instance_ptr <= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->end);
 	if (instance_ptr == layer->memory_refs[ZEST_FIF].staging_instance_data->end) {
 		zest_bool grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].staging_instance_data, sizeof(zest_sprite_instance_t), 0);
 		zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_sprite_instance_t), 0);
@@ -6637,12 +6678,15 @@ void zest__draw_billboard_layer_callback(zest_draw_routine draw_routine, VkComma
 void zest__next_billboard_instance(zest_layer layer) {
 	zest_billboard_instance_t *instance_ptr = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 	instance_ptr = instance_ptr + 1;
+	//Make sure we're not trying to write outside of the buffer range
+	ZEST_ASSERT(instance_ptr >= (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data && instance_ptr <= (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->end);
 	if (instance_ptr == layer->memory_refs[ZEST_FIF].staging_instance_data->end) {
 		zest_bool grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].staging_instance_data, sizeof(zest_billboard_instance_t), 0);
 		zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_billboard_instance_t), 0);
 		if (grown) {
 			layer->memory_refs[ZEST_FIF].instance_count++;
-			instance_ptr = (zest_billboard_instance_t*)&(layer->memory_refs[ZEST_FIF].staging_instance_data->data) + layer->memory_refs[ZEST_FIF].instance_count;
+			instance_ptr = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data;
+			instance_ptr += layer->memory_refs[ZEST_FIF].instance_count;
 		}
 		else {
 			instance_ptr = instance_ptr - 1;
@@ -7077,7 +7121,7 @@ void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3],  
 	billboard->uv_xy = image->uv_xy;
 	billboard->uv_zw = image->uv_zw;
 	billboard->handle = zest_Vec2Set(0.5f, 0.5f);
-	billboard->stretch = 1.f;
+	billboard->stretch = 0.f;
 	billboard->color = layer->current_color;
 	billboard->blend_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
 	layer->current_instance_instruction.total_instances++;

@@ -1185,6 +1185,7 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 	}
 	else {
 		//Reallocation is possible
+		ZLOC_ASSERT(zloc__next_block_is_free(block));
 		if (remote_size > current_remote_size)
 		{
 			zloc__merge_with_next_block(allocator, block);
@@ -1205,7 +1206,7 @@ void *zloc_ReallocateRemote(zloc_allocator *allocator, void *block_extension, zl
 }
 
 int zloc_FreeRemote(zloc_allocator *allocator, void* block_extension) {
-	void *allocation = (char*)block_extension - zloc__MINIMUM_BLOCK_SIZE;
+	void *allocation = zloc_AllocationFromExtensionPtr(block_extension);
 	return zloc_Free(allocator, allocation);
 }
 #endif

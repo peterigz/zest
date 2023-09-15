@@ -381,6 +381,8 @@ typedef enum zest_compute_flags {
 	zest_compute_flag_is_active							= 1 << 3,	// Compute shader is active then it will be updated when the swap chain is recreated
 } zest_compute_flags;
 
+typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
+
 // --Forward declarations
 typedef struct zest_texture_t zest_texture_t;
 typedef struct zest_image_t zest_image_t;
@@ -1746,6 +1748,9 @@ ZEST_API zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(cons
 //-- End Pipeline related 
 
 //Buffer related
+ZEST_API void zloc__output_buffer_info(void* ptr, size_t size, int free, void* user, int count);
+ZEST_API zloc__error_codes zloc_VerifyRemoteBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
+ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 ZEST_API zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image);
 ZEST_API zest_buffer_t *zest_CreateStagingBuffer(VkDeviceSize size, void *data);
 ZEST_API zest_buffer_t *zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
@@ -1876,7 +1881,7 @@ ZEST_API zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, fl
 //Images and textures
 ZEST_API zest_map_textures *zest_GetTextures(void);
 ZEST_API zest_texture zest_NewTexture(void);
-ZEST_API zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_texture_flags use_filtering, zest_texture_format format, zest_uint reserve_images);
+ZEST_API zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format format, zest_uint reserve_images);
 ZEST_API zest_texture zest_CreateTexturePacked(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format format);

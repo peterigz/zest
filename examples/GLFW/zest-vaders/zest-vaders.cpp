@@ -226,7 +226,7 @@ void VadersGame::Init() {
 	random.ReSeed();
 
 	int shape_count = GetShapeCountInLibrary("examples/assets/vaders/vadereffects.tfx");
-	particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, zest_texture_flag_use_filtering, zest_texture_format_rgba, shape_count);
+	particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, 0, zest_texture_format_rgba, shape_count);
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
 	LoadEffectLibraryPackage("examples/assets/vaders/vadereffects.tfx", library, ShapeLoader, this);
 	//Renderer specific
@@ -273,7 +273,7 @@ void VadersGame::Init() {
 	//Effect templates
 	assert(PrepareEffectTemplate(library, "Player Bullet", player_bullet_effect));
 	assert(PrepareEffectTemplate(library, "Vader Explosion", vader_explosion_effect));
-	assert(PrepareEffectTemplate(library, "Player Explosion", player_explosion));
+	assert(PrepareEffectTemplate(library, "Big Explosion", player_explosion));
 	assert(PrepareEffectTemplate(library, "Big Explosion", big_explosion));
 	assert(PrepareEffectTemplate(library, "Background", background));
 	assert(PrepareEffectTemplate(library, "Title", title));
@@ -721,7 +721,9 @@ void SetParticleOption(VadersGame *game) {
 void BuildUI(VadersGame *game) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
+	/*
 	ImGui::Begin("Effects");
+	ImGui::Text("FPS: %i", ZestApp->last_fps);
 	ImGui::Text("Game Particles: %i", game->game_pm.ParticleCount());
 	ImGui::Text("Background Particles: %i", game->background_pm.ParticleCount());
 	ImGui::Text("Title Particles: %i", game->title_pm.ParticleCount());
@@ -748,9 +750,10 @@ void BuildUI(VadersGame *game) {
 	}
 	ImGui::Separator();
 	ImGui::End();
+	*/
 
 	ImGui::Render();
-	zest_imgui_CopyBuffers(game->imgui_layer_info.mesh_layer);
+	//zest_imgui_CopyBuffers(game->imgui_layer_info.mesh_layer);
 }
 
 void DrawPlayer(VadersGame *game) {
@@ -933,7 +936,7 @@ void VadersGame::Update(float ellapsed) {
 		RenderParticles3d(game_pm, (float)timer->lerp, this);
 		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		DrawVaderBullets(this, (float)timer->lerp);
-		zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 20.f, 0.f, 1);
+		zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 60.f, 0.f, 1);
 	}
 }
 
