@@ -16,3 +16,4 @@ void zest_imgui_CopyBuffers(zest_layer imgui_layer);
 void zest_imgui_DrawImage(zest_image image, float width, float height);
 void zest_imgui_DrawImage2(zest_image image, float width, float height);
 void zest_imgui_Initialise();
+void zest_imgui_CreateLayer(zest_imgui_layer_info *imgui_layer_info);

@@ -12,12 +12,18 @@ void zest_imgui_Initialise() {
 	int upload_size = width * height * 4 * sizeof(char);
 
 	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-	zest_texture imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
-	zest_texture font_texture = zest_GetTexture("imgui_font");
+	zest_texture font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
 	zest_image font_image = zest_AddTextureImageBitmap(font_texture, &font_bitmap);
 	zest_ProcessTextureImages(font_texture);
 	io.Fonts->SetTexID(font_image);
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
+}
+
+void zest_imgui_CreateLayer(zest_imgui_layer_info *imgui_layer_info) {
+	imgui_layer_info->mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
+	imgui_layer_info->pipeline = zest_Pipeline("pipeline_imgui");
+	zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
+	zest_ContextDrawRoutine()->user_data = imgui_layer_info;
 }
 
 void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer) {

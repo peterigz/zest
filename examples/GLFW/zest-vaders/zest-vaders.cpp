@@ -273,8 +273,8 @@ void VadersGame::Init() {
 	//Effect templates
 	assert(PrepareEffectTemplate(library, "Player Bullet", player_bullet_effect));
 	assert(PrepareEffectTemplate(library, "Vader Explosion", vader_explosion_effect));
-	assert(PrepareEffectTemplate(library, "Big Explosion", player_explosion));
 	assert(PrepareEffectTemplate(library, "Big Explosion", big_explosion));
+	assert(PrepareEffectTemplate(library, "Player Explosion", player_explosion));
 	assert(PrepareEffectTemplate(library, "Background", background));
 	assert(PrepareEffectTemplate(library, "Title", title));
 	assert(PrepareEffectTemplate(library, "Laser", laser));
@@ -292,33 +292,15 @@ void VadersGame::Init() {
 	title_index = AddEffectToParticleManager(&title_pm, title);
 	SetEffectPosition(&title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, uniform_buffer_3d));
 
-	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO();
-	io.DisplaySize = ImVec2(zest_SwapChainWidthf(), zest_SwapChainHeightf());
-	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
-	unsigned char* pixels;
-	int width, height;
-	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-	int upload_size = width * height * 4 * sizeof(char);
+	zest_imgui_Initialise();
 
-	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-	imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
-	zest_texture font_texture = zest_GetTexture("imgui_font");
-	zest_image font_image = zest_AddTextureImageBitmap(font_texture, &font_bitmap);
-	zest_ProcessTextureImages(font_texture);
-	io.Fonts->SetTexID(font_image);
-	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
-
-	imgui_layer_info.pipeline = zest_Pipeline("pipeline_imgui");
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
 			font_layer = zest_NewBuiltinLayerSetup("Fonts", zest_builtin_layer_fonts);
-			imgui_layer_info.mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
-			zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
-			zest_ContextDrawRoutine()->user_data = &imgui_layer_info;
+			zest_imgui_CreateLayer(&imgui_layer_info);
 		}
 		zest_FinishQueueSetup();
 	}
@@ -721,7 +703,6 @@ void SetParticleOption(VadersGame *game) {
 void BuildUI(VadersGame *game) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
-	/*
 	ImGui::Begin("Effects");
 	ImGui::Text("FPS: %i", ZestApp->last_fps);
 	ImGui::Text("Game Particles: %i", game->game_pm.ParticleCount());
@@ -750,10 +731,9 @@ void BuildUI(VadersGame *game) {
 	}
 	ImGui::Separator();
 	ImGui::End();
-	*/
 
 	ImGui::Render();
-	//zest_imgui_CopyBuffers(game->imgui_layer_info.mesh_layer);
+	zest_imgui_CopyBuffers(game->imgui_layer_info.mesh_layer);
 }
 
 void DrawPlayer(VadersGame *game) {

@@ -7955,7 +7955,7 @@ You can then use layer inside the loop to get the current layer
 	tfxAPI tfxErrorFlags LoadSpriteData(const char *filename, tfxAnimationManager &animation_manager, void(*shape_loader)(const char *filename, tfxImageData &image_data, void *raw_image_data, int image_size, void *user_data), void *user_data = nullptr);
 
 	/*
-	Out all the effect names in a library to the console
+	Output all the effect names in a library to the console
 	* @param tfxLibrary				A valid pointer to a tfxLibrary
 	*/
 	inline tfxAPI void ListEffectNames(tfxLibrary *library) {

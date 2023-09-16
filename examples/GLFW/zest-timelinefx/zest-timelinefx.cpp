@@ -132,22 +132,7 @@ void VadersGame::Init() {
 	//Renderer specific
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);
 
-	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO();
-	io.DisplaySize = ImVec2(zest_SwapChainWidthf(), zest_SwapChainHeightf());
-	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
-	unsigned char* pixels;
-	int width, height;
-	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-	int upload_size = width * height * 4 * sizeof(char);
-
-	imgui_font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
-	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-	zest_texture font_texture = zest_GetTexture("imgui_font");
-	zest_image font_image = zest_AddTextureImageBitmap(font_texture, &font_bitmap);
-	zest_ProcessTextureImages(font_texture);
-	io.Fonts->SetTexID(font_image);
-	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
+	zest_imgui_Initialise();
 
 	imgui_layer_info.pipeline = zest_Pipeline("pipeline_imgui");
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
@@ -155,9 +140,7 @@ void VadersGame::Init() {
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
-			imgui_layer_info.mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
-			zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
-			zest_ContextDrawRoutine()->user_data = &imgui_layer_info;
+			zest_imgui_CreateLayer(&imgui_layer_info);
 		}
 		zest_FinishQueueSetup();
 	}
