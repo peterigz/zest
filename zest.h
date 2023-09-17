@@ -2010,6 +2010,7 @@ ZEST_API zest_frame_buffer_t *zest_RenderTargetFramebufferByFIF(zest_render_targ
 ZEST_API VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_draw_commands item);
 ZEST_API VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_commands item);
 ZEST_API void zest_RefreshRenderTargetSampler(zest_render_target render_target, zest_index fif);
+ZEST_API void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno);
 //-- End Render targets
 
 //Draw Routines

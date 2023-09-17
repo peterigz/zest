@@ -4463,7 +4463,7 @@ zest_layer zest_CreateBuiltinFontLayer(const char *name) {
 	return layer;
 }
 
-zest_layer zest_CreateBuiltinMesdhLayer(const char *name) {
+zest_layer zest_CreateBuiltinMeshLayer(const char *name) {
 	zest_layer layer = zest_NewLayer();
 	layer->name = name;
 	zest_map_insert(ZestRenderer->layers, name, layer);
@@ -6551,6 +6551,10 @@ void zest_CleanUpRenderTarget(zest_render_target render_target) {
 			render_target->sampler_textures[i]->sampler = VK_NULL_HANDLE;
 		}
 	}
+}
+
+void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno) {
+	render_target->render_pass = (yesno == 0 ? zest_GetRenderPass("Render pass standard no clear") : zest_GetRenderPass("Render pass standard"));
 }
 //--End Render Targets
 
