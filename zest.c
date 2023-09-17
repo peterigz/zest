@@ -6747,6 +6747,14 @@ void zest_SetLayerSize(zest_layer layer, float width, float height) {
 	layer->layer_size.y = height;
 }
 
+void zest_SetLayerScale(zest_layer layer, float x, float y) {
+	layer->screen_scale.x = x;
+	layer->screen_scale.y = y;
+	layer->push_constants.model = zest_M4(1.f);
+	zest_vec4 scale = zest_Vec4Set(x, y, 1.f, 1.f);
+	layer->push_constants.model = zest_ScaleMatrix4x4(&layer->push_constants, &scale);
+}
+
 void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha) {
 	layer->current_color = zest_ColorSet(red, green, blue, alpha);
 }

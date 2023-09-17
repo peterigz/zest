@@ -2020,6 +2020,7 @@ ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
 ZEST_API zest_layer zest_NewLayer();
 ZEST_API void zest_SetInstanceLayerViewPort(zest_layer instance_layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
 ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
+ZEST_API void zest_SetLayerScale(zest_layer layer, float x, float y);
 ZEST_API zest_layer zest_GetLayer(const char *name);
 ZEST_API void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha);
 ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
