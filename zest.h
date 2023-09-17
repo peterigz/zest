@@ -1806,6 +1806,7 @@ ZEST_API zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer d
 
 //Command queue setup and creation
 ZEST_API zest_command_queue zest_NewCommandQueue(const char *name);
+ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
 ZEST_API zest_command_queue zest_GetCommandQueue(const char *name);
 ZEST_API zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(const char *name);
 ZEST_API void zest_SetDrawCommandsClsColor(zest_command_queue_draw_commands draw_commands, float r, float g, float b, float a);
@@ -1831,6 +1832,7 @@ ZEST_API zest_layer zest_CreateBuiltinMeshLayer(const char *name);
 ZEST_API zest_layer zest_GetLayer(const char *name);
 ZEST_API zest_layer zest_NewMeshLayer(const char *name, zest_size vertex_struct_size);
 ZEST_API zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type builtin_layer);
+ZEST_API void zest_AddLayer(zest_layer layer);
 ZEST_API zest_command_queue_compute zest_CreateComputeItem(const char *name, zest_command_queue command_queue);
 ZEST_API zest_command_queue_compute zest_NewComputeSetup(const char *name, zest_compute compute_shader, void(*compute_function)(zest_command_queue_compute item));
 ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void); 

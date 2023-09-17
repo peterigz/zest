@@ -4188,6 +4188,16 @@ zest_command_queue zest_NewCommandQueue(const char *name) {
 	return command_queue;
 }
 
+zest_command_queue zest_NewFloatingCommandQueue(const char *name) {
+	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_none);	//Current setup context must be none. You can't setup a new command queue within another one
+	zest__set_queue_context(zest_setup_context_type_command_queue);
+	zest_command_queue command_queue = zest__create_command_queue(name);
+	command_queue->flags = 0;
+	ZestRenderer->setup_context.command_queue = command_queue;
+	ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
+	return command_queue;
+}
+
 zest_command_queue zest__create_command_queue(const char *name) {
 	zest_command_queue_t blank_command_queue = { 0 };
 	zest_command_queue command_queue = ZEST__NEW(zest_command_queue);
@@ -4484,6 +4494,25 @@ zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type b
 	zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
 	ZestRenderer->setup_context.type = zest_setup_context_type_layer;
 	return layer;
+}
+
+void zest_AddLayer(zest_layer layer) {
+	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);	//The current setup context must be a render pass, layer or compute
+	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, layer->name));	//A draw routine with that name already exists
+	zest__set_queue_context(zest_setup_context_type_layer);
+	zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
+	zest_draw_routine_t blank_draw_routine = { 0 };
+	zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
+	draw_routine->name = layer->name;
+	draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
+	draw_routine->draw_commands = ZestRenderer->setup_context.draw_commands;
+	*draw_routine = blank_draw_routine;
+	ZestRenderer->setup_context.layer = layer;
+	ZestRenderer->setup_context.type = zest_setup_context_type_layer;
+	zest_map_insert(ZestRenderer->draw_routines, layer->name, draw_routine);
+	ZestRenderer->setup_context.draw_routine = draw_routine;
+	zest_SetLayerSize(layer, (float)draw_commands->viewport.extent.width, (float)draw_commands->viewport.extent.height);
+	zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
 }
 
 zest_command_queue_compute zest_CreateComputeItem(const char *name, zest_command_queue command_queue) {
