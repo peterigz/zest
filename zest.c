@@ -6271,10 +6271,10 @@ zest_render_target_create_info_t zest_RenderTargetCreateInfo() {
 }
 
 zest_render_target zest_CreateRenderTarget(const char *name) {
-	return zest_CreateRenderTargetWithInfo(name, zest_RenderTargetCreateInfo(), ZEST_FALSE);
+	return zest_CreateRenderTargetWithInfo(name, zest_RenderTargetCreateInfo());
 }
 
-zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info, zest_bool set_as_current) {
+zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->render_targets, name));
 	zest_render_target render_target = zest_NewRenderTarget();
 	render_target->name = name;
@@ -6294,9 +6294,6 @@ zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render
 	ZEST__FLAG(render_target->flags, create_info.flags);
 
 	zest_map_insert(ZestRenderer->render_targets, name, render_target);
-	if (set_as_current) {
-		ZestRenderer->current_render_target = render_target;
-	}
 
 	zest_InitialiseRenderTarget(render_target, &render_target->create_info);
 
