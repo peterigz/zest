@@ -5929,13 +5929,17 @@ void zest_UpdateTextureSingleImageMeta(zest_texture texture, zest_uint width, ze
 	texture->images[0] = image;
 }
 
-void zest_SetUseFiltering(zest_texture texture, zest_bool value) {
+void zest_SetTextureUseFiltering(zest_texture texture, zest_bool value) {
 	if (value) {
 		texture->flags |= zest_texture_flag_use_filtering;
 	}
 	else {
 		texture->flags &= ~zest_texture_flag_use_filtering;
 	}
+}
+
+void zest_SetTexturePackedBorder(zest_texture texture, zest_uint value) {
+	texture->packed_border_size = value;
 }
 
 void zest_SetTextureStorageType(zest_texture texture, zest_texture_storage_type value) {
@@ -5949,7 +5953,7 @@ zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type stor
 	zest_SetTextureImageFormat(texture, image_format);
 	if (storage_type < zest_texture_storage_type_render_target) {
 		zest_SetTextureStorageType(texture, storage_type);
-		zest_SetUseFiltering(texture, use_filtering);
+		zest_SetTextureUseFiltering(texture, use_filtering);
 	}
 	if (reserve_images) {
 		zest_vec_reserve(texture->images, reserve_images);
@@ -6036,6 +6040,14 @@ void zest_SetTextureWrappingRepeat(zest_texture texture) {
 void zest_SetTextureLayerSize(zest_texture texture, zest_uint size) {
 	ZEST_ASSERT(ZEST__POW2(size));
 	texture->texture_layer_size = size;
+}
+
+void zest_SetTextureMaxRadiusOnLoad(zest_texture texture, zest_bool yesno) {
+	if (yesno) {
+		ZEST__FLAG(texture->flags, zest_texture_flag_get_max_radius);
+	} else {
+		ZEST__UNFLAG(texture->flags, zest_texture_flag_get_max_radius);
+	}
 }
 //-- End Texture and Image Functions
 
@@ -6133,7 +6145,7 @@ void zest_SetupFontTexture(zest_font font) {
 		zest__cleanup_texture(font->texture);
 	}
 
-	zest_SetUseFiltering(font->texture, ZEST_FALSE);
+	zest_SetTextureUseFiltering(font->texture, ZEST_FALSE);
 	zest_ProcessTextureImages(font->texture);
 
 	font->pipeline = zest_Pipeline("pipeline_fonts");
