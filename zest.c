@@ -4439,6 +4439,37 @@ zest_layer zest_NewMeshLayer(const char *name, zest_size vertex_struct_size) {
 	return layer;
 }
 
+zest_layer zest_CreateBuiltinSpriteLayer(const char *name) {
+	zest_layer layer = zest_NewLayer();
+	layer->name = name;
+	zest_InitialiseSpriteLayer(layer, 1000);
+	zest_map_insert(ZestRenderer->layers, name, layer);
+	return layer;
+}
+
+zest_layer zest_CreateBuiltinBillboardLayer(const char *name) {
+	zest_layer layer = zest_NewLayer();
+	layer->name = name;
+	zest_InitialiseBillboardLayer(layer, 1000);
+	zest_map_insert(ZestRenderer->layers, name, layer);
+	return layer;
+}
+
+zest_layer zest_CreateBuiltinFontLayer(const char *name) {
+	zest_layer layer = zest_NewLayer();
+	layer->name = name;
+	zest_InitialiseMSDFFontLayer(layer, 1000);
+	zest_map_insert(ZestRenderer->layers, name, layer);
+	return layer;
+}
+
+zest_layer zest_CreateBuiltinMesdhLayer(const char *name) {
+	zest_layer layer = zest_NewLayer();
+	layer->name = name;
+	zest_map_insert(ZestRenderer->layers, name, layer);
+	return layer;
+}
+
 zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type builtin_layer) {
 	zest__set_queue_context(zest_setup_context_type_layer);
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);	//The current setup context must be a render pass, layer or compute
@@ -4484,36 +4515,25 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name,
 
 	zest_layer layer = 0;
 	if (builtin_layer == zest_builtin_layer_sprites) {
-		layer = zest_NewLayer();
-		layer->name = name;
+		layer = zest_CreateBuiltinSpriteLayer(name);
 		draw_routine->draw_callback = zest__draw_sprite_layer_callback;
-		zest_InitialiseSpriteLayer(layer, 1000);
-		zest_map_insert(ZestRenderer->layers, name, layer);
 		draw_routine->draw_data = layer;
 		draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
 	}
 	else if (builtin_layer == zest_builtin_layer_billboards) {
-		layer = zest_NewLayer();
-		layer->name = name;
+		layer = zest_CreateBuiltinBillboardLayer(name);
 		draw_routine->draw_callback = zest__draw_billboard_layer_callback;
-		zest_InitialiseBillboardLayer(layer, 1000);
-		zest_map_insert(ZestRenderer->layers, name, layer);
 		draw_routine->draw_data = layer;
 		draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
 	}
 	else if (builtin_layer == zest_builtin_layer_mesh) {
-		layer = zest_NewLayer();
-		layer->name = name;
-		zest_map_insert(ZestRenderer->layers, name, layer);
+		layer = zest_CreateBuiltinMeshLayer(name);
 		draw_routine->draw_data = layer;
 		draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
 	}
 	else if (builtin_layer == zest_builtin_layer_fonts) {
-		layer = zest_NewLayer();
-		layer->name = name;
+		layer = zest_CreateBuiltinFontLayer(name);
 		draw_routine->draw_callback = zest__draw_font_layer_callback;
-		zest_InitialiseMSDFFontLayer(layer, 1000);
-		zest_map_insert(ZestRenderer->layers, name, layer);
 		draw_routine->draw_data = layer;
 		draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
 	}
@@ -6712,7 +6732,6 @@ void zest__next_billboard_instance(zest_layer layer) {
 zest_layer zest_NewLayer() {
 	zest_layer_t blank_layer = { 0 };
 	zest_layer layer = ZEST__NEW_ALIGNED(zest_layer, 16);
-    //zest_layer layer = malloc(sizeof(zest_layer_t));
 	*layer = blank_layer;
     ZEST_ASSERT(sizeof(*layer) == sizeof(blank_layer));
 	return layer;

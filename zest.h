@@ -1824,6 +1824,10 @@ ZEST_API void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands i
 ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_AddDrawRoutine(zest_draw_routine draw_routine);
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
+ZEST_API zest_layer zest_CreateBuiltinSpriteLayer(const char *name);
+ZEST_API zest_layer zest_CreateBuiltinBillboardLayer(const char *name);
+ZEST_API zest_layer zest_CreateBuiltinFontLayer(const char *name);
+ZEST_API zest_layer zest_CreateBuiltinMeshLayer(const char *name);
 ZEST_API zest_layer zest_GetLayer(const char *name);
 ZEST_API zest_layer zest_NewMeshLayer(const char *name, zest_size vertex_struct_size);
 ZEST_API zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type builtin_layer);
@@ -1986,7 +1990,7 @@ ZEST_API void zest_UnloadFont(zest_font font);
 
 //Render targets
 ZEST_API void zest_InitialiseRenderTarget(zest_render_target render_target, zest_render_target_create_info_t *info);
-ZEST_API zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info, zest_bool set_as_current);
+ZEST_API zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info);
 ZEST_API zest_render_target zest_CreateRenderTarget(const char *name);
 ZEST_API zest_render_target zest_NewRenderTarget();
 ZEST_API zest_render_target_create_info_t zest_RenderTargetCreateInfo();
