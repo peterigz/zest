@@ -152,9 +152,8 @@ void DrawComputeSprites(zest_draw_routine draw_routine, VkCommandBuffer command_
 void UpdateComputeCommands(zest_command_queue_compute compute_commands) {
 	//The compute queue item can contain more then one compute shader to be dispatched
 	//There's only one in this example though
-	for (zest_foreach_i(compute_commands->compute_shaders)) {
-		zest_compute compute = compute_commands->compute_shaders[i];
-
+	zest_compute compute = 0;
+	while (compute = zest_NextComputeRoutine(compute_commands)) {
 		//Bind the compute pipeline
 		zest_BindComputePipeline(compute, 0);
 

@@ -1845,6 +1845,14 @@ void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer) {
 	zest__end_single_time_commands(command_buffer);
 }
 
+void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer) {
+	VkBufferCopy copyInfo = { 0 };
+	copyInfo.srcOffset = staging_buffer->memory_offset;
+	copyInfo.dstOffset = device_buffer->memory_offset;
+	copyInfo.size = staging_buffer->size;
+	vkCmdCopyBuffer(command_buffer, staging_buffer->memory_pool->buffer, device_buffer->memory_pool->buffer, 1, &copyInfo);
+}
+
 zest_bool zest_GrowBuffer(zest_buffer_t **buffer, zest_size unit_size, zest_size minimum_bytes) {
 	ZEST_ASSERT(unit_size);
 	zest_size units = (*buffer)->size / unit_size;
@@ -3639,6 +3647,7 @@ void zest__record_command_queue(zest_command_queue command_queue, zest_index fif
 	for (zest_foreach_i(command_queue->compute_commands)) {
 		zest_command_queue_compute compute_commands = command_queue->compute_commands[i];
 		ZEST_ASSERT(compute_commands->compute_function);		//Compute item must have its compute function callback set
+		compute_commands->shader_index = 0;
 		ZestRenderer->current_compute_routine = compute_commands;
 		compute_commands->compute_function(compute_commands);
 	}
@@ -4611,6 +4620,19 @@ void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_com
 zest_layer zest_GetLayer(const char *name) {
 	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->layers, name));		//That index could not be found in the storage
 	return *zest_map_at(ZestRenderer->layers, name);
+}
+
+void zest_ResetComputeRoutinesIndex(zest_command_queue_compute compute_queue) {
+	compute_queue->shader_index = 0;
+}
+
+zest_compute zest_NextComputeRoutine(zest_command_queue_compute compute_queue) {
+	if (compute_queue->shader_index < (zest_index)zest_vec_size(compute_queue->compute_shaders)) {
+		return compute_queue->compute_shaders[compute_queue->shader_index++];
+	}
+	else {
+		return 0;
+	}
 }
 // --End Command queue setup and modify functions
 

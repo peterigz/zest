@@ -1304,6 +1304,7 @@ typedef struct zest_command_queue_compute_t zest_command_queue_compute_t;
 struct zest_command_queue_compute_t {
 	void(*compute_function)(zest_command_queue_compute item);				//Call back function which will have the vkcommands the dispatch the compute shader task
 	zest_compute *compute_shaders;											//List of zest_compute indexes so multiple compute shaders can be run in the same compute item
+	zest_index shader_index;
 	const char *name;
 };
 
@@ -1796,6 +1797,7 @@ ZEST_API zest_buffer_info_t zest_CreateComputeIndexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateIndexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateStagingBufferInfo(void);
 ZEST_API void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer);
+ZEST_API void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer);
 ZEST_API void zest_FreeBuffer(zest_buffer_t *buffer);
 ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer_t *buffer);
 ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer_t *buffer);
@@ -1852,6 +1854,8 @@ ZEST_API void zest_ValidateQueue(zest_command_queue queue);
 ZEST_API void zest_ConnectCommandQueues(zest_command_queue sender, zest_command_queue receiver, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectQueueTo(zest_command_queue receiver, VkPipelineStageFlags stage_flags);
 ZEST_API void zest_ConnectQueueToPresent(void);
+ZEST_API void zest_ResetComputeRoutinesIndex(zest_command_queue_compute compute_queue);
+ZEST_API zest_compute zest_NextComputeRoutine(zest_command_queue_compute compute_queue);
 //-- End Command queue setup and creation
 
 //General Math
