@@ -7436,19 +7436,19 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 		zest_AllocateDescriptorSet(compute->descriptor_pool, compute->descriptor_set_layout, &compute->descriptor_set[i]);
 		int binding_index = 0;
 		for (zest_foreach_j(builder->descriptor_infos)) {
-			zest_descriptor_infos_for_binding_t descriptor_info = builder->descriptor_infos[j];
-			if (descriptor_info.all_frames_in_flight) {
-				if (descriptor_info.descriptor_buffer_info[i].buffer) {
-					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
-				} else if (descriptor_info.descriptor_image_info[i].sampler) { 
-					zest_vec_push(compute_write_descriptor_sets, zest_CreateImageDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_image_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
+			zest_descriptor_infos_for_binding_t *descriptor_info = &builder->descriptor_infos[j];
+			if (descriptor_info->all_frames_in_flight) {
+				if (descriptor_info->descriptor_buffer_info[i].buffer) {
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info->descriptor_buffer_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				} else if (descriptor_info->descriptor_image_info[i].sampler) { 
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateImageDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info->descriptor_image_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
 				}
 			}
 			else {
-				if (descriptor_info.descriptor_buffer_info[i].buffer) {
-					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
-				} else if (descriptor_info.descriptor_image_info[i].sampler) { 
-					zest_vec_push(compute_write_descriptor_sets, zest_CreateImageDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_image_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				if (descriptor_info->descriptor_buffer_info[0].buffer) {
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info->descriptor_buffer_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				} else if (descriptor_info->descriptor_image_info[0].sampler) { 
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateImageDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info->descriptor_image_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
 				}
 			}
 		}
