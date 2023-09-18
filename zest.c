@@ -3198,6 +3198,10 @@ void zest_SendPushConstants(zest_pipeline_t *pipeline, VkShaderStageFlags shader
 	vkCmdPushConstants(ZestRenderer->current_command_buffer, pipeline->pipeline_layout, shader_flags, 0, size, data);
 }
 
+void zest_SendComputePushConstants(zest_compute compute) {
+	vkCmdPushConstants(ZestRenderer->current_command_buffer, compute->pipeline_layout, compute->pushConstantRange.stageFlags, 0, compute->pushConstantRange.size, &compute->push_constants);
+}
+
 void zest_SendStandardPushConstants(zest_pipeline_t *pipeline, void *data) {
 	vkCmdPushConstants(ZestRenderer->current_command_buffer, pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), data);
 }

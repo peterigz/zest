@@ -2156,6 +2156,7 @@ ZEST_API void zest_MaybeQuit(zest_bool condition);
 ZEST_API void zest_BindVertexBuffer(zest_buffer_t *buffer);
 ZEST_API void zest_BindIndexBuffer(zest_buffer_t *buffer);
 ZEST_API void zest_SendPushConstants(zest_pipeline_t *pipeline_layout, VkShaderStageFlags shader_flags, zest_uint size, void *data);
+ZEST_API void zest_SendComputePushConstants(zest_compute compute);
 ZEST_API void zest_SendStandardPushConstants(zest_pipeline_t *pipeline_layout, void *data);
 ZEST_API void zest_Draw(zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 ZEST_API void zest_DrawIndexed(zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
