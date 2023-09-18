@@ -1,4 +1,4 @@
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #include "zest.h"
 #define ZLOC_IMPLEMENTATION
 #define ZLOC_OUTPUT_ERROR_MESSAGES
@@ -2461,7 +2461,9 @@ void zest_Update2dUniformBufferFIF(zest_index fif) {
 }
 
 zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_info, zest_size size, zest_bool all_frames_in_flight) {
+	zest_descriptor_buffer_t blank_buffer = { 0 };
 	zest_descriptor_buffer descriptor_buffer = ZEST__NEW(zest_descriptor_buffer);
+	*descriptor_buffer = blank_buffer;
 	for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
 		descriptor_buffer->buffer[i] = zest_CreateBuffer(size, buffer_info, ZEST_NULL);
 		descriptor_buffer->descriptor_info[i].buffer = *zest_GetBufferDeviceBuffer(descriptor_buffer->buffer[i]);
@@ -6360,7 +6362,7 @@ zest_render_target zest_AddPostProcessRenderTarget(const char *name, float width
 	create_info.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	create_info.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	ZEST__UNFLAG(create_info.flags, zest_render_target_flag_sampler_size_match_texture);
-	zest_render_target target = zest_CreateRenderTargetWithInfo(name, create_info, 0);
+	zest_render_target target = zest_CreateRenderTargetWithInfo(name, create_info);
 	zest_SetRenderTargetPostProcessCallback(target, render_callback);
 	zest_SetRenderTargetPostProcessUserData(target, user_data);
 	return target;
@@ -6785,7 +6787,7 @@ void zest_SetLayerScale(zest_layer layer, float x, float y) {
 	layer->screen_scale.y = y;
 	layer->push_constants.model = zest_M4(1.f);
 	zest_vec4 scale = zest_Vec4Set(x, y, 1.f, 1.f);
-	layer->push_constants.model = zest_ScaleMatrix4x4(&layer->push_constants, &scale);
+	layer->push_constants.model = zest_ScaleMatrix4x4(&layer->push_constants.model, &scale);
 }
 
 void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha) {
@@ -7347,7 +7349,21 @@ void zest_AddComputeLayoutBinding(zest_compute_builder_t *builder, VkDescriptorT
 }
 
 void zest_AddComputeBufferForBinding(zest_compute_builder_t *builder, zest_descriptor_buffer buffer) {
-	zest_vec_push(builder->buffers, buffer);
+	zest_descriptor_infos_for_binding_t info = { 0 };
+	for (ZEST_EACH_FIF_i) {
+		info.descriptor_buffer_info[i] = buffer->descriptor_info[i];
+	}
+	info.all_frames_in_flight = buffer->all_frames_in_flight;
+	zest_vec_push(builder->descriptor_infos, info);
+}
+
+void zest_AddComputeImageForBinding(zest_compute_builder_t *builder, zest_texture texture) {
+	zest_descriptor_infos_for_binding_t info = { 0 };
+	for (ZEST_EACH_FIF_i) {
+		info.descriptor_image_info[i] = texture->descriptor;
+	}
+	info.all_frames_in_flight = ZEST_FALSE;
+	zest_vec_push(builder->descriptor_infos, info);
 }
 
 zest_index zest_AddComputeShader(zest_compute_builder_t *builder, const char *path) {
@@ -7385,7 +7401,7 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	pool_info.poolSizeCount = zest_map_size(builder->descriptor_pool_sizes);
 	pool_info.pPoolSizes = builder->descriptor_pool_sizes.data;
-	pool_info.maxSets = zest_vec_size(builder->buffers[0]);
+	pool_info.maxSets = zest_vec_size(builder->descriptor_infos);
 
 	ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_info, &ZestDevice->allocation_callbacks, &compute->descriptor_pool));
 
@@ -7419,20 +7435,28 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 	for (ZEST_EACH_FIF_i) {
 		zest_AllocateDescriptorSet(compute->descriptor_pool, compute->descriptor_set_layout, &compute->descriptor_set[i]);
 		int binding_index = 0;
-		for (zest_foreach_j(builder->buffers)) {
-			zest_descriptor_buffer buffer = builder->buffers[j];
-			if (buffer->all_frames_in_flight) {
-				zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &buffer->descriptor_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
+		for (zest_foreach_j(builder->descriptor_infos)) {
+			zest_descriptor_infos_for_binding_t descriptor_info = builder->descriptor_infos[j];
+			if (descriptor_info.all_frames_in_flight) {
+				if (descriptor_info.descriptor_buffer_info[i].buffer) {
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				} else if (descriptor_info.descriptor_image_info[i].sampler) { 
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				}
 			}
 			else {
-				zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &buffer->descriptor_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				if (descriptor_info.descriptor_buffer_info[i].buffer) {
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				} else if (descriptor_info.descriptor_image_info[i].sampler) { 
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				}
 			}
 		}
 		zest_UpdateDescriptorSet(compute_write_descriptor_sets);
 		zest_vec_clear(compute_write_descriptor_sets);
 	}
 	zest_vec_free(compute_write_descriptor_sets);
-	compute->buffers = builder->buffers;
+	compute->descriptor_infos = builder->descriptor_infos;
 
 	// Create compute shader pipelines
 	VkComputePipelineCreateInfo compute_pipeline_create_info = { 0 };
@@ -7548,12 +7572,23 @@ void zest_StandardComputeDescriptorUpdate(zest_compute compute) {
 	VkWriteDescriptorSet *compute_write_descriptor_sets = 0;
 	for (ZEST_EACH_FIF_i) {
 		int binding_index = 0;
-		for (zest_foreach_j(compute->buffers)) {
-			zest_descriptor_buffer buffer = compute->buffers[j];
-			if (buffer->all_frames_in_flight) {
-				zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &buffer->descriptor_info[i], binding_index++, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER));
-			} else {
-				zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &buffer->descriptor_info[0], binding_index++, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER));
+		for (zest_foreach_j(compute->descriptor_infos)) {
+			zest_descriptor_infos_for_binding_t descriptor_info = compute->descriptor_infos[j];
+			if (descriptor_info.all_frames_in_flight) {
+				if (descriptor_info.descriptor_buffer_info[i].buffer) {
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				}
+				else if (descriptor_info.descriptor_image_info[i].sampler) {
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				}
+			}
+			else {
+				if (descriptor_info.descriptor_buffer_info[i].buffer) {
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				}
+				else if (descriptor_info.descriptor_image_info[i].sampler) {
+					zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info.descriptor_buffer_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
+				}
 			}
 		}
 		zest_UpdateDescriptorSet(compute_write_descriptor_sets);

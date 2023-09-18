@@ -968,6 +968,12 @@ typedef struct zest_descriptor_buffer_t {
 	zest_bool all_frames_in_flight;
 } zest_descriptor_buffer_t;
 
+typedef struct zest_descriptor_infos_for_binding_t {
+	VkDescriptorBufferInfo descriptor_buffer_info[ZEST_MAX_FIF];
+	VkDescriptorImageInfo descriptor_image_info[ZEST_MAX_FIF];
+	zest_bool all_frames_in_flight;
+} zest_descriptor_infos_for_binding_t;
+
 typedef struct zest_uniform_buffer_data_t {
 	zest_matrix4 view;
 	zest_matrix4 proj;
@@ -1241,32 +1247,32 @@ typedef struct zest_compute_push_constant {
 
 typedef struct zest_compute_t zest_compute_t;
 struct zest_compute_t {
-	VkQueue queue;										// Separate queue for compute commands (queue family may differ from the one used for graphics)
-	VkCommandPool command_pool;							// Use a separate command pool (queue family may differ from the one used for graphics)
-	VkCommandBuffer command_buffer[ZEST_MAX_FIF];		// Command buffer storing the dispatch commands and barriers
-	VkFence fence[ZEST_MAX_FIF];						// Synchronization fence to avoid rewriting compute CB if still in use
-	VkSemaphore fif_outgoing_semaphore[ZEST_MAX_FIF];	// Signal semaphores
-	VkSemaphore fif_incoming_semaphore[ZEST_MAX_FIF];	// Wait semaphores. The compute shader will not be executed on the GPU until these are signalled
-	zest_bool frame_has_run[ZEST_MAX_FIF];				// True if the compute shader has run yet
-	VkDescriptorPool descriptor_pool;					// The descriptor pool for sets created by the compute - may move this into the renderer
-	VkDescriptorSetLayout descriptor_set_layout;		// Compute shader binding layout
-	VkDescriptorSet descriptor_set[ZEST_MAX_FIF];		// Compute shader bindings
-	VkPipelineLayout pipeline_layout;					// Layout of the compute pipeline
+	VkQueue queue;											// Separate queue for compute commands (queue family may differ from the one used for graphics)
+	VkCommandPool command_pool;								// Use a separate command pool (queue family may differ from the one used for graphics)
+	VkCommandBuffer command_buffer[ZEST_MAX_FIF];			// Command buffer storing the dispatch commands and barriers
+	VkFence fence[ZEST_MAX_FIF];							// Synchronization fence to avoid rewriting compute CB if still in use
+	VkSemaphore fif_outgoing_semaphore[ZEST_MAX_FIF];		// Signal semaphores
+	VkSemaphore fif_incoming_semaphore[ZEST_MAX_FIF];		// Wait semaphores. The compute shader will not be executed on the GPU until these are signalled
+	zest_bool frame_has_run[ZEST_MAX_FIF];					// True if the compute shader has run yet
+	VkDescriptorPool descriptor_pool;						// The descriptor pool for sets created by the compute - may move this into the renderer
+	VkDescriptorSetLayout descriptor_set_layout;			// Compute shader binding layout
+	VkDescriptorSet descriptor_set[ZEST_MAX_FIF];			// Compute shader bindings
+	VkPipelineLayout pipeline_layout;						// Layout of the compute pipeline
 	VkDescriptorSetLayoutBinding *set_layout_bindings;
-	zest_text *shader_names;							// Names of the shader files to use 
-	VkPipeline *pipelines;								// Compute pipelines, one for each shader
-	zest_descriptor_buffer *buffers;					// All the buffers that are bound to the compute shader
-	int32_t pipeline_index;								// Current image filtering compute pipeline index
-	uint32_t queue_family_index;						// Family index of the graphics queue, used for barriers
+	zest_text *shader_names;								// Names of the shader files to use 
+	VkPipeline *pipelines;									// Compute pipelines, one for each shader
+	zest_descriptor_infos_for_binding_t *descriptor_infos;	// All the buffers/images that are bound to the compute shader
+	int32_t pipeline_index;									// Current image filtering compute pipeline index
+	uint32_t queue_family_index;							// Family index of the graphics queue, used for barriers
 	zest_uint group_count_x;							
 	zest_uint group_count_y;
 	zest_uint group_count_z;
 	zest_compute_push_constant push_constants;
 	VkPushConstantRange pushConstantRange;
 
-	void *compute_data;									// Connect this to any custom data that is required to get what you need out of the compute process.
-	zest_render_target render_target;					// The render target that this compute shader works with
-	void *user_data;									// Custom user data
+	void *compute_data;										// Connect this to any custom data that is required to get what you need out of the compute process.
+	zest_render_target render_target;						// The render target that this compute shader works with
+	void *user_data;										// Custom user data
 	zest_compute_flags flags;
 
 	// Over ride the descriptor udpate function with a customised one
@@ -1282,7 +1288,7 @@ zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
 typedef struct zest_compute_builder_t {
     zest_map_descriptor_pool_sizes descriptor_pool_sizes;
 	VkDescriptorSetLayoutBinding *layout_bindings;
-	zest_descriptor_buffer *buffers;
+	zest_descriptor_infos_for_binding_t *descriptor_infos;
 	zest_text *shader_names;
 	VkPipelineLayoutCreateInfo layout_create_info;
 	zest_uint push_constant_size;
@@ -2076,6 +2082,7 @@ ZEST_API zest_compute zest_CreateCompute(const char *name);
 ZEST_API zest_compute_builder_t zest_NewComputeBuilder();
 ZEST_API void zest_AddComputeLayoutBinding(zest_compute_builder_t *builder, VkDescriptorType descriptor_type, int binding);
 ZEST_API void zest_AddComputeBufferForBinding(zest_compute_builder_t *builder, zest_descriptor_buffer buffer);
+ZEST_API void zest_AddComputeImageForBinding(zest_compute_builder_t *builder, zest_texture texture);
 ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, const char *path);
 ZEST_API void zest_SetComputePushConstantSize(zest_compute_builder_t *builder, zest_uint size);
 ZEST_API void zest_SetComputeDescriptorUpdateCallback(zest_compute_builder_t *builder, void(*descriptor_update_callback)(zest_compute compute));
