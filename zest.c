@@ -1858,6 +1858,9 @@ zest_bool zest_GrowBuffer(zest_buffer_t **buffer, zest_size unit_size, zest_size
 	zest_size units = (*buffer)->size / unit_size;
 	zest_size new_size = (units ? units + units / 2 : 8) * unit_size;
 	new_size = ZEST__MAX(new_size, minimum_bytes);
+	if (new_size <= (*buffer)->size) {
+		return ZEST_FALSE;
+	}
 	zest_buffer_allocator_t *buffer_allocator = (*buffer)->buffer_allocator;
 	zest_buffer_t *new_buffer = zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 	if (new_buffer) {
@@ -2474,6 +2477,81 @@ zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_in
 	*descriptor_buffer = blank_buffer;
 	for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
 		descriptor_buffer->buffer[i] = zest_CreateBuffer(size, buffer_info, ZEST_NULL);
+		descriptor_buffer->descriptor_info[i].buffer = *zest_GetBufferDeviceBuffer(descriptor_buffer->buffer[i]);
+		descriptor_buffer->descriptor_info[i].offset = descriptor_buffer->buffer[i]->memory_offset;
+		descriptor_buffer->descriptor_info[i].range = size;
+	}
+	descriptor_buffer->all_frames_in_flight = all_frames_in_flight;
+	return descriptor_buffer;
+}
+
+zest_descriptor_buffer zest_CreateStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight) {
+	zest_buffer_info_t buffer_info = zest_CreateStorageBufferInfo();
+	zest_descriptor_buffer_t blank_buffer = { 0 };
+	zest_descriptor_buffer descriptor_buffer = ZEST__NEW(zest_descriptor_buffer);
+	*descriptor_buffer = blank_buffer;
+	for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
+		descriptor_buffer->buffer[i] = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+		descriptor_buffer->descriptor_info[i].buffer = *zest_GetBufferDeviceBuffer(descriptor_buffer->buffer[i]);
+		descriptor_buffer->descriptor_info[i].offset = descriptor_buffer->buffer[i]->memory_offset;
+		descriptor_buffer->descriptor_info[i].range = size;
+	}
+	descriptor_buffer->all_frames_in_flight = all_frames_in_flight;
+	return descriptor_buffer;
+}
+
+zest_descriptor_buffer zest_CreateVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight) {
+	zest_buffer_info_t buffer_info = zest_CreateVertexBufferInfo();
+	zest_descriptor_buffer_t blank_buffer = { 0 };
+	zest_descriptor_buffer descriptor_buffer = ZEST__NEW(zest_descriptor_buffer);
+	*descriptor_buffer = blank_buffer;
+	for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
+		descriptor_buffer->buffer[i] = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+		descriptor_buffer->descriptor_info[i].buffer = *zest_GetBufferDeviceBuffer(descriptor_buffer->buffer[i]);
+		descriptor_buffer->descriptor_info[i].offset = descriptor_buffer->buffer[i]->memory_offset;
+		descriptor_buffer->descriptor_info[i].range = size;
+	}
+	descriptor_buffer->all_frames_in_flight = all_frames_in_flight;
+	return descriptor_buffer;
+}
+
+zest_descriptor_buffer zest_CreateIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight) {
+	zest_buffer_info_t buffer_info = zest_CreateIndexBufferInfo();
+	zest_descriptor_buffer_t blank_buffer = { 0 };
+	zest_descriptor_buffer descriptor_buffer = ZEST__NEW(zest_descriptor_buffer);
+	*descriptor_buffer = blank_buffer;
+	for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
+		descriptor_buffer->buffer[i] = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+		descriptor_buffer->descriptor_info[i].buffer = *zest_GetBufferDeviceBuffer(descriptor_buffer->buffer[i]);
+		descriptor_buffer->descriptor_info[i].offset = descriptor_buffer->buffer[i]->memory_offset;
+		descriptor_buffer->descriptor_info[i].range = size;
+	}
+	descriptor_buffer->all_frames_in_flight = all_frames_in_flight;
+	return descriptor_buffer;
+}
+
+zest_descriptor_buffer zest_CreateComputeVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight) {
+	zest_buffer_info_t buffer_info = zest_CreateComputeVertexBufferInfo();
+	zest_descriptor_buffer_t blank_buffer = { 0 };
+	zest_descriptor_buffer descriptor_buffer = ZEST__NEW(zest_descriptor_buffer);
+	*descriptor_buffer = blank_buffer;
+	for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
+		descriptor_buffer->buffer[i] = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+		descriptor_buffer->descriptor_info[i].buffer = *zest_GetBufferDeviceBuffer(descriptor_buffer->buffer[i]);
+		descriptor_buffer->descriptor_info[i].offset = descriptor_buffer->buffer[i]->memory_offset;
+		descriptor_buffer->descriptor_info[i].range = size;
+	}
+	descriptor_buffer->all_frames_in_flight = all_frames_in_flight;
+	return descriptor_buffer;
+}
+
+zest_descriptor_buffer zest_CreateComputeIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight) {
+	zest_buffer_info_t buffer_info = zest_CreateComputeIndexBufferInfo();
+	zest_descriptor_buffer_t blank_buffer = { 0 };
+	zest_descriptor_buffer descriptor_buffer = ZEST__NEW(zest_descriptor_buffer);
+	*descriptor_buffer = blank_buffer;
+	for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
+		descriptor_buffer->buffer[i] = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 		descriptor_buffer->descriptor_info[i].buffer = *zest_GetBufferDeviceBuffer(descriptor_buffer->buffer[i]);
 		descriptor_buffer->descriptor_info[i].offset = descriptor_buffer->buffer[i]->memory_offset;
 		descriptor_buffer->descriptor_info[i].range = size;

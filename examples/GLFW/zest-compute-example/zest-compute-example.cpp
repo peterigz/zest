@@ -52,11 +52,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Create a temporary staging buffer to load the particle data into
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(storage_buffer_size,  particle_buffer.data());
 	//Create a "Descriptor buffer". This is a buffer that will have info necessary for a shader - in this case a compute shader.
-	//We define a zest_buffer_info_t to setup the attributes of the buffer
-	zest_buffer_info_t descriptor_buffer_info = zest_CreateComputeVertexBufferInfo();
 	//Create buffer as a single buffer, no need to have a buffer for each frame in flight as we won't be writing to it while it
 	//might be used in the GPU, it's purely for updating by the compute shader only
-	app->particle_buffer = zest_CreateDescriptorBuffer(&descriptor_buffer_info, storage_buffer_size, ZEST_FALSE);
+	app->particle_buffer = zest_CreateComputeVertexDescriptorBuffer(storage_buffer_size, ZEST_FALSE);
 	//Copy the staging buffer to the desciptor buffer
 	zest_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(app->particle_buffer));
 	//Free the staging buffer as we don't need it anymore
