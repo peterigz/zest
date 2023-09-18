@@ -1932,6 +1932,7 @@ ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_textu
 ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_format format);
 ZEST_API void zest_DeleteTexture(zest_texture texture);
+ZEST_API void zest_FreeBitmaps(zest_texture texture);
 ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
 ZEST_API zest_image zest_CreateImage(void);
 ZEST_API zest_image zest_CreateAnimation(zest_uint frames);

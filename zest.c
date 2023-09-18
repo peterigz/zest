@@ -6137,6 +6137,10 @@ void zest_DeleteTexture(zest_texture texture) {
 	zest_vec_push(ZestRenderer->texture_delete_queue, texture);
 }
 
+void zest_FreeBitmaps(zest_texture texture) {
+	zest__free_all_texture_images(texture);
+}
+
 void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format) {
 	ZEST_ASSERT(zest_vec_size(texture->images) == 0);	//You cannot change the image format of a texture that already has images
 	texture->image_format = format;
