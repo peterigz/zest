@@ -1789,7 +1789,7 @@ ZEST_API zest_buffer_t *zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer s
 ZEST_API zest_buffer_t *zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 ZEST_API zest_buffer_t *zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 ZEST_API zest_buffer_t *zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
-ZEST_API zest_bool zest_GrowBuffer(zest_buffer_t **buffer, zest_size unit_size, zest_size minimum_bytes);
+ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);

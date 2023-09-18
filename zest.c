@@ -1853,7 +1853,7 @@ void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffe
 	vkCmdCopyBuffer(command_buffer, staging_buffer->memory_pool->buffer, device_buffer->memory_pool->buffer, 1, &copyInfo);
 }
 
-zest_bool zest_GrowBuffer(zest_buffer_t **buffer, zest_size unit_size, zest_size minimum_bytes) {
+zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes) {
 	ZEST_ASSERT(unit_size);
 	zest_size units = (*buffer)->size / unit_size;
 	zest_size new_size = (units ? units + units / 2 : 8) * unit_size;
@@ -1862,7 +1862,7 @@ zest_bool zest_GrowBuffer(zest_buffer_t **buffer, zest_size unit_size, zest_size
 		return ZEST_FALSE;
 	}
 	zest_buffer_allocator_t *buffer_allocator = (*buffer)->buffer_allocator;
-	zest_buffer_t *new_buffer = zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
+	zest_buffer new_buffer = zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 	if (new_buffer) {
 		new_buffer->buffer_allocator = (*buffer)->buffer_allocator;
 		new_buffer->memory_in_use = (*buffer)->memory_in_use;
@@ -1875,7 +1875,7 @@ zest_bool zest_GrowBuffer(zest_buffer_t **buffer, zest_size unit_size, zest_size
 		ZEST_ASSERT(buffer_pool->alignment == buffer_allocator->alignment);	//The new pool should have the same alignment as the alignment set in the allocator, this
 																			//would have been set when the first pool was created
 		zest__add_remote_range_pool(buffer_allocator, buffer_pool);
-		zest_buffer_t *new_buffer = zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
+		zest_buffer new_buffer = zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 		ZEST_ASSERT(new_buffer);	//Unable to allocate memory. Out of memory?
 		*buffer = new_buffer;
 		zest__set_buffer_details(buffer_allocator, *buffer, buffer_allocator->buffer_info.property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
