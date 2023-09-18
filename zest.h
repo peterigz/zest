@@ -1240,10 +1240,10 @@ typedef struct zest_font_t {
 	zest_font_character_t *characters;
 } zest_font_t;	
 
-typedef struct zest_compute_push_constant {
+typedef struct zest_compute_push_constant_t {
 	//z is reserved for the quad_count;
 	zest_vec4 parameters;
-} zest_compute_push_constant;
+} zest_compute_push_constant_t;
 
 typedef struct zest_compute_t zest_compute_t;
 struct zest_compute_t {
@@ -1267,7 +1267,7 @@ struct zest_compute_t {
 	zest_uint group_count_x;							
 	zest_uint group_count_y;
 	zest_uint group_count_z;
-	zest_compute_push_constant push_constants;
+	zest_compute_push_constant_t push_constants;
 	VkPushConstantRange pushConstantRange;
 
 	void *compute_data;										// Connect this to any custom data that is required to get what you need out of the compute process.
