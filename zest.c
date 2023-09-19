@@ -3340,6 +3340,10 @@ void zest_LogFPSToConsole(zest_bool yesno) {
 	}
 }
 
+void *zest_Window() {
+	return ZestApp->window->window_handle;
+}
+
 zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
 void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { 
 	if (T && new_capacity <= zest__vec_header(T)->capacity) 

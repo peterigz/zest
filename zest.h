@@ -2173,6 +2173,7 @@ ZEST_API void zest_DispatchCompute(zest_compute compute, zest_uint group_count_x
 ZEST_API void zest_EnableVSync();
 ZEST_API void zest_DisableVSync();
 ZEST_API void zest_LogFPSToConsole(zest_bool yesno);
+ZEST_API void *zest_Window();
 //--End General Helper functions
 
 //Debug Helpers
