@@ -177,3 +177,39 @@ void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bo
 
 	ImGui::Image(&image, ImVec2(width, height), ImVec2(uv.x, uv.y), zw);
 }
+
+void zest_imgui_DrawTexturedRectRT(zest_render_target render_target, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y) {
+	zest_vec4 uv = { 0.f, 0.f, 1.f, 1.f };
+	ImVec2 zw(1.f, 1.f);
+	if (tile) {
+		if (offset_x || offset_y) {
+			offset_x = offset_x / float(render_target->viewport.extent.width);
+			offset_y = offset_y / float(render_target->viewport.extent.height);
+			offset_x *= scale_x;
+			offset_y *= scale_y;
+		}
+		scale_x *= width / float(render_target->viewport.extent.width);
+		scale_y *= height / float(render_target->viewport.extent.height);
+		zw.x = (uv.z * scale_x) - offset_x;
+		zw.y = (uv.w * scale_y) - offset_y;
+		uv.x -= offset_x;
+		uv.y -= offset_y;
+	}
+	ImGuiWindow* window = ImGui::GetCurrentWindow();
+	if (window->SkipItems)
+		return;
+
+	window->DrawList->PushTextureID(nullptr);
+	ImRect bb(window->DC.CursorPos, window->DC.CursorPos + ImVec2(width, height));
+	ImGui::ItemSize(bb);
+	if (!ImGui::ItemAdd(bb, 0))
+		return;
+
+	window->DrawList->PrimReserve(6, 4);
+	window->DrawList->PrimRectUV(bb.Min, bb.Max, ImVec2(uv.x, uv.y), zw, IM_COL32_WHITE);
+	IM_ASSERT_PARANOID(window->DrawList->CmdBuffer.Size > 0);
+	ImDrawCmd* curr_cmd = &window->DrawList->CmdBuffer.Data[window->DrawList->CmdBuffer.Size - 1];
+	curr_cmd->UserCallbackData = &render_target;
+
+	window->DrawList->PopTextureID();
+}
