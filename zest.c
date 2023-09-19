@@ -6197,6 +6197,10 @@ zest_texture zest_GetTexture(const char *name) {
 	return *zest_map_at(ZestRenderer->textures, name);
 }
 
+zest_bool zest_TextureCanTile(zest_texture texture) {
+	return texture->storage_type == zest_texture_storage_type_bank || texture->storage_type == zest_texture_storage_type_single;
+}
+
 void zest_SetTextureWrapping(zest_texture texture, VkSamplerAddressMode u, VkSamplerAddressMode v, VkSamplerAddressMode w) {
 	texture->sampler_info.addressModeU = u;
 	texture->sampler_info.addressModeV = v;

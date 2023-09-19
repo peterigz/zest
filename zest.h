@@ -1998,6 +1998,7 @@ ZEST_API zest_bitmap_t *zest_GetTextureSingleBitmap(zest_texture texture);
 ZEST_API void zest_CreateTextureImageView(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
 ZEST_API void zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set descriptor_set);
 ZEST_API zest_texture zest_GetTexture(const char *name);
+ZEST_API zest_bool zest_TextureCanTile(zest_texture texture);
 ZEST_API void zest_UpdateAllTextureDescriptorSets(zest_texture texture);
 ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
 ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture);
