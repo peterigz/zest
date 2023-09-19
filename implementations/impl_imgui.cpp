@@ -153,3 +153,27 @@ void zest_imgui_DrawImage(zest_image image, float width, float height) {
 void zest_imgui_DrawImage2(zest_image image, float width, float height) {
 	ImGui::Image(image, ImVec2(width, height), ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w));
 }
+
+void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y) {
+
+	ImVec2 zw(image->uv.z, image->uv.w);
+	zest_vec4 uv = image->uv;
+	if (zest_TextureCanTile(image->texture)) {
+		if (tile) {
+			if (offset_x || offset_y) {
+				offset_x = offset_x / float(image->width);
+				offset_y = offset_y / float(image->height);
+				offset_x *= scale_x;
+				offset_y *= scale_y;
+			}
+			scale_x *= width / float(image->width);
+			scale_y *= height / float(image->height);
+			zw.x = (uv.z * scale_x) - offset_x;
+			zw.y = (uv.w * scale_y) - offset_y;
+			uv.x -= offset_x;
+			uv.y -= offset_y;
+		}
+	}
+
+	ImGui::Image(&image, ImVec2(width, height), ImVec2(uv.x, uv.y), zw);
+}
