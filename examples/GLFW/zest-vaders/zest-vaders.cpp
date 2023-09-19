@@ -712,6 +712,12 @@ void BuildUI(VadersGame *game) {
 	ImGui::Text("Emitters: %i", game->game_pm.GetEmitterBuffer()->size());
 	ImGui::Text("Free Emitters: %i", game->game_pm.free_emitters.size());
 	ImGui::Text("Position: %f, %f, %f", game->player.position.x, game->player.position.y, game->player.position.z);
+	static bool filtering = false;
+	ImGui::Checkbox("Texture Filtering", &filtering);
+	if (ImGui::IsItemDeactivatedAfterEdit()) {
+		zest_SetTextureUseFiltering(game->particle_texture, filtering);
+		zest_ScheduleTextureReprocess(game->particle_texture);
+	}
 	static const char *options[3] = { "Low", "Medium", "High" };
 	if (ImGui::BeginCombo("Particles", options[game->particle_option])) {
 		for (int i = 0; i != 3; ++i)

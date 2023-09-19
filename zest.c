@@ -1399,6 +1399,14 @@ void zest__do_scheduled_tasks(zest_index index) {
 		}
 		zest_vec_clear(ZestRenderer->texture_delete_queue);
 	}
+
+	if (zest_vec_size(ZestRenderer->texture_reprocess_queue[ZEST_FIF])) {
+		for (zest_foreach_i(ZestRenderer->texture_reprocess_queue[ZEST_FIF])) {
+			zest_ProcessTextureImages(ZestRenderer->texture_reprocess_queue[ZEST_FIF][i]);
+			zest_RefreshTextureDescriptors(ZestRenderer->texture_reprocess_queue[ZEST_FIF][i]);
+		}
+		zest_vec_clear(ZestRenderer->texture_reprocess_queue[ZEST_FIF]);
+	}
 }
 
 void zest__main_loop(void) {
@@ -3318,7 +3326,7 @@ void zest_EnableVSync() {
 	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
 }
 
-void zest_DisnableVSync() {
+void zest_DisableVSync() {
 	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_vsync_enabled);
 	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
 }
@@ -5558,6 +5566,10 @@ void zest_RefreshTextureDescriptors(zest_texture texture) {
 	zest_UpdateAllTextureDescriptorSets(texture);
 }
 
+void zest_ScheduleTextureReprocess(zest_texture texture) {
+	zest_vec_push(ZestRenderer->texture_reprocess_queue[ZEST_FIF], texture);
+}
+
 void zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set descriptor_set) { 
 	zest_map_insert(texture->descriptor_sets, name, descriptor_set); 
 }
@@ -5755,7 +5767,7 @@ void zest_CreateBitmapArray(zest_bitmap_array_t *images, int width, int height, 
 
 void zest_ClearBitmapArray(zest_bitmap_array_t *images) {
 	if (images->data) {
-		free(images->data);
+		ZEST__FREE(images->data);
 	}
 	images->data = ZEST_NULL;
 	images->size_of_array = 0;

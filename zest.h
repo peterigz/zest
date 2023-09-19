@@ -2000,6 +2000,7 @@ ZEST_API void zest_AddTextureDescriptorSet(zest_texture texture, const char *nam
 ZEST_API zest_texture zest_GetTexture(const char *name);
 ZEST_API void zest_UpdateAllTextureDescriptorSets(zest_texture texture);
 ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
+ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture);
 //-- End Images and textures
 
 //-- Fonts
@@ -2170,7 +2171,7 @@ ZEST_API void zest_DrawIndexed(zest_uint index_count, zest_uint instance_count, 
 ZEST_API void zest_ComputeToVertexBarrier();
 ZEST_API void zest_DispatchCompute(zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 ZEST_API void zest_EnableVSync();
-ZEST_API void zest_DisnableVSync();
+ZEST_API void zest_DisableVSync();
 ZEST_API void zest_LogFPSToConsole(zest_bool yesno);
 //--End General Helper functions
 
