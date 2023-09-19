@@ -33,6 +33,7 @@ extern "C" {
 #define ZEST__CLAMP(v, min_v, max_v) ((v < min_v) ? min_v : ((v > max_v) ? max_v : v))
 #define ZEST__POW2(x) ((x) && !((x) & ((x) - 1)))
 #define ZEST__FLAG(flag, bit) flag |= (bit)
+#define ZEST__MAYBE_FLAG(flag, bit, yesno) flag |= (yesno ? bit : 0)
 #define ZEST__UNFLAG(flag, bit) flag &= ~bit
 #define ZEST__FLAGGED(flag, bit) (flag & (bit)) > 0
 #define ZEST__NOT_FLAGGED(flag, bit) (flag & (bit)) == 0
@@ -285,6 +286,7 @@ typedef enum {
 	zest_init_flag_none									= 0,
 	zest_init_flag_initialise_with_command_queue		= 1 << 0,
 	zest_init_flag_use_depth_buffer						= 1 << 1,
+	zest_init_flag_maximised							= 1 << 2,
 	zest_init_flag_enable_vsync							= 1 << 6,
 } zest_init_flags_e;
 
@@ -848,6 +850,7 @@ typedef struct zest_device_t {
 } zest_device_t;
 
 typedef struct zest_create_info_t {
+	const char *title;
 	zest_size memory_pool_size;							//The size of each memory pool. More pools are added if needed
 	int screen_width, screen_height;					//Default width and height of the window that you open
 	int screen_x, screen_y;								//Default position of the window
@@ -1918,6 +1921,8 @@ ZEST_API void zest_CameraStrafLeft(zest_camera_t *camera, float speed);
 ZEST_API void zest_CameraStrafRight(zest_camera_t *camera, float speed);
 ZEST_API void zest_CameraPosition(zest_camera_t *camera, zest_vec3 position);
 ZEST_API void zest_CameraSetFoV(zest_camera_t *camera, float degrees);
+ZEST_API void zest_CameraSetPitch(zest_camera_t *camera, float degrees);
+ZEST_API void zest_CameraSetYaw(zest_camera_t *camera, float degrees);
 ZEST_API zest_bool zest_RayIntersectPlane(zest_vec3 ray_origin, zest_vec3 ray_direction, zest_vec3 plane, zest_vec3 plane_normal, float *distance, zest_vec3 *intersection);
 ZEST_API zest_vec3 zest_ScreenRay(float xpos, float ypos, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
 ZEST_API zest_vec2 zest_WorldToScreen(const zest_vec3 *point, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
@@ -1934,6 +1939,7 @@ ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_textu
 ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_format format);
 ZEST_API void zest_DeleteTexture(zest_texture texture);
+ZEST_API void zest_ResetTexture(zest_texture texture);
 ZEST_API void zest_FreeTextureBitmaps(zest_texture texture);
 ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
 ZEST_API zest_image zest_CreateImage(void);

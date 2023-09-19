@@ -685,6 +685,14 @@ void zest_CameraSetFoV(zest_camera_t *camera, float degrees) {
 	camera->fov = zest_Radians(degrees);
 }
 
+void zest_CameraSetPitch(zest_camera_t *camera, float degrees) {
+	camera->pitch = zest_Radians(degrees);
+}
+
+void zest_CameraSetYaw(zest_camera_t *camera, float degrees) {
+	camera->yaw = zest_Radians(degrees);
+}
+
 zest_bool zest_RayIntersectPlane(zest_vec3 ray_origin, zest_vec3 ray_direction, zest_vec3 plane, zest_vec3 plane_normal, float *distance, zest_vec3 *intersection) {
 	float ray_to_plane_normal_dp = zest_DotProduct(plane_normal, ray_direction);
 	if (ray_to_plane_normal_dp > 0)
@@ -6175,6 +6183,11 @@ zest_texture zest_CreateTextureBank(const char *name, zest_texture_format image_
 
 void zest_DeleteTexture(zest_texture texture) {
 	zest_vec_push(ZestRenderer->texture_delete_queue, texture);
+}
+
+void zest_ResetTexture(zest_texture texture) {
+	zest__free_all_texture_images(texture);
+	zest__cleanup_texture(texture);
 }
 
 void zest_FreeTextureBitmaps(zest_texture texture) {
