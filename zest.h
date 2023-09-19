@@ -2047,6 +2047,7 @@ ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
 ZEST_API void zest_SetLayerScale(zest_layer layer, float x, float y);
 ZEST_API zest_layer zest_GetLayer(const char *name);
 ZEST_API void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha);
+ZEST_API void zest_SetLayerColorf(zest_layer layer, float red, float green, float blue, float alpha);
 ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
 //-- End Draw Layers
 

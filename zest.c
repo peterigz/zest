@@ -6946,6 +6946,10 @@ void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_b
 	layer->current_color = zest_ColorSet(red, green, blue, alpha);
 }
 
+void zest_SetLayerColorf(zest_layer layer, float red, float green, float blue, float alpha) {
+	layer->current_color = zest_ColorSet((zest_byte)(red * 255.f), (zest_byte)(green * 255.f), (zest_byte)(blue * 255.f), (zest_byte)(alpha * 255.f));
+}
+
 void zest_SetLayerIntensity(zest_layer layer, float value) {
 	layer->intensity = value;
 }
