@@ -4795,11 +4795,13 @@ zest_image zest_CreateImage() {
 	image->uv.z = 1.f;
 	image->uv.w = 1.f;
 	image->layer = 0;
+	image->frames = 1;
 	return image;
 }
 
 zest_image zest_CreateAnimation(zest_uint frames) {
 	zest_image image = (zest_image)ZEST__ALLOCATE_ALIGNED(sizeof(zest_image_t) * frames, 16);
+	image->frames = frames;
 	return image;
 }
 
@@ -5286,6 +5288,7 @@ float zest_CopyAnimationFrames(zest_texture texture, zest_bitmap_t *spritesheet,
 				max_radius = ZEST__MAX(max_radius, frame->max_radius);
 			}
 			frame = frame + 1;
+			frame->frames = frames;
 			frame_count++;
 		}
 	}
@@ -5302,6 +5305,12 @@ void zest__free_all_texture_images(zest_texture texture) {
 		count++;
 	}
 	zest_DeleteTextureLayers(texture);
+	zest_uint i = 0;
+	while (i < zest_vec_size(texture->images)) {
+		zest_image image = texture->images[i];
+		i += image->frames;
+		ZEST__FREE(image);
+	}
 	zest_vec_clear(texture->images);
 	zest_vec_clear(texture->image_bitmaps);
 	if (texture->bitmap_array.data) {

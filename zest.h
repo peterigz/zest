@@ -1341,7 +1341,8 @@ typedef struct zest_image_t {
 	zest_vec4 uv;				//UV coords are set after the ProcessImages function is called and the images are packed into the texture
 	zest_uint uv_xy;
 	zest_uint uv_zw;
-	zest_byte layer;			//the layer index of the image when it's packed into an image/texture array
+	zest_index layer;			//the layer index of the image when it's packed into an image/texture array
+	zest_uint frames;			//Will be one if this is a single image or more if it's part of and animation
 	zest_uint top, left;		//the top left location of the image on the layer or spritesheet
 	zest_vec2 min;				//The minimum coords of the vertices in the quad of the image
 	zest_vec2 max;				//The maximum coords of the vertices in the quad of the image
