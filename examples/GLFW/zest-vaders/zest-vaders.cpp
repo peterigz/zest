@@ -304,7 +304,6 @@ void VadersGame::Init() {
 		}
 		zest_FinishQueueSetup();
 	}
-
 	zest_TimerReset(timer);
 }
 

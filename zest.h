@@ -2003,6 +2003,7 @@ ZEST_API zest_bool zest_TextureCanTile(zest_texture texture);
 ZEST_API void zest_UpdateAllTextureDescriptorSets(zest_texture texture);
 ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
 ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture);
+ZEST_API void zest_WaitUntilTexturesReprocessed();
 //-- End Images and textures
 
 //-- Fonts

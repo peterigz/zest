@@ -5583,6 +5583,12 @@ void zest_ScheduleTextureReprocess(zest_texture texture) {
 	zest_vec_push(ZestRenderer->texture_reprocess_queue[ZEST_FIF], texture);
 }
 
+void zest_WaitUntilTexturesReprocessed() {
+	while (zest_vec_size(ZestRenderer->texture_reprocess_queue[ZEST_FIF])) {
+		//Spin. This should be run from a separate thread so the scheduler can actually do it's thing	
+	}
+}
+
 void zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set descriptor_set) { 
 	zest_map_insert(texture->descriptor_sets, name, descriptor_set); 
 }
