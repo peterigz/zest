@@ -1891,6 +1891,7 @@ ZEST_API zest_matrix4 zest_M4(float v);
 ZEST_API zest_vec2 zest_ScaleVec2(zest_vec2 *vec2, float v);
 ZEST_API zest_vec3 zest_ScaleVec3(zest_vec3 *vec3, float v);
 ZEST_API zest_vec4 zest_ScaleVec4(zest_vec4 *vec4, float v);
+ZEST_API zest_vec3 zest_MulVec3(zest_vec3 *left, zest_vec3 *right);
 ZEST_API zest_vec4 zest_MulVec4(zest_vec4 *left, zest_vec4 *right);
 ZEST_API zest_matrix4 zest_ScaleMatrix4x4(zest_matrix4 *m, zest_vec4 *v);
 ZEST_API zest_matrix4 zest_ScaleMatrix4(zest_matrix4 *m, float scalar);
@@ -1932,7 +1933,7 @@ ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_textu
 ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_format format);
 ZEST_API void zest_DeleteTexture(zest_texture texture);
-ZEST_API void zest_FreeBitmaps(zest_texture texture);
+ZEST_API void zest_FreeTextureBitmaps(zest_texture texture);
 ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
 ZEST_API zest_image zest_CreateImage(void);
 ZEST_API zest_image zest_CreateAnimation(zest_uint frames);

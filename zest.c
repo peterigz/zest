@@ -425,6 +425,15 @@ zest_vec4 zest_ScaleVec4(zest_vec4 *vec, float scalar) {
 	return result;
 }
 
+zest_vec3 zest_MulVec3(zest_vec3 *left, zest_vec3 *right) {
+	zest_vec3 result = {
+		.x = left->x * right->x,
+		.y = left->y * right->y,
+		.z = left->z * right->z,
+	};
+	return result;
+}
+
 zest_vec4 zest_MulVec4(zest_vec4 *left, zest_vec4 *right) {
 	zest_vec4 result = {
 		.x = left->x * right->x,
@@ -6137,7 +6146,7 @@ void zest_DeleteTexture(zest_texture texture) {
 	zest_vec_push(ZestRenderer->texture_delete_queue, texture);
 }
 
-void zest_FreeBitmaps(zest_texture texture) {
+void zest_FreeTextureBitmaps(zest_texture texture) {
 	zest__free_all_texture_images(texture);
 }
 
