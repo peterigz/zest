@@ -292,7 +292,7 @@ void VadersGame::Init() {
 	title_index = AddEffectToParticleManager(&title_pm, title);
 	SetEffectPosition(&title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, uniform_buffer_3d));
 
-	zest_imgui_Initialise();
+	zest_imgui_Initialise(&imgui_layer_info);
 
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{

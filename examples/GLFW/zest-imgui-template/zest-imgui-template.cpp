@@ -2,7 +2,7 @@
 #include "imgui_internal.h"
 
 void InitImGuiApp(ImGuiApp *app) {
-	zest_imgui_Initialise();
+	zest_imgui_Initialise(&app->imgui_layer_info);
 
 	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
 	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");

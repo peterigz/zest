@@ -1,7 +1,7 @@
 #include "impl_imgui.h"
 #include "imgui_internal.h"
 
-void zest_imgui_Initialise() {
+void zest_imgui_Initialise(zest_imgui_layer_info *imgui_layer_info) {
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());
@@ -12,11 +12,23 @@ void zest_imgui_Initialise() {
 	int upload_size = width * height * 4 * sizeof(char);
 
 	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-	zest_texture font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
-	zest_image font_image = zest_AddTextureImageBitmap(font_texture, &font_bitmap);
-	zest_ProcessTextureImages(font_texture);
+	imgui_layer_info->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
+	zest_image font_image = zest_AddTextureImageBitmap(imgui_layer_info->font_texture, &font_bitmap);
+	zest_ProcessTextureImages(imgui_layer_info->font_texture);
 	io.Fonts->SetTexID(font_image);
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
+}
+
+void zest_imgui_RebuildFontTexture(zest_imgui_layer_info *imgui_layer_info, zest_uint width, zest_uint height, unsigned char* pixels) {
+	zest_WaitForIdleDevice();
+	int upload_size = width * height * 4 * sizeof(char);
+	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+	zest_FreeTextureBitmaps(imgui_layer_info->font_texture);
+	zest_image font_image = zest_AddTextureImageBitmap(imgui_layer_info->font_texture, &font_bitmap);
+	zest_ProcessTextureImages(imgui_layer_info->font_texture);
+	zest_RefreshTextureDescriptors(imgui_layer_info->font_texture);
+	ImGuiIO& io = ImGui::GetIO();
+	io.Fonts->SetTexID(font_image);
 }
 
 void zest_imgui_CreateLayer(zest_imgui_layer_info *imgui_layer_info) {
