@@ -3704,12 +3704,12 @@ void zest__draw_renderer_frame() {
 	if (!ZestRenderer->active_command_queue) {
 		//if there's no render queues at all, then we can draw this blank one to prevent errors when presenting the frame
 		ZestRenderer->semaphores[ZEST_FIF].incoming = zest_GetCommandQueuePresentSemaphore(&ZestRenderer->empty_queue);
-		zest__record_command_queue(&ZestRenderer->empty_queue, ZEST_FIF);
-		zest__submit_command_queue(&ZestRenderer->empty_queue, ZestRenderer->fif_fence[ZEST_FIF]);
+		zest_RecordCommandQueue(&ZestRenderer->empty_queue, ZEST_FIF);
+		zest_SubmitCommandQueue(&ZestRenderer->empty_queue, ZestRenderer->fif_fence[ZEST_FIF]);
 	}
 	else {
-		zest__record_command_queue(ZestRenderer->active_command_queue, ZEST_FIF);
-		zest__submit_command_queue(ZestRenderer->active_command_queue, ZestRenderer->fif_fence[ZEST_FIF]);
+		zest_RecordCommandQueue(ZestRenderer->active_command_queue, ZEST_FIF);
+		zest_SubmitCommandQueue(ZestRenderer->active_command_queue, ZestRenderer->fif_fence[ZEST_FIF]);
 	}
 
 	zest__present_frame();
@@ -3800,57 +3800,6 @@ void zest__cleanup_command_queue(zest_command_queue command_queue) {
 	}
 	vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->command_pool, ZEST_MAX_FIF, command_queue->command_buffer);
 	//vkDestroyCommandPool(ZestDevice->logical_device, command_queue->command_pool, &ZestDevice->allocation_callbacks);
-}
-
-void zest__record_command_queue(zest_command_queue command_queue, zest_index fif) {
-	VkCommandBufferBeginInfo begin_info = { 0 };
-	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	vkResetCommandBuffer(command_queue->command_buffer[fif], 0);
-	ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(command_queue->command_buffer[fif], &begin_info));
-
-	ZestRenderer->current_command_buffer = command_queue->command_buffer[fif];
-	for (zest_foreach_i(command_queue->compute_commands)) {
-		zest_command_queue_compute compute_commands = command_queue->compute_commands[i];
-		ZEST_ASSERT(compute_commands->compute_function);		//Compute item must have its compute function callback set
-		compute_commands->shader_index = 0;
-		ZestRenderer->current_compute_routine = compute_commands;
-		compute_commands->compute_function(compute_commands);
-	}
-
-	for (zest_foreach_i(command_queue->draw_commands)) {
-		zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[i];
-		ZestRenderer->current_draw_commands = draw_commands;
-		draw_commands->render_pass_function(draw_commands, command_queue->command_buffer[fif], draw_commands->render_pass, draw_commands->get_frame_buffer(draw_commands));
-	}
-
-	ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(command_queue->command_buffer[fif]));
-
-	ZestRenderer->current_command_buffer = ZEST_NULL;
-	ZestRenderer->current_compute_routine = ZEST_NULL;
-	ZestRenderer->current_draw_commands = ZEST_NULL;
-}
-
-void zest__submit_command_queue(zest_command_queue command_queue, VkFence fence) {
-	VkSubmitInfo submit_info = { 0 };
-	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	if (!zest_vec_empty(command_queue->semaphores[ZEST_FIF].fif_incoming_semaphores)) {
-		submit_info.pWaitSemaphores = command_queue->semaphores[ZEST_FIF].fif_incoming_semaphores;
-		submit_info.waitSemaphoreCount = zest_vec_size(command_queue->semaphores[ZEST_FIF].fif_incoming_semaphores);
-		submit_info.pWaitDstStageMask = command_queue->fif_wait_stage_flags[ZEST_FIF];
-	}
-	else {
-		submit_info.pWaitSemaphores = VK_NULL_HANDLE;
-		submit_info.waitSemaphoreCount = 0;
-		submit_info.pWaitDstStageMask = VK_NULL_HANDLE;
-	}
-	submit_info.signalSemaphoreCount = zest_vec_size(command_queue->semaphores[ZEST_FIF].fif_outgoing_semaphores);
-	submit_info.pSignalSemaphores = command_queue->semaphores[ZEST_FIF].fif_outgoing_semaphores;
-	submit_info.commandBufferCount = 1;
-	submit_info.pCommandBuffers = &command_queue->command_buffer[ZEST_FIF];
-
-	vkResetFences(ZestDevice->logical_device, 1, &fence);
-	ZEST_VK_CHECK_RESULT(vkQueueSubmit(ZestDevice->graphics_queue, 1, &submit_info, fence));
-
 }
 
 void zest_ConnectCommandQueueToPresent(zest_command_queue sender) {
@@ -4832,6 +4781,57 @@ zest_compute zest_NextComputeRoutine(zest_command_queue_compute compute_queue) {
 	else {
 		return 0;
 	}
+}
+
+void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
+	VkCommandBufferBeginInfo begin_info = { 0 };
+	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	vkResetCommandBuffer(command_queue->command_buffer[fif], 0);
+	ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(command_queue->command_buffer[fif], &begin_info));
+
+	ZestRenderer->current_command_buffer = command_queue->command_buffer[fif];
+	for (zest_foreach_i(command_queue->compute_commands)) {
+		zest_command_queue_compute compute_commands = command_queue->compute_commands[i];
+		ZEST_ASSERT(compute_commands->compute_function);		//Compute item must have its compute function callback set
+		compute_commands->shader_index = 0;
+		ZestRenderer->current_compute_routine = compute_commands;
+		compute_commands->compute_function(compute_commands);
+	}
+
+	for (zest_foreach_i(command_queue->draw_commands)) {
+		zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[i];
+		ZestRenderer->current_draw_commands = draw_commands;
+		draw_commands->render_pass_function(draw_commands, command_queue->command_buffer[fif], draw_commands->render_pass, draw_commands->get_frame_buffer(draw_commands));
+	}
+
+	ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(command_queue->command_buffer[fif]));
+
+	ZestRenderer->current_command_buffer = ZEST_NULL;
+	ZestRenderer->current_compute_routine = ZEST_NULL;
+	ZestRenderer->current_draw_commands = ZEST_NULL;
+}
+
+void zest_SubmitCommandQueue(zest_command_queue command_queue, VkFence fence) {
+	VkSubmitInfo submit_info = { 0 };
+	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	if (!zest_vec_empty(command_queue->semaphores[ZEST_FIF].fif_incoming_semaphores)) {
+		submit_info.pWaitSemaphores = command_queue->semaphores[ZEST_FIF].fif_incoming_semaphores;
+		submit_info.waitSemaphoreCount = zest_vec_size(command_queue->semaphores[ZEST_FIF].fif_incoming_semaphores);
+		submit_info.pWaitDstStageMask = command_queue->fif_wait_stage_flags[ZEST_FIF];
+	}
+	else {
+		submit_info.pWaitSemaphores = VK_NULL_HANDLE;
+		submit_info.waitSemaphoreCount = 0;
+		submit_info.pWaitDstStageMask = VK_NULL_HANDLE;
+	}
+	submit_info.signalSemaphoreCount = zest_vec_size(command_queue->semaphores[ZEST_FIF].fif_outgoing_semaphores);
+	submit_info.pSignalSemaphores = command_queue->semaphores[ZEST_FIF].fif_outgoing_semaphores;
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &command_queue->command_buffer[ZEST_FIF];
+
+	vkResetFences(ZestDevice->logical_device, 1, &fence);
+	ZEST_VK_CHECK_RESULT(vkQueueSubmit(ZestDevice->graphics_queue, 1, &submit_info, fence));
+
 }
 // --End Command queue setup and modify functions
 
