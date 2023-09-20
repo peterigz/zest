@@ -823,6 +823,7 @@ typedef struct zest_device_t {
 	zest_uint use_labels_address_bit;
 	zest_uint current_fif;
 	zest_uint max_fif;
+	zest_uint saved_fif;
 	zest_uint max_image_size;
 	zest_uint graphics_queue_family_index;
 	zest_uint present_queue_family_index;
@@ -1386,6 +1387,7 @@ typedef struct zest_texture_t {
 	zest_image_t texture;
 	zest_bitmap_t texture_bitmap;
 	zest_frame_buffer_attachment_t frame_buffer;
+
 	//Todo: option to not keep the images in memory after they're uploaded to the graphics card
 	zest_bitmap_t *image_bitmaps;
 	zest_image *images;
@@ -1944,6 +1946,7 @@ ZEST_API zest_texture zest_CreateTexturePacked(const char *name, zest_texture_fo
 ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_format format);
+ZEST_API zest_texture zest_CreateTextureStorage(const char *name, int width, int height, zest_texture_format format, VkImageViewType view_type);
 ZEST_API void zest_DeleteTexture(zest_texture texture);
 ZEST_API void zest_ResetTexture(zest_texture texture);
 ZEST_API void zest_FreeTextureBitmaps(zest_texture texture);
@@ -1998,7 +2001,7 @@ ZEST_API zest_byte zest_CalculateTextureLayers(stbrp_rect *rects, zest_uint size
 ZEST_API void zest_MakeImageBank(zest_texture texture, zest_uint size);
 ZEST_API void zest_MakeSpriteSheet(zest_texture texture);
 ZEST_API void zest_PackImages(zest_texture texture, zest_uint size);
-ZEST_API void zest_UpdateImageVertices(zest_image image);
+ZEST_API void zest_UpdateTextureImageVertices(zest_image image);
 ZEST_API void zest_UpdateTextureSingleImageMeta(zest_texture texture, zest_uint width, zest_uint height);
 ZEST_API void zest_SetTextureStorageType(zest_texture texture, zest_texture_storage_type value);
 ZEST_API void zest_SetTextureUseFiltering(zest_texture texture, zest_bool value);
@@ -2010,6 +2013,8 @@ ZEST_API void zest_SetTextureWrappingRepeat(zest_texture texture);
 ZEST_API void zest_SetTextureLayerSize(zest_texture texture, zest_uint size);
 ZEST_API void zest_SetTextureMaxRadiusOnLoad(zest_texture texture, zest_bool yesno);
 ZEST_API void zest_SetTextureImguiBlendType(zest_texture texture, zest_imgui_blendtype blend_type);
+ZEST_API void zest_TextureResize(zest_texture texture, zest_uint width, zest_uint height);
+ZEST_API void zest_TextureClear(zest_texture texture);
 ZEST_API zest_bitmap_t *zest_GetTextureSingleBitmap(zest_texture texture);
 ZEST_API void zest_CreateTextureImageView(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
 ZEST_API void zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set descriptor_set);
@@ -2177,8 +2182,8 @@ ZEST_API float zest_ScreenWidthf(void);
 ZEST_API float zest_ScreenHeightf(void);
 ZEST_API float zest_DPIScale(void);
 ZEST_API void zest_SetDPIScale(float scale);
-ZEST_API zest_uint zest_FPS();
-ZEST_API float zest_FPSf();
+ZEST_API zest_uint zest_FPS(void);
+ZEST_API float zest_FPSf(void);
 ZEST_API zest_descriptor_buffer zest_GetUniformBuffer(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);
@@ -2192,10 +2197,12 @@ ZEST_API void zest_Draw(zest_uint vertex_count, zest_uint instance_count, zest_u
 ZEST_API void zest_DrawIndexed(zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 ZEST_API void zest_ComputeToVertexBarrier();
 ZEST_API void zest_DispatchCompute(zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
-ZEST_API void zest_EnableVSync();
-ZEST_API void zest_DisableVSync();
+ZEST_API void zest_EnableVSync(void);
+ZEST_API void zest_DisableVSync(void);
 ZEST_API void zest_LogFPSToConsole(zest_bool yesno);
-ZEST_API void *zest_Window();
+ZEST_API void *zest_Window(void);
+ZEST_API void zest_SetFrameInFlight(zest_uint fif);
+ZEST_API void zest_RestoreFrameInFlight(void);
 //--End General Helper functions
 
 //Debug Helpers
