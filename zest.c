@@ -1415,6 +1415,15 @@ void zest__do_scheduled_tasks(zest_index index) {
 		}
 		zest_vec_clear(ZestRenderer->texture_reprocess_queue[ZEST_FIF]);
 	}
+
+	if (zest_vec_size(ZestRenderer->render_target_recreate_queue)) {
+		for (zest_foreach_i(ZestRenderer->render_target_recreate_queue)) {
+			zest_render_target render_target = ZestRenderer->render_target_recreate_queue[i];
+			zest_RecreateRenderTargetResources(render_target);
+		}
+		zest__update_command_queue_viewports();
+		zest_vec_clear(ZestRenderer->render_target_recreate_queue);
+	}
 }
 
 void zest__main_loop(void) {
@@ -4699,6 +4708,18 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name,
 	return draw_routine;
 }
 
+void zest__update_command_queue_viewports(void) {
+	for (zest_map_foreach_i(ZestRenderer->command_queues)) {
+		zest_command_queue queue = *zest_map_at_index(ZestRenderer->command_queues, i);
+		for (zest_foreach_j(queue->draw_commands)) {
+			zest_command_queue_draw_commands draw_commands = queue->draw_commands[i];
+			if (draw_commands->render_target != 0) {
+				draw_commands->viewport = draw_commands->render_target->viewport;
+			}
+		}
+	}
+}
+
 zest_draw_routine zest_CreateDrawRoutine(const char *name) {
 	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));	//A draw routine with that name already exists
 
@@ -6798,6 +6819,14 @@ void zest_CleanUpRenderTarget(zest_render_target render_target) {
 
 void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno) {
 	render_target->render_pass = (yesno == 0 ? zest_GetRenderPass("Render pass standard no clear") : zest_GetRenderPass("Render pass standard"));
+}
+
+void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, zest_uint height) {
+	render_target->create_info.viewport.extent.width = width;
+	render_target->create_info.viewport.extent.height = height;
+	ZEST__FLAG(render_target->create_info.flags, zest_render_target_flag_fixed_size);
+
+	zest_vec_push(ZestRenderer->render_target_recreate_queue, render_target);
 }
 //--End Render Targets
 

@@ -1624,6 +1624,7 @@ ZEST_PRIVATE void zest__cleanup_command_queue(zest_command_queue command_queue);
 ZEST_PRIVATE void zest__record_command_queue(zest_command_queue command_queue, zest_index fif);
 ZEST_PRIVATE void zest__submit_command_queue(zest_command_queue command_queue, VkFence fence);
 ZEST_PRIVATE zest_command_queue_draw_commands zest__create_command_queue_draw_commands(const char *name);
+ZEST_PRIVATE void zest__update_command_queue_viewports(void);
 // --End Command Queue functions
 
 // --Command Queue Setup functions
