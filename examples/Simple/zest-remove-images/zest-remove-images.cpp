@@ -31,6 +31,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	if (app->image1 && zest_Microsecs() - app->timer->start_time > app->period) {
 		zest_RemoveTextureImage(app->texture, app->image1);
 		app->image1 = 0;
+		zest_ScheduleTextureReprocess(app->texture);
 	}
 	else if(app->image1) {
 		zest_DrawSprite(ZestApp->default_layer, app->image1, 400.f, 200.f, 0.f, 128.f, 128.f, 0.5f, 0.5f, 0, 0.f, 0);
@@ -38,6 +39,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	if (app->animation && zest_Microsecs() - app->timer->start_time > app->period * 2) {
 		zest_RemoveTextureAnimation(app->texture, app->animation);
+		zest_ScheduleTextureReprocess(app->texture);
 		app->animation = 0;
 	}
 	else if (app->animation) {
