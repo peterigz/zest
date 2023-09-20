@@ -2057,6 +2057,7 @@ ZEST_API void zest_PreserveRenderTargetFrames(zest_render_target render_target, 
 ZEST_API void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, zest_uint height);
 ZEST_API void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target);
 ZEST_API void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target);
+ZEST_API void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif);
 //-- End Render targets
 
 //Draw Routines

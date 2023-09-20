@@ -6404,12 +6404,12 @@ void zest_TextureResize(zest_texture texture, zest_uint width, zest_uint height)
 void zest_TextureClear(zest_texture texture) {
 	VkCommandBuffer command_buffer = zest__begin_single_time_commands();
 
-	VkImageSubresourceRange ImageSubresourceRange;
-	ImageSubresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	ImageSubresourceRange.baseMipLevel = 0;
-	ImageSubresourceRange.levelCount = 1;
-	ImageSubresourceRange.baseArrayLayer = 0;
-	ImageSubresourceRange.layerCount = 1;
+	VkImageSubresourceRange image_sub_resource_range;
+	image_sub_resource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_sub_resource_range.baseMipLevel = 0;
+	image_sub_resource_range.levelCount = 1;
+	image_sub_resource_range.baseArrayLayer = 0;
+	image_sub_resource_range.layerCount = 1;
 
 	VkClearColorValue ClearColorValue = { 0.0, 0.0, 0.0, 0.0 };
 
@@ -6422,9 +6422,9 @@ void zest_TextureClear(zest_texture texture) {
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		ImageSubresourceRange);
+		image_sub_resource_range);
 
-	vkCmdClearColorImage(command_buffer, texture->frame_buffer.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearColorValue, 1, &ImageSubresourceRange);
+	vkCmdClearColorImage(command_buffer, texture->frame_buffer.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearColorValue, 1, &image_sub_resource_range);
 
 	zest__insert_image_memory_barrier(
 		command_buffer,
@@ -6435,7 +6435,7 @@ void zest_TextureClear(zest_texture texture) {
 		texture->image_layout,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		ImageSubresourceRange);
+		image_sub_resource_range);
 
 	zest__end_single_time_commands(command_buffer);
 }
@@ -6947,6 +6947,45 @@ void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target) {
 		zest_SetTextureWrappingRepeat(render_target->sampler_textures[i]);
 		zest_vec_push(ZestRenderer->rt_sampler_refresh_queue[i], render_target);
 	}
+}
+
+void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif) {
+	VkCommandBuffer command_buffer = zest__begin_single_time_commands();
+
+	VkImageSubresourceRange image_sub_resource_range;
+	image_sub_resource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_sub_resource_range.baseMipLevel = 0;
+	image_sub_resource_range.levelCount = 1;
+	image_sub_resource_range.baseArrayLayer = 0;
+	image_sub_resource_range.layerCount = 1;
+
+	VkClearColorValue ClearColorValue = { 0.0, 0.0, 0.0, 0.0 };
+
+	zest__insert_image_memory_barrier(
+		command_buffer,
+		render_target->framebuffers[fif].color_buffer.image,
+		0,
+		VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		image_sub_resource_range);
+
+	vkCmdClearColorImage(command_buffer, render_target->framebuffers[fif].color_buffer.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearColorValue, 1, &image_sub_resource_range);
+
+	zest__insert_image_memory_barrier(
+		command_buffer,
+		render_target->framebuffers[fif].color_buffer.image,
+		0,
+		VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_PIPELINE_STAGE_TRANSFER_BIT,
+		image_sub_resource_range);
+
+	zest__end_single_time_commands(command_buffer);
 }
 //--End Render Targets
 
