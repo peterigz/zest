@@ -225,3 +225,51 @@ void zest_imgui_DrawTexturedRectRT(zest_render_target render_target, float width
 
 	window->DrawList->PopTextureID();
 }
+
+bool zest_imgui_DrawButton(zest_image image, const char* user_texture_id, float width, float height, int frame_padding) {
+	using namespace ImGui;
+
+	ImVec2 size(width, height);
+	ImVec2 image_size((float)image->width, (float)image->height);
+	float ratio = image_size.x / image_size.y;
+	image_size.x = ratio > 1 ? width : width * ratio;
+	image_size.y = ratio > 1 ? height / ratio : height;
+	ImVec2 image_offset((width - image_size.x) * .5f, (height - image_size.y) * .5f);
+	ImVec4 bg_col(0.f, 0.f, 0.f, 0.f);
+	ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
+	ImVec2 uv0(image->uv.x, image->uv.y);
+	ImVec2 uv1(image->uv.z, image->uv.w);
+
+	ImGuiWindow* window = GetCurrentWindow();
+	if (window->SkipItems)
+		return false;
+
+	ImGuiContext& g = *GImGui;
+	const ImGuiStyle& style = g.Style;
+
+	// Default to using texture ID as ID. User can still push string/integer prefixes.
+	// We could hash the size/uv to create a unique ID but that would prevent the user from animating UV.
+	PushID(user_texture_id);
+	const ImGuiID id = window->GetID("#image");
+	PopID();
+
+	const ImVec2 padding = (frame_padding >= 0) ? ImVec2((float)frame_padding, (float)frame_padding) : style.FramePadding;
+	const ImRect bb(window->DC.CursorPos, window->DC.CursorPos + size + padding * 2);
+	const ImRect image_bb(window->DC.CursorPos + padding + image_offset, window->DC.CursorPos + padding + image_offset + image_size);
+	ItemSize(bb);
+	if (!ItemAdd(bb, id))
+		return false;
+
+	bool hovered, held;
+	bool pressed = ButtonBehavior(bb, id, &hovered, &held);
+
+	// Render
+	const ImU32 col = GetColorU32((held && hovered) ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
+	RenderNavHighlight(bb, id);
+	RenderFrame(bb.Min, bb.Max, col, true, ImClamp((float)ImMin(padding.x, padding.y), 0.0f, style.FrameRounding));
+	if (bg_col.w > 0.0f)
+		window->DrawList->AddRectFilled(image_bb.Min, image_bb.Max, GetColorU32(bg_col));
+	window->DrawList->AddImage(image, image_bb.Min, image_bb.Max, uv0, uv1, GetColorU32(tint_col));
+
+	return pressed;
+}
