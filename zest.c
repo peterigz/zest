@@ -1427,7 +1427,7 @@ void zest__do_scheduled_tasks(zest_index index) {
 
 	if (zest_vec_size(ZestRenderer->rt_sampler_refresh_queue[ZEST_FIF])) {
 		for (zest_foreach_i(ZestRenderer->rt_sampler_refresh_queue[ZEST_FIF])) {
-			zest_render_target render_target = ZestRenderer->rt_sampler_refresh_queue[ZEST_FIF];
+			zest_render_target render_target = ZestRenderer->rt_sampler_refresh_queue[ZEST_FIF][i];
 			zest_RefreshRenderTargetSampler(render_target, ZEST_FIF);
 		}
 		zest_vec_clear(ZestRenderer->rt_sampler_refresh_queue[ZEST_FIF]);
