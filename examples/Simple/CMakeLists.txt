@@ -33,6 +33,7 @@ set(EXAMPLES
 	zest-fonts
 	zest-minimal-template
 	zest-instance-layers
+	zest-remove-images
 )
 
 buildExamples()

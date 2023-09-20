@@ -89,6 +89,8 @@ extern "C" {
 #define ZEST_FIF ZestDevice->current_fif
 #define ZEST_MICROSECS_SECOND 1000000ULL
 #define ZEST_MICROSECS_MILLISECOND 1000
+#define ZEST_SECONDS_IN_MICROSECONDS(seconds) seconds * ZEST_MICROSECS_SECOND
+#define ZEST_SECONDS_IN_MILLISECONDS(seconds) seconds * 1000
 
 #ifndef ZEST_MAX_DEVICE_MEMORY_POOLS
 #define ZEST_MAX_DEVICE_MEMORY_POOLS 64
@@ -476,8 +478,9 @@ enum {
 // --Pocket dynamic array
 #define zest__vec_header(T) ((zest_vec*)T - 1)
 zest_uint zest__grow_capacity(void *T, zest_uint size);
-#define zest_vec_bump(T) zest__vec_header(T)->current_size++;
-#define zest_vec_clip(T) zest__vec_header(T)->current_size--;
+#define zest_vec_bump(T) zest__vec_header(T)->current_size++
+#define zest_vec_clip(T) zest__vec_header(T)->current_size--
+#define zest_vec_trim(T, amount) zest__vec_header(T)->current_size -= amount;
 #define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
 #define zest_vec_empty(T) (!T || zest__vec_header(T)->current_size == 0)
 #define zest_vec_size(T) (T ? zest__vec_header(T)->current_size : 0)
@@ -493,8 +496,9 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_resize(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); zest__vec_header(T)->current_size = new_size
 #define zest_vec_push(T, value) zest_vec_grow(T); (T)[zest__vec_header(T)->current_size++] = value 
 #define zest_vec_pop(T) (zest__vec_header(T)->current_size--, T[zest__vec_header(T)->current_size])
-#define zest_vec_insert(T, location, value) { ptrdiff_t offset = location - T; zest_vec_grow(T); if(offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T) }
+#define zest_vec_insert(T, location, value) { ptrdiff_t offset = location - T; zest_vec_grow(T); if(offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); }
 #define zest_vec_erase(T, location) { ptrdiff_t offset = location - T; ZEST_ASSERT(T && offset >= 0 && location < zest_vec_end(T)); memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); }
+#define zest_vec_erase_range(T, it, it_last) { ZEST_ASSERT(T && it >= T && it < zest_vec_end(T)); const ptrdiff_t count = it_last - it; const ptrdiff_t off = it - T; memmove(T + off, T + off + count, ((size_t)zest_vec_size(T) - (size_t)off - count) * sizeof(*T)); zest_vec_trim(T, (zest_uint)count); }
 #define zest_foreach_i(T) int i = 0; i != zest_vec_size(T); ++i 
 #define zest_foreach_j(T) int j = 0; j != zest_vec_size(T); ++j 
 #define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k 
@@ -1676,6 +1680,7 @@ ZEST_PRIVATE void zest__delete_texture(zest_texture texture);
 ZEST_PRIVATE void zest__delete_font(zest_font_t *font);
 ZEST_PRIVATE void zest__cleanup_texture(zest_texture texture);
 ZEST_PRIVATE void zest__free_all_texture_images(zest_texture texture);
+ZEST_PRIVATE void zest__reindex_texture_images(zest_texture texture);
 // --End Maintenance functions
 
 //Device set up 
@@ -1941,6 +1946,8 @@ ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_form
 ZEST_API void zest_DeleteTexture(zest_texture texture);
 ZEST_API void zest_ResetTexture(zest_texture texture);
 ZEST_API void zest_FreeTextureBitmaps(zest_texture texture);
+ZEST_API void zest_RemoveTextureImage(zest_texture texture, zest_image image);
+ZEST_API void zest_RemoveTextureAnimation(zest_texture texture, zest_image first_image);
 ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
 ZEST_API zest_image zest_CreateImage(void);
 ZEST_API zest_image zest_CreateAnimation(zest_uint frames);
@@ -2000,8 +2007,8 @@ ZEST_API void zest_SetTextureWrappingClamp(zest_texture texture);
 ZEST_API void zest_SetTextureWrappingBorder(zest_texture texture);
 ZEST_API void zest_SetTextureWrappingRepeat(zest_texture texture);
 ZEST_API void zest_SetTextureLayerSize(zest_texture texture, zest_uint size);
-ZEST_API void zest_SetTextureMaxRadiusOnLoad(zest_texture texture, zest_imgui_blendtype blend_type);
-ZEST_API void zest_SetTextureImguiBlendType(zest_texture texture, zest_bool yesno);
+ZEST_API void zest_SetTextureMaxRadiusOnLoad(zest_texture texture, zest_bool yesno);
+ZEST_API void zest_SetTextureImguiBlendType(zest_texture texture, zest_imgui_blendtype blend_type);
 ZEST_API zest_bitmap_t *zest_GetTextureSingleBitmap(zest_texture texture);
 ZEST_API void zest_CreateTextureImageView(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
 ZEST_API void zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set descriptor_set);

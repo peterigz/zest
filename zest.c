@@ -5203,8 +5203,9 @@ zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, un
 	return image;
 }
 
-zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
+zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filename, int width, int height, zest_uint frames, float *_max_radius, zest_bool row_by_row) {
 	zest_bitmap_t spritesheet;
+	float max_radius;
 
 	zest_LoadBitmapImage(&spritesheet, filename, 0);
 	ZEST_ASSERT(spritesheet.data != ZEST_NULL);
@@ -5218,13 +5219,18 @@ zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filena
 	ZEST_ASSERT(spritesheet.width >= width);			// ERROR: The animation being loaded is not wide enough for the width of each frame specified.
 	ZEST_ASSERT(spritesheet.height >= height);			// ERROR: The animation being loaded is not heigh enough for the height of each frame specified.
 
-	*max_radius = zest_CopyAnimationFrames(texture, &spritesheet, width, height, frames, row_by_row);
+	max_radius = zest_CopyAnimationFrames(texture, &spritesheet, width, height, frames, row_by_row);
 	zest_FreeBitmap(&spritesheet);
+
+	if (_max_radius) {
+		*_max_radius = max_radius;
+	}
 
 	return texture->images[first_index];
 }
 
-zest_image zest_AddTextureAnimationImage(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
+zest_image zest_AddTextureAnimationImage(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, float *_max_radius, zest_bool row_by_row) {
+	float max_radius;
 
 	ZEST_ASSERT(spritesheet->data != ZEST_NULL);
 	zest_ConvertBitmapToTextureFormat(spritesheet, texture->image_format);
@@ -5238,12 +5244,17 @@ zest_image zest_AddTextureAnimationImage(zest_texture texture, zest_bitmap_t *sp
 	ZEST_ASSERT(spritesheet->width >= width);			// ERROR: The animation being loaded is not wide enough for the width of each frame specified.
 	ZEST_ASSERT(spritesheet->height >= height);			// ERROR: The animation being loaded is not heigh enough for the height of each frame specified.
 
-	*max_radius = zest_CopyAnimationFrames(texture, spritesheet, width, height, frames, row_by_row);
+	max_radius = zest_CopyAnimationFrames(texture, spritesheet, width, height, frames, row_by_row);
+
+	if (_max_radius) {
+		*_max_radius = max_radius;
+	}
 
 	return texture->images[first_index];
 }
 
-zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row) {
+zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *_max_radius, zest_bool row_by_row) {
+	float max_radius;
 	zest_bitmap_t spritesheet = { 0 };
 
 	zest_LoadBitmapImageMemory(&spritesheet, buffer, buffer_size, texture->color_channels);
@@ -5259,8 +5270,12 @@ zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name
 	ZEST_ASSERT(spritesheet.width >= width);				// ERROR: The animation being loaded is not wide enough for the width of each frame specified.
 	ZEST_ASSERT(spritesheet.height >= height);			// ERROR: The animation being loaded is not heigh enough for the height of each frame specified.
 
-	*max_radius = zest_CopyAnimationFrames(texture, &spritesheet, width, height, frames, row_by_row);
+	max_radius = zest_CopyAnimationFrames(texture, &spritesheet, width, height, frames, row_by_row);
 	zest_FreeBitmap(&spritesheet);
+
+	if (_max_radius) {
+		*_max_radius = max_radius;
+	}
 
 	return texture->images[first_index];
 }
@@ -5295,8 +5310,8 @@ float zest_CopyAnimationFrames(zest_texture texture, zest_bitmap_t *spritesheet,
 				frame->max_radius = zest_FindBitmapRadius(image_bitmap);
 				max_radius = ZEST__MAX(max_radius, frame->max_radius);
 			}
-			frame = frame + 1;
 			frame->frames = frames;
+			frame = frame + 1;
 			frame_count++;
 		}
 	}
@@ -5358,6 +5373,14 @@ void zest__cleanup_texture(zest_texture texture) {
 	vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer.image, &ZestDevice->allocation_callbacks);
 	zest_FreeBuffer(texture->frame_buffer.buffer);
 	texture->flags &= ~zest_texture_flag_textures_ready;
+}
+
+void zest__reindex_texture_images(zest_texture texture) {
+	zest_index index = 0;
+	for (zest_foreach_i(texture->images)) {
+		texture->images[i]->index = index++;
+	}
+	texture->image_index = index;
 }
 // --End Internal Texture functions
 
@@ -6192,6 +6215,26 @@ void zest_ResetTexture(zest_texture texture) {
 
 void zest_FreeTextureBitmaps(zest_texture texture) {
 	zest__free_all_texture_images(texture);
+}
+
+void zest_RemoveTextureImage(zest_texture texture, zest_image image) {
+	ZEST_ASSERT((zest_uint)image->index < zest_vec_size(texture->images));	//Image not within range of image indexes in the texture
+	zest_FreeBitmap(&texture->image_bitmaps[image->index]);
+	zest_vec_erase(texture->image_bitmaps, &texture->image_bitmaps[image->index]);
+	zest_vec_erase(texture->images, &texture->images[image->index]);
+	ZEST__FREE(image);
+	zest__reindex_texture_images(texture);
+}
+
+void zest_RemoveTextureAnimation(zest_texture texture, zest_image first_image) {
+	ZEST_ASSERT(first_image->frames > 1);	//Must be an animation image that you're deleting and also note that you must pass in the first frame of the image
+	for (zest_uint i = 0; i < first_image->frames; ++i) {
+		zest_FreeBitmap(&texture->image_bitmaps[first_image->index + i]);
+	}
+	zest_vec_erase_range(texture->image_bitmaps, &texture->image_bitmaps[first_image->index], &texture->image_bitmaps[first_image->index + first_image->frames]);
+	zest_vec_erase_range(texture->images, &texture->images[first_image->index], &texture->images[first_image->index + first_image->frames]);
+	ZEST__FREE(first_image);
+	zest__reindex_texture_images(texture);
 }
 
 void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format) {
