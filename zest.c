@@ -6265,6 +6265,10 @@ void zest_SetTextureMaxRadiusOnLoad(zest_texture texture, zest_bool yesno) {
 		ZEST__UNFLAG(texture->flags, zest_texture_flag_get_max_radius);
 	}
 }
+
+void zest_SetTextureImguiBlendType(zest_texture texture, zest_imgui_blendtype blend_type) {
+	texture->imgui_blend_type = blend_type;
+}
 //-- End Texture and Image Functions
 
 //-- Fonts
