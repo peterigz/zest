@@ -2049,6 +2049,7 @@ ZEST_API VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_dr
 ZEST_API VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_commands item);
 ZEST_API void zest_RefreshRenderTargetSampler(zest_render_target render_target, zest_index fif);
 ZEST_API void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno);
+ZEST_API void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, zest_uint height);
 //-- End Render targets
 
 //Draw Routines
