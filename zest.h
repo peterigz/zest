@@ -1521,7 +1521,7 @@ typedef struct zest_renderer_t {
 
 	//For scheduled tasks
 	zest_render_target *render_target_recreate_queue;
-	zest_index *rt_sampler_refresh_queue[ZEST_MAX_FIF];
+	zest_render_target *rt_sampler_refresh_queue[ZEST_MAX_FIF];
 	zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
 	zest_texture *texture_reprocess_queue[ZEST_MAX_FIF];
 	zest_texture *texture_delete_queue;
@@ -2050,6 +2050,8 @@ ZEST_API VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queu
 ZEST_API void zest_RefreshRenderTargetSampler(zest_render_target render_target, zest_index fif);
 ZEST_API void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno);
 ZEST_API void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, zest_uint height);
+ZEST_API void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target);
+ZEST_API void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target);
 //-- End Render targets
 
 //Draw Routines

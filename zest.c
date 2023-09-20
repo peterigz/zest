@@ -1424,6 +1424,15 @@ void zest__do_scheduled_tasks(zest_index index) {
 		zest__update_command_queue_viewports();
 		zest_vec_clear(ZestRenderer->render_target_recreate_queue);
 	}
+
+	if (zest_vec_size(ZestRenderer->rt_sampler_refresh_queue[ZEST_FIF])) {
+		for (zest_foreach_i(ZestRenderer->rt_sampler_refresh_queue[ZEST_FIF])) {
+			zest_render_target render_target = ZestRenderer->rt_sampler_refresh_queue[ZEST_FIF];
+			zest_RefreshRenderTargetSampler(render_target, ZEST_FIF);
+		}
+		zest_vec_clear(ZestRenderer->rt_sampler_refresh_queue[ZEST_FIF]);
+	}
+
 }
 
 void zest__main_loop(void) {
@@ -6827,6 +6836,20 @@ void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, 
 	ZEST__FLAG(render_target->create_info.flags, zest_render_target_flag_fixed_size);
 
 	zest_vec_push(ZestRenderer->render_target_recreate_queue, render_target);
+}
+
+void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target) {
+	for (ZEST_EACH_FIF_i) {
+		zest_SetTextureWrappingClamp(render_target->sampler_textures[i]);
+		zest_vec_push(ZestRenderer->rt_sampler_refresh_queue[i], render_target);
+	}
+}
+
+void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target) {
+	for (ZEST_EACH_FIF_i) {
+		zest_SetTextureWrappingRepeat(render_target->sampler_textures[i]);
+		zest_vec_push(ZestRenderer->rt_sampler_refresh_queue[i], render_target);
+	}
 }
 //--End Render Targets
 
