@@ -2075,13 +2075,13 @@ ZEST_API void zest_SetLayerColorf(zest_layer layer, float red, float green, floa
 ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
 //-- End Draw Layers
 
-//Draw sprite layers
+//-- Draw sprite layers
 ZEST_API void zest_InitialiseSpriteLayer(zest_layer sprite_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 ZEST_API void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
 //-- End Draw sprite layers
 
-//Draw billboard layers
+//-- Draw billboard layers
 ZEST_API void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetBillboardDrawing(zest_layer sprite_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 ZEST_API void zest_DrawBillboardComplex(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
