@@ -2204,6 +2204,10 @@ ZEST_API void zest_LogFPSToConsole(zest_bool yesno);
 ZEST_API void *zest_Window(void);
 ZEST_API void zest_SetFrameInFlight(zest_uint fif);
 ZEST_API void zest_RestoreFrameInFlight(void);
+ZEST_API VkFence zest_CreateFence();
+ZEST_API zest_bool zest_CheckFence(VkFence fence);
+ZEST_API void zest_WaitForFence(VkFence fence);
+ZEST_API void zest_DestroyFence(VkFence fence);
 //--End General Helper functions
 
 //Debug Helpers

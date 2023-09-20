@@ -3380,6 +3380,32 @@ void zest_RestoreFrameInFlight(void) {
 	ZEST_FIF = ZestDevice->saved_fif;
 }
 
+VkFence zest_CreateFence() {
+	VkFenceCreateInfo fence_info = { 0 };
+	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+	VkFence fence;
+	vkCreateFence(ZestDevice->logical_device, &fence_info, &ZestDevice->allocation_callbacks, &fence);
+	return fence;
+}
+
+zest_bool zest_CheckFence(VkFence fence) {
+	if (vkGetFenceStatus(ZestDevice->logical_device, fence) == VK_SUCCESS) {
+		vkDestroyFence(ZestDevice->logical_device, fence, &ZestDevice->allocation_callbacks);
+		return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
+void zest_WaitForFence(VkFence fence) {
+	vkWaitForFences(ZestDevice->logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
+}
+
+void zest_DestroyFence(VkFence fence) {
+	zest_WaitForFence(fence);
+	vkDestroyFence(ZestDevice->logical_device, fence, &ZestDevice->allocation_callbacks);
+}
+
 zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
 void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { 
 	if (T && new_capacity <= zest__vec_header(T)->capacity) 
