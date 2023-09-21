@@ -1899,6 +1899,7 @@ ZEST_API zest_uint zest_Pack16bit(float x, float y);
 ZEST_API zest_size zest_GetNextPower(zest_size n);
 ZEST_API float zest_Radians(float degrees);
 ZEST_API float zest_Degrees(float radians);
+ZEST_API zest_vec3 zest_Lerp(zest_vec3 *captured, zest_vec3 *present, float tween);
 ZEST_API zest_matrix4 zest_M4(float v);
 ZEST_API zest_vec2 zest_ScaleVec2(zest_vec2 *vec2, float v);
 ZEST_API zest_vec3 zest_ScaleVec3(zest_vec3 *vec3, float v);

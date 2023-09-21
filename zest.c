@@ -804,6 +804,10 @@ zest_size zest_GetNextPower(zest_size n) {
 float zest_Radians(float degrees) { return degrees * 0.01745329251994329576923690768489f; }
 float zest_Degrees(float radians) { return radians * 57.295779513082320876798154814105f; }
 
+zest_vec3 zest_Lerp(zest_vec3 *captured, zest_vec3 *present, float tween) {
+	return zest_AddVec3(zest_ScaleVec3(present, tween), zest_ScaleVec3(captured, (1.f - tween)));
+}
+
 //  --End Math
 
 // Initialisation and destruction
