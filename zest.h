@@ -2002,7 +2002,7 @@ ZEST_API zest_byte zest_CalculateTextureLayers(stbrp_rect *rects, zest_uint size
 ZEST_API void zest_MakeImageBank(zest_texture texture, zest_uint size);
 ZEST_API void zest_MakeSpriteSheet(zest_texture texture);
 ZEST_API void zest_PackImages(zest_texture texture, zest_uint size);
-ZEST_API void zest_UpdateTextureImageVertices(zest_image image);
+ZEST_API void zest_UpdateImageVertices(zest_image image);
 ZEST_API void zest_UpdateTextureSingleImageMeta(zest_texture texture, zest_uint width, zest_uint height);
 ZEST_API void zest_SetTextureStorageType(zest_texture texture, zest_texture_storage_type value);
 ZEST_API void zest_SetTextureUseFiltering(zest_texture texture, zest_bool value);

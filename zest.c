@@ -5269,7 +5269,7 @@ zest_image zest_AddTextureImageFile(zest_texture texture, const char* filename) 
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
 	image->name = filename;
-	zest_UpdateTextureImageVertices(image);
+	zest_UpdateImageVertices(image);
 
 	return image;
 }
@@ -5294,7 +5294,7 @@ zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t *bitma
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
 	image->name = bitmap->name;
-	zest_UpdateTextureImageVertices(image);
+	zest_UpdateImageVertices(image);
 
 	return image;
 }
@@ -5318,7 +5318,7 @@ zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, un
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
 	image->name = bitmap->name;
-	zest_UpdateTextureImageVertices(image);
+	zest_UpdateImageVertices(image);
 
 	return image;
 }
@@ -5424,7 +5424,7 @@ float zest_CopyAnimationFrames(zest_texture texture, zest_bitmap_t *spritesheet,
 			zest_CopyBitmap(spritesheet, c * width, r * height, width, height, image_bitmap, 0, 0);
 			frame->width = image_bitmap->width;
 			frame->height = image_bitmap->height;
-			zest_UpdateTextureImageVertices(frame);
+			zest_UpdateImageVertices(frame);
 			frame->texture = texture;
 			if (texture->flags & zest_texture_flag_get_max_radius) {
 				frame->max_radius = zest_FindBitmapRadius(image_bitmap);
@@ -6246,7 +6246,15 @@ void zest_PackImages(zest_texture texture, zest_uint size) {
 
 }
 
-void zest_UpdateTextureImageVertices(zest_image image) {
+void zest_SetImageHandle(zest_image image, float x, float y) {
+	if (image->handle.x == x && image->handle.y == y)
+		return;
+	image->handle.x = x;
+	image->handle.y = y;
+	zest_UpdateImageVertices(image);
+}
+
+void zest_UpdateImageVertices(zest_image image) {
 	image->min.x = image->width * (0.f - image->handle.x) * image->scale.x;
 	image->min.y = image->height * (0.f - image->handle.y) * image->scale.y;
 	image->max.x = image->width * (1.f - image->handle.x) * image->scale.x;
@@ -6259,7 +6267,7 @@ void zest_UpdateTextureSingleImageMeta(zest_texture texture, zest_uint width, ze
 	*image = blank_image;
 	image->width = width;
 	image->height = height;
-	zest_UpdateTextureImageVertices(image);
+	zest_UpdateImageVertices(image);
 	image->uv.x = 0.f;
 	image->uv.y = 0.f;
 	image->uv.z = 1.f;
@@ -6329,7 +6337,7 @@ zest_texture zest_CreateTextureStorage(const char *name, int width, int height, 
 	texture->texture.width = width;
 	texture->texture.height = height;
 	texture->image_layout = VK_IMAGE_LAYOUT_GENERAL;
-	zest_UpdateTextureImageVertices(&texture->texture);
+	zest_UpdateImageVertices(&texture->texture);
 	zest_GetTextureSingleBitmap(texture)->width = width;
 	zest_GetTextureSingleBitmap(texture)->height = height;
 	texture->image_view_type = view_type;
@@ -6452,7 +6460,7 @@ void zest_TextureResize(zest_texture texture, zest_uint width, zest_uint height)
 	zest_ResetTexture(texture);
 	texture->texture.width = width;
 	texture->texture.height = height;
-	zest_UpdateTextureImageVertices(&texture->texture);
+	zest_UpdateImageVertices(&texture->texture);
 	zest_GetTextureSingleBitmap(texture)->width = width;
 	zest_GetTextureSingleBitmap(texture)->height = height;
 	ZEST__UNFLAG(texture->flags, zest_texture_flag_textures_ready);
