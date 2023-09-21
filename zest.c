@@ -5349,7 +5349,7 @@ zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filena
 	return texture->images[first_index];
 }
 
-zest_image zest_AddTextureAnimationImage(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, float *_max_radius, zest_bool row_by_row) {
+zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, float *_max_radius, zest_bool row_by_row) {
 	float max_radius;
 
 	ZEST_ASSERT(spritesheet->data != ZEST_NULL);
