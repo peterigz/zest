@@ -1654,8 +1654,8 @@ ZEST_PRIVATE void zest__next_billboard_instance(zest_layer layer);
 
 // --General Helper Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
-ZEST_PRIVATE zest_buffer_t *zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
-ZEST_PRIVATE zest_buffer_t *zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
+ZEST_PRIVATE zest_buffer zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
+ZEST_PRIVATE zest_buffer zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
 ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout image_layout);
 ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image);
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount);
@@ -1808,9 +1808,9 @@ ZEST_API zest_buffer_info_t zest_CreateIndexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateStagingBufferInfo(void);
 ZEST_API void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer);
 ZEST_API void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer);
-ZEST_API void zest_FreeBuffer(zest_buffer_t *buffer);
-ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer_t *buffer);
-ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer_t *buffer);
+ZEST_API void zest_FreeBuffer(zest_buffer buffer);
+ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer buffer);
+ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer buffer);
 ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer_t *source_buffer, zest_buffer_t *target_buffer, VkDeviceSize target_offset);
 ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader_t *uploader, VkCommandBuffer command_buffer);
 ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
@@ -1967,6 +1967,7 @@ ZEST_API void zest_ConvertBitmapToTextureFormat(zest_bitmap_t *src, VkFormat for
 ZEST_API void zest_ConvertBitmap(zest_bitmap_t *src, zest_texture_format format, zest_byte alpha_level);
 ZEST_API void zest_ConvertBitmapToBGRA(zest_bitmap_t *src, zest_byte alpha_level);
 ZEST_API void zest_ConvertBitmapToRGBA(zest_bitmap_t *src, zest_byte alpha_level);
+ZEST_API void zest_ConvertBGRAToRGBA(zest_bitmap_t *src);
 ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap_t *image);
 ZEST_API void zest_ConvertBitmapTo1Channel(zest_bitmap_t *image);
 ZEST_API zest_color zest_SampleBitmap(zest_bitmap_t *image, int x, int y);
@@ -2024,6 +2025,8 @@ ZEST_API void zest_UpdateAllTextureDescriptorSets(zest_texture texture);
 ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
 ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture);
 ZEST_API void zest_WaitUntilTexturesReprocessed();
+ZEST_API void zest_GrabImageToTexture(zest_frame_buffer_t *src_image, zest_texture texture, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
+ZEST_API void zest_GrabTextureFromTexture(zest_texture src_image, zest_texture target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 //-- End Images and textures
 
 //-- Fonts
