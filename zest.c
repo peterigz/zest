@@ -401,6 +401,12 @@ zest_vec4 zest_SubVec4(zest_vec4 left, zest_vec4 right) {
 	return result;
 }
 
+zest_vec3 zest_FlipVec3(zest_vec3 *vec3) {
+	vec3->x = -vec3->x;
+	vec3->y = -vec3->y;
+	vec3->z = -vec3->z;
+}
+
 zest_vec2 zest_ScaleVec2(zest_vec2 *vec, float scalar) {
 	zest_vec2 result;
 	result.x = vec->x * scalar;
