@@ -6702,7 +6702,7 @@ void zest_GrabTextureFromTexture(zest_texture src_image, zest_texture target, in
 
 }
 
-void GrabImageFromTexture(zest_texture src_image, zest_bitmap_t *image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel) {
+void zest_GrabImageFromTexture(zest_texture src_image, zest_bitmap_t *image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel) {
 	VkCommandBuffer copy_command = zest__begin_single_time_commands();
 	zest_frame_buffer_attachment_t dst_image;
 	zest_buffer_t *buffer = zest__create_image(width, height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR, VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &dst_image.image);
