@@ -8552,6 +8552,7 @@ zest_timer zest_CreateTimer(double update_frequency) {
 	zest_timer timer = ZEST__NEW(zest_timer);
 	*timer = blank_timer;
 	zest_TimerSetUpdateFrequency(timer, update_frequency);
+	zest_TimerReset(timer);
 	return timer;
 }
 
