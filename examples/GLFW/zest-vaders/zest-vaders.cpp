@@ -931,8 +931,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_uint packed = zest_Pack8bitx3(&v);
 	zest_create_info_t create_info = zest_CreateInfo();

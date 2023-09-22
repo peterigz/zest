@@ -10,6 +10,7 @@ function(buildExample EXAMPLE_NAME)
 	
 	SET(IMGUI ${CMAKE_SOURCE_DIR}/submodules/imgui/)
 	SET(IMPLEMENTATIONS ${CMAKE_SOURCE_DIR}/implementations/)
+	SET(TIMELINEFX ${CMAKE_SOURCE_DIR}/submodules/timelinefxlib/)
 
 	file(GLOB SOURCE 
 		*.cpp 
@@ -37,6 +38,15 @@ function(buildExample EXAMPLE_NAME)
 		${IMPLEMENTATIONS}impl_imgui.cpp
 	)
 
+	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx")
+		file(GLOB TIMELINEFX_SOURCE 
+			${TIMELINEFX}timelinefx.h
+			${TIMELINEFX}timelinefx.cpp
+		)
+	else()
+		SET(TIMELINEFX_SOURCE "")
+	endif()
+
 	# Organize shaders into a source group
 	source_group("Shaders" FILES ${SHADERS})
 	source_group("ImGui" FILES ${IMGUI_SOURCE})
@@ -45,10 +55,10 @@ function(buildExample EXAMPLE_NAME)
 	add_compile_definitions(IMGUI_USER_CONFIG="zest_imconfig.h")
 
 	if(WIN32)
-		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
+		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY} ${WINLIBS})
 	else(WIN32)
-		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
+		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY})
 	endif(WIN32)
 
