@@ -10,3 +10,6 @@
 [submodule "submodules/imgui_file_dialog"]
 	path = submodules/imgui_file_dialog
 	url = https://github.com/aiekick/ImGuiFileDialog.git
+[submodule "submodules/timelinefxlib"]
+	path = submodules/timelinefxlib
+	url = https://github.com/peterigz/timelinefxlib.git
