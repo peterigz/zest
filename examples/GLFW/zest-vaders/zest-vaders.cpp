@@ -182,7 +182,7 @@ void ShapeLoader(const char* filename, tfxImageData &image_data, void *raw_image
 	if (image_data.animation_frames > 1) {
 		//Add the spritesheet to the texture in our renderer
 		float max_radius = 0;
-		image_data.ptr = zest_AddTextureAnimationImage(game->particle_texture, &bitmap, (u32)image_data.image_size.x, (u32)image_data.image_size.y, (u32)image_data.animation_frames, &max_radius, 1);
+		image_data.ptr = zest_AddTextureAnimationBitmap(game->particle_texture, &bitmap, (u32)image_data.image_size.x, (u32)image_data.image_size.y, (u32)image_data.animation_frames, &max_radius, 1);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 	}
@@ -842,7 +842,6 @@ void VadersGame::Update(float ellapsed) {
 			else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 				wait_for_mouse_release = false;
 			}
-			BuildUI(this);
 		}
 		else if (state == GameState_game) {
 			if (!paused) {
@@ -854,7 +853,6 @@ void VadersGame::Update(float ellapsed) {
 				UpdateVaderBullets(this);
 				UpdatePlayerBullets(this);
 				UpdatePowerUps(this);
-				BuildUI(this);
 				current_buffer = !current_buffer;
 				if (vaders[current_buffer].size() == 0) {
 					current_wave++;
@@ -876,7 +874,6 @@ void VadersGame::Update(float ellapsed) {
 			UpdateVaderBullets(this);
 			UpdatePlayerBullets(this);
 			UpdatePowerUps(this);
-			BuildUI(this);
 			current_buffer = !current_buffer;
 			if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 				state = GameState_title;
@@ -886,6 +883,7 @@ void VadersGame::Update(float ellapsed) {
 				wait_for_mouse_release = false;
 			}
 		}
+		BuildUI(this);
 
 		zest_TimerUnAccumulate(timer);
 	}

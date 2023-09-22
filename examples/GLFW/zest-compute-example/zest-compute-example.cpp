@@ -5,7 +5,7 @@
 void InitImGuiApp(ImGuiApp *app) {
 
 	//Initialise Imgui for zest, this function just sets up some things like display size and font texture
-	zest_imgui_Initialise();
+	zest_imgui_Initialise(&app->imgui_layer_info);
 
 	//Grab the imgui pipeline so we can use it later
 	app->imgui_layer_info.pipeline = zest_Pipeline("pipeline_imgui");
