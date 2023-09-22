@@ -78,7 +78,7 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 					last_pipeline = layer_info->pipeline;
 				}
 
-				imgui_layer->push_constants.parameters2.x = current_image->layer;
+				imgui_layer->push_constants.parameters2.x = (float)current_image->layer;
 				imgui_layer->push_constants.flags = 0;
 
 				zest_SendStandardPushConstants(layer_info->pipeline, &imgui_layer->push_constants);
