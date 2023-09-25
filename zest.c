@@ -838,6 +838,7 @@ void zest_Initialise(zest_create_info_t *info) {
 	ZestDevice->allocator_start = allocator;
 	ZestDevice->allocator_end = (char*)allocator + info->memory_pool_size;
 	ZestDevice->memory_pools[0] = memory_pool;
+	ZestDevice->memory_pool_sizes[0] = info->memory_pool_size;
 	ZestDevice->memory_pool_count = 1;
 	ZestDevice->color_format = info->color_format;
 	ZestDevice->allocation_callbacks.pfnAllocation = zest_vk_allocate_callback;
@@ -1347,6 +1348,11 @@ void zest__set_default_pool_sizes() {
 	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	zest_SetDevicePoolSize("Vertex Buffers", usage.usage_flags, usage.property_flags, 0, zloc__KILOBYTE(2), zloc__MEGABYTE(32));
 
+	//Storage buffer
+	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	zest_SetDevicePoolSize("Vertex Buffers", usage.usage_flags, usage.property_flags, 0, zloc__KILOBYTE(2), zloc__MEGABYTE(32));
+
 	//Index buffer
 	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
 	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
@@ -1510,6 +1516,7 @@ void zest__add_host_memory_pool(zest_size size) {
     ZestDevice->memory_pools[ZestDevice->memory_pool_count] = ZEST__ALLOCATE_POOL(pool_size);
     ZEST_ASSERT(ZestDevice->memory_pools[ZestDevice->memory_pool_count]);    //Unable to allocate more memory. Out of memory?
     zloc_AddPool(ZestDevice->allocator, ZestDevice->memory_pools[ZestDevice->memory_pool_count], pool_size);
+	ZestDevice->memory_pool_sizes[ZestDevice->memory_pool_count] = pool_size;
     ZestDevice->memory_pool_count++;
     ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the host memory pool so adding a new one of size %zu. ", pool_size);
 }
@@ -1926,6 +1933,9 @@ void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffe
 
 zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes) {
 	ZEST_ASSERT(unit_size);
+	if ((*buffer)->size > minimum_bytes) {
+		return ZEST_FALSE;
+	}
 	zest_size units = (*buffer)->size / unit_size;
 	zest_size new_size = (units ? units + units / 2 : 8) * unit_size;
 	new_size = ZEST__MAX(new_size, minimum_bytes);
@@ -3555,7 +3565,7 @@ void zest__prepare_standard_pipelines() {
 	VkPushConstantRange imgui_pushconstant_range;
 	imgui_pushconstant_range.size = sizeof(zest_push_constants_t);
 	imgui_pushconstant_range.offset = 0;
-	imgui_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	imgui_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	zest_vec_push(imgui_pipeline_template.pushConstantRange, imgui_pushconstant_range);
 	imgui_pipeline_template.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
 	VkVertexInputAttributeDescription *vertex_input_attributes = 0;
@@ -8543,6 +8553,31 @@ void zest_OutputQueues() {
 		printf("\t\t\t\t-- * --\n");
 		printf("\n");
 	}
+}
+
+void zest_OutputMemoryUsage() {
+	printf("Host Memory Pools\n");
+	zest_size total_host_memory = 0;
+	zest_size total_device_memory = 0;
+	for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
+		printf("\tMemory Pool Size: %zu\n", ZestDevice->memory_pool_sizes[i]);
+		total_host_memory += ZestDevice->memory_pool_sizes[i];
+	}
+	printf("Device Memory Pools\n");
+	for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
+		zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
+		printf("\t%s, Usage: %u, Properties: %u\n", buffer_allocator->buffer_info.image_usage_flags ? "Image" : "Buffer", buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.property_flags);
+		for (zest_foreach_j(buffer_allocator->memory_pools)) {
+			zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];
+			printf("\t\tMemory Pool Size: %zu\n", memory_pool->size);
+			total_device_memory += memory_pool->size;
+		}
+	}
+	printf("Total Host Memory: %zu (%zu MB)\n", total_host_memory, total_host_memory / zloc__MEGABYTE(1));
+	printf("Total Device Memory: %zu (%zu MB)\n", total_device_memory, total_device_memory / zloc__MEGABYTE(1));
+	printf("\n");
+	printf("\t\t\t\t-- * --\n");
+	printf("\n");
 }
 //-- End Debug helpers
 

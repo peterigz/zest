@@ -482,7 +482,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_trim(T, amount) zest__vec_header(T)->current_size -= amount;
 #define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
 #define zest_vec_empty(T) (!T || zest__vec_header(T)->current_size == 0)
-#define zest_vec_size(T) (T ? zest__vec_header(T)->current_size : 0)
+#define zest_vec_size(T) ((T) ? zest__vec_header(T)->current_size : 0)
 #define zest_vec_last_index(T) (zest__vec_header(T)->current_size - 1)
 #define zest_vec_capacity(T) (zest__vec_header(T)->capacity)
 #define zest_vec_size_in_bytes(T) (zest__vec_header(T)->current_size * sizeof(*T))
@@ -828,6 +828,7 @@ typedef struct zest_device_t {
 	zest_uint present_queue_family_index;
 	zest_uint compute_queue_family_index;
 	void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
+	zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
 	zest_uint memory_pool_count;
 	zloc_allocator *allocator;
 	VkAllocationCallbacks allocation_callbacks;
@@ -2219,6 +2220,7 @@ ZEST_API void zest_DestroyFence(VkFence fence);
 //Debug Helpers
 ZEST_API const char *zest_DrawFunctionToString(void *function);
 ZEST_API void zest_OutputQueues();
+ZEST_API void zest_OutputMemoryUsage();
 //--End Debug Helpers
 
 #ifdef __cplusplus
