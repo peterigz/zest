@@ -3,10 +3,25 @@
 
 void InitImGuiApp(ImGuiApp *app) {
 	zest_imgui_Initialise(&app->imgui_layer_info);
+	DarkStyle2();
+	
+	ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	io.Fonts->Clear();
+	float font_size = 15.f;
+	unsigned char *font_data;
+	int tex_width, tex_height;
+	ImFontConfig config;
+	config.PixelSnapH = true;
+	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size);
+	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 
-	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
-	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
-	zest_ProcessTextureImages(app->test_texture);
+	zest_imgui_RebuildFontTexture(&app->imgui_layer_info, tex_width, tex_height, font_data);
+
+
+	//app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	//app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
+	//zest_ProcessTextureImages(app->test_texture);
 
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
@@ -27,10 +42,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
-	ImGui::ShowDemoWindow();
+	//ImGui::ShowDemoWindow();
 	ImGui::Begin("Test Window");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
-	zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
+	//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 	ImGui::End();
 	ImGui::Render();
 	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
