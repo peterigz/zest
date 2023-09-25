@@ -7030,7 +7030,7 @@ void zest_InitialiseRenderTarget(zest_render_target render_target, zest_render_t
 	else {
 		render_target->render_pass = zest_GetRenderPass("Render pass standard no depth");
 	}
-	for (ZEST_EACH_FIF_i) {
+	for (zest_index i = 0; i != render_target->frames_in_flight; ++i) {
 		render_target->framebuffers[i] = zest_CreateFrameBuffer(render_target->render_pass->render_pass, 
 																render_target->render_width, render_target->render_height, info->render_format, 
 																ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer), ZEST__FLAGGED(info->flags, zest_render_target_flag_is_src));
@@ -7054,7 +7054,7 @@ void zest_CreateRenderTargetSamplerImage(zest_render_target render_target) {
 		render_target->sampler_image.width = zest_GetSwapChainExtent().width;
 		render_target->sampler_image.height = zest_GetSwapChainExtent().height;
 	}
-	for (ZEST_EACH_FIF_i) {
+	for (zest_index i = 0; i != render_target->frames_in_flight; ++i) {
 		char *texture_name = 0;
 		zest_vec_resize(texture_name, (zest_uint)strlen(render_target->name) + 1);
 		zest_size size = zest_vec_size(texture_name);
@@ -7204,7 +7204,9 @@ VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_draw_comman
 }
 
 VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_commands item) {
-	return item->render_target->framebuffers[ZEST_FIF].device_frame_buffer;
+	//This is dubious if the render target does not need multiple frames in flight?
+	zest_index fif = ZEST__FLAGGED(item->render_target->flags, zest_render_target_flag_single_frame_buffer_only) ? 0 : ZEST_FIF;
+	return item->render_target->framebuffers[fif].device_frame_buffer;
 }
 
 void zest_RecreateRenderTargetResources(zest_render_target render_target) {
@@ -7368,7 +7370,7 @@ void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, Vk
 }
 
 void zest_CleanUpRenderTarget(zest_render_target render_target) {
-	for (ZEST_EACH_FIF_i) {
+	for (zest_index i = 0; i != render_target->frames_in_flight; ++i) {
 		zest__cleanup_framebuffer(&render_target->framebuffers[i]);
 		if (render_target->sampler_textures[i]->sampler != VK_NULL_HANDLE) {
 			vkDestroySampler(ZestDevice->logical_device, render_target->sampler_textures[i]->sampler, &ZestDevice->allocation_callbacks);
