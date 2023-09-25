@@ -1,5 +1,4 @@
-#version 450
-#extension GL_ARB_separate_shader_objects : enable
+#version 450 core
 
 //Blendmodes
 const uint BLENDMODE_NONE = 0;
@@ -33,12 +32,12 @@ layout(location = 1) in vec2 in_tex_coord;
 layout(location = 2) in vec4 in_color;
 
 layout(location = 0) out vec4 out_color;
-layout(location = 1) out vec3 out_uv;
+layout(location = 1) out vec2 out_uv;
 
 void main() {
 
 	gl_Position = vec4(in_position * pc.transform.xy + pc.transform.zw, 0.0, 1.0);
 
-	out_uv = vec3(in_tex_coord.xy, pc.parameters.x);
+	out_uv = in_tex_coord;
 	out_color = in_color;
 }

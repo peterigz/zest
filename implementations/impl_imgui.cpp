@@ -23,7 +23,7 @@ void zest_imgui_RebuildFontTexture(zest_imgui_layer_info *imgui_layer_info, zest
 	zest_WaitForIdleDevice();
 	int upload_size = width * height * 4 * sizeof(char);
 	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-	zest_FreeTextureBitmaps(imgui_layer_info->font_texture);
+	zest_ResetTexture(imgui_layer_info->font_texture);
 	zest_image font_image = zest_AddTextureImageBitmap(imgui_layer_info->font_texture, &font_bitmap);
 	zest_ProcessTextureImages(imgui_layer_info->font_texture);
 	zest_RefreshTextureDescriptors(imgui_layer_info->font_texture);
@@ -68,8 +68,8 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 				if (!current_image) {
 					//This means we're trying to draw a render target
 					assert(pcmd->UserCallbackData);
-					//QulkanRenderTarget *render_target = static_cast<QulkanRenderTarget*>(pcmd->UserCallbackData);
-					//current_image = &render_target->GetRenderTargetImage();
+					zest_render_target render_target = static_cast<zest_render_target>(pcmd->UserCallbackData);
+					current_image = zest_GetRenderTargetImage(render_target);
 				}
 
 				if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_CurrentTextureDescriptorSet(current_image->texture)) {
@@ -81,7 +81,7 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 				imgui_layer->push_constants.parameters2.x = (float)current_image->layer;
 				imgui_layer->push_constants.flags = 0;
 
-				zest_SendStandardPushConstants(layer_info->pipeline, &imgui_layer->push_constants);
+				vkCmdPushConstants(ZestRenderer->current_command_buffer, layer_info->pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(zest_push_constants_t), &imgui_layer->push_constants);
                 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
@@ -221,7 +221,7 @@ void zest_imgui_DrawTexturedRectRT(zest_render_target render_target, float width
 	window->DrawList->PrimRectUV(bb.Min, bb.Max, ImVec2(uv.x, uv.y), zw, IM_COL32_WHITE);
 	IM_ASSERT_PARANOID(window->DrawList->CmdBuffer.Size > 0);
 	ImDrawCmd* curr_cmd = &window->DrawList->CmdBuffer.Data[window->DrawList->CmdBuffer.Size - 1];
-	curr_cmd->UserCallbackData = &render_target;
+	curr_cmd->UserCallbackData = render_target;
 
 	window->DrawList->PopTextureID();
 }
