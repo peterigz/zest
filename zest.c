@@ -1933,7 +1933,7 @@ void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffe
 
 zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes) {
 	ZEST_ASSERT(unit_size);
-	if ((*buffer)->size > minimum_bytes) {
+	if (minimum_bytes && (*buffer)->size > minimum_bytes) {
 		return ZEST_FALSE;
 	}
 	zest_size units = (*buffer)->size / unit_size;
