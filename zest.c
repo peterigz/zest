@@ -1,4 +1,4 @@
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #include "zest.h"
 #define ZLOC_IMPLEMENTATION
 #define ZLOC_OUTPUT_ERROR_MESSAGES
@@ -7378,7 +7378,12 @@ void zest_CleanUpRenderTarget(zest_render_target render_target) {
 }
 
 void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno) {
-	render_target->render_pass = (yesno == 0 ? zest_GetRenderPass("Render pass standard no clear") : zest_GetRenderPass("Render pass standard"));
+	if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer)) {
+		render_target->render_pass = (yesno == 0 ? zest_GetRenderPass("Render pass standard no clear") : zest_GetRenderPass("Render pass standard"));
+	}
+	else {
+		render_target->render_pass = (yesno == 0 ? zest_GetRenderPass("Render pass standard no clear no depth") : zest_GetRenderPass("Render pass standard no depth"));
+	}
 }
 
 void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, zest_uint height) {

@@ -828,10 +828,20 @@ void BuildUI(VadersGame *game) {
 	ImGui::Text("Free Emitters: %i", game->game_pm.free_emitters.size());
 	ImGui::Text("Position: %f, %f, %f", game->player.position.x, game->player.position.y, game->player.position.z);
 	static bool filtering = false;
+	static bool sync_fps = false;
 	ImGui::Checkbox("Texture Filtering", &filtering);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
 		zest_SetTextureUseFiltering(game->particle_texture, filtering);
 		zest_ScheduleTextureReprocess(game->particle_texture);
+	}
+	ImGui::Checkbox("Sync FPS", &sync_fps);
+	if (ImGui::IsItemDeactivatedAfterEdit()) {
+		if (sync_fps) {
+			zest_EnableVSync();
+		}
+		else {
+			zest_DisableVSync();
+		}
 	}
 	static const char *options[3] = { "Low", "Medium", "High" };
 	if (ImGui::BeginCombo("Particles", options[game->particle_option])) {
@@ -854,6 +864,8 @@ void BuildUI(VadersGame *game) {
 	ImGui::End();
 
 	ImGui::Render();
+	//This will let the layer know that the mesh buffer containing all of the imgui vertex data needs to be
+	//uploaded to the GPU.
 	zest_SetLayerDirty(game->imgui_layer_info.mesh_layer);
 }
 
@@ -1048,8 +1060,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
 	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_uint packed = zest_Pack8bitx3(&v);
 	zest_create_info_t create_info = zest_CreateInfo();
