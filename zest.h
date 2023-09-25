@@ -210,7 +210,7 @@ typedef enum zest_struct_type {
 	zest_stuct_type_texture = VK_STRUCTURE_TYPE_MAX_ENUM - 1,
 } zest_struct_type;
 
-typedef enum zest_app_flags_e {
+typedef enum zest_app_flag_bits {
 	zest_app_flag_none =					0,
 	zest_app_flag_suspend_rendering =		1 << 0,
 	zest_app_flag_shift_pressed =			1 << 1,
@@ -220,7 +220,7 @@ typedef enum zest_app_flags_e {
 	zest_app_flag_enable_console =			1 << 5,
 	zest_app_flag_quit_application =		1 << 6,
 	zest_app_flag_output_fps =				1 << 7
-} zest_app_flags_e;
+} zest_app_flag_bits;
 
 typedef zest_uint zest_app_flags;
 
@@ -251,16 +251,16 @@ typedef enum {
 	zest_setup_context_type_compute
 } zest_setup_context_type;
 
-typedef enum zest_command_queue_flags_e {
+typedef enum zest_command_queue_flag_bits {
 	zest_command_queue_flag_none								= 0,
 	zest_command_queue_flag_present_dependency					= 1 << 0,
 	zest_command_queue_flag_command_queue_dependency			= 1 << 1,
 	zest_command_queue_flag_validated							= 1 << 2,
-} zest_command_queue_flags_e;
+} zest_command_queue_flag_bits;
 
 typedef zest_uint zest_command_queue_flags;
 
-typedef enum {
+typedef enum zest_renderer_flag_bits {
 	zest_renderer_flag_enable_multisampling						= 1 << 0,
 	zest_renderer_flag_schedule_recreate_textures 				= 1 << 1,
 	zest_renderer_flag_schedule_change_vsync 					= 1 << 2,
@@ -271,33 +271,33 @@ typedef enum {
 	zest_renderer_flag_disable_default_uniform_update 			= 1 << 7,
 	zest_renderer_flag_swapchain_was_recreated 					= 1 << 8,
 	zest_renderer_flag_has_depth_buffer		 					= 1 << 9,
-} zest_renderer_flags_e;
+} zest_renderer_flag_bits;
 
 typedef zest_uint zest_renderer_flags;
 
-typedef enum {
+typedef enum zest_pipeline_set_flag_bits {
 	zest_pipeline_set_flag_none										= 0,	
 	zest_pipeline_set_flag_is_render_target_pipeline				= 1 << 0,		//True if this pipeline is used for the final render of a render target to the swap chain
 	zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild	= 1 << 1		//True if the pipeline should update it's view extent when the swap chain is recreated (the window is resized)
-} zest_pipeline_set_flags_e;
+} zest_pipeline_set_flag_bits;
 
 typedef zest_uint zest_pipeline_set_flags;
 
-typedef enum {
+typedef enum zest_init_flag_bits {
 	zest_init_flag_none									= 0,
 	zest_init_flag_initialise_with_command_queue		= 1 << 0,
 	zest_init_flag_use_depth_buffer						= 1 << 1,
 	zest_init_flag_maximised							= 1 << 2,
 	zest_init_flag_enable_vsync							= 1 << 6,
-} zest_init_flags_e;
+} zest_init_flag_bits;
 
 typedef zest_uint zest_init_flags;
 
-typedef enum {
+typedef enum zest_buffer_upload_flag_bits {
 	zest_buffer_upload_flag_initialised					= 1 << 0,				//Set to true once AddCopyCommand has been run at least once
 	zest_buffer_upload_flag_source_is_fif				= 1 << 1,
 	zest_buffer_upload_flag_target_is_fif				= 1 << 2
-} zest_buffer_upload_flags_e;
+} zest_buffer_upload_flag_bits;
 
 typedef zest_uint zest_buffer_upload_flags;
 
@@ -333,7 +333,7 @@ typedef enum {
 	zest_imgui_blendtype_premultiply		//Divide the color channels by the alpha channel
 } zest_imgui_blendtype;
 
-typedef enum {
+typedef enum zest_texture_flag_bits {
 	zest_texture_flag_none								= 0,
 	zest_texture_flag_premultiply_mode					= 1 << 0,
 	zest_texture_flag_use_filtering						= 1 << 1,
@@ -341,7 +341,7 @@ typedef enum {
 	zest_texture_flag_textures_ready					= 1 << 3,
 	zest_texture_flag_dirty								= 1 << 4,
 	zest_texture_flag_descriptor_sets_created			= 1 << 5,
-} zest_texture_flags_e;
+} zest_texture_flag_bits;
 
 typedef zest_uint zest_texture_flags;
 
@@ -355,15 +355,15 @@ typedef enum zest_texture_storage_type {
 	zest_texture_storage_type_render_target					//Texture storage for a render target sampler, so that you can draw the target onto another render target
 } zest_texture_storage_type;
 
-typedef enum zest_camera_flags_e {
+typedef enum zest_camera_flag_bits {
 	zest_camera_flags_none = 0,
 	zest_camera_flags_perspective						= 1 << 0,
 	zest_camera_flags_orthagonal						= 1 << 1,
-} zest_camera_flags_e;
+} zest_camera_flag_bits;
 
 typedef zest_uint zest_camera_flags;
 
-typedef enum zest_render_target_flags_e {
+typedef enum zest_render_target_flag_bits {
 	zest_render_target_flag_fixed_size					= 1 << 0,	//True if the render target is not tied to the size of the window
 	zest_render_target_flag_is_src						= 1 << 1,	//True if the render target is the source of another render target - adds transfer src and dst bits
 	zest_render_target_flag_use_msaa					= 1 << 2,	//True if the render target should render with MSAA enabled
@@ -373,7 +373,7 @@ typedef enum zest_render_target_flags_e {
 	zest_render_target_flag_render_to_swap_chain		= 1 << 6,
 	zest_render_target_flag_initialised 				= 1 << 7,
 	zest_render_target_flag_has_imgui_pipeline			= 1 << 8,
-} zest_render_target_flags_e;
+} zest_render_target_flag_bits;
 
 typedef zest_uint zest_render_target_flags;
 
@@ -390,23 +390,29 @@ typedef enum zest_connector_type {
 	zest_connector_type_signal_queue,
 } zest_connector_type;
 
-typedef enum zest_character_flags_e {
+typedef enum zest_character_flag_bits {
 	zest_character_flag_none							= 0,
 	zest_character_flag_skip							= 1 << 0,
 	zest_character_flag_new_line						= 1 << 1,
-} zest_character_flags_e;
+} zest_character_flag_bits;
 
 typedef zest_uint zest_character_flags;
 
-typedef enum zest_compute_flags_e {
+typedef enum zest_compute_flag_bits {
 	zest_compute_flag_none								= 0,
 	zest_compute_flag_has_render_target					= 1,		// Compute shader uses a render target
 	zest_compute_flag_rewrite_command_buffer			= 1 << 1,	// Command buffer for this compute shader should be rewritten
 	zest_compute_flag_sync_required						= 1 << 2,	// Compute shader requires syncing with the render target
 	zest_compute_flag_is_active							= 1 << 3,	// Compute shader is active then it will be updated when the swap chain is recreated
-} zest_compute_flags_e;
+} zest_compute_flag_bits;
+
+typedef enum zest_layer_flag_bits {
+	zest_layer_flag_none								= 0,
+	zest_layer_flag_static								= 1,		// Layer only uploads new buffer data when required
+} zest_layer_flag_bits;
 
 typedef zest_uint zest_compute_flags;
+typedef zest_uint zest_layer_flags;
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
 
@@ -1190,6 +1196,7 @@ typedef struct zest_layer_t {
 	const char *name;
 
 	zest_layer_buffers_t memory_refs[ZEST_MAX_FIF];
+	zest_bool dirty[ZEST_MAX_FIF];
 	zest_uint initial_instance_pool_size;
 	zest_command_queue_draw_commands draw_commands;
 	zest_buffer_uploader_t vertex_upload;
@@ -1218,6 +1225,7 @@ typedef struct zest_layer_t {
 	zest_draw_mode last_draw_mode;
 
 	zest_draw_routine draw_routine;
+	zest_layer_flags flags;
 } zest_layer_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_font_character_t {
@@ -2080,6 +2088,7 @@ ZEST_API zest_layer zest_GetLayer(const char *name);
 ZEST_API void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha);
 ZEST_API void zest_SetLayerColorf(zest_layer layer, float red, float green, float blue, float alpha);
 ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
+ZEST_API void zest_SetLayerDirty(zest_layer layer);
 //-- End Draw Layers
 
 //-- Draw sprite layers

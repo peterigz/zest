@@ -13,7 +13,7 @@ struct zest_imgui_layer_info {
 };
 
 void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer);
-void zest_imgui_CopyBuffers(zest_layer imgui_layer);
+void zest_imgui_UpdateBuffers(zest_layer imgui_layer);
 void zest_imgui_DrawImage(zest_image image, float width, float height);
 void zest_imgui_DrawImage2(zest_image image, float width, float height);
 void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);

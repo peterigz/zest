@@ -854,7 +854,7 @@ void BuildUI(VadersGame *game) {
 	ImGui::End();
 
 	ImGui::Render();
-	zest_imgui_CopyBuffers(game->imgui_layer_info.mesh_layer);
+	zest_SetLayerDirty(game->imgui_layer_info.mesh_layer);
 }
 
 void DrawPlayer(VadersGame *game) {
@@ -1037,6 +1037,7 @@ void VadersGame::Update(float ellapsed) {
 		DrawVaderBullets(this, (float)timer->lerp);
 		zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 60.f, 0.f, 1);
 	}
+	zest_imgui_UpdateBuffers(imgui_layer_info.mesh_layer);
 }
 
 //Application specific, this just sets the function to call each render update

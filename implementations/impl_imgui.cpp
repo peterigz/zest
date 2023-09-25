@@ -107,7 +107,11 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 	}
 }
 
-void zest_imgui_CopyBuffers(zest_layer imgui_layer) {
+void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
+	if (!imgui_layer->dirty[ZEST_FIF]) {
+		return;
+	}
+
 	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
 	zest_buffer_t *vertex_buffer = zest_GetVertexStagingBuffer(imgui_layer);
@@ -146,6 +150,7 @@ void zest_imgui_CopyBuffers(zest_layer imgui_layer) {
 			idxDst += cmd_list->IdxBuffer.Size;
 		}
 	}
+	imgui_layer->dirty[ZEST_FIF] = 0;
 }
 
 void zest_imgui_DrawImage(zest_image image, float width, float height) {

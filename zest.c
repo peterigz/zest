@@ -1,4 +1,4 @@
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #include "zest.h"
 #define ZLOC_IMPLEMENTATION
 #define ZLOC_OUTPUT_ERROR_MESSAGES
@@ -7655,6 +7655,12 @@ void zest_SetLayerColorf(zest_layer layer, float red, float green, float blue, f
 void zest_SetLayerIntensity(zest_layer layer, float value) {
 	layer->intensity = value;
 }
+
+void zest_SetLayerDirty(zest_layer layer) {
+	for (ZEST_EACH_FIF_i) {
+		layer->dirty[i] = 1;
+	}
+}
 //-- End Draw Layers
 
 //-- Start Sprite Drawing API
@@ -8566,7 +8572,11 @@ void zest_OutputMemoryUsage() {
 	printf("Device Memory Pools\n");
 	for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
 		zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
-		printf("\t%s, Usage: %u, Properties: %u\n", buffer_allocator->buffer_info.image_usage_flags ? "Image" : "Buffer", buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.property_flags);
+		if (buffer_allocator->buffer_info.image_usage_flags) {
+			printf("\t%s, Usage: %u, Image Usage: %u\n", "Image", buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.image_usage_flags);
+		} else {
+			printf("\t%s, Usage: %u, Properties: %u\n", "Buffer", buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.property_flags);
+		}
 		for (zest_foreach_j(buffer_allocator->memory_pools)) {
 			zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];
 			printf("\t\tMemory Pool Size: %zu\n", memory_pool->size);
