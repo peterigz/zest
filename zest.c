@@ -2,6 +2,7 @@
 #include "zest.h"
 #define ZLOC_IMPLEMENTATION
 #define ZLOC_OUTPUT_ERROR_MESSAGES
+#define ZLOC_EXTRA_DEBUGGING
 #include "zloc.h"
 
 #define STB_RECT_PACK_IMPLEMENTATION
