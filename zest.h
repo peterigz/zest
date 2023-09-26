@@ -1530,7 +1530,7 @@ typedef struct zest_renderer_t {
 	zest_render_target root_render_target;
 
 	//For scheduled tasks
-	zest_render_target *render_target_recreate_queue;
+	zest_render_target *render_target_recreate_queue[ZEST_MAX_FIF];
 	zest_render_target *rt_sampler_refresh_queue[ZEST_MAX_FIF];
 	zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
 	zest_texture *texture_reprocess_queue[ZEST_MAX_FIF];
@@ -2052,8 +2052,8 @@ ZEST_API zest_render_target zest_CreateRenderTargetWithInfo(const char *name, ze
 ZEST_API zest_render_target zest_CreateRenderTarget(const char *name);
 ZEST_API zest_render_target zest_NewRenderTarget();
 ZEST_API zest_render_target_create_info_t zest_RenderTargetCreateInfo();
-ZEST_API void zest_CleanUpRenderTarget(zest_render_target render_target);
-ZEST_API void zest_RecreateRenderTargetResources(zest_render_target render_target);
+ZEST_API void zest_CleanUpRenderTarget(zest_render_target render_target, zest_index fif);
+ZEST_API void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_index fif);
 ZEST_API void zest_CreateRenderTargetSamplerImage(zest_render_target render_target);
 ZEST_API zest_render_target zest_AddPostProcessRenderTarget(const char *name, float ratio_width, float ratio_height, zest_render_target input_source, void *user_data, void(*render_callback)(zest_render_target target, void *user_data));
 ZEST_API void zest_SetRenderTargetPostProcessCallback(zest_render_target render_target, void(*render_callback)(zest_render_target target, void *user_data));
