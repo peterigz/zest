@@ -1779,6 +1779,9 @@ ZEST_API zest_pipeline_template_t *zest_PipelineTemplate(zest_pipeline pipeline)
 ZEST_API VkShaderModule zest_CreateShaderModule(char *code);
 ZEST_API zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void);
 ZEST_API void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range);
+ZEST_API VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_index index);
+ZEST_API zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_index index);
+ZEST_API zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_index index);
 ZEST_API VkVertexInputBindingDescription zest_CreateVertexInputBindingDescription(zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
 ZEST_API VkVertexInputAttributeDescription zest_CreateVertexInputDescription(zest_uint binding, zest_uint location, VkFormat format, zest_uint offset);
 ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState(void);

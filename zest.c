@@ -2948,6 +2948,21 @@ void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_inf
 	zest_vec_push(create_info->pushConstantRange, range);
 }
 
+VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_index index) {
+	ZEST_ASSERT(index < pipeline->pipeline_template.pipelineLayoutInfo.pushConstantRangeCount);	//Index must not be outside the range of the number of push constants
+	return pipeline->pipeline_template.pipelineLayoutInfo.pPushConstantRanges[index].stageFlags;
+}
+
+zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_index index) {
+	ZEST_ASSERT(index < pipeline->pipeline_template.pipelineLayoutInfo.pushConstantRangeCount);	//Index must not be outside the range of the number of push constants
+	return pipeline->pipeline_template.pipelineLayoutInfo.pPushConstantRanges[index].size;
+}
+
+zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_index index) {
+	ZEST_ASSERT(index < pipeline->pipeline_template.pipelineLayoutInfo.pushConstantRangeCount); //Index must not be outside the range of the number of push constants
+	return pipeline->pipeline_template.pipelineLayoutInfo.pPushConstantRanges[index].offset;
+}
+
 VkVertexInputBindingDescription zest_CreateVertexInputBindingDescription(zest_uint binding, zest_uint stride, VkVertexInputRate input_rate) {
 	VkVertexInputBindingDescription inpute_binding_description = { 0 };
 	inpute_binding_description.binding = binding;
@@ -7530,9 +7545,9 @@ void zest__draw_instance_layer(zest_layer instance_layer, VkCommandBuffer comman
 		vkCmdPushConstants(
 			command_buffer,
 			current->pipeline->pipeline_layout,
-			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-			0,
-			sizeof(zest_push_constants_t),
+			zest_PipelinePushConstantStageFlags(current->pipeline, 0),
+			zest_PipelinePushConstantOffset(current->pipeline, 0),
+			zest_PipelinePushConstantSize(current->pipeline, 0),
 			&current->push_constants);
 
 		vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
