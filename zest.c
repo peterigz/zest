@@ -2948,17 +2948,17 @@ void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_inf
 	zest_vec_push(create_info->pushConstantRange, range);
 }
 
-VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_index index) {
+VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_uint index) {
 	ZEST_ASSERT(index < pipeline->pipeline_template.pipelineLayoutInfo.pushConstantRangeCount);	//Index must not be outside the range of the number of push constants
 	return pipeline->pipeline_template.pipelineLayoutInfo.pPushConstantRanges[index].stageFlags;
 }
 
-zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_index index) {
+zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_uint index) {
 	ZEST_ASSERT(index < pipeline->pipeline_template.pipelineLayoutInfo.pushConstantRangeCount);	//Index must not be outside the range of the number of push constants
 	return pipeline->pipeline_template.pipelineLayoutInfo.pPushConstantRanges[index].size;
 }
 
-zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_index index) {
+zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint index) {
 	ZEST_ASSERT(index < pipeline->pipeline_template.pipelineLayoutInfo.pushConstantRangeCount); //Index must not be outside the range of the number of push constants
 	return pipeline->pipeline_template.pipelineLayoutInfo.pPushConstantRanges[index].offset;
 }
