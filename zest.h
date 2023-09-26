@@ -1662,6 +1662,7 @@ ZEST_PRIVATE void zest__next_billboard_instance(zest_layer layer);
 
 // --General Helper Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
+ZEST_PRIVATE void zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory);
 ZEST_PRIVATE zest_buffer zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
 ZEST_PRIVATE zest_buffer zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
 ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout image_layout);
@@ -1794,6 +1795,7 @@ ZEST_API VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
 ZEST_API void zest_BindPipeline(zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set);
 ZEST_API void zest_BindComputePipeline(zest_compute compute, zest_index shader_index);
+ZEST_API void zest_BindComputePipelineCB(VkCommandBuffer command_buffer, zest_compute compute, zest_index shader_index);
 ZEST_API void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set);
 ZEST_API zest_pipeline zest_Pipeline(const char *name);
 ZEST_API zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(const char *pipeline_name);
@@ -2212,6 +2214,7 @@ ZEST_API void zest_BindVertexBuffer(zest_buffer_t *buffer);
 ZEST_API void zest_BindIndexBuffer(zest_buffer_t *buffer);
 ZEST_API void zest_SendPushConstants(zest_pipeline_t *pipeline_layout, VkShaderStageFlags shader_flags, zest_uint size, void *data);
 ZEST_API void zest_SendComputePushConstants(zest_compute compute);
+ZEST_API void zest_SendComputePushConstantsCB(VkCommandBuffer command_buffer, zest_compute compute);
 ZEST_API void zest_SendStandardPushConstants(zest_pipeline_t *pipeline_layout, void *data);
 ZEST_API void zest_Draw(zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 ZEST_API void zest_DrawIndexed(zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);

@@ -1326,6 +1326,10 @@ void zest__set_default_pool_sizes() {
 	usage.image_flags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 	zest_SetDevicePoolSize("Textures", 0, usage.property_flags, usage.image_flags, zloc__KILOBYTE(4), zloc__MEGABYTE(32));
 
+	//Storage Texture images for use in compute shaders
+	usage.image_flags = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	zest_SetDevicePoolSize("Textures", 0, usage.property_flags, usage.image_flags, zloc__KILOBYTE(4), zloc__MEGABYTE(32));
+
 	//Render target images
 	usage.image_flags =  VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 	zest_SetDevicePoolSize("Render Targets", 0, usage.property_flags, usage.image_flags, zloc__KILOBYTE(4), zloc__MEGABYTE(32));
@@ -3095,6 +3099,11 @@ void zest_BindComputePipeline(zest_compute compute, zest_index shader_index) {
 	vkCmdBindDescriptorSets(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline_layout, 0, 1, &compute->descriptor_set[ZEST_FIF], 0, 0);
 }
 
+void zest_BindComputePipelineCB(VkCommandBuffer command_buffer, zest_compute compute, zest_index shader_index) {
+	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipelines[shader_index]);
+	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline_layout, 0, 1, &compute->descriptor_set[ZEST_FIF], 0, 0);
+}
+
 void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set) {
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, &descriptor_set, 0, 0);
@@ -3379,6 +3388,10 @@ void zest_SendPushConstants(zest_pipeline_t *pipeline, VkShaderStageFlags shader
 
 void zest_SendComputePushConstants(zest_compute compute) {
 	vkCmdPushConstants(ZestRenderer->current_command_buffer, compute->pipeline_layout, compute->pushConstantRange.stageFlags, 0, compute->pushConstantRange.size, &compute->push_constants);
+}
+
+void zest_SendComputePushConstantsCB(VkCommandBuffer command_buffer, zest_compute compute) {
+	vkCmdPushConstants(command_buffer, compute->pipeline_layout, compute->pushConstantRange.stageFlags, 0, compute->pushConstantRange.size, &compute->push_constants);
 }
 
 void zest_SendStandardPushConstants(zest_pipeline_t *pipeline, void *data) {
@@ -3907,6 +3920,37 @@ VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspec
 	ZEST_VK_CHECK_RESULT(vkCreateImageView(ZestDevice->logical_device, &viewInfo, &ZestDevice->allocation_callbacks, &image_view) != VK_SUCCESS);
 
 	return image_view;
+}
+
+void zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory) {
+	VkImageCreateInfo image_info = { 0 };
+	image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	image_info.imageType = VK_IMAGE_TYPE_2D;
+	image_info.extent.width = width;
+	image_info.extent.height = height;
+	image_info.extent.depth = 1;
+	image_info.mipLevels = mipLevels;
+	image_info.arrayLayers = 1;
+	image_info.format = format;
+	image_info.tiling = tiling;
+	image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	image_info.usage = usage;
+	image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	image_info.samples = numSamples;
+
+	ZEST_VK_CHECK_RESULT(vkCreateImage(ZestDevice->logical_device, &image_info, &ZestDevice->allocation_callbacks, image));
+
+	VkMemoryRequirements memRequirements;
+	vkGetImageMemoryRequirements(ZestDevice->logical_device, *image, &memRequirements);
+
+	VkMemoryAllocateInfo alloc_info = { 0 };
+	alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc_info.allocationSize = memRequirements.size;
+	alloc_info.memoryTypeIndex = zest_find_memory_type(memRequirements.memoryTypeBits, properties);
+
+	ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, memory));
+
+	vkBindImageMemory(ZestDevice->logical_device, *image, *memory, 0);
 }
 
 zest_buffer zest__create_image(zest_uint width, zest_uint height, zest_uint mip_levels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image) {
@@ -6757,8 +6801,9 @@ void zest_CopyTextureToTexture(zest_texture src_image, zest_texture target, int 
 
 void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel) {
 	VkCommandBuffer copy_command = zest__begin_single_time_commands();
-	zest_frame_buffer_attachment_t dst_image;
-	zest_buffer_t *buffer = zest__create_image(width, height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR, VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &dst_image.image);
+	VkImage temp_image;
+	VkDeviceMemory temp_memory;
+	zest__create_temporary_image(width, height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR, VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &temp_image, &temp_memory);
 
 	zest_bool supports_blit = zest__has_blit_support(src_image->frame_buffer.format);
 
@@ -6769,10 +6814,10 @@ void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int 
 	image_range.baseArrayLayer = 0;
 	image_range.layerCount = 1;
 
-	// Transition destination image to transfer destination layout
+	// Transition temporary image to transfer destination layout
 	zest__insert_image_memory_barrier(
 		copy_command,
-		dst_image.image,
+		temp_image,
 		0,
 		VK_ACCESS_TRANSFER_WRITE_BIT,
 		VK_IMAGE_LAYOUT_UNDEFINED,
@@ -6781,7 +6826,7 @@ void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int 
 		VK_PIPELINE_STAGE_TRANSFER_BIT,
 		image_range);
 
-	// Transition swapchain image from present to transfer source layout
+	// Transition source image from present to transfer source layout
 	zest__insert_image_memory_barrier(
 		copy_command,
 		src_image->frame_buffer.image,
@@ -6828,7 +6873,7 @@ void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int 
 		vkCmdBlitImage(
 			copy_command,
 			src_image->frame_buffer.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			dst_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			temp_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1,
 			&image_blit_region,
 			VK_FILTER_NEAREST);
@@ -6853,7 +6898,7 @@ void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int 
 		vkCmdCopyImage(
 			copy_command,
 			src_image->frame_buffer.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			dst_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			temp_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1,
 			&image_copy_region);
 	}
@@ -6861,7 +6906,7 @@ void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int 
 	// Transition destination image to general layout
 	zest__insert_image_memory_barrier(
 		copy_command,
-		dst_image.image,
+		temp_image,
 		VK_ACCESS_TRANSFER_WRITE_BIT,
 		VK_ACCESS_MEMORY_READ_BIT,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -6887,7 +6932,7 @@ void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int 
 	// Get layout of the image (including row pitch)
 	VkImageSubresource sub_resource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
 	VkSubresourceLayout sub_resource_layout;
-	vkGetImageSubresourceLayout(ZestDevice->logical_device, dst_image.image, &sub_resource, &sub_resource_layout);
+	vkGetImageSubresourceLayout(ZestDevice->logical_device, temp_image, &sub_resource, &sub_resource_layout);
 
 	// If source is BGR (destination is always RGB) and we can't use blit (which does automatic conversion), we'll have to manually swizzle color components
 	zest_bool color_swizzle = 0;
@@ -6902,16 +6947,16 @@ void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int 
 
 	// Map image memory so we can start copying from it
 	void *data = 0;
-	vkMapMemory(ZestDevice->logical_device, zest_GetBufferDeviceMemory(buffer), 0, VK_WHOLE_SIZE, 0, &data);
+	vkMapMemory(ZestDevice->logical_device, temp_memory, 0, VK_WHOLE_SIZE, 0, &data);
 	memcpy(image->data, data, image->size);
 
 	if (color_swizzle) {
 		zest_ConvertBGRAToRGBA(image);
 	}
 
-	vkUnmapMemory(ZestDevice->logical_device, zest_GetBufferDeviceMemory(buffer));
-	zest_FreeBuffer(buffer);
-	vkDestroyImage(ZestDevice->logical_device, dst_image.image, &ZestDevice->allocation_callbacks);
+	vkUnmapMemory(ZestDevice->logical_device, temp_memory);
+	vkFreeMemory(ZestDevice->logical_device, temp_memory, &ZestDevice->allocation_callbacks);
+	vkDestroyImage(ZestDevice->logical_device, temp_image, &ZestDevice->allocation_callbacks);
 }
 //-- End Texture and Image Functions
 
@@ -8419,10 +8464,10 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 		ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &compute->fif_outgoing_semaphore[i]))
 	}
 
-	if (!builder->descriptor_update_callback) {
+	if (builder->descriptor_update_callback) {
 		compute->descriptor_update_callback = builder->descriptor_update_callback;
 	}
-	if (!builder->command_buffer_update_callback) {
+	if (builder->command_buffer_update_callback) {
 		compute->command_buffer_update_callback = builder->command_buffer_update_callback;
 	}
 
