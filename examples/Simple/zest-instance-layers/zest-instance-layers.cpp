@@ -6,7 +6,9 @@ typedef struct zest_example {
 	zest_pipeline sprite_pipeline;
 	zest_layer sprite_layer;
 	zest_layer billboard_layer;
+	zest_layer mesh_layer;
 	zest_pipeline billboard_pipeline;
+	zest_pipeline mesh_pipeline;
 	zest_camera_t camera;
 	zest_descriptor_buffer uniform_buffer_3d;
 	zest_descriptor_set sprite_descriptor;
@@ -24,13 +26,14 @@ void UpdateUniformBuffer3d(zest_example *example) {
 }
 
 void InitExample(zest_example *example) {
-	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
 	example->image = zest_AddTextureImageFile(example->texture, "examples/assets/wabbit_alpha.png");
 	zest_ProcessTextureImages(example->texture);
 	example->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites");
 	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
 	example->sprite_descriptor = zest_GetTextureDescriptorSet(example->texture, "Default");
 	example->billboard_pipeline = zest_Pipeline("pipeline_billboard");
+	example->mesh_pipeline = zest_Pipeline("pipeline_mesh");
 	example->uniform_buffer_3d = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
 	example->billboard_descriptor = zest_CreateTextureSpriteDescriptorSets(example->texture, "3d", "example 3d uniform");
 	zest_RefreshTextureDescriptors(example->texture);
@@ -45,9 +48,11 @@ void InitExample(zest_example *example) {
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			example->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
+			example->mesh_layer = zest_NewBuiltinLayerSetup("Meshes", zest_builtin_layer_mesh);
 		}
 		zest_FinishQueueSetup();
 	}
+	zest_InitialiseMeshLayer(example->mesh_layer, sizeof(zest_vertex_t), 1000);
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
@@ -59,7 +64,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 	zest_SetSpriteDrawing(example->sprite_layer, example->texture, example->sprite_descriptor, example->sprite_pipeline);
 	example->sprite_layer->current_color.a = 0;
-	for (float x = 0; x != 75; ++x) {
+	for (float x = 0; x != 25; ++x) {
 		for (float y = 0; y != 15; ++y) {
 			example->sprite_layer->current_color.r = (zest_byte)(1 - ((y + 1) / 16.f) * 255.f);
 			example->sprite_layer->current_color.g = (zest_byte)(y / 15.f * 255.f);
@@ -67,6 +72,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 			zest_DrawSprite(example->sprite_layer, example->image, x * 16.f + 20.f, y * 40.f + 20.f, 0.f, 32.f, 32.f, 0.5f, 0.5f, 0, 0.f, 0);
 		}
 	}
+
+	zest_DrawTexturedSprite(example->sprite_layer, example->image, 600.f, 100.f, 500.f, 500.f, 1.f, 1.f, 0.f, 0.f);
 
 	zest_SetBillboardDrawing(example->billboard_layer, example->texture, example->billboard_descriptor, example->billboard_pipeline);
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(example->uniform_buffer_3d);
@@ -76,7 +83,11 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_vec3 handle = { .5f, .5f };
 	zest_vec3 alignment = zest_Vec3Set(0.5f, 0.5f, 1.f);
 	alignment = zest_NormalizeVec3(alignment);
-	zest_DrawBillboardComplex(example->billboard_layer, example->image, &position.x, zest_Pack10bit(&alignment, 0), &angles.x, &handle.x, 10.f, 0, 1.f, 1.f);
+	float scale_x = ZestApp->mouse_x * 5.f / zest_ScreenWidthf();
+	float scale_y = ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
+	zest_DrawBillboard(example->billboard_layer, example->image, &position.x, zest_Pack10bit(&alignment, 0), &angles.x, &handle.x, 10.f, 0, 1.f, 1.f);
+	zest_SetMeshDrawing(example->mesh_layer, example->texture, example->billboard_descriptor, example->mesh_pipeline);
+	zest_DrawTexturedPlane(example->mesh_layer, example->image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 }
 
 #if defined(_WIN32)

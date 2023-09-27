@@ -305,6 +305,7 @@ typedef enum {
 	zest_draw_mode_none = 0,			//Default no drawmode set when no drawing has been done yet	
 	zest_draw_mode_instance,
 	zest_draw_mode_images,
+	zest_draw_mode_mesh,
 	zest_draw_mode_ribbons,
 	zest_draw_mode_lines,
 	zest_draw_mode_line_instance,
@@ -1131,6 +1132,14 @@ typedef struct zest_billboard_instance_t {		//64 bytes
 	zest_uint alignment;				//normalised alignment vector 3 floats packed into 10bits each with 2 bits left over
 } zest_billboard_instance_t;
 
+typedef struct zest_vertex_t {
+	zest_vec3 pos;						//3d position
+	float intensity;					//Alpha level (can go over 1 to increase intensity of colors)
+	zest_vec2 uv;						//Texture coordinates
+	zest_color color;					//packed color
+	zest_uint parameters;				//packed parameters such as texture layer
+} zest_vertex_t;
+
 //We just have a copy of the ImGui Draw vert here so that we can setup things things for imgui
 //should anyone choose to use it
 typedef struct zest_ImDrawVert_t
@@ -1178,9 +1187,12 @@ typedef struct zest_push_constants_t {
 	zest_uint flags;				//bit flag field
 } zest_push_constants_t ZEST_ALIGN_AFFIX(16);
 
-typedef struct zest_instance_instruction_t {
+typedef struct zest_layer_instruction_t {
 	zest_index start_index;						//The starting index
-	zest_uint total_instances;					//The total number of instances to be drawn in the draw instruction
+	union {
+		zest_uint total_instances;				//The total number of instances to be drawn in the draw instruction
+		zest_uint total_indexes;				//The total number of indexes to be drawn in the draw instruction
+	};
 	zest_index last_instance;					//The last instance that was drawn in the previous instance instruction
 	zest_pipeline pipeline;						//The pipeline index to draw the instances. 
 	VkDescriptorSet descriptor_set; 			//The descriptor set used to draw the quads.
@@ -1189,7 +1201,7 @@ typedef struct zest_instance_instruction_t {
 	VkViewport viewport;						//The viewport size of the draw call 
 	zest_draw_mode draw_mode;
 	void *asset;								//Optional pointer to either texture, font etc
-} zest_instance_instruction_t;
+} zest_layer_instruction_t;
 
 typedef struct zest_layer_t {
 
@@ -1204,7 +1216,7 @@ typedef struct zest_layer_t {
 
 	zest_index sprite_pipeline_index;
 
-	zest_instance_instruction_t current_instance_instruction;
+	zest_layer_instruction_t current_instruction;
 
 	union {
 		struct { zest_size instance_struct_size; };
@@ -1221,7 +1233,7 @@ typedef struct zest_layer_t {
 	VkRect2D scissor;
 	VkViewport viewport;
 
-	zest_instance_instruction_t *instance_instructions[ZEST_MAX_FIF];
+	zest_layer_instruction_t *draw_instructions[ZEST_MAX_FIF];
 	zest_draw_mode last_draw_mode;
 
 	zest_draw_routine draw_routine;
@@ -1642,11 +1654,16 @@ ZEST_PRIVATE zest_draw_routine zest__create_draw_routine_with_builtin_layer(cons
 
 // --Draw layer internal functions
 ZEST_PRIVATE void zest__start_instance_instructions(zest_layer instance_layer);
+ZEST_PRIVATE void zest__end_instance_instructions(zest_layer instance_layer);
+ZEST_PRIVATE void zest__start_mesh_instructions(zest_layer instance_layer);
+ZEST_PRIVATE void zest__end_mesh_instructions(zest_layer instance_layer);
 ZEST_PRIVATE void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
 ZEST_PRIVATE void zest__draw_instance_layer(zest_layer instance_layer, VkCommandBuffer command_buffer);
-ZEST_PRIVATE zest_instance_instruction_t zest__instance_instruction(void);
-ZEST_PRIVATE void zest__reset_instance_layer_drawing(zest_layer sprite_layer);
+ZEST_PRIVATE void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer);
+ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
+ZEST_PRIVATE void zest__reset_instance_layer_drawing(zest_layer layer);
+ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
 
 // --Sprite layer internal functions
 ZEST_PRIVATE void zest__draw_sprite_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
@@ -1659,6 +1676,9 @@ ZEST_PRIVATE void zest__next_font_instance(zest_layer layer);
 // --Billboard layer internal functions
 ZEST_PRIVATE void zest__draw_billboard_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__next_billboard_instance(zest_layer layer);
+
+// --Mesh layer internal functions
+ZEST_PRIVATE void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 
 // --General Helper Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
@@ -2100,13 +2120,14 @@ ZEST_API void zest_SetLayerDirty(zest_layer layer);
 ZEST_API void zest_InitialiseSpriteLayer(zest_layer sprite_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 ZEST_API void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type);
+ZEST_API void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float x, float y, float width, float height, float scale_x, float scale_y, float offset_x, float offset_y);
 //-- End Draw sprite layers
 
 //-- Draw billboard layers
 ZEST_API void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instance_pool_size);
 ZEST_API void zest_SetBillboardDrawing(zest_layer sprite_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
-ZEST_API void zest_DrawBillboardComplex(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
-ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy);
+ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
+ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy);
 //--End Draw billboard layers
 
 //Draw MSDF font layers
@@ -2136,6 +2157,10 @@ ZEST_API zest_buffer_t *zest_GetVertexDeviceBuffer(zest_layer layer);
 ZEST_API zest_buffer_t *zest_GetIndexDeviceBuffer(zest_layer layer);
 ZEST_API void zest_GrowMeshVertexBuffers(zest_layer layer);
 ZEST_API void zest_GrowMeshIndexBuffers(zest_layer layer);
+ZEST_API void zest_SetMeshDrawing(zest_layer _layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
+ZEST_API void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters);
+ZEST_API void zest_PushIndex(zest_layer layer, zest_uint offset);
+ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x, float y, float z, float width, float height, float scale_x, float scale_y, float offset_x, float offset_y);
 //--End Draw mesh layers
 
 //Compute shaders

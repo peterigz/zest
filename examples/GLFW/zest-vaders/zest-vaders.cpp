@@ -872,7 +872,7 @@ void BuildUI(VadersGame *game) {
 void DrawPlayer(VadersGame *game) {
 	zest_SetLayerColor(game->billboard_layer, 255, 255, 255, 255);
 	zest_SetLayerIntensity(game->billboard_layer, 1.f);
-	zest_DrawBillboard(game->billboard_layer, game->player_image, &game->player.position.x, 0.f, 1.f, 1.f);
+	zest_DrawBillboardSimple(game->billboard_layer, game->player_image, &game->player.position.x, 0.f, 1.f, 1.f);
 }
 
 void DrawVaders(VadersGame *game, float lerp) {
@@ -880,11 +880,11 @@ void DrawVaders(VadersGame *game, float lerp) {
 	zest_SetLayerIntensity(game->billboard_layer, 1.f);
 	for (auto &vader : game->vaders[game->current_buffer]) {
 		tfxVec3 tween = Tween(lerp, vader.position, vader.captured);
-		zest_DrawBillboard(game->billboard_layer, vader.image, &tween.x, tfxRadians(vader.angle), 0.5f, 0.5f);
+		zest_DrawBillboardSimple(game->billboard_layer, vader.image, &tween.x, tfxRadians(vader.angle), 0.5f, 0.5f);
 	}
 	for (auto &vader : game->big_vaders[game->current_buffer]) {
 		tfxVec3 tween = Tween(lerp, vader.position, vader.captured);
-		zest_DrawBillboard(game->billboard_layer, vader.image, &tween.x, tfxRadians(vader.angle), 1.f, 1.f);
+		zest_DrawBillboardSimple(game->billboard_layer, vader.image, &tween.x, tfxRadians(vader.angle), 1.f, 1.f);
 	}
 }
 
@@ -894,10 +894,10 @@ void DrawVaderBullets(VadersGame *game, float lerp) {
 		tfxVec3 tween = Tween(lerp, bullet.position, bullet.captured);
 		zest_SetLayerColor(game->billboard_layer, 255, 255, 255, 0);
 		zest_SetLayerIntensity(game->billboard_layer, 1.2f);
-		zest_DrawBillboard(game->billboard_layer, game->vader_bullet_image + frame_offset, &tween.x, 0.f, 0.25f, 0.25f);
+		zest_DrawBillboardSimple(game->billboard_layer, game->vader_bullet_image + frame_offset, &tween.x, 0.f, 0.25f, 0.25f);
 		zest_SetLayerColor(game->billboard_layer, 255, 128, 64, 0);
 		zest_SetLayerIntensity(game->billboard_layer, .5f);
-		zest_DrawBillboard(game->billboard_layer, game->vader_bullet_glow_image, &tween.x, 0.f, 0.65f, 0.65f);
+		zest_DrawBillboardSimple(game->billboard_layer, game->vader_bullet_glow_image, &tween.x, 0.f, 0.65f, 0.65f);
 	}
 }
 
@@ -916,7 +916,7 @@ void RenderParticles3d(tfxParticleManager &pm, float tween, VadersGame *game) {
 			tfxVec2 handle = pm.library->emitter_properties.image_handle[sprites.property_indexes[i] & 0x0000FFFF];
 			const tfxSpriteTransform3d &captured = pm.GetCapturedSprite3dTransform(layer, sprites.captured_index[i]);
 			tfxWideLerpTransformResult lerped = InterpolateSpriteTransform(lerp, sprites.transform_3d[i], captured);
-			zest_DrawBillboardComplex(game->billboard_layer, image + ((sprites.property_indexes[i] & 0x00FF0000) >> 16),
+			zest_DrawBillboard(game->billboard_layer, image + ((sprites.property_indexes[i] & 0x00FF0000) >> 16),
 				lerped.position,
 				sprites.alignment[i],
 				lerped.rotations,

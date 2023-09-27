@@ -174,7 +174,7 @@ void RenderParticles3d(tfxParticleManager &pm, float tween, VadersGame *game) {
 			tfxVec2 handle = pm.library->emitter_properties.image_handle[sprites.property_indexes[i] & 0x0000FFFF];
 			const tfxSpriteTransform3d &captured = pm.GetCapturedSprite3dTransform(layer, sprites.captured_index[i]);
 			tfxWideLerpTransformResult lerped = InterpolateSpriteTransform(lerp, sprites.transform_3d[i], captured);
-			zest_DrawBillboardComplex(game->billboard_layer, image + ((sprites.property_indexes[i] & 0x00FF0000) >> 16),
+			zest_DrawBillboard(game->billboard_layer, image + ((sprites.property_indexes[i] & 0x00FF0000) >> 16),
 				lerped.position,
 				sprites.alignment[i],
 				lerped.rotations,

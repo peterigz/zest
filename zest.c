@@ -3601,12 +3601,12 @@ void zest__prepare_standard_pipelines() {
 	imgui_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	zest_vec_push(imgui_pipeline_template.pushConstantRange, imgui_pushconstant_range);
 	imgui_pipeline_template.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
-	VkVertexInputAttributeDescription *vertex_input_attributes = 0;
-	zest_vec_push(vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos)));	// Location 0: Position
-	zest_vec_push(vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv)));	// Location 1: UV
-	zest_vec_push(vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col)));	// Location 2: Color
+	VkVertexInputAttributeDescription *imgui_vertex_input_attributes = 0;
+	zest_vec_push(imgui_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos)));	// Location 0: Position
+	zest_vec_push(imgui_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv)));	// Location 1: UV
+	zest_vec_push(imgui_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col)));	// Location 2: Color
 
-	imgui_pipeline_template.attributeDescriptions = vertex_input_attributes;
+	imgui_pipeline_template.attributeDescriptions = imgui_vertex_input_attributes;
 	imgui_pipeline_template.vertShaderFile = "spv/imgui.spv";
 	imgui_pipeline_template.fragShaderFile = "spv/imgui.spv";
 
@@ -3627,6 +3627,40 @@ void zest__prepare_standard_pipelines() {
 	imgui_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
 	imgui_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	zest_BuildPipeline(imgui_pipeline);
+
+	//General mesh drawing
+	zest_pipeline_template_create_info_t mesh_pipeline_template = zest_CreatePipelineTemplateCreateInfo();
+	mesh_pipeline_template.viewport.offset.x = 0;
+	mesh_pipeline_template.viewport.offset.y = 0;
+	VkPushConstantRange mesh_pushconstant_range;
+	mesh_pushconstant_range.size = sizeof(zest_push_constants_t);
+	mesh_pushconstant_range.offset = 0;
+	mesh_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	zest_vec_push(mesh_pipeline_template.pushConstantRange, mesh_pushconstant_range);
+	mesh_pipeline_template.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_vertex_t), VK_VERTEX_INPUT_RATE_VERTEX);
+	VkVertexInputAttributeDescription *zest_vertex_input_attributes = 0;
+	zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_vertex_t, pos)));		// Location 0: Position
+	zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32_SFLOAT, offsetof(zest_vertex_t, intensity)));		// Location 1: Alpha/Intensity
+	zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_vertex_t, uv)));			// Location 2: Position
+	zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_vertex_t, color)));		// Location 3: Color
+	zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32_UINT, offsetof(zest_vertex_t, parameters)));		// Location 4: Parameters
+
+	mesh_pipeline_template.attributeDescriptions = zest_vertex_input_attributes;
+	mesh_pipeline_template.vertShaderFile = "spv/mesh.spv";
+	mesh_pipeline_template.fragShaderFile = "spv/mesh.spv";
+
+	zest_pipeline mesh_pipeline = zest_AddPipeline("pipeline_mesh");
+
+	mesh_pipeline_template.viewport.extent = zest_GetSwapChainExtent();
+	mesh_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
+	mesh_pipeline->descriptor_layout = zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler");
+	mesh_pipeline_template.descriptorSetLayout = zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler");
+	zest_MakePipelineTemplate(mesh_pipeline, render_pass, &mesh_pipeline_template);
+
+	mesh_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
+	mesh_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
+	mesh_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	zest_BuildPipeline(mesh_pipeline);
 
 	//Final Render Pipelines
 	zest_pipeline final_render = zest_AddPipeline("pipeline_final_render");
@@ -4811,6 +4845,7 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name,
 		layer = zest_CreateBuiltinMeshLayer(name);
 		draw_routine->draw_data = layer;
 		draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
+		draw_routine->draw_callback = zest__draw_mesh_layer_callback;
 	}
 	else if (builtin_layer == zest_builtin_layer_fonts) {
 		layer = zest_CreateBuiltinFontLayer(name);
@@ -6398,6 +6433,9 @@ zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type stor
 		zest_SetTextureStorageType(texture, storage_type);
 		zest_SetTextureUseFiltering(texture, use_filtering);
 	}
+	if (storage_type == zest_texture_storage_type_single || storage_type == zest_texture_storage_type_bank) {
+		zest_SetTextureWrappingRepeat(texture);
+	}
 	if (reserve_images) {
 		zest_vec_reserve(texture->images, reserve_images);
 	}
@@ -7519,46 +7557,79 @@ void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif) {
 
 //-- Draw Layers
 //-- internal
-ZEST_API zest_instance_instruction_t zest__instance_instruction() {
-	zest_instance_instruction_t instruction = { 0 };
+ZEST_API zest_layer_instruction_t zest__layer_instruction() {
+	zest_layer_instruction_t instruction = { 0 };
 	instruction.pipeline = ZEST_NULL;
 	return instruction;
 }
 
 void zest__reset_instance_layer_drawing(zest_layer instance_layer) {
-	zest_vec_clear(instance_layer->instance_instructions[ZEST_FIF]);
+	zest_vec_clear(instance_layer->draw_instructions[ZEST_FIF]);
 	instance_layer->memory_refs[ZEST_FIF].staging_instance_data->memory_in_use = 0;
-	instance_layer->current_instance_instruction = zest__instance_instruction();
+	instance_layer->current_instruction = zest__layer_instruction();
 	instance_layer->memory_refs[ZEST_FIF].instance_count = 0;
 	instance_layer->memory_refs[ZEST_FIF].instance_ptr = instance_layer->memory_refs[ZEST_FIF].staging_instance_data->data;
 }
 
-void zest__start_instance_instructions(zest_layer instance_layer) {
-	instance_layer->current_instance_instruction.start_index = instance_layer->memory_refs[ZEST_FIF].instance_count ? instance_layer->memory_refs[ZEST_FIF].instance_count : 0;
-	instance_layer->current_instance_instruction.push_constants = instance_layer->push_constants;
+void zest__reset_mesh_layer_drawing(zest_layer layer) {
+	zest_vec_clear(layer->draw_instructions[ZEST_FIF]);
+	layer->memory_refs[ZEST_FIF].staging_vertex_data->memory_in_use = 0;
+	layer->memory_refs[ZEST_FIF].staging_index_data->memory_in_use = 0;
+	layer->current_instruction = zest__layer_instruction();
+	layer->memory_refs[ZEST_FIF].index_count = 0;
+	layer->memory_refs[ZEST_FIF].vertex_count = 0;
+	layer->memory_refs[ZEST_FIF].vertex_ptr = layer->memory_refs[ZEST_FIF].staging_vertex_data->data;
+	layer->memory_refs[ZEST_FIF].index_ptr = layer->memory_refs[ZEST_FIF].staging_index_data->data;
 }
 
-void zest__end_draw_instructions(zest_layer instance_layer) {
-	if (instance_layer->current_instance_instruction.total_instances) {
-		instance_layer->last_draw_mode = zest_draw_mode_none;
-		zest_vec_push(instance_layer->instance_instructions[ZEST_FIF], instance_layer->current_instance_instruction);
+void zest__start_instance_instructions(zest_layer instance_layer) {
+	instance_layer->current_instruction.start_index = instance_layer->memory_refs[ZEST_FIF].instance_count ? instance_layer->memory_refs[ZEST_FIF].instance_count : 0;
+	instance_layer->current_instruction.push_constants = instance_layer->push_constants;
+}
 
-		instance_layer->memory_refs[ZEST_FIF].staging_instance_data->memory_in_use += instance_layer->current_instance_instruction.total_instances * instance_layer->instance_struct_size;
-		instance_layer->current_instance_instruction.total_instances = 0;
-		instance_layer->current_instance_instruction.start_index = 0;
+void zest__start_mesh_instructions(zest_layer layer) {
+	layer->current_instruction.start_index = layer->memory_refs[ZEST_FIF].index_count ? layer->memory_refs[ZEST_FIF].index_count : 0;
+	layer->current_instruction.push_constants = layer->push_constants;
+}
+
+void zest__end_instance_instructions(zest_layer instance_layer) {
+	if (instance_layer->current_instruction.total_instances) {
+		instance_layer->last_draw_mode = zest_draw_mode_none;
+		zest_vec_push(instance_layer->draw_instructions[ZEST_FIF], instance_layer->current_instruction);
+
+		instance_layer->memory_refs[ZEST_FIF].staging_instance_data->memory_in_use += instance_layer->current_instruction.total_instances * instance_layer->instance_struct_size;
+		instance_layer->current_instruction.total_instances = 0;
+		instance_layer->current_instruction.start_index = 0;
 	}
-	else if (instance_layer->current_instance_instruction.draw_mode == zest_draw_mode_viewport) {
-		zest_vec_push(instance_layer->instance_instructions[ZEST_FIF], instance_layer->current_instance_instruction);
+	else if (instance_layer->current_instruction.draw_mode == zest_draw_mode_viewport) {
+		zest_vec_push(instance_layer->draw_instructions[ZEST_FIF], instance_layer->current_instruction);
 
 		instance_layer->last_draw_mode = zest_draw_mode_none;
+	}
+}
+
+void zest__end_mesh_instructions(zest_layer layer) {
+	if (layer->current_instruction.total_indexes) {
+		layer->last_draw_mode = zest_draw_mode_none;
+		zest_vec_push(layer->draw_instructions[ZEST_FIF], layer->current_instruction);
+
+		layer->memory_refs[ZEST_FIF].staging_index_data->memory_in_use += layer->current_instruction.total_indexes * sizeof(zest_uint);
+		layer->memory_refs[ZEST_FIF].staging_vertex_data->memory_in_use += layer->current_instruction.total_indexes * layer->vertex_struct_size;
+		layer->current_instruction.total_indexes = 0;
+		layer->current_instruction.start_index = 0;
+	}
+	else if (layer->current_instruction.draw_mode == zest_draw_mode_viewport) {
+		zest_vec_push(layer->draw_instructions[ZEST_FIF], layer->current_instruction);
+
+		layer->last_draw_mode = zest_draw_mode_none;
 	}
 }
 
 void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
 	zest_layer instance_layer = (zest_layer)draw_routine->draw_data;
-	zest__end_draw_instructions(instance_layer);
+	zest__end_instance_instructions(instance_layer);
 
-	if (!zest_vec_empty(instance_layer->instance_instructions[ZEST_FIF])) {
+	if (!zest_vec_empty(instance_layer->draw_instructions[ZEST_FIF])) {
 		zest_AddCopyCommand(&instance_layer->vertex_upload, instance_layer->memory_refs[ZEST_FIF].staging_instance_data, instance_layer->memory_refs[ZEST_FIF].device_instance_data, 0);
 	}
 
@@ -7578,8 +7649,8 @@ void zest__update_instance_layer_resolution(zest_layer layer) {
 void zest__draw_instance_layer(zest_layer instance_layer, VkCommandBuffer command_buffer) {
 	VkDeviceSize instance_data_offsets[] = { instance_layer->memory_refs[ZEST_FIF].device_instance_data->memory_offset };
 
-	for (zest_foreach_i(instance_layer->instance_instructions[ZEST_FIF])) {
-		zest_instance_instruction_t *current = &instance_layer->instance_instructions[ZEST_FIF][i];
+	for (zest_foreach_i(instance_layer->draw_instructions[ZEST_FIF])) {
+		zest_layer_instruction_t *current = &instance_layer->draw_instructions[ZEST_FIF][i];
 
 		vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
 		vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
@@ -7597,6 +7668,30 @@ void zest__draw_instance_layer(zest_layer instance_layer, VkCommandBuffer comman
 			&current->push_constants);
 
 		vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
+	}
+}
+
+void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer) {
+	zest_BindMeshIndexBuffer(layer);
+	zest_BindMeshVertexBuffer(layer);
+
+	for (zest_foreach_i(layer->draw_instructions[ZEST_FIF])) {
+		zest_layer_instruction_t *current = &layer->draw_instructions[ZEST_FIF][i];
+
+		vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
+		vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+
+		zest_BindPipelineCB(command_buffer, current->pipeline, current->descriptor_set);
+
+		vkCmdPushConstants(
+			command_buffer,
+			current->pipeline->pipeline_layout,
+			zest_PipelinePushConstantStageFlags(current->pipeline, 0),
+			zest_PipelinePushConstantOffset(current->pipeline, 0),
+			zest_PipelinePushConstantSize(current->pipeline, 0),
+			&current->push_constants);
+
+		vkCmdDrawIndexed(command_buffer, current->total_indexes, 1, current->start_index, 0, 0);
 	}
 }
 
@@ -7694,6 +7789,14 @@ void zest__next_billboard_instance(zest_layer layer) {
 }
 // End internal 3d billboard layer functionality -----
 
+//Start internal mesh layer functionality -----
+void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
+	zest_layer layer = (zest_layer)draw_routine->draw_data;
+	zest__draw_mesh_layer(layer, command_buffer);
+	zest__reset_mesh_layer_drawing(layer);
+}
+// End internal mesh layer functionality -----
+
 //-- Draw Layers API
 zest_layer zest_NewLayer() {
 	zest_layer_t blank_layer = { 0 };
@@ -7772,23 +7875,23 @@ void zest_InitialiseSpriteLayer(zest_layer sprite_layer, zest_uint instance_pool
 }
 
 void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline) {
-	zest__end_draw_instructions(sprite_layer);
+	zest__end_instance_instructions(sprite_layer);
 	zest__start_instance_instructions(sprite_layer);
-	sprite_layer->current_instance_instruction.pipeline = pipeline;
+	sprite_layer->current_instruction.pipeline = pipeline;
 	if (descriptor_set) {
-		sprite_layer->current_instance_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+		sprite_layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
 	}
 	else {
-		sprite_layer->current_instance_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+		sprite_layer->current_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
 	}
-	sprite_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
-	sprite_layer->current_instance_instruction.scissor = sprite_layer->scissor;
-	sprite_layer->current_instance_instruction.viewport = sprite_layer->viewport;
+	sprite_layer->current_instruction.draw_mode = zest_draw_mode_instance;
+	sprite_layer->current_instruction.scissor = sprite_layer->scissor;
+	sprite_layer->current_instruction.viewport = sprite_layer->viewport;
 	sprite_layer->last_draw_mode = zest_draw_mode_instance;
 }
 
 void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_uint align_type) {
-	ZEST_ASSERT(layer->current_instance_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
+	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
 
 	zest_sprite_instance_t *sprite = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
@@ -7800,7 +7903,38 @@ void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float
 	sprite->alignment = alignment;
 	sprite->color = layer->current_color;
 	sprite->image_layer_index = (image->layer << 24) + align_type;
-	layer->current_instance_instruction.total_instances++;
+	layer->current_instruction.total_instances++;
+
+	zest__next_sprite_instance(layer);
+}
+
+void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float x, float y, float width, float height, float scale_x, float scale_y, float offset_x, float offset_y) {
+	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
+
+	zest_sprite_instance_t *sprite = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+
+	sprite->uv = zest_Vec4Set(0.f, 0.f, 1.f, 1.f);
+	if (offset_x || offset_y) {
+		offset_x = fmodf(offset_x, (float)image->width) / image->width;
+		offset_y = fmodf(offset_y, (float)image->height) / image->height;
+		offset_x *= scale_x;
+		offset_y *= scale_y;
+	}
+	scale_x *= width / (float)image->width;
+	scale_y *= height / (float)image->height;
+	sprite->uv.z = (sprite->uv.z * scale_x) - offset_x;
+	sprite->uv.w = (sprite->uv.w * scale_y) - offset_y;
+	sprite->uv.x -= offset_x;
+	sprite->uv.y -= offset_y;
+
+	sprite->size = zest_Vec2Set(width, height);
+	sprite->handle = zest_Vec2Set(0.f, 0.f);
+	sprite->position_rotation = zest_Vec4Set(x, y, 0.f, 0.f);
+	sprite->intensity = layer->intensity;
+	sprite->alignment = 0;
+	sprite->color = layer->current_color;
+	sprite->image_layer_index = (image->layer << 24);
+	layer->current_instruction.total_instances++;
 
 	zest__next_sprite_instance(layer);
 }
@@ -7846,21 +7980,21 @@ void zest_InitialiseMSDFFontLayer(zest_layer font_layer, zest_uint instance_pool
 }
 
 void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_descriptor_set descriptor_set, zest_pipeline pipeline) {
-	zest__end_draw_instructions(font_layer);
+	zest__end_instance_instructions(font_layer);
 	zest__start_instance_instructions(font_layer);
 	ZEST_ASSERT(ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready));		//Make sure the font is properly loaded or wasn't recently deleted
-	font_layer->current_instance_instruction.pipeline = pipeline;
+	font_layer->current_instruction.pipeline = pipeline;
 	if (descriptor_set) {
-		font_layer->current_instance_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+		font_layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
 	}
 	else {
-		font_layer->current_instance_instruction.descriptor_set = font->texture->current_descriptor_set[ZEST_FIF];
+		font_layer->current_instruction.descriptor_set = font->texture->current_descriptor_set[ZEST_FIF];
 	}
-	font_layer->current_instance_instruction.draw_mode = zest_draw_mode_text;
-	font_layer->current_instance_instruction.asset = font;
-	font_layer->current_instance_instruction.scissor = font_layer->scissor;
-	font_layer->current_instance_instruction.viewport = font_layer->viewport;
-	font_layer->current_instance_instruction.push_constants = font_layer->push_constants;
+	font_layer->current_instruction.draw_mode = zest_draw_mode_text;
+	font_layer->current_instruction.asset = font;
+	font_layer->current_instruction.scissor = font_layer->scissor;
+	font_layer->current_instruction.viewport = font_layer->viewport;
+	font_layer->current_instruction.push_constants = font_layer->push_constants;
 	font_layer->last_draw_mode = zest_draw_mode_text;
 }
 
@@ -7870,12 +8004,12 @@ void zest_SetMSDFFontShadow(zest_layer font_layer, float shadow_length, float sh
 	font_layer->push_constants.parameters2.y = shadow.y * shadow_length;
 	font_layer->push_constants.parameters2.z = shadow_smoothing;
 	font_layer->push_constants.parameters2.w = shadow_clipping;
-	font_layer->current_instance_instruction.push_constants.parameters2 = font_layer->push_constants.parameters2;
+	font_layer->current_instruction.push_constants.parameters2 = font_layer->push_constants.parameters2;
 }
 
 void zest_SetMSDFFontShadowColor(zest_layer font_layer, float red, float green, float blue, float alpha) {
 	font_layer->push_constants.parameters3 = zest_Vec4Set(red, green, blue, alpha);
-	font_layer->current_instance_instruction.push_constants.parameters3 = font_layer->push_constants.parameters3;
+	font_layer->current_instruction.push_constants.parameters3 = font_layer->push_constants.parameters3;
 }
 
 void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float expand, float aa_factor, float radius, float detail) {
@@ -7884,39 +8018,39 @@ void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float expand, float 
 	font_layer->push_constants.parameters1.z = aa_factor;
 	font_layer->push_constants.parameters1.w = expand;
 	font_layer->push_constants.camera.w = bleed;
-	font_layer->current_instance_instruction.push_constants.parameters1 = font_layer->push_constants.parameters1;
-	font_layer->current_instance_instruction.push_constants.camera.w = bleed;
+	font_layer->current_instruction.push_constants.parameters1 = font_layer->push_constants.parameters1;
+	font_layer->current_instruction.push_constants.camera.w = bleed;
 }
 
 void zest_SetMSDFFontBleed(zest_layer font_layer, float bleed) {
 	font_layer->push_constants.camera.w = bleed;
-	font_layer->current_instance_instruction.push_constants.camera.w = bleed;
+	font_layer->current_instruction.push_constants.camera.w = bleed;
 }
 
 void zest_SetMSDFFontExpand(zest_layer font_layer, float expand) {
 	font_layer->push_constants.parameters1.w = expand;
-	font_layer->current_instance_instruction.push_constants.parameters1.w = expand;
+	font_layer->current_instruction.push_constants.parameters1.w = expand;
 }
 
 void zest_SetMSDFFontAAFactor(zest_layer font_layer, float aa_factor) {
 	font_layer->push_constants.parameters1.z = aa_factor;
-	font_layer->current_instance_instruction.push_constants.parameters1.z = aa_factor;
+	font_layer->current_instruction.push_constants.parameters1.z = aa_factor;
 }
 
 void zest_SetMSDFFontRadius(zest_layer font_layer, float radius) {
 	font_layer->push_constants.parameters1.x = radius;	
-	font_layer->current_instance_instruction.push_constants.parameters1.x = radius;	
+	font_layer->current_instruction.push_constants.parameters1.x = radius;	
 }
 
 void zest_SetMSDFFontDetail(zest_layer font_layer, float detail) {
 	font_layer->push_constants.parameters1.y = detail;
-	font_layer->current_instance_instruction.push_constants.parameters1.y = detail;
+	font_layer->current_instruction.push_constants.parameters1.y = detail;
 }
 
 float zest_DrawMSDFText(zest_layer font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float flip) {
-	ZEST_ASSERT(font_layer->current_instance_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
+	ZEST_ASSERT(font_layer->current_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
 
-	zest_font font = (zest_font)(font_layer->current_instance_instruction.asset);
+	zest_font font = (zest_font)(font_layer->current_instruction.asset);
 
 	size_t length = strlen(text);
 	if (length <= 0) {
@@ -7956,7 +8090,7 @@ float zest_DrawMSDFText(zest_layer font_layer, const char *text, float x, float 
 		font_instance->alignment = 1;
 		font_instance->color = font_layer->current_color;
 		font_instance->image_layer_index = 0;
-		font_layer->current_instance_instruction.total_instances++;
+		font_layer->current_instruction.total_instances++;
 
 		zest__next_font_instance(font_layer);
 
@@ -7967,9 +8101,9 @@ float zest_DrawMSDFText(zest_layer font_layer, const char *text, float x, float 
 }
 
 float zest_DrawMSDFParagraph(zest_layer font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float line_height, float flip) {
-	ZEST_ASSERT(font_layer->current_instance_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
+	ZEST_ASSERT(font_layer->current_instruction.draw_mode == zest_draw_mode_text);		//Call zest_StartFontDrawing before calling this function
 
-	zest_font font = (zest_font)(font_layer->current_instance_instruction.asset);
+	zest_font font = (zest_font)(font_layer->current_instruction.asset);
 
 	size_t length = strlen(text);
 	if (length <= 0) {
@@ -8022,7 +8156,7 @@ float zest_DrawMSDFParagraph(zest_layer font_layer, const char *text, float x, f
 		font_instance->alignment = 1;
 		font_instance->color = font_layer->current_color;
 		font_instance->image_layer_index = 0;
-		font_layer->current_instance_instruction.total_instances++;
+		font_layer->current_instruction.total_instances++;
 
 		zest__next_font_instance(font_layer);
 
@@ -8086,23 +8220,23 @@ void zest_InitialiseBillboardLayer(zest_layer billboard_layer, zest_uint instanc
 }
 
 void zest_SetBillboardDrawing(zest_layer billboard_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline) {
-	zest__end_draw_instructions(billboard_layer);
+	zest__end_instance_instructions(billboard_layer);
 	zest__start_instance_instructions(billboard_layer);
-	billboard_layer->current_instance_instruction.pipeline = pipeline;
+	billboard_layer->current_instruction.pipeline = pipeline;
 	if (descriptor_set) {
-		billboard_layer->current_instance_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+		billboard_layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
 	}
 	else {
-		billboard_layer->current_instance_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+		billboard_layer->current_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
 	}
-	billboard_layer->current_instance_instruction.draw_mode = zest_draw_mode_instance;
-	billboard_layer->current_instance_instruction.scissor = billboard_layer->scissor;
-	billboard_layer->current_instance_instruction.viewport = billboard_layer->viewport;
+	billboard_layer->current_instruction.draw_mode = zest_draw_mode_instance;
+	billboard_layer->current_instruction.scissor = billboard_layer->scissor;
+	billboard_layer->current_instruction.viewport = billboard_layer->viewport;
 	billboard_layer->last_draw_mode = zest_draw_mode_instance;
 }
 
-void zest_DrawBillboardComplex(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy) {
-	ZEST_ASSERT(layer->current_instance_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
+void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy) {
+	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
 
 	zest_billboard_instance_t *billboard = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
@@ -8116,13 +8250,13 @@ void zest_DrawBillboardComplex(zest_layer layer, zest_image image, float positio
 	billboard->stretch = stretch;
 	billboard->color = layer->current_color;
 	billboard->blend_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-	layer->current_instance_instruction.total_instances++;
+	layer->current_instruction.total_instances++;
 
 	zest__next_billboard_instance(layer);
 }
 
-void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3],  float angle, float sx, float sy) {
-	ZEST_ASSERT(layer->current_instance_instruction.draw_mode == zest_draw_mode_instance);		//Call zest_StartSpriteDrawing before calling this function
+void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3],  float angle, float sx, float sy) {
+	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);		//Call zest_StartSpriteDrawing before calling this function
 
 	zest_billboard_instance_t *billboard = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
@@ -8136,7 +8270,7 @@ void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3],  
 	billboard->stretch = 0.f;
 	billboard->color = layer->current_color;
 	billboard->blend_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-	layer->current_instance_instruction.total_instances++;
+	layer->current_instruction.total_instances++;
 
 	zest__next_billboard_instance(layer);
 }
@@ -8175,6 +8309,7 @@ void zest_InitialiseMeshLayer(zest_layer mesh_layer, zest_size vertex_struct_siz
 	}
     
     zest_SetLayerViewPort(mesh_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
+	zest__reset_mesh_layer_drawing(mesh_layer);
 
 }
 
@@ -8221,6 +8356,7 @@ void zest_GrowMeshIndexBuffers(zest_layer layer) {
 
 void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
 	zest_layer mesh_layer = (zest_layer)draw_routine->draw_data;
+	zest__end_mesh_instructions(mesh_layer);
 
 	zest_buffer_t *staging_vertex = mesh_layer->memory_refs[ZEST_FIF].staging_vertex_data;
 	zest_buffer_t *staging_index = mesh_layer->memory_refs[ZEST_FIF].staging_index_data;
@@ -8235,6 +8371,106 @@ void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuf
 	zest_UploadBuffer(&mesh_layer->vertex_upload, command_buffer);
 	zest_UploadBuffer(&mesh_layer->index_upload, command_buffer);
 
+}
+
+void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters) {
+	zest_vertex_t vertex = { 0 };
+	vertex.pos = zest_Vec3Set(pos_x, pos_y, pos_z);
+	vertex.intensity = intensity;
+	vertex.uv = zest_Vec2Set(uv_x, uv_y);
+	vertex.color = color;
+	vertex.parameters = parameters;
+	zest_vertex_t* vertex_ptr = (zest_vertex_t*)layer->memory_refs[ZEST_FIF].vertex_ptr;
+	*vertex_ptr = vertex;
+	vertex_ptr = vertex_ptr + 1;
+	ZEST_ASSERT(vertex_ptr >= (zest_vertex_t*)layer->memory_refs[ZEST_FIF].staging_vertex_data->data && vertex_ptr <= (zest_vertex_t*)layer->memory_refs[ZEST_FIF].staging_vertex_data->end);
+	if (vertex_ptr == layer->memory_refs[ZEST_FIF].staging_vertex_data->end) {
+		zest_bool grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].staging_vertex_data, sizeof(zest_vertex_t), 0);
+		zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_vertex_data, sizeof(zest_vertex_t), 0);
+		if (grown) {
+			layer->memory_refs[ZEST_FIF].vertex_count++;
+			vertex_ptr = (zest_vertex_t*)layer->memory_refs[ZEST_FIF].staging_vertex_data->data;
+			vertex_ptr += layer->memory_refs[ZEST_FIF].vertex_count;
+		}
+		else {
+			vertex_ptr = vertex_ptr - 1;
+		}
+	}
+	else {
+		layer->memory_refs[ZEST_FIF].vertex_count++;
+	}
+	layer->memory_refs[ZEST_FIF].vertex_ptr = vertex_ptr;
+}
+
+void zest_PushIndex(zest_layer layer, zest_uint offset) {
+	zest_uint index = layer->memory_refs[ZEST_FIF].vertex_count + offset;
+	zest_uint* index_ptr = (zest_uint*)layer->memory_refs[ZEST_FIF].index_ptr;
+	*index_ptr = index;
+	index_ptr = index_ptr + 1;
+	ZEST_ASSERT(index_ptr >= (zest_uint*)layer->memory_refs[ZEST_FIF].staging_index_data->data && index_ptr <= (zest_uint*)layer->memory_refs[ZEST_FIF].staging_index_data->end);
+	if (index_ptr == layer->memory_refs[ZEST_FIF].staging_index_data->end) {
+		zest_bool grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].staging_index_data, sizeof(zest_uint), 0);
+		zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_index_data, sizeof(zest_uint), 0);
+		if (grown) {
+			layer->memory_refs[ZEST_FIF].index_count++;
+			layer->current_instruction.total_indexes++;
+			index_ptr = (zest_uint*)layer->memory_refs[ZEST_FIF].staging_index_data->data;
+			index_ptr += layer->memory_refs[ZEST_FIF].index_count;
+		}
+		else {
+			index_ptr = index_ptr - 1;
+		}
+	}
+	else {
+		layer->memory_refs[ZEST_FIF].index_count++;
+		layer->current_instruction.total_indexes++;
+	}
+	layer->memory_refs[ZEST_FIF].index_ptr = index_ptr;
+}
+
+void zest_SetMeshDrawing(zest_layer layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline) {
+	zest__end_mesh_instructions(layer);
+	zest__start_mesh_instructions(layer);
+	layer->current_instruction.pipeline = pipeline;
+	if (descriptor_set) {
+		layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+	}
+	else {
+		layer->current_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+	}
+	layer->current_instruction.draw_mode = zest_draw_mode_mesh;
+	layer->current_instruction.scissor = layer->scissor;
+	layer->current_instruction.viewport = layer->viewport;
+	layer->last_draw_mode = zest_draw_mode_mesh;
+}
+
+void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x, float y, float z, float width, float height, float scale_x, float scale_y, float offset_x, float offset_y) {
+	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh);	//You must call zest_SetMeshDrawing before calling this function and also make sure you're passing in the correct mesh layer
+	zest_vec4 uv = zest_Vec4Set(0.f, 0.f, 1.f, 1.f);
+	if (offset_x || offset_y) {
+		offset_x = fmodf(offset_x, (float)image->width) / image->width;
+		offset_y = fmodf(offset_y, (float)image->height) / image->height;
+		offset_x *= scale_x;
+		offset_y *= scale_y;
+	}
+
+	scale_x *= width / (float)image->width;
+	scale_y *= height / (float)image->height;
+	uv.z = (uv.z * scale_x) - offset_x;
+	uv.w = (uv.w * scale_y) - offset_y;
+	uv.x -= offset_x;
+	uv.y -= offset_y;
+
+	zest_PushIndex(layer, 0);
+	zest_PushVertex(layer, x, y, z, layer->intensity, uv.x, uv.y, layer->current_color, image->layer);
+	zest_PushIndex(layer, 0);
+	zest_PushVertex(layer, x + width, y, z, layer->intensity, uv.z, uv.y, layer->current_color, image->layer);
+	zest_PushIndex(layer, 0);
+	zest_PushIndex(layer, 0);
+	zest_PushIndex(layer, -1);
+	zest_PushVertex(layer, x, y, z + height, layer->intensity, uv.x, uv.w, layer->current_color, image->layer);
+	zest_PushIndex(layer, 0);
+	zest_PushVertex(layer, x + width, y, z + height, layer->intensity, uv.z, uv.w, layer->current_color, image->layer);
 }
 //-- End Mesh Drawing API
 
