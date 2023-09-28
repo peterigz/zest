@@ -3658,8 +3658,8 @@ void zest__prepare_standard_pipelines() {
 	zest_MakePipelineTemplate(mesh_pipeline, render_pass, &mesh_pipeline_template);
 
 	mesh_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
-	mesh_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
-	mesh_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	mesh_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
+	mesh_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_TRUE;
 	zest_BuildPipeline(mesh_pipeline);
 
 	//Final Render Pipelines
@@ -4759,6 +4759,7 @@ zest_layer zest_CreateBuiltinFontLayer(const char *name) {
 zest_layer zest_CreateBuiltinMeshLayer(const char *name) {
 	zest_layer layer = zest_NewLayer();
 	layer->name = name;
+	zest_InitialiseMeshLayer(layer, sizeof(zest_vertex_t), 1000);
 	zest_map_insert(ZestRenderer->layers, name, layer);
 	return layer;
 }

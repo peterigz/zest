@@ -47,12 +47,11 @@ void InitExample(zest_example *example) {
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
-			example->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
 			example->mesh_layer = zest_NewBuiltinLayerSetup("Meshes", zest_builtin_layer_mesh);
+			example->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
 		}
 		zest_FinishQueueSetup();
 	}
-	zest_InitialiseMeshLayer(example->mesh_layer, sizeof(zest_vertex_t), 1000);
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
@@ -98,6 +97,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);
