@@ -1430,14 +1430,14 @@ void zest__destroy(void) {
 	free(ZestDevice->memory_pools[0]);
 }
 
-zest_microsecs zest__set_elapsed_time() {
+zest_microsecs zest__set_elapsed_time(void) {
 	ZestApp->current_elapsed = zest_Microsecs() - ZestApp->current_elapsed_time;
 	ZestApp->current_elapsed_time = zest_Microsecs();
 
 	return ZestApp->current_elapsed;
 }
 
-void zest__do_scheduled_tasks(zest_index index) {
+void zest__do_scheduled_tasks(void) {
 	if (zest_vec_size(ZestRenderer->texture_delete_queue)) {
 		for (zest_foreach_i(ZestRenderer->texture_delete_queue)) {
 			zest_texture texture = ZestRenderer->texture_delete_queue[i];
@@ -1479,7 +1479,7 @@ void zest__main_loop(void) {
 	while (!(ZestApp->flags & zest_app_flag_quit_application)) {
 
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
-		zest__do_scheduled_tasks(ZestDevice->current_fif);
+		zest__do_scheduled_tasks();
 
 		ZestRenderer->poll_events_callback();
 
@@ -5495,6 +5495,7 @@ zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap_t *s
 		*_max_radius = max_radius;
 	}
 
+	zest_SetText(&texture->images[first_index]->name, spritesheet->name);
 	return texture->images[first_index];
 }
 
@@ -5522,6 +5523,7 @@ zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name
 		*_max_radius = max_radius;
 	}
 
+	zest_SetText(&texture->images[first_index]->name, name);
 	return texture->images[first_index];
 }
 

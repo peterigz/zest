@@ -1044,6 +1044,7 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 }
 
 void *zloc_AllocateAligned(zloc_allocator *allocator, zloc_size size, zloc_size alignment) {
+	zloc__lock_thread_access;
 	zloc_size adjusted_size = zloc__adjust_size(size, allocator->minimum_allocation_size, alignment);
 	zloc_size gap_minimum = sizeof(zloc_header);
 	zloc_size size_with_gap = zloc__adjust_size(adjusted_size + alignment + gap_minimum, allocator->minimum_allocation_size, alignment);
@@ -1079,6 +1080,7 @@ void *zloc_AllocateAligned(zloc_allocator *allocator, zloc_size size, zloc_size 
 		return 0;
 	}
 
+	zloc__unlock_thread_access;
 	return zloc__block_user_ptr(block);
 }
 

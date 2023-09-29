@@ -1744,7 +1744,7 @@ ZEST_PRIVATE void zest_vk_free_callback(void* pUserData, void *memory);
 //end device setup functions
 
 //App initialise/run functions
-ZEST_PRIVATE void zest__do_scheduled_tasks(zest_index index);
+ZEST_PRIVATE void zest__do_scheduled_tasks(void);
 ZEST_PRIVATE void zest__initialise_app(zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__initialise_device(void);
 ZEST_PRIVATE void zest__destroy(void);
