@@ -1,4 +1,3 @@
-#define ZEST_ENABLE_VALIDATION_LAYER 1
 #include "zest.h"
 #define ZLOC_IMPLEMENTATION
 #define ZLOC_OUTPUT_ERROR_MESSAGES
@@ -5581,9 +5580,7 @@ void zest__free_all_texture_images(zest_texture texture) {
 	}
 	zest_vec_clear(texture->images);
 	zest_vec_clear(texture->image_bitmaps);
-	if (texture->bitmap_array.data) {
-		ZEST__FREE(texture->bitmap_array.data);
-	}
+	zest_ClearBitmapArray(&texture->bitmap_array);
 	texture->image_index = 0;
 	zest_FreeBitmap(&texture->texture_bitmap);
 }
@@ -6057,7 +6054,7 @@ void zest_CreateBitmapArray(zest_bitmap_array_t *images, int width, int height, 
 	images->size_of_array = size_of_array;
 	images->size_of_each_image = width * height * channels;
 	images->total_mem_size = images->size_of_array * images->size_of_each_image;
-	images->data = (zest_byte*)ZEST__ALLOCATE(size_of_array * images->total_mem_size);
+	images->data = (zest_byte*)ZEST__ALLOCATE(images->total_mem_size);
 }
 
 void zest_ClearBitmapArray(zest_bitmap_array_t *images) {
@@ -8943,6 +8940,7 @@ double zest_TimerFrameLength(zest_timer timer) {
 double zest_TimerAccumulate(zest_timer timer) {
 	double new_time = (double)zest_Microsecs();
 	double frame_time = fabs(new_time - timer->current_time);
+	frame_time = ZEST__MIN(frame_time, ZEST_MICROSECS_SECOND);
 	timer->current_time = new_time;
 
 	timer->accumulator_delta = timer->accumulator;

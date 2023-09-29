@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 //Helper macros
@@ -58,6 +58,9 @@ extern "C" {
 #define STBI_FREE(p)              ZEST__FREE(p)
 
 #define ZLOC_ENABLE_REMOTE_MEMORY
+#define ZLOC_THREAD_SAFE
+#define ZLOC_EXTRA_DEBUGGING
+#define ZLOC_OUTPUT_ERROR_MESSAGES
 #include "zloc.h"
 #include "lib_bundle.h"
 
@@ -2034,6 +2037,8 @@ ZEST_API void zest_CreateTextureStream(zest_texture texture, zest_uint mip_level
 ZEST_API void zest_CreateTextureSampler(zest_texture texture, VkSamplerCreateInfo samplerInfo, zest_uint mip_levels);
 ZEST_API zest_frame_buffer_t zest_CreateFrameBuffer(VkRenderPass render_pass, uint32_t width, uint32_t height, VkFormat render_format, zest_bool use_depth_buffer, zest_bool is_src);
 ZEST_API zest_byte zest_CalculateTextureLayers(stbrp_rect *rects, zest_uint size, const zest_uint node_count);
+ZEST_API void zest_ClearBitmapArray(zest_bitmap_array_t *images);
+ZEST_API void zest_CreateBitmapArray(zest_bitmap_array_t *images, int width, int height, int channels, zest_uint size_of_array);
 ZEST_API void zest_MakeImageBank(zest_texture texture, zest_uint size);
 ZEST_API void zest_MakeSpriteSheet(zest_texture texture);
 ZEST_API void zest_PackImages(zest_texture texture, zest_uint size);

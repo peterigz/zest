@@ -101,7 +101,7 @@ extern "C" {
 		zloc__MINIMUM_BLOCK_SIZE = 16,
 		zloc__BLOCK_SIZE_OVERHEAD = sizeof(zloc_size),
 		zloc__POINTER_SIZE = sizeof(void*),
-        zloc__SMALLEST_CATEGORY = (1 << (zloc__SECOND_LEVEL_INDEX_LOG2 + MEMORY_ALIGNMENT_LOG2))
+		zloc__SMALLEST_CATEGORY = (1 << (zloc__SECOND_LEVEL_INDEX_LOG2 + MEMORY_ALIGNMENT_LOG2))
 	};
 
 	typedef enum zloc__boundary_tag_flags {
@@ -446,9 +446,9 @@ extern "C" {
 
 	ZLOC_API void zloc_AddRemotePool(zloc_allocator *allocator, void *block_memory, zloc_size block_memory_size, zloc_size remote_pool_size);
 
-    ZLOC_API void* zloc_BlockUserExtensionPtr(const zloc_header *block);
+	ZLOC_API void* zloc_BlockUserExtensionPtr(const zloc_header *block);
 
-    ZLOC_API void* zloc_AllocationFromExtensionPtr(const void *block);
+	ZLOC_API void* zloc_AllocationFromExtensionPtr(const void *block);
 
 #endif
 
@@ -458,11 +458,11 @@ extern "C" {
 
 	static inline void zloc__map(zloc_size size, zloc_index *fli, zloc_index *sli) {
 		*fli = zloc__scan_reverse(size);
-        if(*fli <= zloc__SECOND_LEVEL_INDEX_LOG2) {
-            *fli = 0;
-            *sli = (int)size / (zloc__SMALLEST_CATEGORY / zloc__SECOND_LEVEL_INDEX_COUNT);
-            return;
-        }
+		if (*fli <= zloc__SECOND_LEVEL_INDEX_LOG2) {
+			*fli = 0;
+			*sli = (int)size / (zloc__SMALLEST_CATEGORY / zloc__SECOND_LEVEL_INDEX_COUNT);
+			return;
+		}
 		size = size & ~(1 << *fli);
 		*sli = (zloc_index)(size >> (*fli - zloc__SECOND_LEVEL_INDEX_LOG2)) % zloc__SECOND_LEVEL_INDEX_COUNT;
 	}
@@ -653,6 +653,9 @@ extern "C" {
 		//Get the size class of the block
 		zloc__map(zloc__do_size_class_callback(block), &fli, &sli);
 		zloc_header *current_block_in_free_list = allocator->segregated_lists[fli][sli];
+		//If you hit this assert then it's likely that at somepoint in your code you're trying to free an allocation
+		//that was already freed.
+		ZLOC_ASSERT(block != current_block_in_free_list);
 		//Insert the block into the list by updating the next and prev free blocks of
 		//this and the current block in the free list. The current block in the free
 		//list may well be the null_block in the allocator so this just means that this
@@ -683,7 +686,7 @@ extern "C" {
 		//Somehow the segregated lists had the end block assigned but the first or second level bitmaps
 		//did not have the masks assigned
 		ZLOC_ASSERT(block != &allocator->null_block);
-		if (block->next_free_block != &allocator->null_block) {
+		if (block->next_free_block && block->next_free_block != &allocator->null_block) {
 			//If there are more free blocks in this size class then shift the next one down and terminate the prev_free_block
 			allocator->segregated_lists[fli][sli] = block->next_free_block;
 			allocator->segregated_lists[fli][sli]->prev_free_block = zloc__null_block(allocator);
@@ -863,11 +866,11 @@ extern "C" {
 
 //Definitions
 ZLOC_API void* zloc_BlockUserExtensionPtr(const zloc_header *block) {
-    return (char*)block + sizeof(zloc_header);
+	return (char*)block + sizeof(zloc_header);
 }
 
 ZLOC_API void* zloc_AllocationFromExtensionPtr(const void *block) {
-    return (void*)((char*)block - zloc__MINIMUM_BLOCK_SIZE);
+	return (void*)((char*)block - zloc__MINIMUM_BLOCK_SIZE);
 }
 
 zloc_allocator *zloc_InitialiseAllocator(void *memory) {
