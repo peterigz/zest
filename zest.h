@@ -1366,7 +1366,7 @@ typedef struct zest_bitmap_array_t {
 
 typedef struct zest_image_t {
 	zest_index index;			//index within the QulkanTexture
-	const char *name;			//Filename of the image
+	zest_text name;				//Filename of the image
 	zest_uint width;
 	zest_uint height;
 	zest_vec4 uv;				//UV coords are set after the ProcessImages function is called and the images are packed into the texture

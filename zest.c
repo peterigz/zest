@@ -5392,7 +5392,7 @@ zest_image zest_AddTextureImageFile(zest_texture texture, const char* filename) 
 	if (texture->flags & zest_texture_flag_get_max_radius) {
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
-	image->name = filename;
+	zest_SetText(&image->name, filename);
 	zest_UpdateImageVertices(image);
 
 	return image;
@@ -5417,7 +5417,7 @@ zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t *bitma
 	if (texture->flags & zest_texture_flag_get_max_radius) {
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
-	image->name = bitmap->name;
+	zest_SetText(&image->name, bitmap->name);
 	zest_UpdateImageVertices(image);
 
 	return image;
@@ -5441,7 +5441,7 @@ zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, un
 	if (texture->flags & zest_texture_flag_get_max_radius) {
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
-	image->name = bitmap->name;
+	zest_SetText(&image->name, bitmap->name);
 	zest_UpdateImageVertices(image);
 
 	return image;
@@ -5470,6 +5470,7 @@ zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filena
 		*_max_radius = max_radius;
 	}
 
+	zest_SetText(&texture->images[first_index]->name, filename);
 	return texture->images[first_index];
 }
 
@@ -5576,6 +5577,7 @@ void zest__free_all_texture_images(zest_texture texture) {
 	while (i < zest_vec_size(texture->images)) {
 		zest_image image = texture->images[i];
 		i += image->frames;
+		zest_FreeText(&image->name);
 		ZEST__FREE(image);
 	}
 	zest_vec_clear(texture->images);
