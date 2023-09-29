@@ -1827,6 +1827,7 @@ ZEST_API zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(cons
 //Buffer related
 ZEST_API void zloc__output_buffer_info(void* ptr, size_t size, int free, void* user, int count);
 ZEST_API zloc__error_codes zloc_VerifyRemoteBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
+ZEST_API zloc__error_codes zloc_VerifyBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
 ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 ZEST_API zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image);
 ZEST_API zest_buffer_t *zest_CreateStagingBuffer(VkDeviceSize size, void *data);

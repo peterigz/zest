@@ -668,6 +668,9 @@ extern "C" {
 		//Flag the bitmaps to mark that this size class now contains a free block
 		allocator->first_level_bitmap |= ZLOC_ONE << fli;
 		allocator->second_level_bitmaps[fli] |= 1U << sli;
+		if (allocator->first_level_bitmap & (ZLOC_ONE << fli)) {
+			ZLOC_ASSERT(allocator->second_level_bitmaps[fli] > 0);
+		}
 		zloc__mark_block_as_free(block);
 #ifdef ZLOC_EXTRA_DEBUGGING
 		zloc__verify_lists(allocator);
@@ -700,6 +703,9 @@ extern "C" {
 				allocator->first_level_bitmap &= ~(ZLOC_ONE << fli);
 			}
 		}
+		if (allocator->first_level_bitmap & (ZLOC_ONE << fli)) {
+			ZLOC_ASSERT(allocator->second_level_bitmaps[fli] > 0);
+		}
 		zloc__mark_block_as_used(block);
 #ifdef ZLOC_EXTRA_DEBUGGING
 		zloc__verify_lists(allocator);
@@ -729,6 +735,9 @@ extern "C" {
 					allocator->first_level_bitmap &= ~(1ULL << fli);
 				}
 			}
+		}
+		if (allocator->first_level_bitmap & (ZLOC_ONE << fli)) {
+			ZLOC_ASSERT(allocator->second_level_bitmaps[fli] > 0);
 		}
 		zloc__mark_block_as_used(block);
 #ifdef ZLOC_EXTRA_DEBUGGING

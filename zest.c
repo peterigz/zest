@@ -1791,6 +1791,22 @@ zloc__error_codes zloc_VerifyRemoteBlocks(zloc_header *first_block, zloc__block_
 	return zloc__OK;
 }
 
+zloc__error_codes zloc_VerifyBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data) {
+	zloc_header *current_block = first_block;
+	while (!zloc__is_last_block_in_pool(current_block)) {
+		if (output_function) {
+			output_function(current_block, zloc__block_size(current_block), zloc__is_free_block(current_block), user_data, 0);
+		}
+		zloc_header *last_block = current_block;
+		current_block = zloc__next_physical_block(current_block);
+		if (last_block != current_block->prev_physical_block) {
+			ZEST_ASSERT(0);
+			return zloc__PHYSICAL_BLOCK_MISALIGNMENT;
+		}
+	}
+	return zloc__OK;
+}
+
 zest_uint zloc_CountBlocks(zloc_header *first_block) {
 	zloc_header *current_block = first_block;
 	int count = 0;
@@ -3489,7 +3505,7 @@ void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) {
 
 void zest_SetText(zest_text *buffer, const char *text) {
 	zest_uint length = (zest_uint)strlen(text) + 1;
-	zest_vec_resize(buffer->str, (zest_uint)strlen(text));
+	zest_vec_resize(buffer->str, length);
 	zest_strcpy(buffer->str, length, text);
 }
 
