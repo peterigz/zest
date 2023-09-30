@@ -2027,7 +2027,7 @@ zest_buffer_info_t zest_CreateStagingBufferInfo() {
 }
 
 void zest_FreeBuffer(zest_buffer buffer) {
-	ZEST_ASSERT(buffer);	//Buffer must point to a valid buffer
+	if (!buffer) return;	//Nothing to free
 	zloc_FreeRemote(buffer->buffer_allocator->allocator, buffer);
 }
 
@@ -5634,6 +5634,10 @@ void zest__cleanup_texture(zest_texture texture) {
 	vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer.view, &ZestDevice->allocation_callbacks);
 	vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer.image, &ZestDevice->allocation_callbacks);
 	zest_FreeBuffer(texture->frame_buffer.buffer);
+	texture->frame_buffer.buffer = 0;
+	texture->sampler = VK_NULL_HANDLE;
+	texture->frame_buffer.view = VK_NULL_HANDLE;
+	texture->frame_buffer.image = VK_NULL_HANDLE;
 	texture->flags &= ~zest_texture_flag_textures_ready;
 }
 
