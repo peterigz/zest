@@ -1241,6 +1241,7 @@ typedef struct zest_layer_t {
 
 	zest_draw_routine draw_routine;
 	zest_layer_flags flags;
+	zest_builtin_layer_type layer_type;
 } zest_layer_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_font_character_t {
