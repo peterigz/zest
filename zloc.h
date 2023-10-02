@@ -825,7 +825,7 @@ extern "C" {
 		//Note that there may well be an appropriate size block in the class but that block may not be at the head of the list
 		//In this situation we could opt to loop through the list of the size class to see if there is an appropriate size but instead
 		//we stick to the paper and just move on to the next class up to keep a O1 speed at the cost of some extra fragmentation
-		if (zloc__has_free_block(allocator, fli, sli) && zloc__block_size(allocator->segregated_lists[fli][sli]) >= zloc__map_size) {
+		if (zloc__has_free_block(allocator, fli, sli) && zloc__do_size_class_callback(allocator->segregated_lists[fli][sli]) >= zloc__map_size) {
 			zloc_header *block = zloc__pop_block(allocator, fli, sli);
 			zloc__unlock_thread_access;
 			return block;
