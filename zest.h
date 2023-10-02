@@ -989,6 +989,8 @@ typedef struct zest_descriptor_buffer_t {
 typedef struct zest_descriptor_infos_for_binding_t {
 	VkDescriptorBufferInfo descriptor_buffer_info[ZEST_MAX_FIF];
 	VkDescriptorImageInfo descriptor_image_info[ZEST_MAX_FIF];
+	zest_texture texture;
+	zest_descriptor_buffer buffer;
 	zest_bool all_frames_in_flight;
 } zest_descriptor_infos_for_binding_t;
 
@@ -1603,7 +1605,7 @@ ZEST_PRIVATE VkResult zest__map_memory(zest_device_memory_pool memory_allocation
 ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE VkResult zest__flush_memory(zest_device_memory_pool memory_allocation, VkDeviceSize size, VkDeviceSize offset);
-ZEST_PRIVATE zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_size size);
+ZEST_PRIVATE zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_key key, zest_size size);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer_t *buffer, zest_bool is_host_visible);
 //End Buffer Management
@@ -1851,8 +1853,11 @@ ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer buffer);
 ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer buffer);
 ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer_t *source_buffer, zest_buffer_t *target_buffer, VkDeviceSize target_offset);
 ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader_t *uploader, VkCommandBuffer command_buffer);
-ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
-ZEST_API void zest_SetDevicePoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags, zest_size minimum_allocation, zest_size pool_size);
+ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_key hash);
+ZEST_API zest_buffer_pool_size_t zest_GetDeviceBufferPoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
+ZEST_API zest_buffer_pool_size_t zest_GetDeviceImagePoolSize(const char *name);
+ZEST_API void zest_SetDeviceBufferPoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size);
+ZEST_API void zest_SetDeviceImagePoolSize(const char *name, zest_size minimum_allocation, zest_size pool_size);
 ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
 ZEST_API void zest_Update2dUniformBuffer(void);
 ZEST_API void zest_Update2dUniformBufferFIF(zest_index fif);
@@ -2186,6 +2191,7 @@ ZEST_API void zest_RunCompute(zest_compute compute);
 ZEST_API void zest_WaitForCompute(zest_compute compute);
 ZEST_API void zest_ComputeAttachRenderTarget(zest_compute compute, zest_render_target render_target);
 ZEST_API void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute);
+ZEST_API void zest_UpdateComputeDescriptorInfos(zest_compute compute);
 ZEST_API void zest_StandardComputeDescriptorUpdate(zest_compute compute);
 //--End Compute shaders
 
