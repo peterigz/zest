@@ -3531,6 +3531,7 @@ void zest_SetText(zest_text *buffer, const char *text) {
 
 void zest_FreeText(zest_text *buffer) { 
 	zest_vec_free(buffer->str); 
+	buffer->str = ZEST_NULL;
 }
 
 zest_uint zest_TextLength(zest_text *buffer) { 
@@ -5126,7 +5127,7 @@ void zest_LoadBitmapImage(zest_bitmap_t *image, const char *file, int color_chan
 		image->channels = color_channels ? color_channels : original_no_channels;
 		image->stride = width * original_no_channels;
 		image->size = width * height * original_no_channels;
-		image->name = file;
+		zest_SetText(&image->name, file);
 	}
 	else {
 		image->data = ZEST_NULL;
@@ -5153,6 +5154,7 @@ void zest_FreeBitmap(zest_bitmap_t *image) {
 	if (image->data) {
 		ZEST__FREE(image->data);
 	}
+	zest_FreeText(&image->name);
 	image->data = ZEST_NULL;
 }
 
@@ -5169,7 +5171,7 @@ zest_bitmap_t zest_CreateBitmapFromRawBuffer(const char *name, unsigned char *pi
 	bitmap.channels = channels;
 	bitmap.size = size;
 	bitmap.stride = width * channels;
-	bitmap.name = name;
+	zest_SetText(&bitmap.name, name);
 	return bitmap;
 }
 
@@ -5337,7 +5339,12 @@ void zest_ConvertBGRAToRGBA(zest_bitmap_t *src) {
 void zest_CopyWholeBitmap(zest_bitmap_t *src, zest_bitmap_t *dst) {
 	ZEST_ASSERT(src->data && src->size);
 
-	*dst = *src;
+	zest_SetText(&dst->name, src->name.str);
+	dst->channels = src->channels;
+	dst->height = src->height;
+	dst->width = src->width;
+	dst->size = src->size;
+	dst->stride = src->stride;
 	dst->data = ZEST_NULL;
 	dst->data = (zest_byte*)ZEST__ALLOCATE(src->size);
 	memcpy(dst->data, src->data, src->size);
@@ -5428,7 +5435,7 @@ void zest_DestroyBitmapArray(zest_bitmap_array_t *bitmap_array) {
 }
 
 zest_bitmap_t zest_GetImageFromArray(zest_bitmap_array_t *bitmap_array, zest_index index) {
-	zest_bitmap_t image;
+	zest_bitmap_t image = zest_NewBitmap();
 	image.width = bitmap_array->width;
 	image.height = bitmap_array->height;
 	image.channels = bitmap_array->channels;
@@ -5466,7 +5473,7 @@ zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t *bitma
 	zest_vec_push(texture->images, image);
 	texture->image_index = zest_vec_last_index(texture->images);
 	image->index = texture->image_index;
-	zest_bitmap_t image_copy;
+	zest_bitmap_t image_copy = zest_NewBitmap();
 	zest_CopyWholeBitmap(bitmap_to_load, &image_copy);
 	zest_vec_push(texture->image_bitmaps, image_copy);
 	zest_bitmap_t *bitmap = zest_GetBitmap(texture, zest_GetImageIndex(texture));
@@ -5480,7 +5487,7 @@ zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t *bitma
 	if (texture->flags & zest_texture_flag_get_max_radius) {
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
-	zest_SetText(&image->name, bitmap->name);
+	zest_SetText(&image->name, bitmap->name.str);
 	zest_UpdateImageVertices(image);
 
 	return image;
@@ -5504,14 +5511,14 @@ zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, un
 	if (texture->flags & zest_texture_flag_get_max_radius) {
 		image->max_radius = zest_FindBitmapRadius(bitmap);
 	}
-	zest_SetText(&image->name, bitmap->name);
+	zest_SetText(&image->name, bitmap->name.str);
 	zest_UpdateImageVertices(image);
 
 	return image;
 }
 
 zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filename, int width, int height, zest_uint frames, float *_max_radius, zest_bool row_by_row) {
-	zest_bitmap_t spritesheet;
+	zest_bitmap_t spritesheet = { 0 };
 	float max_radius;
 
 	zest_LoadBitmapImage(&spritesheet, filename, 0);
@@ -5558,7 +5565,7 @@ zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap_t *s
 		*_max_radius = max_radius;
 	}
 
-	zest_SetText(&texture->images[first_index]->name, spritesheet->name);
+	zest_SetText(&texture->images[first_index]->name, spritesheet->name.str);
 	return texture->images[first_index];
 }
 
@@ -6157,7 +6164,7 @@ void zest_MakeImageBank(zest_texture texture, zest_uint size) {
 		image->layer = id;
 		image->texture = texture;
 
-		zest_bitmap_t tmp_image = zest_NewBitmap();;
+		zest_bitmap_t tmp_image = zest_NewBitmap();
 		zest_AllocateBitmap(&tmp_image, image->width, image->height, texture->color_channels, 0);
 
 		if (image->width != size || image->height != size) {

@@ -1350,7 +1350,7 @@ typedef struct zest_bitmap_t {
 	int height;
 	int channels;
 	int stride;
-	const char *name;
+	zest_text name;
 	size_t size;
 	zest_byte *data;
 } zest_bitmap_t;
