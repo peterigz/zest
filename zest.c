@@ -1250,8 +1250,8 @@ void zest__create_logical_device(void) {
 		queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 		queue_create_info.queueFamilyIndex = unique_queue_families[i];
 		if (unique_queue_families[i] == indices.graphics_family) {
-			queue_create_info.queueCount = 1;
-			queue_create_info.pQueuePriorities = &queue_priority;
+			queue_create_info.queueCount = 2;
+			queue_create_info.pQueuePriorities = &graphics_queue_priority;
 		}
 		else {
 			queue_create_info.queueCount = 1;
@@ -1292,7 +1292,7 @@ void zest__create_logical_device(void) {
 	ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->logical_device));
 
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->graphics_queue);
-	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->one_time_graphics_queue);
+	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 1, &ZestDevice->one_time_graphics_queue);
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.present_family, 0, &ZestDevice->present_queue);
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.compute_family, 0, &ZestDevice->compute_queue);
 
