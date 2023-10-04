@@ -119,6 +119,7 @@ typedef unsigned int zest_uint;
 typedef int zest_index;
 typedef unsigned long long zest_ull;
 typedef zest_uint zest_millisecs;
+typedef zest_uint zest_thread_access;
 typedef zest_ull zest_microsecs;
 typedef zest_ull zest_key;
 typedef size_t zest_size;
@@ -179,6 +180,9 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 #define ZEST_ALIGN_PREFIX(v) __declspec(align(v))
 #define ZEST_ALIGN_AFFIX(v)
 #define ZEST_PROTOTYPE
+ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_thread_access* target, zest_thread_access value, zest_thread_access original) {
+	return InterlockedCompareExchange(target, value, original);
+}
 
 //Window creation
 ZEST_PRIVATE HINSTANCE zest_window_instance;
@@ -186,7 +190,7 @@ ZEST_PRIVATE HINSTANCE zest_window_instance;
 LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 //--
 
-#else
+#elif defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && (defined(__i386__) || defined(__x86_64__)) || defined(__clang__)
 #include <time.h>
 //We'll just use glfw on mac for now. Can maybe add basic cocoa windows later
 #include <glfw/glfw3.h>
@@ -196,7 +200,9 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 #define zest_snprintf(buffer, bufferSize, format, ...) snprintf(buffer, bufferSize, format, __VA_ARGS__)
 #define zest_strcat(left, size, right) strcat(left, right)
 #define zest_strcpy(left, size, right) strcpy(left, right)
-
+ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_thread_access* target, zest_thread_access value, zest_thread_access original) {
+	return __sync_val_compare_and_swap(target, original, value);
+}
 //Window creation
 //--
 
@@ -857,6 +863,7 @@ typedef struct zest_device_t {
 	VkQueue one_time_graphics_queue;
 	VkQueue compute_queue;
 	VkCommandPool command_pool;
+	VkCommandPool one_time_command_pool;
 	PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
 	VkFormat color_format;
 	zest_map_buffer_pool_sizes pool_sizes;
@@ -1429,6 +1436,7 @@ typedef struct zest_texture_t {
 	//Use this for adding samplers to bind to the shader
 	VkImageViewType image_view_type;
 	zest_texture_flags flags;
+	zest_thread_access lock;
 } zest_texture_t;
 
 typedef struct zest_render_target_create_info_t {
@@ -1471,6 +1479,7 @@ typedef struct zest_render_target_t {
 
 	zest_texture sampler_textures[ZEST_MAX_FIF];
 	VkCommandBuffer *layer_command_buffers;
+	zest_thread_access lock;
 } zest_render_target_t;
 
 zest_hash_map(zest_command_queue) zest_map_command_queues;

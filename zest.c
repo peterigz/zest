@@ -1305,6 +1305,7 @@ void zest__create_logical_device(void) {
 	cmd_info_pool.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
 	cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->command_pool));
+	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->one_time_command_pool));
 }
 
 void zest__set_limit_data() {
@@ -1408,6 +1409,7 @@ void zest__destroy(void) {
 	zest_destroy_debug_messenger();
 	vkDestroyPipelineCache(ZestDevice->logical_device, ZestRenderer->pipeline_cache, &ZestDevice->allocation_callbacks);
 	vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->command_pool, &ZestDevice->allocation_callbacks);
+	vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->one_time_command_pool, &ZestDevice->allocation_callbacks);
 	vkDestroyDevice(ZestDevice->logical_device, &ZestDevice->allocation_callbacks);
 	vkDestroyInstance(ZestDevice->instance, &ZestDevice->allocation_callbacks);
 	ZestRenderer->destroy_window_callback(ZestApp->user_data);
@@ -4362,7 +4364,7 @@ VkCommandBuffer zest__begin_single_time_commands() {
 	VkCommandBufferAllocateInfo alloc_info = { 0 };
 	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	alloc_info.commandPool = ZestDevice->command_pool;
+	alloc_info.commandPool = ZestDevice->one_time_command_pool;
 	alloc_info.commandBufferCount = 1;
 
 	VkCommandBuffer command_buffer;
@@ -4388,7 +4390,7 @@ void zest__end_single_time_commands(VkCommandBuffer command_buffer) {
 	vkQueueSubmit(ZestDevice->one_time_graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
 	vkQueueWaitIdle(ZestDevice->one_time_graphics_queue);
 
-	vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->command_pool, 1, &command_buffer);
+	vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->one_time_command_pool, 1, &command_buffer);
 }
 
 void zest__insert_image_memory_barrier(VkCommandBuffer cmdbuffer, VkImage image, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkImageSubresourceRange subresourceRange) {
@@ -5681,9 +5683,6 @@ void zest__delete_font(zest_font_t *font) {
 }
 
 void zest__cleanup_texture(zest_texture texture) {
-	//It would be nice if we didn't have to wait for the device to be idle here, but images can't be destroyed if they're currently used
-	//in a command buffer
-	zest_WaitForIdleDevice();
 	vkDestroySampler(ZestDevice->logical_device, texture->sampler, &ZestDevice->allocation_callbacks);
 	vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer.view, &ZestDevice->allocation_callbacks);
 	vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer.image, &ZestDevice->allocation_callbacks);
