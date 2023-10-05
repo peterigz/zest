@@ -863,6 +863,7 @@ typedef struct zest_device_t {
 	VkQueue one_time_graphics_queue;
 	VkQueue compute_queue;
 	VkCommandPool command_pool;
+	VkCommandPool one_time_command_pool;
 	PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
 	VkFormat color_format;
 	zest_map_buffer_pool_sizes pool_sizes;
