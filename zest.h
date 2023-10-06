@@ -216,7 +216,8 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 
 //enums and flags
 typedef enum zest_struct_type {
-	zest_stuct_type_texture = VK_STRUCTURE_TYPE_MAX_ENUM - 1,
+	zest_struct_type_texture = VK_STRUCTURE_TYPE_MAX_ENUM - 1,
+	zest_struct_type_image = VK_STRUCTURE_TYPE_MAX_ENUM - 2,
 } zest_struct_type;
 
 typedef enum zest_app_flag_bits {
@@ -1375,6 +1376,7 @@ typedef struct zest_bitmap_array_t {
 } zest_bitmap_array_t;
 
 typedef struct zest_image_t {
+	zest_struct_type struct_type;
 	zest_index index;			//index within the QulkanTexture
 	zest_text name;				//Filename of the image
 	zest_uint width;
@@ -1849,6 +1851,7 @@ ZEST_API zest_buffer_t *zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer 
 ZEST_API zest_buffer_t *zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 ZEST_API zest_buffer_t *zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
+ZEST_API zest_bool zest_GrowDescriptorBuffer(zest_descriptor_buffer buffer, zest_size unit_size, zest_size minimum_bytes);
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);
@@ -2007,6 +2010,7 @@ ZEST_API void zest_FreeTextureBitmaps(zest_texture texture);
 ZEST_API void zest_RemoveTextureImage(zest_texture texture, zest_image image);
 ZEST_API void zest_RemoveTextureAnimation(zest_texture texture, zest_image first_image);
 ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
+ZEST_API zest_image_t zest_NewImage(void);
 ZEST_API zest_image zest_CreateImage(void);
 ZEST_API zest_image zest_CreateAnimation(zest_uint frames);
 ZEST_API void zest_LoadBitmapImage(zest_bitmap_t *image, const char *file, int color_channels);

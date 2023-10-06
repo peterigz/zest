@@ -1980,6 +1980,23 @@ zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size mi
 	return new_buffer ? ZEST_TRUE : ZEST_FALSE;
 }
 
+zest_bool zest_GrowDescriptorBuffer(zest_descriptor_buffer buffer, zest_size unit_size, zest_size minimum_bytes) {
+	zest_bool grow_result = zest_GrowBuffer(&buffer->buffer[buffer->all_frames_in_flight ? ZEST_FIF : 0], unit_size, minimum_bytes);
+	if (grow_result) {
+		if (buffer->all_frames_in_flight) {
+			buffer->descriptor_info[ZEST_FIF].buffer = buffer->buffer[ZEST_FIF]->memory_pool->buffer;
+			buffer->descriptor_info[ZEST_FIF].offset = buffer->buffer[ZEST_FIF]->memory_offset;
+			buffer->descriptor_info[ZEST_FIF].range = buffer->buffer[ZEST_FIF]->size;
+		}
+		else {
+			buffer->descriptor_info[0].buffer = buffer->buffer[0]->memory_pool->buffer;
+			buffer->descriptor_info[0].offset = buffer->buffer[0]->memory_offset;
+			buffer->descriptor_info[0].range = buffer->buffer[0]->size;
+		}
+	}
+	return grow_result;
+}
+
 zest_buffer_info_t zest_CreateIndexBufferInfo() {
 	zest_buffer_info_t buffer_info = { 0 };
 	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
@@ -5054,7 +5071,7 @@ zest_texture zest_NewTexture() {
 	zest_texture_t blank = { 0 };
 	zest_texture texture = ZEST__NEW(zest_texture);
 	*texture = blank;
-	texture->struct_type = zest_stuct_type_texture;
+	texture->struct_type = zest_struct_type_texture;
 	texture->flags = zest_texture_flag_use_filtering;
 	texture->sampler = VK_NULL_HANDLE;
 	texture->storage_type = zest_texture_storage_type_single;
@@ -5084,14 +5101,20 @@ zest_texture zest_NewTexture() {
 	texture->sampler_info.pNext = VK_NULL_HANDLE;
 	texture->sampler_info.flags = 0;
 	texture->sampler = VK_NULL_HANDLE;
-	texture->texture_layer_size = 2048;
+	texture->texture_layer_size = 1024;
 	texture->stream_staging_buffer = ZEST_NULL;
 
 	return texture;
 }
 
+zest_image_t zest_NewImage(void) {
+	zest_image_t image = { 0 };
+	image.struct_type = zest_struct_type_image;
+	return image;
+}
+
 zest_image zest_CreateImage() {
-	zest_image_t blank_image = { 0 };
+	zest_image_t blank_image = zest_NewImage();
 	zest_image image = ZEST__NEW_ALIGNED(zest_image, 16);
 	*image = blank_image;
 	image->scale = zest_Vec2Set1(1.f);
@@ -5609,7 +5632,7 @@ float zest_CopyAnimationFrames(zest_texture texture, zest_bitmap_t *spritesheet,
 
 	zest_uint frame_count = 0;
 	float max_radius = 0;
-	zest_image_t blank_image = { 0 };
+	zest_image_t blank_image = zest_NewImage();
 	zest_image frame = zest_CreateAnimation(frames);
 
 	for (zest_uint r = 0; r != (row_by_row ? rows : cols); ++r) {
@@ -5712,6 +5735,7 @@ void zest_ProcessTextureImages(zest_texture texture) {
 		zest__cleanup_texture(texture);
 	}
 
+	zest_uint size = zest_vec_size(texture->images);
 	if (zest_vec_empty(texture->images) && texture->storage_type != zest_texture_storage_type_storage && texture->storage_type != zest_texture_storage_type_single)
 		return;
 
@@ -6465,25 +6489,23 @@ void zest_UpdateImageVertices(zest_image image) {
 }
 
 void zest_UpdateTextureSingleImageMeta(zest_texture texture, zest_uint width, zest_uint height) {
-	zest_image_t blank_image = { 0 };
-	zest_image image = ZEST__NEW(zest_image);
-	*image = blank_image;
-	image->width = width;
-	image->height = height;
-	zest_UpdateImageVertices(image);
-	image->uv.x = 0.f;
-	image->uv.y = 0.f;
-	image->uv.z = 1.f;
-	image->uv.w = 1.f;
-	image->uv_xy = zest_Pack16bit(image->uv.x, image->uv.y);
-	image->uv_zw = zest_Pack16bit(image->uv.z, image->uv.w);
-	image->texture = texture;
-	image->layer = 0;
+	zest_image_t image = zest_NewImage();
+	image.width = width;
+	image.height = height;
+	zest_UpdateImageVertices(&image);
+	image.uv.x = 0.f;
+	image.uv.y = 0.f;
+	image.uv.z = 1.f;
+	image.uv.w = 1.f;
+	image.uv_xy = zest_Pack16bit(image.uv.x, image.uv.y);
+	image.uv_zw = zest_Pack16bit(image.uv.z, image.uv.w);
+	image.texture = texture;
+	image.layer = 0;
 	if (zest_vec_empty(texture->images)) {
 		zest_vec_push(texture->images, zest_CreateImage());
 		texture->image_index = 0;
 	}
-	texture->images[0] = image;
+	*texture->images[0] = image;
 }
 
 void zest_SetTextureUseFiltering(zest_texture texture, zest_bool value) {

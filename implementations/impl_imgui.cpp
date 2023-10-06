@@ -49,6 +49,8 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 	zest_BindMeshVertexBuffer(imgui_layer);
 	zest_BindMeshIndexBuffer(imgui_layer);
 
+	bool invalid_image_found = false;
+
 	if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
 
 		int32_t vertex_offset = 0;
@@ -70,6 +72,13 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 					assert(pcmd->UserCallbackData);
 					zest_render_target render_target = static_cast<zest_render_target>(pcmd->UserCallbackData);
 					current_image = zest_GetRenderTargetImage(render_target);
+				}
+
+				if (current_image->struct_type != zest_struct_type_image) {
+					//Invalid image
+					ZEST_PRINT_WARNING("Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
+					invalid_image_found = true;
+					continue;
 				}
 
 				if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_CurrentTextureDescriptorSet(current_image->texture)) {
