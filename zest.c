@@ -1251,7 +1251,7 @@ void zest__create_logical_device(void) {
 		queue_create_info.queueFamilyIndex = unique_queue_families[i];
 		if (unique_queue_families[i] == indices.graphics_family) {
 			queue_create_info.queueCount = 2;
-			queue_create_info.pQueuePriorities = &graphics_queue_priority;
+			queue_create_info.pQueuePriorities = graphics_queue_priority;
 		}
 		else {
 			queue_create_info.queueCount = 1;
@@ -1880,7 +1880,7 @@ zest_buffer_t *zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buf
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
 		ZEST_ASSERT(buffer->size >= staging_buffer->size);
-		zest_CopyBuffer(staging_buffer, buffer);
+		zest_CopyBuffer(staging_buffer, buffer, size);
 	}
 	return buffer;
 }
@@ -1890,7 +1890,7 @@ zest_buffer_t *zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_bu
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
 		ZEST_ASSERT(buffer->size >= staging_buffer->size);
-		zest_CopyBuffer(staging_buffer, buffer);
+		zest_CopyBuffer(staging_buffer, buffer, size);
 	}
 	return buffer;
 }
@@ -1900,7 +1900,7 @@ zest_buffer_t *zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_b
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
 		ZEST_ASSERT(buffer->size >= staging_buffer->size);
-		zest_CopyBuffer(staging_buffer, buffer);
+		zest_CopyBuffer(staging_buffer, buffer, size);
 	}
 	return buffer;
 }
@@ -1910,7 +1910,7 @@ zest_buffer_t *zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer sta
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
 		ZEST_ASSERT(buffer->size >= staging_buffer->size);
-		zest_CopyBuffer(staging_buffer, buffer);
+		zest_CopyBuffer(staging_buffer, buffer, size);
 	}
 	return buffer;
 }
@@ -1920,26 +1920,30 @@ zest_buffer_t *zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer stag
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
 		ZEST_ASSERT(buffer->size >= staging_buffer->size);
-		zest_CopyBuffer(staging_buffer, buffer);
+		zest_CopyBuffer(staging_buffer, buffer, size);
 	}
 	return buffer;
 }
 
-void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer) {
+void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size) {
+	ZEST_ASSERT(size <= staging_buffer->size);		//size must be less than or equal to the staging buffer size and the device buffer size
+	ZEST_ASSERT(size <= device_buffer->size);
 	VkBufferCopy copyInfo = { 0 };
 	copyInfo.srcOffset = staging_buffer->memory_offset;
 	copyInfo.dstOffset = device_buffer->memory_offset;
-	copyInfo.size = staging_buffer->size;
+	copyInfo.size = size;
 	VkCommandBuffer command_buffer = zest__begin_single_time_commands();
 	vkCmdCopyBuffer(command_buffer, staging_buffer->memory_pool->buffer, device_buffer->memory_pool->buffer, 1, &copyInfo);
 	zest__end_single_time_commands(command_buffer);
 }
 
-void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer) {
+void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size) {
+	ZEST_ASSERT(size <= staging_buffer->size);		//size must be less than or equal to the staging buffer size and the device buffer size
+	ZEST_ASSERT(size <= device_buffer->size);
 	VkBufferCopy copyInfo = { 0 };
 	copyInfo.srcOffset = staging_buffer->memory_offset;
 	copyInfo.dstOffset = device_buffer->memory_offset;
-	copyInfo.size = staging_buffer->size;
+	copyInfo.size = size;
 	vkCmdCopyBuffer(command_buffer, staging_buffer->memory_pool->buffer, device_buffer->memory_pool->buffer, 1, &copyInfo);
 }
 
