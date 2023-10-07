@@ -38,8 +38,12 @@ void zest_implglfw_PollEventsCallback(void) {
 	glfwPollEvents();
 	double mouse_x, mouse_y;
 	glfwGetCursorPos((GLFWwindow*)ZestApp->window->window_handle, &mouse_x, &mouse_y);
-	ZestApp->mouse_x = (float)mouse_x;
-	ZestApp->mouse_y = (float)mouse_y;
+	double last_mouse_x = ZestApp->mouse_x;
+	double last_mouse_y = ZestApp->mouse_y;
+	ZestApp->mouse_x = mouse_x;
+	ZestApp->mouse_y = mouse_y;
+	ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
+	ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
 	zest_MaybeQuit(glfwWindowShouldClose((GLFWwindow*)ZestApp->window->window_handle));
 }
 

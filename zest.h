@@ -905,8 +905,10 @@ typedef struct zest_app_t {
 	float render_time;
 	zest_microsecs frame_timer;
 
-	float mouse_x;
-	float mouse_y;
+	double mouse_x;
+	double mouse_y;
+	double mouse_delta_x;
+	double mouse_delta_y;
 	int mouse_button;
 
 	zest_uint frame_count;
@@ -2257,6 +2259,7 @@ ZEST_API float zest_DPIScale(void);
 ZEST_API void zest_SetDPIScale(float scale);
 ZEST_API zest_uint zest_FPS(void);
 ZEST_API float zest_FPSf(void);
+ZEST_API void zest_GetMouseSpeed(double *x, double *y);
 ZEST_API zest_descriptor_buffer zest_GetUniformBuffer(const char *name);
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_WaitForIdleDevice(void);

@@ -82,8 +82,12 @@ void zest__os_poll_events() {
 	POINT cursor_position;
 	GetCursorPos(&cursor_position);
 	ScreenToClient(ZestApp->window->window_handle, &cursor_position);
-	ZestApp->mouse_x = (float)cursor_position.x;
-	ZestApp->mouse_y = (float)cursor_position.y;
+	double last_mouse_x = ZestApp->mouse_x;
+	double last_mouse_y = ZestApp->mouse_y;
+	ZestApp->mouse_x = (double)cursor_position.x;
+	ZestApp->mouse_y = (double)cursor_position.y;
+	ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
+	ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
 	ZestApp->mouse_button = 0;
 
 	for (;;) {
@@ -227,8 +231,12 @@ void zest__os_poll_events(void) {
     glfwPollEvents();
     double mouse_x, mouse_y;
     glfwGetCursorPos(ZestApp->window->window_handle, &mouse_x, &mouse_y);
-    ZestApp->mouse_x = (float)mouse_x;
-    ZestApp->mouse_y = (float)mouse_y;
+	double last_mouse_x = ZestApp->mouse_x;
+	double last_mouse_y = ZestApp->mouse_y;
+    ZestApp->mouse_x = mouse_x;
+    ZestApp->mouse_y = mouse_y;
+	ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
+	ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
     ZestApp->flags |= glfwWindowShouldClose(ZestApp->window->window_handle) ? zest_app_flag_quit_application : 0;
 }
 
@@ -644,7 +652,6 @@ zest_camera_t zest_CreateCamera() {
 void zest_TurnCamera(zest_camera_t *camera, float turn_x, float turn_y, float sensitivity) {
 	camera->yaw -= zest_Radians(turn_x * sensitivity);
 	camera->pitch += zest_Radians(turn_y * sensitivity);
-	//todo: don't use zest_Radians here, hard code the value or add a limit to the struct, being lazy!
 	camera->pitch = ZEST__CLAMP(camera->pitch, -1.55334f, 1.55334f);
 	zest_CameraUpdateFront(camera);
 }
@@ -3419,6 +3426,11 @@ zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_nam
 void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }
 void zest_MaybeQuit(zest_bool condition) { ZestApp->flags |= condition != 0 ? zest_app_flag_quit_application : 0; }
 void zest__hash_initialise(zest_hasher *hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
+void zest_GetMouseSpeed(double *x, double *y) {
+	double ellapsed_in_seconds = (double)ZestApp->current_elapsed / ZEST_MICROSECS_SECOND;
+	*x = ZestApp->mouse_delta_x * ellapsed_in_seconds;
+	*y = ZestApp->mouse_delta_y * ellapsed_in_seconds;
+}
 
 VkDescriptorBufferInfo *zest_GetUniformBufferInfo(const char *name, zest_index fif) { 
 	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); 
@@ -5378,6 +5390,7 @@ void zest_CopyWholeBitmap(zest_bitmap_t *src, zest_bitmap_t *dst) {
 	dst->stride = src->stride;
 	dst->data = ZEST_NULL;
 	dst->data = (zest_byte*)ZEST__ALLOCATE(src->size);
+	ZEST_ASSERT(dst->data);	//out of memory;
 	memcpy(dst->data, src->data, src->size);
 
 }
