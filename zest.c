@@ -1819,7 +1819,7 @@ zest_uint zloc_CountBlocks(zloc_header *first_block) {
 	return count;
 }
 
-zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image) {
+zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image) {
 	if (image != VK_NULL_HANDLE) {
 		VkMemoryRequirements memory_requirements;
 		vkGetImageMemoryRequirements(ZestDevice->logical_device, image, &memory_requirements);
@@ -1873,7 +1873,7 @@ zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_i
 	return buffer;
 }
 
-zest_buffer_t *zest_CreateStagingBuffer(VkDeviceSize size, void *data) {
+zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data) {
 	zest_buffer_info_t buffer_info = zest_CreateStagingBufferInfo();
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (data) {
@@ -1882,7 +1882,7 @@ zest_buffer_t *zest_CreateStagingBuffer(VkDeviceSize size, void *data) {
 	return buffer;
 }
 
-zest_buffer_t *zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
 	zest_buffer_info_t buffer_info = zest_CreateIndexBufferInfo();
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
@@ -1892,7 +1892,7 @@ zest_buffer_t *zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buf
 	return buffer;
 }
 
-zest_buffer_t *zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+zest_buffer zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
 	zest_buffer_info_t buffer_info = zest_CreateVertexBufferInfo();
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
@@ -1902,7 +1902,7 @@ zest_buffer_t *zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_bu
 	return buffer;
 }
 
-zest_buffer_t *zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+zest_buffer zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
 	zest_buffer_info_t buffer_info = zest_CreateStorageBufferInfo();
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
@@ -1912,7 +1912,7 @@ zest_buffer_t *zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_b
 	return buffer;
 }
 
-zest_buffer_t *zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
 	zest_buffer_info_t buffer_info = zest_CreateComputeVertexBufferInfo();
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
@@ -1922,7 +1922,7 @@ zest_buffer_t *zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer sta
 	return buffer;
 }
 
-zest_buffer_t *zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
 	zest_buffer_info_t buffer_info = zest_CreateComputeVertexBufferInfo();
 	zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
 	if (staging_buffer) {
@@ -2051,6 +2051,21 @@ zest_buffer_info_t zest_CreateStagingBufferInfo() {
 void zest_FreeBuffer(zest_buffer buffer) {
 	if (!buffer) return;	//Nothing to free
 	zloc_FreeRemote(buffer->buffer_allocator->allocator, buffer);
+}
+
+void zest_FreeDescriptorBuffer(zest_descriptor_buffer buffer) {
+	if (buffer->all_frames_in_flight) {
+		for (ZEST_EACH_FIF_i) {
+			if (buffer->buffer[i]) {
+				zloc_FreeRemote(buffer->buffer[i]->buffer_allocator->allocator, buffer->buffer[i]);
+			}
+		}
+	}
+	else {
+		if (buffer->buffer[0]) {
+			zloc_FreeRemote(buffer->buffer[0]->buffer_allocator->allocator, buffer->buffer[0]);
+		}
+	}
 }
 
 VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer buffer) { 

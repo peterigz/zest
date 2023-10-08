@@ -1941,53 +1941,115 @@ ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void
 ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
 ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
 
-//Buffer related
+//-----------------------------------------------
+//		Buffer functions.
+//		Use these functions to create memory buffers mainly on the GPU
+//		but you can also create staging buffers that are cpu visible and
+//		used to upload data to the GPU
+//		All buffers are allocated from a memory pool. Generally each buffer type has it's own separate pool
+//		depending on the memory requirements. You can define the size of memory pools before you initialise
+//		Zest using zest_SetDeviceBufferPoolSize and zest_SetDeviceImagePoolsize. When you create a buffer, if
+//		there is no memory left to allocate the buffer then it will try and create a new pool to allocate from.
+//-----------------------------------------------
+//Debug functions, will output info about the buffer to the console and also verify the integrity of host and device memory blocks
 ZEST_API void zloc__output_buffer_info(void* ptr, size_t size, int free, void* user, int count);
 ZEST_API zloc__error_codes zloc_VerifyRemoteBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
 ZEST_API zloc__error_codes zloc_VerifyBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
 ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
-ZEST_API zest_buffer_t *zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image);
-ZEST_API zest_buffer_t *zest_CreateStagingBuffer(VkDeviceSize size, void *data);
-ZEST_API zest_buffer_t *zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
-ZEST_API zest_buffer_t *zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
-ZEST_API zest_buffer_t *zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer);
-ZEST_API zest_buffer_t *zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
-ZEST_API zest_buffer_t *zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
-ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
-ZEST_API zest_bool zest_GrowDescriptorBuffer(zest_descriptor_buffer buffer, zest_size unit_size, zest_size minimum_bytes);
+//---------
+//Create a new buffer configured with the zest_buffer_info_t that you pass into the function. If you're creating a buffer to store
+//and image then pass in the VkImage as well, otherwise just pass in 0.
+//You can use helper functions to create commonly used buffer types such as zest_CreateVertexBufferInfo below, and you can just use
+//helper functions to create the buffers without needed to create the zest_buffer_info_t, see functions just below this one.
+ZEST_API zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image);
+//Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
+ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data);
+//Create an index buffer.
+ZEST_API zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+ZEST_API zest_buffer zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+//Create a general storage buffer mainly for use in a compute shader
+ZEST_API zest_buffer zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+//Create a vertex buffer that is flagged for storage so that you can use it in a compute shader
+ZEST_API zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+//Create an index buffer that is flagged for storage so that you can use it in a compute shader
+ZEST_API zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+//The following functions can be used to generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeIndexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateIndexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateStagingBufferInfo(void);
-ZEST_API void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
-ZEST_API void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
-ZEST_API void zest_FreeBuffer(zest_buffer buffer);
-ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer buffer);
-ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer buffer);
-ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer_t *source_buffer, zest_buffer_t *target_buffer, VkDeviceSize target_offset);
-ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader_t *uploader, VkCommandBuffer command_buffer);
-ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_key hash);
-ZEST_API zest_buffer_pool_size_t zest_GetDeviceBufferPoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
-ZEST_API zest_buffer_pool_size_t zest_GetDeviceImagePoolSize(const char *name);
-ZEST_API void zest_SetDeviceBufferPoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size);
-ZEST_API void zest_SetDeviceImagePoolSize(const char *name, zest_size minimum_allocation, zest_size pool_size);
-ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
-ZEST_API void zest_Update2dUniformBuffer(void);
-ZEST_API void zest_Update2dUniformBufferFIF(zest_index fif);
+//Create descriptor buffers with the following functions. Descriptor buffers can be used when you want to bind them in a descriptor set
+//for use in a shader. When you create a descriptor buffer it also creates the descriptor info which is necessary when creating the 
+//descriptor set. Note that to create a uniform buffer which needs a descriptor info you can just call zest_CreateUniformBuffer. 
+//Pass in the size and whether or not you want a buffer for each frame in flight. If you're writing to the buffer every frame then you
+//we need a buffer for each frame in flight, otherwise if the buffer is being written too ahead of time and will be read only after that
+//then you can pass ZEST_FALSE or 0 for all_frames_in_flight to just create a single buffer.
 ZEST_API zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_info, zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateComputeVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateComputeIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
+//Use this function to get the zest_buffer from the zest_descriptor_buffer handle. If the buffer uses multiple frames in flight then it
+//will retrieve the current frame in flight buffer which will be safe to write to.
 ZEST_API zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer descriptor_buffer);
+//Grow a buffer if the minium_bytes is more then the current buffer size.
+ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
+//Grow a descriptor buffer if the minium_bytes is more then the current buffer size.
+ZEST_API zest_bool zest_GrowDescriptorBuffer(zest_descriptor_buffer buffer, zest_size unit_size, zest_size minimum_bytes);
+//Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
+//the size as well that you want to copy
+ZEST_API void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
+//Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
+//one off copy with a separate command buffer
+ZEST_API void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
+//Free a zest_buffer and return it's memory to the pool
+ZEST_API void zest_FreeBuffer(zest_buffer buffer);
+//Free a zest_descriptor_buffer and return it's memory to the pool
+ZEST_API void zest_FreeDescriptorBuffer(zest_descriptor_buffer buffer);
+//Get the VkDeviceMemory from a zest_buffer. This is needed for some Vulkan commands
+ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer buffer);
+//Get the VkBuffer from a zest_buffer. This is needed for some Vulkan Commands
+ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer buffer);
+//When creating your own draw routines you will probably need to upload data from a staging buffer to a GPU buffer like a vertex buffer. You can
+//use this command with zest_UploadBuffer to upload the buffers that you need. You can call zest_AddCopyCommand multiple times depending on 
+//how many buffers you need to upload data for and then call zest_UploadBuffer passing the zest_buffer_uploader_t to copy all the buffers in 
+//one go. For examples see the builtin draw layers that do this like: zest__update_instance_layer_buffers_callback
+ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer_t *source_buffer, zest_buffer_t *target_buffer, VkDeviceSize target_offset);
+ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader_t *uploader, VkCommandBuffer command_buffer);
+//Get the default pool size that is set for a specific pool hash.
+ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_key hash);
+//Get the default pool size that is set for a specific combination of usage, property and image flags
+ZEST_API zest_buffer_pool_size_t zest_GetDeviceBufferPoolSize(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, VkImageUsageFlags image_flags);
+//Get the default pool size for an image pool. 
+ZEST_API zest_buffer_pool_size_t zest_GetDeviceImagePoolSize(const char *name);
+//Set the default pool size for a specific type of buffer set by the usage and property flags. You must call this before you call zest_Initialise
+//otherwise it might not take effect on any buffers that are created during initialisation.
+ZEST_API void zest_SetDeviceBufferPoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size);
+//Set the default pool size for images. Generally, all images use the same pool type in most situations so that simplyfies things.
+ZEST_API void zest_SetDeviceImagePoolSize(const char *name, zest_size minimum_allocation, zest_size pool_size);
+//Create a buffer specifically for use as a uniform buffer. Essentially this is just a zest_descriptor_buffer.
+ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
+//Standard builtin functions for updating a uniform buffer for use in 2d shaders where x,y coordinates represent a location on the screen. This will
+//update the current frame in flight. If you need to update a specific frame in flight then call zest_UpdateUniformBufferFIF.
+ZEST_API void zest_Update2dUniformBuffer(void);
+ZEST_API void zest_Update2dUniformBufferFIF(zest_index fif);
 //--End Buffer related
 
-//Command queue setup and creation
+//-----------------------------------------------
+//		Command queue setup and creation
+//		Command queues are where all of the vulkan commands get written for submitting and executing
+//		on the GPU. A simple command queue is created by Zest when you Initialise zest for drawing
+//		sprites.
+//-----------------------------------------------
+//Create a new command queue with the name you pass to the function. This command queue assumes that you want to render to the swap chain.
 ZEST_API zest_command_queue zest_NewCommandQueue(const char *name);
+//Create a new command queue that you can submit anytime you need to. This is not for rendering to the swap chain but generally for rendering
+//to a zest_render_target
 ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
+//Get an existing zest_command_queue by name
 ZEST_API zest_command_queue zest_GetCommandQueue(const char *name);
 ZEST_API zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(const char *name);
 ZEST_API void zest_SetDrawCommandsClsColor(zest_command_queue_draw_commands draw_commands, float r, float g, float b, float a);
