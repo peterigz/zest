@@ -872,14 +872,17 @@ typedef struct zest_device_t {
 	void *allocator_end;
 } zest_device_t;
 
+zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
+
 typedef struct zest_create_info_t {
-	const char *title;
+	const char *title;									//Title that shows in the window
 	zest_size memory_pool_size;							//The size of each memory pool. More pools are added if needed
 	int screen_width, screen_height;					//Default width and height of the window that you open
 	int screen_x, screen_y;								//Default position of the window
 	int virtual_width, virtual_height;					//The virtial width/height of the viewport
 	VkFormat color_format;								//Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
-	VkDescriptorPoolSize *pool_counts;					//You can define descriptor pool counts here.
+	zest_map_descriptor_pool_sizes pool_counts;			//You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
+	zest_uint max_descriptor_pool_sets;					//The maximum number of descriptor pool sets for the descriptor pool. 100 is default but set to more depending on your needs.
 	zest_uint flags;									//Set flags to apply different initialisation options
 
 	//Callbacks use these to implement your own preferred window creation functionality
@@ -1022,13 +1025,12 @@ typedef struct zest_pipeline_template_create_info_t {
 	VkRenderPass renderPass;
 	VkVertexInputAttributeDescription *attributeDescriptions;
 	VkVertexInputBindingDescription *bindingDescriptions;
-	VkVertexInputBindingDescription bindingDescription;
 	VkDynamicState *dynamicStates;
 	zest_bool no_vertex_input;
-	const char *vertShaderFile;
-	const char *fragShaderFile;
-	const char *vertShaderFunctionName;
-	const char *fragShaderFunctionName;
+	zest_text vertShaderFile;
+	zest_text fragShaderFile;
+	zest_text vertShaderFunctionName;
+	zest_text fragShaderFunctionName;
 	VkPrimitiveTopology topology;
 } zest_pipeline_template_create_info_t;
 
@@ -1053,8 +1055,8 @@ typedef struct zest_pipeline_template_t {
 	VkPipelineDynamicStateCreateInfo dynamicState;
 	VkRenderPass renderPass;
 
-	const char *vertShaderFile;
-	const char *fragShaderFile;
+	zest_text vertShaderFile;
+	zest_text fragShaderFile;
 } zest_pipeline_template_t;
 
 //A pipeline set is all of the necessary things required to setup and maintain a pipeline
@@ -1326,8 +1328,6 @@ struct zest_compute_t {
 	// Additional cleanup function callback for the extra compute_data you're using
 	void(*extra_cleanup_callback)(zest_compute compute);				
 };
-
-zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
 
 typedef struct zest_compute_builder_t {
     zest_map_descriptor_pool_sizes descriptor_pool_sizes;
@@ -1625,6 +1625,7 @@ ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocato
 
 //Renderer functions
 ZEST_PRIVATE void zest__initialise_renderer(zest_create_info_t *create_info);
+ZEST_PRIVATE zest_window_t *zest__allocate_window();
 ZEST_PRIVATE void zest__create_swapchain(void);
 ZEST_PRIVATE VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *availableFormats);
 ZEST_PRIVATE VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_modes, zest_bool use_vsync);
@@ -1645,7 +1646,7 @@ ZEST_PRIVATE zest_buffer_t *zest__create_depth_resources(void);
 ZEST_PRIVATE void zest__create_swap_chain_frame_buffers(zest_bool depth_buffer);
 ZEST_PRIVATE void zest__create_sync_objects(void);
 ZEST_PRIVATE zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buffer buffer);
-ZEST_PRIVATE void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes);
+ZEST_PRIVATE void zest__create_descriptor_pools(zest_map_descriptor_pool_sizes pool_sizes, zest_uint max_sets);
 ZEST_PRIVATE void zest__make_standard_descriptor_layouts(void);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__create_empty_command_queue(zest_command_queue command_queue);
@@ -1716,6 +1717,14 @@ ZEST_PRIVATE void zest__end_single_time_commands(VkCommandBuffer command_buffer)
 ZEST_PRIVATE zest_index zest__next_fif(void);
 // --End General Helper Functions
 
+// --End Pipeline Helper Functions
+ZEST_PRIVATE void zest__set_pipeline_template(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info);
+ZEST_PRIVATE void zest__update_pipeline_template(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info);
+ZEST_PRIVATE VkShaderModule zest__create_shader_module(char *code);
+ZEST_PRIVATE zest_pipeline_template_create_info_t zest__copy_pipeline_create_info(zest_pipeline_template_create_info_t *create_info);
+ZEST_PRIVATE void zest__free_pipeline_create_info(zest_pipeline_template_create_info_t *create_info);
+// --End Pipeline Helper Functions
+
 // --Buffer allocation funcitons
 ZEST_PRIVATE void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer, const char *name);
 ZEST_PRIVATE void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer);
@@ -1773,57 +1782,131 @@ ZEST_PRIVATE void zest__update_window_size(zest_window_t* window, zest_uint widt
 //-- End Window related functions
 
 //User API functions
-ZEST_API zest_create_info_t zest_CreateInfo(void);
-ZEST_API void zest_Initialise(zest_create_info_t *info);
-ZEST_API void zest_AddInstanceExtension(char *extension);
-ZEST_API void zest_Start(void);
-ZEST_API zest_window_t *zest_AllocateWindow();
-ZEST_API zest_descriptor_set_layout zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
-ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers);
-ZEST_API VkDescriptorSetLayoutBinding zest_CreateDescriptorLayoutBinding(VkDescriptorType type, VkShaderStageFlags stageFlags, zest_uint binding, zest_uint descriptorCount);
-ZEST_API VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint binding);
-ZEST_API VkDescriptorSetLayoutBinding zest_CreateSamplerLayoutBinding(zest_uint binding);
-ZEST_API VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding);
-ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDescriptorSetLayoutBinding *bindings);
-ZEST_API VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
-ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorImageInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
-ZEST_API zest_descriptor_set_builder_t zest_NewDescriptorSetBuilder();
-ZEST_API void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
-ZEST_API void zest_AddBuilderDescriptorWriteBuffer(zest_descriptor_set_builder_t *builder, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
-ZEST_API void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t *builder, zest_uint image_count, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
-ZEST_API void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t *builder, zest_uint buffer_count, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
-ZEST_API zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *builder, zest_descriptor_set_layout layout);
-ZEST_API void zest_AllocateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSetLayout descriptor_layout, VkDescriptorSet *descriptor_set);
-ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
-ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
-ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
-ZEST_API void zest_SetUserData(void* data);
-ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
-ZEST_API void zest_SetActiveCommandQueue(zest_command_queue command_queue);
-ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data));
-ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height));
-ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
-ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
-//--End User API functions
 
-//Pipeline related 
+//-----------------------------------------------
+//		Essential setup functions
+//-----------------------------------------------
+//Create a new zest_create_info_t struct with default values for initialising Zest
+ZEST_API zest_create_info_t zest_CreateInfo(void);
+//Set the pool count for a descriptor type in a zest_create_info_t. Do this for any pools that you want to be different to the default. You only
+//need to call this if you're running out of descriptor pool space for a specific VkDescriptorType which you maybe doing if you have a lot of custom
+//draw routines
+ZEST_API void SetDescriptorPoolCount(zest_create_info_t *info, VkDescriptorType descriptor_type, zest_uint count);
+//Initialise Zest. You must call this in order to use Zest. Use zest_CreateInfo() to set up some default values to initialise the renderer.
+ZEST_API void zest_Initialise(zest_create_info_t *info);
+//Set the custom user data which will get passed through to the user update function each frame.
+ZEST_API void zest_SetUserData(void* data);
+//Set the user udpate callback that will be called each frame in the main loop of zest. You must set this or the main loop will just render a blank screen.
+ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
+//Start the main loop in the zest renderer. Must be run after zest_Initialise and also zest_SetUserUpdateCallback
+ZEST_API void zest_Start(void);
+
+//-----------------------------------------------
+//		Vulkan Helper Functions
+//		These functions are for more advanced customisation of the render where more knowledge of how Vulkan works is required.
+//-----------------------------------------------
+//Add a Vulkan instance extension. You don't really need to worry about this function unless you're looking to customise the render with some specific extensions
+ZEST_API void zest_AddInstanceExtension(char *extension);
+//Add a Vulkan descriptor layout which you can use to setup shaders. Zest adds a few builtin layouts for sprite and billboard drawing.
+//Just pass in a name for the layout and the VkDescriptorSetLayout vulkan struct
+//You can combine this with zest_CreateDescriptorSetLayout or just pass in your own VkDescriptorLayout struct
+ZEST_API zest_descriptor_set_layout zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
+//Create a vulkan descriptor set layout for use in shaders. This is a helper function, just pass in the number of uniforms, texture samplers and storage buffers
+//that you want the layout to have and it returns a VkDescriptorSetLayout struct setup with those values and appropriate bindings.
+ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint samplers, zest_uint storage_buffers);
+//Create a vulkan descriptor layout binding for use in setting up a descriptor set layout. This is a more general function for setting up whichever layout binding
+//you need. Just pass in the VkDescriptorType, VkShaderStageFlags, the binding number (which will correspond to the binding in the shader, and the number of descriptors
+ZEST_API VkDescriptorSetLayoutBinding zest_CreateDescriptorLayoutBinding(VkDescriptorType type, VkShaderStageFlags stageFlags, zest_uint binding, zest_uint descriptorCount);
+//Create a vulkan descriptor layout binding specifically for uniform buffers. Just pass in the binding number that corresponds to the binding in the shader
+ZEST_API VkDescriptorSetLayoutBinding zest_CreateUniformLayoutBinding(zest_uint binding);
+//Create a vulkan descriptor layout binding specifically for texture samplers. Just pass in the binding number that corresponds to the binding in the shader
+ZEST_API VkDescriptorSetLayoutBinding zest_CreateSamplerLayoutBinding(zest_uint binding);
+//Create a vulkan descriptor layout binding specifically for storage buffers, more generally used for compute shaders. Just pass in the binding number that corresponds to the binding in the shader
+ZEST_API VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding);
+//Create a vulkan descriptor set layout with bindings. Just pass in an array of bindings and a count of how many bindings there are.
+ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(zest_uint count, VkDescriptorSetLayoutBinding *bindings);
+//Create a vulkan descriptor write for a buffer. You need to pass the VkDescriptorSet 
+ZEST_API VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+//Create a vulkan descriptor write for an image.
+ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorImageInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+//To make creating a new VkDescriptorSet you can use a builder. Make sure you call this function to properly initialise the zest_descriptor_set_builder_t
+//Once you have a builder, you can call the Add commands to add image and buffer bindings then call zest_BuildDescriptorSet to create the descriptor set
+ZEST_API zest_descriptor_set_builder_t zest_NewDescriptorSetBuilder();
+//Add a VkDescriptorImageInfo from a zest_texture (or render target) to a descriptor set builder.
+ZEST_API void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
+//Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder.
+ZEST_API void zest_AddBuilderDescriptorWriteBuffer(zest_descriptor_set_builder_t *builder, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+//Add an array of VkDescriptorImageInfos to a descriptor set builder.
+ZEST_API void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t *builder, zest_uint image_count, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
+//Add an array of VkDescriptorBufferInfos to a descriptor set builder.
+ZEST_API void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t *builder, zest_uint buffer_count, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+//Build a zest_descriptor_set_t using a builder that you made using the AddBuilder command. The layout that you pass to this function must be configured properly.
+//zest_descriptor_set_t will contain a VkDescriptorSet for each frame in flight as well as descriptor writes used to create the set.
+ZEST_API zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *builder, zest_descriptor_set_layout layout);
+//Allocate a descriptor set from a descriptor pool. The VkDescriptorPool that you pass in must have enough space to make the allocation. You can pass in the main pool from the render found at:
+//ZestRenderer->descriptor_pool which you can define the size of at initialisation using the pool_counts using zest_SetDescriptorPoolCount.
+ZEST_API void zest_AllocateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSetLayout descriptor_layout, VkDescriptorSet *descriptor_set);
+//Update a VkDescriptorSet with an array of descriptor writes. For when the images/buffers in a descriptor set have changed, the corresponding descriptor set will need to be updated.
+ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
+//Create a VkViewport, generally used when building a render pass.
+ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
+//Create a VkRect2D, generally used when building a render pass.
+ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
+
+//-----------------------------------------------
+//		Pipeline related vulkan helpers
+//		Pipelines are essential to drawing things on screen. There are some builtin pipelines that Zest creates
+//		for sprite/billboard/mesh/font drawing. You can take a look in zest__prepare_standard_pipelines to see how
+//		the following functions are utilised, plus look at the exmaples for building your own custom pipelines.
+//-----------------------------------------------
+//Add a new pipeline to the renderer and return its handle.
 ZEST_API zest_pipeline zest_AddPipeline(const char *name);
-ZEST_API zest_vertex_input_descriptions zest_NewVertexInputDescriptions();
-ZEST_API void zest_AddVertexInputDescription(zest_vertex_input_descriptions *descriptions, VkVertexInputAttributeDescription description);
-ZEST_API void zest_BuildPipeline(zest_pipeline pipeline);
-ZEST_API void zest_UpdatePipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info);
-ZEST_API void zest_SetPipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info);
-ZEST_API void zest_MakePipelineTemplate(zest_pipeline pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info);
-ZEST_API void zest_SetPipelineTemplatePushConstant(zest_pipeline_template_create_info_t *create_info, zest_uint size, zest_uint offset, VkShaderStageFlags stage_flags);
-ZEST_API zest_pipeline_template_t *zest_PipelineTemplate(zest_pipeline pipeline);
-ZEST_API VkShaderModule zest_CreateShaderModule(char *code);
+//When building a new pipeline, use a zest_pipeline_template_create_info_t struct to do this and make it a lot easier.
+//Call this function to create a base version with some default values, and overwrite those values depending on what
+//you need for the pipeline. Once you have configured the template create info you can then call zest_MakePipelineTemplate
+//to configure the pipeline and then you can do some further tweaks of the zest_pipeline before calling zest_BuildPipeline
+//to finalise the pipeline ready for using
 ZEST_API zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void);
-ZEST_API void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range);
-ZEST_API VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_uint index);
-ZEST_API zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_uint index);
-ZEST_API zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint index);
-ZEST_API VkVertexInputBindingDescription zest_CreateVertexInputBindingDescription(zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
+//Add a new VkVertexInputBindingDescription which is used to set the size of the struct (stride) and the vertex input rate.
+//You can add as many bindings as you need, just make sure you set the correct binding index for each one
+ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template_create_info_t *create_info, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
+//Clear the input binding descriptions from the zest_pipeline_template_create_info_t bindingDescriptions array.
+ZEST_API void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template_create_info_t *create_info);
+//Make a new array of vertex input descriptors for use with zest_AddVertexInputDescription. input descriptions are used
+//to define the vertex input types such as position, color, uv coords etc., depending on what you need.
+ZEST_API zest_vertex_input_descriptions zest_NewVertexInputDescriptions();
+//Add a VkVertexInputeAttributeDescription to a zest_vertex_input_descriptions array. You can use zest_CreateVertexInputDescription
+//helper function to create the description
+ZEST_API void zest_AddVertexInputDescription(zest_vertex_input_descriptions *descriptions, VkVertexInputAttributeDescription description);
+//Create a VkVertexInputAttributeDescription for adding to a zest_vertex_input_descriptions array. Just pass the binding and location in
+//the shader, the VkFormat and the offset into the struct that you're using for the vertex data. See zest__prepare_standard_pipelines
+//for examples of how the builtin pipelines do this
 ZEST_API VkVertexInputAttributeDescription zest_CreateVertexInputDescription(zest_uint binding, zest_uint location, VkFormat format, zest_uint offset);
+//Set up the push contant that you might plan to use in the pipeline. Just pass in the size of the push constant struct, the offset and the shader
+//stage flags where the push constant will be used. Use this if you only want to set up a single push constant range
+ZEST_API void zest_SetPipelineTemplatePushConstant(zest_pipeline_template_create_info_t *create_info, zest_uint size, zest_uint offset, VkShaderStageFlags stage_flags);
+//If you have more then one push constant range you want to use with the pipeline then you can use this to add what you need. Just pass in
+//the create info struct pointer and a VkPushConstantRange
+ZEST_API void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range);
+//Make a pipeline template ready for building. Pass in the pipeline that you created with zest_AddPipeline, the render pass that you want to 
+//use for the pipeline and the zest_pipeline_template_create_info_t you have setup to configure the pipeline. After you have called this
+//function you can make a few more alterations to configure the pipeline further if needed before calling zest_BuildPipeline.
+//NOTE: the create info that you pass into this function will get copied and then freed so don't use it after calling this function. If 
+//you want to create another variation of this pipeline you're creating then you can call zest_CopyTemplateFromPipeline to create a new
+//zest_pipeline_template_create_info_t and create another new pipeline with that
+ZEST_API void zest_MakePipelineTemplate(zest_pipeline pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info);
+//Build the pipeline ready for use in your draw routines. This is the final step in building the pipeline.
+ZEST_API void zest_BuildPipeline(zest_pipeline pipeline);
+//Helper function to get the pipeline template from a pipeline. 
+ZEST_API zest_pipeline_template_t *zest_PipelineTemplate(zest_pipeline pipeline);
+//Get the shader stage flags for a specific push constant range in the pipeline
+ZEST_API VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_uint index);
+//Get the size of a push constant range for a specif index in the pipeline
+ZEST_API zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_uint index);
+//Get the offset of a push constant range for a specif index in the pipeline
+ZEST_API zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint index);
+//The following are helper functions to set color blend attachment states for various blending setups
+//Just take a look inside the functions for the values being used
 ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState2(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaOnlyBlendState(void);
@@ -1832,13 +1915,31 @@ ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendStateForSwap(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
-ZEST_API void zest_BindPipeline(zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set);
-ZEST_API void zest_BindComputePipeline(zest_compute compute, zest_index shader_index);
-ZEST_API void zest_BindComputePipelineCB(VkCommandBuffer command_buffer, zest_compute compute, zest_index shader_index);
+//Bind a pipeline for use in a draw routing. Once you have built the pipeline at some point you will want to actually use it to draw things.
+//In order to do that you can bind the pipeline using this function. Just pass in the pipeline handle and a VkDescriptorSet. Note that the 
+//descriptor set must be compatible with the shaders that are being using in the pipeline. The command buffer used in the binding will be 
+//whatever is defined in ZestRenderer->current_command_buffer which will be set when the command queue is recorded. If you need to specify
+//a command buffer then call zest_BindPipelineCB instead.
+ZEST_API void zest_BindPipeline(zest_pipeline pipeline, VkDescriptorSet descriptor_set);
+//Does the same thing as zest_BindPipeline but you can also pass in a command buffer if you need to specify one.
 ZEST_API void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set);
+//Retrieve a pipeline from the renderer storage. Just pass in the name of the pipeline you want to retrieve and the handle to the pipeline 
+//will be returned.
 ZEST_API zest_pipeline zest_Pipeline(const char *name);
+//Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
+//on an existing pipeline with just a few tweaks like setting a different shader to use.
 ZEST_API zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(const char *pipeline_name);
 //-- End Pipeline related 
+
+//--End vulkan helper functions
+
+//Platform dependent callbacks
+//Depending on the platform and method you're using to create a window and poll events callbacks are used to do those things. 
+//You can define those callbacks with these functions
+ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data));
+ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height));
+ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
+ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
 
 //Buffer related
 ZEST_API void zloc__output_buffer_info(void* ptr, size_t size, int free, void* user, int count);
@@ -2127,6 +2228,15 @@ ZEST_API void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_targ
 ZEST_API void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif);
 //-- End Render targets
 
+//-----------------------------------------------
+//		Main loop update functions
+//-----------------------------------------------
+//Set the command queue that you want the next frame to be rendered by. You must call this function every frame or else
+//you will only render a blank screen. Just pass the zest_command_queue that you want to use. If you initialised the editor
+//with a default command queue then you can call this function with zest_SetActiveCommandQueue(ZestApp->default_command_queue)
+//Use the Command queue setup and creation functions to create your own command queues. See the examples for how to do this.
+ZEST_API void zest_SetActiveCommandQueue(zest_command_queue command_queue);
+
 //Draw Routines
 ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
 //-- End Draw Routines
@@ -2208,6 +2318,8 @@ ZEST_API void zest_ComputeAttachRenderTarget(zest_compute compute, zest_render_t
 ZEST_API void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute);
 ZEST_API void zest_UpdateComputeDescriptorInfos(zest_compute compute);
 ZEST_API void zest_StandardComputeDescriptorUpdate(zest_compute compute);
+ZEST_API void zest_BindComputePipeline(zest_compute compute, zest_index shader_index);
+ZEST_API void zest_BindComputePipelineCB(VkCommandBuffer command_buffer, zest_compute compute, zest_index shader_index);
 //--End Compute shaders
 
 //Events and States

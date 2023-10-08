@@ -2175,7 +2175,7 @@ void zest__initialise_renderer(zest_create_info_t *create_info) {
 
 	ZestRenderer->standard_uniform_buffer = zest_CreateUniformBuffer("Standard 2d Uniform Buffer", sizeof(zest_uniform_buffer_data_t));
 
-	zest__create_descriptor_pools(create_info->pool_counts);
+	zest__create_descriptor_pools(create_info->pool_counts, create_info->max_descriptor_pool_sets);
 	zest__make_standard_descriptor_layouts();
 	zest__create_pipeline_cache();
 	zest__prepare_standard_pipelines();
@@ -2726,49 +2726,74 @@ zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buff
 	return buffer;
 }
 
-void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes) {
-	if (zest_vec_empty(pool_sizes)) {
-		VkDescriptorPoolSize pool_size;
+void zest__create_descriptor_pools(zest_map_descriptor_pool_sizes pool_sizes, zest_uint max_sets) {
+	VkDescriptorPoolSize pool_size;
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_SAMPLER)) {
 		pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLER;
 		pool_size.descriptorCount = 100;
-		zest_vec_push(pool_sizes, pool_size);
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+	}
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)) {
 		pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		pool_size.descriptorCount = 100;
-		zest_vec_push(pool_sizes, pool_size);
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+	}
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
 		pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 		pool_size.descriptorCount = 100;
-		zest_vec_push(pool_sizes, pool_size);
-		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-		pool_size.descriptorCount = 10;
-		zest_vec_push(pool_sizes, pool_size);
-		pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-		pool_size.descriptorCount = 10;
-		zest_vec_push(pool_sizes, pool_size);
-		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-		pool_size.descriptorCount = 10;
-		zest_vec_push(pool_sizes, pool_size);
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+	}
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)) {
 		pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		pool_size.descriptorCount = 100;
-		zest_vec_push(pool_sizes, pool_size);
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+	}
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
+		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		pool_size.descriptorCount = 10;
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+	}
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER)) {
+		pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+		pool_size.descriptorCount = 10;
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+	}
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
 		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		pool_size.descriptorCount = 10;
-		zest_vec_push(pool_sizes, pool_size);
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+	}
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC)) {
 		pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 		pool_size.descriptorCount = 10;
-		zest_vec_push(pool_sizes, pool_size);
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+	}
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) {
 		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
 		pool_size.descriptorCount = 10;
-		zest_vec_push(pool_sizes, pool_size);
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+	}
+
+	if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT)) {
 		pool_size.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
 		pool_size.descriptorCount = 10;
-		zest_vec_push(pool_sizes, pool_size);
+		zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
 	}
 
 	VkDescriptorPoolCreateInfo pool_info = { 0 };
 	pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	pool_info.poolSizeCount = (zest_uint)(zest_vec_size(pool_sizes));
-	pool_info.pPoolSizes = pool_sizes;
-	pool_info.maxSets = 100;
+	pool_info.poolSizeCount = (zest_uint)(zest_map_size(pool_sizes));
+	pool_info.pPoolSizes = pool_sizes.data;
+	pool_info.maxSets = max_sets;
 
 	ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_info, &ZestDevice->allocation_callbacks, &ZestRenderer->descriptor_pool));
 }
@@ -2805,17 +2830,17 @@ VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_ui
 		zest_vec_push(bindings, zest_CreateStorageLayoutBinding(c + samplers + uniforms));
 	}
 
-	VkDescriptorSetLayout layout = zest_CreateDescriptorSetLayoutWithBindings(bindings);
+	VkDescriptorSetLayout layout = zest_CreateDescriptorSetLayoutWithBindings(zest_vec_size(bindings), bindings);
 	zest_vec_free(bindings);
 	return layout;
 }
 
-VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(VkDescriptorSetLayoutBinding *bindings) {
+VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(zest_uint count, VkDescriptorSetLayoutBinding *bindings) {
 	ZEST_ASSERT(bindings);	//must have bindings to create the layout
 
 	VkDescriptorSetLayoutCreateInfo layoutInfo = { 0 };
 	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	layoutInfo.bindingCount = (zest_uint)zest_vec_size(bindings);
+	layoutInfo.bindingCount = (zest_uint)count;
 	layoutInfo.pBindings = bindings;
 
 	VkDescriptorSetLayout layout;
@@ -3001,14 +3026,14 @@ zest_pipeline zest_CreatePipeline() {
 
 zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void) {
 	zest_pipeline_template_create_info_t create_info = {
-		.vertShaderFunctionName = "main",
-		.fragShaderFunctionName = "main",
 		.descriptorSetLayout = zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler"),
 		.no_vertex_input = ZEST_FALSE,
 		.attributeDescriptions = 0,
-		.bindingDescription = 0,
+		.bindingDescriptions = 0,
 		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
 	};
+	zest_SetText(&create_info.fragShaderFunctionName, "main");
+	zest_SetText(&create_info.vertShaderFunctionName, "main");
 	zest_vec_push(create_info.dynamicStates, VK_DYNAMIC_STATE_VIEWPORT);
 	zest_vec_push(create_info.dynamicStates, VK_DYNAMIC_STATE_SCISSOR);
 	create_info.viewport.offset.x = 0;
@@ -3035,21 +3060,30 @@ zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint inde
 	return pipeline->pipeline_template.pipelineLayoutInfo.pPushConstantRanges[index].offset;
 }
 
-VkVertexInputBindingDescription zest_CreateVertexInputBindingDescription(zest_uint binding, zest_uint stride, VkVertexInputRate input_rate) {
-	VkVertexInputBindingDescription inpute_binding_description = { 0 };
-	inpute_binding_description.binding = binding;
-	inpute_binding_description.stride = stride;
-	inpute_binding_description.inputRate = input_rate;
-	return inpute_binding_description;
+VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template_create_info_t *create_info, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate) {
+	for (zest_foreach_i(create_info->bindingDescriptions)) {
+		//You already have a binding with that index in the bindindDescriptions array
+		ZEST_ASSERT(binding != create_info->bindingDescriptions[i].binding); 
+	}
+	VkVertexInputBindingDescription input_binding_description = { 0 };
+	input_binding_description.binding = binding;
+	input_binding_description.stride = stride;
+	input_binding_description.inputRate = input_rate;
+	zest_vec_push(create_info->bindingDescriptions, input_binding_description);
+	return input_binding_description;
+}
+
+void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template_create_info_t *create_info) {
+	zest_vec_clear(create_info->bindingDescriptions);
 }
 
 VkVertexInputAttributeDescription zest_CreateVertexInputDescription(zest_uint binding, zest_uint location, VkFormat format, zest_uint offset) {
-	VkVertexInputAttributeDescription inpute_attribute_description = { 0 };
-	inpute_attribute_description.location = location;
-	inpute_attribute_description.binding = binding;
-	inpute_attribute_description.format = format;
-	inpute_attribute_description.offset = offset;
-	return inpute_attribute_description;
+	VkVertexInputAttributeDescription input_attribute_description = { 0 };
+	input_attribute_description.location = location;
+	input_attribute_description.binding = binding;
+	input_attribute_description.format = format;
+	input_attribute_description.offset = offset;
+	return input_attribute_description;
 }
 
 VkPipelineColorBlendAttachmentState zest_AdditiveBlendState() {
@@ -3156,7 +3190,7 @@ VkPipelineColorBlendAttachmentState zest_ImGuiBlendState() {
 	return color_blend_attachment;
 }
 
-void zest_BindPipeline(zest_pipeline_t *pipeline, VkDescriptorSet descriptor_set) {
+void zest_BindPipeline(zest_pipeline pipeline, VkDescriptorSet descriptor_set) {
 	vkCmdBindPipeline(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 	vkCmdBindDescriptorSets(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, &descriptor_set, 0, 0);
 }
@@ -3176,33 +3210,28 @@ void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_t *pipeli
 	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, &descriptor_set, 0, 0);
 }
 
-void zest_SetPipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info) {
+void zest__set_pipeline_template(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info) {
 	pipeline_template->vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 
 	pipeline_template->vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	pipeline_template->vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-	pipeline_template->vertShaderStageInfo.pName = create_info->vertShaderFunctionName;
+	pipeline_template->vertShaderStageInfo.pName = create_info->vertShaderFunctionName.str;
 
 	pipeline_template->fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	pipeline_template->fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	pipeline_template->fragShaderStageInfo.pName = create_info->fragShaderFunctionName;
+	pipeline_template->fragShaderStageInfo.pName = create_info->fragShaderFunctionName.str;
 
-	pipeline_template->vertShaderFile = create_info->vertShaderFile;
-	pipeline_template->fragShaderFile = create_info->fragShaderFile;
+	zest_SetText(&pipeline_template->vertShaderFile, create_info->vertShaderFile.str);
+	zest_SetText(&pipeline_template->fragShaderFile, create_info->fragShaderFile.str);
 
 	pipeline_template->inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 	pipeline_template->inputAssembly.topology = create_info->topology;
 	pipeline_template->inputAssembly.primitiveRestartEnable = VK_FALSE;
 
 	if (!create_info->no_vertex_input) {
-		if (zest_vec_empty(create_info->bindingDescriptions)) {
-			pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = 1;
-			pipeline_template->vertexInputInfo.pVertexBindingDescriptions = &create_info->bindingDescription;
-		}
-		else {
-			pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = (zest_uint)zest_vec_size(create_info->bindingDescriptions);
-			pipeline_template->vertexInputInfo.pVertexBindingDescriptions = create_info->bindingDescriptions;
-		}
+		ZEST_ASSERT(zest_vec_size(create_info->bindingDescriptions));	//If the pipeline is set to have vertex input, then you must add bindingDescriptions. You can use zest_AddVertexInputBindingDescription for this
+		pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = (zest_uint)zest_vec_size(create_info->bindingDescriptions);
+		pipeline_template->vertexInputInfo.pVertexBindingDescriptions = create_info->bindingDescriptions;
 		pipeline_template->vertexInputInfo.vertexAttributeDescriptionCount = (zest_uint)zest_vec_size(create_info->attributeDescriptions);
 		pipeline_template->vertexInputInfo.pVertexAttributeDescriptions = create_info->attributeDescriptions;
 	}
@@ -3274,17 +3303,17 @@ void zest_SetPipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_
 void zest_BuildPipeline(zest_pipeline pipeline) {
 	ZEST_VK_CHECK_RESULT(vkCreatePipelineLayout(ZestDevice->logical_device, &pipeline->pipeline_template.pipelineLayoutInfo, &ZestDevice->allocation_callbacks, &pipeline->pipeline_layout));
 
-	if (!pipeline->pipeline_template.vertShaderFile || !pipeline->pipeline_template.fragShaderFile) {
+	if (!pipeline->pipeline_template.vertShaderFile.str || !pipeline->pipeline_template.fragShaderFile.str) {
 		ZEST_ASSERT(0);		//You must specify a vertex and frag shader file to load
 	}
-	char *vert_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.vertShaderFile, ZEST_FALSE);
-	char *frag_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.fragShaderFile, ZEST_FALSE);
+	char *vert_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.vertShaderFile.str, ZEST_FALSE);
+	char *frag_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.fragShaderFile.str, ZEST_FALSE);
 
 	ZEST_ASSERT(vert_shader_code);		//Failed to load the shader file, make sure it exists at the location
 	ZEST_ASSERT(frag_shader_code);		//Failed to load the shader file, make sure it exists at the location
 
-	VkShaderModule vert_shader_module = zest_CreateShaderModule(vert_shader_code);
-	VkShaderModule frag_shader_module = zest_CreateShaderModule(frag_shader_code);
+	VkShaderModule vert_shader_module = zest__create_shader_module(vert_shader_code);
+	VkShaderModule frag_shader_module = zest__create_shader_module(frag_shader_code);
 
 	zest_vec_free(vert_shader_code);
 	zest_vec_free(frag_shader_code);
@@ -3292,12 +3321,12 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
 	pipeline->pipeline_template.vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	pipeline->pipeline_template.vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
 	pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
-	pipeline->pipeline_template.vertShaderStageInfo.pName = pipeline->create_info.vertShaderFunctionName;
+	pipeline->pipeline_template.vertShaderStageInfo.pName = pipeline->create_info.vertShaderFunctionName.str;
 
 	pipeline->pipeline_template.fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	pipeline->pipeline_template.fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 	pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
-	pipeline->pipeline_template.fragShaderStageInfo.pName = pipeline->create_info.fragShaderFunctionName;
+	pipeline->pipeline_template.fragShaderStageInfo.pName = pipeline->create_info.fragShaderFunctionName.str;
 
 	VkPipelineShaderStageCreateInfo shaderStages[2] = { pipeline->pipeline_template.vertShaderStageInfo, pipeline->pipeline_template.fragShaderStageInfo };
 
@@ -3340,18 +3369,21 @@ zest_pipeline_template_t *zest_PipelineTemplate(zest_pipeline pipeline) {
 }
 
 void zest_MakePipelineTemplate(zest_pipeline pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t *create_info) {
-	if (!(pipeline->flags & zest_pipeline_set_flag_is_render_target_pipeline))
-		create_info->renderPass = render_pass;
+
+	if (create_info != &pipeline->create_info) {
+		pipeline->create_info = zest__copy_pipeline_create_info(create_info);
+		zest__free_pipeline_create_info(create_info);
+	}
 	pipeline->create_info.viewport.extent = zest_GetSwapChainExtent();
+	if (!(pipeline->flags & zest_pipeline_set_flag_is_render_target_pipeline)) {
+		pipeline->create_info.renderPass = render_pass;
+	}
 
-	zest_SetPipelineTemplate(&pipeline->pipeline_template, create_info);
+	zest__set_pipeline_template(&pipeline->pipeline_template, &pipeline->create_info);
 	pipeline->pipeline_template.multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-	if (&pipeline->create_info != create_info)
-		pipeline->create_info = *create_info;
 }
 
-VkShaderModule zest_CreateShaderModule(char *code) {
+VkShaderModule zest__create_shader_module(char *code) {
 	VkShaderModuleCreateInfo create_info = { 0 };
 	create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	create_info.codeSize = zest_vec_size(code);
@@ -3363,11 +3395,56 @@ VkShaderModule zest_CreateShaderModule(char *code) {
 	return shader_module;
 }
 
+zest_pipeline_template_create_info_t zest__copy_pipeline_create_info(zest_pipeline_template_create_info_t *create_info) {
+	zest_pipeline_template_create_info_t copy = { 0 };
+	copy.no_vertex_input = create_info->no_vertex_input;
+	copy.renderPass = create_info->renderPass;
+	copy.topology = create_info->topology;
+	copy.viewport = create_info->viewport;
+	copy.descriptorSetLayout = create_info->descriptorSetLayout;
+	if (create_info->pushConstantRange) {
+		zest_vec_resize(copy.pushConstantRange, zest_vec_size(create_info->pushConstantRange));
+		memcpy(copy.pushConstantRange, create_info->pushConstantRange, zest_vec_size_in_bytes(create_info->pushConstantRange));
+	}
+	if (create_info->bindingDescriptions) {
+		zest_vec_resize(copy.bindingDescriptions, zest_vec_size(create_info->bindingDescriptions));
+		memcpy(copy.bindingDescriptions, create_info->bindingDescriptions, zest_vec_size_in_bytes(create_info->bindingDescriptions));
+	}
+	if (create_info->dynamicStates) {
+		zest_vec_resize(copy.dynamicStates, zest_vec_size(create_info->dynamicStates));
+		memcpy(copy.dynamicStates, create_info->dynamicStates, zest_vec_size_in_bytes(create_info->dynamicStates));
+	}
+	if (create_info->attributeDescriptions) {
+		zest_vec_resize(copy.attributeDescriptions, zest_vec_size(create_info->attributeDescriptions));
+		memcpy(copy.attributeDescriptions, create_info->attributeDescriptions, zest_vec_size_in_bytes(create_info->attributeDescriptions));
+	}
+	copy.fragShaderFile.str = 0;
+	copy.fragShaderFunctionName.str = 0;
+	copy.vertShaderFile.str = 0;
+	copy.vertShaderFunctionName.str = 0;
+	zest_SetText(&copy.fragShaderFile, create_info->fragShaderFile.str);
+	zest_SetText(&copy.vertShaderFile, create_info->vertShaderFile.str);
+	zest_SetText(&copy.fragShaderFunctionName, create_info->fragShaderFunctionName.str);
+	zest_SetText(&copy.vertShaderFunctionName, create_info->vertShaderFunctionName.str);
+	return copy;
+}
+
+void zest__free_pipeline_create_info(zest_pipeline_template_create_info_t *create_info) {
+	zest_vec_free(create_info->pushConstantRange);
+	zest_vec_free(create_info->bindingDescriptions);
+	zest_vec_free(create_info->dynamicStates);
+	zest_vec_free(create_info->attributeDescriptions);
+	zest_FreeText(&create_info->fragShaderFile);
+	zest_FreeText(&create_info->vertShaderFile);
+	zest_FreeText(&create_info->fragShaderFunctionName);
+	zest_FreeText(&create_info->vertShaderFunctionName);
+}
+
 void zest__rebuild_pipeline(zest_pipeline_t *pipeline) {
 	//Note: not setting this for pipelines messes with scaling, but not sure if some pipelines need this to be fixed
 	pipeline->create_info.viewport.extent = zest_GetSwapChainExtent();
 	pipeline->pipeline_template.renderPass = zest_GetStandardRenderPass();
-	zest_UpdatePipelineTemplate(&pipeline->pipeline_template, &pipeline->create_info);
+	zest__update_pipeline_template(&pipeline->pipeline_template, &pipeline->create_info);
 	zest_BuildPipeline(pipeline);
 	for (ZEST_EACH_FIF_i) {
 		zest_vec_clear(pipeline->descriptor_writes);
@@ -3402,8 +3479,7 @@ VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands item)
 zest_descriptor_set_layout zest_GetDescriptorSetLayout(const char *name) { return *zest_map_at(ZestRenderer->descriptor_layouts, name); }
 zest_pipeline zest_Pipeline(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipelines, name)); return *zest_map_at(ZestRenderer->pipelines, name); }
 zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(const char *pipeline_name) {
-	zest_pipeline_template_create_info_t copy = zest_Pipeline(pipeline_name)->create_info;
-	return copy;
+	return zest__copy_pipeline_create_info(&zest_Pipeline(pipeline_name)->create_info);
 }
 zest_pipeline_template_create_info_t zest_PipelineCreateInfo(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->pipelines, name)); zest_pipeline pipeline = *zest_map_at(ZestRenderer->pipelines, name); return pipeline->create_info; }
 VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->swapchain_extent; }
@@ -3420,7 +3496,7 @@ float zest_DPIScale(void) { return ZestRenderer->dpi_scale; }
 void zest_SetDPIScale(float scale) { ZestRenderer->dpi_scale = scale; }
 zest_uint zest_FPS() { return ZestApp->last_fps; }
 float zest_FPSf() { return (float)ZestApp->last_fps; }
-zest_window_t *zest_AllocateWindow() { zest_window_t *window; window = (zest_window_t*)ZEST__ALLOCATE(sizeof(zest_window_t)); memset(window, 0, sizeof(zest_window_t)); return window; }
+zest_window_t *zest__allocate_window() { zest_window_t *window; window = (zest_window_t*)ZEST__ALLOCATE(sizeof(zest_window_t)); memset(window, 0, sizeof(zest_window_t)); return window; }
 zest_descriptor_buffer zest_GetUniformBuffer(const char *name) { ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name)); return *zest_map_at(ZestRenderer->uniform_buffers, name); }
 zest_bool zest_UniformBufferExists(const char *name) { return zest_map_valid_name(ZestRenderer->uniform_buffers, name); }
 void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->logical_device); }
@@ -3561,6 +3637,10 @@ void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) {
 }
 
 void zest_SetText(zest_text *buffer, const char *text) {
+	if (!text) {
+		zest_FreeText(buffer);
+		return;
+	}
 	zest_uint length = (zest_uint)strlen(text) + 1;
 	zest_vec_resize(buffer->str, length);
 	zest_strcpy(buffer->str, length, text);
@@ -3580,20 +3660,20 @@ zest_uint zest_TextLength(zest_text *buffer) {
 void zest__prepare_standard_pipelines() {
 	VkRenderPass render_pass = zest_GetStandardRenderPass();
 
-	zest_pipeline_template_create_info_t create_info = zest_CreatePipelineTemplateCreateInfo();
-	create_info.viewport.extent = zest_GetSwapChainExtent();
+	zest_pipeline_template_create_info_t instance_create_info = zest_CreatePipelineTemplateCreateInfo();
+	instance_create_info.viewport.extent = zest_GetSwapChainExtent();
 
 	VkPushConstantRange image_pushconstant_range;
 	image_pushconstant_range.size = sizeof(zest_push_constants_t);
 	image_pushconstant_range.offset = 0;
 	image_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	zest_vec_push(create_info.pushConstantRange, image_pushconstant_range);
+	zest_vec_push(instance_create_info.pushConstantRange, image_pushconstant_range);
 
 	//2d sprite rendering
 	zest_pipeline sprite_instance_pipeline = zest_AddPipeline("pipeline_2d_sprites");
-	zest_pipeline_template_create_info_t instance_create_info = create_info;
 	//instance_create_info.bindingDescriptions.push_back(CreateVertexInputBindingDescription(0, sizeof(InstanceVertex), VK_VERTEX_INPUT_RATE_VERTEX));
-	instance_create_info.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+
 	VkVertexInputAttributeDescription *instance_vertex_input_attributes = 0;
 
 	zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_sprite_instance_t, size)));						// Location 0: Size of the sprite in pixels
@@ -3606,34 +3686,38 @@ void zest__prepare_standard_pipelines() {
 	zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_sprite_instance_t, image_layer_index)));				// Location 7: Instance Parameters
 
 	instance_create_info.attributeDescriptions = instance_vertex_input_attributes;
-	instance_create_info.vertShaderFile = "spv/instance.spv";
-	instance_create_info.fragShaderFile = "spv/instance.spv";
+	zest_SetText(&instance_create_info.vertShaderFile, "spv/instance.spv");
+	zest_SetText(&instance_create_info.fragShaderFile, "spv/instance.spv");
 	zest_MakePipelineTemplate(sprite_instance_pipeline, render_pass, &instance_create_info);
 	sprite_instance_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
 	sprite_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	sprite_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(sprite_instance_pipeline);
 
+	instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
 	//Sprites with 1 channel textures
 	zest_pipeline sprite_instance_pipeline_alpha = zest_AddPipeline("pipeline_2d_sprites_alpha");
-	instance_create_info.vertShaderFile = "spv/instance_alpha.spv";
-	instance_create_info.fragShaderFile = "spv/instance_alpha.spv";
+	zest_SetText(&instance_create_info.vertShaderFile, "spv/instance_alpha.spv");
+	zest_SetText(&instance_create_info.fragShaderFile, "spv/instance_alpha.spv");
 	zest_MakePipelineTemplate(sprite_instance_pipeline_alpha, render_pass, &instance_create_info);
 	sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(sprite_instance_pipeline_alpha);
 
 	//Font Texture
+	instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites_alpha");
 	zest_pipeline font_pipeline = zest_AddPipeline("pipeline_fonts");
-	instance_create_info.vertShaderFile = "spv/font_instance.spv";
-	instance_create_info.fragShaderFile = "spv/font_instance.spv";
+	zest_SetText(&instance_create_info.vertShaderFile, "spv/font_instance.spv");
+	zest_SetText(&instance_create_info.fragShaderFile, "spv/font_instance.spv");
 	zest_MakePipelineTemplate(font_pipeline, render_pass, &instance_create_info);
 	font_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	font_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
 	zest_BuildPipeline(font_pipeline);
 
 	//3d billboards
-	instance_create_info.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+	instance_create_info = zest_CopyTemplateFromPipeline("pipeline_fonts");
+	zest_ClearVertexInputBindingDescriptions(&instance_create_info);
+	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 	VkVertexInputAttributeDescription *billboard_vertex_input_attributes = 0;
 
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));		// Location 0: Position
@@ -3649,16 +3733,17 @@ void zest__prepare_standard_pipelines() {
 
 	zest_pipeline billboard_instance_pipeline = zest_AddPipeline("pipeline_billboard");
 	instance_create_info.attributeDescriptions = billboard_vertex_input_attributes;
-	instance_create_info.vertShaderFile = "spv/billboard.spv";
-	instance_create_info.fragShaderFile = "spv/billboard.spv";
+	zest_SetText(&instance_create_info.vertShaderFile, "spv/billboard.spv");
+	zest_SetText(&instance_create_info.fragShaderFile, "spv/billboard.spv");
 	zest_MakePipelineTemplate(billboard_instance_pipeline, render_pass, &instance_create_info);
 	billboard_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	billboard_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(billboard_instance_pipeline);
 
+	instance_create_info = zest_CopyTemplateFromPipeline("pipeline_billboard");
 	zest_pipeline billboard_pipeline_alpha = zest_AddPipeline("pipeline_billboard_alpha");
-	instance_create_info.vertShaderFile = "spv/billboard_alpha.spv";
-	instance_create_info.fragShaderFile = "spv/billboard_alpha.spv";
+	zest_SetText(&instance_create_info.vertShaderFile, "spv/billboard_alpha.spv");
+	zest_SetText(&instance_create_info.fragShaderFile, "spv/billboard_alpha.spv");
 	zest_MakePipelineTemplate(billboard_pipeline_alpha, render_pass, &instance_create_info);
 	billboard_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	billboard_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
@@ -3673,15 +3758,15 @@ void zest__prepare_standard_pipelines() {
 	imgui_pushconstant_range.offset = 0;
 	imgui_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	zest_vec_push(imgui_pipeline_template.pushConstantRange, imgui_pushconstant_range);
-	imgui_pipeline_template.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
+	zest_AddVertexInputBindingDescription(&imgui_pipeline_template, 0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
 	VkVertexInputAttributeDescription *imgui_vertex_input_attributes = 0;
 	zest_vec_push(imgui_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos)));	// Location 0: Position
 	zest_vec_push(imgui_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv)));	// Location 1: UV
 	zest_vec_push(imgui_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col)));	// Location 2: Color
 
 	imgui_pipeline_template.attributeDescriptions = imgui_vertex_input_attributes;
-	imgui_pipeline_template.vertShaderFile = "spv/imgui.spv";
-	imgui_pipeline_template.fragShaderFile = "spv/imgui.spv";
+	zest_SetText(&imgui_pipeline_template.vertShaderFile, "spv/imgui.spv");
+	zest_SetText(&imgui_pipeline_template.fragShaderFile, "spv/imgui.spv");
 
 	zest_pipeline imgui_pipeline = zest_AddPipeline("pipeline_imgui");
 
@@ -3710,7 +3795,7 @@ void zest__prepare_standard_pipelines() {
 	mesh_pushconstant_range.offset = 0;
 	mesh_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	zest_vec_push(mesh_pipeline_template.pushConstantRange, mesh_pushconstant_range);
-	mesh_pipeline_template.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(zest_vertex_t), VK_VERTEX_INPUT_RATE_VERTEX);
+	zest_AddVertexInputBindingDescription(&mesh_pipeline_template, 0, sizeof(zest_vertex_t), VK_VERTEX_INPUT_RATE_VERTEX);
 	VkVertexInputAttributeDescription *zest_vertex_input_attributes = 0;
 	zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_vertex_t, pos)));		// Location 0: Position
 	zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32_SFLOAT, offsetof(zest_vertex_t, intensity)));		// Location 1: Alpha/Intensity
@@ -3719,8 +3804,8 @@ void zest__prepare_standard_pipelines() {
 	zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32_UINT, offsetof(zest_vertex_t, parameters)));		// Location 4: Parameters
 
 	mesh_pipeline_template.attributeDescriptions = zest_vertex_input_attributes;
-	mesh_pipeline_template.vertShaderFile = "spv/mesh.spv";
-	mesh_pipeline_template.fragShaderFile = "spv/mesh.spv";
+	zest_SetText(&mesh_pipeline_template.vertShaderFile, "spv/mesh.spv");
+	zest_SetText(&mesh_pipeline_template.fragShaderFile, "spv/mesh.spv");
 
 	zest_pipeline mesh_pipeline = zest_AddPipeline("pipeline_mesh");
 
@@ -3747,8 +3832,8 @@ void zest__prepare_standard_pipelines() {
 	zest_vec_push(final_render->create_info.pushConstantRange, final_render_pushconstant_range);
 	final_render->create_info.renderPass = ZestRenderer->final_render_pass->render_pass;
 	final_render->create_info.no_vertex_input = ZEST_TRUE;
-	final_render->create_info.vertShaderFile = "spv/swap.spv";
-	final_render->create_info.fragShaderFile = "spv/swap.spv";
+	zest_SetText(&final_render->create_info.vertShaderFile, "spv/swap.spv");
+	zest_SetText(&final_render->create_info.fragShaderFile, "spv/swap.spv");
 	final_render->uniforms = 0;
 	final_render->flags = zest_pipeline_set_flag_is_render_target_pipeline;
 	final_render->descriptor_layout = zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler");
@@ -3763,24 +3848,19 @@ void zest__prepare_standard_pipelines() {
 	zest_BuildPipeline(final_render);
 }
 
-void zest_UpdatePipelineTemplate(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info) {
+void zest__update_pipeline_template(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info) {
 	pipeline_template->viewport.width = (float)create_info->viewport.extent.width;
 	pipeline_template->viewport.height = (float)create_info->viewport.extent.height;
 	pipeline_template->scissor.extent.width = create_info->viewport.extent.width;
 	pipeline_template->scissor.extent.height = create_info->viewport.extent.height;
 
-	pipeline_template->vertShaderStageInfo.pName = create_info->vertShaderFunctionName;
-	pipeline_template->fragShaderStageInfo.pName = create_info->fragShaderFunctionName;
+	pipeline_template->vertShaderStageInfo.pName = create_info->vertShaderFunctionName.str;
+	pipeline_template->fragShaderStageInfo.pName = create_info->fragShaderFunctionName.str;
 
 	if (!create_info->no_vertex_input) {
-		if (zest_vec_empty(create_info->bindingDescriptions)) {
-			pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = 1;
-			pipeline_template->vertexInputInfo.pVertexBindingDescriptions = &create_info->bindingDescription;
-		}
-		else {
-			pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = zest_vec_size(create_info->bindingDescriptions);
-			pipeline_template->vertexInputInfo.pVertexBindingDescriptions = create_info->bindingDescriptions;
-		}
+		ZEST_ASSERT(zest_vec_size(create_info->bindingDescriptions));	//If the pipeline is set to have vertex input, then you must add bindingDescriptions. You can use zest_AddVertexInputBindingDescription for this
+		pipeline_template->vertexInputInfo.vertexBindingDescriptionCount = zest_vec_size(create_info->bindingDescriptions);
+		pipeline_template->vertexInputInfo.pVertexBindingDescriptions = create_info->bindingDescriptions;
 		pipeline_template->vertexInputInfo.pVertexAttributeDescriptions = create_info->attributeDescriptions;
 	}
 	pipeline_template->viewportState.pViewports = &pipeline_template->viewport;
@@ -4464,7 +4544,7 @@ zest_create_info_t zest_CreateInfo() {
 		.virtual_width = 1280, 
 		.virtual_height = 768,
 		.color_format = VK_FORMAT_R8G8B8A8_UNORM,
-		.pool_counts = ZEST_NULL,
+		.max_descriptor_pool_sets = 100,
 		.flags = zest_init_flag_initialise_with_command_queue | zest_init_flag_enable_vsync,
 		.destroy_window_callback = zest__destroy_window_callback,
 		.get_window_size_callback = zest__get_window_size_callback,
@@ -4474,6 +4554,13 @@ zest_create_info_t zest_CreateInfo() {
 		.create_window_surface_callback = zest__os_create_window_surface
 	};
 	return create_info;
+}
+
+void SetDescriptorPoolCount(zest_create_info_t *info, VkDescriptorType descriptor_type, zest_uint count) {
+	VkDescriptorPoolSize pool_size;
+	pool_size.type = descriptor_type;
+	pool_size.descriptorCount = count;
+	zest_map_insert_key(info->pool_counts, descriptor_type, pool_size);
 }
 
 char* zest_ReadEntireFile(const char *file_name, zest_bool terminate) {
@@ -8710,7 +8797,7 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 		zest_vec_push(compute->set_layout_bindings, descriptor_set);
 	}
 
-	compute->descriptor_set_layout = zest_CreateDescriptorSetLayoutWithBindings(compute->set_layout_bindings);
+	compute->descriptor_set_layout = zest_CreateDescriptorSetLayoutWithBindings(zest_vec_size(compute->set_layout_bindings), compute->set_layout_bindings);
 
 	VkPipelineLayoutCreateInfo pipeline_layout_create_info = { 0 };
 	if (builder->push_constant_size) {
@@ -8764,7 +8851,7 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
 	for (zest_foreach_i(compute->shader_names)) {
 		zest_text filename = compute->shader_names[i];
 		char *code = zest_ReadEntireFile(filename.str, ZEST_FALSE);
-		VkShaderModule shader_module = zest_CreateShaderModule(code);
+		VkShaderModule shader_module = zest__create_shader_module(code);
 
 		VkPipelineShaderStageCreateInfo vert_shader_stage_info = { 0 };
 		vert_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;

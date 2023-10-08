@@ -76,14 +76,14 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 	zest_SetBillboardDrawing(example->billboard_layer, example->texture, example->billboard_descriptor, example->billboard_pipeline);
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(example->uniform_buffer_3d);
-	zest_vec3 ray = zest_ScreenRay(ZestApp->mouse_x, ZestApp->mouse_y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
+	zest_vec3 ray = zest_ScreenRay((float)ZestApp->mouse_x, (float)ZestApp->mouse_y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
 	zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&ray, 10.f), example->camera.position);
 	zest_vec3 angles = { 0 };
 	zest_vec3 handle = { .5f, .5f };
 	zest_vec3 alignment = zest_Vec3Set(0.5f, 0.5f, 1.f);
 	alignment = zest_NormalizeVec3(alignment);
-	float scale_x = ZestApp->mouse_x * 5.f / zest_ScreenWidthf();
-	float scale_y = ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
+	float scale_x = (float)ZestApp->mouse_x * 5.f / zest_ScreenWidthf();
+	float scale_y = (float)ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
 	zest_DrawBillboard(example->billboard_layer, example->image, &position.x, zest_Pack10bit(&alignment, 0), &angles.x, &handle.x, 10.f, 0, 1.f, 1.f);
 	zest_SetMeshDrawing(example->mesh_layer, example->texture, example->billboard_descriptor, example->mesh_pipeline);
 	zest_DrawTexturedPlane(example->mesh_layer, example->image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
