@@ -3056,6 +3056,14 @@ zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void)
 	return create_info;
 }
 
+void zest_SetPipelineTemplateVertShader(zest_pipeline_template_create_info_t *create_info, const char *file) {
+	zest_SetText(&create_info->vertShaderFile, file);
+}
+
+void zest_SetPipelineTemplateFragShader(zest_pipeline_template_create_info_t *create_info, const char *file) {
+	zest_SetText(&create_info->fragShaderFile, file);
+}
+
 void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range) {
 	zest_vec_push(create_info->pushConstantRange, range);
 }
@@ -4705,6 +4713,15 @@ void zest_ModifyCommandQueue(zest_command_queue command_queue) {
 }
 
 void zest_ModifyDrawCommands(zest_command_queue_draw_commands draw_commands) {
+	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_command_queue);	//Current setup context must be a command queue.
+	int draw_commands_found = 0;
+	for (zest_foreach_i(ZestRenderer->setup_context.command_queue->draw_commands)) {
+		if (ZestRenderer->setup_context.command_queue->draw_commands[i] == draw_commands) {
+			draw_commands_found = 1;
+		}
+	}
+	ZEST_ASSERT(draw_commands_found);	//The draw commands that you're editing must exist within the command queue context. Call zest_ModifyCommandQueue with
+										//the appropriate zest_command_queue
 	zest__set_queue_context(zest_setup_context_type_render_pass);
 	ZestRenderer->setup_context.draw_commands = draw_commands;
 	ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;

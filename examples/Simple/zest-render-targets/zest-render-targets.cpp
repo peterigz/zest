@@ -11,8 +11,8 @@ void InitExample(RenderTargetExample *example) {
 	image_pushconstant_range.offset = 0;
 	image_pushconstant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 	zest_AddPipelineTemplatePushConstantRange(&create_info, image_pushconstant_range);
-	create_info.vertShaderFile = "examples/assets/spv/blur_vert.spv";
-	create_info.fragShaderFile = "examples/assets/spv/blur_frag.spv";
+	zest_SetPipelineTemplateVertShader(&create_info, "examples/assets/spv/blur_vert.spv");
+	zest_SetPipelineTemplateFragShader(&create_info, "examples/assets/spv/blur_frag.spv");
 	create_info.viewport.extent = zest_GetSwapChainExtent();
 	create_info.no_vertex_input = true;
 	example->blur_pipeline = zest_AddPipeline("blur effect");
@@ -23,9 +23,11 @@ void InitExample(RenderTargetExample *example) {
 	example->blur_pipeline->push_constant_size = sizeof(PushConstants);
 	zest_BuildPipeline(example->blur_pipeline);
 
-	//Create the render targets
+	//Create the render targets that we will draw the layers to. The Base render target will be where we draw the images, The top render target
+	//will be where we draw the result of the the blur effect.
 	example->top_target = zest_CreateRenderTarget("Top render target");
 	example->base_target = zest_CreateRenderTarget("Base render target");
+
 	//Post render targets can be created by passing the width and height as a ratio of the screen size, which is what we do here 
 	//to create the render targets for the blur effect. One target is for the vertical blur and the other is for the horizontal blur.
 	//In order to reduce flicker we can blur once at a smaller size, then reduce the size again and do the blur again.

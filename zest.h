@@ -1867,6 +1867,9 @@ ZEST_API zest_pipeline zest_AddPipeline(const char *name);
 //to configure the pipeline and then you can do some further tweaks of the zest_pipeline before calling zest_BuildPipeline
 //to finalise the pipeline ready for using
 ZEST_API zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void);
+//Set the name of the file to use for the vert and frag shader in the zest_pipeline_template_create_info_t
+ZEST_API void zest_SetPipelineTemplateVertShader(zest_pipeline_template_create_info_t *create_info, const char *file);
+ZEST_API void zest_SetPipelineTemplateFragShader(zest_pipeline_template_create_info_t *create_info, const char *file);
 //Add a new VkVertexInputBindingDescription which is used to set the size of the struct (stride) and the vertex input rate.
 //You can add as many bindings as you need, just make sure you set the correct binding index for each one
 ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template_create_info_t *create_info, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
@@ -2042,60 +2045,155 @@ ZEST_API void zest_Update2dUniformBufferFIF(zest_index fif);
 //		Command queue setup and creation
 //		Command queues are where all of the vulkan commands get written for submitting and executing
 //		on the GPU. A simple command queue is created by Zest when you Initialise zest for drawing
-//		sprites.
+//		sprites. The best way to understand them would be to look at the examples, such as the render
+//		targets example. Note that the command queue setup commands are contextual and must be called
+//		in the correct order depending on how you want your queue setup.
+//		The declarations below are indented to indicate contextual dependencies of the commands where
+//		applicable
 //-----------------------------------------------
+
+// -- Contextual command queue setup commands
 //Create a new command queue with the name you pass to the function. This command queue assumes that you want to render to the swap chain.
+//Context:	None, this is a root set up command that sets the context to: zest_setup_context_type_command_queue 
 ZEST_API zest_command_queue zest_NewCommandQueue(const char *name);
 //Create a new command queue that you can submit anytime you need to. This is not for rendering to the swap chain but generally for rendering
 //to a zest_render_target
+//Context:	None, this is a root set up command that sets the context to: zest_setup_context_type_command_queue 
 ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
+	//Create new draw commands. Draw commands are where you can add draw routines, either builtin ones like sprite and billboard drawing, or your
+	//own custom ones. With this draw commands setup you can specify a render target that you want to draw to.
+	//Context:	Must be called after zest_NewCommandQueue or zest_NewFloatingCommandQueue when the context will be zest_setup_context_type_command_queue
+	//			This will set the context to zest_setup_context_type_render_pass
+	ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char *name, zest_render_target render_target);
+	//Create new draw commands that draw directly to the swap chain. 
+	//Context:	Must be called after zest_NewCommandQueue or zest_NewFloatingCommandQueue. This will add the draw commands to the current command
+	//			queue being set up. This will set the current context to zest_setup_context_type_render_pass 
+	ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupSwap(const char *name);
+		//Add a new draw routine to the current draw commands context. Draw routines are where you can setup your own custom drawing commands
+		ZEST_API void zest_AddDrawRoutine(zest_draw_routine draw_routine);
+			//Get the current context draw routine. Must be within a draw routine context
+			ZEST_API zest_draw_routine zest_ContextDrawRoutine();
+		//Add a new mesh layer to the current draw commands context. A mesh layer can be used to render anything that will use an index and vertex
+		//buffer. A mesh layer is what's used to render Dear ImGui if you're using that but see the implementation and example for imgui.
+		//Context:	Must be called within a draw commands context 
+		ZEST_API zest_layer zest_NewMeshLayer(const char *name, zest_size vertex_struct_size);
+		//Add a new builtin layer that zest provides. Currently this is just a sprite, billboard, mesh or fonts
+		//Context:	Must be called within a draw commands context 
+		ZEST_API zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type builtin_layer);
+		//Add a pre-existin layer that you already created elsewhere. 
+		//Context:	Must be called within a draw commands context 
+		ZEST_API void zest_AddLayer(zest_layer layer);
+		//Set the clear color of the current draw commands context
+		ZEST_API void zest_ContextSetClsColor(float r, float g, float b, float a);
+	//Create new compute shader to run within a command queue. See the compute shader section for all the commands relating to setting up a compute shader.
+	//Also see the compute shader example
+	//Context:	Must be called after zest_NewCommandQueue or zest_NewFloatingCommandQueue. 
+	ZEST_API zest_command_queue_compute zest_NewComputeSetup(const char *name, zest_compute compute_shader, void(*compute_function)(zest_command_queue_compute item));
+	//Create draw commands that draw render targets to the swap chain. This is useful if you are drawing to render targets elsewhere
+	//in the command queue and want to draw some or all of those to the swap chain.
+	//Context:	Must be called after zest_NewCommandQueue or zest_NewFloatingCommandQueue. This will add the draw commands to the current command
+	//			queue being set up. This will set the current context to zest_setup_context_type_render_pass 
+	ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char *name, zest_render_target render_target);
+		//Add a render target to the render pass within a zest_NewDrawCommandSetupRenderTargetSwap
+		//Context:	Must be called after zest_NewDrawCommandSetupRenderTargetSwap when the context will be zest_setup_context_type_render_pass 
+		ZEST_API void zest_AddRenderTarget(zest_render_target render_target);
+	//Connect the current command queue to the swap chain. You must call this if you're intending for this queue to be drawn to the swap chain for
+	//for presenting to the screen otherwise the command queue will not be valid.
+	//Call this function immediately before zest_FinishQueueSetup
+	ZEST_API void zest_ConnectQueueToPresent(void);
+	//Finish setting up a command queue. You must call this after setting up a command queue to reset contexts and validate the command queue.
+	ZEST_API void zest_FinishQueueSetup(void);
+
+//-----------------------------------------------
+//		Modifying command queues
+//-----------------------------------------------
+
+//Modify an existing zest_command_queue. This will set the command queue you pass to the function as the current set up context.
+//Context:	None. This must be called with no context currently set.
+ZEST_API void zest_ModifyCommandQueue(zest_command_queue command_queue);
+	//Modify an existing zest_command_queue_draw_commands. The draw commands must exist within the current command queue that you're editing.
+	//Context:	Must be called after zest_ModifyCommandQueue
+	ZEST_API void zest_ModifyDrawCommands(zest_command_queue_draw_commands draw_commands);
+
 //Get an existing zest_command_queue by name
 ZEST_API zest_command_queue zest_GetCommandQueue(const char *name);
+//Get an existing zest_command_queue_draw_commands object by name
 ZEST_API zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(const char *name);
+//Set the clear color for the render pass that happens within a zest_command_queue_draw_commands object
+//Note that this only applies if you use the default draw commands callback: zest_RenderDrawRoutinesCallback
 ZEST_API void zest_SetDrawCommandsClsColor(zest_command_queue_draw_commands draw_commands, float r, float g, float b, float a);
+//Set up the semaphores to connect the present (swap chain) to a command queue. This command is generally called
+//automatically when you set up the command queue. This will ensure that the command queue waits for the swap chain to present
+//to the screen before executing.
 ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue receiver, VkPipelineStageFlags stage_flags);
+//Set the semaphores in the command queue to connect it to the swap chain. This ensures that the swap chain will wait
+//for the command queue to finish executing before presenting the frame to the screen
 ZEST_API void zest_ConnectCommandQueueToPresent(zest_command_queue sender);
+//Get the semaphore that connects the command queue to the swap chain
 ZEST_API VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue command_queue);
-ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupSwap(const char *name);
-ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char *name, zest_render_target render_target);
-ZEST_API void zest_AddRenderTarget(zest_render_target render_target);
-ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char *name, zest_render_target render_target);
+//Any zest_command_queue_draw_commands that you create can be assigned your own custom render pass callback so that you can call any Vulkan commands that you want
+//See zest_RenderDrawRoutinesCallback, zest_DrawToRenderTargetCallback, zest_DrawRenderTargetsToSwapchain for some of the builtin functions that do this
 ZEST_API void zest_SetDrawCommandsCallback(void(*render_pass_function)(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer));
+//Get a zest_draw_routine by name
 ZEST_API zest_draw_routine zest_GetDrawRoutine(const char *name);
+//Get a zest_command_queue_draw_commands by name
 ZEST_API zest_command_queue_draw_commands zest_GetDrawCommands(const char *name);
+//Builtin draw routine callbacks for drawing the builtin layers and render target drawing.
 ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
-ZEST_API void zest_AddDrawRoutine(zest_draw_routine draw_routine);
+//Add an existing zest_draw_routine to a zest_command_queue_draw_commands. This just lets you add draw routines to a queue separately outside of a command queue
+//setup context
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
+//Helper functions for creating the builtin layers. these can be called separately outside of a command queue setup context
 ZEST_API zest_layer zest_CreateBuiltinSpriteLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinBillboardLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinFontLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinMeshLayer(const char *name);
+//Get a zest_layer by name
 ZEST_API zest_layer zest_GetLayer(const char *name);
-ZEST_API zest_layer zest_NewMeshLayer(const char *name, zest_size vertex_struct_size);
-ZEST_API zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type builtin_layer);
-ZEST_API void zest_AddLayer(zest_layer layer);
+//Create a zest_command_queue_compute and add it to a zest_command_queue. You can call this function outside of a command queue setup context. Otherwise
+//just call zest_NewComputeSetup when you setup or modify a command queue
 ZEST_API zest_command_queue_compute zest_CreateComputeItem(const char *name, zest_command_queue command_queue);
-ZEST_API zest_command_queue_compute zest_NewComputeSetup(const char *name, zest_compute compute_shader, void(*compute_function)(zest_command_queue_compute item));
-ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void); 
-ZEST_API zest_command_queue zest_CurrentCommandQueue(void);
-ZEST_API void zest_ModifyCommandQueue(zest_command_queue command_queue);
-ZEST_API void zest_ModifyDrawCommands(zest_command_queue_draw_commands draw_commands);
-ZEST_API zest_draw_routine zest_ContextDrawRoutine();
-ZEST_API void zest_ContextSetClsColor(float r, float g, float b, float a);
-ZEST_API void zest_FinishQueueSetup(void);
+//Validate a command queue to make sure that all semaphores are connected. This is automatically called when you call zest_FinishQueueSetup but I've just left it
+//here as an API function if needed
 ZEST_API void zest_ValidateQueue(zest_command_queue queue);
+//Connect 2 command queues with semaphores - UNTESTED. Write now things are designed to just use a single command queue per frame.
 ZEST_API void zest_ConnectCommandQueues(zest_command_queue sender, zest_command_queue receiver, VkPipelineStageFlags stage_flags);
+//Connect 2 command queues with semaphores - UNTESTED. Write now things are designed to just use a single command queue per frame.
 ZEST_API void zest_ConnectQueueTo(zest_command_queue receiver, VkPipelineStageFlags stage_flags);
-ZEST_API void zest_ConnectQueueToPresent(void);
+//Reset the compute queue shader index back to 0, this is actually done automatically each frame. It's purpose is so that zest_NextComputeRoutine can iterate through
+//the compute routines in a compute shader and dispatch each one starting from 0. But if you're only doing that once each frame (which you probably are) then you won't
+//need to call this.
 ZEST_API void zest_ResetComputeRoutinesIndex(zest_command_queue_compute compute_queue);
+//Get the next compute shader in a command queue's list of compute shaders. You can use this in a while loop like:
+/*
+	zest_compute compute = 0;
+	while (compute = zest_NextComputeRoutine(compute_commands)) {
+		zest_BindComputePipeline(compute, 0);
+		zest_DispatchCompute(compute, PARTICLE_COUNT / 256, 1, 1);
+	}
+*/
+//You can use this inside a compute_function callback which you set when calling zest_NewComputeSetup
 ZEST_API zest_compute zest_NextComputeRoutine(zest_command_queue_compute compute_queue);
+//Record a zest_command_queue. If you call zest_SetActiveCommandQueue then these functions are called automatically each frame but for floating command
+//queues (see zest_NewFloatingCommandQueue) you can record and submite a command queue using these functions. Pass the command_queue and the frame in flight
+//index to record.
 ZEST_API void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif);
+//Submit a command queue to be executed on the GPU. Utilise the fence commands to know when the queue has finished executing: zest_CreateFence, zest_CheckFence,
+//zest_WaitForFence and zest_DestoryFence. Pass in a fence which will be signalled once the execution is done.
 ZEST_API void zest_SubmitCommandQueue(zest_command_queue command_queue, VkFence fence);
+//Returns the current command queue that was set with zest_SetActiveCommandQueue.
+ZEST_API zest_command_queue zest_CurrentCommandQueue(void);
+//Returns the current command buffer being used to record the queue inside the private function zest__draw_renderer_frame. This can be a useful function to use inside
+//draw routine callback functions if you need to retrieve the command buffer being recording to for any reason (like to pass to a vkCmd function.
+ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void); 
 //-- End Command queue setup and creation
 
-//General Math
+//-----------------------------------------------
+//		General Math helper functions
+//-----------------------------------------------
+
 ZEST_API zest_vec3 zest_SubVec3(zest_vec3 left, zest_vec3 right);
 ZEST_API zest_vec4 zest_SubVec4(zest_vec4 left, zest_vec4 right);
 ZEST_API zest_vec3 zest_AddVec3(zest_vec3 left, zest_vec3 right);
