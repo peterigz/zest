@@ -154,7 +154,6 @@ void UpdateComputeCommands(zest_command_queue_compute compute_commands) {
 	while (compute = zest_NextComputeRoutine(compute_commands)) {
 		//Bind the compute pipeline
 		zest_BindComputePipeline(compute, 0);
-
 		zest_DispatchCompute(compute, PARTICLE_COUNT / 256, 1, 1);
 	}
 
