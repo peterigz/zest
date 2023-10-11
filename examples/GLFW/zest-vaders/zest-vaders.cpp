@@ -268,7 +268,7 @@ void ShapeLoader(const char* filename, tfxImageData &image_data, void *raw_image
 	VadersGame *game = static_cast<VadersGame*>(custom_data);
 
 	//This shape loader example uses the STB image library to load the raw bitmap (png usually) data
-	zest_bitmap_t bitmap;
+	zest_bitmap_t bitmap = zest_NewBitmap();
 	zest_LoadBitmapImageMemory(&bitmap, (unsigned char*)raw_image_data, image_memory_size, 0);
 	//Convert the image to RGBA which is necessary for this particular renderer
 	zest_ConvertBitmapToRGBA(&bitmap, 255);
@@ -294,6 +294,7 @@ void ShapeLoader(const char* filename, tfxImageData &image_data, void *raw_image
 	}
 }
 
+//Function to project 2d screen coordinates into 3d space
 tfxVec3 ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_descriptor_buffer buffer) {
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
@@ -301,15 +302,19 @@ tfxVec3 ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_positi
 	return { pos.x, pos.y, pos.z };
 }
 
+//Update the power up effect to follow the player
 void UpdateGotPowerUpEffect(tfxParticleManager *pm, tfxEffectID effect_index) {
 	VadersGame *game = static_cast<VadersGame*>(GetEffectUserData(pm, effect_index));
 	SetEffectPosition(pm, effect_index, game->player.position);
 }
 
+//Initialise the game and set up the renderer
 void VadersGame::Init() {
 	//Renderer specific - initialise the texture
 	float max_radius = 0;
+	//Create a texture to store our player and enemy sprite images
 	sprite_texture = zest_CreateTexturePacked("Sprite Texture", zest_texture_format_rgba);
+	//Add all of the images and animations into the texture
 	player_image = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/player.png");
 	vader_image1 = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/vader.png");
 	vader_image2 = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/vader2.png");
@@ -317,34 +322,41 @@ void VadersGame::Init() {
 	big_vader_image = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/big_vader.png");
 	vader_bullet_image = zest_AddTextureAnimationFile(sprite_texture, "examples/assets/vaders/vader_bullet_64_64_16.png", 16, 16, 64, &max_radius, 1);
 	vader_bullet_glow_image = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/flare4.png");
+	//Now the images are added, process the texture to make them available in the GPU
 	zest_ProcessTextureImages(sprite_texture);
+	//Create a uniform buffer for 3d billboard drawing and the particle rendering too
 	uniform_buffer_3d = zest_CreateUniformBuffer("3d uniform", sizeof(zest_uniform_buffer_data_t));
-	billboard_descriptor = zest_CreateTextureSpriteDescriptorSets(sprite_texture, "3d descriptor", "3d uniform");
-	zest_RefreshTextureDescriptors(sprite_texture);
+	//Create a descriptor set for the texture that uses the 3d uniform buffer
+	billboard_descriptor = zest_CreateSimpleTextureDescriptorSet(sprite_texture, "3d descriptor", "3d uniform");
+	//Store the handle of the billboard pipeline so we don't have to look it up each frame
 	billboard_pipeline = zest_Pipeline("pipeline_billboard");
 
 	random.ReSeed();
 
-	int shape_count = GetShapeCountInLibrary("examples/assets/vaders/vadereffects.tfx");
-	particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, 0, zest_texture_format_rgba, shape_count);
+	//Create another texture to store all of the particle shapes
+	particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, 0, zest_texture_format_rgba, 0);
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
 	LoadEffectLibraryPackage("examples/assets/vaders/vadereffects.tfx", library, ShapeLoader, this);
-	//Renderer specific
-	zest_ProcessTextureImages(particle_texture);
-	particle_descriptor = zest_CreateTextureSpriteDescriptorSets(particle_texture, "3d descriptor", "3d uniform");
-	zest_RefreshTextureDescriptors(particle_texture);
 
-	//Application specific, set up a timer for the update loop
+	//Process the particle images in the texture
+	zest_ProcessTextureImages(particle_texture);
+	//Create a descriptor set for the texture that uses the 3d uniform buffer
+	particle_descriptor = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d descriptor", "3d uniform");
+
+	//Specific, set up a timer for the update loop
 	timer = zest_CreateTimer(60);
 
 	//Make sure that timelinefx udates effects at the same frequency as your update loop.
 	tfx::SetUpdateFrequency(60);
 
+	//Create a camera for the 3d uniform buffer
 	camera = zest_CreateCamera();
 	zest_CameraSetFoV(&camera, 60.f);
 
+	//Update the uniform buffer so that the projection and view matrices are set for the screen ray functions below
 	UpdateUniform3d(this);
 
+	//Get the top left and bottom right screen positions in 3d space so we know when things leave the screen
 	top_left_bound = ScreenRay(0.f, 0.f, 10.f, camera.position, uniform_buffer_3d);
 	bottom_right_bound = ScreenRay(zest_ScreenWidthf(), zest_ScreenHeightf(), 10.f, camera.position, uniform_buffer_3d);
 
@@ -361,16 +373,17 @@ void VadersGame::Init() {
 	InitParticleManagerFor3d(&game_pm, &library, layer_max_values, 1000, tfxParticleManagerMode_unordered, true, false, 2048);
 	InitParticleManagerFor3d(&title_pm, &library, layer_max_values, 100, tfxParticleManagerMode_unordered, true, false, 2048);
 
+	//Load a font we can draw text with
 	font = zest_LoadMSDFFont("examples/assets/SourceSansPro-Regular.zft");
 
-	//Renderer specific
+	//Set the clear color for the default draw commands render pass
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);
 
 	//Player setup
 	player.rate_of_fire = 4.f * tfxUPDATE_TIME;
 	high_score = 0;
 
-	//Effect templates
+	//Prepare all the Effect templates we need from the library
 	assert(PrepareEffectTemplate(library, "Player Bullet", player_bullet_effect));
 	assert(PrepareEffectTemplate(library, "Vader Explosion", vader_explosion_effect));
 	assert(PrepareEffectTemplate(library, "Big Explosion", big_explosion));
@@ -383,19 +396,24 @@ void VadersGame::Init() {
 	assert(PrepareEffectTemplate(library, "Power Up", weapon_power_up));
 	assert(PrepareEffectTemplate(library, "Damage", damage));
 
+	//Set the user data in the got power up effect and the update callback so that we can position it each frame
 	got_power_up.SetUserData(this);
 	got_power_up.SetEffectUpdateCallback(UpdateGotPowerUpEffect);
 
+	//Add the background effect nad title effect to the particle manager and set their positions
 	background_index = AddEffectToParticleManager(&background_pm, background);
 	zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&camera.front, 12.f), camera.position);
 	SetEffectPosition(&background_pm, background_index, { position.x, position.y, position.z });
 	title_index = AddEffectToParticleManager(&title_pm, title);
 	SetEffectPosition(&title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, uniform_buffer_3d));
 
+	//Initialise imgui
 	zest_imgui_Initialise(&imgui_layer_info);
 
+	//Style imgui
 	DarkStyle2();
 
+	//Set up the font in imgui
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.Fonts->Clear();
@@ -409,20 +427,28 @@ void VadersGame::Init() {
 
 	zest_imgui_RebuildFontTexture(&imgui_layer_info, tex_width, tex_height, font_data);
 
+	//Modify the default command queue so we can add some extra layers
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
+			//Add a billboard layer to draw all the sprites and particles
 			billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
+			//Add a layer for drawing fonts
 			font_layer = zest_NewBuiltinLayerSetup("Fonts", zest_builtin_layer_fonts);
+			//Add the imgui layer
 			zest_imgui_CreateLayer(&imgui_layer_info);
 		}
+		//Finish the queue set up
 		zest_FinishQueueSetup();
 	}
+	//Reset the time
 	zest_TimerReset(timer);
+	//Output the memory usage to the console
 	zest_OutputMemoryUsage();
 }
 
+//Some helper functions
 float EaseOutQuad(float t) {
 	return t * (2 - t);
 }
@@ -466,6 +492,7 @@ bool IsLineCircleCollision(tfxVec3 line_start, tfxVec3 line_end, tfxVec3 circleC
 	}
 }
 
+//Spawn a new invader wave
 void SpawnInvaderWave(VadersGame *game) {
 	float cols = 11;
 	float rows = 5;
@@ -522,6 +549,8 @@ void UpdateVaders(VadersGame *game) {
 	int next_buffer = !game->current_buffer;
 	game->vaders[next_buffer].clear();
 	game->big_vaders[next_buffer].clear();
+
+	//Update the grid of smaller invaders
 	for (auto &vader : game->vaders[game->current_buffer]) {
 		//Naive bullet collision
 		bool hit = false;
@@ -529,8 +558,11 @@ void UpdateVaders(VadersGame *game) {
 			if (GetDistance(bullet.position.z, bullet.position.y, vader.position.z, vader.position.y) < 0.3f) {
 				hit = true;
 				bullet.remove = true;
+				//Blow up the vader. Add teh vader_explosion_effect template to the particle manager
 				tfxEffectID effect_index = AddEffectToParticleManager(&game->game_pm, game->vader_explosion_effect);
+				//Set the effect position
 				SetEffectPosition(&game->game_pm, effect_index, vader.position);
+				//Alter the effect scale
 				SetEffectOveralScale(&game->game_pm, effect_index, 2.5f);
 				game->score += 150;
 				game->high_score = tfxMax(game->score, game->high_score);
@@ -571,19 +603,23 @@ void UpdateVaders(VadersGame *game) {
 			bullet.frame = 0;
 			game->vader_bullets[game->current_buffer].push_back(bullet);
 		}
+		//push the vader to the next buffer
 		game->vaders[next_buffer].push_back(vader);
 	}
 
+	//Udpate the bigger vader that floats down from the top
 	for (auto &vader : game->big_vaders[game->current_buffer]) {
 		bool dead = false;
 		for (auto &bullet : game->player_bullets[game->current_buffer]) {
 			if (GetDistance(bullet.position.z, bullet.position.y, vader.position.z, vader.position.y) < 0.3f) {
 				bullet.remove = true;
 				vader.health--;
+				//Add the damage taken effect to the particle manager and set it's position
 				tfxEffectID damage_index = AddEffectToParticleManager(&game->game_pm, game->damage);
 				SetEffectPosition(&game->game_pm, damage_index, bullet.position);
 				if (vader.health == 0) {
 					dead = true;
+					//blow up the big vader, add the big_explosion template to the particle manager and set position and scale
 					tfxEffectID effect_index = AddEffectToParticleManager(&game->game_pm, game->big_explosion);
 					SetEffectPosition(&game->game_pm, effect_index, vader.position);
 					SetEffectOveralScale(&game->game_pm, effect_index, 2.5f);
@@ -592,6 +628,7 @@ void UpdateVaders(VadersGame *game) {
 					if (vader.flags & VaderFlags_firing_laser) {
 						SoftExpireEffect(&game->game_pm, vader.laser);
 					}
+					//Add the power up effect that floats downward to the particle manager and set its position and scale
 					tfxEffectID power_up_index = AddEffectToParticleManager(&game->game_pm, game->weapon_power_up);
 					SetEffectPosition(&game->game_pm, power_up_index, vader.position);
 					SetEffectOveralScale(&game->game_pm, power_up_index, 3.f);
@@ -607,6 +644,8 @@ void UpdateVaders(VadersGame *game) {
 			vader.position.y = EaseOutQuad(tfxMin(vader.time * .5f, 1.f)) * (vader.end_position.y - vader.start_position.y) + vader.start_position.y;
 		}
 		if (vader.time > 2.f && !(vader.flags & VaderFlags_charging_up) && !(vader.flags & VaderFlags_firing_laser)) {
+			//The big vader has started to power up it's laser, add the charge up effect to the particle manager
+			//Position at the tip of the vader
 			tfxEffectID effect_index = AddEffectToParticleManager(&game->game_pm, game->charge_up);
 			tfxVec3 laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
 			SetEffectPosition(&game->game_pm, effect_index, vader.position + laser_offset);
@@ -614,31 +653,40 @@ void UpdateVaders(VadersGame *game) {
 			vader.flags |= VaderFlags_in_position;
 		}
 		else if (vader.time > 3.f && vader.flags & VaderFlags_charging_up) {
+			//Big vader has finished charging up so shoot the laser
+			//Add the laser effect to the particle manager and set the position
 			vader.laser = AddEffectToParticleManager(&game->game_pm, game->laser);
 			tfxVec3 laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
 			SetEffectPosition(&game->game_pm, vader.laser, vader.position + laser_offset);
 			SetEffectPitch(&game->game_pm, vader.laser, tfxRadians(vader.angle));
 			SetEffectOveralScale(&game->game_pm, vader.laser, 2.f);
+			//Set the height of the laser which will change the length of it. We want it to extend off of the screen
 			SetEffectHeightMultiplier(&game->game_pm, vader.laser, 3.f);
 			vader.flags |= VaderFlags_firing_laser;
 			vader.flags &= ~VaderFlags_charging_up;
 		}
 		else if (vader.flags & VaderFlags_firing_laser) {
+			//While the laser is firing, rotate the laser effect and update it's position to keep it at the tip of the vader
 			float time = (vader.time - 3.f) * .25f;
 			vader.angle = EaseInOutQuad(tfxMin(time * .5f, 1.f)) * (vader.end_angle - vader.start_angle) + vader.start_angle;
 			tfxVec3 laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
 			SetEffectPosition(&game->game_pm, vader.laser, vader.position + laser_offset);
+			//Rotate the laser
 			SetEffectPitch(&game->game_pm, vader.laser, tfxRadians(vader.angle));
 			if (vader.angle == vader.end_angle) {
 				vader.time = 0;
 				vader.end_angle = vader.start_angle;
 				vader.start_angle = vader.angle;
+				//Now that we've reached the final angle of the laser, soft expire the effect so that the effect stops spawning particles 
+				//and any remaining particles expire naturally
 				SoftExpireEffect(&game->game_pm, vader.laser);
 				vader.flags &= ~VaderFlags_firing_laser;
 			}
 			else {
 				tfxVec3 laser_normal = NormalizeVec(laser_offset);
+				//Check to see if the laser is colliding with the player
 				if (game->state != GameState_game_over && IsLineCircleCollision(vader.position + laser_offset, vader.position + laser_offset + (laser_normal * 20.f), game->player.position, .3f)) {
+					//Destroy the player. Add the player explosion to the particle manager and position/scale it.
 					int index = AddEffectToParticleManager(&game->game_pm, game->player_explosion);
 					SetEffectPosition(&game->game_pm, index, game->player.position);
 					SetEffectOveralScale(&game->game_pm, index, 1.5f);
@@ -646,6 +694,7 @@ void UpdateVaders(VadersGame *game) {
 				}
 			}
 		}
+		//push the big vader to the next buffer
 		game->big_vaders[next_buffer].push_back(vader);
 	}
 	if (game->big_vaders[next_buffer].size()) {
@@ -706,9 +755,11 @@ void UpdatePlayerBullets(VadersGame *game) {
 		}
 		bullet.position.y += bullet.speed * tfxUPDATE_TIME;
 		if (bullet.position.y > top_left.y + 1.f) {
+			//Expire the effect if it hits the top of the screen
 			SoftExpireEffect(&game->game_pm, bullet.effect_index);
 		}
 		else {
+			//Update the bullet effect position
 			SetEffectPosition(&game->game_pm, bullet.effect_index, bullet.position);
 			game->player_bullets[next_buffer].push_back(bullet);
 		}
@@ -719,7 +770,9 @@ void UpdateVaderBullets(VadersGame *game) {
 	int next_buffer = !game->current_buffer;
 	game->vader_bullets[next_buffer].clear();
 	for (auto &bullet : game->vader_bullets[game->current_buffer]) {
+		//Does the vader bullet collide with the player?
 		if (game->state != GameState_game_over && GetDistance(bullet.position.z, bullet.position.y, game->player.position.z, game->player.position.y) < 0.3f) {
+			//Blow up the player, add the player_explosion effect to the particle manager and set it's position/scale
 			int index = AddEffectToParticleManager(&game->game_pm, game->player_explosion);
 			SetEffectPosition(&game->game_pm, index, bullet.position);
 			SetEffectOveralScale(&game->game_pm, index, 1.5f);
@@ -736,26 +789,34 @@ void UpdateVaderBullets(VadersGame *game) {
 			bullet.position.z > game->top_left_bound.z - 1.f &&
 			bullet.position.y > game->bottom_right_bound.y - 1.f &&
 			bullet.position.z < game->bottom_right_bound.z + 1.f) {
+			//Push the bullet to the next buffer
 			game->vader_bullets[next_buffer].push_back(bullet);
 		}
 	}
 }
 
 void SetParticleOption(VadersGame *game) {
+	//Here we can alter the particle effects so that on slower PCs the particles can be toned down
 	if (game->particle_option == 0) {
 		game->background.ScaleGlobalMultiplier(tfxGlobal_amount, .25f);
+		//Restart the title/background effects
 		SoftExpireEffect(&game->background_pm, game->background_index);
 		HardExpireEffect(&game->title_pm, game->title_index);
 		game->player_bullet_effect.DisableEmitter("Player Bullet/Flare");
+		//Disable the flare emitter in the title effect
 		game->title.DisableEmitter("Title/Flare");
+		//Set the single spawn amount of the emitters with the big explosion effect
 		game->big_explosion.SetSingleSpawnAmount("Big Explosion/Ring Stretch", 100);
 		game->big_explosion.SetSingleSpawnAmount("Big Explosion/Ring Stretch.1", 100);
+		//Scale the base amount of the cloud burst expand emitter
 		game->big_explosion.ScaleEmitterGraph("Big Explosion/Cloud Burst Expand", tfxBase_amount, 0.25f);
+		//Tone down the player explosion as well
 		game->player_explosion.SetSingleSpawnAmount("Player Explosion/Ring Stretch", 100);
 		game->player_explosion.SetSingleSpawnAmount("Player Explosion/Ring Stretch.1", 100);
 		game->player_explosion.ScaleEmitterGraph("Player Explosion/Cloud Burst", tfxBase_amount, 0.25f);
 		game->got_power_up.SetSingleSpawnAmount("Got Power Up/Delayed Ellipse", 100);
 		game->vader_explosion_effect.ScaleGlobalMultiplier(tfxGlobal_amount, .25f);
+		//For the laser scale the global amount to adjust the amount of all emitters within the effect
 		game->laser.ScaleGlobalMultiplier(tfxGlobal_amount, .5f);
 		game->laser.DisableEmitter("Laser/Flare");
 
@@ -816,6 +877,7 @@ void SetParticleOption(VadersGame *game) {
 }
 
 void BuildUI(VadersGame *game) {
+	//Draw the imgui window
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 	ImGui::Begin("Effects");
@@ -869,6 +931,7 @@ void BuildUI(VadersGame *game) {
 	zest_SetLayerDirty(game->imgui_layer_info.mesh_layer);
 }
 
+//Draw all the billboards for the game
 void DrawPlayer(VadersGame *game) {
 	zest_SetLayerColor(game->billboard_layer, 255, 255, 255, 255);
 	zest_SetLayerIntensity(game->billboard_layer, 1.f);
@@ -901,9 +964,11 @@ void DrawVaderBullets(VadersGame *game, float lerp) {
 	}
 }
 
+//Render the particles
 void RenderParticles3d(tfxParticleManager &pm, float tween, VadersGame *game) {
 	//Renderer specific, get the layer that we will draw on (there's only one layer in this example)
 	tfxWideFloat lerp = tfxWideSetSingle(tween);
+	//Set the billboard drawing to use the particle texture
 	zest_SetBillboardDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
 	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
 		tfxSpriteSoA &sprites = pm.sprites[pm.current_sprite_buffer][layer];
@@ -942,7 +1007,7 @@ void ResetGame(VadersGame *game) {
 }
 
 void VadersGame::Update(float ellapsed) {
-	//Application specific update loop
+	//Accumulate the timer delta
 	zest_TimerAccumulate(timer);
 
 	//Renderer specific
@@ -956,10 +1021,14 @@ void VadersGame::Update(float ellapsed) {
 	UpdateUniform3d(this);
 	zest_Update2dUniformBuffer();
 
+	//Update the game logic at 60fps
 	while (zest_TimerDoUpdate(timer)) {
 
+		//Render based on the current game state
 		if (state == GameState_title) {
+			//Update the background particle manager
 			UpdateParticleManager(&background_pm, tfxFRAME_LENGTH);
+			//Update the title particle manager
 			UpdateParticleManager(&title_pm, tfxFRAME_LENGTH);
 			if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 				ResetGame(this);
@@ -973,9 +1042,12 @@ void VadersGame::Update(float ellapsed) {
 		}
 		else if (state == GameState_game) {
 			if (!paused) {
+				//Update the main game particle manager and the background particle manager
 				UpdateParticleManager(&game_pm, tfxFRAME_LENGTH);
 				UpdateParticleManager(&background_pm, tfxFRAME_LENGTH);
+				//We can alter the noise offset so that the bullet noise particles cycle their noise offsets to avoid repetition in the noise patterns
 				noise_offset += 1.f * tfxUPDATE_TIME;
+				//Update all the game objects
 				UpdatePlayer(this, &player);
 				UpdateVaders(this);
 				UpdateVaderBullets(this);
@@ -995,9 +1067,11 @@ void VadersGame::Update(float ellapsed) {
 			}
 		}
 		else if (state == GameState_game_over) {
+			//Update the main game particle manager and the background particle manager
 			UpdateParticleManager(&game_pm, tfxFRAME_LENGTH);
 			UpdateParticleManager(&background_pm, tfxFRAME_LENGTH);
 			noise_offset += 1.f * tfxUPDATE_TIME;
+			//Update all the game objects
 			UpdateVaders(this);
 			UpdateVaderBullets(this);
 			UpdatePlayerBullets(this);
@@ -1011,6 +1085,7 @@ void VadersGame::Update(float ellapsed) {
 				wait_for_mouse_release = false;
 			}
 		}
+		//Draw the Imgui window
 		BuildUI(this);
 
 		zest_TimerUnAccumulate(timer);
@@ -1018,17 +1093,29 @@ void VadersGame::Update(float ellapsed) {
 
 	zest_TimerSet(timer);
 
-	zest_SetMSDFFontDrawing(font_layer, font, font->descriptor_set, font->pipeline);
+	//Do all the rendering outside of the update loop
+	//Set the font drawing to the font we loaded in the Init function
+	zest_SetMSDFFontDrawing(font_layer, font);
+	//Render the background particles
 	RenderParticles3d(background_pm, (float)timer->lerp, this);
+
 	if (state == GameState_title) {
+		//If showing the title screen, render the title particles
 		RenderParticles3d(title_pm, (float)timer->lerp, this);
-		zest_DrawMSDFText(font_layer, "Press Button to Start", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 30.f, 0.f, 1);
+		//Draw the start text
+		zest_DrawMSDFText(font_layer, "Press Button to Start", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 30.f, 0.f);
 	}
 	else if (state == GameState_game) {
+		//If the game is in the play state draw all the game billboards
+		//Set the billboard drawing to the sprite texture
 		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
+		//Draw the player and vaders
 		DrawPlayer(this);
 		DrawVaders(this, (float)timer->lerp);
+		//Render all of the game particles
 		RenderParticles3d(game_pm, (float)timer->lerp, this);
+		//Set the billboard drawing back to the sprite texture (after rendering the particles with the particle texture)
+		//We want to draw the vader bullets over the top of the particles so that they're easier to see
 		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		DrawVaderBullets(this, (float)timer->lerp);
 		tfxStr16 score_text;
@@ -1037,22 +1124,24 @@ void VadersGame::Update(float ellapsed) {
 		score_text.Appendf("%i", score);
 		high_score_text.Appendf("%i", high_score);
 		wave_text.Appendf("%i", (int)current_wave);
-		zest_DrawMSDFText(font_layer, score_text.c_str(), zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .95f, .5f, .5f, 20.f, 0.f, 1);
-		zest_DrawMSDFText(font_layer, high_score_text.c_str(), zest_ScreenWidthf() * .05f, zest_ScreenHeightf() * .95f, 0.f, .5f, 20.f, 0.f, 1);
-		zest_DrawMSDFText(font_layer, wave_text.c_str(), zest_ScreenWidthf() * .95f, zest_ScreenHeightf() * .95f, 1.f, .5f, 20.f, 0.f, 1);
+		//Draw some text for score and wave
+		zest_DrawMSDFText(font_layer, score_text.c_str(), zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .95f, .5f, .5f, 20.f, 0.f);
+		zest_DrawMSDFText(font_layer, high_score_text.c_str(), zest_ScreenWidthf() * .05f, zest_ScreenHeightf() * .95f, 0.f, .5f, 20.f, 0.f);
+		zest_DrawMSDFText(font_layer, wave_text.c_str(), zest_ScreenWidthf() * .95f, zest_ScreenHeightf() * .95f, 1.f, .5f, 20.f, 0.f);
 	}
 	else if (state == GameState_game_over) {
+		//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
 		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		DrawVaders(this, (float)timer->lerp);
 		RenderParticles3d(game_pm, (float)timer->lerp, this);
 		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		DrawVaderBullets(this, (float)timer->lerp);
-		zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 60.f, 0.f, 1);
+		zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 60.f, 0.f);
 	}
 	zest_imgui_UpdateBuffers(imgui_layer_info.mesh_layer);
 }
 
-//Application specific, this just sets the function to call each render update
+//Update callback called from Zest
 void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	VadersGame *game = static_cast<VadersGame*>(data);
 	game->Update((float)ellapsed);
