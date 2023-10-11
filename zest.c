@@ -3053,6 +3053,7 @@ zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void)
 	zest_vec_push(create_info.dynamicStates, VK_DYNAMIC_STATE_SCISSOR);
 	create_info.viewport.offset.x = 0;
 	create_info.viewport.offset.y = 0;
+	create_info.viewport.extent = zest_GetSwapChainExtent();
 	return create_info;
 }
 
