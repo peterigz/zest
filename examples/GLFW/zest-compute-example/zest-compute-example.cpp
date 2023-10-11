@@ -39,7 +39,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Load the particle data with random coordinates
 	std::default_random_engine rndEngine(0);
 	std::uniform_real_distribution<float> rndDist(-1.0f, 1.0f);
-	// Initial particle positions
+	//Initial particle positions
 	std::vector<Particle> particle_buffer(PARTICLE_COUNT);
 	for (auto& particle : particle_buffer) {
 		particle.pos = zest_Vec2Set(rndDist(rndEngine), rndDist(rndEngine));
@@ -65,17 +65,26 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Create a new pipeline in the renderer
 	app->particle_pipeline = zest_AddPipeline("particles");
 
-	//Change some things in the create info to set up our pipeline
+	//Change some things in the create info to set up our own pipeline
+	//Clear the current vertex input binding descriptions
 	zest_ClearVertexInputBindingDescriptions(&create_info);
+	//Add our own vertex binding description using the Particle struct
 	zest_AddVertexInputBindingDescription(&create_info, 0, sizeof(Particle), VK_VERTEX_INPUT_RATE_VERTEX);
+	//Create a new vertex input description array
 	app->vertice_attributes = zest_NewVertexInputDescriptions();
+	//Add the descriptions for each type in the Particle struct
 	zest_AddVertexInputDescription(&app->vertice_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Particle, pos)));
 	zest_AddVertexInputDescription(&app->vertice_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Particle, gradient_pos)));
 
+	//Assign our vertex input descriptions to the attributeDescriptions in the create info of the pipeline we're building
 	create_info.attributeDescriptions = app->vertice_attributes;
+	//Set the shader file to use in the pipeline
 	zest_SetPipelineTemplateShader(&create_info, "examples/assets/spv/particle.spv");
+	//We're going to use point sprites so set that
 	create_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+	//Assign the descriptor layout we created earlier
 	create_info.descriptorSetLayout = app->descriptor_layout;
+	//Set the push constant we'll be using
 	zest_SetPipelineTemplatePushConstant(&create_info, sizeof(zest_vec2), 0, VK_SHADER_STAGE_VERTEX_BIT);
 
 	//Using the create_info we prepared build the template for the pipeline
@@ -209,6 +218,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
 	ImGui::End();
 	ImGui::Render();
+	//We must mark the layer as dirty or nothing will be uploaded to the GPU
 	zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 }
@@ -218,16 +228,23 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 //int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
+	//Disable vsync so we can see how fast it runs
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	//We're using GLFW for this example so use the following function to set that up for us. You must include
+	//impl_glfw.h for this
 	zest_implglfw_SetCallbacks(&create_info);
 
 	ImGuiApp imgui_app;
 
+	//Initialise Zest
 	zest_Initialise(&create_info);
+	//Set our user data and the update callback to be called every frame
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
+	//Initialise Dear ImGui
 	InitImGuiApp(&imgui_app);
 
+	//Start the mainloop in Zest
 	zest_Start();
 
 	return 0;
