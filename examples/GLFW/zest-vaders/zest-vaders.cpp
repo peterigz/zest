@@ -721,7 +721,7 @@ void UpdatePowerUps(VadersGame *game) {
 }
 
 void UpdatePlayerPosition(VadersGame *game, Player *player) {
-	player->position = ScreenRay(ZestApp->mouse_x, ZestApp->mouse_y, 10.f, game->camera.position, game->uniform_buffer_3d);
+	player->position = ScreenRay((float)ZestApp->mouse_x, (float)ZestApp->mouse_y, 10.f, game->camera.position, game->uniform_buffer_3d);
 }
 
 void UpdatePlayer(VadersGame *game, Player *player) {

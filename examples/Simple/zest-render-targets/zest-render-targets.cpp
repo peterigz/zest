@@ -198,8 +198,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Get the texture from the final blur render target.
 	zest_texture target_texture = zest_GetRenderTargetTexture(example->final_blur);
 	//We can adjust the alpha and blend type based on the mouse position
-	float top_layer_intensity = ZestApp->mouse_x / zest_ScreenWidthf();
-	float blend = (ZestApp->mouse_y < 0 ? 0 : ZestApp->mouse_y) / zest_ScreenHeightf();
+	float top_layer_intensity = (float)ZestApp->mouse_x / zest_ScreenWidthf();
+	float blend = ((float)ZestApp->mouse_y < 0 ? 0 : (float)ZestApp->mouse_y) / zest_ScreenHeightf();
 	blend = ZEST__CLAMP(blend, 0.f, 1.f);
 	top_layer_intensity = ZEST__CLAMP(top_layer_intensity, 0.f, 5.f);
 

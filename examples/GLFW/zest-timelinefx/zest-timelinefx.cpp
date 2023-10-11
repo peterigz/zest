@@ -59,7 +59,7 @@ void ShapeLoader(const char* filename, tfxImageData &image_data, void *raw_image
 	VadersGame *game = static_cast<VadersGame*>(custom_data);
 
 	//This shape loader example uses the STB image library to load the raw bitmap (png usually) data
-	zest_bitmap_t bitmap;
+	zest_bitmap_t bitmap = zest_NewBitmap();
 	zest_LoadBitmapImageMemory(&bitmap, (unsigned char*)raw_image_data, image_memory_size, 0);
 	//Convert the image to RGBA which is necessary for this particular renderer
 	zest_ConvertBitmapToRGBA(&bitmap, 255);
@@ -73,7 +73,7 @@ void ShapeLoader(const char* filename, tfxImageData &image_data, void *raw_image
 	if (image_data.animation_frames > 1) {
 		//Add the spritesheet to the texture in our renderer
 		float max_radius = 0;
-		image_data.ptr = zest_AddTextureAnimationImage(game->particle_texture, &bitmap, (u32)image_data.image_size.x, (u32)image_data.image_size.y, (u32)image_data.animation_frames, &max_radius, 1);
+		image_data.ptr = zest_AddTextureAnimationBitmap(game->particle_texture, &bitmap, (u32)image_data.image_size.x, (u32)image_data.image_size.y, (u32)image_data.animation_frames, &max_radius, 1);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 	}
@@ -104,7 +104,7 @@ void VadersGame::Init() {
 	LoadEffectLibraryPackage("examples/assets/effects.tfx", library, ShapeLoader, this);
 	//Renderer specific
 	zest_ProcessTextureImages(particle_texture);
-	particle_descriptor = zest_CreateTextureSpriteDescriptorSets(particle_texture, "3d descriptor", "3d uniform");
+	particle_descriptor = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d descriptor", "3d uniform");
 	zest_RefreshTextureDescriptors(particle_texture);
 
 	//Application specific, set up a timer for the update loop
@@ -132,7 +132,7 @@ void VadersGame::Init() {
 	//Renderer specific
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);
 
-	zest_imgui_Initialise();
+	zest_imgui_Initialise(&imgui_layer_info);
 
 	imgui_layer_info.pipeline = zest_Pipeline("pipeline_imgui");
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
@@ -158,7 +158,7 @@ void BuildUI(VadersGame *game) {
 	ImGui::End();
 
 	ImGui::Render();
-	zest_imgui_CopyBuffers(game->imgui_layer_info.mesh_layer);
+	zest_imgui_UpdateBuffers(game->imgui_layer_info.mesh_layer);
 }
 
 void RenderParticles3d(tfxParticleManager &pm, float tween, VadersGame *game) {
