@@ -56,7 +56,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//might be used in the GPU, it's purely for updating by the compute shader only
 	app->particle_buffer = zest_CreateComputeVertexDescriptorBuffer(storage_buffer_size, ZEST_FALSE);
 	//Copy the staging buffer to the desciptor buffer
-	zest_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(app->particle_buffer));
+	zest_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(app->particle_buffer), storage_buffer_size);
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 
@@ -66,14 +66,14 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->particle_pipeline = zest_AddPipeline("particles");
 
 	//Change some things in the create info to set up our pipeline
-	create_info.bindingDescription = zest_CreateVertexInputBindingDescription(0, sizeof(Particle), VK_VERTEX_INPUT_RATE_VERTEX);
+	zest_ClearVertexInputBindingDescriptions(&create_info);
+	zest_AddVertexInputBindingDescription(&create_info, 0, sizeof(Particle), VK_VERTEX_INPUT_RATE_VERTEX);
 	app->vertice_attributes = zest_NewVertexInputDescriptions();
 	zest_AddVertexInputDescription(&app->vertice_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Particle, pos)));
 	zest_AddVertexInputDescription(&app->vertice_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Particle, gradient_pos)));
 
 	create_info.attributeDescriptions = app->vertice_attributes;
-	create_info.vertShaderFile = "examples/assets/spv/particle.spv";
-	create_info.fragShaderFile = "examples/assets/spv/particle.spv";
+	zest_SetPipelineTemplateShader(&create_info, "examples/assets/spv/particle.spv");
 	create_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 	create_info.descriptorSetLayout = app->descriptor_layout;
 	zest_SetPipelineTemplatePushConstant(&create_info, sizeof(zest_vec2), 0, VK_SHADER_STAGE_VERTEX_BIT);
@@ -209,13 +209,14 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
 	ImGui::End();
 	ImGui::Render();
-	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
+	zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
+	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 }
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main(void) {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	zest_implglfw_SetCallbacks(&create_info);
