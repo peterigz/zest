@@ -1690,7 +1690,6 @@ ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
 ZEST_PRIVATE float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 ZEST_PRIVATE void zest__delete_texture_layers(zest_texture texture);
-ZEST_PRIVATE zest_descriptor_set zest__create_default_texture_descriptor_set(zest_texture texture, const char *name, const char *uniform_buffer_name);
 ZEST_PRIVATE void zest__update_all_texture_descriptor_writes(zest_texture texture);
 ZEST_PRIVATE void zest__create_texture_image(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap);
 ZEST_PRIVATE void zest__create_texture_image_array(zest_texture texture, zest_uint mip_levels);
@@ -2481,6 +2480,9 @@ ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const c
 //You can then use the image handles to draw the images along with the descriptor set - either the one that gets created automatically with the the texture to draw sprites and billboards
 //or your own descriptor set.
 ZEST_API void zest_ProcessTextureImages(zest_texture texture);
+//This function will create a simple 1 sampler 1 uniform buffer descriptor set using the uniform buffer that you pass to it by name. Pass the texture that you will
+//create the descriptor set in and give it a unique name in the texture. This will return a handle to the descriptor set.
+ZEST_API zest_descriptor_set zest_CreateSimpleTextureDescriptorSet(zest_texture texture, const char *name, const char *uniform_buffer_name);
 //Get a descriptor set from a texture. When a texture is processed a default descriptor set is created for drawing sprites and billboards called "Default". Otherwise you can build 
 //your own descriptor set for the texture tailored to your own shaders.
 ZEST_API zest_descriptor_set zest_GetTextureDescriptorSet(zest_texture texture, const char *name);
@@ -2738,7 +2740,7 @@ ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float
 //-----------------------------------------------
 //Before drawing any fonts you must call this function in order to set the font you want to use. the zest_font handle can be used to get the descriptor_set and pipeline. See
 //zest-fonts for an example.
-ZEST_API void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
+ZEST_API void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font);
 //Set the shadow parameters of your font drawing. This only applies to the current call of zest_SetMSDFFontDrawing. For each text that you want different settings for you must
 //call a separate zest_SetMSDFFontDrawing to start a new font drawing instruction.
 ZEST_API void zest_SetMSDFFontShadow(zest_layer font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping);

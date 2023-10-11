@@ -6008,7 +6008,7 @@ void zest_ProcessTextureImages(zest_texture texture) {
 	}
 
 	if (!(texture->flags & zest_texture_flag_descriptor_sets_created)) {
-		zest__create_default_texture_descriptor_set(texture, "Default", "Standard 2d Uniform Buffer");
+		zest_CreateSimpleTextureDescriptorSet(texture, "Default", "Standard 2d Uniform Buffer");
 		zest_SwitchTextureDescriptorSet(texture, "Default");
 	}
 
@@ -6023,7 +6023,7 @@ void zest__delete_texture_layers(zest_texture texture) {
 	zest_vec_free(texture->layers);
 }
 
-zest_descriptor_set zest__create_default_texture_descriptor_set(zest_texture texture, const char *name, const char *uniform_buffer_name) {
+zest_descriptor_set zest_CreateSimpleTextureDescriptorSet(zest_texture texture, const char *name, const char *uniform_buffer_name) {
 	ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, uniform_buffer_name));	//No uniform buffer found with that name
 	zest_descriptor_set_t blank_set = { 0 };
 	zest_descriptor_set set = ZEST__NEW(zest_descriptor_set);
@@ -7425,7 +7425,7 @@ void zest__create_render_target_sampler_image(zest_render_target render_target) 
 		image_info.imageView = render_target->framebuffers[i].color_buffer.view;
 		image_info.sampler = texture->sampler;
 		texture->descriptor = image_info;
-		zest__create_default_texture_descriptor_set(texture, "Default", "Standard 2d Uniform Buffer");
+		zest_CreateSimpleTextureDescriptorSet(texture, "Default", "Standard 2d Uniform Buffer");
 		zest_SwitchTextureDescriptorSet(texture, "Default");
 
 		zest_vec_free(texture_name);
@@ -8221,13 +8221,13 @@ void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_
 	zest__reset_instance_layer_drawing(font_layer);
 }
 
-void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font, zest_descriptor_set descriptor_set, zest_pipeline pipeline) {
+void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font) {
 	zest__end_instance_instructions(font_layer);
 	zest__start_instance_instructions(font_layer);
 	ZEST_ASSERT(ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready));		//Make sure the font is properly loaded or wasn't recently deleted
-	font_layer->current_instruction.pipeline = pipeline;
-	if (descriptor_set) {
-		font_layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+	font_layer->current_instruction.pipeline = font->pipeline;
+	if (font->descriptor_set) {
+		font_layer->current_instruction.descriptor_set = font->descriptor_set->descriptor_set[ZEST_FIF];
 	}
 	else {
 		font_layer->current_instruction.descriptor_set = font->texture->current_descriptor_set[ZEST_FIF];
