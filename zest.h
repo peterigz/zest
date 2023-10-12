@@ -61,7 +61,6 @@ extern "C" {
 #define ZLOC_THREAD_SAFE
 #define ZLOC_EXTRA_DEBUGGING
 #define ZLOC_OUTPUT_ERROR_MESSAGES
-#include "zloc.h"
 #include "lib_bundle.h"
 
 #ifndef ZEST_WARNING_COLOR
