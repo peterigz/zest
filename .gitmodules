@@ -13,3 +13,9 @@
 [submodule "submodules/timelinefxlib"]
 	path = submodules/timelinefxlib
 	url = https://github.com/peterigz/timelinefxlib.git
+[submodule "submodules/msdfgen"]
+	path = submodules/msdfgen
+	url = https://github.com/Chlumsky/msdfgen.git
+[submodule "submodules/msdf-atlas-gen"]
+	path = submodules/msdf-atlas-gen
+	url = https://github.com/Chlumsky/msdf-atlas-gen.git
