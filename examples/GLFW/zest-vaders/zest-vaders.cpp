@@ -384,17 +384,17 @@ void VadersGame::Init() {
 	high_score = 0;
 
 	//Prepare all the Effect templates we need from the library
-	assert(PrepareEffectTemplate(library, "Player Bullet", player_bullet_effect));
-	assert(PrepareEffectTemplate(library, "Vader Explosion", vader_explosion_effect));
-	assert(PrepareEffectTemplate(library, "Big Explosion", big_explosion));
-	assert(PrepareEffectTemplate(library, "Player Explosion", player_explosion));
-	assert(PrepareEffectTemplate(library, "Background", background));
-	assert(PrepareEffectTemplate(library, "Title", title));
-	assert(PrepareEffectTemplate(library, "Laser", laser));
-	assert(PrepareEffectTemplate(library, "Charge Up", charge_up));
-	assert(PrepareEffectTemplate(library, "Got Power Up", got_power_up));
-	assert(PrepareEffectTemplate(library, "Power Up", weapon_power_up));
-	assert(PrepareEffectTemplate(library, "Damage", damage));
+	PrepareEffectTemplate(library, "Player Bullet", player_bullet_effect);
+	PrepareEffectTemplate(library, "Vader Explosion", vader_explosion_effect);
+	PrepareEffectTemplate(library, "Big Explosion", big_explosion);
+	PrepareEffectTemplate(library, "Player Explosion", player_explosion);
+	PrepareEffectTemplate(library, "Background", background);
+	PrepareEffectTemplate(library, "Title", title);
+	PrepareEffectTemplate(library, "Laser", laser);
+	PrepareEffectTemplate(library, "Charge Up", charge_up);
+	PrepareEffectTemplate(library, "Got Power Up", got_power_up);
+	PrepareEffectTemplate(library, "Power Up", weapon_power_up);
+	PrepareEffectTemplate(library, "Damage", damage);
 
 	//Set the user data in the got power up effect and the update callback so that we can position it each frame
 	got_power_up.SetUserData(this);
@@ -1149,8 +1149,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_uint packed = zest_Pack8bitx3(&v);
 	zest_create_info_t create_info = zest_CreateInfo();
