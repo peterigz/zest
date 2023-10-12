@@ -32,19 +32,27 @@ void InitImGuiApp(ImGuiApp *app) {
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			zest_ContextSetClsColor(0.15f, 0.15f, 0.15f, 1.f);
-			app->imgui_layer_info.mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
-			{
-				zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
-				zest_ContextDrawRoutine()->user_data = &app->imgui_layer_info;
-				app->font_layer = zest_NewBuiltinLayerSetup("Font layer", zest_builtin_layer_fonts);
-			}
+			app->font_layer = zest_NewBuiltinLayerSetup("Font layer", zest_builtin_layer_fonts);
+			zest_imgui_CreateLayer(&app->imgui_layer_info);
 		}
 		zest_FinishQueueSetup();
 	}
 	
 	app->config.font_file = "";
 
-	app->font = ZEST_NULL;
+	app->font = zest_LoadMSDFFont("examples/assets/KaushanScript-Regular.zft");
+	const char *preview_text = "Text drawn with MSDF!\n0123456789\n!@#$%^&*()[]{}";
+	memcpy(app->preview_text, preview_text, strlen(preview_text));
+	app->preview_text_x = zest_ScreenWidthf() * .75f;
+	app->preview_text_y = zest_ScreenHeightf() * .5f;
+	app->preview_color[0] = 1.f;
+	app->preview_color[1] = .4f;
+	app->preview_color[2] = .2f;
+	app->preview_color[3] = 1.f;
+	app->background_color[0] = 0.15f;
+	app->background_color[1] = 0.15f;
+	app->background_color[2] = 0.15f;
+	app->background_color[3] = 1.f;
 }
 
 void ShowToolTip(const char *tip) {
@@ -284,26 +292,28 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		static float radius = 25.f;
 		static float aa = 5.f;
 
-		ImGui::Text("FPS %i", ZestApp->last_fps);
-		ImGui::Checkbox("VSync", &vsync);
+		ImGui::ColorEdit4("Preview Color", app->preview_color);
+		if (ImGui::ColorEdit3("Background Color", app->background_color)) {
+			zest_SetDrawCommandsClsColor(ZestApp->default_draw_commands, app->background_color[0], app->background_color[1], app->background_color[2], app->background_color[3]);
+		}
 		ImGui::DragFloat("Radius", &radius, .01f);
 		ImGui::DragFloat("Expand", &expand, .01f);
 		ImGui::DragFloat("Bleed", &bleed, .01f);
 		ImGui::DragFloat("Detail", &detail, .01f);
 		ImGui::DragFloat("AA", &aa, .01f);
+		ImGui::InputTextMultiline("Preview Text", app->preview_text, 50);
 
-		app->font_layer->multiply_blend_factor = 1.f;
-		app->font_layer->push_constants = { 0 };
-		zest_SetMSDFFontDrawing(app->font_layer, app->font, app->font->descriptor_set, app->font->pipeline);
+		app->font_layer->intensity = 1.f;
+		zest_SetMSDFFontDrawing(app->font_layer, app->font);
 		zest_SetMSDFFontShadow(app->font_layer, shadow_length, shadow_smoothing, shadow_clipping);
 		zest_SetMSDFFontShadowColor(app->font_layer, 0.f, 0.f, 0.f, shadow_alpha);
 		
-		app->font_layer->current_instance_instruction.push_constants.flags = (zest_uint)precise;
+		app->font_layer->current_instruction.push_constants.flags = (zest_uint)precise;
 
 		zest_TweakMSDFFont(app->font_layer, bleed, expand, aa, radius, detail);
-		app->font_layer->current_color = zest_ColorSet(255, 100, 50, 255);
+		zest_SetLayerColorf(app->font_layer, app->preview_color[0], app->preview_color[1], app->preview_color[2], app->preview_color[3]);
 
-		zest_DrawMSDFText(app->font_layer, "Zest fonts drawn using MSDF!", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5, preview_size, preview_spacing, 1.f);
+		zest_DrawMSDFParagraph(app->font_layer, app->preview_text, app->preview_text_x, app->preview_text_y, .5f, .5f, preview_size, preview_spacing, 1.f);
 
 	}
 
@@ -325,15 +335,23 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGuiFileDialog::Instance()->Close();
 	}
 
+	if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsWindowHovered() && !ImGui::IsAnyItemActive()) {
+		app->preview_text_x = ImGui::GetMousePos().x;
+		app->preview_text_y = ImGui::GetMousePos().y;
+	}
+
 	ImGui::End();
+
 	ImGui::Render();
 
-	zest_imgui_CopyBuffers(app->imgui_layer_info.mesh_layer);
+	zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
+	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 }
 
 #if defined(_WIN32)
 // Windows entry point
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
 

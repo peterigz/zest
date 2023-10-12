@@ -2,6 +2,7 @@
 
 #include <msdf-atlas-gen/msdf-atlas-gen.h>
 using namespace msdf_atlas;
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #include <zest.h>
 #include "implementations/impl_glfw.h"
 #include "implementations/impl_imgui.h"
@@ -32,6 +33,11 @@ struct ImGuiApp {
 	zest_bool load_next_font;
 	zest_font font;
 	zest_layer font_layer;
+	float preview_text_x;
+	float preview_text_y;
+	char preview_text[100];
+	float preview_color[4];
+	float background_color[4];
 };
 
 struct custom_stbi_mem_context{
