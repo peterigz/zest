@@ -32,6 +32,7 @@ function(buildExample EXAMPLE_NAME)
 	file(GLOB IMGUI_SOURCE
 		${IMGUI}*.cpp 
 		${IMGUI}backends/imgui_impl_glfw.cpp
+		${IMGUI}misc/freetype/imgui_freetype.cpp
 	)
 	
 	file(GLOB IMPLEMENTATIONS_SOURCE
@@ -40,8 +41,6 @@ function(buildExample EXAMPLE_NAME)
 	)
 
 	if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
-		include_directories(${CMAKE_SOURCE_DIR}/submodules/msdf-atlas-gen/) 
-		include_directories(${CMAKE_SOURCE_DIR}/submodules/msdf-atlas-gen/msdfgen) 
 		file(GLOB IMGUI_FILE_DIALOG_SOURCE
 			${IMGUI_FILE_DIALOG}ImGuiFileDialog.cpp
 		)
@@ -68,16 +67,24 @@ function(buildExample EXAMPLE_NAME)
 	if(WIN32)
 		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY} ${WINLIBS})
-		if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
-			target_link_libraries(${EXAMPLE_NAME} ${EXAMPLE_FOLDER}/freetype/win64/freetype.lib ${EXAMPLE_FOLDER}/libpng16/libpng16.lib ${MSDF_ATLAS_LIB} ${MSDF_GEN_CORE} ${MSDF_GEN_EXT})
-		endif()
 	else(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY})
-		if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
-			target_link_libraries(${EXAMPLE_NAME} ${EXAMPLE_FOLDER}/freetype/win64/freetype.lib ${MSDF_ATLAS_LIB} ${MSDF_GEN_CORE} ${MSDF_GEN_EXT})
-		endif()
 	endif(WIN32)
+
+	if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
+		target_link_libraries(${EXAMPLE_NAME} ${CMAKE_SOURCE_DIR}/examples/libs/freetype/win64/freetype.lib ${CMAKE_SOURCE_DIR}/examples/libs/libpng16/libpng16.lib ${MSDF_ATLAS_LIB} ${MSDF_GEN_CORE} ${MSDF_GEN_EXT})
+		target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/msdf_atlas_gen/) 
+		target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/msdf_atlas_gen/msdfgen) 
+	endif()
+
+	target_link_libraries(${EXAMPLE_NAME} ${CMAKE_SOURCE_DIR}/examples/libs/freetype/win64/freetype.lib)
+	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/examples/libs/freetype/include) 
+
+	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx")
+		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX}) 
+	endif()
+
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${EXAMPLE_FOLDER})
 
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
