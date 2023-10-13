@@ -2745,13 +2745,16 @@ ZEST_API void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font);
 ZEST_API void zest_SetMSDFFontShadow(zest_layer font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping);
 ZEST_API void zest_SetMSDFFontShadowColor(zest_layer font_layer, float red, float green, float blue, float alpha);
 //Alter the parameters in the shader to tweak the font details and how it's drawn. This can be useful especially for drawing small scaled fonts.
-ZEST_API void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float expand, float aa_factor, float radius, float detail);
+//bleed: Simulates ink bleeding so higher numbers fatten the font but in a more subtle way then altering the thickness.
+//thickness: Makes the font bolder with higher numbers. around 5.f
+//aa_factor: The amount to alias the font. Lower numbers work better for smaller fonts
+//radius: Scale the distance measured to the font edge. Higher numbers make the font thinner
+ZEST_API void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float thickness, float aa_factor, float radius);
 //The following functions just let you tweak an individual parameter of the font drawing
 ZEST_API void zest_SetMSDFFontBleed(zest_layer font_layer, float bleed);
-ZEST_API void zest_SetMSDFFontExpand(zest_layer font_layer, float expand);
+ZEST_API void zest_SetMSDFFontThickness(zest_layer font_layer, float thickness);
 ZEST_API void zest_SetMSDFFontAAFactor(zest_layer font_layer, float aa_factor);
 ZEST_API void zest_SetMSDFFontRadius(zest_layer font_layer, float radius);
-ZEST_API void zest_SetMSDFFontDetail(zest_layer font_layer, float detail);
 //Draw a single line of text using an MSDF font. You must call zest_SetMSDFFontDrawing before calling this command to specify which font you want to use to draw with and the zest_layer
 //that you pass to the function must match the same layer set with that command.
 //text:					The string that you want to display

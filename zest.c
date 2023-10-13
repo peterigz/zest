@@ -8253,24 +8253,23 @@ void zest_SetMSDFFontShadowColor(zest_layer font_layer, float red, float green, 
 	font_layer->current_instruction.push_constants.parameters3 = font_layer->push_constants.parameters3;
 }
 
-void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float expand, float aa_factor, float radius, float detail) {
+void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float thickness, float aa_factor, float radius) {
 	font_layer->push_constants.parameters1.x = radius;	
-	font_layer->push_constants.parameters1.y = detail;
+	font_layer->push_constants.parameters1.y = bleed;
 	font_layer->push_constants.parameters1.z = aa_factor;
-	font_layer->push_constants.parameters1.w = expand;
-	font_layer->push_constants.camera.w = bleed;
+	font_layer->push_constants.parameters1.w = thickness;
 	font_layer->current_instruction.push_constants.parameters1 = font_layer->push_constants.parameters1;
 	font_layer->current_instruction.push_constants.camera.w = bleed;
 }
 
 void zest_SetMSDFFontBleed(zest_layer font_layer, float bleed) {
-	font_layer->push_constants.camera.w = bleed;
+	font_layer->push_constants.parameters1.y = bleed;
 	font_layer->current_instruction.push_constants.camera.w = bleed;
 }
 
-void zest_SetMSDFFontExpand(zest_layer font_layer, float expand) {
-	font_layer->push_constants.parameters1.w = expand;
-	font_layer->current_instruction.push_constants.parameters1.w = expand;
+void zest_SetMSDFFontThickness(zest_layer font_layer, float thickness) {
+	font_layer->push_constants.parameters1.w = thickness;
+	font_layer->current_instruction.push_constants.parameters1.w = thickness;
 }
 
 void zest_SetMSDFFontAAFactor(zest_layer font_layer, float aa_factor) {
