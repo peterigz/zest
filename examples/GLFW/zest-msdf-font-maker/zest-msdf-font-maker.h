@@ -19,7 +19,7 @@ struct zest_font_configuration {
 	std::string zft_file;
 	int width, height;
 	int thread_count;
-	int padding = 8;
+	int padding = 2;
 	double px_range = 6;
 	double miter_limit = 0;
 	double minimum_scale = MSDF_ATLAS_DEFAULT_EM_SIZE;
