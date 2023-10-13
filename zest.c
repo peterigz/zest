@@ -8197,10 +8197,9 @@ void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_
 
 	//Font defaults.
 	font_layer->push_constants.parameters1.x = 25.f;	//Radius
-	font_layer->push_constants.parameters1.y = 0.35f;	//Detail
+	font_layer->push_constants.parameters1.y = 0.25f;	//Bleed
 	font_layer->push_constants.parameters1.z = 5.f;		//AA factor
-	font_layer->push_constants.parameters1.w = 2.f;		//Expand
-	font_layer->push_constants.camera.w = .25f;			//Bleed
+	font_layer->push_constants.parameters1.w = 5.5f;	//Thickness
 
 	font_layer->layer_size = zest_Vec2Set1(1.f);
 	font_layer->instance_struct_size = sizeof(zest_sprite_instance_t);
