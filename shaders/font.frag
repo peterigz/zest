@@ -48,7 +48,7 @@ void main() {
 	vec2 texture_size = textureSize( texture_sampler, 0 ).xy;
 	float scale = get_uv_scale(frag_tex_coord.xy * texture_size) * font.parameters.z;
 	float d = (median(sampled.r, sampled.g, sampled.b) - 0.75) * font.parameters.x;
-	float sdf = (d + font.parameters.w / font.parameters.y) / scale + 0.5 + font.camera.w;
+	float sdf = (d + font.parameters.w) / scale + 0.5 + font.parameters.y;
 	float mask = clamp(sdf, 0.0, 1.0);
 	glyph = vec4(glyph.rgb, glyph.a * mask);
 
