@@ -7,12 +7,15 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 // Windows entry point
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 {
+	//Make a config struct where you can configure zest with some options
 	zest_create_info_t create_info = zest_CreateInfo();
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
+	//Initialise Zest with the configuration
 	zest_Initialise(&create_info);
+	//Set the callback you want to use that will be called each frame.
 	zest_SetUserUpdateCallback(UpdateCallback);
 
+	//Start the Zest main loop
 	zest_Start();
 
 	return 0;
