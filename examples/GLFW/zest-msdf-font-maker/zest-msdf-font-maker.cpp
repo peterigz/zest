@@ -226,6 +226,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::NewFrame();
 	double minimum_size = 16.0;
 	ImGui::Begin("Generate Font");
+	ImGui::Text("To convert a font, click open font, alter the pixel range, miter limit");
+	ImGui::Text("miter limit, minimum scale and padding, then click Generate File");
+	ImGui::Text("to save the font as a ztf file.");
 	if (ImGui::Button("Open Font")) {
 		ImGuiFileDialog::Instance()->OpenDialog("load_font", "Choose File", ".ttf,.otf", ".", 1, nullptr, ImGuiFileDialogFlags_Modal);
 	}
@@ -240,7 +243,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		"If the mitered corner's length exceeds the miter limit times the line thickness, it is beveled (cut off) instead of extending excessively."
 		"Adjusting the miter limit can help control the rendering of sharp corners in your font to improve visual quality.");
 	ImGui::DragScalar("Minimim Scale", ImGuiDataType_Double, &app->config.minimum_scale, 0.1f, &minimum_size);
+	ShowToolTip("Minimum size of each character in pixles. Depending on the font you might have to have larger numbers for better quality results.");
 	ImGui::DragInt("Padding", &app->config.padding, 1, 0, 32);
+	ShowToolTip("Padding in pixels to put around each character in the texture atlas.");
 
 	if (ImGuiFileDialog::Instance()->Display("load_font"))
 	{
@@ -272,35 +277,37 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		static float shadow_length = 2.f;
 		static float shadow_smoothing = .1f;
 		static float shadow_clipping = 2.f;
-		static bool precise = false;
 		static float shadow_alpha = .75f;
 
-		ImGui::DragFloat("Preview Size", &preview_size, 0.1f, 0.f);
-		ImGui::DragFloat("Preview Spacing", &preview_spacing, 0.1f, 0.f);
-		ImGui::DragFloat("Preview Pixel Range", &app->font->pixel_range, 0.1f, 0.f);
-
+		ImGui::Separator();
 		ImGui::DragFloat("Shadow Length", &shadow_length, 0.1f, 0.f, 5.f);
 		ImGui::DragFloat("Shadow Smoothing", &shadow_smoothing, 0.01f, 0.f, .3f);
 		ImGui::DragFloat("Shadow Clipping", &shadow_clipping, 0.01f, -10.f, 10.f);
 		ImGui::DragFloat("Shadow Alpha", &shadow_alpha, .01f);
-		ImGui::Checkbox("Precise", &precise);
 
 		static bool vsync = true;
-		static float expand = 2.f;
+		static float thickness = 5.5f;
 		static float bleed = 0.25f;
-		static float detail = 0.35f;
 		static float radius = 25.f;
 		static float aa = 5.f;
 
+		ImGui::Separator();
+		ImGui::DragFloat("Preview Size", &preview_size, 0.1f, 0.f);
+		ImGui::DragFloat("Preview Spacing", &preview_spacing, 0.1f, 0.f);
+		ImGui::DragFloat("Preview Pixel Range", &app->font->pixel_range, 0.1f, 0.f);
 		ImGui::ColorEdit4("Preview Color", app->preview_color);
 		if (ImGui::ColorEdit3("Background Color", app->background_color)) {
 			zest_SetDrawCommandsClsColor(ZestApp->default_draw_commands, app->background_color[0], app->background_color[1], app->background_color[2], app->background_color[3]);
 		}
+		ImGui::Separator();
 		ImGui::DragFloat("Radius", &radius, .01f);
-		ImGui::DragFloat("Expand", &expand, .01f);
+		ShowToolTip("Multiplies the distance to the nearest edge so higher numbers make the font thinner.");
+		ImGui::DragFloat("Expand", &thickness, .01f);
+		ShowToolTip("How thick the font is.");
 		ImGui::DragFloat("Bleed", &bleed, .01f);
-		ImGui::DragFloat("Detail", &detail, .01f);
-		ImGui::DragFloat("AA", &aa, .01f);
+		ShowToolTip("Simulates ink bleeding.");
+		ImGui::DragFloat("AA", &aa, .01f, 0.f);
+		ShowToolTip("The level of anti aliasing to apply. You can lower this for smaller fonts");
 		ImGui::InputTextMultiline("Preview Text", app->preview_text, 50);
 
 		app->font_layer->intensity = 1.f;
@@ -308,9 +315,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_SetMSDFFontShadow(app->font_layer, shadow_length, shadow_smoothing, shadow_clipping);
 		zest_SetMSDFFontShadowColor(app->font_layer, 0.f, 0.f, 0.f, shadow_alpha);
 		
-		app->font_layer->current_instruction.push_constants.flags = (zest_uint)precise;
-
-		zest_TweakMSDFFont(app->font_layer, bleed, expand, aa, radius, detail);
+		zest_TweakMSDFFont(app->font_layer, bleed, thickness, aa, radius);
 		zest_SetLayerColorf(app->font_layer, app->preview_color[0], app->preview_color[1], app->preview_color[2], app->preview_color[3]);
 
 		zest_DrawMSDFParagraph(app->font_layer, app->preview_text, app->preview_text_x, app->preview_text_y, .5f, .5f, preview_size, preview_spacing, 1.f);
