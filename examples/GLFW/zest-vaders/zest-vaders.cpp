@@ -374,7 +374,7 @@ void VadersGame::Init() {
 	InitParticleManagerFor3d(&title_pm, &library, layer_max_values, 100, tfxParticleManagerMode_unordered, true, false, 2048);
 
 	//Load a font we can draw text with
-	font = zest_LoadMSDFFont("examples/assets/SourceSansPro-Regular.zft");
+	font = zest_LoadMSDFFont("examples/assets/RussoOne-Regular.zft");
 
 	//Set the clear color for the default draw commands render pass
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);
