@@ -1,7 +1,6 @@
 function(buildExample EXAMPLE_NAME)
 	SET(EXAMPLE_FOLDER ${CMAKE_CURRENT_SOURCE_DIR}/${EXAMPLE_NAME})
 	
-	include_directories(${EXAMPLE_FOLDER})
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui/backends)
@@ -9,8 +8,10 @@ function(buildExample EXAMPLE_NAME)
 	include_directories(${CMAKE_SOURCE_DIR}/implementations) 
 	
 	SET(IMGUI ${CMAKE_SOURCE_DIR}/submodules/imgui/)
+	SET(IMGUI_FILE_DIALOG ${CMAKE_SOURCE_DIR}/submodules/imgui_file_dialog/)
 	SET(IMPLEMENTATIONS ${CMAKE_SOURCE_DIR}/implementations/)
 	SET(TIMELINEFX ${CMAKE_SOURCE_DIR}/submodules/timelinefxlib/)
+	SET(MSDFATLAS ${CMAKE_SOURCE_DIR}/submodules/msdf-atlas-gen/)
 
 	file(GLOB SOURCE 
 		*.cpp 
@@ -38,6 +39,16 @@ function(buildExample EXAMPLE_NAME)
 		${IMPLEMENTATIONS}impl_imgui.cpp
 	)
 
+	if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
+		include_directories(${CMAKE_SOURCE_DIR}/submodules/msdf-atlas-gen/) 
+		include_directories(${CMAKE_SOURCE_DIR}/submodules/msdf-atlas-gen/msdfgen) 
+		file(GLOB IMGUI_FILE_DIALOG_SOURCE
+			${IMGUI_FILE_DIALOG}ImGuiFileDialog.cpp
+		)
+	else()
+		SET(IMGUI_FILE_DIALOG_SOURCE "")
+	endif()
+
 	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx")
 		file(GLOB TIMELINEFX_SOURCE 
 			${TIMELINEFX}timelinefx.h
@@ -55,12 +66,19 @@ function(buildExample EXAMPLE_NAME)
 	add_compile_definitions(IMGUI_USER_CONFIG="zest_imconfig.h")
 
 	if(WIN32)
-		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE})
+		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY} ${WINLIBS})
+		if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
+			target_link_libraries(${EXAMPLE_NAME} ${EXAMPLE_FOLDER}/freetype/win64/freetype.lib ${EXAMPLE_FOLDER}/libpng16/libpng16.lib ${MSDF_ATLAS_LIB} ${MSDF_GEN_CORE} ${MSDF_GEN_EXT})
+		endif()
 	else(WIN32)
-		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE})
+		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY})
+		if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
+			target_link_libraries(${EXAMPLE_NAME} ${EXAMPLE_FOLDER}/freetype/win64/freetype.lib ${MSDF_ATLAS_LIB} ${MSDF_GEN_CORE} ${MSDF_GEN_EXT})
+		endif()
 	endif(WIN32)
+	target_include_directories(${EXAMPLE_NAME} PUBLIC ${EXAMPLE_FOLDER})
 
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES XCODE_GENERATE_SCHEME TRUE XCODE_SCHEME_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

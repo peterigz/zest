@@ -16,7 +16,10 @@ file(GLOB LIB_HEADERS  "*.h")
 add_library(zest-lib STATIC ${LIB_SRC})
 target_include_directories(zest-lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-option(ADD_MSDF_FONT_BUILDER "Add the msdf font builder project - you'll need to set up msdf libraries yourself")
+option(ADD_MSDF_FONT_BUILDER "OPTIONAL: Add the msdf font builder project - you'll need to set up msdf libraries yourself and link them below")
+FIND_LIBRARY(MSDF_ATLAS_LIB NAMES msdf-atlas-gen.lib)
+FIND_LIBRARY(MSDF_GEN_CORE NAMES msdfgen-core.lib)
+FIND_LIBRARY(MSDF_GEN_EXT NAMES msdfgen-ext.lib)
 
 # Use FindVulkan module added with CMAKE 3.7
 if (NOT CMAKE_VERSION VERSION_LESS 3.7.0)
