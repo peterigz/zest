@@ -7947,7 +7947,6 @@ void zest__next_sprite_instance(zest_layer layer) {
 	zest_sprite_instance_t *instance_ptr = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 	instance_ptr = instance_ptr + 1;
 	//Make sure we're not trying to write outside of the buffer range
-	zest_index fif = ZestDevice->current_fif;
 	ZEST_ASSERT(instance_ptr >= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data && instance_ptr <= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->end);
 	if (instance_ptr == layer->memory_refs[ZEST_FIF].staging_instance_data->end) {
 		zest_bool grown = zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].staging_instance_data, sizeof(zest_sprite_instance_t), 0);
