@@ -4739,7 +4739,7 @@ zest_draw_routine zest_ContextDrawRoutine() {
 }
 
 void zest_ContextSetClsColor(float r, float g, float b, float a) {
-	assert(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass);	//The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderItemSC
+	assert(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_draw_routine || ZestRenderer->setup_context.type == zest_setup_context_type_layer);	//The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderItemSC
 	ZestRenderer->setup_context.draw_commands->cls_color = zest_Vec4Set(r, g, b, a);
 }
 
@@ -4861,6 +4861,7 @@ void zest_AddRenderTarget(zest_render_target render_target) {
 
 zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char *name, zest_render_target render_target) {
 	ZEST_ASSERT(render_target);		//render_target must be a valid index to a render target
+	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));		//There are already draw commands with that name
 	zest__set_queue_context(zest_setup_context_type_render_pass);
 	zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
 	zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
