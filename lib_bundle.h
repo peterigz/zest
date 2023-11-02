@@ -660,7 +660,7 @@ extern "C" {
 		zloc__map(zloc__do_size_class_callback(block), &fli, &sli);
 		zloc_header *current_block_in_free_list = allocator->segregated_lists[fli][sli];
 		//If you hit this assert then it's likely that at somepoint in your code you're trying to free an allocation
-		//that was already freed.
+		//that was already freed or trying to free something that wasn't allocated by the allocator.
 		ZLOC_ASSERT(block != current_block_in_free_list);
 		//Insert the block into the list by updating the next and prev free blocks of
 		//this and the current block in the free list. The current block in the free
