@@ -333,6 +333,7 @@ typedef enum {
 typedef enum {
 	zest_builtin_layer_sprites = 0,
 	zest_builtin_layer_billboards,
+	zest_builtin_layer_lines,
 	zest_builtin_layer_fonts,
 	zest_builtin_layer_mesh
 } zest_builtin_layer_type;
@@ -1731,7 +1732,12 @@ ZEST_PRIVATE zest_font zest__add_font(zest_font font);
 // --Billboard layer internal functions
 ZEST_PRIVATE void zest__draw_billboard_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__next_billboard_instance(zest_layer layer);
-ZEST_PRIVATE void zest__intitialise_billboard_layer(zest_layer billboard_layer, zest_uint instance_pool_size);
+ZEST_PRIVATE void zest__initialise_billboard_layer(zest_layer billboard_layer, zest_uint instance_pool_size);
+
+// --Line instance layer internal functions
+ZEST_PRIVATE void zest__draw_line_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__next_line_instance(zest_layer layer);
+ZEST_PRIVATE void zest__initialise_line_layer(zest_layer line_layer, zest_uint instance_pool_size);
 
 // --Mesh layer internal functions
 ZEST_PRIVATE void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
@@ -1754,13 +1760,15 @@ ZEST_PRIVATE void zest__end_single_time_commands(VkCommandBuffer command_buffer)
 ZEST_PRIVATE zest_index zest__next_fif(void);
 // --End General Helper Functions
 
-// --End Pipeline Helper Functions
+// --Pipeline Helper Functions
 ZEST_PRIVATE void zest__set_pipeline_template(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info);
 ZEST_PRIVATE void zest__update_pipeline_template(zest_pipeline_template_t *pipeline_template, zest_pipeline_template_create_info_t *create_info);
 ZEST_PRIVATE VkShaderModule zest__create_shader_module(char *code);
 ZEST_PRIVATE zest_pipeline_template_create_info_t zest__copy_pipeline_create_info(zest_pipeline_template_create_info_t *create_info);
 ZEST_PRIVATE void zest__free_pipeline_create_info(zest_pipeline_template_create_info_t *create_info);
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
+ZEST_PRIVATE void zest__add_pipeline_descriptor_write(zest_pipeline pipeline, VkWriteDescriptorSet set, zest_index fif);
+ZEST_PRIVATE void zest__make_pipeline_descriptor_writes(zest_pipeline pipeline);
 // --End Pipeline Helper Functions
 
 // --Buffer allocation funcitons
@@ -2209,6 +2217,7 @@ ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
 //Helper functions for creating the builtin layers. these can be called separately outside of a command queue setup context
 ZEST_API zest_layer zest_CreateBuiltinSpriteLayer(const char *name);
+ZEST_API zest_layer zest_CreateBuiltinLineLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinBillboardLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinFontLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinMeshLayer(const char *name);
@@ -2737,6 +2746,30 @@ ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float posit
 //A simplified version of zest_DrawBillboard where you only need to set the position, rotation and size of the billboard. The alignment will always be set to face the camera.
 ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy);
 //--End Draw billboard layers
+
+//-----------------------------------------------
+//		Draw Line layers
+//		Built in layer for drawing 2d lines. 
+//-----------------------------------------------
+//Set descriptor set and pipeline for any calls to zest_DrawBillboard that come after it. You must call this function if you want to do any billboard drawing, and you
+//must call it again if you wish to switch either the texture, descriptor set or pipeline to do the drawing. Everytime you call this function it creates a new draw instruction
+//in the layer for drawing billboards so each call represents a separate draw call in the render. So if you just call this function once you can call zest_DrawBillboard as many times
+//as you want and they will all be drawn with a single draw call.
+//Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
+//1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
+//2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
+ZEST_API void zest_SetLineDrawing(zest_layer billboard_layer, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
+//Draw a billboard in 3d space using the zest_layer (must be a built in billboard layer) and zest_image. Note that you will need to use a uniform buffer that sets an appropriate 
+//projection and view matrix.  You must call zest_SetSpriteDrawing for the layer and the texture where the image exists.
+//Position:				Should be a pointer to 3 floats representing the x, y and z coordinates to draw the sprite at.
+//alignment:			A normalised 3d vector packed into a 8bit snorm uint. This is the alignment of the billboard when using stretch.
+//angles:				A pointer to 3 floats representing the pitch, yaw and roll of the billboard
+//handle:				A pointer to 2 floats representing the handle of the billboard which is the offset from the position
+//stretch:				How much to stretch the billboard along it's alignment.
+//alignment_type:		This is a bit flag with 2 bits 00. 00 = align to the camera. 11 = align to the alignment vector. 10 = align to the alignment vector and the camera.
+//sx, sy:				The size of the sprite in 3d units
+ZEST_API void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], float width);
+//--End Draw line layers
 
 //-----------------------------------------------
 //		Draw MSDF font layers
