@@ -3099,6 +3099,7 @@ VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipel
 	input_binding_description.stride = stride;
 	input_binding_description.inputRate = input_rate;
 	zest_vec_push(create_info->bindingDescriptions, input_binding_description);
+	zest_size size = zest_vec_size(create_info->bindingDescriptions);
 	return input_binding_description;
 }
 
@@ -3654,7 +3655,10 @@ void zest_DestroyFence(VkFence fence) {
 	vkDestroyFence(ZestDevice->logical_device, fence, &ZestDevice->allocation_callbacks);
 }
 
-zest_uint zest__grow_capacity(void *T, zest_uint size) { zest_uint new_capacity = T ? (size + size / 2) : 8; return new_capacity > size ? new_capacity : size; }
+zest_uint zest__grow_capacity(void *T, zest_uint size) { 
+	zest_uint new_capacity = T ? (size + size / 2) : 8; 
+	return new_capacity > size ? new_capacity : size; 
+}
 void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity) { 
 	if (T && new_capacity <= zest__vec_header(T)->capacity) 
 		return T; 
@@ -3691,6 +3695,7 @@ void zest__prepare_standard_pipelines() {
 
 	zest_pipeline_template_create_info_t instance_create_info = zest_CreatePipelineTemplateCreateInfo();
 	instance_create_info.viewport.extent = zest_GetSwapChainExtent();
+	zest_vec *test = zest__vec_header(instance_create_info.dynamicStates);
 
 	VkPushConstantRange image_pushconstant_range;
 	image_pushconstant_range.size = sizeof(zest_push_constants_t);
@@ -3700,7 +3705,6 @@ void zest__prepare_standard_pipelines() {
 
 	//2d sprite rendering
 	zest_pipeline sprite_instance_pipeline = zest_AddPipeline("pipeline_2d_sprites");
-	//instance_create_info.bindingDescriptions.push_back(CreateVertexInputBindingDescription(0, sizeof(InstanceVertex), VK_VERTEX_INPUT_RATE_VERTEX));
 	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 
 	VkVertexInputAttributeDescription *instance_vertex_input_attributes = 0;
@@ -3732,6 +3736,36 @@ void zest__prepare_standard_pipelines() {
 	sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	zest_BuildPipeline(sprite_instance_pipeline_alpha);
+
+	//SDF lines 2d
+	instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
+	zest_ClearVertexInputBindingDescriptions(&instance_create_info);
+	zloc_header *dyn_header = zloc__block_from_allocation(zest__vec_header(instance_create_info.dynamicStates));
+	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_vec4), VK_VERTEX_INPUT_RATE_VERTEX);
+	zest_AddVertexInputBindingDescription(&instance_create_info, 1, sizeof(zest_line_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+
+	VkVertexInputAttributeDescription *line_instance_vertex_input_attributes = 0;
+
+	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0));										// Location 0: Quad vertex
+	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_line_instance_t, start)));	// Location 0: Start Position
+	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(1, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_line_instance_t, end)));		// Location 1: End Position
+	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(1, 3, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_line_instance_t, start_color)));	// Location 2: Start Color
+	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(1, 4, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_line_instance_t, end_color)));		// Location 3: End Color
+
+	instance_create_info.attributeDescriptions = line_instance_vertex_input_attributes;
+	zest_pipeline line_instance_pipeline = zest_AddPipeline("pipeline_line_instance");
+	zest_SetText(&instance_create_info.vertShaderFile, "spv/line_instance.spv");
+	zest_SetText(&instance_create_info.fragShaderFile, "spv/line_instance.spv");
+	line_instance_pipeline->descriptor_layout = zest_GetDescriptorSetLayout("Polygon layout (no sampler)");
+	instance_create_info.descriptorSetLayout = line_instance_pipeline->descriptor_layout;
+	zest_MakePipelineTemplate(line_instance_pipeline, render_pass, &instance_create_info);
+	line_instance_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
+	line_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	zest_BuildPipeline(line_instance_pipeline);
+	//for (EachFrameInFlight) {
+		//AllocateDescriptorSet(Renderer->descriptor_pool, GetDescriptorSetLayout(line_instance_pipeline.descriptor_layout), line_instance_pipeline.descriptor_set[i]);
+	//}
+	//zest_MakePipelineDescriptorWrites(line_instance_pipeline);
 
 	//Font Texture
 	instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites_alpha");

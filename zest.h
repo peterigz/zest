@@ -509,8 +509,8 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_end(T) (&(T[zest_vec_size(T)]))
 #define zest_vec_clear(T) if(T) zest__vec_header(T)->current_size = 0
 #define zest_vec_free(T) if(T) { ZEST__FREE(zest__vec_header(T)); T = ZEST_NULL;}
-#define zest_vec_reserve(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); 
-#define zest_vec_resize(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size); zest__vec_header(T)->current_size = new_size
+#define zest_vec_reserve(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size == 1 ? 8 : new_size); 
+#define zest_vec_resize(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size == 1 ? 8 : new_size); zest__vec_header(T)->current_size = new_size
 #define zest_vec_push(T, value) zest_vec_grow(T); (T)[zest__vec_header(T)->current_size++] = value 
 #define zest_vec_pop(T) (zest__vec_header(T)->current_size--, T[zest__vec_header(T)->current_size])
 #define zest_vec_insert(T, location, value) { ptrdiff_t offset = location - T; zest_vec_grow(T); if(offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); }
@@ -1149,6 +1149,14 @@ typedef struct zest_billboard_instance_t {		//64 bytes
 	zest_color color;					//The color tint of the sprite
 	zest_uint alignment;				//normalised alignment vector 3 floats packed into 10bits each with 2 bits left over
 } zest_billboard_instance_t;
+
+//SDF Lines
+typedef struct zest_line_instance_t {
+	zest_vec4 start;					//Position of the segment and width in w
+	zest_vec4 end;						//Position of the segment and width in w
+	zest_color start_color;				//The color tint of the first point in the ribbon
+	zest_color end_color;				//The color tint of the second point in the ribbon
+} zest_line_instance_t;
 
 typedef struct zest_vertex_t {
 	zest_vec3 pos;						//3d position

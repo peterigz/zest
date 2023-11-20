@@ -34,6 +34,7 @@ set(EXAMPLES
 	zest-minimal-template
 	zest-instance-layers
 	zest-remove-images
+	zest-lines
 )
 
 buildExamples()
