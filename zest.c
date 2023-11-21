@@ -8148,6 +8148,10 @@ void zest_SetLayerViewPort(zest_layer instance_layer, int x, int y, zest_uint sc
 	instance_layer->viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
 }
 
+void zest_SetLayerScissor(zest_layer instance_layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height) {
+	instance_layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, offset_x, offset_y);
+}
+
 void zest_SetLayerSize(zest_layer layer, float width, float height) {
 	layer->layer_size.x = width;
 	layer->layer_size.y = height;

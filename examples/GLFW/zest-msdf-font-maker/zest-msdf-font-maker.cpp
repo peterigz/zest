@@ -40,7 +40,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	
 	app->config.font_file = "";
 
-	app->font = zest_LoadMSDFFont("examples/assets/KaushanScript-Regular.zft");
+	app->font = zest_LoadMSDFFont("examples/assets/SourceSansPro-Regular.zft");
 	const char *preview_text = "Text drawn with MSDF!\n0123456789\n!@#$%^&*()[]{}";
 	memcpy(app->preview_text, preview_text, strlen(preview_text));
 	app->preview_text_x = zest_ScreenWidthf() * .75f;

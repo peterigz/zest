@@ -95,8 +95,8 @@ float OrientedBox( in vec2 p, in vec2 a, in vec2 b, float th )
 void main() {
 
 	//Line sdf seems to give perfectly fine results, UnevenCapsule would be more accurate though if widths change drastically over the course of the ribbon.
-	//float line_sdf = Line(gl_FragCoord.xy, p1.xy, p2.xy) - p2.w; 
-	float line_sdf = OrientedBox(gl_FragCoord.xy, p1.xy, p2.xy, p1.w); 
+	float line_sdf = Line(gl_FragCoord.xy, p1.xy, p2.xy) - p2.w; 
+	//float line_sdf = OrientedBox(gl_FragCoord.xy, p1.xy, p2.xy, p1.w); 
 	//float trap_sdf = UnevenCapsule(gl_FragCoord.xy, p1.xy, p2.xy, p1.w * .95, p2.w * .95); 
 	float brightness = Fill(line_sdf);
 

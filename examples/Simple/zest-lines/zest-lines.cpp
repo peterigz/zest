@@ -43,9 +43,11 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 
 	zest_SetLineDrawing(example->line_layer, NULL, example->line_pipeline);
-	zest_vec2 start = zest_Vec2Set(20.f, 20.f);
-	zest_vec2 end = zest_Vec2Set((float)ZestApp->mouse_x, (float)ZestApp->mouse_y);
-	zest_DrawLine(example->line_layer, &start.x, &end.x, 10.f);
+	zest_vec2 start = zest_Vec2Set(20.f, (float)ZestApp->mouse_y * 0.333333f);
+	zest_vec2 end = zest_Vec2Set(800.f, (float)ZestApp->mouse_y * 0.333333f);
+	zest_DrawLine(example->line_layer, &start.x, &end.x, 1.f);
+
+
 }
 
 #if defined(_WIN32)
