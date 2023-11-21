@@ -326,6 +326,7 @@ typedef enum {
 
 typedef enum {
 	zest_shape_line = zest_draw_mode_line_instance,
+	zest_shape_dashed_line = zest_draw_mode_dashed_line,
 	zest_shape_rect = zest_draw_mode_rect_instance
 } zest_shape_type;
 
