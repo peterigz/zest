@@ -35,22 +35,29 @@ layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec4 p1;
 layout(location = 2) out vec4 p2;
 layout(location = 3) out float shape_type;
+layout(location = 4) out float millisecs;
 
 void main() {
 	int index = indexes[gl_VertexIndex];
 	shape_type = pc.parameters1.x;
 
 	vec2 vertex_position;
-	if(shape_type == 6) {
+	if(shape_type == 4) {
 		//line drawing
 		vec2 line = rect.zw - rect.xy;
 		vec2 normal = normalize(vec2(-line.y, line.x));
 		vertex_position = rect.xy + line * (vertex[index].x + .5) + normal * parameters.x * vertex[index].y;	
-	} else if(shape_type == 7) {
+	} else if(shape_type == 5) {
 		//Rect drawing
 		vec2 size = rect.zw - rect.xy;
 		vec2 position = size * .5 + rect.xy;
 		vertex_position = size.xy * vertex[index] + position;	
+	}
+	else if(shape_type == 6) {
+		//line drawing
+		vec2 line = rect.zw - rect.xy;
+		vec2 normal = normalize(vec2(-line.y, line.x));
+		vertex_position = rect.xy + line * (vertex[index].x + .5) + normal * parameters.x * vertex[index].y;	
 	}
 
 	mat4 modelView = uboView.view * pc.model;
@@ -61,4 +68,5 @@ void main() {
 	out_frag_color = start_color;
 	p1 = rect;
 	p2 = parameters;
+	millisecs = float(uboView.millisecs);
 }

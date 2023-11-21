@@ -5,6 +5,7 @@ layout(location = 0) in vec4 fragColor;
 layout(location = 1) in vec4 p1;
 layout(location = 2) in vec4 p2;
 layout(location = 3) in float shape_type;
+layout(location = 4) in float millisecs;
 
 layout(location = 0) out vec4 outColor;
 
@@ -96,17 +97,20 @@ float OrientedBox( in vec2 p, in vec2 a, in vec2 b, float th )
 void main() {
 
 	float brightness = 0;
-	if(shape_type == 6) {
+	if(shape_type == 4) {
 		//Line sdf seems to give perfectly fine results, UnevenCapsule would be more accurate though if widths change drastically over the course of the ribbon.
-		float line_sdf = Line(gl_FragCoord.xy, p1.xy, p1.zw) - p2.x * .5; 
+		//float line_sdf = Line(gl_FragCoord.xy, p1.xy, p1.zw) - p2.x * .5; 
 		//float line_sdf = OrientedBox(gl_FragCoord.xy, p1.xy, p1.zw, p2.x); 
 		//float trap_sdf = UnevenCapsule(gl_FragCoord.xy, p1.xy, p1.zw, p2.x * .95, p2.x * .95); 
-		brightness = Fill(line_sdf);
-	} else if(shape_type == 7) {
+		//brightness = Fill(line_sdf);
 		brightness = 1;
+	} else if(shape_type == 5) {
+		brightness = 1;
+	} else if(shape_type == 6) {
+		vec2 line = vec2(p1.xy - gl_FragCoord.xy);
+		brightness = step(5, mod(length(line) + (millisecs * 0.05), 10));
 	}
 
 	outColor = fragColor * brightness;
 	outColor.rgb *= fragColor.a;
-	
 }
