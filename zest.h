@@ -318,6 +318,7 @@ typedef enum {
 	zest_draw_mode_ribbons,
 	zest_draw_mode_lines,
 	zest_draw_mode_line_instance,
+	zest_draw_mode_rect_instance,
 	zest_draw_mode_line_instance3d,
 	zest_draw_mode_linechain,
 	zest_draw_mode_polys,
@@ -329,6 +330,11 @@ typedef enum {
 	zest_draw_mode_viewport,
 	zest_draw_mode_im_gui
 } zest_draw_mode;
+
+typedef enum {
+	zest_shape_line = zest_draw_mode_line_instance,
+	zest_shape_rect = zest_draw_mode_rect_instance
+} zest_shape_type;
 
 typedef enum {
 	zest_builtin_layer_sprites = 0,
@@ -1152,12 +1158,12 @@ typedef struct zest_billboard_instance_t {		//64 bytes
 } zest_billboard_instance_t;
 
 //SDF Lines
-typedef struct zest_line_instance_t {
-	zest_vec4 start;					//Position of the segment and width in w
-	zest_vec4 end;						//Position of the segment and width in w
-	zest_color start_color;				//The color tint of the first point in the ribbon
-	zest_color end_color;				//The color tint of the second point in the ribbon
-} zest_line_instance_t;
+typedef struct zest_shape_instance_t {
+	zest_vec4 rect;						//The rectangle containing the sdf shade, x,y = top left, z,w = bottom right
+	zest_vec4 parameters;				//Extra parameters, for example line widths, roundness, depending on the shape type
+	zest_color start_color;				//The color tint of the first point in the line
+	zest_color end_color;				//The color tint of the second point in the line
+} zest_shape_instance_t;
 
 typedef struct zest_vertex_t {
 	zest_vec3 pos;						//3d position
@@ -1735,9 +1741,9 @@ ZEST_PRIVATE void zest__next_billboard_instance(zest_layer layer);
 ZEST_PRIVATE void zest__initialise_billboard_layer(zest_layer billboard_layer, zest_uint instance_pool_size);
 
 // --Line instance layer internal functions
-ZEST_PRIVATE void zest__draw_line_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__next_line_instance(zest_layer layer);
-ZEST_PRIVATE void zest__initialise_line_layer(zest_layer line_layer, zest_uint instance_pool_size);
+ZEST_PRIVATE void zest__draw_shape_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__next_shape_instance(zest_layer layer);
+ZEST_PRIVATE void zest__initialise_shape_layer(zest_layer line_layer, zest_uint instance_pool_size);
 
 // --Mesh layer internal functions
 ZEST_PRIVATE void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
@@ -2759,7 +2765,7 @@ ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetLineDrawing(zest_layer billboard_layer, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
+ZEST_API void zest_SetShapeDrawing(zest_layer shape_layer, zest_shape_type shape_type, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 //Draw a billboard in 3d space using the zest_layer (must be a built in billboard layer) and zest_image. Note that you will need to use a uniform buffer that sets an appropriate 
 //projection and view matrix.  You must call zest_SetSpriteDrawing for the layer and the texture where the image exists.
 //Position:				Should be a pointer to 3 floats representing the x, y and z coordinates to draw the sprite at.
@@ -2770,6 +2776,7 @@ ZEST_API void zest_SetLineDrawing(zest_layer billboard_layer, zest_descriptor_se
 //alignment_type:		This is a bit flag with 2 bits 00. 00 = align to the camera. 11 = align to the alignment vector. 10 = align to the alignment vector and the camera.
 //sx, sy:				The size of the sprite in 3d units
 ZEST_API void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], float width);
+ZEST_API void zest_DrawRect(zest_layer layer, float top_left[2], float width, float height);
 //--End Draw line layers
 
 //-----------------------------------------------

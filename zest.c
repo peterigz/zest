@@ -3760,20 +3760,20 @@ void zest__prepare_standard_pipelines() {
 	instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
 	zest_ClearVertexInputBindingDescriptions(&instance_create_info);
 	zloc_header *dyn_header = zloc__block_from_allocation(zest__vec_header(instance_create_info.dynamicStates));
-	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_line_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_shape_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 
 	VkVertexInputAttributeDescription *line_instance_vertex_input_attributes = 0;
 
-	//zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0));										// Location 0: Quad vertex
-	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_line_instance_t, start)));	// Location 0: Start Position
-	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_line_instance_t, end)));		// Location 1: End Position
-	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_line_instance_t, start_color)));	// Location 2: Start Color
-	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_line_instance_t, end_color)));		// Location 3: End Color
+	//zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0));											// Location 0: Quad vertex
+	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, rect)));		// Location 0: Start Position
+	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, parameters)));	// Location 1: End Position
+	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, start_color)));		// Location 2: Start Color
+	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, end_color)));		// Location 3: End Color
 
 	instance_create_info.attributeDescriptions = line_instance_vertex_input_attributes;
 	zest_pipeline line_instance_pipeline = zest_AddPipeline("pipeline_line_instance");
-	zest_SetText(&instance_create_info.vertShaderFile, "spv/line_instance.spv");
-	zest_SetText(&instance_create_info.fragShaderFile, "spv/line_instance.spv");
+	zest_SetText(&instance_create_info.vertShaderFile, "spv/shape_instance.spv");
+	zest_SetText(&instance_create_info.fragShaderFile, "spv/shape_instance.spv");
 	line_instance_pipeline->descriptor_layout = zest_GetDescriptorSetLayout("Polygon layout (no sampler)");
 	instance_create_info.descriptorSetLayout = line_instance_pipeline->descriptor_layout;
 	zest_MakePipelineTemplate(line_instance_pipeline, render_pass, &instance_create_info);
@@ -4994,7 +4994,7 @@ zest_layer zest_CreateBuiltinLineLayer(const char *name) {
 	zest_layer layer = zest_NewLayer();
 	layer->name = name;
 	layer->layer_type = zest_builtin_layer_lines;
-	zest__initialise_line_layer(layer, 1000);
+	zest__initialise_shape_layer(layer, 1000);
 	zest_map_insert(ZestRenderer->layers, name, layer);
 	return layer;
 }
@@ -5123,7 +5123,7 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name,
 	}
 	else if (builtin_layer == zest_builtin_layer_lines) {
 		layer = zest_CreateBuiltinLineLayer(name);
-		draw_routine->draw_callback = zest__draw_line_layer_callback;
+		draw_routine->draw_callback = zest__draw_shape_layer_callback;
 		draw_routine->draw_data = layer;
 		draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
 	}
@@ -8095,24 +8095,24 @@ void zest__next_billboard_instance(zest_layer layer) {
 }
 // End internal 3d billboard layer functionality -----
 
-//Start internal line instance layer functionality -----
-void zest__draw_line_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
+//Start internal shape instance layer functionality -----
+void zest__draw_shape_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
 	zest_layer line_layer = (zest_layer)draw_routine->draw_data;
 	zest__draw_instance_layer(line_layer, command_buffer);
 	zest__reset_instance_layer_drawing(line_layer);
 }
 
-void zest__next_line_instance(zest_layer layer) {
-	zest_line_instance_t *instance_ptr = (zest_line_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+void zest__next_shape_instance(zest_layer layer) {
+	zest_shape_instance_t *instance_ptr = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 	instance_ptr = instance_ptr + 1;
 	//Make sure we're not trying to write outside of the buffer range
-	ZEST_ASSERT(instance_ptr >= (zest_line_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data && instance_ptr <= (zest_line_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->end);
+	ZEST_ASSERT(instance_ptr >= (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data && instance_ptr <= (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->end);
 	if (instance_ptr == layer->memory_refs[ZEST_FIF].staging_instance_data->end) {
-		zest_bool grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].staging_instance_data, sizeof(zest_line_instance_t), 0);
-		zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_line_instance_t), 0);
+		zest_bool grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].staging_instance_data, sizeof(zest_shape_instance_t), 0);
+		zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_shape_instance_t), 0);
 		if (grown) {
 			layer->memory_refs[ZEST_FIF].instance_count++;
-			instance_ptr = (zest_line_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data;
+			instance_ptr = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data;
 			instance_ptr += layer->memory_refs[ZEST_FIF].instance_count;
 		}
 		else {
@@ -8124,7 +8124,7 @@ void zest__next_line_instance(zest_layer layer) {
 	}
 	layer->memory_refs[ZEST_FIF].instance_ptr = instance_ptr;
 }
-// End internal 3d billboard layer functionality -----
+// End internal shape layer functionality -----
 
 //Start internal mesh layer functionality -----
 void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
@@ -8616,7 +8616,7 @@ void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position
 //-- End Billboard Drawing API
 
 //-- Start Line Drawing API
-void zest__initialise_line_layer(zest_layer line_layer, zest_uint instance_pool_size) {
+void zest__initialise_shape_layer(zest_layer line_layer, zest_uint instance_pool_size) {
 	line_layer->current_color.r = 255;
 	line_layer->current_color.g = 255;
 	line_layer->current_color.b = 255;
@@ -8629,13 +8629,13 @@ void zest__initialise_line_layer(zest_layer line_layer, zest_uint instance_pool_
 	line_layer->push_constants.parameters2.z = 0.25f;
 	line_layer->push_constants.parameters2.w = 0.5f;
 	line_layer->layer_size = zest_Vec2Set1(1.f);
-	line_layer->instance_struct_size = sizeof(zest_line_instance_t);
+	line_layer->instance_struct_size = sizeof(zest_shape_instance_t);
 
 	zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo();
 	zest_buffer_info_t staging_buffer_info = zest_CreateStagingBufferInfo();
 	for (ZEST_EACH_FIF_i) {
-		line_layer->memory_refs[i].device_instance_data = zest_CreateBuffer(sizeof(zest_line_instance_t) * instance_pool_size, &device_buffer_info, ZEST_NULL);
-		line_layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(sizeof(zest_line_instance_t) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
+		line_layer->memory_refs[i].device_instance_data = zest_CreateBuffer(sizeof(zest_shape_instance_t) * instance_pool_size, &device_buffer_info, ZEST_NULL);
+		line_layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(sizeof(zest_shape_instance_t) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
 		line_layer->memory_refs[i].instance_count = 0;
 		line_layer->memory_refs[i].instance_count = 0;
 		line_layer->memory_refs[i].instance_ptr = line_layer->memory_refs[i].staging_instance_data->data;
@@ -8646,7 +8646,7 @@ void zest__initialise_line_layer(zest_layer line_layer, zest_uint instance_pool_
 	zest__reset_instance_layer_drawing(line_layer);
 }
 
-void zest_SetLineDrawing(zest_layer line_layer, zest_descriptor_set descriptor_set, zest_pipeline pipeline) {
+void zest_SetShapeDrawing(zest_layer line_layer, zest_shape_type shape_type, zest_descriptor_set descriptor_set, zest_pipeline pipeline) {
 	zest__end_instance_instructions(line_layer);
 	zest__start_instance_instructions(line_layer);
 	line_layer->current_instruction.pipeline = pipeline;
@@ -8656,28 +8656,45 @@ void zest_SetLineDrawing(zest_layer line_layer, zest_descriptor_set descriptor_s
 	else {
 		line_layer->current_instruction.descriptor_set = pipeline->descriptor_set[ZEST_FIF];
 	}
-	line_layer->current_instruction.draw_mode = zest_draw_mode_instance;
 	line_layer->current_instruction.scissor = line_layer->scissor;
 	line_layer->current_instruction.viewport = line_layer->viewport;
-	line_layer->last_draw_mode = zest_draw_mode_lines;
+	line_layer->current_instruction.push_constants.parameters1.x = shape_type;
+	line_layer->current_instruction.draw_mode = shape_type;
+	line_layer->last_draw_mode = shape_type;
 }
 
 void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], float width) {
-	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
+	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_line_instance);	//Call zest_StartSpriteDrawing before calling this function
 
-	zest_line_instance_t *line = (zest_line_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+	zest_shape_instance_t *line = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
-	line->start.x = start_point[0];
-	line->start.y = start_point[1];
-	line->end.x = end_point[0];
-	line->end.y = end_point[1];
-	line->start.w = width;
-	line->end.w = width;
+	line->rect.x = start_point[0];
+	line->rect.y = start_point[1];
+	line->rect.z = end_point[0];
+	line->rect.w = end_point[1];
+	line->parameters.x = width;
+	line->parameters.x = width;
 	line->start_color = layer->current_color;
 	line->end_color = layer->current_color;
 	layer->current_instruction.total_instances++;
 
-	zest__next_line_instance(layer);
+	zest__next_shape_instance(layer);
+}
+
+void zest_DrawRect(zest_layer layer, float top_left[2], float width, float height) {
+	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_rect_instance);	//Call zest_StartSpriteDrawing before calling this function
+
+	zest_shape_instance_t *line = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+
+	line->rect.x = top_left[0];
+	line->rect.y = top_left[1];
+	line->rect.z = top_left[0] + width;
+	line->rect.w = top_left[1] + height;
+	line->start_color = layer->current_color;
+	line->end_color = layer->current_color;
+	layer->current_instruction.total_instances++;
+
+	zest__next_shape_instance(layer);
 }
 //-- End Line Drawing API
 

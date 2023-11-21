@@ -26,21 +26,32 @@ layout(push_constant) uniform quad_index
 } pc;
 
 //Line instance data
-layout(location = 0) in vec4 start;
-layout(location = 1) in vec4 end;
+layout(location = 0) in vec4 rect;
+layout(location = 1) in vec4 parameters;
 layout(location = 2) in vec4 start_color;
 layout(location = 3) in vec4 end_color;
 
 layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec4 p1;
 layout(location = 2) out vec4 p2;
+layout(location = 3) out float shape_type;
 
 void main() {
 	int index = indexes[gl_VertexIndex];
+	shape_type = pc.parameters1.x;
 
-	vec2 line = end.xy - start.xy;
-	vec2 normal = normalize(vec2(-line.y, line.x));
-	vec2 vertex_position = start.xy + line * (vertex[index].x + .5) + normal * start.w * vertex[index].y;	
+	vec2 vertex_position;
+	if(shape_type == 6) {
+		//line drawing
+		vec2 line = rect.zw - rect.xy;
+		vec2 normal = normalize(vec2(-line.y, line.x));
+		vertex_position = rect.xy + line * (vertex[index].x + .5) + normal * parameters.x * vertex[index].y;	
+	} else if(shape_type == 7) {
+		//Rect drawing
+		vec2 size = rect.zw - rect.xy;
+		vec2 position = size * .5 + rect.xy;
+		vertex_position = size.xy * vertex[index] + position;	
+	}
 
 	mat4 modelView = uboView.view * pc.model;
 	vec3 pos = vec3(vertex_position.x, vertex_position.y, 1);
@@ -48,6 +59,6 @@ void main() {
 
 	//----------------
 	out_frag_color = start_color;
-	p1 = start;
-	p2 = end;
+	p1 = rect;
+	p2 = parameters;
 }
