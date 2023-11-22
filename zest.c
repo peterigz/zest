@@ -8664,7 +8664,7 @@ void zest_SetShapeDrawing(zest_layer line_layer, zest_shape_type shape_type, zes
 }
 
 void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], float width) {
-	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_line_instance);	//Call zest_StartSpriteDrawing before calling this function
+	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_line_instance || layer->current_instruction.draw_mode == zest_draw_mode_dashed_line);	//Call zest_StartSpriteDrawing before calling this function
 
 	zest_shape_instance_t *line = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
