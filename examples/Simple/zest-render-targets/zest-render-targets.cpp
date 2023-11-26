@@ -85,7 +85,7 @@ void InitExample(RenderTargetExample *example) {
 			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
 		}
 		//Create draw commands that applies horizontal blur to the vertical blur target
-		zest_NewDrawCommandSetup("Horizontal blur render pass", example->final_blur);
+		zest_NewDrawCommandSetup("Horizontal blur 2 render pass", example->final_blur);
 		{
 			//Use a draw function that renders to the whole texture. Because we specified AddHorizontalBlur callback when calling zest_AddPostProcessRenderTarget above
 			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
