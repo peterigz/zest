@@ -3774,7 +3774,7 @@ void zest__prepare_standard_pipelines() {
 	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, rect)));		// Location 0: Start Position
 	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, parameters)));	// Location 1: End Position
 	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, start_color)));		// Location 2: Start Color
-	zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, end_color)));		// Location 3: End Color
+	//zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, end_color)));		// Location 3: End Color
 
 	instance_create_info.attributeDescriptions = line_instance_vertex_input_attributes;
 	zest_pipeline line_instance_pipeline = zest_AddPipeline("pipeline_line_instance");

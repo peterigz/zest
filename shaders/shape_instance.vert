@@ -29,7 +29,6 @@ layout(push_constant) uniform quad_index
 layout(location = 0) in vec4 rect;
 layout(location = 1) in vec4 parameters;
 layout(location = 2) in vec4 start_color;
-layout(location = 3) in vec4 end_color;
 
 layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec4 p1;
