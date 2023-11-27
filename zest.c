@@ -923,7 +923,8 @@ Functions that create a vulkan device
 */
 void zest__create_instance(void) {
 	if (ZEST_ENABLE_VALIDATION_LAYER) {
-		ZEST_ASSERT(zest__check_validation_layer_support());
+		zest_bool validation_support = zest__check_validation_layer_support();
+		ZEST_ASSERT(validation_support);
 	}
 
 	VkApplicationInfo app_info = { 0 };
@@ -1030,7 +1031,7 @@ void zest__get_required_extensions() {
 	if (ZEST_ENABLE_VALIDATION_LAYER) {
 		zest_AddInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 	}
-	zest_AddInstanceExtension(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
+	//zest_AddInstanceExtension(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
 }
 
 zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties) {
