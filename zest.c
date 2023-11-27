@@ -1704,9 +1704,6 @@ zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_i
 			buffer_pool->name = pre_defined_pool_size.name;
 			buffer_pool->size = pre_defined_pool_size.pool_size > minimum_size ? pre_defined_pool_size.pool_size : zest_GetNextPower(minimum_size + minimum_size / 2);
 			buffer_pool->minimum_allocation_size = pre_defined_pool_size.minimum_allocation_size;
-			if (buffer_pool->size > zloc__MEGABYTE(70)) {
-				int d = 0;
-			}
 		}
 		else {
 			ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating memory where no default pool size was found for usage flags: %i and property flags: %i. Defaulting to next power from size + size / 2",
@@ -1825,7 +1822,15 @@ zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info
 		buffer_info->alignment = memory_requirements.alignment;
 	}
 
-	zest_key key = !image ? zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t)) : zest_map_hash(ZestRenderer->buffer_allocators, "Device Images");
+	zest_key key;
+	//if (!image) {
+	key = zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t));
+	//} else {
+		//zest_map_hash(ZestRenderer->buffer_allocators, "Device Images");
+	//}
+	if (key == 10429335137252949826) {
+		int d = 0;
+	}
 	if (!zest_map_valid_key(ZestRenderer->buffer_allocators, key)) {
 		//If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
 		zest_buffer_allocator_t blank_buffer_allocator = { 0 };
