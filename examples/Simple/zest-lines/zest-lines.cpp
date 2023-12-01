@@ -42,7 +42,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//It's important to set the command queue you want to use each frame otherwise you will just see a blank screen
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 
-	zest_SetShapeDrawing(example->line_layer, zest_shape_line, NULL, example->line_pipeline);
+	zest_SetShapeDrawing(example->line_layer, zest_shape_dashed_line, NULL, example->line_pipeline);
 	zest_SetLayerColor(example->line_layer, 255, 255, 255, 100);
 	zest_vec2 start = zest_Vec2Set(20.f, 20.f);
 	zest_vec2 end = zest_Vec2Set((float)ZestApp->mouse_x, (float)ZestApp->mouse_y);

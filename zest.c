@@ -2632,7 +2632,7 @@ void zest_Update2dUniformBuffer() {
 	ubo_ptr->proj = zest_Ortho(0.f, zest_SwapChainWidthf() / ZestRenderer->dpi_scale, 0.f, -zest_SwapChainHeightf() /  ZestRenderer->dpi_scale, -1000.f, 1000.f);
 	ubo_ptr->screen_size.x = zest_ScreenWidthf();
 	ubo_ptr->screen_size.y = zest_ScreenHeightf();
-	ubo_ptr->millisecs = zest_Millisecs();
+	ubo_ptr->millisecs = zest_Millisecs() % 1000;
 }
 
 void zest_Update2dUniformBufferFIF(zest_index fif) {
@@ -2644,7 +2644,7 @@ void zest_Update2dUniformBufferFIF(zest_index fif) {
 	ubo_ptr->proj = zest_Ortho(0.f, (float)ZestRenderer->swapchain_extent.width, 0.f, -(float)ZestRenderer->swapchain_extent.height, -1000.f, 1000.f);
 	ubo_ptr->screen_size.x = zest_ScreenWidthf();
 	ubo_ptr->screen_size.y = zest_ScreenHeightf();
-	ubo_ptr->millisecs = zest_Millisecs();
+	ubo_ptr->millisecs = zest_Millisecs() % 1000;
 }
 
 zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_info, zest_size size, zest_bool all_frames_in_flight) {
