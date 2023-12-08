@@ -475,8 +475,11 @@ typedef zest_descriptor_buffer zest_uniform_buffer;
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
 	zest_uint graphics_family;
+	zest_uint graphics_family_queue_count;
 	zest_uint present_family;
+	zest_uint present_family_queue_count;
 	zest_uint compute_family;
+	zest_uint compute_family_queue_count;
 
 	zest_bool graphics_set;
 	zest_bool present_set;
@@ -1211,7 +1214,6 @@ typedef struct zest_push_constants_t {
 	zest_vec4 parameters2;			//Can be used for anything
     zest_vec4 parameters3;			//Can be used for anything		
 	zest_vec4 camera;				//For 3d drawing
-	zest_uint flags;				//bit flag field
 } zest_push_constants_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_layer_instruction_t {
@@ -1796,9 +1798,9 @@ ZEST_PRIVATE void zest_destroy_debug_messenger(void);
 ZEST_PRIVATE void zest__pick_physical_device(void);
 ZEST_PRIVATE zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device);
-ZEST_PRIVATE inline void zest__set_graphics_family(zest_queue_family_indices *family, zest_uint v) { family->graphics_family = v; family->graphics_set = 1; }
-ZEST_PRIVATE inline void zest__set_present_family(zest_queue_family_indices *family, zest_uint v) { family->present_family = v; family->present_set = 1; }
-ZEST_PRIVATE inline void zest__set_compute_family(zest_queue_family_indices *family, zest_uint v) { family->compute_family = v; family->compute_set = 1; }
+ZEST_PRIVATE inline void zest__set_graphics_family(zest_queue_family_indices *family, zest_uint v, zest_uint queue_count) { family->graphics_family = v; family->graphics_set = 1; family->graphics_family_queue_count = queue_count; }
+ZEST_PRIVATE inline void zest__set_present_family(zest_queue_family_indices *family, zest_uint v, zest_uint queue_count) { family->present_family = v; family->present_set = 1; family->present_family_queue_count = queue_count; }
+ZEST_PRIVATE inline void zest__set_compute_family(zest_queue_family_indices *family, zest_uint v, zest_uint queue_count) { family->compute_family = v; family->compute_set = 1; family->compute_family_queue_count = queue_count; }
 ZEST_PRIVATE inline zest_bool zest__family_is_complete(zest_queue_family_indices *family) { return family->graphics_set && family->present_set && family->compute_set; }
 ZEST_PRIVATE zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_swapchain_support_details_t zest__query_swapchain_support(VkPhysicalDevice physical_device);

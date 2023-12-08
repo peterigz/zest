@@ -15,7 +15,6 @@ layout(push_constant) uniform quad_index
 	vec4 shadow_parameters;
 	vec4 shadow_color;
 	vec4 camera;
-	uint flags;
 } font;
 
 float median(float r, float g, float b) {

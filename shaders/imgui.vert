@@ -24,7 +24,6 @@ layout(push_constant) uniform quad_index
 	vec4 parameters;
 	vec4 parameters3;
 	vec4 camera;
-	uint flags;
 } pc;
 
 layout(location = 0) in vec2 in_position;

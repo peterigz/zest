@@ -88,7 +88,6 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 				}
 
 				imgui_layer->push_constants.parameters2.x = (float)current_image->layer;
-				imgui_layer->push_constants.flags = 0;
 
 				vkCmdPushConstants(ZestRenderer->current_command_buffer, layer_info->pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(zest_push_constants_t), &imgui_layer->push_constants);
                 

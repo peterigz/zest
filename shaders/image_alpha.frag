@@ -15,7 +15,6 @@ layout(push_constant) uniform quad_index
 	vec4 parameters2;
 	vec4 parameters3;
 	vec4 camera;
-	uint flags;
 } pc;
 
 void main() {

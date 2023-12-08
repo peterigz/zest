@@ -1135,25 +1135,46 @@ zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_de
 	vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, ZEST_NULL);
 
 	ZEST__ARRAY(queue_families, VkQueueFamilyProperties, queue_family_count);
+	//VkQueueFamilyProperties queue_families[10];
 	vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families);
 
-	int i = 0;
+	zest_uint i = ZEST_INVALID;
 	zest_bool compute_found = 0;
+
+	//First find the graphics queue family with the highest queue count
+	zest_uint max_queue_count = 0;
 	for (int f = 0; f != queue_family_count; ++f) {
 		if (queue_families[f].queueCount > 0 && queue_families[f].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-			zest__set_graphics_family(&indices, i);
+			if (queue_families[f].queueCount > max_queue_count) {
+				max_queue_count = queue_families[f].queueCount;
+				i = f;
+			}
 		}
+	}
+	assert(i != ZEST_INVALID);	//Counldn't find any graphics queue family!
+	zest__set_graphics_family(&indices, i, queue_families[i].queueCount);
+	//Try and assign the present queue to the graphics queue family
+	VkBool32 present_support = VK_FALSE;
+	vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, ZestApp->window->surface, &present_support);
+	if (queue_families[i].queueCount > 0 && present_support && indices.present_set == 0) {
+		zest__set_present_family(&indices, i, queue_families[i].queueCount);
+	}
 
-		if ((queue_families[f].queueFlags & VK_QUEUE_COMPUTE_BIT) && ((queue_families[f].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0)) {
-			zest__set_compute_family(&indices, i);
+	i = 0;
+
+	//Now find the compute family
+	for (int f = 0; f != queue_family_count; ++f) {
+		if ((queue_families[f].queueFlags & VK_QUEUE_COMPUTE_BIT) && indices.graphics_family != i){
+			zest__set_compute_family(&indices, i, queue_families[f].queueCount);
 			compute_found = 1;
 		}
 
-		VkBool32 present_support = VK_FALSE;
-		vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, ZestApp->window->surface, &present_support);
-
-		if (queue_families[f].queueCount > 0 && present_support && indices.present_set == 0) {
-			zest__set_present_family(&indices, i);
+		if (indices.present_set == 0 && indices.compute_family != i) {
+			present_support = VK_FALSE;
+			vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, ZestApp->window->surface, &present_support);
+			if (queue_families[f].queueCount > 0 && present_support && indices.present_set == 0) {
+				zest__set_present_family(&indices, i, queue_families[f].queueCount);
+			}
 		}
 
 		if (zest__family_is_complete(&indices)) {
@@ -1167,11 +1188,25 @@ zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_de
 	if (!compute_found) {
 		for (int f = 0; f != queue_family_count; ++f) {
 			if (queue_families[f].queueFlags & VK_QUEUE_COMPUTE_BIT) {
-				zest__set_compute_family(&indices, i);
+				zest__set_compute_family(&indices, i, queue_families[f].queueCount);
 			}
 			i++;
 		}
 	}
+
+	//Last chance to try and set the present family
+	if (present_support == VK_FALSE) {
+		i = 0;
+		for (int f = 0; f != queue_family_count; ++f) {
+			vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, ZestApp->window->surface, &present_support);
+			if (queue_families[f].queueCount > 0 && present_support && indices.present_set == 0) {
+				zest__set_present_family(&indices, i, queue_families[f].queueCount);
+				break;
+			}
+			i++;
+		}
+	}
+	assert(zest__family_is_complete(&indices));
 
 	ZEST__FREE(queue_families);
 	return indices;
@@ -1256,7 +1291,7 @@ void zest__create_logical_device(void) {
 		queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 		queue_create_info.queueFamilyIndex = unique_queue_families[i];
 		if (unique_queue_families[i] == indices.graphics_family) {
-			queue_create_info.queueCount = 2;
+			queue_create_info.queueCount = indices.graphics_family_queue_count;
 			queue_create_info.pQueuePriorities = graphics_queue_priority;
 		}
 		else {
@@ -1298,7 +1333,7 @@ void zest__create_logical_device(void) {
 	ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->logical_device));
 
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->graphics_queue);
-	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 1, &ZestDevice->one_time_graphics_queue);
+	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, indices.graphics_family_queue_count > 1 ? 1 : 0, &ZestDevice->one_time_graphics_queue);
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.present_family, 0, &ZestDevice->present_queue);
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.compute_family, 0, &ZestDevice->compute_queue);
 

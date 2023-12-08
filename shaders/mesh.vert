@@ -23,7 +23,6 @@ layout(push_constant) uniform parameters
 	vec4 parameters2;
 	vec4 parameters3;
 	vec4 camera;
-	uint flags;
 } pc;
 
 layout(location = 0) in vec3 in_position;
