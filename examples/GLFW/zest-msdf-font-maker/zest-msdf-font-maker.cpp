@@ -97,6 +97,8 @@ static void SaveFont(std::string filename, std::map<const char, zest_font_charac
 	int result = stbi_write_png_to_func(custom_stbi_write_mem, &context, bitmap->width, bitmap->height, bitmap->channels, bitmap->data, bitmap->stride);
 
 	ofile.write((char*)&bitmap->size, sizeof(unsigned long));
+	size_t buffer_size = buffer.size();
+	ofile.write((char*)&buffer_size, sizeof(size_t));
 	ofile.write(reinterpret_cast<char *>(buffer.data()), buffer.size());
 
 	ofile.close();

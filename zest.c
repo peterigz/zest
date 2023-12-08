@@ -7397,7 +7397,10 @@ zest_font zest_LoadMSDFFont(const char *filename) {
 	position += sizeof(zest_uint);
 	zest_byte *image_data = 0;
 	zest_vec_resize(image_data, image_size);
-	memcpy(image_data, font_data + position, image_size);
+	size_t buffer_size;
+	memcpy(&buffer_size, font_data + position, sizeof(size_t));
+	position += sizeof(size_t);
+	memcpy(image_data, font_data + position, buffer_size);
 
 	font->texture = zest_CreateTextureSingle(filename, zest_texture_format_rgba);
 
