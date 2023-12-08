@@ -143,9 +143,11 @@ void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
 	if (imgui_draw_data) {
 		if (index_buffer->memory_in_use > index_buffer->size) {
 			zest_GrowMeshIndexBuffers(imgui_layer);
+			index_buffer = zest_GetIndexStagingBuffer(imgui_layer);
 		}
 		if (vertex_buffer->memory_in_use > vertex_buffer->size) {
 			zest_GrowMeshVertexBuffers(imgui_layer);
+			vertex_buffer = zest_GetVertexStagingBuffer(imgui_layer);
 		}
 		ImDrawIdx* idxDst = (ImDrawIdx*)index_buffer->data;
 		ImDrawVert* vtxDst = (ImDrawVert*)vertex_buffer->data;

@@ -1864,9 +1864,6 @@ zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info
 	//} else {
 		//zest_map_hash(ZestRenderer->buffer_allocators, "Device Images");
 	//}
-	if (key == 10429335137252949826) {
-		int d = 0;
-	}
 	if (!zest_map_valid_key(ZestRenderer->buffer_allocators, key)) {
 		//If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
 		zest_buffer_allocator_t blank_buffer_allocator = { 0 };
@@ -2005,12 +2002,13 @@ zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size mi
 		return ZEST_FALSE;
 	}
 	zest_buffer_allocator_t *buffer_allocator = (*buffer)->buffer_allocator;
+	zest_size memory_in_use = (*buffer)->memory_in_use;
 	zest_buffer new_buffer = zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 	if (new_buffer) {
 		new_buffer->buffer_allocator = (*buffer)->buffer_allocator;
-		new_buffer->memory_in_use = (*buffer)->memory_in_use;
 		*buffer = new_buffer;
 		zest__set_buffer_details(buffer_allocator, *buffer, buffer_allocator->buffer_info.property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+		new_buffer->memory_in_use = memory_in_use;
 	}
 	else {
 		//Create a new memory pool and try again
@@ -2022,6 +2020,7 @@ zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size mi
 		ZEST_ASSERT(new_buffer);	//Unable to allocate memory. Out of memory?
 		*buffer = new_buffer;
 		zest__set_buffer_details(buffer_allocator, *buffer, buffer_allocator->buffer_info.property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+		new_buffer->memory_in_use = memory_in_use;
 	}
 	return new_buffer ? ZEST_TRUE : ZEST_FALSE;
 }
@@ -8807,17 +8806,15 @@ zest_buffer zest_GetIndexDeviceBuffer(zest_layer layer) {
 }
 
 void zest_GrowMeshVertexBuffers(zest_layer layer) {
-	zest_buffer staging_buffer = zest_GetVertexStagingBuffer(layer);
-	zest_buffer device_buffer = zest_GetVertexStagingBuffer(layer);
-	zest_GrowBuffer(&staging_buffer, layer->vertex_struct_size, staging_buffer->memory_in_use);
-	zest_GrowBuffer(&device_buffer, layer->vertex_struct_size, staging_buffer->memory_in_use);
+	zest_size memory_in_use = zest_GetVertexStagingBuffer(layer)->memory_in_use;
+	zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].staging_vertex_data, layer->vertex_struct_size, memory_in_use);
+	zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_vertex_data, layer->vertex_struct_size, memory_in_use);
 }
 
 void zest_GrowMeshIndexBuffers(zest_layer layer) {
-	zest_buffer staging_buffer = zest_GetIndexStagingBuffer(layer);
-	zest_buffer device_buffer = zest_GetIndexStagingBuffer(layer);
-	zest_GrowBuffer(&staging_buffer, sizeof(zest_uint), staging_buffer->memory_in_use);
-	zest_GrowBuffer(&device_buffer, sizeof(zest_uint), staging_buffer->memory_in_use);
+	zest_size memory_in_use = zest_GetVertexStagingBuffer(layer)->memory_in_use;
+	zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].staging_index_data, sizeof(zest_uint), memory_in_use);
+	zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_index_data, sizeof(zest_uint), memory_in_use);
 }
 
 void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
