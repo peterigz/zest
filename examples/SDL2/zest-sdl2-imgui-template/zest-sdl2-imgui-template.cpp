@@ -1,4 +1,4 @@
-#include "zest-imgui-template.h"
+#include "zest-sdl2-imgui-template.h"
 #include "imgui_internal.h"
 
 void InitImGuiApp(ImGuiApp *app) {
@@ -44,6 +44,12 @@ void InitImGuiApp(ImGuiApp *app) {
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
+	SDL_Event event;
+	while (SDL_PollEvent(&event)) {
+		ImGui_ImplSDL2_ProcessEvent(&event);
+		zest_MaybeQuit(event.type == SDL_QUIT);
+		zest_MaybeQuit(event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID((SDL_Window*)ZestApp->window->window_handle));
+	}
 	//Don't forget to update the uniform buffer!
 	zest_Update2dUniformBuffer();
 	//Set the active command queue to the default one that was created when Zest was initialised
@@ -51,7 +57,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGuiApp *app = (ImGuiApp*)user_data;
 
 	//Must call the imgui GLFW implementation function
-	ImGui_ImplGlfw_NewFrame();
+	ImGui_ImplSDL2_NewFrame();
 	//Draw our imgui stuff
 	ImGui::NewFrame();
 	ImGui::ShowDemoWindow();
@@ -75,7 +81,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//Implement GLFW for window creation
-	zest_implglfw_SetCallbacks(&create_info);
+	zest_implsdl2_SetCallbacks(&create_info);
 
 	ImGuiApp imgui_app;
 
@@ -96,7 +102,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 #else
 int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
-	zest_implglfw_SetCallbacks(&create_info);
+	zest_implsdl2_SetCallbacks(&create_info);
 
 	ImGuiApp imgui_app;
 

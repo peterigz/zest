@@ -1618,7 +1618,8 @@ ZEST_PRIVATE void zest__os_add_platform_extensions(ZEST_PROTOTYPE);
 ZEST_PRIVATE void zest__os_set_window_title(const char *title);
 //-- End Platform dependent functions
 
-ZEST_PRIVATE void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
+//Only available outsie lib for some implementations like SDL2
+ZEST_API void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
 
 //Buffer & Memory Management
 ZEST_PRIVATE void zest__add_host_memory_pool(zest_size size);

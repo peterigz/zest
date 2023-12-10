@@ -49,7 +49,6 @@ void zest_implglfw_PollEventsCallback(void) {
 
 void zest_implglfw_AddPlatformExtensionsCallback(void) {
 	zest_uint count;
-	char **extensions = 0;
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 	for (int i = 0; i != count; ++i) {
 		zest_AddInstanceExtension((char*)glfw_extensions[i]);

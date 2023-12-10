@@ -24,19 +24,19 @@ function(buildExample EXAMPLE_NAME)
 	SET(MAIN_CPP ${EXAMPLE_FOLDER}/${EXAMPLE_NAME}.cpp)
 
 	set(SHADER_DIR "${EXAMPLE_NAME}/shaders")
-	include_directories(${SDL_INCLUDE_DIR})
+	include_directories(${SDL2_INCLUDE_DIRS})
 
 	# Collect shader files
 	file(GLOB SHADERS "${SHADER_DIR}/*.vert" "${SHADER_DIR}/*.frag" "${SHADER_DIR}/*.comp")
 	file(GLOB IMGUI_SOURCE
 		${IMGUI}*.cpp 
-		${IMGUI}backends/imgui_impl_sdl.cpp
+		${IMGUI}backends/imgui_impl_sdl2.cpp
 		${IMGUI}misc/freetype/imgui_freetype.cpp
 	)
 	
 	file(GLOB IMPLEMENTATIONS_SOURCE
-		${IMPLEMENTATIONS}impl_sdl.cpp
-		${IMPLEMENTATIONS}impl_imgui.cpp
+		${IMPLEMENTATIONS}impl_sdl2.cpp
+		${IMPLEMENTATIONS}impl_imgui_sdl2.cpp
 	)
 
 	# Organize shaders into a source group
@@ -48,23 +48,28 @@ function(buildExample EXAMPLE_NAME)
 
 	if(WIN32)
 		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
-		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${SDL_LIBRARY} ${WINLIBS})
+		target_link_libraries(${EXAMPLE_NAME} PRIVATE zest-lib ${Vulkan_LIBRARY} ${SDL2_LIBRARIES} ${WINLIBS})
 	else(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
-		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${SDL_LIBRARY})
+		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${SDL2_LIBRARIES})
 	endif(WIN32)
 
-	target_link_libraries(${EXAMPLE_NAME} ${CMAKE_SOURCE_DIR}/examples/libs/freetype/win64/freetype.lib)
+	target_link_libraries(${EXAMPLE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/examples/libs/freetype/win64/freetype.lib)
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/examples/libs/freetype/include) 
 
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${EXAMPLE_FOLDER})
 
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES XCODE_GENERATE_SCHEME TRUE XCODE_SCHEME_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+	
+	add_custom_command(TARGET ${EXAMPLE_NAME} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:${EXAMPLE_NAME}> $<TARGET_FILE_DIR:${EXAMPLE_NAME}>
+		COMMAND_EXPAND_LISTS
+		)
 endfunction(buildExample)
 
 set(EXAMPLES
-	zest-sdl-imgui-template
+	zest-sdl2-imgui-template
 )
 
 buildExamples()

@@ -37,7 +37,7 @@ function(buildExample EXAMPLE_NAME)
 	
 	file(GLOB IMPLEMENTATIONS_SOURCE
 		${IMPLEMENTATIONS}impl_glfw.cpp
-		${IMPLEMENTATIONS}impl_imgui.cpp
+		${IMPLEMENTATIONS}impl_imgui_glfw.cpp
 	)
 
 	if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")

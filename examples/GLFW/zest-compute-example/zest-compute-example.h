@@ -2,7 +2,7 @@
 
 #include <zest.h>
 #include "implementations/impl_glfw.h"
-#include "implementations/impl_imgui.h"
+#include "implementations/impl_imgui_glfw.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>

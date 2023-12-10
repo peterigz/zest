@@ -1,11 +1,11 @@
 #pragma once
 
 #include <zest.h>
-#include "implementations/impl_glfw.h"
-#include "implementations/impl_imgui.h"
+#include "implementations/impl_sdl2.h"
+#include "implementations/impl_imgui_sdl2.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
-#include <imgui/backends/imgui_impl_glfw.h>
+#include <imgui/backends/imgui_impl_sdl2.h>
 
 struct ImGuiApp {
 	zest_imgui_layer_info imgui_layer_info;
