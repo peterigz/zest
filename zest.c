@@ -7227,12 +7227,12 @@ void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int 
 		VkOffset3D src_blit_offset;
 		src_blit_offset.x = src_x;
 		src_blit_offset.y = src_y;
-		src_blit_offset.z = 1;
+		src_blit_offset.z = 0;
 
 		VkOffset3D dst_blit_offset;
 		dst_blit_offset.x = dst_x;
 		dst_blit_offset.y = dst_y;
-		dst_blit_offset.z = 1;
+		dst_blit_offset.z = 0;
 
 		VkOffset3D blit_size_src;
 		blit_size_src.x = src_x + width;
