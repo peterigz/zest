@@ -7875,7 +7875,7 @@ void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif) {
 	image_sub_resource_range.baseArrayLayer = 0;
 	image_sub_resource_range.layerCount = 1;
 
-	VkClearColorValue ClearColorValue = { 0.0, 0.0, 0.0, 0.0 };
+	VkClearColorValue ClearColorValue = { 0.f, 0.f, 0.f, 0.f };
 
 	zest__insert_image_memory_barrier(
 		command_buffer,
