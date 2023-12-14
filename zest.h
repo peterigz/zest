@@ -864,7 +864,6 @@ typedef struct zest_device_t {
 	VkPhysicalDeviceProperties properties;
 	VkPhysicalDeviceFeatures features;
 	VkPhysicalDeviceMemoryProperties memory_properties;
-	VkQueue present_queue;
 	VkQueue graphics_queue;
 	VkQueue one_time_graphics_queue;
 	VkQueue compute_queue;

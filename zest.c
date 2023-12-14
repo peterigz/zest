@@ -1345,7 +1345,6 @@ void zest__create_logical_device(void) {
 	//There's no real point of a one time graphics queue on the same index. It seems like AMD cards have a queue count of one on the graphics family so you can't 
 	//do one off queues while other rendering is going on.
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, indices.graphics_family_queue_count > 1 ? 1 : 0, &ZestDevice->one_time_graphics_queue);
-	vkGetDeviceQueue(ZestDevice->logical_device, indices.present_family, 0, &ZestDevice->present_queue);
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.compute_family, 0, &ZestDevice->compute_queue);
 
 	ZestDevice->graphics_queue_family_index = indices.graphics_family;
@@ -4132,7 +4131,7 @@ void zest__present_frame() {
 	presentInfo.pImageIndices = &ZestRenderer->current_frame;
 	presentInfo.pResults = ZEST_NULL;
 
-	VkResult result = vkQueuePresentKHR(ZestDevice->present_queue, &presentInfo);
+	VkResult result = vkQueuePresentKHR(ZestDevice->graphics_queue, &presentInfo);
 
 	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || ZestApp->window->framebuffer_resized || (ZestRenderer->flags & zest_renderer_flag_schedule_change_vsync)) {
 		ZestApp->window->framebuffer_resized = ZEST_FALSE;
