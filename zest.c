@@ -1370,10 +1370,22 @@ void zest__set_limit_data() {
 void zest__set_default_pool_sizes() {
 	zest_buffer_usage_t usage = { 0 };
 	//Images stored on device use share a single pool as far as I know
-	//But not true was having issues with this
+	//But not true was having issues with this. An image buffer can share the same usage properties but have different alignment requirements
+	//So they will get separate pools
+	//Depth buffers
 	usage.image_flags = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-	zest_SetDeviceImagePoolSize("Device Images", zloc__KILOBYTE(4), zloc__MEGABYTE(128));
+	zest_SetDeviceImagePoolSize("Depth Buffer", usage.image_flags, usage.property_flags, 1024, zloc__MEGABYTE(64));
+
+	//General Textures
+	usage.image_flags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	zest_SetDeviceImagePoolSize("Texture Buffer", usage.image_flags, usage.property_flags, 1024, zloc__MEGABYTE(64));
+
+	//Render targets
+	usage.image_flags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	zest_SetDeviceImagePoolSize("Render Target", usage.image_flags, usage.property_flags, 1024, zloc__MEGABYTE(64));
 
 	//Uniform buffers
 	usage.image_flags = 0;
@@ -1673,6 +1685,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
 
 	buffer->size = memory_requirements.size;
 	buffer->alignment = memory_requirements.alignment;
+	buffer->minimum_allocation_size = ZEST__MAX(buffer->alignment, buffer->minimum_allocation_size);
 	buffer->memory_type_index = alloc_info.memoryTypeIndex;
 	buffer->property_flags = property_flags;
 	buffer->usage_flags = usage_flags;
@@ -1693,9 +1706,9 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, V
 	alloc_info.memoryTypeIndex = zest_find_memory_type(memory_requirements.memoryTypeBits, property_flags);
 	ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
 
-	//Found no suitable blocks or ranges, so create a new one
 	buffer->size = size_in_bytes;
 	buffer->alignment = memory_requirements.alignment;
+	buffer->minimum_allocation_size = ZEST__MAX(buffer->alignment, buffer->minimum_allocation_size);
 	buffer->memory_type_index = alloc_info.memoryTypeIndex;
 	buffer->property_flags = property_flags;
 	buffer->usage_flags = 0;
@@ -1764,14 +1777,12 @@ zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_i
 		zest__create_device_memory_pool(buffer_pool->size, buffer_info->usage_flags, buffer_info->property_flags, buffer_pool, "");
 	}
 	else {
-		zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDevicePoolSize(key);
+		//zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDevicePoolSize(key);
+		zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDeviceBufferPoolSize(buffer_info->usage_flags, buffer_info->property_flags, buffer_info->image_usage_flags);
 		if (pre_defined_pool_size.pool_size > 0) {
 			buffer_pool->name = pre_defined_pool_size.name;
 			buffer_pool->size = pre_defined_pool_size.pool_size > minimum_size ? pre_defined_pool_size.pool_size : zest_GetNextPower(minimum_size + minimum_size / 2);
 			buffer_pool->minimum_allocation_size = pre_defined_pool_size.minimum_allocation_size;
-			if (buffer_pool->size > zloc__MEGABYTE(70)) {
-				int d = 0;
-			}
 		}
 		else {
 			ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating image memory where no default pool size was found for image usage flags: %i, and property flags: %i. Defaulting to next power from size + size / 2",
@@ -1872,11 +1883,11 @@ zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info
 	}
 
 	zest_key key;
-	if (!image) {
+	//if (!image) {
 		key = zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t));
-	} else {
-		key = zest_map_hash(ZestRenderer->buffer_allocators, "Device Images");
-	}
+	//} else {
+		//key = zest_map_hash(ZestRenderer->buffer_allocators, "Device Images");
+	//}
 	if (!zest_map_valid_key(ZestRenderer->buffer_allocators, key)) {
 		//If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
 		zest_buffer_allocator_t blank_buffer_allocator = { 0 };
@@ -2203,19 +2214,21 @@ void zest_SetDeviceBufferPoolSize(const char *name, VkBufferUsageFlags usage_fla
 	zest_map_insert_key(ZestDevice->pool_sizes, usage_hash, pool_sizes);
 }
 
-void zest_SetDeviceImagePoolSize(const char *name, zest_size minimum_allocation, zest_size pool_size) {
+void zest_SetDeviceImagePoolSize(const char *name, VkImageUsageFlags image_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size) {
 	ZEST_ASSERT(pool_size);					//Must set a pool size
 	ZEST_ASSERT(ZEST__POW2(pool_size));		//Pool size must be a power of 2
 	zest_index size_index = ZEST__MAX(zloc__scan_forward(pool_size) - 20, 0);
 	minimum_allocation = ZEST__MAX(minimum_allocation, 64 << size_index);
-	zest_key usage_hash = zest_Hash(ZestHasher, name, strlen(name), ZEST_HASH_SEED);
+	zest_buffer_usage_t usage = { 0 };
+	usage.image_flags = image_flags;
+	usage.property_flags = property_flags;
+	zest_key usage_hash = zest_Hash(ZestHasher, &usage, sizeof(zest_buffer_usage_t), ZEST_HASH_SEED);
 	zest_buffer_pool_size_t pool_sizes;
 	pool_sizes.name = name;
 	pool_sizes.minimum_allocation_size = minimum_allocation;
 	pool_sizes.pool_size = pool_size;
 	zest_map_insert_key(ZestDevice->pool_sizes, usage_hash, pool_sizes);
 }
-// --End Vulkan Buffer Management
 // --End Vulkan Buffer Management
 
 // --Renderer and related functions

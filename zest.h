@@ -2087,9 +2087,11 @@ ZEST_API zest_buffer_pool_size_t zest_GetDeviceBufferPoolSize(VkBufferUsageFlags
 ZEST_API zest_buffer_pool_size_t zest_GetDeviceImagePoolSize(const char *name);
 //Set the default pool size for a specific type of buffer set by the usage and property flags. You must call this before you call zest_Initialise
 //otherwise it might not take effect on any buffers that are created during initialisation.
+//Note that minimum allocation size may get overridden if it is smaller than the alignment reported by vkGetBufferMemoryRequirements at pool creation
 ZEST_API void zest_SetDeviceBufferPoolSize(const char *name, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size);
-//Set the default pool size for images. Generally, all images use the same pool type in most situations so that simplyfies things.
-ZEST_API void zest_SetDeviceImagePoolSize(const char *name, zest_size minimum_allocation, zest_size pool_size);
+//Set the default pool size for images. based on image usage and property flags.
+//Note that minimum allocation size may get overridden if it is smaller than the alignment reported by vkGetImageMemoryRequirements at pool creation
+ZEST_API void zest_SetDeviceImagePoolSize(const char *name, VkImageUsageFlags image_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size);
 //Create a buffer specifically for use as a uniform buffer. Essentially this is just a zest_descriptor_buffer.
 ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
 //Standard builtin functions for updating a uniform buffer for use in 2d shaders where x,y coordinates represent a location on the screen. This will
