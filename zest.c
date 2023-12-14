@@ -1311,6 +1311,14 @@ void zest__create_logical_device(void) {
 	device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 	device_features_12.bufferDeviceAddress = VK_TRUE;
 
+	//I put this in when trying to get RenderDoc to work but it turned out to be unrelated
+	//Leaving here for now though.
+	VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures = { 0 };
+	bufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+	bufferDeviceAddressFeatures.bufferDeviceAddress = VK_TRUE;  // Enable bufferDeviceAddress feature
+	bufferDeviceAddressFeatures.bufferDeviceAddressCaptureReplay = VK_TRUE;
+	// Create VkDeviceCreateInfo structure and include VkPhysicalDeviceBufferDeviceAddressFeatures
+
 	VkDeviceCreateInfo create_info = { 0 };
 	create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 	create_info.pEnabledFeatures = &device_features;
@@ -1318,6 +1326,7 @@ void zest__create_logical_device(void) {
 	create_info.pQueueCreateInfos = queue_create_infos;
 	create_info.enabledExtensionCount = zest__required_extension_names_count;
 	create_info.ppEnabledExtensionNames = zest_required_extensions;
+	//create_info.pNext = &bufferDeviceAddressFeatures;
 	if (ZestDevice->api_version == VK_API_VERSION_1_2) {
 		create_info.pNext = &device_features_12;
 	}
@@ -1333,6 +1342,8 @@ void zest__create_logical_device(void) {
 	ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->logical_device));
 
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->graphics_queue);
+	//There's no real point of a one time graphics queue on the same index. It seems like AMD cards have a queue count of one on the graphics family so you can't 
+	//do one off queues while other rendering is going on.
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, indices.graphics_family_queue_count > 1 ? 1 : 0, &ZestDevice->one_time_graphics_queue);
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.present_family, 0, &ZestDevice->present_queue);
 	vkGetDeviceQueue(ZestDevice->logical_device, indices.compute_family, 0, &ZestDevice->compute_queue);
@@ -1359,6 +1370,7 @@ void zest__set_limit_data() {
 void zest__set_default_pool_sizes() {
 	zest_buffer_usage_t usage = { 0 };
 	//Images stored on device use share a single pool as far as I know
+	//But not true was having issues with this
 	usage.image_flags = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	zest_SetDeviceImagePoolSize("Device Images", zloc__KILOBYTE(4), zloc__MEGABYTE(128));
@@ -1622,6 +1634,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
 	buffer_info.size = size;
 	buffer_info.usage = usage_flags;
 	buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	buffer_info.flags = 0;
 
 	ZEST_VK_CHECK_RESULT(vkCreateBuffer(ZestDevice->logical_device, &buffer_info, &ZestDevice->allocation_callbacks, &buffer->buffer));
 
@@ -1859,11 +1872,11 @@ zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info
 	}
 
 	zest_key key;
-	//if (!image) {
-	key = zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t));
-	//} else {
-		//zest_map_hash(ZestRenderer->buffer_allocators, "Device Images");
-	//}
+	if (!image) {
+		key = zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t));
+	} else {
+		key = zest_map_hash(ZestRenderer->buffer_allocators, "Device Images");
+	}
 	if (!zest_map_valid_key(ZestRenderer->buffer_allocators, key)) {
 		//If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
 		zest_buffer_allocator_t blank_buffer_allocator = { 0 };
