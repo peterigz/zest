@@ -2060,7 +2060,7 @@ ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zes
 ZEST_API zest_bool zest_GrowDescriptorBuffer(zest_descriptor_buffer buffer, zest_size unit_size, zest_size minimum_bytes);
 //Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
 //the size as well that you want to copy
-ZEST_API void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
+ZEST_API void zest_CopyBuffer(zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
 //Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
 //one off copy with a separate command buffer
 ZEST_API void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
@@ -2920,6 +2920,8 @@ ZEST_API void zest_SendComputePushConstantsCB(VkCommandBuffer command_buffer, ze
 ZEST_API void zest_ComputeToVertexBarrier();
 //Helper function to dispatch a compute shader so you can call this instead of vkCmdDispatch
 ZEST_API void zest_DispatchCompute(zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
+//Helper function to dispatch a compute shader so you can call this instead of vkCmdDispatch. Specify a command buffer for use in one off dispataches
+ZEST_API void zest_DispatchComputeCB(VkCommandBuffer command_buffer, zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 //--End Compute shaders
 
 //-----------------------------------------------

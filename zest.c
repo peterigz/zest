@@ -1991,26 +1991,26 @@ zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging
 	return buffer;
 }
 
-void zest_CopyBuffer(zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size) {
-	ZEST_ASSERT(size <= staging_buffer->size);		//size must be less than or equal to the staging buffer size and the device buffer size
-	ZEST_ASSERT(size <= device_buffer->size);
+void zest_CopyBuffer(zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size) {
+	ZEST_ASSERT(size <= src_buffer->size);		//size must be less than or equal to the staging buffer size and the device buffer size
+	ZEST_ASSERT(size <= dst_buffer->size);
 	VkBufferCopy copyInfo = { 0 };
-	copyInfo.srcOffset = staging_buffer->memory_offset;
-	copyInfo.dstOffset = device_buffer->memory_offset;
+	copyInfo.srcOffset = src_buffer->memory_offset;
+	copyInfo.dstOffset = dst_buffer->memory_offset;
 	copyInfo.size = size;
 	VkCommandBuffer command_buffer = zest__begin_single_time_commands();
-	vkCmdCopyBuffer(command_buffer, staging_buffer->memory_pool->buffer, device_buffer->memory_pool->buffer, 1, &copyInfo);
+	vkCmdCopyBuffer(command_buffer, src_buffer->memory_pool->buffer, dst_buffer->memory_pool->buffer, 1, &copyInfo);
 	zest__end_single_time_commands(command_buffer);
 }
 
-void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size) {
-	ZEST_ASSERT(size <= staging_buffer->size);		//size must be less than or equal to the staging buffer size and the device buffer size
-	ZEST_ASSERT(size <= device_buffer->size);
+void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size) {
+	ZEST_ASSERT(size <= src_buffer->size);		//size must be less than or equal to the staging buffer size and the device buffer size
+	ZEST_ASSERT(size <= dst_buffer->size);
 	VkBufferCopy copyInfo = { 0 };
-	copyInfo.srcOffset = staging_buffer->memory_offset;
-	copyInfo.dstOffset = device_buffer->memory_offset;
+	copyInfo.srcOffset = src_buffer->memory_offset;
+	copyInfo.dstOffset = dst_buffer->memory_offset;
 	copyInfo.size = size;
-	vkCmdCopyBuffer(command_buffer, staging_buffer->memory_pool->buffer, device_buffer->memory_pool->buffer, 1, &copyInfo);
+	vkCmdCopyBuffer(command_buffer, src_buffer->memory_pool->buffer, dst_buffer->memory_pool->buffer, 1, &copyInfo);
 }
 
 zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes) {
@@ -2104,7 +2104,7 @@ zest_buffer_info_t zest_CreateComputeIndexBufferInfo() {
 
 zest_buffer_info_t zest_CreateStagingBufferInfo() {
 	zest_buffer_info_t buffer_info = { 0 };
-	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 	buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 	return buffer_info;
 }
@@ -3312,6 +3312,8 @@ void zest_BindPipeline(zest_pipeline pipeline, VkDescriptorSet descriptor_set) {
 }
 
 void zest_BindComputePipeline(zest_compute compute, zest_index shader_index) {
+	//If you get an error here, then check if you're manually running the compute shader in a compute_command_buffer_callback, in which case you should
+	//call zest_BingComputePipelineCB where you can specify the command buffer to use (ie, the one passed into the callback).
 	vkCmdBindPipeline(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipelines[shader_index]);
 	vkCmdBindDescriptorSets(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline_layout, 0, 1, &compute->descriptor_set[ZEST_FIF], 0, 0);
 }
@@ -3680,6 +3682,10 @@ void zest_ComputeToVertexBarrier() {
 
 void zest_DispatchCompute(zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
 	vkCmdDispatch(ZestRenderer->current_command_buffer, group_count_x, group_count_y, group_count_z);
+}
+
+void zest_DispatchComputeCB(VkCommandBuffer command_buffer, zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+	vkCmdDispatch(command_buffer, group_count_x, group_count_y, group_count_z);
 }
 
 void zest_EnableVSync() {
@@ -5164,7 +5170,8 @@ zest_command_queue_compute zest_CreateComputeItem(const char *name, zest_command
 }
 
 zest_command_queue_compute zest_NewComputeSetup(const char *name, zest_compute compute_shader, void(*compute_function)(zest_command_queue_compute item)) {
-	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_command_queue);				//Current setup context must be command_queue.
+	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_command_queue);				//Current setup context must be command_queue. Add your compute shaders first before
+																										//adding any other draw routines
 	zest__set_queue_context(zest_setup_context_type_compute);
 
 	zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
@@ -9216,7 +9223,8 @@ void zest_RunCompute(zest_compute compute) {
 
 		ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(compute->command_buffer[ZEST_FIF], &begin_info));
 		ZEST_ASSERT(compute->command_buffer_update_callback);		//You must set a call back for command_buffer_update_callback so that you can build the command buffer for the compute shader
-																	//if you're going to run the compute shader via this function
+																	//if you're going to run the compute shader via this function. See zest_SetComputeCommandBufferUpdateCallback when building your
+																	//compute shader
 		compute->command_buffer_update_callback(compute, compute->command_buffer[ZEST_FIF]);
 	}
 
@@ -9225,6 +9233,7 @@ void zest_RunCompute(zest_compute compute) {
 	compute_submit_info.commandBufferCount = 1;
 	compute_submit_info.pCommandBuffers = &compute->command_buffer[ZEST_FIF];
 
+	//Make sure you're ending the command buffer at the end of your command_buffer_update_callback before calling this. Use vkEndCommandBuffer
 	ZEST_VK_CHECK_RESULT(vkQueueSubmit(compute->queue, 1, &compute_submit_info, compute->fence[ZEST_FIF]));
 }
 
