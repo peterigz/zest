@@ -1684,16 +1684,12 @@ ZEST_PRIVATE void zest__set_queue_context(zest_setup_context_type context);
 ZEST_PRIVATE zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer);
 
 // --Draw layer internal functions
-ZEST_PRIVATE void zest__start_instance_instructions(zest_layer instance_layer);
-ZEST_PRIVATE void zest__end_instance_instructions(zest_layer instance_layer);
 ZEST_PRIVATE void zest__start_mesh_instructions(zest_layer instance_layer);
 ZEST_PRIVATE void zest__end_mesh_instructions(zest_layer instance_layer);
 ZEST_PRIVATE void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
-ZEST_PRIVATE void zest__draw_instance_layer(zest_layer instance_layer, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer);
 ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
-ZEST_PRIVATE void zest__reset_instance_layer_drawing(zest_layer layer);
 ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
 
 // --Texture internal functions
@@ -1770,7 +1766,6 @@ ZEST_PRIVATE zest_pipeline_template_create_info_t zest__copy_pipeline_create_inf
 ZEST_PRIVATE void zest__free_pipeline_create_info(zest_pipeline_template_create_info_t *create_info);
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
 ZEST_PRIVATE void zest__add_pipeline_descriptor_write(zest_pipeline pipeline, VkWriteDescriptorSet set, zest_index fif);
-ZEST_PRIVATE void zest__make_pipeline_descriptor_writes(zest_pipeline pipeline);
 // --End Pipeline Helper Functions
 
 // --Buffer allocation funcitons
@@ -1988,6 +1983,7 @@ ZEST_API zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(cons
 //Get a pointer to the zest_pipeline_template_create_info_t saved in a pipeline. You use this to alter the pipeline and remake if you need to.
 //Note: use zest_CopyTemplateFromPipeline to create a new pipeline based on another, don't use this function to try and make a copy.
 ZEST_API zest_pipeline_template_create_info_t *zest_PipelineCreateInfo(const char *name);
+ZEST_API void zest_MakePipelineDescriptorWrites(zest_pipeline pipeline);
 //-- End Pipeline related 
 
 //--End vulkan helper functions
@@ -2225,6 +2221,8 @@ ZEST_API zest_layer zest_CreateBuiltinLineLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinBillboardLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinFontLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinMeshLayer(const char *name);
+//Insert a layer into storage. You can use this for custom layers of you're own
+ZEST_API void zest_InsertLayer(zest_layer layer);
 //Get a zest_layer by name
 ZEST_API zest_layer zest_GetLayer(const char *name);
 //Create a zest_command_queue_compute and add it to a zest_command_queue. You can call this function outside of a command queue setup context. Otherwise
@@ -2669,6 +2667,15 @@ ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
 //-----------------------------------------------
 //-- Draw Layers API
 //-----------------------------------------------
+//Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
+//instance layers more easily
+ZEST_API void zest_StartInstanceInstructions(zest_layer instance_layer);
+//End a set of draw instructs for a standard zest_layer
+ZEST_API void zest_EndInstanceInstructions(zest_layer instance_layer);
+//Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
+ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
+//Send all the draw commands for an instance layer to the GPU
+ZEST_API void zest_DrawInstanceLayer(zest_layer instance_layer, VkCommandBuffer command_buffer);
 //Allocate a new zest_layer and return it's handle. This is mainly used internally but will leave it in the API for now
 ZEST_API zest_layer zest_NewLayer();
 //Set the viewport of a layer. This is important to set right as when the layer is drawn it needs to be clipped correctly and in a lot of cases match how the 
