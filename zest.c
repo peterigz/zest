@@ -9246,6 +9246,10 @@ void zest_ComputeAttachRenderTarget(zest_compute compute, zest_render_target ren
 	ZEST__FLAG(compute->flags, zest_compute_flag_has_render_target);
 }
 
+void zest_UpdateComputeDescriptors(zest_compute compute) {
+	compute->descriptor_update_callback(compute);
+}
+
 void zest_UpdateComputeDescriptorInfos(zest_compute compute) {
 	for (zest_foreach_j(compute->descriptor_infos)) {
 		zest_descriptor_infos_for_binding_t *descriptor_info = &compute->descriptor_infos[j];
