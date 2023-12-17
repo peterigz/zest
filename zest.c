@@ -3832,7 +3832,6 @@ void zest__prepare_standard_pipelines() {
 	//SDF lines 2d
 	instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
 	zest_ClearVertexInputBindingDescriptions(&instance_create_info);
-	zloc_header *dyn_header = zloc__block_from_allocation(zest__vec_header(instance_create_info.dynamicStates));
 	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_shape_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 
 	VkVertexInputAttributeDescription *line_instance_vertex_input_attributes = 0;
