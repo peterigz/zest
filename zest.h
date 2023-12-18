@@ -1071,6 +1071,7 @@ typedef struct zest_pipeline_t {
 	VkDescriptorSet descriptor_set[ZEST_MAX_FIF];								//Descriptor sets are only stored here for certain pipelines like non textured drawing or the final render pipelines for render targets in the swap chain
 	VkPipeline pipeline;														//The vulkan handle for the pipeline
 	VkPipelineLayout pipeline_layout;											//The vulkan handle for the pipeline layout
+	zest_uniform_buffer uniform_buffer;											//Handle of the uniform buffer used in the pipline. Will be set to the default 2d uniform buffer if none is specified
 	zest_uint uniforms;															//Number of uniform buffers in the pipeline, usually 1 or 0
 	zest_uint push_constant_size;												//Size of the push constant struct if it uses one
 	zest_uint *textures;														//A reference to the textures used by the pipeline - only used by final render, not even sure if it's needed.
@@ -1939,6 +1940,8 @@ ZEST_API void zest_SetPipelineTemplatePushConstant(zest_pipeline_template_create
 //If you have more then one push constant range you want to use with the pipeline then you can use this to add what you need. Just pass in
 //the create info struct pointer and a VkPushConstantRange
 ZEST_API void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range);
+//Set the uniform buffer that the pipeline should use. You must call zest_MakePipelineDescriptorWrites after setting the uniform buffer.
+ZEST_API void zest_SetPipelineUniformBuffer(zest_pipeline pipeline, zest_uniform_buffer uniform_buffer);
 //Make a pipeline template ready for building. Pass in the pipeline that you created with zest_AddPipeline, the render pass that you want to 
 //use for the pipeline and the zest_pipeline_template_create_info_t you have setup to configure the pipeline. After you have called this
 //function you can make a few more alterations to configure the pipeline further if needed before calling zest_BuildPipeline.
@@ -1983,6 +1986,7 @@ ZEST_API zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(cons
 //Get a pointer to the zest_pipeline_template_create_info_t saved in a pipeline. You use this to alter the pipeline and remake if you need to.
 //Note: use zest_CopyTemplateFromPipeline to create a new pipeline based on another, don't use this function to try and make a copy.
 ZEST_API zest_pipeline_template_create_info_t *zest_PipelineCreateInfo(const char *name);
+//Make the descriptor writes for a pipeine and update the descriptor set
 ZEST_API void zest_MakePipelineDescriptorWrites(zest_pipeline pipeline);
 //-- End Pipeline related 
 

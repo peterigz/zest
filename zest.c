@@ -3096,7 +3096,12 @@ void zest_MakePipelineDescriptorWrites(zest_pipeline pipeline) {
 		zest_AllocateDescriptorSet(ZestRenderer->descriptor_pool, pipeline->descriptor_layout->descriptor_layout, &pipeline->descriptor_set[i]);
 		zest_vec_clear(pipeline->descriptor_writes[i]);
 		if (pipeline->uniforms) {
-			zest__add_pipeline_descriptor_write(pipeline, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_set[i], zest_GetUniformBufferInfo("Standard 2d Uniform Buffer", i), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), i);
+			if (!pipeline->uniform_buffer) {
+				zest__add_pipeline_descriptor_write(pipeline, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_set[i], zest_GetUniformBufferInfo("Standard 2d Uniform Buffer", i), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), i);
+			}
+			else {
+				zest__add_pipeline_descriptor_write(pipeline, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_set[i], &pipeline->uniform_buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), i);
+			}
 			binding++;
 		}
 	}
@@ -3112,6 +3117,7 @@ zest_pipeline zest__create_pipeline() {
 		.descriptor_layout = 0,
 		.pipeline = VK_NULL_HANDLE,
 		.pipeline_layout = VK_NULL_HANDLE,
+		.uniform_buffer = 0,
 		.uniforms = 1,
 		.push_constant_size = 0,
 		.textures = 0,
@@ -3156,6 +3162,10 @@ void zest_SetPipelineTemplateShader(zest_pipeline_template_create_info_t *create
 
 void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range) {
 	zest_vec_push(create_info->pushConstantRange, range);
+}
+
+void zest_SetPipelineUniformBuffer(zest_pipeline pipeline, zest_uniform_buffer uniform_buffer) {
+	pipeline->uniform_buffer = uniform_buffer;
 }
 
 VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_uint index) {
@@ -3871,15 +3881,15 @@ void zest__prepare_standard_pipelines() {
 	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 	VkVertexInputAttributeDescription *billboard_vertex_input_attributes = 0;
 
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));		// Location 0: Position
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance_t, uv_xy)));				// Location 1: uv_xy
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, rotations)));		// Location 2: scale pitch yaw
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance_t, uv_zw)));				// Location 3: uv_zw
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, scale)));				// Location 4: Handle
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, handle)));			// Location 5: Handle
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_SFLOAT, offsetof(zest_billboard_instance_t, stretch)));				// Location 6: Stretch amount
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, blend_texture_array)));	// Location 7: texture array index
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			// Location 8: Instance Color
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));					// Location 0: Position
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance_t, uv_xy)));							// Location 1: uv_xy
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, rotations)));					// Location 2: scale pitch yaw
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance_t, uv_zw)));							// Location 3: uv_zw
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, scale)));							// Location 4: Handle
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, handle)));						// Location 5: Handle
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_SFLOAT, offsetof(zest_billboard_instance_t, stretch)));							// Location 6: Stretch amount
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, blend_texture_array)));				// Location 7: texture array index
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));						// Location 8: Instance Color
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_A2R10G10B10_SNORM_PACK32, offsetof(zest_billboard_instance_t, alignment)));			// Location 9: Alignment
 
 	zest_pipeline billboard_instance_pipeline = zest_AddPipeline("pipeline_billboard");
