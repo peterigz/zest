@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 //Helper macros
@@ -2047,6 +2047,7 @@ ZEST_API zest_buffer_info_t zest_CreateStagingBufferInfo(void);
 //then you can pass ZEST_FALSE or 0 for all_frames_in_flight to just create a single buffer.
 ZEST_API zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_info, zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
+ZEST_API zest_descriptor_buffer zest_CreateCPUVisibleStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateComputeVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);

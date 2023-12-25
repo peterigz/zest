@@ -1404,7 +1404,12 @@ void zest__set_default_pool_sizes() {
 	//Storage buffer
 	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-	zest_SetDeviceBufferPoolSize("Vertex Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+	zest_SetDeviceBufferPoolSize("Storage Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+
+	//CPU Visible Storage buffer
+	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	usage.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	zest_SetDeviceBufferPoolSize("CPU Visible Storage Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
 
 	//Index buffer
 	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
@@ -2081,6 +2086,13 @@ zest_buffer_info_t zest_CreateVertexBufferInfo() {
 	return buffer_info;
 }
 
+zest_buffer_info_t zest_CreateCPUVisibleStorageBufferInfo() {
+	zest_buffer_info_t buffer_info = { 0 };
+	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	return buffer_info;
+}
+
 zest_buffer_info_t zest_CreateStorageBufferInfo() {
 	zest_buffer_info_t buffer_info = { 0 };
 	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -2090,7 +2102,7 @@ zest_buffer_info_t zest_CreateStorageBufferInfo() {
 
 zest_buffer_info_t zest_CreateComputeVertexBufferInfo() {
 	zest_buffer_info_t buffer_info = { 0 };
-	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	buffer_info.usage_flags = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 	buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	return buffer_info;
 }
@@ -2724,6 +2736,21 @@ zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_in
 
 zest_descriptor_buffer zest_CreateStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight) {
 	zest_buffer_info_t buffer_info = zest_CreateStorageBufferInfo();
+	zest_descriptor_buffer_t blank_buffer = { 0 };
+	zest_descriptor_buffer descriptor_buffer = ZEST__NEW(zest_descriptor_buffer);
+	*descriptor_buffer = blank_buffer;
+	for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
+		descriptor_buffer->buffer[i] = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+		descriptor_buffer->descriptor_info[i].buffer = *zest_GetBufferDeviceBuffer(descriptor_buffer->buffer[i]);
+		descriptor_buffer->descriptor_info[i].offset = descriptor_buffer->buffer[i]->memory_offset;
+		descriptor_buffer->descriptor_info[i].range = size;
+	}
+	descriptor_buffer->all_frames_in_flight = all_frames_in_flight;
+	return descriptor_buffer;
+}
+
+zest_descriptor_buffer zest_CreateCPUVisibleStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight) {
+	zest_buffer_info_t buffer_info = zest_CreateCPUVisibleStorageBufferInfo();
 	zest_descriptor_buffer_t blank_buffer = { 0 };
 	zest_descriptor_buffer descriptor_buffer = ZEST__NEW(zest_descriptor_buffer);
 	*descriptor_buffer = blank_buffer;
