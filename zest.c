@@ -1511,12 +1511,12 @@ void zest__do_scheduled_tasks(void) {
 		zest_vec_clear(ZestRenderer->texture_delete_queue);
 	}
 
-	if (zest_vec_size(ZestRenderer->texture_reprocess_queue[ZEST_FIF])) {
-		for (zest_foreach_i(ZestRenderer->texture_reprocess_queue[ZEST_FIF])) {
-			zest_ProcessTextureImages(ZestRenderer->texture_reprocess_queue[ZEST_FIF][i]);
-			zest_RefreshTextureDescriptors(ZestRenderer->texture_reprocess_queue[ZEST_FIF][i]);
+	if (zest_vec_size(ZestRenderer->texture_reprocess_queue)) {
+		for (zest_foreach_i(ZestRenderer->texture_reprocess_queue)) {
+			zest_ProcessTextureImages(ZestRenderer->texture_reprocess_queue[i]);
+			zest_RefreshTextureDescriptors(ZestRenderer->texture_reprocess_queue[i]);
 		}
-		zest_vec_clear(ZestRenderer->texture_reprocess_queue[ZEST_FIF]);
+		zest_vec_clear(ZestRenderer->texture_reprocess_queue);
 	}
 
 	if (zest_vec_size(ZestRenderer->render_target_recreate_queue[ZEST_FIF])) {
@@ -6295,11 +6295,11 @@ void zest_RefreshTextureDescriptors(zest_texture texture) {
 }
 
 void zest_ScheduleTextureReprocess(zest_texture texture) {
-	zest_vec_push(ZestRenderer->texture_reprocess_queue[ZEST_FIF], texture);
+	zest_vec_push(ZestRenderer->texture_reprocess_queue, texture);
 }
 
 void zest_WaitUntilTexturesReprocessed() {
-	while (zest_vec_size(ZestRenderer->texture_reprocess_queue[ZEST_FIF])) {
+	while (ZestRenderer->texture_reprocess_queue && zest_vec_size(ZestRenderer->texture_reprocess_queue)) {
 		//Spin. This should be run from a separate thread so the scheduler can actually do it's thing	
 	}
 }

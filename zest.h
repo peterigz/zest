@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 //Helper macros
@@ -1566,7 +1566,7 @@ typedef struct zest_renderer_t {
 	zest_render_target *render_target_recreate_queue[ZEST_MAX_FIF];
 	zest_render_target *rt_sampler_refresh_queue[ZEST_MAX_FIF];
 	zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
-	zest_texture *texture_reprocess_queue[ZEST_MAX_FIF];
+	zest_texture *texture_reprocess_queue;
 	zest_texture *texture_delete_queue;
 	zest_uint current_frame;
 
