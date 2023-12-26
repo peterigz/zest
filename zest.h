@@ -3058,6 +3058,11 @@ ZEST_API zest_bool zest_CheckFence(VkFence fence);
 ZEST_API void zest_WaitForFence(VkFence fence);
 //Destroy a fence that you don't need any more and return its resources.
 ZEST_API void zest_DestroyFence(VkFence fence);
+//Found out if memory properties are available for the current physical device
+ZEST_API zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags);
+//Find out if the current GPU can use memory that is both device local and cpu visible. If it can then that means that you write directly to gpu memory without the need for
+//a staging buffer. AMD cards tend to be better at supporting this then nvidia as it seems nvidia only introduced it later.
+ZEST_API zest_bool zest_GPUHasDeviceLocalHostVisible();
 //--End General Helper functions
 
 //-----------------------------------------------

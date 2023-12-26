@@ -1291,7 +1291,7 @@ void zest__create_logical_device(void) {
 		queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 		queue_create_info.queueFamilyIndex = unique_queue_families[i];
 		if (unique_queue_families[i] == indices.graphics_family) {
-			queue_create_info.queueCount = indices.graphics_family_queue_count;
+			queue_create_info.queueCount = indices.graphics_family_queue_count > 2 ? 2 : 1;
 			queue_create_info.pQueuePriorities = graphics_queue_priority;
 		}
 		else {
@@ -3782,6 +3782,23 @@ void zest_WaitForFence(VkFence fence) {
 void zest_DestroyFence(VkFence fence) {
 	zest_WaitForFence(fence);
 	vkDestroyFence(ZestDevice->logical_device, fence, &ZestDevice->allocation_callbacks);
+}
+
+zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags) {
+	VkPhysicalDeviceMemoryProperties memoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(ZestDevice->physical_device, &memoryProperties);
+
+	for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; ++i) {
+		if ((flags & memoryProperties.memoryTypes[i].propertyFlags) == flags) {
+			return ZEST_TRUE; 
+		}
+	}
+
+	return ZEST_FALSE; 
+}
+
+zest_bool zest_GPUHasDeviceLocalHostVisible() {
+	return zest_IsMemoryPropertyAvailable(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 }
 
 zest_uint zest__grow_capacity(void *T, zest_uint size) { 
