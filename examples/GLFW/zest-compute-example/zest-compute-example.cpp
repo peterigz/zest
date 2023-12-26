@@ -229,7 +229,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 //int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Disable vsync so we can see how fast it runs
-	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//We're using GLFW for this example so use the following function to set that up for us. You must include
 	//impl_glfw.h for this
 	zest_implglfw_SetCallbacks(&create_info);

@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
 //Helper macros
@@ -1180,16 +1180,6 @@ typedef struct zest_ImDrawVert_t
 } zest_ImDrawVert_t;
 
 typedef struct zest_layer_buffers_t {
-	union {
-		struct {
-			zest_buffer_t *staging_vertex_data;
-			zest_buffer_t *staging_index_data;
-		};
-		struct {
-			zest_buffer_t *staging_instance_data;
-			zest_buffer_t *device_instance_data;
-		};
-	};
 
 	union {
 		struct { void *instance_ptr; };
@@ -1198,8 +1188,8 @@ typedef struct zest_layer_buffers_t {
 
 	zest_uint *index_ptr;
 
-	zest_buffer_t *device_index_data;
-	zest_buffer_t *device_vertex_data;
+	zest_buffer_t *index_data;
+	zest_buffer_t *vertex_data;
 
 	zest_uint instance_count;
 	zest_uint index_count;
@@ -1687,7 +1677,6 @@ ZEST_PRIVATE zest_draw_routine zest__create_draw_routine_with_builtin_layer(cons
 // --Draw layer internal functions
 ZEST_PRIVATE void zest__start_mesh_instructions(zest_layer instance_layer);
 ZEST_PRIVATE void zest__end_mesh_instructions(zest_layer instance_layer);
-ZEST_PRIVATE void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
 ZEST_PRIVATE void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer);
 ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
@@ -2033,11 +2022,11 @@ ZEST_API zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buff
 //Create an index buffer that is flagged for storage so that you can use it in a compute shader
 ZEST_API zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 //The following functions can be used to generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with
-ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(void);
+ZEST_API zest_buffer_info_t zest_CreateIndexBufferInfo(zest_bool cpu_visible);
+ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeIndexBufferInfo(void);
-ZEST_API zest_buffer_info_t zest_CreateIndexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateStagingBufferInfo(void);
 //Create descriptor buffers with the following functions. Descriptor buffers can be used when you want to bind them in a descriptor set
 //for use in a shader. When you create a descriptor buffer it also creates the descriptor info which is necessary when creating the 
@@ -2839,20 +2828,13 @@ ZEST_API float zest_TextWidth(zest_font font, const char *text, float font_size,
 //		Mesh layers let you upload a vertex and index buffer to draw meshes. I set this up primarily for
 //		use with Dear ImGui
 //-----------------------------------------------
-//A default callback function that is used to upload the staging buffers containing the vertex and index buffers to the GPU buffers
-//You don't really need to call this manually as it's a callback that's assigned in the draw routine when you call zest_CreateBuiltinMeshLayer or zest_NewMeshLayer.
-ZEST_API void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 //These are helper functions you can use to bind the vertex and index buffers in your custom mesh draw routine callback
 ZEST_API void zest_BindMeshVertexBuffer(zest_layer layer);
 ZEST_API void zest_BindMeshIndexBuffer(zest_layer layer);
-//Get the vertex staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
-ZEST_API zest_buffer zest_GetVertexStagingBuffer(zest_layer layer);
-//Get the index staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
-ZEST_API zest_buffer zest_GetIndexStagingBuffer(zest_layer layer);
 //Get the vertex buffer on the GPU. 
-ZEST_API zest_buffer zest_GetVertexDeviceBuffer(zest_layer layer);
+ZEST_API zest_buffer zest_GetVertexBuffer(zest_layer layer);
 //Get the index buffer on the GPU. 
-ZEST_API zest_buffer zest_GetIndexDeviceBuffer(zest_layer layer);
+ZEST_API zest_buffer zest_GetIndexBuffer(zest_layer layer);
 //Grow the mesh vertex buffers. You must update the buffer->memory_in_use so that it can decide if a buffer needs growing
 ZEST_API void zest_GrowMeshVertexBuffers(zest_layer layer);
 //Grow the mesh index buffers. You must update the buffer->memory_in_use so that it can decide if a buffer needs growing
