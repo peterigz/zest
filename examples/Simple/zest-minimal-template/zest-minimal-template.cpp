@@ -5,8 +5,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-//int main(void) 
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+int main(void) 
 {
 	//Make a config struct where you can configure zest with some options
 	zest_create_info_t create_info = zest_CreateInfo();

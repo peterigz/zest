@@ -122,8 +122,8 @@ void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
 
 	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
-	zest_buffer vertex_buffer = zest_GetVertexBuffer(imgui_layer);
-	zest_buffer index_buffer = zest_GetIndexBuffer(imgui_layer);
+	zest_buffer vertex_buffer = zest_GetVertexStagingBuffer(imgui_layer);
+	zest_buffer index_buffer = zest_GetIndexStagingBuffer(imgui_layer);
 
 	if (imgui_draw_data) {
 		index_buffer->memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
@@ -137,14 +137,17 @@ void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
 	imgui_layer->push_constants.parameters1 = zest_Vec4Set(2.0f / zest_ScreenWidthf(), 2.0f / zest_ScreenHeightf(), -1.f, -1.f);
 	imgui_layer->push_constants.parameters2 = zest_Vec4Set1(0.f);
 
+	zest_buffer device_vertex_buffer = zest_GetVertexDeviceBuffer(imgui_layer);
+	zest_buffer device_index_buffer = zest_GetIndexDeviceBuffer(imgui_layer);
+
 	if (imgui_draw_data) {
 		if (index_buffer->memory_in_use > index_buffer->size) {
 			zest_GrowMeshIndexBuffers(imgui_layer);
-			index_buffer = zest_GetIndexBuffer(imgui_layer);
+			index_buffer = zest_GetIndexStagingBuffer(imgui_layer);
 		}
 		if (vertex_buffer->memory_in_use > vertex_buffer->size) {
 			zest_GrowMeshVertexBuffers(imgui_layer);
-			vertex_buffer = zest_GetVertexBuffer(imgui_layer);
+			vertex_buffer = zest_GetVertexStagingBuffer(imgui_layer);
 		}
 		ImDrawIdx* idxDst = (ImDrawIdx*)index_buffer->data;
 		ImDrawVert* vtxDst = (ImDrawVert*)vertex_buffer->data;
