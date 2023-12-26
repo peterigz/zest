@@ -3784,6 +3784,23 @@ void zest_DestroyFence(VkFence fence) {
 	vkDestroyFence(ZestDevice->logical_device, fence, &ZestDevice->allocation_callbacks);
 }
 
+zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags) {
+	VkPhysicalDeviceMemoryProperties memoryProperties;
+	vkGetPhysicalDeviceMemoryProperties(ZestDevice->physical_device, &memoryProperties);
+
+	for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; ++i) {
+		if ((flags & memoryProperties.memoryTypes[i].propertyFlags) == flags) {
+			return ZEST_TRUE; 
+		}
+	}
+
+	return ZEST_FALSE; 
+}
+
+zest_bool zest_GPUHasDeviceLocalHostVisible() {
+	return zest_IsMemoryPropertyAvailable(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+}
+
 zest_uint zest__grow_capacity(void *T, zest_uint size) { 
 	zest_uint new_capacity = T ? (size + size / 2) : 8; 
 	return new_capacity > size ? new_capacity : size; 
