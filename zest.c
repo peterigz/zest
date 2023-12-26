@@ -1291,7 +1291,7 @@ void zest__create_logical_device(void) {
 		queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 		queue_create_info.queueFamilyIndex = unique_queue_families[i];
 		if (unique_queue_families[i] == indices.graphics_family) {
-			queue_create_info.queueCount = indices.graphics_family_queue_count;
+			queue_create_info.queueCount = indices.graphics_family_queue_count > 2 ? 2 : 1;
 			queue_create_info.pQueuePriorities = graphics_queue_priority;
 		}
 		else {
