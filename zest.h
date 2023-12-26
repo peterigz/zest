@@ -419,7 +419,8 @@ typedef enum zest_compute_flag_bits {
 
 typedef enum zest_layer_flag_bits {
 	zest_layer_flag_none								= 0,
-	zest_layer_flag_static								= 1,		// Layer only uploads new buffer data when required
+	zest_layer_flag_static								= 1 << 0,	// Layer only uploads new buffer data when required
+	zest_layer_flag_device_local_direct					= 1 << 1,	// Layer only uploads new buffer data when required
 } zest_layer_flag_bits;
 
 typedef zest_uint zest_compute_flags;
@@ -1182,12 +1183,12 @@ typedef struct zest_ImDrawVert_t
 typedef struct zest_layer_buffers_t {
 	union {
 		struct {
-			zest_buffer_t *staging_vertex_data;
-			zest_buffer_t *staging_index_data;
+			zest_buffer staging_vertex_data;
+			zest_buffer staging_index_data;
 		};
 		struct {
-			zest_buffer_t *staging_instance_data;
-			zest_buffer_t *device_instance_data;
+			zest_buffer staging_instance_data;
+			zest_buffer device_instance_data;
 		};
 	};
 
@@ -1198,8 +1199,9 @@ typedef struct zest_layer_buffers_t {
 
 	zest_uint *index_ptr;
 
-	zest_buffer_t *device_index_data;
-	zest_buffer_t *device_vertex_data;
+	zest_buffer device_index_data;
+	zest_buffer device_vertex_data;
+	zest_buffer write_to_buffer;
 
 	zest_uint instance_count;
 	zest_uint index_count;
@@ -2033,7 +2035,7 @@ ZEST_API zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buff
 //Create an index buffer that is flagged for storage so that you can use it in a compute shader
 ZEST_API zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 //The following functions can be used to generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with
-ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(void);
+ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeIndexBufferInfo(void);
