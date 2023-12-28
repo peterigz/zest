@@ -1366,6 +1366,26 @@ void zest__set_limit_data() {
 	ZestDevice->max_image_size = physicalDeviceProperties.limits.maxImageDimension2D;
 }
 
+zest_buffer_type_t zest__get_buffer_memory_type(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_size size) {
+	VkBufferCreateInfo buffer_info = { 0 };
+	buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	buffer_info.size = size;
+	buffer_info.usage = usage_flags;
+	buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	buffer_info.flags = 0;
+	VkBuffer temp_buffer;
+	ZEST_VK_CHECK_RESULT(vkCreateBuffer(ZestDevice->logical_device, &buffer_info, &ZestDevice->allocation_callbacks, &temp_buffer));
+
+	VkMemoryRequirements memory_requirements;
+	vkGetBufferMemoryRequirements(ZestDevice->logical_device, temp_buffer, &memory_requirements);
+
+	zest_buffer_type_t buffer_type;
+	buffer_type.alignment = memory_requirements.alignment;
+	buffer_type.memory_type_index = zest_find_memory_type(memory_requirements.memoryTypeBits, property_flags);
+	vkDestroyBuffer(ZestDevice->logical_device, temp_buffer, &ZestDevice->allocation_callbacks);
+	return buffer_type;
+}
+
 void zest__set_default_pool_sizes() {
 	zest_buffer_usage_t usage = { 0 };
 	//Images stored on device use share a single pool as far as I know
@@ -1393,13 +1413,18 @@ void zest__set_default_pool_sizes() {
 	zest_SetDeviceBufferPoolSize("Uniform Buffers", usage.usage_flags, usage.property_flags, 64, zloc__MEGABYTE(1));
 
 	//Staging buffer
-	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 	zest_SetDeviceBufferPoolSize("Host Staging Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(2), zloc__MEGABYTE(32));
 
 	//Vertex buffer
 	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
 	usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	zest_SetDeviceBufferPoolSize("Vertex Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+
+	//CPU Visible Vertex buffer
+	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	usage.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	zest_SetDeviceBufferPoolSize("CPU Visible Vertex Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
 
 	//Storage buffer
 	usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -1886,12 +1911,7 @@ zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info
 		buffer_info->alignment = memory_requirements.alignment;
 	}
 
-	zest_key key;
-	//if (!image) {
-		key = zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t));
-	//} else {
-		//key = zest_map_hash(ZestRenderer->buffer_allocators, "Device Images");
-	//}
+	zest_key key = zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t));
 	if (!zest_map_valid_key(ZestRenderer->buffer_allocators, key)) {
 		//If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
 		zest_buffer_allocator_t blank_buffer_allocator = { 0 };
@@ -2107,7 +2127,7 @@ zest_buffer_info_t zest_CreateStorageBufferInfo() {
 
 zest_buffer_info_t zest_CreateComputeVertexBufferInfo() {
 	zest_buffer_info_t buffer_info = { 0 };
-	buffer_info.usage_flags = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 	buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 	return buffer_info;
 }
@@ -3652,6 +3672,8 @@ zest_uint zest_ScreenWidth() { return ZestApp->window->window_width; }
 zest_uint zest_ScreenHeight() { return ZestApp->window->window_height; }
 float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
 float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
+float zest_MouseXf() { return (float)ZestApp->mouse_x; }
+float zest_MouseYf() { return (float)ZestApp->mouse_y; }
 float zest_DPIScale(void) { return ZestRenderer->dpi_scale; }
 void zest_SetDPIScale(float scale) { ZestRenderer->dpi_scale = scale; }
 zest_uint zest_FPS() { return ZestApp->last_fps; }
@@ -9531,10 +9553,13 @@ void zest_OutputMemoryUsage() {
 	printf("Device Memory Pools\n");
 	for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
 		zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
+		zest_buffer_usage_t usage = { buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.property_flags, buffer_allocator->buffer_info.image_usage_flags };
+		zest_key usage_key = zest_map_hash_ptr(ZestDevice->pool_sizes, &usage, sizeof(zest_buffer_usage_t));
+		zest_buffer_pool_size_t pool_size = *zest_map_at_key(ZestDevice->pool_sizes, usage_key);
 		if (buffer_allocator->buffer_info.image_usage_flags) {
-			printf("\t%s, Usage: %u, Image Usage: %u\n", "Image", buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.image_usage_flags);
+			printf("\t%s (%s), Usage: %u, Image Usage: %u\n", "Image", pool_size.name, buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.image_usage_flags);
 		} else {
-			printf("\t%s, Usage: %u, Properties: %u\n", "Buffer", buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.property_flags);
+			printf("\t%s (%s), Usage: %u, Properties: %u\n", "Buffer", pool_size.name, buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.property_flags);
 		}
 		for (zest_foreach_j(buffer_allocator->memory_pools)) {
 			zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];

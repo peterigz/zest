@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
 //Helper macros
@@ -88,6 +88,7 @@ extern "C" {
 #endif
 
 #define ZEST__ARRAY(name, type, count) type *name = ZEST__REALLOCATE(0, sizeof(type) * count)
+//FIF = Frame in Flight
 #define ZEST_FIF ZestDevice->current_fif
 #define ZEST_MICROSECS_SECOND 1000000ULL
 #define ZEST_MICROSECS_MILLISECOND 1000
@@ -757,13 +758,18 @@ typedef struct zest_camera_t {
 } zest_camera_t;
 
 // --Vulkan Buffer Management
+typedef struct zest_buffer_type_t {
+	VkDeviceSize alignment;
+	zest_uint memory_type_index;
+} zest_buffer_type_t;
+
 typedef struct zest_buffer_info_t {
 	VkImageUsageFlags image_usage_flags;
 	VkBufferUsageFlags usage_flags;					//The usage state_flags of the memory block. 
 	VkMemoryPropertyFlags property_flags;
 	zest_buffer_flags flags;
-	VkDeviceSize alignment;
 	zest_uint memory_type_bits;
+	VkDeviceSize alignment;
 } zest_buffer_info_t;
 
 typedef struct zest_buffer_pool_size_t {
@@ -1543,7 +1549,7 @@ typedef struct zest_renderer_t {
 
 	VkPipelineCache pipeline_cache;
 
-	zest_map_buffer_allocators buffer_allocators;									//For non frame in flight buffers
+	zest_map_buffer_allocators buffer_allocators;
 
 	//Context data
 	VkCommandBuffer current_command_buffer;
@@ -1808,6 +1814,7 @@ ZEST_PRIVATE void zest__set_limit_data(void);
 ZEST_PRIVATE zest_bool zest__check_validation_layer_support(void);
 ZEST_PRIVATE void zest__get_required_extensions(void);
 ZEST_PRIVATE zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
+ZEST_PRIVATE zest_buffer_type_t zest__get_buffer_memory_type(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_size size);
 ZEST_PRIVATE void zest__set_default_pool_sizes(void);
 ZEST_PRIVATE void *zest_vk_allocate_callback(void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
 ZEST_PRIVATE void *zest_vk_reallocate_callback(void* pUserData, void *memory, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
@@ -3012,6 +3019,10 @@ ZEST_API zest_uint zest_ScreenHeight(void);
 ZEST_API float zest_ScreenWidthf(void);
 //Get the current screen height as a float
 ZEST_API float zest_ScreenHeightf(void);
+//Get the current mouse x screen coordinate as a float
+ZEST_API float zest_MouseXf();
+//Get the current mouse y screen coordinate as a float
+ZEST_API float zest_MouseYf();
 //For retina screens this will return the current screen DPI
 ZEST_API float zest_DPIScale(void);
 //Set the DPI scale
