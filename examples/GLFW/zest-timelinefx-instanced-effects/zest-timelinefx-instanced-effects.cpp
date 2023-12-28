@@ -9,7 +9,7 @@ Step 4: Use MakeCompute with the ComputeBuilder we setup to finish the compute s
 */
 
 #define MAX_INSTANCES 1024
-#define MAX_SPRITES	100000
+#define MAX_SPRITES	1000000
 
 #define BufferCast(struct_name, buffer_name) static_cast<struct_name*>(buffer_name.mapped)
 
@@ -251,6 +251,7 @@ void InitExample(ComputeExample *example) {
 	tfx_effect_emitter_t *effect2 = GetLibraryEffect(&example->library, "Smokey Explosion");
 
 	//Render specific - set up a camera
+	example->camera = zest_CreateCamera();
 	zest_CameraPosition(&example->camera, {0.f, 0.f, 0.f});
 	zest_CameraSetFoV(&example->camera, 60.f);
 	zest_CameraSetYaw(&example->camera, zest_Radians(-90.f));
@@ -277,7 +278,7 @@ void InitExample(ComputeExample *example) {
 	//Initialise an animation manager. An animation manager maintains our animation instances for us and provides all the necessary metrics we'll
 	//need to upload the buffers we need to both to initialise the compute shader and when we upload the offsets and instances buffer each frame.
 	//Specify the maximum number of animation instances that you might want to play each frame
-	tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_INSTANCES);
+	tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_SPRITES);
 
 	//You must build the compute shape data before Adding sprite data. Pass the GetUV function which you will have to create based on your renderer.
 	example->gpu_image_data = BuildGPUShapeData(GetParticleShapes(&example->library), GetUV);
@@ -361,70 +362,6 @@ void InitExample(ComputeExample *example) {
 
 }
 
-/*
-Only here for debugging purposes while I was building the compute shader
-void RenderSpriteDataFrame3d(tfx_animation_manager_t *animation_manager, ComputeExample *example, QulkanLayer *qlayer) {
-	tfx_vec3_t zoom_offset = 1.f;
-
-	QulkanTexture &texture = GetTexture(example->texture_index);
-	tfx_animation_buffer_metrics_t metrics = GetAnimationBufferMetrics(&example->animation_manager);
-	tfxU32 instance_index = 0;
-	tfxU32 sprite_block_count = 0;
-	for (tfxU32 i = 0; i != metrics.total_sprites_to_draw; ++i) {
-		instance_index += animation_manager->offsets[instance_index] > i ? 0 : 1;
-		sprite_block_count = instance_index == 0 ? 0 : animation_manager->offsets[instance_index - 1];
-
-		auto &instance = animation_manager->render_queue[instance_index];
-		float frame_time = (instance.current_time / instance.animation_length_in_time) * (float)instance.frame_count;
-		tfxU32 frame = tfxU32(frame_time);
-		float lerp = frame_time - frame;
-		tfxWideFloat lerp_wide = tfxWideSetSingle(lerp);
-
-		tfxU32 sprite_index = (i - sprite_block_count) + instance.offset_into_sprite_data;
-		tfx_sprite_data3d_t &sprite = animation_manager->sprite_data[sprite_index];
-		if (sprite.captured_index == tfxINVALID) continue;
-		tfx_sprite_data3d_t &captured_sprite = animation_manager->sprite_data[sprite.captured_index];
-		tfx_rgba8_t lerped_color = Tween(lerp, sprite.color, captured_sprite.color);
-		qlayer->SetColor(lerped_color.r, lerped_color.g, lerped_color.b, lerped_color.a);
-		qlayer->SetMultiplyFactor(sprite.intensity);
-		void *image_ptr = example->library.emitter_properties.image[(sprite.lookup_indexes & 0xFFFF0000) >> 16]->ptr;
-		tfx_vec2_t handle = example->library.emitter_properties.image_handle[(sprite.lookup_indexes & 0xFFFF0000) >> 16];
-		tfx_wide_lerp_transform_result_t lerped = InterpolateSpriteTransform(lerp_wide, sprite.transform_3d, captured_sprite.transform_3d);
-		lerped.position[0] += instance.position.x;
-		lerped.position[1] += instance.position.y;
-		lerped.position[2] += instance.position.z;
-		float spawn_scale = (captured_sprite.lerp_offset >= 1.f - lerp) ? 1.f : 0.f;
-		tfx_vec4_t alignment = UnPack10bit(sprite.alignment);
-		tfx_vec4_t captured_alignment = UnPack10bit(captured_sprite.alignment);
-		tfx_vec3_t lerped_alignment = Tween(lerp, alignment.xyz(), captured_alignment.xyz());
-		if (MouseDown(App.Mouse.RightButton)) {
-			int d = 0;
-		}
-
-		float current_frame = float((sprite.property_indexes & 0x00FF0000) >> 16);
-		float prev_frame = float((captured_sprite.property_indexes & 0x00FF0000) >> 16);
-		float frames = example->library.emitter_properties.image[(sprite.lookup_indexes & 0xFFFF0000) >> 16]->animation_frames;
-		tfxU32 start_frame_index = example->library.emitter_properties.image[(sprite.lookup_indexes & 0xFFFF0000) >> 16]->compute_shape_index;
-		if (current_frame < prev_frame) {
-			int d = 0;
-		}
-		float wrap = (current_frame < prev_frame);
-		float test_frame = std::fmodf(Tween(lerp, current_frame + frames * wrap, prev_frame), frames);
-		tfxU32 lerped_frame = tfxU32(std::fmodf(Tween(lerp, current_frame + frames * wrap, prev_frame), frames));
-
-		qlayer->DrawBillboard(*(static_cast<QulkanImage*>(image_ptr) + (tfxU32)lerped_frame),
-			lerped.position,
-			Pack10bit(lerped_alignment, 0),
-			lerped.rotations,
-			&handle.x,
-			sprite.stretch,
-			(sprite.property_indexes & 0xFF000000) >> 24,
-			lerped.scale[0] * spawn_scale, lerped.scale[1] * spawn_scale);
-
-	}
-}
-*/
-
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position) {
 	zest_uniform_buffer_data_t *ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &ubo_ptr->proj, &ubo_ptr->view);
@@ -440,6 +377,7 @@ void BuildUI(ComputeExample *example) {
 	ImGui::Begin("Instanced Effects");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
 	ImGui::Text("Active Instances: %i", example->animation_manager_3d.render_queue.size());
+	ImGui::Text("Sprites Drawn: %i", example->animation_manager_3d.buffer_metrics.total_sprites_to_draw);
 	ImGui::End();
 	ImGui::Render();
 	//Let the layer know that it needs to reupload the imgui mesh data to the GPU
@@ -454,7 +392,7 @@ void Update(zest_microsecs elapsed, void *data) {
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 	UpdateUniform3d(example);
 
-	if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+	if (!example->left_mouse_clicked && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 		//tfxEffectID id = AddEffectToParticleManager(&example->pm, example->starburst);
 		tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 6.f, example->camera.position);
 		//SetEffectPosition(&example->pm, id, { position.x, position.y, position.z });
@@ -463,9 +401,13 @@ void Update(zest_microsecs elapsed, void *data) {
 			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
 			SetAnimationScale(&example->animation_manager_3d, anim_id, RandomRange(&example->pm.random, 0.5f, 1.5f));
 		}
+		example->left_mouse_clicked = true;
+	}
+	else if(!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+		example->left_mouse_clicked = false;
 	}
 
-	if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+	if (!example->right_mouse_clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
 		//tfxEffectID id = AddEffectToParticleManager(&example->pm, example->starburst);
 		tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 6.f, example->camera.position);
 		//SetEffectPosition(&example->pm, id, { position.x, position.y, position.z });
@@ -474,6 +416,10 @@ void Update(zest_microsecs elapsed, void *data) {
 			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
 			SetAnimationScale(&example->animation_manager_3d, anim_id, 1.f);
 		}
+		example->right_mouse_clicked = true;
+	}
+	else if(!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+		example->right_mouse_clicked = false;
 	}
 
 	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
@@ -518,8 +464,8 @@ void Update(zest_microsecs elapsed, void *data) {
 	//RenderSpriteDataFrame3d(&example->animation_manager_3d, example, &GetLayer());
 }
 
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
@@ -530,7 +476,8 @@ int main() {
 	zest_implglfw_SetCallbacks(&create_info);
 
 	//Initialise TimelineFX. Must be run before using any timeline fx functionality.
-	InitialiseTimelineFX(std::thread::hardware_concurrency());
+	//InitialiseTimelineFX(std::thread::hardware_concurrency());
+	InitialiseTimelineFX(0);
 
 	ComputeExample example;
 

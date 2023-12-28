@@ -18,6 +18,8 @@ struct AnimationComputeConstants {
 
 struct ComputeExample {
 	zest_compute compute;
+	bool left_mouse_clicked;
+	bool right_mouse_clicked;
 
 	//The sprite data buffer contains all of the baked in sprites for effects that you can upload to the GPU
 	zest_descriptor_buffer sprite_data_buffer;
