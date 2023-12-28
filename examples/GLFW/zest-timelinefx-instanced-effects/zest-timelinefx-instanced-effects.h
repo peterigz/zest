@@ -1,0 +1,77 @@
+#pragma once
+
+#include <zest.h>
+#include "implementations/impl_glfw.h"
+#include "implementations/impl_imgui_glfw.h"
+#include "imgui/imgui.h"
+#include <imgui/misc/freetype/imgui_freetype.h>
+#include <imgui/backends/imgui_impl_glfw.h>
+#include "../../TimelineFXLib/timelinefx.h"
+
+using namespace tfx;
+
+struct AnimationComputeConstants {
+	tfxU32 total_sprites;
+	tfxU32 total_animation_instances;
+	tfxU32 flags;
+};
+
+struct ComputeExample {
+	zest_compute compute;
+
+	//The sprite data buffer contains all of the baked in sprites for effects that you can upload to the GPU
+	zest_descriptor_buffer sprite_data_buffer;
+	//The sprite buffer is filled each frame by the compute shader and passed to the vertex shader to draw
+	//all of the billboard instances
+	zest_descriptor_buffer sprite_buffer;
+	//The animation instances buffer contains each animation instance that you want to draw each frame. So 
+	//for example maybe you have an explosion effect that you want to draw several times in different locations,
+	//each animation instance will contain position and other data about the animation and the compute shader
+	//will use that to prepare the sprite buffer with the next frame of animation to be drawn
+	zest_descriptor_buffer animation_instances_buffer;
+	//becuase the compute shader just draws all animations in one go, for each instance it draws it needs to know the
+	//offsets inside the sprite data from where to get the data from to build the sprite buffer each frame.
+	zest_descriptor_buffer offsets_buffer;
+	//The image data buffer contains data about the textures used to draw the sprites such as uv coordinates. The sprite
+	//data contains an index to look up this data
+	zest_descriptor_buffer image_data_buffer;
+	//We also need to store some additional emitter property data such as the sprite handle which is looked up by the 
+	//compute shader each frame
+	zest_descriptor_buffer emitter_properties_buffer;
+
+	zest_buffer animation_instances_staging_buffer[ZEST_MAX_FIF];
+	zest_buffer offsets_staging_buffer[ZEST_MAX_FIF];
+
+	zest_imgui_layer_info imgui_layer_info;
+	tfx_gpu_shapes_t gpu_image_data;
+	zest_push_constants_t push_contants;
+	zest_timer timer;
+	zest_camera_t camera;
+
+	zest_texture particle_texture;
+	zest_draw_routine draw_routine;
+	zest_index compute_pipeline_3d;
+	zest_index compute_pipeline_2d;
+
+	tfx_library_t library;
+	tfx_particle_manager_t pm;
+	tfx_animation_manager_t animation_manager_2d;
+	tfx_animation_manager_t animation_manager_3d;
+	AnimationComputeConstants animation_manager_push_constants;
+	tfx_sprite_data_settings_t anim_test;
+	bool effect_is_3d;
+	bool using_staging_buffers;
+
+};
+
+void SpriteComputeFunction(zest_command_queue_compute compute_routine);
+void DrawComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffer);
+void UpdateSpriteResolution(zest_draw_routine routine);
+void InitExample(ComputeExample *example);
+void PrepareCompute(ComputeExample *example);
+void UploadBuffers(ComputeExample *example);
+void UpdateUniform3d(ComputeExample *game);
+void Update(zest_microsecs elapsed, void *data);
+void BuildUI(ComputeExample *example);
+tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position);
+
