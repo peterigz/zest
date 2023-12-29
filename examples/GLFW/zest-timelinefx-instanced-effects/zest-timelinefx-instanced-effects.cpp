@@ -1,5 +1,9 @@
 #include "zest-timelinefx-instanced-effects.h"
 
+/*
+
+*/
+
 using namespace tfx;
 /*
 Step 1:	Register a Computer with RegisterComputer.
@@ -476,8 +480,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	zest_implglfw_SetCallbacks(&create_info);
 
 	//Initialise TimelineFX. Must be run before using any timeline fx functionality.
-	//InitialiseTimelineFX(std::thread::hardware_concurrency());
-	InitialiseTimelineFX(0);
+	InitialiseTimelineFX(std::thread::hardware_concurrency());
 
 	ComputeExample example;
 

@@ -717,12 +717,36 @@ typedef struct zest_vec3 {
 //Not sure why though. We need the align as on Mac otherwise metal complains about the alignment
 //in the shaders
 typedef struct zest_vec4 {
-	float x, y, z, w;
+	union {
+		struct { float x, y, z, w; };
+		struct { float c0, c1, c2, c3; };
+	};
 } zest_vec4 ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_matrix4 {
 	zest_vec4 v[4];
 } zest_matrix4 ZEST_ALIGN_AFFIX(16);
+
+typedef struct zest_plane
+{
+	// unit vector
+	zest_vec3 normal;
+
+	// distance from origin to the nearest point in the plane
+	float distance;
+} zest_plane;
+
+typedef struct zest_frustum
+{
+	zest_plane top_face;
+	zest_plane bottom_face;
+
+	zest_plane right_face;
+	zest_plane left_face;
+
+	zest_plane far_face;
+	zest_plane near_face;
+} zest_frustum;
 
 typedef struct zest_rgba8 {
 	union {
@@ -2294,7 +2318,8 @@ ZEST_API zest_vec4 zest_ScaleVec4(zest_vec4 *vec4, float v);
 ZEST_API zest_vec3 zest_MulVec3(zest_vec3 *left, zest_vec3 *right);
 ZEST_API zest_vec4 zest_MulVec4(zest_vec4 *left, zest_vec4 *right);
 //Get the length of a vec without square rooting
-ZEST_API float zest_LengthVec2(zest_vec3 const v);
+ZEST_API float zest_LengthVec3(zest_vec3 const v);
+ZEST_API float zest_LengthVec4(zest_vec4 const v);
 ZEST_API float zest_Vec2Length2(zest_vec2 const v);
 //Get the length of a vec
 ZEST_API float zest_LengthVec(zest_vec3 const v);
@@ -2302,14 +2327,21 @@ ZEST_API float zest_Vec2Length(zest_vec2 const v);
 //Normalise vectors
 ZEST_API zest_vec2 zest_NormalizeVec2(zest_vec2 const v);
 ZEST_API zest_vec3 zest_NormalizeVec3(zest_vec3 const v);
+ZEST_API zest_vec4 zest_NormalizeVec4(zest_vec4 const v);
 //Transform a vector by a 4x4 matrix
 ZEST_API zest_vec4 zest_MatrixTransformVector(zest_matrix4 *mat, zest_vec4 vec);
+//Transpose a matrix, switch columns to rows and vice versa
+zest_matrix4 zest_TransposeMatrix4(zest_matrix4 *mat);
+//Transform 2 matrix 4s
+ZEST_API zest_matrix4 zest_MatrixTransform(zest_matrix4 *in, zest_matrix4 *m);
 //Get the inverse of a 4x4 matrix
 ZEST_API zest_matrix4 zest_Inverse(zest_matrix4 *m);
 //Get the cross product between 2 vec3s
 ZEST_API zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y);
 //Get the dot product between 2 vec3s
-ZEST_API float zest_DotProduct(const zest_vec3 a, const zest_vec3 b);
+ZEST_API float zest_DotProduct3(const zest_vec3 a, const zest_vec3 b);
+//Get the dot product between 2 vec4s
+ZEST_API float zest_DotProduct4(const zest_vec4 a, const zest_vec4 b);
 //Create a 4x4 matrix to look at a point
 ZEST_API zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up);
 //Create a 4x4 matrix for orthographic projection
@@ -2395,6 +2427,10 @@ ZEST_API zest_vec2 zest_WorldToScreen(const zest_vec3 *point, float view_width, 
 ZEST_API zest_vec2 zest_WorldToScreenOrtho(const zest_vec3 *point, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
 //Create a perspective 4x4 matrix passing in the fov in radians, aspect ratio of the viewport and te near/far values
 ZEST_API zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, float zFar);
+//Calculate the 6 planes of the camera fustrum
+ZEST_API void zest_CalculateFrustumPlanes(zest_matrix4 *view_projection_matrix, zest_vec4 planes[6]);
+//Take the 6 planes of a camera fustrum and determine if a point is inside that fustrum
+ZEST_API zest_bool zest_IsPointInFrustum(const zest_vec4 planes[6], const zest_vec3 point);
 //-- End camera and other helpers
 
 //-----------------------------------------------

@@ -383,7 +383,7 @@ zest_vec4 zest_AddVec4(zest_vec4 left, zest_vec4 right) {
 		.x = left.x + right.x,
 		.y = left.y + right.y,
 		.z = left.z + right.z,
-		.w = left.z + right.w,
+		.w = left.w + right.w,
 	};
 	return result;
 }
@@ -466,12 +466,16 @@ float zest_Vec2Length2(zest_vec2 const v) {
 	return v.x * v.x + v.y * v.y;
 }
 
-float zest_LengthVec2(zest_vec3 const v) {
+float zest_LengthVec3(zest_vec3 const v) {
 	return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
+float zest_LengthVec4(zest_vec4 const v) {
+	return v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w;
+}
+
 float zest_LengthVec(zest_vec3 const v) {
-	return sqrtf(zest_LengthVec2(v));
+	return sqrtf(zest_LengthVec3(v));
 }
 
 zest_vec2 zest_NormalizeVec2(zest_vec2 const v) {
@@ -489,6 +493,17 @@ zest_vec3 zest_NormalizeVec3(zest_vec3 const v) {
 		.x = v.x / length,
 		.y = v.y / length,
 		.z = v.z / length
+	};
+	return result;
+}
+
+zest_vec4 zest_NormalizeVec4(zest_vec4 const v) {
+	float length = sqrtf(zest_LengthVec4(v));
+	zest_vec4 result = {
+		.x = v.x / length,
+		.y = v.y / length,
+		.z = v.z / length,
+		.w = v.w / length
 	};
 	return result;
 }
@@ -577,6 +592,42 @@ zest_vec4 zest_MatrixTransformVector(zest_matrix4 *mat, zest_vec4 vec) {
 	return v;
 }
 
+zest_matrix4 zest_MatrixTransform(zest_matrix4 *in, zest_matrix4 *m) {
+	zest_matrix4 res = { 0 };
+
+	__m128 in_row[4];
+	in_row[0] = _mm_load_ps(&in->v[0].x);
+	in_row[1] = _mm_load_ps(&in->v[1].x);
+	in_row[2] = _mm_load_ps(&in->v[2].x);
+	in_row[3] = _mm_load_ps(&in->v[3].x);
+
+	__m128 m_row1 = _mm_set_ps(m->v[3].x, m->v[2].x, m->v[1].x, m->v[0].x);
+	__m128 m_row2 = _mm_set_ps(m->v[3].y, m->v[2].y, m->v[1].y, m->v[0].y);
+	__m128 m_row3 = _mm_set_ps(m->v[3].z, m->v[2].z, m->v[1].z, m->v[0].z);
+	__m128 m_row4 = _mm_set_ps(m->v[3].w, m->v[2].w, m->v[1].w, m->v[0].w);
+
+	for (int r = 0; r <= 3; ++r)
+	{
+
+		__m128 row1result = _mm_mul_ps(in_row[r], m_row1);
+		__m128 row2result = _mm_mul_ps(in_row[r], m_row2);
+		__m128 row3result = _mm_mul_ps(in_row[r], m_row3);
+		__m128 row4result = _mm_mul_ps(in_row[r], m_row4);
+
+		float tmp[4];
+		_mm_store_ps(tmp, row1result);
+		res.v[r].x = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+		_mm_store_ps(tmp, row2result);
+		res.v[r].y = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+		_mm_store_ps(tmp, row3result);
+		res.v[r].z = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+		_mm_store_ps(tmp, row4result);
+		res.v[r].w = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+
+	}
+	return res;
+}
+
 zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y)
 {
 	zest_vec3 result = {
@@ -587,9 +638,14 @@ zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y)
 	return result;
 }
 
-float zest_DotProduct(const zest_vec3 a, const zest_vec3 b)
+float zest_DotProduct3(const zest_vec3 a, const zest_vec3 b)
 {
 	return (a.x * b.x + a.y * b.y + a.z * b.z);
+}
+
+float zest_DotProduct4(const zest_vec4 a, const zest_vec4 b)
+{
+	return (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
 }
 
 zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest_vec3 up)
@@ -608,9 +664,9 @@ zest_matrix4 zest_LookAt(const zest_vec3 eye, const zest_vec3 center, const zest
 	result.v[0].z = -f.x;
 	result.v[1].z = -f.y;
 	result.v[2].z = -f.z;
-	result.v[3].x = -zest_DotProduct(s, eye);
-	result.v[3].y = -zest_DotProduct(u, eye);
-	result.v[3].z = zest_DotProduct(f, eye);
+	result.v[3].x = -zest_DotProduct3(s, eye);
+	result.v[3].y = -zest_DotProduct3(u, eye);
+	result.v[3].z = zest_DotProduct3(f, eye);
 	result.v[3].w = 1.f;
 	return result;
 }
@@ -707,11 +763,11 @@ void zest_CameraSetYaw(zest_camera_t *camera, float degrees) {
 }
 
 zest_bool zest_RayIntersectPlane(zest_vec3 ray_origin, zest_vec3 ray_direction, zest_vec3 plane, zest_vec3 plane_normal, float *distance, zest_vec3 *intersection) {
-	float ray_to_plane_normal_dp = zest_DotProduct(plane_normal, ray_direction);
+	float ray_to_plane_normal_dp = zest_DotProduct3(plane_normal, ray_direction);
 	if (ray_to_plane_normal_dp > 0)
 		return ZEST_FALSE;
-	float d = zest_DotProduct(plane, plane_normal);
-	*distance = (d - zest_DotProduct(ray_origin, plane_normal)) / ray_to_plane_normal_dp;
+	float d = zest_DotProduct3(plane, plane_normal);
+	*distance = (d - zest_DotProduct3(ray_origin, plane_normal)) / ray_to_plane_normal_dp;
 	*intersection = zest_ScaleVec3(&ray_direction, *distance);
 	*intersection = zest_AddVec3(*intersection, ray_origin);
 	return ZEST_TRUE;
@@ -763,6 +819,47 @@ zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, float zFar)
 	result.v[2].w = -1.f;
 	result.v[3].z = -(zFar * zNear) / (zFar - zNear);
 	return result;
+}
+
+zest_matrix4 zest_TransposeMatrix4(zest_matrix4 *mat) {
+	zest_matrix4 r;
+	r.v[0].x = mat->v[0].x; r.v[0].y = mat->v[1].x; r.v[0].z = mat->v[2].x; r.v[0].w = mat->v[3].x;
+	r.v[1].x = mat->v[0].y; r.v[1].y = mat->v[1].y; r.v[1].z = mat->v[2].y; r.v[1].w = mat->v[3].y;
+	r.v[2].x = mat->v[0].z; r.v[2].y = mat->v[1].z; r.v[2].z = mat->v[2].z; r.v[2].w = mat->v[3].z;
+	r.v[3].x = mat->v[0].w; r.v[3].y = mat->v[1].w; r.v[3].z = mat->v[2].w; r.v[3].w = mat->v[3].w;
+	return r;
+}
+
+void zest_CalculateFrustumPlanes(zest_matrix4 *view_projection_matrix, zest_vec4 planes[6]) {
+	// Extracting frustum planes from view-projection matrix
+
+	planes[0] = zest_AddVec4(view_projection_matrix->v[3], view_projection_matrix->v[0]); // Left
+	planes[1] = zest_SubVec4(view_projection_matrix->v[3], view_projection_matrix->v[0]); // Right
+	planes[2] = zest_AddVec4(view_projection_matrix->v[3], view_projection_matrix->v[1]); // Bottom
+	planes[3] = zest_SubVec4(view_projection_matrix->v[3], view_projection_matrix->v[1]); // Top
+	planes[4] = zest_AddVec4(view_projection_matrix->v[3], view_projection_matrix->v[2]); // Near
+
+	//planes[4].x = view_projection_matrix->v[3].c0 + view_projection_matrix->v[2].c0;
+	//planes[4].y = view_projection_matrix->v[3].c1 + view_projection_matrix->v[2].c1;
+	//planes[4].z = view_projection_matrix->v[3].c2 + view_projection_matrix->v[2].c2;
+	//planes[4].w = view_projection_matrix->v[3].c3 + view_projection_matrix->v[2].c3;
+
+	planes[5] = zest_SubVec4(view_projection_matrix->v[3], view_projection_matrix->v[2]); // Far
+	//for (int i = 0; i < 6; ++i) {
+		//planes[i] = zest_NormalizeVec4(planes[i]);
+	//}
+}
+
+zest_bool zest_IsPointInFrustum(const zest_vec4 planes[6], const zest_vec3 point) {
+	for (int i = 0; i < 6; ++i) {
+		float d = planes[i].x * point.x + planes[i].y * point.y + planes[i].z * point.z + planes[i].w;
+		if(d < 0) {
+			// Point is outside the frustum
+			return ZEST_FALSE;
+		}
+	}
+	// Point is inside the frustum
+	return ZEST_TRUE;
 }
 //-- End camera and other helpers
 
@@ -8026,7 +8123,7 @@ void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif) {
 
 //-- Draw Layers
 //-- internal
-ZEST_API zest_layer_instruction_t zest__layer_instruction() {
+zest_layer_instruction_t zest__layer_instruction() {
 	zest_layer_instruction_t instruction = { 0 };
 	instruction.pipeline = ZEST_NULL;
 	return instruction;
