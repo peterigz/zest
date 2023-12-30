@@ -215,6 +215,8 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
 
 //enums and flags
+typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
+
 typedef enum zest_struct_type {
 	zest_struct_type_texture = VK_STRUCTURE_TYPE_MAX_ENUM - 1,
 	zest_struct_type_image = VK_STRUCTURE_TYPE_MAX_ENUM - 2,
@@ -2430,7 +2432,9 @@ ZEST_API zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, fl
 //Calculate the 6 planes of the camera fustrum
 ZEST_API void zest_CalculateFrustumPlanes(zest_matrix4 *view_projection_matrix, zest_vec4 planes[6]);
 //Take the 6 planes of a camera fustrum and determine if a point is inside that fustrum
-ZEST_API zest_bool zest_IsPointInFrustum(const zest_vec4 planes[6], const zest_vec3 point);
+ZEST_API zest_bool zest_IsPointInFrustum(const zest_vec4 planes[6], const float point[3]);
+//Take the 6 planes of a camera fustrum and determine if a sphere is inside that fustrum
+ZEST_API zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float point[3], float radius);
 //-- End camera and other helpers
 
 //-----------------------------------------------

@@ -830,31 +830,63 @@ zest_matrix4 zest_TransposeMatrix4(zest_matrix4 *mat) {
 	return r;
 }
 
-void zest_CalculateFrustumPlanes(zest_matrix4 *view_projection_matrix, zest_vec4 planes[6]) {
+void zest_CalculateFrustumPlanes(zest_matrix4 *matrix, zest_vec4 planes[6]) {
 	// Extracting frustum planes from view-projection matrix
 
-	planes[0] = zest_AddVec4(view_projection_matrix->v[3], view_projection_matrix->v[0]); // Left
-	planes[1] = zest_SubVec4(view_projection_matrix->v[3], view_projection_matrix->v[0]); // Right
-	planes[2] = zest_AddVec4(view_projection_matrix->v[3], view_projection_matrix->v[1]); // Bottom
-	planes[3] = zest_SubVec4(view_projection_matrix->v[3], view_projection_matrix->v[1]); // Top
-	planes[4] = zest_AddVec4(view_projection_matrix->v[3], view_projection_matrix->v[2]); // Near
+	planes[zest_LEFT].x = matrix->v[0].w + matrix->v[0].x;
+	planes[zest_LEFT].y = matrix->v[1].w + matrix->v[1].x;
+	planes[zest_LEFT].z = matrix->v[2].w + matrix->v[2].x;
+	planes[zest_LEFT].w = matrix->v[3].w + matrix->v[3].x;
 
-	//planes[4].x = view_projection_matrix->v[3].c0 + view_projection_matrix->v[2].c0;
-	//planes[4].y = view_projection_matrix->v[3].c1 + view_projection_matrix->v[2].c1;
-	//planes[4].z = view_projection_matrix->v[3].c2 + view_projection_matrix->v[2].c2;
-	//planes[4].w = view_projection_matrix->v[3].c3 + view_projection_matrix->v[2].c3;
+	planes[zest_RIGHT].x = matrix->v[0].w - matrix->v[0].x;
+	planes[zest_RIGHT].y = matrix->v[1].w - matrix->v[1].x;
+	planes[zest_RIGHT].z = matrix->v[2].w - matrix->v[2].x;
+	planes[zest_RIGHT].w = matrix->v[3].w - matrix->v[3].x;
 
-	planes[5] = zest_SubVec4(view_projection_matrix->v[3], view_projection_matrix->v[2]); // Far
-	//for (int i = 0; i < 6; ++i) {
-		//planes[i] = zest_NormalizeVec4(planes[i]);
-	//}
+	planes[zest_TOP].x = matrix->v[0].w - matrix->v[0].y;
+	planes[zest_TOP].y = matrix->v[1].w - matrix->v[1].y;
+	planes[zest_TOP].z = matrix->v[2].w - matrix->v[2].y;
+	planes[zest_TOP].w = matrix->v[3].w - matrix->v[3].y;
+
+	planes[zest_BOTTOM].x = matrix->v[0].w + matrix->v[0].y;
+	planes[zest_BOTTOM].y = matrix->v[1].w + matrix->v[1].y;
+	planes[zest_BOTTOM].z = matrix->v[2].w + matrix->v[2].y;
+	planes[zest_BOTTOM].w = matrix->v[3].w + matrix->v[3].y;
+
+	planes[zest_BACK].x = matrix->v[0].w + matrix->v[0].z;
+	planes[zest_BACK].y = matrix->v[1].w + matrix->v[1].z;
+	planes[zest_BACK].z = matrix->v[2].w + matrix->v[2].z;
+	planes[zest_BACK].w = matrix->v[3].w + matrix->v[3].z;
+
+	planes[zest_FRONT].x = matrix->v[0].w - matrix->v[0].z;
+	planes[zest_FRONT].y = matrix->v[1].w - matrix->v[1].z;
+	planes[zest_FRONT].z = matrix->v[2].w - matrix->v[2].z;
+	planes[zest_FRONT].w = matrix->v[3].w - matrix->v[3].z;
+
+	for (int i = 0; i < 6; ++i) {
+		float length = sqrtf(planes[i].x * planes[i].x + planes[i].y * planes[i].y + planes[i].z * planes[i].z);
+		planes[i].x /= length;
+		planes[i].y /= length;
+		planes[i].z /= length;
+		planes[i].w /= length;
+	}
 }
 
-zest_bool zest_IsPointInFrustum(const zest_vec4 planes[6], const zest_vec3 point) {
-	for (int i = 0; i < 6; ++i) {
-		float d = planes[i].x * point.x + planes[i].y * point.y + planes[i].z * point.z + planes[i].w;
-		if(d < 0) {
-			// Point is outside the frustum
+zest_bool zest_IsPointInFrustum(const zest_vec4 planes[6], const float point[3]) {
+	for (auto i = 0; i < 6; i++) {
+		if ((planes[i].x * point[0]) + (planes[i].y * point[1]) + (planes[i].z * point[2]) + planes[i].w < 0)
+		{
+			return ZEST_FALSE;
+		}
+	}
+	// Point is inside the frustum
+	return ZEST_TRUE;
+}
+
+zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float point[3], float radius) {
+	for (auto i = 0; i < 6; i++) {
+		if ((planes[i].x * point[0]) + (planes[i].y * point[1]) + (planes[i].z * point[2]) + planes[i].w <= -radius)
+		{
 			return ZEST_FALSE;
 		}
 	}
