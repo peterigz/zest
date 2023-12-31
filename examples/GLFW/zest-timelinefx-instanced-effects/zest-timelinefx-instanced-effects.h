@@ -41,6 +41,9 @@ struct ComputeExample {
 	//compute shader each frame
 	zest_descriptor_buffer emitter_properties_buffer;
 
+	//For GPU drivers that don't have the capability to write directly to the GPU buffer you will need
+	//staging buffers to write to first before uploading those to the GPU device buffers. We only need to upload
+	//the instances of each animation and the offsets array which are very small so not much overhead at all.
 	zest_buffer animation_instances_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer offsets_staging_buffer[ZEST_MAX_FIF];
 
@@ -64,6 +67,7 @@ struct ComputeExample {
 	bool effect_is_3d;
 	bool using_staging_buffers;
 
+	zest_microsecs trigger_effect;
 };
 
 void SpriteComputeFunction(zest_command_queue_compute compute_routine);

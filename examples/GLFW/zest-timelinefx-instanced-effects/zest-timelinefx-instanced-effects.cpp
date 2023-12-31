@@ -334,6 +334,7 @@ void InitExample(ComputeExample *example) {
 	UpdateSpriteResolution(example->draw_routine);
 
 	//Upload the buffers to the GPU. These are the buffers that we only need to upload once before we do anything
+	//They will containt the sprite, image and emitter data that the compute shader will index into to build each frame
 	UploadBuffers(example);
 	//Prepare the compute shader
 	PrepareCompute(example);
@@ -429,6 +430,18 @@ void Update(zest_microsecs elapsed, void *data) {
 	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
 		ClearAllAnimationInstances(&example->animation_manager_3d);
 	}
+
+	example->trigger_effect += elapsed;
+	if (example->trigger_effect >= ZEST_MILLISECONDS_IN_MICROSECONDS(25)) {
+		tfxAnimationID anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion");
+		if (anim_id != tfxINVALID) {
+			tfx_vec3_t position = ScreenRay(RandomRange(&example->pm.random, 0.f, zest_ScreenWidthf()), RandomRange(&example->pm.random, 0.f, zest_ScreenHeightf()), 6.f, example->camera.position);
+			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
+			SetAnimationScale(&example->animation_manager_3d, anim_id, RandomRange(&example->pm.random, 0.5f, 1.5f));
+		}
+		example->trigger_effect = 0;
+	}
+
 
 	/* For debugging:
 	float current_time = fMouseX() / fScreenWidth() * example->anim_test.animation_length_in_time;
