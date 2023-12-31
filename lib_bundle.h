@@ -155,7 +155,6 @@ extern "C" {
 #if defined(ZLOC_THREAD_SAFE)
 		/* Multithreading protection*/
 		volatile zloc_thread_access access;
-		volatile zloc_thread_access access_override;
 #endif
 #if defined(ZLOC_ENABLE_REMOTE_MEMORY)
 		void *user_data;
@@ -180,7 +179,7 @@ extern "C" {
 #if defined(ZLOC_ENABLE_REMOTE_MEMORY)
 	/*
 	A minimal remote header block. You can define your own header to store additional information but it must include
-	size and memory_offset in the first 2 fields.
+	"zloc_size" size and memory_offset in the first 2 fields.
 	*/
 	typedef struct zloc_remote_header {
 		zloc_size size;
@@ -589,20 +588,16 @@ extern "C" {
 #if defined(ZLOC_THREAD_SAFE)
 
 #define zloc__lock_thread_access												\
-	if (allocator->access + allocator->access_override != 2) {					\
-		do {																	\
-		} while (0 != zloc__compare_and_exchange(&allocator->access, 1, 0));	\
-	}																			\
+	do {																	\
+	} while (0 != zloc__compare_and_exchange(&allocator->access, 1, 0));	\
 	ZLOC_ASSERT(allocator->access != 0);
 
-#define zloc__unlock_thread_access allocator->access_override = 0; allocator->access = 0;
-#define zloc__access_override allocator->access_override = 1;
+#define zloc__unlock_thread_access allocator->access = 0;
 
 #else
 
 #define zloc__lock_thread_access
 #define zloc__unlock_thread_access 
-#define zloc__access_override
 
 #endif
 	void *zloc__allocate(zloc_allocator *allocator, zloc_size size, zloc_size remote_size);
@@ -1034,8 +1029,9 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 	zloc_size adjusted_size = zloc__adjust_size(size, allocator->minimum_allocation_size, zloc__MEMORY_ALIGNMENT);
 	zloc_size combined_size = current_size + zloc__block_size(next_block);
 	if ((!zloc__next_block_is_free(block) || adjusted_size > combined_size) && adjusted_size > current_size) {
-		zloc__access_override;
-		allocation = zloc_Allocate(allocator, size);
+		zloc_header *block = zloc__find_free_block(allocator, adjusted_size, 0);
+		allocation = zloc__block_user_ptr(block);
+		
 		if (allocation) {
 			zloc_size smallest_size = zloc__Min(current_size, size);
 			memcpy(allocation, ptr, smallest_size);
@@ -1216,8 +1212,9 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 	zloc_size combined_size = current_size + zloc__block_size(next_block);
 	zloc_size combined_remote_size = current_remote_size + zloc__do_size_class_callback(next_block);
 	if ((!zloc__next_block_is_free(block) || adjusted_size > combined_size || remote_size > combined_remote_size) && (remote_size > current_remote_size)) {
-		zloc__access_override;
-		allocation = zloc__allocate(allocator, size, remote_size);
+		zloc_header *block = zloc__find_free_block(allocator, size, remote_size);
+		allocation = zloc__block_user_ptr(block);
+
 		if (allocation) {
 			zloc__do_unable_to_reallocate_callback;
 			zloc_Free(allocator, ptr);
