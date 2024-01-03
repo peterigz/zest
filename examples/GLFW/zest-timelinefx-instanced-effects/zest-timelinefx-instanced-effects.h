@@ -79,5 +79,6 @@ void UploadBuffers(ComputeExample *example);
 void UpdateUniform3d(ComputeExample *game);
 void Update(zest_microsecs elapsed, void *data);
 void BuildUI(ComputeExample *example);
+bool CullAnimationInstancesCallback(tfx_animation_manager_t *animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data);
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position);
 

@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 //Helper macros
@@ -426,6 +426,11 @@ typedef enum zest_layer_flag_bits {
 	zest_layer_flag_static								= 1 << 0,	// Layer only uploads new buffer data when required
 	zest_layer_flag_device_local_direct					= 1 << 1,	// Layer only uploads new buffer data when required
 } zest_layer_flag_bits;
+
+typedef enum zest_command_queue_type {
+	zest_command_queue_type_primary						= VK_COMMAND_BUFFER_LEVEL_PRIMARY,			//For vulkan primary command buffers
+	zest_command_queue_type_secondary					= VK_COMMAND_BUFFER_LEVEL_SECONDARY			//For vulkan secondary command buffers
+} zest_command_queue_type;
 
 typedef zest_uint zest_compute_flags;
 typedef zest_uint zest_layer_flags;
@@ -998,7 +1003,7 @@ typedef struct zest_semaphore_connector_t {
 	zest_connector_type type;
 } zest_semaphore_connector_t;
 
-//command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects and also 
+//command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects for a more complex example
 typedef struct zest_command_queue_t {
 	zest_semaphore_connector_t semaphores[ZEST_MAX_FIF];
 	const char *name;
@@ -1383,6 +1388,7 @@ typedef struct zest_compute_builder_t {
 	zest_text *shader_names;
 	VkPipelineLayoutCreateInfo layout_create_info;
 	zest_uint push_constant_size;
+	zest_compute_flags flags;
 	void *user_data;
 
 	void(*descriptor_update_callback)(zest_compute compute);
@@ -2168,7 +2174,7 @@ ZEST_API void zest_BindIndexBuffer(zest_buffer buffer);
 //Context:	None, this is a root set up command that sets the context to: zest_setup_context_type_command_queue 
 ZEST_API zest_command_queue zest_NewCommandQueue(const char *name);
 //Create a new command queue that you can submit anytime you need to. This is not for rendering to the swap chain but generally for rendering
-//to a zest_render_target
+//to a zest_render_target or just running a compute shader
 //Context:	None, this is a root set up command that sets the context to: zest_setup_context_type_command_queue 
 ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
 	//Create new draw commands. Draw commands are where you can add draw routines, either builtin ones like sprite and billboard drawing, or your
@@ -3112,6 +3118,8 @@ ZEST_API zest_bool zest_CheckFence(VkFence fence);
 ZEST_API void zest_WaitForFence(VkFence fence);
 //Destroy a fence that you don't need any more and return its resources.
 ZEST_API void zest_DestroyFence(VkFence fence);
+//Reset a VkEvent to prepare it for being signalled
+ZEST_API void zest_ResetEvent(VkEvent e);
 //Found out if memory properties are available for the current physical device
 ZEST_API zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags);
 //Find out if the current GPU can use memory that is both device local and cpu visible. If it can then that means that you write directly to gpu memory without the need for

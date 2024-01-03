@@ -283,6 +283,7 @@ void InitExample(ComputeExample *example) {
 	//need to upload the buffers we need to both to initialise the compute shader and when we upload the offsets and instances buffer each frame.
 	//Specify the maximum number of animation instances that you might want to play each frame
 	tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_SPRITES);
+	example->animation_manager_3d.maybe_render_instance_callback = CullAnimationInstancesCallback;
 
 	//You must build the compute shape data before Adding sprite data. Pass the GetUV function which you will have to create based on your renderer.
 	example->gpu_image_data = BuildGPUShapeData(GetParticleShapes(&example->library), GetUV);
@@ -391,6 +392,10 @@ void BuildUI(ComputeExample *example) {
 	zest_imgui_UpdateBuffers(example->imgui_layer_info.mesh_layer);
 }
 
+bool CullAnimationInstancesCallback(tfx_animation_manager_t *animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data) {
+	return true;
+}
+
 //Our main update function that's run every frame.
 void Update(zest_microsecs elapsed, void *data) {
 	ComputeExample *example = static_cast<ComputeExample*>(data);
@@ -439,6 +444,13 @@ void Update(zest_microsecs elapsed, void *data) {
 			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
 			SetAnimationScale(&example->animation_manager_3d, anim_id, RandomRange(&example->pm.random, 0.5f, 1.5f));
 		}
+		anim_id = AddAnimationInstance(&example->animation_manager_3d, "Smokey Explosion");
+		if (anim_id != tfxINVALID) {
+			tfx_vec3_t position = ScreenRay(RandomRange(&example->pm.random, 0.f, zest_ScreenWidthf()), RandomRange(&example->pm.random, 0.f, zest_ScreenHeightf()), 6.f, example->camera.position);
+			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
+			SetAnimationScale(&example->animation_manager_3d, anim_id, 1.f);
+		}
+		example->right_mouse_clicked = true;
 		example->trigger_effect = 0;
 	}
 
@@ -467,15 +479,15 @@ void Update(zest_microsecs elapsed, void *data) {
 
 	//Copy the offsets and animation instances to the staging buffers. These will then be uploaded to the GPU just before the compute
 	//shader is dispatched.
-	if (example->using_staging_buffers) {
-		memcpy(example->offsets_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.offsets.data, GetOffsetsSizeInBytes(&example->animation_manager_3d));
-		memcpy(example->animation_instances_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
-	}
-	else {
-		memcpy(example->offsets_buffer->buffer[ZEST_FIF]->data, example->animation_manager_3d.offsets.data, GetOffsetsSizeInBytes(&example->animation_manager_3d));
-		memcpy(example->animation_instances_buffer->buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
-	}
 
+    if (example->using_staging_buffers) {
+        memcpy(example->offsets_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.offsets.data, GetOffsetsSizeInBytes(&example->animation_manager_3d));
+        memcpy(example->animation_instances_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
+    }
+    else {
+        memcpy(example->offsets_buffer->buffer[ZEST_FIF]->data, example->animation_manager_3d.offsets.data, GetOffsetsSizeInBytes(&example->animation_manager_3d));
+        memcpy(example->animation_instances_buffer->buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
+    }
 	zest_TimerSet(example->timer);
 
 	//RenderSpriteDataFrame3d(&example->animation_manager_3d, example, &GetLayer());

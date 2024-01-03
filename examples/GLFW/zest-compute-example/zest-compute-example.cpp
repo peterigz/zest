@@ -128,8 +128,6 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Modify the existing builtin command queue so we can add our new compute shader and draw routine
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
-		//Add the compute shader we created above. specity the command buffer function to use to build the 
-		//command buffer that will dispatch the compute shader
 		app->compute_commands = zest_NewComputeSetup("particles compute", app->compute, UpdateComputeCommands);
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
@@ -141,6 +139,7 @@ void InitImGuiApp(ImGuiApp *app) {
 			zest_ContextDrawRoutine()->user_data = &app->imgui_layer_info;
 		}
 	}
+
 }
 
 void DrawComputeSprites(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
@@ -165,8 +164,6 @@ void UpdateComputeCommands(zest_command_queue_compute compute_commands) {
 		zest_BindComputePipeline(compute, 0);
 		zest_DispatchCompute(compute, PARTICLE_COUNT / 256, 1, 1);
 	}
-
-	zest_ComputeToVertexBarrier();
 }
 
 void UpdateComputeUniformBuffers(ImGuiApp *app) {

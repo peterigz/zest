@@ -1688,6 +1688,8 @@ void zest__main_loop(void) {
 	while (!(ZestApp->flags & zest_app_flag_quit_application)) {
 
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
+		vkResetFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF]);
+
 		zest__do_scheduled_tasks();
 
 		ZestRenderer->poll_events_callback();
@@ -3940,6 +3942,10 @@ void zest_DestroyFence(VkFence fence) {
 	vkDestroyFence(ZestDevice->logical_device, fence, &ZestDevice->allocation_callbacks);
 }
 
+void zest_ResetEvent(VkEvent e) {
+	vkResetEvent(ZestDevice->logical_device, e);
+}
+
 zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags) {
 	VkPhysicalDeviceMemoryProperties memoryProperties;
 	vkGetPhysicalDeviceMemoryProperties(ZestDevice->physical_device, &memoryProperties);
@@ -5012,11 +5018,13 @@ zest_command_queue zest__create_command_queue(const char *name) {
 		command_queue->present_semaphore_index[i] = -1;
 	}
 
-	VkCommandPoolCreateInfo cmd_pool_info = { 0 };
-	cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	cmd_pool_info.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
-	cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	//ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_pool_info, &ZestDevice->allocation_callbacks, &command_queue->command_pool));
+	/*
+		VkCommandPoolCreateInfo cmd_pool_info = { 0 };
+		cmd_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		cmd_pool_info.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
+		cmd_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_pool_info, &ZestDevice->allocation_callbacks, &command_queue->command_pool));
+	*/
 
 	VkCommandBufferAllocateInfo alloc_info = { 0 };
 	alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -5549,7 +5557,6 @@ void zest_SubmitCommandQueue(zest_command_queue command_queue, VkFence fence) {
 	submit_info.commandBufferCount = 1;
 	submit_info.pCommandBuffers = &command_queue->command_buffer[ZEST_FIF];
 
-	vkResetFences(ZestDevice->logical_device, 1, &fence);
 	ZEST_VK_CHECK_RESULT(vkQueueSubmit(ZestDevice->graphics_queue, 1, &submit_info, fence));
 
 }
@@ -9501,6 +9508,7 @@ void zest_RunCompute(zest_compute compute) {
 																	//if you're going to run the compute shader via this function. See zest_SetComputeCommandBufferUpdateCallback when building your
 																	//compute shader
 		compute->command_buffer_update_callback(compute, compute->command_buffer[ZEST_FIF]);
+		vkEndCommandBuffer(compute->command_buffer[ZEST_FIF]);
 	}
 
 	VkSubmitInfo compute_submit_info = { 0 };

@@ -38,6 +38,7 @@ struct ImGuiApp {
 	zest_compute compute;
 	zest_command_queue_compute compute_commands;
 	zest_draw_routine draw_routine;
+	zest_command_queue command_queue;
 
 	float frame_timer;
 	float anim_start;
