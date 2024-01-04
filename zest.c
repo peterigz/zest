@@ -1688,7 +1688,6 @@ void zest__main_loop(void) {
 	while (!(ZestApp->flags & zest_app_flag_quit_application)) {
 
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
-		vkResetFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF]);
 
 		zest__do_scheduled_tasks();
 
@@ -5546,8 +5545,8 @@ void zest_SubmitCommandQueue(zest_command_queue command_queue, VkFence fence) {
 	submit_info.commandBufferCount = 1;
 	submit_info.pCommandBuffers = &command_queue->command_buffer[ZEST_FIF];
 
+	vkResetFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF]);
 	ZEST_VK_CHECK_RESULT(vkQueueSubmit(ZestDevice->graphics_queue, 1, &submit_info, fence));
-
 }
 // --End Command queue setup and modify functions
 
