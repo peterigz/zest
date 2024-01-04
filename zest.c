@@ -2717,17 +2717,6 @@ void zest__recreate_swapchain() {
 			draw_routine->update_resolution_callback(draw_routine);
 	}
 
-	/*
-	for (auto &compute : App.computers) {
-		if (compute.is_active) {
-			for (EachFrameInFlight) {
-				compute.descriptor_update_callback(compute);
-				//compute.command_buffer_update_callback(compute, compute.command_buffer[i]);
-			}
-		}
-	}
-	*/
-
 	for (zest_map_foreach_j(ZestRenderer->command_queues)) {
 		zest_command_queue command_queue = *zest_map_at_index(ZestRenderer->command_queues, j);
 		for (ZEST_EACH_FIF_i) {
