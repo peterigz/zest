@@ -252,7 +252,9 @@ void InitExample(ComputeExample *example) {
 
 	//Get an effect from the library to use as an example.
 	tfx_effect_emitter_t *effect1 = GetLibraryEffect(&example->library, "Big Explosion");
-	tfx_effect_emitter_t *effect2 = GetLibraryEffect(&example->library, "Smokey Explosion");
+	tfx_effect_emitter_t *effect2 = GetLibraryEffect(&example->library, "Star Burst Flash");
+	tfx_effect_emitter_t *effect3 = GetLibraryEffect(&example->library, "EmissionSingleShot");
+	tfx_effect_emitter_t *effect4 = GetLibraryEffect(&example->library, "Firework");
 
 	//Render specific - set up a camera
 	example->camera = zest_CreateCamera();
@@ -291,6 +293,8 @@ void InitExample(ComputeExample *example) {
 	//for each effect animation that you want to add to the animation manager.
 	tfx::AddSpriteData(&example->animation_manager_3d, effect1, &example->pm, camera_position_for_recording * -6.f);
 	tfx::AddSpriteData(&example->animation_manager_3d, effect2, &example->pm, camera_position_for_recording * -6.f);
+	tfx::AddSpriteData(&example->animation_manager_3d, effect3, &example->pm, camera_position_for_recording * -6.f);
+	tfx::AddSpriteData(&example->animation_manager_3d, effect4, &example->pm, camera_position_for_recording * -6.f);
 
 	//Render Specific - Create the 6 buffers needed for the compute shader. Create these after you've added all the effect animations you want to use
 	//to the animation manager.
@@ -438,19 +442,22 @@ void Update(zest_microsecs elapsed, void *data) {
 
 	example->trigger_effect += elapsed;
 	if (example->trigger_effect >= ZEST_MILLISECONDS_IN_MICROSECONDS(25)) {
-		tfxAnimationID anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion");
-		if (anim_id != tfxINVALID) {
-			tfx_vec3_t position = ScreenRay(RandomRange(&example->pm.random, 0.f, zest_ScreenWidthf()), RandomRange(&example->pm.random, 0.f, zest_ScreenHeightf()), 6.f, example->camera.position);
-			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
-			SetAnimationScale(&example->animation_manager_3d, anim_id, RandomRange(&example->pm.random, 0.5f, 1.5f));
+		tfxAnimationID anim_id = tfxINVALID;
+		int r = RandomRange(&example->pm.random, 0, 3);
+		if (r == 0) {
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion");
+		} else if (r == 1) {
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash");
+		} else if (r == 2) {
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "EmissionSingleShot");
+		} else if (r == 3) {
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework");
 		}
-		anim_id = AddAnimationInstance(&example->animation_manager_3d, "Smokey Explosion");
 		if (anim_id != tfxINVALID) {
-			tfx_vec3_t position = ScreenRay(RandomRange(&example->pm.random, 0.f, zest_ScreenWidthf()), RandomRange(&example->pm.random, 0.f, zest_ScreenHeightf()), 6.f, example->camera.position);
+			tfx_vec3_t position = ScreenRay(RandomRange(&example->pm.random, 0.f, zest_ScreenWidthf()), RandomRange(&example->pm.random, 0.f, zest_ScreenHeightf()), 12.f, example->camera.position);
 			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
-			SetAnimationScale(&example->animation_manager_3d, anim_id, 1.f);
+			SetAnimationScale(&example->animation_manager_3d, anim_id, RandomRange(&example->pm.random, 0.75f, 1.5f));
 		}
-		example->right_mouse_clicked = true;
 		example->trigger_effect = 0;
 	}
 
@@ -493,8 +500,8 @@ void Update(zest_microsecs elapsed, void *data) {
 	//RenderSpriteDataFrame3d(&example->animation_manager_3d, example, &GetLayer());
 }
 
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
