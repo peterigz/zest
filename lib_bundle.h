@@ -1030,7 +1030,9 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 	zloc_size combined_size = current_size + zloc__block_size(next_block);
 	if ((!zloc__next_block_is_free(block) || adjusted_size > combined_size) && adjusted_size > current_size) {
 		zloc_header *block = zloc__find_free_block(allocator, adjusted_size, 0);
-		allocation = zloc__block_user_ptr(block);
+		if (block) {
+			allocation = zloc__block_user_ptr(block);
+		}
 		
 		if (allocation) {
 			zloc_size smallest_size = zloc__Min(current_size, size);
@@ -1213,7 +1215,9 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 	zloc_size combined_remote_size = current_remote_size + zloc__do_size_class_callback(next_block);
 	if ((!zloc__next_block_is_free(block) || adjusted_size > combined_size || remote_size > combined_remote_size) && (remote_size > current_remote_size)) {
 		zloc_header *block = zloc__find_free_block(allocator, size, remote_size);
-		allocation = zloc__block_user_ptr(block);
+		if (block) {
+			allocation = zloc__block_user_ptr(block);
+		}
 
 		if (allocation) {
 			zloc__do_unable_to_reallocate_callback;
