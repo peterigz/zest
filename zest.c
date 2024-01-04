@@ -764,7 +764,7 @@ void zest_CameraSetYaw(zest_camera_t *camera, float degrees) {
 
 zest_bool zest_RayIntersectPlane(zest_vec3 ray_origin, zest_vec3 ray_direction, zest_vec3 plane, zest_vec3 plane_normal, float *distance, zest_vec3 *intersection) {
 	float ray_to_plane_normal_dp = zest_DotProduct3(plane_normal, ray_direction);
-	if (ray_to_plane_normal_dp > 0)
+	if (ray_to_plane_normal_dp >= 0)
 		return ZEST_FALSE;
 	float d = zest_DotProduct3(plane, plane_normal);
 	*distance = (d - zest_DotProduct3(ray_origin, plane_normal)) / ray_to_plane_normal_dp;
