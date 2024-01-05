@@ -18,6 +18,7 @@ struct AnimationComputeConstants {
 
 struct ComputeExample {
 	zest_compute compute;
+	zest_compute bounding_box_compute;
 	bool left_mouse_clicked;
 	bool right_mouse_clicked;
 
@@ -40,6 +41,11 @@ struct ComputeExample {
 	//We also need to store some additional emitter property data such as the sprite handle which is looked up by the 
 	//compute shader each frame
 	zest_descriptor_buffer emitter_properties_buffer;
+	//This example we are building pre-recording the effects from an effects library as apposed to just loading in a
+	//sprite data file that has all the effects and sprite data pre-built. Therefore if we want bounding boxed for the 
+	//effects we will need to calculate those after recording the effects (this is optional). With the bounding boxes
+	//we can cull effects that are outside the viewing frustum.
+	zest_descriptor_buffer bounding_boxes;
 
 	//For GPU drivers that don't have the capability to write directly to the GPU buffer you will need
 	//staging buffers to write to first before uploading those to the GPU device buffers. We only need to upload
@@ -55,8 +61,12 @@ struct ComputeExample {
 
 	zest_texture particle_texture;
 	zest_draw_routine draw_routine;
+
+	//Indexes for the compute shader pipelines
 	zest_index compute_pipeline_3d;
 	zest_index compute_pipeline_2d;
+	zest_index bb_compute_pipeline_3d;
+	zest_index bb_compute_pipeline_2d;
 
 	tfx_library_t library;
 	tfx_particle_manager_t pm;
@@ -64,6 +74,7 @@ struct ComputeExample {
 	tfx_animation_manager_t animation_manager_3d;
 	AnimationComputeConstants animation_manager_push_constants;
 	tfx_sprite_data_settings_t anim_test;
+	zest_millisecs record_time;
 	bool effect_is_3d;
 	bool using_staging_buffers;
 
@@ -71,10 +82,13 @@ struct ComputeExample {
 };
 
 void SpriteComputeFunction(zest_command_queue_compute compute_routine);
+void BoundingBoxComputeFunction(zest_compute compute, VkCommandBuffer command_buffer);
+void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *animation_manager, tfx_effect_emitter_t *effect);
 void DrawComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffer);
 void UpdateSpriteResolution(zest_draw_routine routine);
 void InitExample(ComputeExample *example);
-void PrepareCompute(ComputeExample *example);
+void PrepareComputeForEffectPlayback(ComputeExample *example);
+void PrepareComputeForBoundingBoxCalculation(ComputeExample *example);
 void UploadBuffers(ComputeExample *example);
 void UpdateUniform3d(ComputeExample *game);
 void Update(zest_microsecs elapsed, void *data);
