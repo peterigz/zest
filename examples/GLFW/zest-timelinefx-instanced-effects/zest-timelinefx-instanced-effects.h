@@ -68,19 +68,17 @@ struct ComputeExample {
 
 	//Indexes for the compute shader pipelines
 	zest_index compute_pipeline_3d;
-	zest_index compute_pipeline_2d;
 	zest_index bb_compute_pipeline_3d;
-	zest_index bb_compute_pipeline_2d;
 
 	tfx_library_t library;
 	tfx_particle_manager_t pm;
-	tfx_animation_manager_t animation_manager_2d;
 	tfx_animation_manager_t animation_manager_3d;
 	AnimationComputeConstants animation_manager_push_constants;
 	tfx_sprite_data_settings_t anim_test;
 	zest_millisecs record_time;
 	bool effect_is_3d;
 	bool using_staging_buffers;
+	zest_vec4 planes[6];
 
 	zest_microsecs trigger_effect;
 };

@@ -25,7 +25,7 @@ Step 4: Use MakeCompute with the ComputeBuilder we setup to finish the compute s
 //void *custom_data				- This allows you to pass through an object you can use to access whatever is necessary to load the image into graphics memory, depending on the renderer that you're using
 void ShapeLoader(const char* filename, tfx_image_data_t *image_data, void *raw_image_data, int image_memory_size, void *custom_data) {
 	//Cast your custom data, this can be anything you want
-	ComputeExample *game = static_cast<ComputeExample*>(custom_data);
+	ComputeExample *example = static_cast<ComputeExample*>(custom_data);
 
 	//This shape loader example uses the STB image library to load the raw bitmap (png usually) data
 	zest_bitmap_t bitmap = zest_NewBitmap();
@@ -43,14 +43,14 @@ void ShapeLoader(const char* filename, tfx_image_data_t *image_data, void *raw_i
 	if (image_data->animation_frames > 1) {
 		float max_radius;
 		//Add the spritesheet to the texture in our renderer
-		zest_image anim = zest_AddTextureAnimationBitmap(game->particle_texture, &bitmap, (tfxU32)image_data->image_size.x, (tfxU32)image_data->image_size.y, (tfxU32)image_data->animation_frames, &max_radius, 1);
+		zest_image anim = zest_AddTextureAnimationBitmap(example->particle_texture, &bitmap, (tfxU32)image_data->image_size.x, (tfxU32)image_data->image_size.y, (tfxU32)image_data->animation_frames, &max_radius, 1);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 		image_data->ptr = anim;
 	}
 	else {
 		//Add the bitmap to the texture in our renderer
-		zest_image image = zest_AddTextureImageBitmap(game->particle_texture, &bitmap);
+		zest_image image = zest_AddTextureImageBitmap(example->particle_texture, &bitmap);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 		image_data->ptr = image;
@@ -74,83 +74,72 @@ tfx_vec4_t GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
 	return tfx_vec4_t(image->uv.x, image->uv.y, image->uv.z, image->uv.w);
 }
 
-//---Render specific code---
+//---Render specific functions---
 //The following code will depend on the renderer that you're using
 
 //Update the uniform buffer used to transform vertices in the vertex buffer
-void UpdateUniform3d(ComputeExample *game) {
+void UpdateUniform3d(ComputeExample *example) {
 	zest_uniform_buffer_data_t *ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
-	ubo_ptr->view = zest_LookAt(game->camera.position, zest_AddVec3(game->camera.position, game->camera.front), game->camera.up);
-	ubo_ptr->proj = zest_Perspective(game->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.1f, 10000.f);
+	ubo_ptr->view = zest_LookAt(example->camera.position, zest_AddVec3(example->camera.position, example->camera.front), example->camera.up);
+	ubo_ptr->proj = zest_Perspective(example->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.1f, 10000.f);
 	ubo_ptr->proj.v[1].y *= -1.f;
 	ubo_ptr->screen_size.x = zest_ScreenWidthf();
 	ubo_ptr->screen_size.y = zest_ScreenHeightf();
 	ubo_ptr->millisecs = 0;
+	//Calculate the frustum planes
+	zest_CalculateFrustumPlanes(&ubo_ptr->view, &ubo_ptr->proj, example->planes);
 }
 
 //Send the command to the GPU to draw all of the sprites for all of the animation instances that are currently in play
 void DrawComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffer) {
-	ComputeExample &game = *static_cast<ComputeExample*>(routine->user_data);
+	ComputeExample &example = *static_cast<ComputeExample*>(routine->user_data);
 
 	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
-	zest_BindVertexBuffer(game.sprite_buffer->buffer[0]);
+	zest_BindVertexBuffer(example.sprite_buffer->buffer[0]);
 
-	//Draw all the sprites in the buffer
-	if (game.effect_is_3d) {
-		zest_pipeline pipeline = zest_Pipeline("pipeline_billboard");
-		zest_BindPipeline(pipeline, zest_CurrentTextureDescriptorSet(game.particle_texture));
-		zest_SendPushConstants(pipeline, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(zest_push_constants_t), &game.push_contants);
-		zest_Draw(6, GetTotalSpritesThatNeedDrawing(&game.animation_manager_3d), 0, 0);
-	}
-	else {
-		zest_pipeline pipeline = zest_Pipeline("pipeline_2d_sprites");
-		zest_BindPipeline(pipeline, zest_CurrentTextureDescriptorSet(game.particle_texture));
-		zest_SendPushConstants(pipeline, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(AnimationComputeConstants), &game.push_contants);
-		zest_Draw(6, game.animation_manager_2d.buffer_metrics.total_sprites_to_draw, 0, 0);
-	}
+	//Draw all the sprites in the buffer that is built by the compute shader
+	zest_pipeline pipeline = zest_Pipeline("pipeline_billboard");
+	zest_BindPipeline(pipeline, zest_CurrentTextureDescriptorSet(example.particle_texture));
+	zest_SendPushConstants(pipeline, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(zest_push_constants_t), &example.push_contants);
+	zest_Draw(6, GetTotalSpritesThatNeedDrawing(&example.animation_manager_3d), 0, 0);
 }
 
 //A callback for when the window size is changed so we can update the layer push constants that contain the current screen size
 void UpdateSpriteResolution(zest_draw_routine routine) {
-	ComputeExample &game = *static_cast<ComputeExample*>(routine->user_data);
-	game.push_contants.parameters1 = zest_Vec4Set(2.0f / (float)zest_GetSwapChainExtent().width, 2.0f / (float)zest_GetSwapChainExtent().height, -1.f, -1.f);
-	game.push_contants.model = zest_M4(1.f);
+	ComputeExample &example = *static_cast<ComputeExample*>(routine->user_data);
+	example.push_contants.parameters1 = zest_Vec4Set(2.0f / (float)zest_GetSwapChainExtent().width, 2.0f / (float)zest_GetSwapChainExtent().height, -1.f, -1.f);
+	example.push_contants.model = zest_M4(1.f);
 }
 
 //Upload the buffers to the GPU that the compute shader will need to read from in order to build the sprite buffer each frame. These buffers
 //only need to be uploaded once once you've added all the sprite data for all the animations that you want to use.
-void UploadBuffers(ComputeExample *game) {
+void UploadBuffers(ComputeExample *example) {
 
 	tfx_animation_manager_t *animation_manager = nullptr;
-	if (game->effect_is_3d) {
-		animation_manager = &game->animation_manager_3d;
-	}
-	else {
-		animation_manager = &game->animation_manager_2d;
-	}
+	animation_manager = &example->animation_manager_3d;
 
 	//Upload the sprite data. This contains all pre-recorded sprites for all animations that you might want to play.
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(GetSpriteDataSizeInBytes(animation_manager), GetSpriteDataBufferPointer(animation_manager));
-	zest_CopyBuffer(staging_buffer, game->sprite_data_buffer->buffer[0], GetSpriteDataSizeInBytes(animation_manager));
+	zest_CopyBuffer(staging_buffer, example->sprite_data_buffer->buffer[0], GetSpriteDataSizeInBytes(animation_manager));
 	zest_FreeBuffer(staging_buffer);
 
 	//Upload the emitter properties for each animation you're using. This contains the sprite handle and any flags that might be relavent.
-	zest_buffer emitter_properties_buffer = zest_GetBufferFromDescriptorBuffer(game->emitter_properties_buffer);
+	zest_buffer emitter_properties_buffer = zest_GetBufferFromDescriptorBuffer(example->emitter_properties_buffer);
 	staging_buffer = zest_CreateStagingBuffer(GetAnimationEmitterPropertySizeInBytes(animation_manager), GetAnimationEmitterPropertiesBufferPointer(animation_manager));
 	zest_CopyBuffer(staging_buffer, emitter_properties_buffer, GetAnimationEmitterPropertySizeInBytes(animation_manager));
 	zest_FreeBuffer(staging_buffer);
 
 	//Upload the image data containing all the UV coords and texture array index that the compute shader will use to build the sprite
 	//buffer each frame
-	staging_buffer = zest_CreateStagingBuffer(GetGPUShapesSizeInBytes(&game->gpu_image_data), GetGPUShapesPointer(&game->gpu_image_data));
-	zest_CopyBuffer(staging_buffer, game->image_data_buffer->buffer[0], GetGPUShapesSizeInBytes(&game->gpu_image_data));
+	staging_buffer = zest_CreateStagingBuffer(GetGPUShapesSizeInBytes(&example->gpu_image_data), GetGPUShapesPointer(&example->gpu_image_data));
+	zest_CopyBuffer(staging_buffer, example->image_data_buffer->buffer[0], GetGPUShapesSizeInBytes(&example->gpu_image_data));
 	zest_FreeBuffer(staging_buffer);
 }
 
 //Prepare the compute shader that will be used to playback the effects in the animation manager
-void PrepareComputeForEffectPlayback(ComputeExample *game) {
+void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	//Register a new compute shader
-	game->compute = zest_CreateCompute("Sprite data compute");
+	example->compute = zest_CreateCompute("Sprite data compute");
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier
 	zest_compute_builder_t builder = zest_NewComputeBuilder();
@@ -162,25 +151,27 @@ void PrepareComputeForEffectPlayback(ComputeExample *game) {
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4);
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 5);
 	//Add the bindings for the buffers we've created
-	zest_AddComputeBufferForBinding(&builder, game->sprite_data_buffer);				//Binding 0
-	zest_AddComputeBufferForBinding(&builder, game->offsets_buffer);					//Binding 1
-	zest_AddComputeBufferForBinding(&builder, game->animation_instances_buffer);		//Binding 2
-	zest_AddComputeBufferForBinding(&builder, game->image_data_buffer);					//Binding 3
-	zest_AddComputeBufferForBinding(&builder, game->emitter_properties_buffer);			//Binding 4
-	zest_AddComputeBufferForBinding(&builder, game->sprite_buffer);						//Binding 5
+	zest_AddComputeBufferForBinding(&builder, example->sprite_data_buffer);					//Binding 0
+	zest_AddComputeBufferForBinding(&builder, example->offsets_buffer);						//Binding 1
+	zest_AddComputeBufferForBinding(&builder, example->animation_instances_buffer);			//Binding 2
+	zest_AddComputeBufferForBinding(&builder, example->image_data_buffer);					//Binding 3
+	zest_AddComputeBufferForBinding(&builder, example->emitter_properties_buffer);			//Binding 4
+	zest_AddComputeBufferForBinding(&builder, example->sprite_buffer);						//Binding 5
 	//Specify the shader that we want to use for the compute shader
-	game->compute_pipeline_2d = zest_AddComputeShader(&builder, "examples/assets/spv/sprite_data_playback_2d.comp.spv");
-	game->compute_pipeline_3d = zest_AddComputeShader(&builder, "examples/assets/spv/sprite_data_playback.comp.spv");
+	example->compute_pipeline_3d = zest_AddComputeShader(&builder, "examples/assets/spv/sprite_data_playback.comp.spv");
 	//Specify the size of the push constant struct if we're using it
 	zest_SetComputePushConstantSize(&builder, sizeof(zest_compute_push_constant_t));
 	//Set the user data that can be passed to the callbacks
-	zest_SetComputeUserData(&builder, game);
+	zest_SetComputeUserData(&builder, example);
 	zest_SetComputeDescriptorUpdateCallback(&builder, zest_StandardComputeDescriptorUpdate);
 	//Finalise the compute set up by calling MakeCompute which creates all the boiler plate code to create the
 	//compute pipeline in Vulkan
-	zest_MakeCompute(&builder, game->compute);
+	zest_MakeCompute(&builder, example->compute);
 }
 
+//Prepare the compute shader that will calculate the bounding boxes of each frame of animation. This is only necessary
+//if you are recording the effects. Otherwise you can export the animations from TimelineFX and the bounding boxes will
+//already be calculated in the tfxsd file.
 void PrepareComputeForBoundingBoxCalculation(ComputeExample *example) {
 	//Register a new compute shader
 	example->bounding_box_compute = zest_CreateCompute("Sprite data bb compute");
@@ -201,7 +192,6 @@ void PrepareComputeForBoundingBoxCalculation(ComputeExample *example) {
 	zest_AddComputeBufferForBinding(&builder, example->bounding_boxes);						//Binding 4
 	//Specify the shader that we want to use for the compute shader
 	example->bb_compute_pipeline_3d = zest_AddComputeShader(&builder, "examples/assets/spv/sprite_data_bounding_box.comp.spv");
-	example->bb_compute_pipeline_2d = zest_AddComputeShader(&builder, "examples/assets/spv/sprite_data_bounding_box_2d.comp.spv");
 	//Specify the size of the push constant struct if we're using it
 	zest_SetComputePushConstantSize(&builder, sizeof(zest_compute_push_constant_t));
 	//Set the user data that can be passed to the callbacks
@@ -217,43 +207,34 @@ void PrepareComputeForBoundingBoxCalculation(ComputeExample *example) {
 //need to be added to the command buffer
 void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 
-	//The compute queue item can contain more then one compute shader to be dispatched
-	//There's only one in this editor though which we created in the PrepareCompute function
+	//The compute queue item can contain more then one compute shader to be dispatched but in this case there's only
+	//one which is the effect playback compute shader
 	zest_compute compute;
 	while (compute = zest_NextComputeRoutine(compute_routine)) {
 		//Grab our ComputeExample struct out of the user data
-		ComputeExample *game = static_cast<ComputeExample*>(compute->user_data);
+		ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
 
-		tfx_animation_manager_t *animation_manager = nullptr;
-		if (game->effect_is_3d) {
-			animation_manager = &game->animation_manager_3d;
-			zest_BindComputePipeline(compute, game->compute_pipeline_3d);
-			if (game->using_staging_buffers) {
-				zest_CopyBufferCB(zest_CurrentCommandBuffer(), game->offsets_staging_buffer[ZEST_FIF], game->offsets_buffer->buffer[ZEST_FIF], GetOffsetsSizeInBytes(animation_manager));
-				zest_CopyBufferCB(zest_CurrentCommandBuffer(), game->animation_instances_staging_buffer[ZEST_FIF], game->animation_instances_buffer->buffer[ZEST_FIF], GetAnimationInstancesSizeInBytes(animation_manager));
-			}
-		}
-		else {
-			animation_manager = &game->animation_manager_2d;
-			zest_BindComputePipeline(compute, game->compute_pipeline_2d);
-			if (game->using_staging_buffers) {
-				zest_CopyBufferCB(zest_CurrentCommandBuffer(), game->offsets_staging_buffer[ZEST_FIF], game->offsets_buffer->buffer[ZEST_FIF], GetOffsetsSizeInBytes(animation_manager));
-				zest_CopyBufferCB(zest_CurrentCommandBuffer(), game->animation_instances_staging_buffer[ZEST_FIF], game->animation_instances_buffer->buffer[ZEST_FIF], GetAnimationInstancesSizeInBytes(animation_manager));
-			}
+		//Bind the compute shader pipeline
+		zest_BindComputePipeline(compute, example->compute_pipeline_3d);
+		//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
+		//from there we copy to the GPU.
+		if (example->using_staging_buffers) {
+			zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], GetOffsetsSizeInBytes(&example->animation_manager_3d));
+			zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
 		}
 
 		//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
-		auto metrics = GetAnimationBufferMetrics(animation_manager);
+		auto metrics = GetAnimationBufferMetrics(&example->animation_manager_3d);
 
 		//Update the push constants with some metrics. These are referenced in the compute shader.
 		//The total number of animation instances that need to be drawn
 		compute->push_constants.parameters.x = (float)metrics.instances_size;
-		//If any animation instance contains animated shapes then set to 1. the compute shader can use this to avoid some unecessary
+		//If any animation instance contains animated shapes then set to 1. The compute shader can use this to avoid some unecessary
 		//computation if all particle shapes are not animated
-		compute->push_constants.parameters.y = float(animation_manager->flags & tfxAnimationManagerFlags_has_animated_shapes);
+		compute->push_constants.parameters.y = float(example->animation_manager_3d.flags & tfxAnimationManagerFlags_has_animated_shapes);
 		//Set the total number of sprites that need to be processed by the shader
 		compute->push_constants.parameters.z = (float)metrics.total_sprites_to_draw;
-		compute->push_constants.parameters.w = (float)animation_manager->render_queue[0].offset_into_sprite_data;
+		compute->push_constants.parameters.w = (float)example->animation_manager_3d.render_queue[0].offset_into_sprite_data;
 
 		//Send the push constants in the compute object to the shader
 		zest_SendComputePushConstants(compute);
@@ -267,52 +248,51 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 	//zest_ComputeToVertexBarrier();
 }
 
+//This function is the callback function that will be used when we call zest_RunCompute. This is use when we want to run a compute
+//shader just the once to calculate something, in this case the bounding box calculation for every frame of animation in each effect
+//that we're using.
 void BoundingBoxComputeFunction(zest_compute compute, VkCommandBuffer command_buffer) {
 	//The compute queue item can contain more then one compute shader to be dispatched
 	//There's only one in this editor though which we created in the PrepareCompute function
 	ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
 
-	tfx_animation_manager_t *animation_manager = nullptr;
-	if (example->effect_is_3d) {
-		animation_manager = &example->animation_manager_3d;
-		zest_BindComputePipelineCB(command_buffer, compute, example->bb_compute_pipeline_3d);
-	}
-	else {
-		animation_manager = &example->animation_manager_2d;
-		zest_BindComputePipelineCB(command_buffer, compute, example->bb_compute_pipeline_2d);
-	}
+	//Bind the pipeline and specify the command buffer because this will be a one off call of the compute shader, rather than
+	//a compute shader that is run every frame in a rendering pipeline
+	zest_BindComputePipelineCB(command_buffer, compute, example->bb_compute_pipeline_3d);
 
 	//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
-	auto metrics = GetAnimationBufferMetrics(animation_manager);
+	auto metrics = GetAnimationBufferMetrics(&example->animation_manager_3d);
 
 	//Update the push constants with some metrics. These are referenced in the compute shader.
 	//The total number of animation instances that need to be drawn
 	compute->push_constants.parameters.x = (float)metrics.instances_size;
 	//If any animation instance contains animated shapes then set to 1. the compute shader can use this to avoid some unecessary
 	//computation if all particle shapes are not animated
-	compute->push_constants.parameters.y = float(animation_manager->flags & tfxAnimationManagerFlags_has_animated_shapes);
+	compute->push_constants.parameters.y = float(example->animation_manager_3d.flags & tfxAnimationManagerFlags_has_animated_shapes);
 	//Set the total number of sprites that need to be processed by the shader
 	compute->push_constants.parameters.z = (float)metrics.total_sprites_to_draw;
 
 	//Send the push constants in the compute object to the shader
 	zest_SendComputePushConstantsCB(command_buffer, compute);
 
-	//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
-	//In this example there are 1024 sprites, so if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
+	//Note that the compute shader group size is 128, but because of the parallel reduction that we're doing in the compute shader we
+	//actually make the group count half what it would normally be because we perform the first comparison on the first and second 128
+	//sprites. So effectively each group will actually be working on 256 sprites each. Look in the compute shader for more info on this.
 	tfxU32 frame_group_count = (metrics.total_sprites_to_draw / 256) + 1;
 	zest_DispatchComputeCB(command_buffer, compute, frame_group_count, 1, 1);
 }
-//----End of render specific code-----
+//----End of render specific functions-----
 
 //Initialise the example and create all the necessary buffers and objects for the compute shaders and load in the effects library
 //and prepare the effect we'll use as an example.
 void InitExample(ComputeExample *example) {
-	//Create a new texture for storing the bunny image
-	example->floor_texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
-	//Load in the bunny image from file and add it to the texture
+	//Create a new texture for storing a floor texture, use storage type bank so we can use texture wrapping.
+	example->floor_texture = zest_CreateTexture("Floor texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	//Load in the floor image from file and add it to the texture
 	example->floor_image = zest_AddTextureImageFile(example->floor_texture, "examples/assets/checker.png");
-	//Process the texture which will create the resources on the GPU for sampling from the bunny image texture
+	//Process the texture which will create the resources on the GPU for sampling from the floor image texture
 	zest_ProcessTextureImages(example->floor_texture);
+	//Store the handle to the builtin mesh pipeline for convenience
 	example->mesh_pipeline = zest_Pipeline("pipeline_mesh");
 
 	//Create a texture in our renderer where we can store the particle shapes in the library
@@ -326,7 +306,8 @@ void InitExample(ComputeExample *example) {
 	//Render specific - process the images onto a texture and upload to the gpu
 	zest_ProcessTextureImages(example->particle_texture);
 
-	//Get an effect from the library to use as an example.
+	//Get some effects from the library which we will record as a pre-baked particle animation. The settings for each effect
+	//such as how much compression to use is saved in the TimelineFX editor.
 	tfx_effect_emitter_t *effect1 = GetLibraryEffect(&example->library, "Big Explosion");
 	tfx_effect_emitter_t *effect2 = GetLibraryEffect(&example->library, "Star Burst Flash");
 	tfx_effect_emitter_t *effect3 = GetLibraryEffect(&example->library, "EmissionSingleShot");
@@ -341,10 +322,11 @@ void InitExample(ComputeExample *example) {
 	zest_CameraUpdateFront(&example->camera);
 
 	//When we record an effect we can specify the camera position which only really makes sense if you're recording an effect
-	//that has depth ordering.
+	//that has depth ordering, otherwise it won't matter much
 	tfx_vec3_t camera_position_for_recording = tfx_vec3_t(example->camera.front.x, example->camera.front.y, example->camera.front.z);
 
-	//Set up the maximum number of particles per layer which we pass into the InitParticleManager function
+	//Set up the maximum number of particles per layer which we pass into the InitParticleManager function. These will only be used
+	//in the recording phase.
 	tfxU32 layer_max_values[tfxLAYERS];
 	layer_max_values[0] = 20000;
 	layer_max_values[1] = 5000;
@@ -360,20 +342,24 @@ void InitExample(ComputeExample *example) {
 	//Initialise an animation manager. An animation manager maintains our animation instances for us and provides all the necessary metrics we'll
 	//need to upload the buffers we need to both to initialise the compute shader and when we upload the offsets and instances buffer each frame.
 	//Specify the maximum number of animation instances that you might want to play each frame
-	tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_SPRITES);
+	tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_INSTANCES);
+	//Here we set the callback that will be used to decide if an animation should be drawn or not. We use the bounding box to check if it's inside
+	//the view frustum and cull it if it's not.
 	example->animation_manager_3d.maybe_render_instance_callback = CullAnimationInstancesCallback;
+	//Set the user data to the ComputeExample which we can use in the callback function
 	SetAnimationManagerUserData(&example->animation_manager_3d, example);
 
 	//Record the effects we want and calculate the bounding boxes
-	example->record_time = zest_Millisecs();
-	//You must build the compute shape data before Adding sprite data. Pass the GetUV function which you will have to create based on your renderer.
+	example->record_time = zest_Millisecs();		//See how long it takes to record.
+
+	//You MUST build the compute shape data before Adding sprite data. Pass the GetUV function which you will have to create based on your renderer.
 	example->gpu_image_data = BuildGPUShapeData(GetParticleShapes(&example->library), GetUV);
 	//Add all the sprite data of the pre-recorded effect that we made when we called RecordSpriteData3d earlier. You must call RecordSpriteData3d
 	//for each effect animation that you want to add to the animation manager.
-	tfx::AddSpriteData(&example->animation_manager_3d, effect1, &example->pm, camera_position_for_recording * -6.f);
-	tfx::AddSpriteData(&example->animation_manager_3d, effect2, &example->pm, camera_position_for_recording * -6.f);
-	tfx::AddSpriteData(&example->animation_manager_3d, effect3, &example->pm, camera_position_for_recording * -6.f);
-	tfx::AddSpriteData(&example->animation_manager_3d, effect4, &example->pm, camera_position_for_recording * -6.f);
+	tfx::AddSpriteData(&example->animation_manager_3d, effect1, &example->pm, camera_position_for_recording);
+	tfx::AddSpriteData(&example->animation_manager_3d, effect2, &example->pm, camera_position_for_recording);
+	tfx::AddSpriteData(&example->animation_manager_3d, effect3, &example->pm, camera_position_for_recording);
+	tfx::AddSpriteData(&example->animation_manager_3d, effect4, &example->pm, camera_position_for_recording);
 
 	//Render Specific - Create the 6 buffers needed for the compute shader. Create these after you've added all the effect animations you want to use
 	//to the animation manager.
@@ -385,15 +371,23 @@ void InitExample(ComputeExample *example) {
 	example->sprite_data_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfx_sprite_data3d_t) * GetTotalSpriteDataCount(&example->animation_manager_3d), false);
 	/*
 	2)	Vertex buffer to contain all of the sprite instances that will be drawn each frame. This is the only buffer that the compute shader writes to
-		each frame. Note that it need to be accessible to both the compute shader and the vertex shader
+		each frame. Note that it needs to be accessible to both the compute shader and the vertex shader
 	*/
 	example->sprite_buffer = zest_CreateComputeVertexDescriptorBuffer(sizeof(zest_billboard_instance_t) * MAX_SPRITES, false);;
+
+	/*
+	3)	Create the 2 buffers that need writing to from the CPU, this is the offset's buffer containing the index offset for each instance into the sprite data and
+		the actually instances data containing position, scale and so on.
+	*/
+	//Check if the GPU allows writing directly to buffers that are device local. If so just create the device local buffers with the appropriate flags
+	//to be able to write directly
 	if (zest_GPUHasDeviceLocalHostVisible()) {
 		example->offsets_buffer = zest_CreateCPUVisibleStorageDescriptorBuffer(sizeof(tfxU32) * MAX_INSTANCES, true);
 		example->animation_instances_buffer = zest_CreateCPUVisibleStorageDescriptorBuffer(sizeof(tfx_animation_instance_t) * MAX_INSTANCES, true);
 		example->using_staging_buffers = false;
 	}
 	else {
+		//If there's no direct to GPU writing then create staging buffers as well to copy to and then upload to the GPU buffers.
 		example->offsets_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfxU32) * MAX_INSTANCES, true);
 		example->animation_instances_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfx_animation_instance_t) * MAX_INSTANCES, true);
 		for (ZEST_EACH_FIF_i) {
@@ -414,21 +408,24 @@ void InitExample(ComputeExample *example) {
 	example->emitter_properties_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfx_animation_emitter_properties_t) * 100, false);
 
 	/*
-	7)	Finally, the optional buffer for calculating the bounding boxes of each frame of the effects so that we can do frustum culling	
+	7)	Finally, the optional buffer for calculating the bounding boxes of each frame of the effects so that we can do frustum culling
 	*/
 	zest_buffer_info_t bb_buffer_info = zest_CreateStorageBufferInfo();
-	// We need to be able to copy from the buffer on the gpu so it needs to be marked as a src buffer
+
+	// We need to be able to copy from the buffer on the gpu to a list on the CPU side so it needs to be marked as a src buffer
 	bb_buffer_info.usage_flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+
 	// There won't be a default buffer pool size in zest for this type of buffer so we can set one here.
 	zest_SetDeviceBufferPoolSize("Src bit storage buffer pool", bb_buffer_info.usage_flags, bb_buffer_info.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
 	example->bounding_boxes = zest_CreateDescriptorBuffer(&bb_buffer_info, sizeof(tfx_bounding_box_t) * 200, false);
 
+	//Create a custom draw routine for drawing the sprites that are written by the effect playback compute shader
 	example->draw_routine = zest_CreateDrawRoutine("Sprite drawing");
 	example->draw_routine->draw_callback = DrawComputeSprites;
 	example->draw_routine->user_data = example;
 	UpdateSpriteResolution(example->draw_routine);
 
-	//Prepare the compute shader
+	//Prepare the compute shaders for effect playback and bounding box calculation
 	PrepareComputeForEffectPlayback(example);
 	PrepareComputeForBoundingBoxCalculation(example);
 
@@ -436,13 +433,13 @@ void InitExample(ComputeExample *example) {
 	//They will containt the sprite, image and emitter data that the compute shader will index into to build each frame
 	UploadBuffers(example);
 
-	//Calculate the bounding boxes so that we can do frustum culling
+	//Calculate the bounding boxes for each effect so that we can do frustum culling
 	CalculateBoundingBoxes(example, &example->animation_manager_3d, effect1);
 	CalculateBoundingBoxes(example, &example->animation_manager_3d, effect2);
 	CalculateBoundingBoxes(example, &example->animation_manager_3d, effect3);
 	CalculateBoundingBoxes(example, &example->animation_manager_3d, effect4);
 
-	example->record_time = zest_Millisecs() - example->record_time;
+	example->record_time = zest_Millisecs() - example->record_time;	//note how long the above took
 
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&example->imgui_layer_info);
@@ -473,12 +470,14 @@ void InitExample(ComputeExample *example) {
 
 	//Set up a timer
 	example->timer = zest_CreateTimer(60);
-
 }
 
+//Function to calculate the bouding boxes for an effect by running the compute shader
 void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *animation_manager, tfx_effect_emitter_t *effect) {
+	//Force the current frame in flight to 0
 	zest_SetFrameInFlight(0);
 
+	//Manually set up an animation instance
 	tfx_animation_instance_t instance;
 	tfx_sprite_data_settings_t &anim = effect->library->sprite_data_settings[GetEffectInfo(effect)->sprite_data_settings_index];
 	instance.info_index = animation_manager->effect_animation_info.GetIndex(effect->path_hash);
@@ -491,6 +490,8 @@ void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *an
 	instance.frame_count = anim.frames_after_compression;
 
 	tfxU32 highest_sprite_count = 0;
+	//See what the most sprites are for a frame so that we can calculate the group count and size for the staging buffer we'll
+	//need to download the bounding boxes for each frame.
 	for (int i = 0; i != anim.frames_after_compression; ++i) {
 		tfx_sprite_data_metrics_t &metrics = animation_manager->effect_animation_info.data[instance.info_index];
 		highest_sprite_count = tfx__Max(metrics.frame_meta[i].total_sprites, highest_sprite_count);
@@ -499,6 +500,8 @@ void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *an
 	tfxU32 group_count = highest_sprite_count / 256 + 1;
 	zest_buffer bounding_boxes = zest_CreateStagingBuffer(sizeof(tfx_bounding_box_t) * group_count, 0);
 
+	//This loop is very similar to the UpdateAnimationManager function in terms of updating the instance
+	//each frame
 	for (int i = 0; i != anim.frames_after_compression; ++i) {
 		tfx_sprite_data_metrics_t &metrics = animation_manager->effect_animation_info.At(effect->path_hash);
 		instance.sprite_count = metrics.frame_meta[i].total_sprites;
@@ -511,8 +514,10 @@ void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *an
 		UpdateAnimationManagerBufferMetrics(animation_manager);
 		animation_manager->buffer_metrics.total_sprites_to_draw = instance.sprite_count;
 		tfxU32 frame_group_count = instance.sprite_count / 256 + 1;
+		//Maybe grow the bounding box buffer if it's too small
 		zest_GrowDescriptorBuffer(example->bounding_boxes, sizeof(tfx_bounding_box_t), sizeof(tfx_bounding_box_t) * frame_group_count);
 		zest_UpdateComputeDescriptors(example->bounding_box_compute);
+		//Update the offset and instance buffers either directly or with staging buffers.
 		if (example->using_staging_buffers) {
 			memcpy(example->offsets_staging_buffer[ZEST_FIF]->data, animation_manager->offsets.data, GetOffsetsSizeInBytes(animation_manager));
 			memcpy(example->animation_instances_staging_buffer[ZEST_FIF]->data, animation_manager->render_queue.data, GetAnimationInstancesSizeInBytes(animation_manager));
@@ -521,8 +526,11 @@ void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *an
 			memcpy(example->offsets_buffer->buffer[ZEST_FIF]->data, animation_manager->offsets.data, GetOffsetsSizeInBytes(animation_manager));
 			memcpy(example->animation_instances_buffer->buffer[ZEST_FIF]->data, animation_manager->render_queue.data, GetAnimationInstancesSizeInBytes(animation_manager));
 		}
+		//Run the compute shader and wait for it to finish
 		zest_RunCompute(example->bounding_box_compute);
 		zest_WaitForCompute(example->bounding_box_compute);
+		//There will be a bounding box for each group run on the compute shader, so we just need to copy them from the GPU
+		//and then loop through them and set the final bounding box which will contain the min/max values of the box.
 		zest_CopyBuffer(example->bounding_boxes->buffer[0], bounding_boxes, sizeof(tfx_bounding_box_t) * frame_group_count);
 		metrics.frame_meta[i].min_corner = { FLT_MAX,  FLT_MAX,  FLT_MAX };
 		metrics.frame_meta[i].max_corner = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
@@ -533,23 +541,22 @@ void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *an
 			metrics.frame_meta[i].min_corner = { tfx__Min(metrics.frame_meta[i].min_corner.x, bb->min_corner.x), tfx__Min(metrics.frame_meta[i].min_corner.y, bb->min_corner.y), tfx__Min(metrics.frame_meta[i].min_corner.z, bb->min_corner.z) };
 			metrics.frame_meta[i].max_corner = { tfx__Max(metrics.frame_meta[i].max_corner.x, bb->max_corner.x), tfx__Max(metrics.frame_meta[i].max_corner.y, bb->max_corner.y), tfx__Max(metrics.frame_meta[i].max_corner.z, bb->max_corner.z) };
 		}
+		//Use the bounding box to calculate the center point and the radius of the box. We can use the radius for a faster way to 
+		//cull out of view instances, albeit a little bit less accurate.
 		tfx_vec3_t half_extents = (metrics.frame_meta[i].max_corner - metrics.frame_meta[i].min_corner) * 0.5f;
 		metrics.frame_meta[i].radius = LengthVec(&half_extents);
 		metrics.frame_meta[i].bb_center_point = (metrics.frame_meta[i].max_corner + metrics.frame_meta[i].min_corner) * 0.5f;
+		//Advanc the current time of the instance
 		instance.current_time += 1000.f / anim.recording_frame_rate;
 	}
 
-	for (int i = 0; i != anim.frames_after_compression; ++i) {
-		tfx_sprite_data_metrics_t &metrics = animation_manager->effect_animation_info.data[instance.info_index];
-		tfx_vec3_t &min_corner = metrics.frame_meta[i].min_corner;
-		tfx_vec3_t &max_corner = metrics.frame_meta[i].max_corner;
-		printf("%i) %f, %f, %f - %f, %f, %f\n", i, min_corner.x, min_corner.y, min_corner.z, max_corner.x, max_corner.y, max_corner.z );
-	}
-
+	//Free the temporary staging buffer
 	zest_FreeBuffer(bounding_boxes);
+	//Set the frame in flight index back to it's original value.
 	zest_RestoreFrameInFlight();
 }
 
+//Fuction to cast a ray from screen to world space.
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position) {
 	zest_uniform_buffer_data_t *ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &ubo_ptr->proj, &ubo_ptr->view);
@@ -578,30 +585,44 @@ void BuildUI(ComputeExample *example) {
 	zest_imgui_UpdateBuffers(example->imgui_layer_info.mesh_layer);
 }
 
+//The callback function called for each instance that is being updated.
 bool CullAnimationInstancesCallback(tfx_animation_manager_t *animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data) {
+	//Grab the ComputeExample struct from the user data.
 	ComputeExample *example = static_cast<ComputeExample*>(user_data);
-	zest_uniform_buffer_data_t *ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
-	zest_vec4 planes[6];
-	zest_matrix4 view_projection = zest_MatrixTransform(&ubo_ptr->view, &ubo_ptr->proj);
+	//The the uniform buffer containing the view and projection matrices so that we can get the view frustum
 
-	zest_CalculateFrustumPlanes(&view_projection, planes);
+	//Get the position of the instance offset by the center point of the bounding box
 	tfx_vec3_t bb_position = frame_meta->bb_center_point + instance->position;
-	zest_bool in_view = zest_IsSphereInFrustum(planes, &bb_position.x, frame_meta->radius);
-	return in_view;
+	//Check if the radius of the bounding box is in view. Note that the planes are calculated in the UpdateUniform3d function.
+	return (bool)zest_IsSphereInFrustum(example->planes, &bb_position.x, frame_meta->radius);
 }
 
 //Our main update function that's run every frame.
 void Update(zest_microsecs elapsed, void *data) {
 	ComputeExample *example = static_cast<ComputeExample*>(data);
+	//Render specific - set the command queue we're using to record the command buffer and update the uniform buffer.
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 	UpdateUniform3d(example);
 
+	int r = RandomRange(&example->pm.random, 0, 3);
 	if (!example->left_mouse_clicked && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-		//tfxEffectID id = AddEffectToParticleManager(&example->pm, example->starburst);
-		tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 6.f, example->camera.position);
-		//SetEffectPosition(&example->pm, id, { position.x, position.y, position.z });
-		tfxAnimationID anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion");
+		//If the left mouse is clicked then spawn a random firework and raycasting it into the scene.
+		tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, example->camera.position);
+		tfxAnimationID anim_id = tfxINVALID;
+		if (r == 0) {
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion");
+		}
+		else if (r == 1) {
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash");
+		}
+		else if (r == 2) {
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "EmissionSingleShot");
+		}
+		else if (r == 3) {
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework");
+		}
 		if (anim_id != tfxINVALID) {
+			//As long as we get a valie anim id, set it's position and random scale.
 			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
 			SetAnimationScale(&example->animation_manager_3d, anim_id, RandomRange(&example->pm.random, 0.5f, 1.5f));
 		}
@@ -611,25 +632,10 @@ void Update(zest_microsecs elapsed, void *data) {
 		example->left_mouse_clicked = false;
 	}
 
-	if (!example->right_mouse_clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-		//tfxEffectID id = AddEffectToParticleManager(&example->pm, example->starburst);
-		tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 6.f, example->camera.position);
-		//SetEffectPosition(&example->pm, id, { position.x, position.y, position.z });
-		tfxAnimationID anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework");
-		if (anim_id != tfxINVALID) {
-			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
-			SetAnimationScale(&example->animation_manager_3d, anim_id, 1.f);
-		}
-		example->right_mouse_clicked = true;
-	}
-	else if(!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-		example->right_mouse_clicked = false;
-	}
-
+	//Make a firework spawn randomly in the scene every 25 millisecs
 	example->trigger_effect += elapsed;
 	if (example->trigger_effect >= ZEST_MILLISECONDS_IN_MICROSECONDS(25)) {
 		tfxAnimationID anim_id = tfxINVALID;
-		int r = RandomRange(&example->pm.random, 0, 3);
 		if (r == 0) {
 			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion");
 		} else if (r == 1) {
@@ -651,6 +657,7 @@ void Update(zest_microsecs elapsed, void *data) {
 		ClearAllAnimationInstances(&example->animation_manager_3d);
 	}
  
+	//First control the camera with the mosue if the right mouse is clicked
 	bool camera_free_look = false;
 	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
 		camera_free_look = true;
@@ -673,6 +680,7 @@ void Update(zest_microsecs elapsed, void *data) {
 		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
 	}
 
+	//An example fixed rate update loop
 	zest_TimerAccumulate(example->timer);
 	while (zest_TimerDoUpdate(example->timer)) {
 		//example->pm.Update();
@@ -702,6 +710,7 @@ void Update(zest_microsecs elapsed, void *data) {
 			}
 		}
 
+		//Restore the mouse when right mouse isn't held down
 		if (camera_free_look) {
 			glfwSetInputMode((GLFWwindow*)zest_Window(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 		}
@@ -713,16 +722,16 @@ void Update(zest_microsecs elapsed, void *data) {
 	}
 
 	//Update the animation manager each frame. This will advance the time of each animation instance that's currently playing
-	//Pass the amount of time that has elapsed since the last frame
+	//Pass the amount of time that has elapsed since the last time the function was called
+	//This could also be placed in the fixed rate update loop with an elapsed time of the update frequency
 	UpdateAnimationManager(&example->animation_manager_3d, elapsed / 1000.f);
 	
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->floor_texture, 0, example->mesh_pipeline);
 	zest_DrawTexturedPlane(example->mesh_layer, example->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 
-	//Copy the offsets and animation instances to the staging buffers. These will then be uploaded to the GPU just before the compute
-	//shader is dispatched.
-
+	//Copy the offsets and animation instances either to the GPU buffers directly if that's an optional or the staging buffers. The staging buffers
+	//will then be uploaded in the render pipeline if they're used.
     if (example->using_staging_buffers) {
         memcpy(example->offsets_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.offsets.data, GetOffsetsSizeInBytes(&example->animation_manager_3d));
         memcpy(example->animation_instances_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
@@ -732,8 +741,6 @@ void Update(zest_microsecs elapsed, void *data) {
         memcpy(example->animation_instances_buffer->buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
     }
 	zest_TimerSet(example->timer);
-
-	//RenderSpriteDataFrame3d(&example->animation_manager_3d, example, &GetLayer());
 }
 
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
@@ -742,7 +749,7 @@ int main() {
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
-	//Don't enable vsync so we can see the FPS go higher then the refresh rate
+	//Don't enable vsync so we can see how much FPS we get
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
