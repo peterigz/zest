@@ -56,7 +56,8 @@ void InitExample(zest_example *example) {
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
-			//Create a new mesh layer in the command queue
+			//Create a new mesh layer in the command queue. If you want depth testing to work then the layer with depth write enabled
+			//should come before the layer with only depth test enabled.
 			example->mesh_layer = zest_NewBuiltinLayerSetup("Meshes", zest_builtin_layer_mesh);
 			//Create a new billboard layer in the command queue
 			example->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);

@@ -61,6 +61,10 @@ struct ComputeExample {
 
 	zest_texture particle_texture;
 	zest_draw_routine draw_routine;
+	zest_layer mesh_layer;			//To draw the floor plain
+	zest_pipeline mesh_pipeline;
+	zest_image floor_image;
+	zest_texture floor_texture;
 
 	//Indexes for the compute shader pipelines
 	zest_index compute_pipeline_3d;

@@ -307,6 +307,14 @@ void BoundingBoxComputeFunction(zest_compute compute, VkCommandBuffer command_bu
 //Initialise the example and create all the necessary buffers and objects for the compute shaders and load in the effects library
 //and prepare the effect we'll use as an example.
 void InitExample(ComputeExample *example) {
+	//Create a new texture for storing the bunny image
+	example->floor_texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	//Load in the bunny image from file and add it to the texture
+	example->floor_image = zest_AddTextureImageFile(example->floor_texture, "examples/assets/checker.png");
+	//Process the texture which will create the resources on the GPU for sampling from the bunny image texture
+	zest_ProcessTextureImages(example->floor_texture);
+	example->mesh_pipeline = zest_Pipeline("pipeline_mesh");
+
 	//Create a texture in our renderer where we can store the particle shapes in the library
 	example->particle_texture = zest_CreateTexturePacked("particle_shapes", zest_texture_format_rgba);
 	//Reserve the space for our images so that the image pointers don't get lost (render specific)
@@ -354,6 +362,7 @@ void InitExample(ComputeExample *example) {
 	//Specify the maximum number of animation instances that you might want to play each frame
 	tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_SPRITES);
 	example->animation_manager_3d.maybe_render_instance_callback = CullAnimationInstancesCallback;
+	SetAnimationManagerUserData(&example->animation_manager_3d, example);
 
 	//Record the effects we want and calculate the bounding boxes
 	example->record_time = zest_Millisecs();
@@ -447,6 +456,10 @@ void InitExample(ComputeExample *example) {
 		zest_NewComputeSetup("Compute sprites", example->compute, SpriteComputeFunction);
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
+			//Create a new mesh layer in the command queue to draw the floor plane
+			example->mesh_layer = zest_NewBuiltinLayerSetup("Meshes", zest_builtin_layer_mesh);
+
+			//Add the custom draw routine that will draw the compute sprites
 			zest_AddDrawRoutine(example->draw_routine);
 
 			//Create a Dear ImGui layer
@@ -552,7 +565,8 @@ void BuildUI(ComputeExample *example) {
 	ImGui::Begin("Instanced Effects");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
 	ImGui::Text("Record Time: %zims", example->record_time);
-	ImGui::Text("Active Instances: %i", example->animation_manager_3d.render_queue.size());
+	ImGui::Text("Culled Instances: %i", GetTotalInstancesBeingUpdated(&example->animation_manager_3d) - example->animation_manager_3d.render_queue.size());
+	ImGui::Text("Instances In View: %i", example->animation_manager_3d.render_queue.size());
 	ImGui::Text("Sprites Drawn: %i", example->animation_manager_3d.buffer_metrics.total_sprites_to_draw);
 	ImGui::Text("Total Memory For Drawn Sprites: %ikb", (example->animation_manager_3d.buffer_metrics.total_sprites_to_draw * 64) / (1024));
 	ImGui::Text("Total Memory For Sprite Data: %ikb", example->animation_manager_3d.sprite_data_3d.size_in_bytes() / (1024));
@@ -565,7 +579,15 @@ void BuildUI(ComputeExample *example) {
 }
 
 bool CullAnimationInstancesCallback(tfx_animation_manager_t *animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data) {
-	return true;
+	ComputeExample *example = static_cast<ComputeExample*>(user_data);
+	zest_uniform_buffer_data_t *ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
+	zest_vec4 planes[6];
+	zest_matrix4 view_projection = zest_MatrixTransform(&ubo_ptr->view, &ubo_ptr->proj);
+
+	zest_CalculateFrustumPlanes(&view_projection, planes);
+	tfx_vec3_t bb_position = frame_meta->bb_center_point + instance->position;
+	zest_bool in_view = zest_IsSphereInFrustum(planes, &bb_position.x, frame_meta->radius);
+	return in_view;
 }
 
 //Our main update function that's run every frame.
@@ -618,7 +640,7 @@ void Update(zest_microsecs elapsed, void *data) {
 			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework");
 		}
 		if (anim_id != tfxINVALID) {
-			tfx_vec3_t position = ScreenRay(RandomRange(&example->pm.random, 0.f, zest_ScreenWidthf()), RandomRange(&example->pm.random, 0.f, zest_ScreenHeightf()), 12.f, example->camera.position);
+			tfx_vec3_t position = tfx_vec3_t(RandomRange(&example->pm.random, -10.f, 10.f), RandomRange(&example->pm.random, 8.f, 15.f), RandomRange(&example->pm.random, -10.f, 10.f));
 			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
 			SetAnimationScale(&example->animation_manager_3d, anim_id, RandomRange(&example->pm.random, 0.75f, 1.5f));
 		}
@@ -628,21 +650,64 @@ void Update(zest_microsecs elapsed, void *data) {
 	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
 		ClearAllAnimationInstances(&example->animation_manager_3d);
 	}
-
-	/* For debugging:
-	float current_time = fMouseX() / fScreenWidth() * example->anim_test.animation_length_in_time;
-	for (auto index : example->animation_manager_3d.instances_in_use[example->animation_manager_3d.current_in_use_buffer]) {
-		auto &instance = example->animation_manager_3d.instances[index];
-		//instance.current_time = 591.744751f;
-		//instance.current_time = 805.677063f;
-		//instance.current_time = current_time;
+ 
+	bool camera_free_look = false;
+	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+		camera_free_look = true;
+		if (glfwRawMouseMotionSupported()) {
+			glfwSetInputMode((GLFWwindow*)zest_Window(), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+		}
+		ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+		double x_mouse_speed;
+		double y_mouse_speed;
+		zest_GetMouseSpeed(&x_mouse_speed, &y_mouse_speed);
+		zest_TurnCamera(&example->camera, (float)ZestApp->mouse_delta_x, (float)ZestApp->mouse_delta_y, .05f);
 	}
-	*/
+	else if (glfwRawMouseMotionSupported()) {
+		camera_free_look = false;
+		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+		glfwSetInputMode((GLFWwindow*)zest_Window(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+	}
+	else {
+		camera_free_look = false;
+		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+	}
 
 	zest_TimerAccumulate(example->timer);
 	while (zest_TimerDoUpdate(example->timer)) {
 		//example->pm.Update();
 		BuildUI(example);
+
+		float speed  = 5.f * (float)example->timer->update_time;
+		if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+			ImGui::SetWindowFocus(nullptr);
+
+			if (ImGui::IsKeyDown(ImGuiKey_W)) {
+				zest_CameraMoveForward(&example->camera, speed);
+			}
+			if (ImGui::IsKeyDown(ImGuiKey_S)) {
+				zest_CameraMoveBackward(&example->camera, speed);
+			}
+			if (ImGui::IsKeyDown(ImGuiKey_UpArrow)) {
+				zest_CameraMoveUp(&example->camera, speed);
+			}
+			if (ImGui::IsKeyDown(ImGuiKey_DownArrow)) {
+				zest_CameraMoveDown(&example->camera, speed);
+			}
+			if (ImGui::IsKeyDown(ImGuiKey_A)) {
+				zest_CameraStrafLeft(&example->camera, speed);
+			}
+			if (ImGui::IsKeyDown(ImGuiKey_D)) {
+				zest_CameraStrafRight(&example->camera, speed);
+			}
+		}
+
+		if (camera_free_look) {
+			glfwSetInputMode((GLFWwindow*)zest_Window(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+		}
+		else {
+			glfwSetInputMode((GLFWwindow*)zest_Window(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+		}
 
 		zest_TimerUnAccumulate(example->timer);
 	}
@@ -650,6 +715,10 @@ void Update(zest_microsecs elapsed, void *data) {
 	//Update the animation manager each frame. This will advance the time of each animation instance that's currently playing
 	//Pass the amount of time that has elapsed since the last frame
 	UpdateAnimationManager(&example->animation_manager_3d, elapsed / 1000.f);
+	
+	//Now set the mesh drawing so that we can draw a textured plane
+	zest_SetMeshDrawing(example->mesh_layer, example->floor_texture, 0, example->mesh_pipeline);
+	zest_DrawTexturedPlane(example->mesh_layer, example->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 
 	//Copy the offsets and animation instances to the staging buffers. These will then be uploaded to the GPU just before the compute
 	//shader is dispatched.
