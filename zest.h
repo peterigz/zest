@@ -2437,7 +2437,7 @@ ZEST_API zest_vec2 zest_WorldToScreenOrtho(const zest_vec3 *point, float view_wi
 //Create a perspective 4x4 matrix passing in the fov in radians, aspect ratio of the viewport and te near/far values
 ZEST_API zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, float zFar);
 //Calculate the 6 planes of the camera fustrum
-ZEST_API void zest_CalculateFrustumPlanes(zest_matrix4 *view_projection_matrix, zest_vec4 planes[6]);
+ZEST_API void zest_CalculateFrustumPlanes(zest_matrix4 *view_matrix, zest_matrix4 *proj_matrix, zest_vec4 planes[6]);
 //Take the 6 planes of a camera fustrum and determine if a point is inside that fustrum
 ZEST_API zest_bool zest_IsPointInFrustum(const zest_vec4 planes[6], const float point[3]);
 //Take the 6 planes of a camera fustrum and determine if a sphere is inside that fustrum

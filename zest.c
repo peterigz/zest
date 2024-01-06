@@ -830,38 +830,39 @@ zest_matrix4 zest_TransposeMatrix4(zest_matrix4 *mat) {
 	return r;
 }
 
-void zest_CalculateFrustumPlanes(zest_matrix4 *matrix, zest_vec4 planes[6]) {
+void zest_CalculateFrustumPlanes(zest_matrix4 *view_matrix, zest_matrix4 *proj_matrix, zest_vec4 planes[6]) {
+	zest_matrix4 matrix = zest_MatrixTransform(view_matrix, proj_matrix);
 	// Extracting frustum planes from view-projection matrix
 
-	planes[zest_LEFT].x = matrix->v[0].w + matrix->v[0].x;
-	planes[zest_LEFT].y = matrix->v[1].w + matrix->v[1].x;
-	planes[zest_LEFT].z = matrix->v[2].w + matrix->v[2].x;
-	planes[zest_LEFT].w = matrix->v[3].w + matrix->v[3].x;
+	planes[zest_LEFT].x = matrix.v[0].w + matrix.v[0].x;
+	planes[zest_LEFT].y = matrix.v[1].w + matrix.v[1].x;
+	planes[zest_LEFT].z = matrix.v[2].w + matrix.v[2].x;
+	planes[zest_LEFT].w = matrix.v[3].w + matrix.v[3].x;
 
-	planes[zest_RIGHT].x = matrix->v[0].w - matrix->v[0].x;
-	planes[zest_RIGHT].y = matrix->v[1].w - matrix->v[1].x;
-	planes[zest_RIGHT].z = matrix->v[2].w - matrix->v[2].x;
-	planes[zest_RIGHT].w = matrix->v[3].w - matrix->v[3].x;
+	planes[zest_RIGHT].x = matrix.v[0].w - matrix.v[0].x;
+	planes[zest_RIGHT].y = matrix.v[1].w - matrix.v[1].x;
+	planes[zest_RIGHT].z = matrix.v[2].w - matrix.v[2].x;
+	planes[zest_RIGHT].w = matrix.v[3].w - matrix.v[3].x;
 
-	planes[zest_TOP].x = matrix->v[0].w - matrix->v[0].y;
-	planes[zest_TOP].y = matrix->v[1].w - matrix->v[1].y;
-	planes[zest_TOP].z = matrix->v[2].w - matrix->v[2].y;
-	planes[zest_TOP].w = matrix->v[3].w - matrix->v[3].y;
+	planes[zest_TOP].x = matrix.v[0].w - matrix.v[0].y;
+	planes[zest_TOP].y = matrix.v[1].w - matrix.v[1].y;
+	planes[zest_TOP].z = matrix.v[2].w - matrix.v[2].y;
+	planes[zest_TOP].w = matrix.v[3].w - matrix.v[3].y;
 
-	planes[zest_BOTTOM].x = matrix->v[0].w + matrix->v[0].y;
-	planes[zest_BOTTOM].y = matrix->v[1].w + matrix->v[1].y;
-	planes[zest_BOTTOM].z = matrix->v[2].w + matrix->v[2].y;
-	planes[zest_BOTTOM].w = matrix->v[3].w + matrix->v[3].y;
+	planes[zest_BOTTOM].x = matrix.v[0].w + matrix.v[0].y;
+	planes[zest_BOTTOM].y = matrix.v[1].w + matrix.v[1].y;
+	planes[zest_BOTTOM].z = matrix.v[2].w + matrix.v[2].y;
+	planes[zest_BOTTOM].w = matrix.v[3].w + matrix.v[3].y;
 
-	planes[zest_BACK].x = matrix->v[0].w + matrix->v[0].z;
-	planes[zest_BACK].y = matrix->v[1].w + matrix->v[1].z;
-	planes[zest_BACK].z = matrix->v[2].w + matrix->v[2].z;
-	planes[zest_BACK].w = matrix->v[3].w + matrix->v[3].z;
+	planes[zest_BACK].x = matrix.v[0].w + matrix.v[0].z;
+	planes[zest_BACK].y = matrix.v[1].w + matrix.v[1].z;
+	planes[zest_BACK].z = matrix.v[2].w + matrix.v[2].z;
+	planes[zest_BACK].w = matrix.v[3].w + matrix.v[3].z;
 
-	planes[zest_FRONT].x = matrix->v[0].w - matrix->v[0].z;
-	planes[zest_FRONT].y = matrix->v[1].w - matrix->v[1].z;
-	planes[zest_FRONT].z = matrix->v[2].w - matrix->v[2].z;
-	planes[zest_FRONT].w = matrix->v[3].w - matrix->v[3].z;
+	planes[zest_FRONT].x = matrix.v[0].w - matrix.v[0].z;
+	planes[zest_FRONT].y = matrix.v[1].w - matrix.v[1].z;
+	planes[zest_FRONT].z = matrix.v[2].w - matrix.v[2].z;
+	planes[zest_FRONT].w = matrix.v[3].w - matrix.v[3].z;
 
 	for (int i = 0; i < 6; ++i) {
 		float length = sqrtf(planes[i].x * planes[i].x + planes[i].y * planes[i].y + planes[i].z * planes[i].z);
