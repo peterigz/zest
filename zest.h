@@ -182,7 +182,7 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 #define ZEST_ALIGN_AFFIX(v)
 #define ZEST_PROTOTYPE
 ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_thread_access* target, zest_thread_access value, zest_thread_access original) {
-	return InterlockedCompareExchange(target, value, original);
+	return InterlockedCompareExchange((LONG*)target, value, original);
 }
 
 //Window creation

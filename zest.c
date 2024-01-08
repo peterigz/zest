@@ -874,7 +874,7 @@ void zest_CalculateFrustumPlanes(zest_matrix4 *view_matrix, zest_matrix4 *proj_m
 }
 
 zest_bool zest_IsPointInFrustum(const zest_vec4 planes[6], const float point[3]) {
-	for (auto i = 0; i < 6; i++) {
+	for (int i = 0; i < 6; i++) {
 		if ((planes[i].x * point[0]) + (planes[i].y * point[1]) + (planes[i].z * point[2]) + planes[i].w < 0)
 		{
 			return ZEST_FALSE;
@@ -885,7 +885,7 @@ zest_bool zest_IsPointInFrustum(const zest_vec4 planes[6], const float point[3])
 }
 
 zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float point[3], float radius) {
-	for (auto i = 0; i < 6; i++) {
+	for (int i = 0; i < 6; i++) {
 		if ((planes[i].x * point[0]) + (planes[i].y * point[1]) + (planes[i].z * point[2]) + planes[i].w <= -radius)
 		{
 			return ZEST_FALSE;

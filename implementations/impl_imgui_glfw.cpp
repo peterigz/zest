@@ -76,7 +76,7 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 
 				if (current_image->struct_type != zest_struct_type_image) {
 					//Invalid image
-					ZEST_PRINT_WARNING("Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
+					ZEST_PRINT_WARNING("%s", "Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
 					invalid_image_found = true;
 					continue;
 				}
