@@ -7815,8 +7815,10 @@ zest_render_target zest_CreateRenderTarget(const char *name) {
 	return zest_CreateRenderTargetWithInfo(name, zest_RenderTargetCreateInfo());
 }
 
-zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info) {
-	ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->render_targets, name));
+zest_render_target zest_CreateRenderTargetWithInfo(const char *name, struct zest_render_target_create_info_t create_info) {
+	if (zest_map_valid_name(ZestRenderer->render_targets, name)) {
+		ZEST_PRINT_WARNING("%s - %s", name, "This render target name already exists, existing render target will be overwritten.");
+	}
 	zest_render_target render_target = zest_NewRenderTarget();
 	render_target->name = name;
 	if (create_info.viewport.extent.width == 0 || create_info.viewport.extent.height == 0) {
@@ -8341,13 +8343,21 @@ void zest__next_font_instance(zest_layer layer) {
 	zest_sprite_instance_t *instance_ptr = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 	instance_ptr = instance_ptr + 1;
 	//Make sure we're not trying to write outside of the buffer range
-	ZEST_ASSERT(instance_ptr >= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data && instance_ptr <= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->end);
-	if (instance_ptr == layer->memory_refs[ZEST_FIF].staging_instance_data->end) {
-		zest_bool grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].staging_instance_data, sizeof(zest_sprite_instance_t), 0);
-		zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_sprite_instance_t), 0);
+	ZEST_ASSERT(instance_ptr >= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->data && instance_ptr <= (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->end);
+	if (instance_ptr == layer->memory_refs[ZEST_FIF].write_to_buffer->end) {
+		zest_bool grown = 0;
+		if (ZEST__FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
+			grown = zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_sprite_instance_t), 0);
+			layer->memory_refs[ZEST_FIF].write_to_buffer = layer->memory_refs[ZEST_FIF].device_instance_data;
+		}
+		else {
+			grown = zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].staging_instance_data, sizeof(zest_sprite_instance_t), 0);
+			zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_sprite_instance_t), 0);
+			layer->memory_refs[ZEST_FIF].write_to_buffer = layer->memory_refs[ZEST_FIF].staging_instance_data;
+		}
 		if (grown) {
 			layer->memory_refs[ZEST_FIF].instance_count++;
-			instance_ptr = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].staging_instance_data->data;
+			instance_ptr = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->data;
 			instance_ptr += layer->memory_refs[ZEST_FIF].instance_count;
 		}
 		else {
@@ -8629,13 +8639,25 @@ void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_
 	font_layer->instance_struct_size = sizeof(zest_sprite_instance_t);
 
 	zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
+	if (zest_GPUHasDeviceLocalHostVisible()) {
+		ZEST__FLAG(font_layer->flags, zest_layer_flag_device_local_direct);
+		device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
+	}
+
 	zest_buffer_info_t staging_buffer_info = zest_CreateStagingBufferInfo();
 	for (ZEST_EACH_FIF_i) {
 		font_layer->memory_refs[i].device_instance_data = zest_CreateBuffer(sizeof(zest_sprite_instance_t) * instance_pool_size, &device_buffer_info, ZEST_NULL);
-		font_layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(sizeof(zest_sprite_instance_t) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
+		if (ZEST__NOT_FLAGGED(font_layer->flags, zest_layer_flag_device_local_direct)) {
+			font_layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(sizeof(zest_sprite_instance_t) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
+			font_layer->memory_refs[i].instance_ptr = font_layer->memory_refs[i].staging_instance_data->data;
+			font_layer->memory_refs[i].write_to_buffer = font_layer->memory_refs[i].staging_instance_data;
+		}
+		else {
+			font_layer->memory_refs[i].instance_ptr = font_layer->memory_refs[i].device_instance_data->data;
+			font_layer->memory_refs[i].write_to_buffer = font_layer->memory_refs[i].device_instance_data;
+		}
 		font_layer->memory_refs[i].instance_count = 0;
 		font_layer->memory_refs[i].instance_count = 0;
-		font_layer->memory_refs[i].instance_ptr = font_layer->memory_refs[i].staging_instance_data->data;
 	}
 
     zest_SetLayerViewPort(font_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());

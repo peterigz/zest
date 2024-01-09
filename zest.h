@@ -2657,7 +2657,7 @@ ZEST_API zest_font zest_GetFont(const char *font);
 ZEST_API zest_render_target_create_info_t zest_RenderTargetCreateInfo();
 //Creat a new render target with a name and the zest_render_target_create_info_t containing the configuration of the render target. All render targets are stored in the 
 //renderer by name. Returns a handle to the render target.
-ZEST_API zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info);
+ZEST_API zest_render_target zest_CreateRenderTargetWithInfo(const char *name, struct zest_render_target_create_info_t create_info);
 //Create a render target with the given name and default settings. By default the size will be the same as the window.
 ZEST_API zest_render_target zest_CreateRenderTarget(const char *name);
 //Create a new initialised render target.
