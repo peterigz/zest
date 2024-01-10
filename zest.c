@@ -3908,7 +3908,7 @@ void zest_RestoreFrameInFlight(void) {
 VkFence zest_CreateFence() {
 	VkFenceCreateInfo fence_info = { 0 };
 	fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-	fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+	fence_info.flags = 0;
 	VkFence fence;
 	vkCreateFence(ZestDevice->logical_device, &fence_info, &ZestDevice->allocation_callbacks, &fence);
 	return fence;
@@ -5546,7 +5546,7 @@ void zest_SubmitCommandQueue(zest_command_queue command_queue, VkFence fence) {
 	submit_info.commandBufferCount = 1;
 	submit_info.pCommandBuffers = &command_queue->command_buffer[ZEST_FIF];
 
-	vkResetFences(ZestDevice->logical_device, 1, &ZestRenderer->fif_fence[ZEST_FIF]);
+	vkResetFences(ZestDevice->logical_device, 1, &fence);
 	ZEST_VK_CHECK_RESULT(vkQueueSubmit(ZestDevice->graphics_queue, 1, &submit_info, fence));
 }
 // --End Command queue setup and modify functions
