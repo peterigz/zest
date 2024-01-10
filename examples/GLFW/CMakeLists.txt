@@ -48,7 +48,7 @@ function(buildExample EXAMPLE_NAME)
 		SET(IMGUI_FILE_DIALOG_SOURCE "")
 	endif()
 
-	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects")
+	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects")
 		file(GLOB TIMELINEFX_SOURCE 
 			${TIMELINEFX}timelinefx.h
 			${TIMELINEFX}timelinefx.cpp
@@ -81,7 +81,7 @@ function(buildExample EXAMPLE_NAME)
 	target_link_libraries(${EXAMPLE_NAME} ${CMAKE_SOURCE_DIR}/examples/libs/freetype/win64/freetype.lib)
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/examples/libs/freetype/include) 
 
-	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects")
+	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects-effects")
 		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX}) 
 	endif()
 
@@ -97,6 +97,7 @@ set(EXAMPLES
 	zest-vaders
 	zest-timelinefx
 	zest-timelinefx-instanced-effects
+	zest-timelinefx-prerecorded-effects
 )
 
 buildExamples()
