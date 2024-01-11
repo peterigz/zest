@@ -1109,6 +1109,9 @@ void zest__create_instance(void) {
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback( VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
 	ZEST_PRINT_WARNING("Validation Layer: %s", pCallbackData->pMessage);
+	if (ZestDevice->validation_log) {
+		fprintf(ZestDevice->validation_log, "Validation Layer: %s\n", pCallbackData->pMessage);
+	}
 
 	return VK_FALSE;
 }
@@ -1146,6 +1149,10 @@ void zest__setup_validation(void) {
 	ZEST_VK_CHECK_RESULT(zest_create_debug_messenger(ZestDevice->instance, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->debug_messenger));
 
 	ZestDevice->pfnSetDebugUtilsObjectNameEXT = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(ZestDevice->instance, "vkSetDebugUtilsObjectNameEXT");
+}
+
+void zest_SetValidationFile(FILE *file) {
+	ZestDevice->validation_log = file;
 }
 
 void zest_AddInstanceExtension(char *extension) {
@@ -4892,7 +4899,7 @@ zest_index zest__next_fif() {
 
 zest_create_info_t zest_CreateInfo() {
 	zest_create_info_t create_info = {
-		.memory_pool_size = zloc__MEGABYTE(16),
+		.memory_pool_size = zloc__MEGABYTE(64),
 		.screen_width = 1280, 
 		.screen_height = 768,			
 		.screen_x = 0, 
@@ -5330,7 +5337,6 @@ void zest_AddLayer(zest_layer layer) {
 	ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);	//The current setup context must be a render pass, layer or compute
 	zest__set_queue_context(zest_setup_context_type_layer);
 	zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
-	zest_draw_routine_t blank_draw_routine = { 0 };
 	if (!layer->draw_routine) {
 		ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, layer->name));	//A draw routine with that name already exists
 		zest_draw_routine_t blank_draw_routine = { 0 };
@@ -7787,6 +7793,7 @@ void zest__create_render_target_sampler_image(zest_render_target render_target) 
 zest_render_target zest_NewRenderTarget() {
 	zest_render_target_t blank_render_target = { 0 };
 	zest_render_target render_target = ZEST__NEW_ALIGNED(zest_render_target, 16);
+	*render_target = blank_render_target;
 	render_target->render_width = 0;
 	render_target->render_height = 0;
 	render_target->flags = zest_render_target_flag_render_to_swap_chain;
@@ -7804,6 +7811,9 @@ zest_render_target_create_info_t zest_RenderTargetCreateInfo() {
 		.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 		.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 		.flags = zest_render_target_flag_is_src | zest_render_target_flag_sampler_size_match_texture,
+		.input_source = 0,
+		.render_format = ZestRenderer->swapchain_image_format,
+		.viewport = {0}
 	};
 	if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {
 		create_info.flags |= zest_render_target_flag_use_depth_buffer;
@@ -7815,7 +7825,7 @@ zest_render_target zest_CreateRenderTarget(const char *name) {
 	return zest_CreateRenderTargetWithInfo(name, zest_RenderTargetCreateInfo());
 }
 
-zest_render_target zest_CreateRenderTargetWithInfo(const char *name, struct zest_render_target_create_info_t create_info) {
+zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info) {
 	if (zest_map_valid_name(ZestRenderer->render_targets, name)) {
 		ZEST_PRINT_WARNING("%s - %s", name, "This render target name already exists, existing render target will be overwritten.");
 	}
