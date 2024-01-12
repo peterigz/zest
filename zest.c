@@ -4089,10 +4089,10 @@ void zest__prepare_standard_pipelines() {
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance_t, uv_zw)));							// Location 3: uv_zw
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, scale)));							// Location 4: Handle
 	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, handle)));						// Location 5: Handle
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_SFLOAT, offsetof(zest_billboard_instance_t, stretch)));							// Location 6: Stretch amount
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, blend_texture_array)));				// Location 7: texture array index
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));						// Location 8: Instance Color
-	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_A2R10G10B10_SNORM_PACK32, offsetof(zest_billboard_instance_t, alignment)));			// Location 9: Alignment
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, blend_texture_array)));				// Location 6: texture array index
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));						// Location 7: Instance Color
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R16G16_SFLOAT, offsetof(zest_billboard_instance_t, stretch_alignment_x)));			// Location 8: Stretch and Alignment X
+	zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_R16G16_SFLOAT, offsetof(zest_billboard_instance_t, alignment_yz)));					// Location 9: Alignment Y and Z
 
 	zest_pipeline billboard_instance_pipeline = zest_AddPipeline("pipeline_billboard");
 	instance_create_info.attributeDescriptions = billboard_vertex_input_attributes;
@@ -8942,7 +8942,7 @@ void zest_SetBillboardDrawing(zest_layer billboard_layer, zest_texture texture, 
 	billboard_layer->last_draw_mode = zest_draw_mode_instance;
 }
 
-void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy) {
+void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], float alignment[3], float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy) {
 	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);	//Call zest_StartSpriteDrawing before calling this function
 
 	zest_billboard_instance_t *billboard = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
@@ -8950,11 +8950,11 @@ void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], z
 	billboard->scale = zest_Vec2Set(sx, sy);
 	billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
 	billboard->rotations = zest_Vec3Set(angles[0], angles[1], angles[2]);
-	billboard->alignment = alignment;
 	billboard->uv_xy = image->uv_xy;
 	billboard->uv_zw = image->uv_zw;
 	billboard->handle = zest_Vec2Set(handle[0], handle[1]);
-	billboard->stretch = stretch;
+	billboard->stretch_alignment_x = zest_Pack16bit(stretch, alignment[0]);
+	billboard->alignment_yz = zest_Pack16bit(alignment[1], alignment[2]);
 	billboard->color = layer->current_color;
 	billboard->blend_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
 	layer->current_instruction.total_instances++;
@@ -8962,7 +8962,7 @@ void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], z
 	zest__next_billboard_instance(layer);
 }
 
-void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3],  float angle, float sx, float sy) {
+void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy) {
 	ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);		//Call zest_StartSpriteDrawing before calling this function
 
 	zest_billboard_instance_t *billboard = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
@@ -8970,11 +8970,11 @@ void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position
 	billboard->scale = zest_Vec2Set(sx, sy);
 	billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
 	billboard->rotations = zest_Vec3Set(0.f, 0.f, angle);
-	billboard->alignment = 16711680;
 	billboard->uv_xy = image->uv_xy;
 	billboard->uv_zw = image->uv_zw;
 	billboard->handle = zest_Vec2Set(0.5f, 0.5f);
-	billboard->stretch = 0.f;
+	billboard->stretch_alignment_x = 0;
+	billboard->alignment_yz = 32767;		//y = 1.f, z = 0.f;
 	billboard->color = layer->current_color;
 	billboard->blend_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
 	layer->current_instruction.total_instances++;

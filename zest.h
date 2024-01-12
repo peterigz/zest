@@ -1188,10 +1188,12 @@ typedef struct zest_billboard_instance_t {		//64 bytes
 	zest_uint uv_zw;					//The UV coords of the image in the texture, z and w packed in a zest_uint as SNORM 16bit floats
 	zest_vec2 scale;					//The scale of the billboard
 	zest_vec2 handle;					//The handle of the billboard
-	float stretch;						//Amount to stretch the billboard along it's alignment vector
 	zest_uint blend_texture_array;		//reference for the texture array (8bits) and blend factor (24bits)
 	zest_color color;					//The color tint of the sprite
-	zest_uint alignment;				//normalised alignment vector 3 floats packed into 10bits each with 2 bits left over
+	//Note: I did have alignment packed into a uint as 3 10bit floats but this is not supported on mac, so intead I pack into 2 uints as 16 bit floats
+	//		along with stretch, so we get higher resolution anyway but stretch has a lower max value which should be fine	
+	zest_uint stretch_alignment_x;		//Amount to stretch the billboard along it's alignment vector and the x component of the alignment vector packed into a uint
+	zest_uint alignment_yz;				//Alignment y and z packed into a uint as 16bit floats
 } zest_billboard_instance_t;
 
 //SDF Lines
@@ -2818,7 +2820,7 @@ ZEST_API void zest_SetBillboardDrawing(zest_layer billboard_layer , zest_texture
 //stretch:				How much to stretch the billboard along it's alignment.
 //alignment_type:		This is a bit flag with 2 bits 00. 00 = align to the camera. 11 = align to the alignment vector. 10 = align to the alignment vector and the camera.
 //sx, sy:				The size of the sprite in 3d units
-ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
+ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], float alignment[3], float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
 //A simplified version of zest_DrawBillboard where you only need to set the position, rotation and size of the billboard. The alignment will always be set to face the camera.
 ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy);
 //--End Draw billboard layers
