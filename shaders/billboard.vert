@@ -44,8 +44,8 @@ layout(location = 4) in vec2 scale;
 layout(location = 5) in vec2 handle;
 layout(location = 6) in uint blend_texture_index;
 layout(location = 7) in vec4 in_color;
-layout(location = 8) in vec2 stretch_alignment_x;
-layout(location = 9) in vec2 alignment_yz;
+layout(location = 8) in float stretch;
+layout(location = 9) in vec3 alignment;
 
 layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec3 out_tex_coord;
@@ -65,8 +65,7 @@ mat3 RotationMatrix(vec3 axis, float angle)
 void main() {
 	float blend_factor = blend_texture_index & uint(0x003fffff);
 	blend_factor /= 524287.875;
-	vec3 alignment = vec3(stretch_alignment_x.x, alignment_yz.x, alignment_yz.y);
-
+	
 	//Info about how to align the billboard is stored in bits 22 and 23 of blend_texture_index
 
 	//Billboarding determines whether the quad will align to the camera or not. 0 means that it will 
@@ -92,7 +91,6 @@ void main() {
 	uvs[2].x = uv_xy.x ; uvs[2].y = uv_zw.y;
 	uvs[3].x = uv_zw.x ; uvs[3].y = uv_zw.y;
 	
-	vec3 alignment_normal = normalize(alignment);
 	vec3 camera_relative_aligment = alignment * inverse(mat3(uboView.view));
 	float dp_up = dot(camera_relative_aligment.xy, -up.xy);
 	float det = camera_relative_aligment.x * -up.y;
@@ -107,18 +105,17 @@ void main() {
 	};
 
 	vec3 bounds[4];
-	bounds[0] =	align_type == 1 ? ((-scale.y * alignment_normal * (0 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
-	bounds[1] =	align_type == 1 ? ((-scale.y * alignment_normal * (0 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
-	bounds[2] =	align_type == 1 ? ((-scale.y * alignment_normal * (1 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
-	bounds[3] = align_type == 1 ? ((-scale.y * alignment_normal * (1 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
+	bounds[0] =	align_type == 1 ? ((-scale.y * alignment * (0 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
+	bounds[1] =	align_type == 1 ? ((-scale.y * alignment * (0 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
+	bounds[2] =	align_type == 1 ? ((-scale.y * alignment * (1 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
+	bounds[3] = align_type == 1 ? ((-scale.y * alignment * (1 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
 
 	int index = indexes[gl_VertexIndex];
 
-	out_tex_coord = vec3(uvs[index], (blend_texture_index & uint(0xFF000000)) >> 24);
 	vec3 vertex_position = bounds[index];
 
 	vec3 surface_normal = cross(bounds[1] - bounds[0], bounds[2] - bounds[0]); 
-	mat3 matrix_roll = RotationMatrix(align_type * alignment_normal + front * (1 - align_type), align_type * rotations.z + dp_angle * (1 - align_type));
+	mat3 matrix_roll = RotationMatrix(align_type * alignment + front * (1 - align_type), align_type * rotations.z + dp_angle * (1 - align_type));
 	mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * (1 - align_type), rotations.x * billboarding);
 	mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * (1 - align_type), rotations.y * billboarding);
 
@@ -132,8 +129,8 @@ void main() {
 	mat4 modelView = uboView.view * model;
 	vec3 pos = rot_mat * vertex_position;
 	//Stretch effect but negate if billboarding is not active
-	pos += camera_relative_aligment * dot(pos, camera_relative_aligment) * stretch_alignment_x.x * (1 - billboarding);
-	pos += alignment_normal * dot(pos, alignment_normal) * stretch_alignment_x.x * billboarding;
+	pos += camera_relative_aligment * dot(pos, camera_relative_aligment) * stretch * (1 - billboarding);
+	pos += alignment * dot(pos, alignment) * stretch * billboarding;
 
 	//Billboarding. If billboarding = 0 then billboarding is active and the quad will always face the camera, 
 	//otherwise the modelView matrix is used as it is.
@@ -147,10 +144,10 @@ void main() {
 	modelView[2][1] = (billboarding * modelView[2][1]); 
 	modelView[2][2] = (billboarding * modelView[2][2]) + 1 * (1 - billboarding); 	
 
-	vec4 p = modelView * vec4(pos, 1.0);
+	vec4 p = modelView * vec4(pos, 1.0); 
 	gl_Position = uboView.proj * p;
 
 	//----------------
-	out_frag_color = in_color;
-	out_blend_factor = blend_factor;
+	out_frag_color = in_color * blend_factor;
+	out_tex_coord = vec3(uvs[index], (blend_texture_index & uint(0xFF000000)) >> 24);
 }

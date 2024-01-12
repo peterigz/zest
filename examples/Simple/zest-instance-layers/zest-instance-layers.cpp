@@ -13,6 +13,7 @@ typedef struct zest_example {
 	zest_uniform_buffer uniform_buffer_3d;		//A uniform buffer to contain the projection and view matrix
 	zest_descriptor_set sprite_descriptor;		//Handle for the sprite descriptor
 	zest_descriptor_set billboard_descriptor;	//Hanlde for the billboard descriptor
+	zest_vec3 last_position;
 } zest_example;
 
 void UpdateUniformBuffer3d(zest_example *example) {
@@ -110,28 +111,32 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//Set some values to draw the billboard with
 	zest_vec3 angles = { 0 };
 	zest_vec3 handle = { .5f, .5f };
-	zest_vec3 alignment = zest_Vec3Set(0.5f, 0.5f, 1.f);
+	zest_vec3 alignment = zest_SubVec3(example->last_position, position);
+	alignment.y += 0.0001f;
 	alignment = zest_NormalizeVec3(alignment);
+	printf("%f, %f, %f\n", alignment.x, alignment.y, alignment.z);
 	float scale_x = (float)ZestApp->mouse_x * 5.f / zest_ScreenWidthf();
 	float scale_y = (float)ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
 	//Draw the billboard
-	zest_DrawBillboard(example->billboard_layer, example->image, &position.x, &alignment.x, &angles.x, &handle.x, 0.f, 0, 1.f, 1.f);
+	zest_DrawBillboard(example->billboard_layer, example->image, &position.x, zest_Pack8bit(alignment.x, alignment.y, alignment.z), &angles.x, &handle.x, 4.f, 0, 1.f, 1.f);
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->texture, example->billboard_descriptor, example->mesh_pipeline);
 	//Draw the textured plane
 	zest_DrawTexturedPlane(example->mesh_layer, example->image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
+	example->last_position = position;
 }
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-//int main(void) 
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+int main(void) 
 {
 	zest_example example = { 0 };
-	zest_uint packed = zest_Pack16bit(1.f, 0.f);
+
+	zest_uint test = zest_Pack8bit(0, 1.f, 0);
 
 	zest_create_info_t create_info = zest_CreateInfo();
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 
 	zest_Initialise(&create_info);
