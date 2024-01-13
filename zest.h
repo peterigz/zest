@@ -1188,9 +1188,9 @@ typedef struct zest_billboard_instance_t {		//64 bytes
 	zest_uint uv_zw;					//The UV coords of the image in the texture, z and w packed in a zest_uint as SNORM 16bit floats
 	zest_vec2 scale;					//The scale of the billboard
 	zest_vec2 handle;					//The handle of the billboard
+	float stretch;						//Amount to stretch the billboard along it's alignment vector and the x component of the alignment vector packed into a uint
 	zest_uint blend_texture_array;		//reference for the texture array (8bits) and blend factor (24bits)
 	zest_color color;					//The color tint of the sprite
-	float stretch;						//Amount to stretch the billboard along it's alignment vector and the x component of the alignment vector packed into a uint
 	zest_uint alignment;				//Alignment x, y and z packed into a uint as 8bit floats
 } zest_billboard_instance_t;
 

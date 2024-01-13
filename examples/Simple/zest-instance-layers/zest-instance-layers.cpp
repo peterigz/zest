@@ -111,14 +111,10 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//Set some values to draw the billboard with
 	zest_vec3 angles = { 0 };
 	zest_vec3 handle = { .5f, .5f };
-	zest_vec3 alignment = zest_SubVec3(example->last_position, position);
-	alignment.y += 0.0001f;
-	alignment = zest_NormalizeVec3(alignment);
-	printf("%f, %f, %f\n", alignment.x, alignment.y, alignment.z);
 	float scale_x = (float)ZestApp->mouse_x * 5.f / zest_ScreenWidthf();
 	float scale_y = (float)ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
 	//Draw the billboard
-	zest_DrawBillboard(example->billboard_layer, example->image, &position.x, zest_Pack8bit(alignment.x, alignment.y, alignment.z), &angles.x, &handle.x, 4.f, 0, 1.f, 1.f);
+	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, 1.f, 1.f);
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->texture, example->billboard_descriptor, example->mesh_pipeline);
 	//Draw the textured plane
@@ -128,8 +124,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-int main(void) 
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+//int main(void) 
 {
 	zest_example example = { 0 };
 
