@@ -22,3 +22,6 @@
 [submodule "submodules/msdf_atlas_gen"]
 	path = submodules/msdf_atlas_gen
 	url = https://github.com/peterigz/msdf-atlas-gen.git
+[submodule "submodules/freetype"]
+	path = submodules/freetype
+	url = https://github.com/freetype/freetype.git

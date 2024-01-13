@@ -91,6 +91,7 @@ ENDIF(WIN32)
 
 # Link zest-lib with Vulkan
 target_link_libraries(zest-lib Vulkan::Vulkan)
+add_subdirectory(submodules/freetype)
 # Add the remaining example projects
 add_subdirectory(examples/Simple)
 if (GLFW3_FOUND)
