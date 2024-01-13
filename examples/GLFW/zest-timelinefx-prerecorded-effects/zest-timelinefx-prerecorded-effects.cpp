@@ -235,6 +235,16 @@ void InitExample(ComputeExample *example) {
 	zest_SetTexturePackedBorder(example->particle_texture, 8);
 
 	example->record_time = zest_Millisecs();		//See how long it takes to set things up. We're just loading in the data so a lot quicker than actually having to record the effects.
+    
+    //Initialise an animation manager. An animation manager maintains our animation instances for us and provides all the necessary metrics we'll
+    //need to upload the buffers we need to both to initialise the compute shader and when we upload the offsets and instances buffer each frame.
+    //Specify the maximum number of animation instances that you might want to play each frame
+    tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_INSTANCES);
+    //Here we set the callback that will be used to decide if an animation should be drawn or not. We use the bounding box to check if it's inside
+    //the view frustum and cull it if it's not.
+    example->animation_manager_3d.maybe_render_instance_callback = CullAnimationInstancesCallback;
+    //Set the user data to the ComputeExample which we can use in the callback function
+    SetAnimationManagerUserData(&example->animation_manager_3d, example);
 
 	//Load the effects library and pass our shape loader callback function which loads the particle shape images into our texture
 	tfxErrorFlags result = LoadSpriteData("examples/assets/prerecorded_effects.tfxsd", &example->animation_manager_3d, ShapeLoader, example);
@@ -255,16 +265,6 @@ void InitExample(ComputeExample *example) {
 	zest_CameraSetYaw(&example->camera, zest_Radians(-90.f));
 	zest_CameraSetPitch(&example->camera, zest_Radians(0.f));
 	zest_CameraUpdateFront(&example->camera);
-
-	//Initialise an animation manager. An animation manager maintains our animation instances for us and provides all the necessary metrics we'll
-	//need to upload the buffers we need to both to initialise the compute shader and when we upload the offsets and instances buffer each frame.
-	//Specify the maximum number of animation instances that you might want to play each frame
-	tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_INSTANCES);
-	//Here we set the callback that will be used to decide if an animation should be drawn or not. We use the bounding box to check if it's inside
-	//the view frustum and cull it if it's not.
-	example->animation_manager_3d.maybe_render_instance_callback = CullAnimationInstancesCallback;
-	//Set the user data to the ComputeExample which we can use in the callback function
-	SetAnimationManagerUserData(&example->animation_manager_3d, example);
 
 	//Render Specific - Create the 6 buffers needed for the compute shader. Create these after you've added all the effect animations you want to use
 	//to the animation manager.
@@ -545,8 +545,8 @@ void Update(zest_microsecs elapsed, void *data) {
 	zest_TimerSet(example->timer);
 }
 
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
