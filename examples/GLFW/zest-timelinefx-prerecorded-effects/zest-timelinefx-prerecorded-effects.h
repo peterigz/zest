@@ -6,7 +6,7 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
-#include "../../TimelineFXLib/timelinefx.h"
+#include "../../timelinefxlib/timelinefx.h"
 
 using namespace tfx;
 
