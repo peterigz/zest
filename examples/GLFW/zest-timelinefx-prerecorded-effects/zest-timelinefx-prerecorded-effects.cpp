@@ -545,8 +545,8 @@ void Update(zest_microsecs elapsed, void *data) {
 	zest_TimerSet(example->timer);
 }
 
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
