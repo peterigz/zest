@@ -204,11 +204,15 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_thread_access* target, zest_thread_access value, zest_thread_access original) {
 	return __sync_val_compare_and_swap(target, original, value);
 }
+
 //Window creation
 //--
 
 #endif
 /*end of platform specific code*/
+#ifdef __APPLE__
+#define ZEST_PORTABILITY_ENUMERATION
+#endif
 
 #define ZEST_TRUE 1
 #define ZEST_FALSE 0

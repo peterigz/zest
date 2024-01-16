@@ -1104,7 +1104,9 @@ void zest__create_instance(void) {
     VkInstanceCreateInfo create_info = { 0 };
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     create_info.pApplicationInfo = &app_info;
+#ifdef ZEST_PORTABILITY_ENUMERATION
     create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
     create_info.pNext = 0;
     
     zest__get_required_extensions();
@@ -1204,7 +1206,9 @@ void zest__get_required_extensions() {
         zest_AddInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
     //zest_AddInstanceExtension(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
+#ifdef ZEST_PORTABILITY_ENUMERATION
     zest_AddInstanceExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
 }
 
 zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties) {
