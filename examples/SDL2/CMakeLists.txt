@@ -48,14 +48,14 @@ function(buildExample EXAMPLE_NAME)
 
 	if(WIN32)
 		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
-		target_link_libraries(${EXAMPLE_NAME} PRIVATE zest-lib ${Vulkan_LIBRARY} ${SDL2_LIBRARIES} ${WINLIBS})
+		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${SDL2_LIBRARIES} ${WINLIBS})
 	else(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${SDL2_LIBRARIES})
 	endif(WIN32)
 
-	target_link_libraries(${EXAMPLE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/examples/libs/freetype/win64/freetype.lib)
-	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/examples/libs/freetype/include) 
+	target_link_libraries(${EXAMPLE_NAME} freetype)
+	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/freetype/include) 
 
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${EXAMPLE_FOLDER})
 
