@@ -43,12 +43,12 @@ void InitImGuiApp(ImGuiApp *app) {
 
 }
 
-void UpdateCallback(zest_microsecs elapsed, void *user_data) {
+void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Don't forget to update the uniform buffer!
 	zest_Update2dUniformBuffer();
 	//Set the active command queue to the default one that was created when Zest was initialised
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
-	ImGuiApp *app = (ImGuiApp*)user_data;
+	ImGuiApp* app = (ImGuiApp*)user_data;
 
 	//Must call the imgui GLFW implementation function
 	ImGui_ImplGlfw_NewFrame();
@@ -57,7 +57,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::ShowDemoWindow();
 	ImGui::Begin("Test Window");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
-	zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
+	//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 	ImGui::End();
 	ImGui::Render();
 	//Let the layer know that it needs to reupload the imgui mesh data to the GPU
@@ -68,12 +68,12 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
 

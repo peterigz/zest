@@ -4,10 +4,14 @@ function(buildExample EXAMPLE_NAME)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui/backends)
+	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui_test_engine/)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui_test_engine/imgui_test_engine)
+	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui_test_engine/imgui_test_suite)
 	include_directories(${CMAKE_SOURCE_DIR}/implementations) 
 	
 	SET(IMGUI ${CMAKE_SOURCE_DIR}/submodules/imgui/)
+	SET(IMGUI_TEST_ENGINE ${CMAKE_SOURCE_DIR}/submodules/imgui_test_engine/imgui_test_engine/)
+	SET(IMGUI_TEST_SUITE ${CMAKE_SOURCE_DIR}/submodules/imgui_test_engine/imgui_test_suite/)
 	SET(IMGUI_FILE_DIALOG ${CMAKE_SOURCE_DIR}/submodules/imgui_file_dialog/)
 	SET(IMPLEMENTATIONS ${CMAKE_SOURCE_DIR}/implementations/)
 	SET(TIMELINEFX ${CMAKE_SOURCE_DIR}/submodules/timelinefxlib/)
@@ -34,6 +38,18 @@ function(buildExample EXAMPLE_NAME)
 		${IMGUI}backends/imgui_impl_glfw.cpp
 		${IMGUI}misc/freetype/imgui_freetype.cpp
 	)
+
+	if(${EXAMPLE_NAME} STREQUAL "zest-imgui-test-suite")
+		file(GLOB IMGUI_TEST_ENGINE_SOURCE
+			${IMGUI_TEST_ENGINE}*.cpp 
+		)
+		file(GLOB IMGUI_TEST_SUITE_SOURCE
+			${IMGUI_TEST_SUITE}*.cpp 
+		)
+	else()
+		SET(IMGUI_TEST_ENGINE_SOURCE "")
+		SET(IMGUI_TEST_SUITE_SOURCE "")
+	endif()
 	
 	file(GLOB IMPLEMENTATIONS_SOURCE
 		${IMPLEMENTATIONS}impl_glfw.cpp
@@ -61,14 +77,18 @@ function(buildExample EXAMPLE_NAME)
 	source_group("Shaders" FILES ${SHADERS})
 	source_group("ImGui" FILES ${IMGUI_SOURCE})
 	source_group("Implementations" FILES ${IMPLEMENTATIONS_SOURCE})
+	if(${EXAMPLE_NAME} STREQUAL "zest-imgui-test-suite")
+		source_group("ImGuiTestEngine" FILES ${IMGUI_TEST_ENGINE_SOURCE})
+		source_group("ImGuiTestSuite" FILES ${IMGUI_TEST_SUITE_SOURCE})
+	endif()
 	
 	add_compile_definitions(IMGUI_USER_CONFIG="zest_imconfig.h")
 
 	if(WIN32)
-		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
+		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${IMGUI_TEST_ENGINE_SOURCE} ${IMGUI_TEST_SUITE_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY} ${WINLIBS})
 	else(WIN32)
-		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
+		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_TEST_ENGINE_SOURCE} ${IMGUI_TEST_SUITE_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY})
 	endif(WIN32)
 
