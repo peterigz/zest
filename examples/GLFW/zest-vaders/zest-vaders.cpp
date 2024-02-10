@@ -977,8 +977,9 @@ void RenderParticles3d(tfx_particle_manager_t &pm, float tween, VadersGame *game
 			//const float &captured_intensity = pm.GetCapturedSprite3dIntensity(layer, sprites.captured_index[i]);
 			//float lerped_intensity = Interpolatef(tween, captured_intensity, sprites.intensity[i]);
 			zest_SetLayerIntensity(game->billboard_layer, sprites.intensity[i]);
-			zest_image image = (zest_image)pm.library->emitter_properties.image[sprites.property_indexes[i] & 0x0000FFFF]->ptr;
-			tfx_vec2_t handle = pm.library->emitter_properties.image_handle[sprites.property_indexes[i] & 0x0000FFFF];
+			tfxU32 property_index = sprites.property_indexes[i] & 0x0000FFFF;
+			zest_image image = (zest_image)pm.library->emitter_properties[property_index].image->ptr;
+			tfx_vec2_t handle = pm.library->emitter_properties[property_index].image_handle;
 			const tfx_sprite_transform3d_t *captured = GetCapturedSprite3dTransform(&pm, layer, sprites.captured_index[i]);
 			tfx_wide_lerp_transform_result_t lerped = InterpolateSpriteTransform(&lerp, &sprites.transform_3d[i], captured);
 			zest_DrawBillboard(game->billboard_layer, image + ((sprites.property_indexes[i] & 0x00FF0000) >> 16),
