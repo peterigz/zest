@@ -370,7 +370,7 @@ void VadersGame::Init() {
 	//Depending on your needs you can use as many particle managers as you need.
 	//pm.InitFor3d(layer_max_values, 100, tfx_particle_manager_tMode_ordered_by_depth_guaranteed, 512);
 	InitParticleManagerFor3d(&background_pm, &library, layer_max_values, 100, tfxParticleManagerMode_ordered_by_depth, true, false, 2048);
-	InitParticleManagerFor3d(&game_pm, &library, layer_max_values, 1000, tfxParticleManagerMode_unordered, true, false, 2048);
+	InitParticleManagerFor3d(&game_pm, &library, layer_max_values, 1000, tfxParticleManagerMode_unordered, true, true, 2048);
 	InitParticleManagerFor3d(&title_pm, &library, layer_max_values, 100, tfxParticleManagerMode_unordered, true, false, 2048);
 
 	//Load a font we can draw text with
@@ -401,11 +401,13 @@ void VadersGame::Init() {
 	SetTemplateEffectUpdateCallback(&got_power_up, UpdateGotPowerUpEffect);
 
 	//Add the background effect nad title effect to the particle manager and set their positions
-	background_index = AddEffectToParticleManager(&background_pm, &background);
-	zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&camera.front, 12.f), camera.position);
-	SetEffectPosition(&background_pm, background_index, { position.x, position.y, position.z });
-	title_index = AddEffectToParticleManager(&title_pm, &title);
-	SetEffectPosition(&title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, uniform_buffer_3d));
+	if (AddEffectToParticleManager(&background_pm, &background, &background_index)) {
+		zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&camera.front, 12.f), camera.position);
+		SetEffectPosition(&background_pm, background_index, { position.x, position.y, position.z });
+	}
+	if (AddEffectToParticleManager(&title_pm, &title, &title_index)) {
+		SetEffectPosition(&title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, uniform_buffer_3d));
+	}
 
 	//Initialise imgui
 	zest_imgui_Initialise(&imgui_layer_info);
@@ -559,11 +561,13 @@ void UpdateVaders(VadersGame *game) {
 				hit = true;
 				bullet.remove = true;
 				//Blow up the vader. Add teh vader_explosion_effect template to the particle manager
-				tfxEffectID effect_index = AddEffectToParticleManager(&game->game_pm, &game->vader_explosion_effect);
-				//Set the effect position
-				SetEffectPosition(&game->game_pm, effect_index, vader.position);
-				//Alter the effect scale
-				SetEffectOveralScale(&game->game_pm, effect_index, 2.5f);
+				tfxEffectID effect_index;
+				if (AddEffectToParticleManager(&game->game_pm, &game->vader_explosion_effect, &effect_index)) {
+					//Set the effect position
+					SetEffectPosition(&game->game_pm, effect_index, vader.position);
+					//Alter the effect scale
+					SetEffectOveralScale(&game->game_pm, effect_index, 2.5f);
+				}
 				game->score += 150;
 				game->high_score = tfxMax(game->score, game->high_score);
 				break;
@@ -615,24 +619,30 @@ void UpdateVaders(VadersGame *game) {
 				bullet.remove = true;
 				vader.health--;
 				//Add the damage taken effect to the particle manager and set it's position
-				tfxEffectID damage_index = AddEffectToParticleManager(&game->game_pm, &game->damage);
-				SetEffectPosition(&game->game_pm, damage_index, bullet.position);
+				tfxEffectID damage_index;
+				if (AddEffectToParticleManager(&game->game_pm, &game->damage, &damage_index)) {
+					SetEffectPosition(&game->game_pm, damage_index, bullet.position);
+				}
 				if (vader.health == 0) {
 					dead = true;
 					//blow up the big vader, add the big_explosion template to the particle manager and set position and scale
-					tfxEffectID effect_index = AddEffectToParticleManager(&game->game_pm, &game->big_explosion);
-					SetEffectPosition(&game->game_pm, effect_index, vader.position);
-					SetEffectOveralScale(&game->game_pm, effect_index, 2.5f);
+					tfxEffectID effect_index;
+					if (AddEffectToParticleManager(&game->game_pm, &game->big_explosion, &effect_index)) {
+						SetEffectPosition(&game->game_pm, effect_index, vader.position);
+						SetEffectOveralScale(&game->game_pm, effect_index, 2.5f);
+					}
 					game->score += 500;
 					game->high_score = tfxMax(game->score, game->high_score);
 					if (vader.flags & VaderFlags_firing_laser) {
 						SoftExpireEffect(&game->game_pm, vader.laser);
 					}
 					//Add the power up effect that floats downward to the particle manager and set its position and scale
-					tfxEffectID power_up_index = AddEffectToParticleManager(&game->game_pm, &game->weapon_power_up);
-					SetEffectPosition(&game->game_pm, power_up_index, vader.position);
-					SetEffectOveralScale(&game->game_pm, power_up_index, 3.f);
-					game->power_ups[game->current_buffer].push_back(power_up_index);
+					tfxEffectID power_up_index;
+					if (AddEffectToParticleManager(&game->game_pm, &game->weapon_power_up, &power_up_index)) {
+						SetEffectPosition(&game->game_pm, power_up_index, vader.position);
+						SetEffectOveralScale(&game->game_pm, power_up_index, 3.f);
+						game->power_ups[game->current_buffer].push_back(power_up_index);
+					}
 					break;
 				}
 			}
@@ -646,16 +656,18 @@ void UpdateVaders(VadersGame *game) {
 		if (vader.time > 2.f && !(vader.flags & VaderFlags_charging_up) && !(vader.flags & VaderFlags_firing_laser)) {
 			//The big vader has started to power up it's laser, add the charge up effect to the particle manager
 			//Position at the tip of the vader
-			tfxEffectID effect_index = AddEffectToParticleManager(&game->game_pm, &game->charge_up);
-			tfx_vec3_t laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
-			SetEffectPosition(&game->game_pm, effect_index, vader.position + laser_offset);
+			tfxEffectID effect_index;
+			if (AddEffectToParticleManager(&game->game_pm, &game->charge_up, &effect_index)) {
+				tfx_vec3_t laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
+				SetEffectPosition(&game->game_pm, effect_index, vader.position + laser_offset);
+			}
 			vader.flags |= VaderFlags_charging_up;
 			vader.flags |= VaderFlags_in_position;
 		}
 		else if (vader.time > 3.f && vader.flags & VaderFlags_charging_up) {
 			//Big vader has finished charging up so shoot the laser
 			//Add the laser effect to the particle manager and set the position
-			vader.laser = AddEffectToParticleManager(&game->game_pm, &game->laser);
+			AddEffectToParticleManager(&game->game_pm, &game->laser, &vader.laser);
 			tfx_vec3_t laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
 			SetEffectPosition(&game->game_pm, vader.laser, vader.position + laser_offset);
 			SetEffectPitch(&game->game_pm, vader.laser, DegreesToRadians(vader.angle));
@@ -687,9 +699,11 @@ void UpdateVaders(VadersGame *game) {
 				//Check to see if the laser is colliding with the player
 				if (game->state != GameState_game_over && IsLineCircleCollision(vader.position + laser_offset, vader.position + laser_offset + (laser_normal * 20.f), game->player.position, .3f)) {
 					//Destroy the player. Add the player explosion to the particle manager and position/scale it.
-					int index = AddEffectToParticleManager(&game->game_pm, &game->player_explosion);
-					SetEffectPosition(&game->game_pm, index, game->player.position);
-					SetEffectOveralScale(&game->game_pm, index, 1.5f);
+					tfxEffectID effect_index;
+					if (AddEffectToParticleManager(&game->game_pm, &game->player_explosion, &effect_index)) {
+						SetEffectPosition(&game->game_pm, effect_index, game->player.position);
+						SetEffectOveralScale(&game->game_pm, effect_index, 1.5f);
+					}
 					game->state = GameState_game_over;
 				}
 			}
@@ -709,9 +723,11 @@ void UpdatePowerUps(VadersGame *game) {
 		tfx_vec3_t position = GetEffectPosition(&game->game_pm, power_up);
 		if (GetDistance(position.z, position.y, game->player.position.z, game->player.position.y) < 0.3f) {
 			HardExpireEffect(&game->game_pm, power_up);
-			tfxEffectID effect_index = AddEffectToParticleManager(&game->game_pm, &game->got_power_up);
-			SetEffectPosition(&game->game_pm, effect_index, game->player.position);
-			SetEffectOveralScale(&game->game_pm, effect_index, 2.5f);
+			tfxEffectID effect_index;
+			if (AddEffectToParticleManager(&game->game_pm, &game->got_power_up, &effect_index)) {
+				SetEffectPosition(&game->game_pm, effect_index, game->player.position);
+				SetEffectOveralScale(&game->game_pm, effect_index, 2.5f);
+			}
 			game->player.rate_of_fire += 1 * UpdateFrequency;
 			continue;
 		}
@@ -730,8 +746,7 @@ void UpdatePlayer(VadersGame *game, Player *player) {
 		if (player->fire_count >= 1.f) {
 			player->fire_count = 0;
 			PlayerBullet new_bullet;
-			new_bullet.effect_index = AddEffectToParticleManager(&game->game_pm, &game->player_bullet_effect);
-			if (new_bullet.effect_index != tfxINVALID) {
+			if(AddEffectToParticleManager(&game->game_pm, &game->player_bullet_effect, &new_bullet.effect_index)){
 				new_bullet.position = player->position;
 				SetEffectPosition(&game->game_pm, new_bullet.effect_index, new_bullet.position);
 				SetEffectBaseNoiseOffset(&game->game_pm, new_bullet.effect_index, game->noise_offset);
@@ -773,9 +788,11 @@ void UpdateVaderBullets(VadersGame *game) {
 		//Does the vader bullet collide with the player?
 		if (game->state != GameState_game_over && GetDistance(bullet.position.z, bullet.position.y, game->player.position.z, game->player.position.y) < 0.3f) {
 			//Blow up the player, add the player_explosion effect to the particle manager and set it's position/scale
-			int index = AddEffectToParticleManager(&game->game_pm, &game->player_explosion);
-			SetEffectPosition(&game->game_pm, index, bullet.position);
-			SetEffectOveralScale(&game->game_pm, index, 1.5f);
+			tfxEffectID effect_index = 0;
+			if (AddEffectToParticleManager(&game->game_pm, &game->player_explosion, &effect_index)) {
+				SetEffectPosition(&game->game_pm, effect_index, bullet.position);
+				SetEffectOveralScale(&game->game_pm, effect_index, 1.5f);
+			}
 			game->state = GameState_game_over;
 			continue;
 		}
@@ -820,11 +837,13 @@ void SetParticleOption(VadersGame *game) {
 		ScaleTemplateGlobalMultiplier(&game->laser, tfxGlobal_amount, .5f);
 		DisableTemplateEmitter(&game->laser, "Laser/Flare");
 
-		game->background_index = AddEffectToParticleManager(&game->background_pm, &game->background);
-		zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&game->camera.front, 12.f), game->camera.position);
-		SetEffectPosition(&game->background_pm, game->background_index, { position.x, position.y, position.z });
-		game->title_index = AddEffectToParticleManager(&game->title_pm, &game->title);
-		SetEffectPosition(&game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->uniform_buffer_3d));
+		if (AddEffectToParticleManager(&game->background_pm, &game->background, &game->background_index)) {
+			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&game->camera.front, 12.f), game->camera.position);
+			SetEffectPosition(&game->background_pm, game->background_index, { position.x, position.y, position.z });
+		}
+		if (AddEffectToParticleManager(&game->title_pm, &game->title, &game->title_index)) {
+			SetEffectPosition(&game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->uniform_buffer_3d));
+		}
 	}
 	else if (game->particle_option == 1) {
 	ScaleTemplateGlobalMultiplier(&game->background, tfxGlobal_amount, .65f);
@@ -844,11 +863,13 @@ void SetParticleOption(VadersGame *game) {
 		ScaleTemplateGlobalMultiplier(&game->laser, tfxGlobal_amount, 1.f);
 		DisableTemplateEmitter(&game->laser, "Laser/Flare");
 
-		game->background_index = AddEffectToParticleManager(&game->background_pm, &game->background);
-		zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&game->camera.front, 12.f), game->camera.position);
-		SetEffectPosition(&game->background_pm, game->background_index, { position.x, position.y, position.z });
-		game->title_index = AddEffectToParticleManager(&game->title_pm, &game->title);
-		SetEffectPosition(&game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->uniform_buffer_3d));
+		if (AddEffectToParticleManager(&game->background_pm, &game->background, &game->background_index)) {
+			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&game->camera.front, 12.f), game->camera.position);
+			SetEffectPosition(&game->background_pm, game->background_index, { position.x, position.y, position.z });
+		}
+		if (AddEffectToParticleManager(&game->title_pm, &game->title, &game->title_index)) {
+			SetEffectPosition(&game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->uniform_buffer_3d));
+		}
 	}
 	else if (game->particle_option == 2) {
 	ScaleTemplateGlobalMultiplier(&game->background, tfxGlobal_amount, 1.f);
@@ -868,11 +889,13 @@ void SetParticleOption(VadersGame *game) {
 		ScaleTemplateGlobalMultiplier(&game->laser, tfxGlobal_amount, 1.f);
 		EnableTemplateEmitter(&game->laser, "Laser/Flare");
 
-		game->background_index = AddEffectToParticleManager(&game->background_pm, &game->background);
-		zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&game->camera.front, 12.f), game->camera.position);
-		SetEffectPosition(&game->background_pm, game->background_index, { position.x, position.y, position.z });
-		game->title_index = AddEffectToParticleManager(&game->title_pm, &game->title);
-		SetEffectPosition(&game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->uniform_buffer_3d));
+		if (AddEffectToParticleManager(&game->background_pm, &game->background, &game->background_index)) {
+			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&game->camera.front, 12.f), game->camera.position);
+			SetEffectPosition(&game->background_pm, game->background_index, { position.x, position.y, position.z });
+		}
+		if (AddEffectToParticleManager(&game->title_pm, &game->title, &game->title_index)) {
+			SetEffectPosition(&game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->uniform_buffer_3d));
+		}
 	}
 }
 
