@@ -1245,6 +1245,7 @@ typedef struct zest_layer_buffers_t {
 	zest_buffer device_index_data;
 	zest_buffer device_vertex_data;
 	zest_buffer write_to_buffer;
+	zest_buffer write_to_index_buffer;
 
 	zest_uint instance_count;
 	zest_uint index_count;
@@ -2086,7 +2087,7 @@ ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeIndexBufferInfo(void);
-ZEST_API zest_buffer_info_t zest_CreateIndexBufferInfo(void);
+ZEST_API zest_buffer_info_t zest_CreateIndexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateStagingBufferInfo(void);
 //Create descriptor buffers with the following functions. Descriptor buffers can be used when you want to bind them in a descriptor set
 //for use in a shader. When you create a descriptor buffer it also creates the descriptor info which is necessary when creating the 
@@ -2097,8 +2098,8 @@ ZEST_API zest_buffer_info_t zest_CreateStagingBufferInfo(void);
 ZEST_API zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_info, zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateCPUVisibleStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
-ZEST_API zest_descriptor_buffer zest_CreateVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
-ZEST_API zest_descriptor_buffer zest_CreateIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
+ZEST_API zest_descriptor_buffer zest_CreateVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight, zest_bool cpu_visible);
+ZEST_API zest_descriptor_buffer zest_CreateIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight, zest_bool cpu_visible);
 ZEST_API zest_descriptor_buffer zest_CreateComputeVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateComputeIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 //Use this function to get the zest_buffer from the zest_descriptor_buffer handle. If the buffer uses multiple frames in flight then it
@@ -2912,9 +2913,9 @@ ZEST_API void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkC
 ZEST_API void zest_BindMeshVertexBuffer(zest_layer layer);
 ZEST_API void zest_BindMeshIndexBuffer(zest_layer layer);
 //Get the vertex staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
-ZEST_API zest_buffer zest_GetVertexStagingBuffer(zest_layer layer);
+ZEST_API zest_buffer zest_GetVertexWriteBuffer(zest_layer layer);
 //Get the index staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
-ZEST_API zest_buffer zest_GetIndexStagingBuffer(zest_layer layer);
+ZEST_API zest_buffer zest_GetIndexWriteBuffer(zest_layer layer);
 //Get the vertex buffer on the GPU. 
 ZEST_API zest_buffer zest_GetVertexDeviceBuffer(zest_layer layer);
 //Get the index buffer on the GPU. 

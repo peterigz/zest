@@ -124,8 +124,8 @@ void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
 
 	ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
-	zest_buffer vertex_buffer = zest_GetVertexStagingBuffer(imgui_layer);
-	zest_buffer index_buffer = zest_GetIndexStagingBuffer(imgui_layer);
+	zest_buffer vertex_buffer = zest_GetVertexWriteBuffer(imgui_layer);
+	zest_buffer index_buffer = zest_GetIndexWriteBuffer(imgui_layer);
 
 	if (imgui_draw_data) {
 		index_buffer->memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
@@ -145,11 +145,11 @@ void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
 	if (imgui_draw_data) {
 		if (index_buffer->memory_in_use > index_buffer->size) {
 			zest_GrowMeshIndexBuffers(imgui_layer);
-			index_buffer = zest_GetIndexStagingBuffer(imgui_layer);
+			index_buffer = zest_GetIndexWriteBuffer(imgui_layer);
 		}
 		if (vertex_buffer->memory_in_use > vertex_buffer->size) {
 			zest_GrowMeshVertexBuffers(imgui_layer);
-			vertex_buffer = zest_GetVertexStagingBuffer(imgui_layer);
+			vertex_buffer = zest_GetVertexWriteBuffer(imgui_layer);
 		}
 		ImDrawIdx* idxDst = (ImDrawIdx*)index_buffer->data;
 		ImDrawVert* vtxDst = (ImDrawVert*)vertex_buffer->data;
@@ -162,6 +162,7 @@ void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
 			idxDst += cmd_list->IdxBuffer.Size;
 		}
 	}
+
 	imgui_layer->dirty[ZEST_FIF] = 0;
 }
 
