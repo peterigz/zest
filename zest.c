@@ -1676,7 +1676,7 @@ void zest__initialise_app(zest_create_info_t *create_info) {
     ZestApp->render_time = 0;
     ZestApp->frame_timer = 0;
 
-    ZestApp->window = ZestRenderer->create_window_callback(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, 0, "Zest");
+    ZestApp->window = ZestRenderer->create_window_callback(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, ZEST__FLAGGED(create_info->flags, zest_init_flag_maximised), "Zest");
 }
 
 void zest__destroy(void) {
