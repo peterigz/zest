@@ -22,7 +22,7 @@ zest_window_t *zest_implglfw_CreateWindowCallback(int x, int y, int width, int h
 
 	if (maximised) {
 		int width, height;
-		glfwGetFramebufferSize((GLFWwindow*)window->window_handle, &width, &height);
+		glfwGetWindowSize((GLFWwindow*)window->window_handle, &width, &height);
 		window->window_width = width;
 		window->window_height = height;
 	}
