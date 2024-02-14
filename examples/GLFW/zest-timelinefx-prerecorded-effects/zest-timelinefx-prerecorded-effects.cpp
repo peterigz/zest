@@ -178,7 +178,7 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 	//The compute queue item can contain more then one compute shader to be dispatched but in this case there's only
 	//one which is the effect playback compute shader
 	zest_compute compute;
-	while (compute = zest_NextComputeRoutine(compute_routine)) {
+    while ((compute = zest_NextComputeRoutine(compute_routine))) {
 		//Grab our ComputeExample struct out of the user data
 		ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
 
@@ -373,7 +373,7 @@ void BuildUI(ComputeExample *example) {
 	ImGui::NewFrame();
 	ImGui::Begin("Instanced Effects");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
-	ImGui::Text("Setup/Load Time: %zims", example->record_time);
+    ImGui::Text("Setup/Load Time: %ums", example->record_time);
 	ImGui::Text("Culled Instances: %i", GetTotalInstancesBeingUpdated(&example->animation_manager_3d) - example->animation_manager_3d.render_queue.size());
 	ImGui::Text("Instances In View: %i", example->animation_manager_3d.render_queue.size());
 	ImGui::Text("Sprites Drawn: %i", example->animation_manager_3d.buffer_metrics.total_sprites_to_draw);
@@ -545,8 +545,8 @@ void Update(zest_microsecs elapsed, void *data) {
 	zest_TimerSet(example->timer);
 }
 
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
