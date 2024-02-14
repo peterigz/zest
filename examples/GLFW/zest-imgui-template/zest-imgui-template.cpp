@@ -97,6 +97,7 @@ int main(void) {
 int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	zest_implglfw_SetCallbacks(&create_info);
+    ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
 
 	ImGuiApp imgui_app;
 
