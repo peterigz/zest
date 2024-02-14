@@ -2042,7 +2042,7 @@ void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffe
 void zloc__output_buffer_info(void* ptr, size_t size, int free, void* user, int count)
 {
     zest_buffer_t *buffer = (zest_buffer_t*)user;
-    printf("%i) \t%s range size: \t%zi \tbuffer size: %zu \toffset: %zu \n", count, free ? "free" : "used", size, buffer->size, buffer->memory_offset);
+    printf("%i) \t%s range size: \t%zi \tbuffer size: %llu \toffset: %llu \n", count, free ? "free" : "used", size, buffer->size, buffer->memory_offset);
 }
 
 zloc__error_codes zloc_VerifyRemoteBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data) {
@@ -9811,12 +9811,12 @@ void zest_OutputMemoryUsage() {
         }
         for (zest_foreach_j(buffer_allocator->memory_pools)) {
             zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];
-            printf("\t\tMemory Pool Size: %zu\n", memory_pool->size);
+            printf("\t\tMemory Pool Size: %llu\n", memory_pool->size);
             total_device_memory += memory_pool->size;
         }
     }
-    printf("Total Host Memory: %zu (%zu MB)\n", total_host_memory, total_host_memory / zloc__MEGABYTE(1));
-    printf("Total Device Memory: %zu (%zu MB)\n", total_device_memory, total_device_memory / zloc__MEGABYTE(1));
+    printf("Total Host Memory: %zu (%llu MB)\n", total_host_memory, total_host_memory / zloc__MEGABYTE(1));
+    printf("Total Device Memory: %zu (%llu MB)\n", total_device_memory, total_device_memory / zloc__MEGABYTE(1));
     printf("\n");
     printf("\t\t\t\t-- * --\n");
     printf("\n");
