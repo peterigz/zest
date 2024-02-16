@@ -710,6 +710,8 @@ typedef struct zest_text {
 } zest_text;
 
 ZEST_API void zest_SetText(zest_text *buffer, const char *text);
+ZEST_API void zest_SetTextf(zest_text *buffer, const char *text, ...);
+ZEST_API void zest_SetTextfv(zest_text *buffer, const char *text, va_list args);
 ZEST_API void zest_FreeText(zest_text *buffer);
 ZEST_API zest_uint zest_TextLength(zest_text *buffer);
 // --End pocket text buffer

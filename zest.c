@@ -4039,6 +4039,41 @@ void zest_SetText(zest_text *buffer, const char *text) {
     zest_strcpy(buffer->str, length, text);
 }
 
+void zest_SetTextfv(zest_text *buffer, const char *text, va_list args)
+{
+    va_list args2;
+    va_copy(args2, args);
+
+#ifdef _MSC_VER
+    int len = vsnprintf(NULL, 0, text, args);
+    ZEST_ASSERT(len >= 0);
+
+    if (zest_TextLength(buffer) < len + 1)
+    {
+        zest_vec_resize(buffer->str, len + 1);
+    }
+    len = vsnprintf(buffer->str, len + 1, text, args2);
+#else
+    int len = vsnprintf(buffer->str ? buffer->str : NULL, (size_t)zest_TextLength(buffer), text, args);
+    ZEST_ASSERT(len >= 0);
+
+    if (zest_TextLength(buffer) < len + 1)
+    {
+        zest_vec_resize(buffer->str, len + 1);
+        len = vsnprintf(buffer->str, (size_t)len + 1, text, args2);
+    }
+#endif
+
+    ZEST_ASSERT(buffer->str);
+}
+
+void zest_SetTextf(zest_text *buffer, const char *text, ...) {
+    va_list args;
+    va_start(args, text);
+    zest_SetTextfv(buffer, text, args);
+    va_end(args);
+}
+
 void zest_FreeText(zest_text *buffer) {
     zest_vec_free(buffer->str);
     buffer->str = ZEST_NULL;

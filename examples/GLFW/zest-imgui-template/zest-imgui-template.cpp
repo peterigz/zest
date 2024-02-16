@@ -106,6 +106,10 @@ int main(void) {
 	zest_SetUserUpdateCallback(UpdateCallback);
 	InitImGuiApp(&imgui_app);
 
+    zest_text test = {0};
+    //zest_SetText(&test, "%s, %i slkdfjlskjfsldkfjsldkjfsdlkjflsdjfl\n");
+    zest_SetTextf(&test, "%s, %i\n", "Set some text", 999);
+
 	zest_Start();
 
 	return 0;
