@@ -9367,7 +9367,7 @@ void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x, float y
 //Compute shaders
 zest_compute zest_CreateCompute(const char *name) {
     zest_compute_t blank_compute = { 0 };
-    zest_compute compute = ZEST__NEW(zest_compute);
+    zest_compute compute = ZEST__NEW_ALIGNED(zest_compute, 16);
     *compute = blank_compute;
     compute->descriptor_pool = VK_NULL_HANDLE;
     compute->group_count_x =1;
