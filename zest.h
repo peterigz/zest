@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
 //Helper macros
@@ -71,7 +71,6 @@ extern "C" {
 #define ZEST_NOTICE_COLOR "\033[0m"
 #endif
 
-#define ZEST_OUTPUT_WARNING_MESSAGES
 #ifdef ZEST_OUTPUT_WARNING_MESSAGES
 #include <stdio.h>
 #define ZEST_PRINT_WARNING(message_f, ...) printf(message_f"\n\033[0m", __VA_ARGS__)
@@ -79,7 +78,6 @@ extern "C" {
 #define ZEST_PRINT_WARNING(message_f, ...)
 #endif
 
-#define ZEST_OUTPUT_NOTICE_MESSAGES
 #ifdef ZEST_OUTPUT_NOTICE_MESSAGES
 #include <stdio.h>
 #define ZEST_PRINT_NOTICE(message_f, ...) printf(message_f"\n\033[0m", __VA_ARGS__)
