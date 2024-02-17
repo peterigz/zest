@@ -2464,6 +2464,7 @@ void zest_SetDeviceImagePoolSize(const char *name, VkImageUsageFlags image_flags
 // --Renderer and related functions
 void zest__initialise_renderer(zest_create_info_t *create_info) {
     ZestRenderer->flags |= create_info->flags & zest_init_flag_enable_vsync;
+    zest_SetText(&ZestRenderer->shader_path_prefix, create_info->shader_path_prefix);
     zest__create_swapchain();
     zest__create_swapchain_image_views();
 
@@ -3374,6 +3375,7 @@ zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void)
     };
     zest_SetText(&create_info.fragShaderFunctionName, "main");
     zest_SetText(&create_info.vertShaderFunctionName, "main");
+    zest_SetText(&create_info.shader_path_prefix, ZestRenderer->shader_path_prefix.str);
     zest_vec_push(create_info.dynamicStates, VK_DYNAMIC_STATE_VIEWPORT);
     zest_vec_push(create_info.dynamicStates, VK_DYNAMIC_STATE_SCISSOR);
     create_info.viewport.offset.x = 0;
@@ -3584,8 +3586,13 @@ void zest__set_pipeline_template(zest_pipeline_template_t *pipeline_template, ze
     pipeline_template->fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
     pipeline_template->fragShaderStageInfo.pName = create_info->fragShaderFunctionName.str;
 
-    zest_SetText(&pipeline_template->vertShaderFile, create_info->vertShaderFile.str);
-    zest_SetText(&pipeline_template->fragShaderFile, create_info->fragShaderFile.str);
+    if(zest_TextLength(&create_info->shader_path_prefix)) {
+        zest_SetTextf(&pipeline_template->vertShaderFile, "%s%s", create_info->shader_path_prefix, create_info->vertShaderFile.str);
+        zest_SetTextf(&pipeline_template->fragShaderFile, "%s%s", create_info->shader_path_prefix, create_info->fragShaderFile.str);
+    } else {
+        zest_SetTextf(&pipeline_template->vertShaderFile, "%s", create_info->vertShaderFile.str);
+        zest_SetTextf(&pipeline_template->fragShaderFile, "%s", create_info->fragShaderFile.str);
+    }
 
     pipeline_template->inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     pipeline_template->inputAssembly.topology = create_info->topology;
@@ -3789,6 +3796,7 @@ zest_pipeline_template_create_info_t zest__copy_pipeline_create_info(zest_pipeli
     zest_SetText(&copy.vertShaderFile, create_info->vertShaderFile.str);
     zest_SetText(&copy.fragShaderFunctionName, create_info->fragShaderFunctionName.str);
     zest_SetText(&copy.vertShaderFunctionName, create_info->vertShaderFunctionName.str);
+    zest_SetText(&copy.shader_path_prefix, create_info->shader_path_prefix.str);
     return copy;
 }
 
@@ -3801,6 +3809,7 @@ void zest__free_pipeline_create_info(zest_pipeline_template_create_info_t *creat
     zest_FreeText(&create_info->vertShaderFile);
     zest_FreeText(&create_info->fragShaderFunctionName);
     zest_FreeText(&create_info->vertShaderFunctionName);
+    zest_FreeText(&create_info->shader_path_prefix);
 }
 
 void zest__rebuild_pipeline(zest_pipeline_t *pipeline) {
@@ -4114,8 +4123,8 @@ void zest__prepare_standard_pipelines() {
     zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(zest_sprite_instance_t, image_layer_index)));                // Location 7: Instance Parameters
 
     instance_create_info.attributeDescriptions = instance_vertex_input_attributes;
-    zest_SetText(&instance_create_info.vertShaderFile, "spv/instance.spv");
-    zest_SetText(&instance_create_info.fragShaderFile, "spv/instance.spv");
+    zest_SetText(&instance_create_info.vertShaderFile, "instance.spv");
+    zest_SetText(&instance_create_info.fragShaderFile, "instance.spv");
     zest_MakePipelineTemplate(sprite_instance_pipeline, render_pass, &instance_create_info);
     sprite_instance_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
     sprite_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
@@ -4125,8 +4134,8 @@ void zest__prepare_standard_pipelines() {
     instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
     //Sprites with 1 channel textures
     zest_pipeline sprite_instance_pipeline_alpha = zest_AddPipeline("pipeline_2d_sprites_alpha");
-    zest_SetText(&instance_create_info.vertShaderFile, "spv/instance_alpha.spv");
-    zest_SetText(&instance_create_info.fragShaderFile, "spv/instance_alpha.spv");
+    zest_SetText(&instance_create_info.vertShaderFile, "instance_alpha.spv");
+    zest_SetText(&instance_create_info.fragShaderFile, "instance_alpha.spv");
     zest_MakePipelineTemplate(sprite_instance_pipeline_alpha, render_pass, &instance_create_info);
     sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
@@ -4147,8 +4156,8 @@ void zest__prepare_standard_pipelines() {
 
     instance_create_info.attributeDescriptions = line_instance_vertex_input_attributes;
     zest_pipeline line_instance_pipeline = zest_AddPipeline("pipeline_line_instance");
-    zest_SetText(&instance_create_info.vertShaderFile, "spv/shape_instance.spv");
-    zest_SetText(&instance_create_info.fragShaderFile, "spv/shape_instance.spv");
+    zest_SetText(&instance_create_info.vertShaderFile, "shape_instance.spv");
+    zest_SetText(&instance_create_info.fragShaderFile, "shape_instance.spv");
     line_instance_pipeline->descriptor_layout = zest_GetDescriptorSetLayout("Polygon layout (no sampler)");
     instance_create_info.descriptorSetLayout = line_instance_pipeline->descriptor_layout;
     zest_MakePipelineTemplate(line_instance_pipeline, render_pass, &instance_create_info);
@@ -4161,8 +4170,8 @@ void zest__prepare_standard_pipelines() {
     //Font Texture
     instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites_alpha");
     zest_pipeline font_pipeline = zest_AddPipeline("pipeline_fonts");
-    zest_SetText(&instance_create_info.vertShaderFile, "spv/font_instance.spv");
-    zest_SetText(&instance_create_info.fragShaderFile, "spv/font_instance.spv");
+    zest_SetText(&instance_create_info.vertShaderFile, "font_instance.spv");
+    zest_SetText(&instance_create_info.fragShaderFile, "font_instance.spv");
     zest_MakePipelineTemplate(font_pipeline, render_pass, &instance_create_info);
     font_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     font_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
@@ -4187,8 +4196,8 @@ void zest__prepare_standard_pipelines() {
 
     zest_pipeline billboard_instance_pipeline = zest_AddPipeline("pipeline_billboard");
     instance_create_info.attributeDescriptions = billboard_vertex_input_attributes;
-    zest_SetText(&instance_create_info.vertShaderFile, "spv/billboard.spv");
-    zest_SetText(&instance_create_info.fragShaderFile, "spv/billboard.spv");
+    zest_SetText(&instance_create_info.vertShaderFile, "billboard.spv");
+    zest_SetText(&instance_create_info.fragShaderFile, "billboard.spv");
     zest_MakePipelineTemplate(billboard_instance_pipeline, render_pass, &instance_create_info);
     billboard_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     billboard_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
@@ -4196,8 +4205,8 @@ void zest__prepare_standard_pipelines() {
 
     instance_create_info = zest_CopyTemplateFromPipeline("pipeline_billboard");
     zest_pipeline billboard_pipeline_alpha = zest_AddPipeline("pipeline_billboard_alpha");
-    zest_SetText(&instance_create_info.vertShaderFile, "spv/billboard_alpha.spv");
-    zest_SetText(&instance_create_info.fragShaderFile, "spv/billboard_alpha.spv");
+    zest_SetText(&instance_create_info.vertShaderFile, "billboard_alpha.spv");
+    zest_SetText(&instance_create_info.fragShaderFile, "billboard_alpha.spv");
     zest_MakePipelineTemplate(billboard_pipeline_alpha, render_pass, &instance_create_info);
     billboard_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     billboard_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
@@ -4219,8 +4228,8 @@ void zest__prepare_standard_pipelines() {
     zest_vec_push(imgui_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col)));    // Location 2: Color
 
     imgui_pipeline_template.attributeDescriptions = imgui_vertex_input_attributes;
-    zest_SetText(&imgui_pipeline_template.vertShaderFile, "spv/imgui.spv");
-    zest_SetText(&imgui_pipeline_template.fragShaderFile, "spv/imgui.spv");
+    zest_SetText(&imgui_pipeline_template.vertShaderFile, "imgui.spv");
+    zest_SetText(&imgui_pipeline_template.fragShaderFile, "imgui.spv");
 
     zest_pipeline imgui_pipeline = zest_AddPipeline("pipeline_imgui");
 
@@ -4258,8 +4267,8 @@ void zest__prepare_standard_pipelines() {
     zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32_UINT, offsetof(zest_vertex_t, parameters)));        // Location 4: Parameters
 
     mesh_pipeline_template.attributeDescriptions = zest_vertex_input_attributes;
-    zest_SetText(&mesh_pipeline_template.vertShaderFile, "spv/mesh.spv");
-    zest_SetText(&mesh_pipeline_template.fragShaderFile, "spv/mesh.spv");
+    zest_SetText(&mesh_pipeline_template.vertShaderFile, "mesh.spv");
+    zest_SetText(&mesh_pipeline_template.fragShaderFile, "mesh.spv");
 
     zest_pipeline mesh_pipeline = zest_AddPipeline("pipeline_mesh");
 
@@ -4286,8 +4295,8 @@ void zest__prepare_standard_pipelines() {
     zest_vec_push(final_render->create_info.pushConstantRange, final_render_pushconstant_range);
     final_render->create_info.renderPass = ZestRenderer->final_render_pass->render_pass;
     final_render->create_info.no_vertex_input = ZEST_TRUE;
-    zest_SetText(&final_render->create_info.vertShaderFile, "spv/swap.spv");
-    zest_SetText(&final_render->create_info.fragShaderFile, "spv/swap.spv");
+    zest_SetText(&final_render->create_info.vertShaderFile, "swap.spv");
+    zest_SetText(&final_render->create_info.fragShaderFile, "swap.spv");
     final_render->uniforms = 0;
     final_render->flags = zest_pipeline_set_flag_is_render_target_pipeline;
     final_render->descriptor_layout = zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler");
@@ -4991,6 +5000,7 @@ zest_index zest__next_fif() {
 zest_create_info_t zest_CreateInfo() {
     zest_create_info_t create_info = {
         .memory_pool_size = zloc__MEGABYTE(64),
+        .shader_path_prefix = "spv/",
         .screen_width = 1280,
         .screen_height = 768,
         .screen_x = 0,

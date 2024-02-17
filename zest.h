@@ -924,6 +924,7 @@ zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
 
 typedef struct zest_create_info_t {
 	const char *title;									//Title that shows in the window
+    const char *shader_path_prefix;                     //Prefix prepending to the shader path when loading default shaders
 	zest_size memory_pool_size;							//The size of each memory pool. More pools are added if needed
 	int screen_width, screen_height;					//Default width and height of the window that you open
 	int screen_x, screen_y;								//Default position of the window
@@ -1075,6 +1076,7 @@ typedef struct zest_pipeline_template_create_info_t {
 	VkVertexInputBindingDescription *bindingDescriptions;
 	VkDynamicState *dynamicStates;
 	zest_bool no_vertex_input;
+    zest_text shader_path_prefix;
 	zest_text vertShaderFile;
 	zest_text fragShaderFile;
 	zest_text vertShaderFunctionName;
@@ -1102,7 +1104,7 @@ typedef struct zest_pipeline_template_t {
 	VkPushConstantRange pushConstantRange;
 	VkPipelineDynamicStateCreateInfo dynamicState;
 	VkRenderPass renderPass;
-
+    
 	zest_text vertShaderFile;
 	zest_text fragShaderFile;
 } zest_pipeline_template_t;
@@ -1122,7 +1124,7 @@ typedef struct zest_pipeline_t {
 	VkWriteDescriptorSet *descriptor_writes[ZEST_MAX_FIF];						//Descriptor writes for creating the descriptor sets - is this needed here? only for certain pipelines, textures store their own
 	const char *name;															//Name for the pipeline just for labelling it when listing all the renderer objects in debug
 	void(*rebuild_pipeline_function)(void*);									//Override the function to rebuild the pipeline when the swap chain is recreated
-	zest_pipeline_set_flags flags;												//Flag bits	
+	zest_pipeline_set_flags flags;												//Flag bits
 } zest_pipeline_t;
 
 typedef struct zest_command_setup_context_t {
@@ -1629,6 +1631,9 @@ typedef struct zest_renderer_t {
 
 	//Flags
 	zest_renderer_flags flags;
+    
+    //Optional prefix path for loading shaders
+    zest_text shader_path_prefix;
 
 	//Callbacks for customising window and surface creation
 	void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
