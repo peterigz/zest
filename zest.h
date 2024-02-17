@@ -1970,10 +1970,10 @@ ZEST_API zest_pipeline zest_AddPipeline(const char *name);
 //to finalise the pipeline ready for using
 ZEST_API zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void);
 //Set the name of the file to use for the vert and frag shader in the zest_pipeline_template_create_info_t
-ZEST_API void zest_SetPipelineTemplateVertShader(zest_pipeline_template_create_info_t *create_info, const char *file);
-ZEST_API void zest_SetPipelineTemplateFragShader(zest_pipeline_template_create_info_t *create_info, const char *file);
+ZEST_API void zest_SetPipelineTemplateVertShader(zest_pipeline_template_create_info_t *create_info, const char *file, const char *prefix);
+ZEST_API void zest_SetPipelineTemplateFragShader(zest_pipeline_template_create_info_t *create_info, const char *file, const char *prefix);
 //Set the name of both the fragment and vertex shader to the same file (frag and vertex shaders can be combined into the same spv)
-ZEST_API void zest_SetPipelineTemplateShader(zest_pipeline_template_create_info_t *create_info, const char *file);
+ZEST_API void zest_SetPipelineTemplateShader(zest_pipeline_template_create_info_t *create_info, const char *file, const char *prefix);
 //Add a new VkVertexInputBindingDescription which is used to set the size of the struct (stride) and the vertex input rate.
 //You can add as many bindings as you need, just make sure you set the correct binding index for each one
 ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template_create_info_t *create_info, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
