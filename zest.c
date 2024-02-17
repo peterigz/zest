@@ -3385,28 +3385,24 @@ zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void)
 }
 
 void zest_SetPipelineTemplateVertShader(zest_pipeline_template_create_info_t *create_info, const char *file, const char *prefix) {
-    if(!prefix) {
-        zest_SetText(&create_info->vertShaderFile, file);
-    } else {
-        zest_SetTextf(&create_info->vertShaderFile, "%s%s", prefix, file);
+    zest_SetText(&create_info->vertShaderFile, file);
+    if(prefix) {
+        zest_SetText(&create_info->shader_path_prefix, prefix);
     }
 }
 
 void zest_SetPipelineTemplateFragShader(zest_pipeline_template_create_info_t *create_info, const char *file, const char *prefix) {
-    if(!prefix) {
-        zest_SetText(&create_info->fragShaderFile, file);
-    } else {
-        zest_SetTextf(&create_info->fragShaderFile, "%s%s", prefix, file);
+    zest_SetText(&create_info->fragShaderFile, file);
+    if(prefix) {
+        zest_SetText(&create_info->shader_path_prefix, prefix);
     }
 }
 
 void zest_SetPipelineTemplateShader(zest_pipeline_template_create_info_t *create_info, const char *file, const char *prefix) {
-    if(!prefix) {
-        zest_SetText(&create_info->fragShaderFile, file);
-        zest_SetText(&create_info->vertShaderFile, file);
-    } else {
-        zest_SetTextf(&create_info->fragShaderFile, "%s%s", prefix, file);
-        zest_SetTextf(&create_info->vertShaderFile, "%s%s", prefix, file);
+    zest_SetText(&create_info->fragShaderFile, file);
+    zest_SetText(&create_info->vertShaderFile, file);
+    if(prefix) {
+        zest_SetText(&create_info->shader_path_prefix, prefix);
     }
 }
 
