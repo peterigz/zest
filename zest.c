@@ -9493,9 +9493,13 @@ void zest_AddComputeImageForBinding(zest_compute_builder_t *builder, zest_textur
     zest_vec_push(builder->descriptor_infos, info);
 }
 
-zest_index zest_AddComputeShader(zest_compute_builder_t *builder, const char *path) {
+zest_index zest_AddComputeShader(zest_compute_builder_t *builder, const char *path, const char *prefix) {
     zest_text path_text = { 0 };
-    zest_SetText(&path_text, path);
+    if(!prefix) {
+        zest_SetText(&path_text, path);
+    } else {
+        zest_SetTextf(&path_text, "%s%s", path, prefix);
+    }
     zest_vec_push(builder->shader_names, path_text);
     return zest_vec_last_index(builder->shader_names);
 }

@@ -2962,7 +2962,7 @@ ZEST_API void zest_AddComputeBufferForBinding(zest_compute_builder_t *builder, z
 //Use this command to add an image binding. This is the same command as zest_AddComputeBufferForBinding but specifically for images
 ZEST_API void zest_AddComputeImageForBinding(zest_compute_builder_t *builder, zest_texture texture);
 //Add a shader to the compute builder. This will be the shader that is executed on the GPU. Pass a file path where to find the shader.
-ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, const char *path);
+ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, const char *path, const char *prefix);
 //If you're using a push constant then you can set it's size in the builder here.
 ZEST_API void zest_SetComputePushConstantSize(zest_compute_builder_t *builder, zest_uint size);
 //If you need a specific way to update the descriptors in the compute shader then you can set that here. By default zest_StandardComputeDescriptorUpdate is used
