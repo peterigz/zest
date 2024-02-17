@@ -9494,7 +9494,7 @@ zest_index zest_AddComputeShader(zest_compute_builder_t *builder, const char *pa
     if(!prefix) {
         zest_SetText(&path_text, path);
     } else {
-        zest_SetTextf(&path_text, "%s%s", path, prefix);
+        zest_SetTextf(&path_text, "%s%s", prefix, path);
     }
     zest_vec_push(builder->shader_names, path_text);
     return zest_vec_last_index(builder->shader_names);
