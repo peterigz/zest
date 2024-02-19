@@ -2566,10 +2566,15 @@ VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_mo
 }
 
 VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities) {
+    /*
+    Currently forcing getting the current window size each time because if your app starts up on a different
+     monitor with a different dpi then it can crash because the DPI doesn't match the initial surface capabilities
+     that were found.
     if (capabilities->currentExtent.width != ZEST_U32_MAX_VALUE) {
         return capabilities->currentExtent;
     }
     else {
+     */
         int fb_width = 0, fb_height = 0;
         int window_width = 0, window_height = 0;
         ZestRenderer->get_window_size_callback(ZestApp->user_data, &fb_width, &fb_height, &window_width, &window_height);
@@ -2583,7 +2588,7 @@ VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities) {
         actual_extent.height = ZEST__MAX(capabilities->minImageExtent.height, ZEST__MIN(capabilities->maxImageExtent.height, actual_extent.height));
 
         return actual_extent;
-    }
+    //}
 }
 
 VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *available_formats) {
