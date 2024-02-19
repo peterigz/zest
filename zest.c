@@ -1715,6 +1715,11 @@ void zest__do_scheduled_tasks(void) {
     }
 
     if (zest_vec_size(ZestRenderer->texture_reprocess_queue)) {
+#ifdef __APPLE__
+        //Temporary measure to get Mac working
+        //Without this metal complains about the texture being in use
+        zest_WaitForIdleDevice();
+#endif
         for (zest_foreach_i(ZestRenderer->texture_reprocess_queue)) {
             zest_ProcessTextureImages(ZestRenderer->texture_reprocess_queue[i]);
             zest_RefreshTextureDescriptors(ZestRenderer->texture_reprocess_queue[i]);

@@ -91,10 +91,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+    
+    App app = { 0 };
 
 	zest_Initialise(&create_info);
-    zest_LogFPSToConsole(1);
+    zest_SetUserData(&app);
 	zest_SetUserUpdateCallback(UpdateCallback);
+    
+    InitialiseApp(&app);
 
 	zest_Start();
 
