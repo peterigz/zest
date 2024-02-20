@@ -28,7 +28,46 @@ zest_microsecs zest_Microsecs(void) {
     zest_ull us = (zest_ull)(counter.QuadPart * 1000000LL / frequency.QuadPart);
     return (zest_microsecs)us;
 }
+#elifdef __APPLE__
+#include <mach/mach_time.h>
+zest_millisecs zest_Millisecs(void) {
+    static mach_timebase_info_data_t timebase_info;
+    if (timebase_info.denom == 0) {
+        mach_timebase_info(&timebase_info);
+    }
+    
+    uint64_t time_ns = mach_absolute_time() * timebase_info.numer / timebase_info.denom;
+    zest_millisecs ms = (zest_millisecs)(time_ns / 1000000);
+    return (zest_millisecs)ms;
+}
 
+zest_microsecs zest_Microsecs(void) {
+    static mach_timebase_info_data_t timebase_info;
+    if (timebase_info.denom == 0) {
+        mach_timebase_info(&timebase_info);
+    }
+    
+    uint64_t time_ns = mach_absolute_time() * timebase_info.numer / timebase_info.denom;
+    zest_microsecs us = (zest_microsecs)(time_ns / 1000);
+    return us;
+}
+#else
+zest_millisecs zest_Millisecs(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    long m = now.tv_sec * 1000 + now.tv_nsec / 1000000;
+    return (zest_millisecs)m;
+}
+
+zest_microsecs zest_Microsecs(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000;
+    return (zest_microsecs)us;
+}
+#endif
+
+#ifdef _WIN32
 FILE *zest__open_file(const char *file_name, const char *mode) {
     FILE *file = NULL;
     errno_t err = fopen_s(&file, file_name, mode);
@@ -185,8 +224,7 @@ void zest__os_set_window_title(const char *title) {
 }
 
 #else
-zest_millisecs zest_Millisecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); long m = now.tv_sec * 1000 + now.tv_nsec / 1000000; return (zest_millisecs)m; }
-zest_microsecs zest_Microsecs(void) { struct timespec now; clock_gettime(CLOCK_REALTIME, &now); zest_ull us = now.tv_sec * 1000000ULL + now.tv_nsec / 1000; return (zest_microsecs)us; }
+
 FILE *zest__open_file(const char *file_name, const char *mode) {
     return fopen(file_name, mode);
 }
