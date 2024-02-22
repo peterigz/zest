@@ -602,6 +602,8 @@ zest_matrix4 zest_Inverse(zest_matrix4 *m) {
     return zest_ScaleMatrix4(&inverse, OneOverDeterminant);
 }
 
+#ifdef ZEST_INTEL
+
 zest_vec4 zest_MatrixTransformVector(zest_matrix4 *mat, zest_vec4 vec) {
     zest_vec4 v;
 
@@ -665,6 +667,94 @@ zest_matrix4 zest_MatrixTransform(zest_matrix4 *in, zest_matrix4 *m) {
     }
     return res;
 }
+
+#elifdef ZEST_ARM
+zest_vec4 zest_MatrixTransformVector(zest_matrix4 *mat, zest_vec4 vec) {
+    zest_vec4 v;
+
+    float32x4_t v4 = vld1q_f32(&vec.x);
+
+    float32x4_t mrow1 = vld1q_f32(&mat->v[0].x);
+    float32x4_t mrow2 = vld1q_f32(&mat->v[1].x);
+    float32x4_t mrow3 = vld1q_f32(&mat->v[2].x);
+    float32x4_t mrow4 = vld1q_f32(&mat->v[3].x);
+
+    float32x4_t row1result = vmulq_f32(v4, mrow1);
+    float32x4_t row2result = vmulq_f32(v4, mrow2);
+    float32x4_t row3result = vmulq_f32(v4, mrow3);
+    float32x4_t row4result = vmulq_f32(v4, mrow4);
+
+    float32x2_t tmp2;
+    float32x4_t tmp;
+
+    tmp = vaddq_f32(row1result, vextq_f32(row1result, row1result, 1));
+    tmp = vaddq_f32(tmp, vextq_f32(tmp, tmp, 2));
+    tmp2 = vpadd_f32(vget_low_f32(tmp), vget_high_f32(tmp));
+    v.x = vget_lane_f32(tmp2, 0);
+
+    tmp = vaddq_f32(row2result, vextq_f32(row2result, row2result, 1));
+    tmp = vaddq_f32(tmp, vextq_f32(tmp, tmp, 2));
+    tmp2 = vpadd_f32(vget_low_f32(tmp), vget_high_f32(tmp));
+    v.y = vget_lane_f32(tmp2, 0);
+
+    tmp = vaddq_f32(row3result, vextq_f32(row3result, row3result, 1));
+    tmp = vaddq_f32(tmp, vextq_f32(tmp, tmp, 2));
+    tmp2 = vpadd_f32(vget_low_f32(tmp), vget_high_f32(tmp));
+    v.z = vget_lane_f32(tmp2, 0);
+
+    tmp = vaddq_f32(row4result, vextq_f32(row4result, row4result, 1));
+    tmp = vaddq_f32(tmp, vextq_f32(tmp, tmp, 2));
+    tmp2 = vpadd_f32(vget_low_f32(tmp), vget_high_f32(tmp));
+    v.w = vget_lane_f32(tmp2, 0);
+
+    return v;
+}
+
+zest_matrix4 zest_MatrixTransform(zest_matrix4 *in, zest_matrix4 *m) {
+    zest_matrix4 res = { 0 };
+
+    float32x4_t in_row[4];
+    in_row[0] = vld1q_f32(&in->v[0].x);
+    in_row[1] = vld1q_f32(&in->v[1].x);
+    in_row[2] = vld1q_f32(&in->v[2].x);
+    in_row[3] = vld1q_f32(&in->v[3].x);
+
+    float32x4_t m_row1 = vsetq_lane_f32(m->v[0].x, vdupq_n_f32(m->v[1].x), 0);
+    m_row1 = vsetq_lane_f32(m->v[2].x, m_row1, 1);
+    m_row1 = vsetq_lane_f32(m->v[3].x, m_row1, 2);
+
+    float32x4_t m_row2 = vsetq_lane_f32(m->v[0].y, vdupq_n_f32(m->v[1].y), 0);
+    m_row2 = vsetq_lane_f32(m->v[2].y, m_row2, 1);
+    m_row2 = vsetq_lane_f32(m->v[3].y, m_row2, 2);
+
+    float32x4_t m_row3 = vsetq_lane_f32(m->v[0].z, vdupq_n_f32(m->v[1].z), 0);
+    m_row3 = vsetq_lane_f32(m->v[2].z, m_row3, 1);
+    m_row3 = vsetq_lane_f32(m->v[3].z, m_row3, 2);
+
+    float32x4_t m_row4 = vsetq_lane_f32(m->v[0].w, vdupq_n_f32(m->v[1].w), 0);
+    m_row4 = vsetq_lane_f32(m->v[2].w, m_row4, 1);
+    m_row4 = vsetq_lane_f32(m->v[3].w, m_row4, 2);
+
+    for (int r = 0; r <= 3; ++r)
+    {
+        float32x4_t row1result = vmulq_f32(in_row[r], m_row1);
+        float32x4_t row2result = vmulq_f32(in_row[r], m_row2);
+        float32x4_t row3result = vmulq_f32(in_row[r], m_row3);
+        float32x4_t row4result = vmulq_f32(in_row[r], m_row4);
+
+        float32x4_t tmp;
+        tmp = vaddq_f32(row1result, row2result);
+        tmp = vaddq_f32(tmp, row3result);
+        tmp = vaddq_f32(tmp, row4result);
+
+        res.v[r].x = vgetq_lane_f32(tmp, 0);
+        res.v[r].y = vgetq_lane_f32(tmp, 1);
+        res.v[r].z = vgetq_lane_f32(tmp, 2);
+        res.v[r].w = vgetq_lane_f32(tmp, 3);
+    }
+    return res;
+}
+#endif
 
 zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y)
 {

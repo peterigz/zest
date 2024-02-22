@@ -10,6 +10,14 @@ extern "C" {
 #include <math.h>
 #include <string.h>
 
+#if defined(__x86_64__) || defined(__i386__)
+#define ZEST_INTEL
+#include <immintrin.h>
+#elif defined(__arm__) || defined(__aarch64__)
+#include <arm_neon.h>
+#define ZEST_ARM
+#endif
+
 #ifndef ZEST_MAX_FIF
 //The maximum number of frames in flight. If you're very tight on memory then 1 will use less resources.
 #define ZEST_MAX_FIF 2
