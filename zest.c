@@ -28,7 +28,7 @@ zest_microsecs zest_Microsecs(void) {
     zest_ull us = (zest_ull)(counter.QuadPart * 1000000LL / frequency.QuadPart);
     return (zest_microsecs)us;
 }
-#elifdef __APPLE__
+#elif defined(__APPLE__)
 #include <mach/mach_time.h>
 zest_millisecs zest_Millisecs(void) {
     static mach_timebase_info_data_t timebase_info;
@@ -668,7 +668,7 @@ zest_matrix4 zest_MatrixTransform(zest_matrix4 *in, zest_matrix4 *m) {
     return res;
 }
 
-#elifdef ZEST_ARM
+#elif defined(ZEST_ARM)
 zest_vec4 zest_MatrixTransformVector(zest_matrix4 *mat, zest_vec4 vec) {
     zest_vec4 v;
 
