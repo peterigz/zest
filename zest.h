@@ -185,7 +185,7 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 #define zest_strcat(left, size, right) strcat_s(left, size, right)
 #define zest_strcpy(left, size, right) strcpy_s(left, size, right)
 #define ZEST_ALIGN_PREFIX(v) __declspec(align(v))
-#define ZEST_ALIGN_AFFIX(v)
+#define ZEST_ALIGN_AFFIX(v)	
 #define ZEST_PROTOTYPE
 ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_thread_access* target, zest_thread_access value, zest_thread_access original) {
 	return InterlockedCompareExchange((LONG*)target, value, original);
@@ -200,8 +200,8 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 #elif defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && (defined(__i386__) || defined(__x86_64__)) || defined(__clang__)
 #include <time.h>
 //We'll just use glfw on mac for now. Can maybe add basic cocoa windows later
-#include <glfw/glfw3.h>
-#define ZEST_ALIGN_PREFIX(v) 
+#include <GLFW/glfw3.h>
+#define ZEST_ALIGN_PREFIX(v)
 #define ZEST_ALIGN_AFFIX(v)  __attribute__((aligned(16)))
 #define ZEST_PROTOTYPE void
 #define zest_snprintf(buffer, bufferSize, format, ...) snprintf(buffer, bufferSize, format, __VA_ARGS__)
