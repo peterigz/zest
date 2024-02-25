@@ -684,28 +684,15 @@ zest_vec4 zest_MatrixTransformVector(zest_matrix4 *mat, zest_vec4 vec) {
     float32x4_t row3result = vmulq_f32(v4, mrow3);
     float32x4_t row4result = vmulq_f32(v4, mrow4);
 
-    float32x2_t tmp2;
-    float32x4_t tmp;
-
-    tmp = vaddq_f32(row1result, vextq_f32(row1result, row1result, 1));
-    tmp = vaddq_f32(tmp, vextq_f32(tmp, tmp, 2));
-    tmp2 = vpadd_f32(vget_low_f32(tmp), vget_high_f32(tmp));
-    v.x = vget_lane_f32(tmp2, 0);
-
-    tmp = vaddq_f32(row2result, vextq_f32(row2result, row2result, 1));
-    tmp = vaddq_f32(tmp, vextq_f32(tmp, tmp, 2));
-    tmp2 = vpadd_f32(vget_low_f32(tmp), vget_high_f32(tmp));
-    v.y = vget_lane_f32(tmp2, 0);
-
-    tmp = vaddq_f32(row3result, vextq_f32(row3result, row3result, 1));
-    tmp = vaddq_f32(tmp, vextq_f32(tmp, tmp, 2));
-    tmp2 = vpadd_f32(vget_low_f32(tmp), vget_high_f32(tmp));
-    v.z = vget_lane_f32(tmp2, 0);
-
-    tmp = vaddq_f32(row4result, vextq_f32(row4result, row4result, 1));
-    tmp = vaddq_f32(tmp, vextq_f32(tmp, tmp, 2));
-    tmp2 = vpadd_f32(vget_low_f32(tmp), vget_high_f32(tmp));
-    v.w = vget_lane_f32(tmp2, 0);
+    float tmp[4];
+    vst1q_f32(tmp, row1result);
+    v.x = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+    vst1q_f32(tmp, row2result);
+    v.y = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+    vst1q_f32(tmp, row3result);
+    v.z = tmp[0] + tmp[1] + tmp[2] + tmp[3];
+    vst1q_f32(tmp, row4result);
+    v.w = tmp[0] + tmp[1] + tmp[2] + tmp[3];
 
     return v;
 }
@@ -1328,6 +1315,8 @@ void zest_AddInstanceExtension(char *extension) {
 void zest__get_required_extensions() {
     ZestRenderer->add_platform_extensions_callback();
 
+    //If you're compiling on Mac and hitting this assert then it could be because you need to allow 3rd party libraries when signing the app.
+    //Check "Disable Library Validation" under Signing and Capabilities
     ZEST_ASSERT(ZestDevice->extensions); //Vulkan not available
 
     if (ZEST_ENABLE_VALIDATION_LAYER) {
