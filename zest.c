@@ -1841,6 +1841,7 @@ void zest__do_scheduled_tasks(void) {
             zest_ProcessTextureImages(ZestRenderer->texture_reprocess_queue[i]);
             zest_RefreshTextureDescriptors(ZestRenderer->texture_reprocess_queue[i]);
         }
+        atomic_store(&ZestRenderer->lock_texture_reprocess_queue, 0);
         zest_vec_clear(ZestRenderer->texture_reprocess_queue);
     }
 
@@ -2586,6 +2587,7 @@ void zest_SetDeviceImagePoolSize(const char *name, VkImageUsageFlags image_flags
 // --Renderer and related functions
 void zest__initialise_renderer(zest_create_info_t *create_info) {
     ZestRenderer->flags |= create_info->flags & zest_init_flag_enable_vsync;
+    ZestRenderer->lock_texture_reprocess_queue = ATOMIC_VAR_INIT(0);
     zest_SetText(&ZestRenderer->shader_path_prefix, create_info->shader_path_prefix);
     zest__create_swapchain();
     zest__create_swapchain_image_views();
@@ -6692,12 +6694,16 @@ void zest_RefreshTextureDescriptors(zest_texture texture) {
 
 void zest_ScheduleTextureReprocess(zest_texture texture) {
     zest_vec_push(ZestRenderer->texture_reprocess_queue, texture);
+    atomic_store(&ZestRenderer->lock_texture_reprocess_queue, 1);
 }
 
 void zest_WaitUntilTexturesReprocessed() {
-    while (ZestRenderer->texture_reprocess_queue && zest_vec_size(ZestRenderer->texture_reprocess_queue)) {
-        //Spin. This should be run from a separate thread so the scheduler can actually do it's thing
+    while (atomic_load(&ZestRenderer->lock_texture_reprocess_queue)) {
+        // Spin until lock is acquired
     }
+    //while (ZestRenderer->texture_reprocess_queue && zest_vec_size(ZestRenderer->texture_reprocess_queue)) {
+        //Spin. This should be run from a separate thread so the scheduler can actually do it's thing
+    //}
 }
 
 void zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set descriptor_set) {
@@ -9332,7 +9338,7 @@ void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_
     mesh_layer->vertex_struct_size = vertex_struct_size;
 
     zest_buffer_info_t device_vertex_buffer_info = zest_CreateVertexBufferInfo(0);
-	zest_buffer_info_t device_index_buffer_info = zest_CreateIndexBufferInfo(0);
+    zest_buffer_info_t device_index_buffer_info = zest_CreateIndexBufferInfo(0);
     if (zest_GPUHasDeviceLocalHostVisible()) {
         ZEST__FLAG(mesh_layer->flags, zest_layer_flag_device_local_direct);
         device_vertex_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
