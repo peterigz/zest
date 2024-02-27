@@ -71,6 +71,7 @@ typedef size_t zloc_fl_bitmap;
 #define ZLOC_ERROR_COLOR "\033[31m"
 #endif
 
+//Redo this and output to a user defined log file instead
 #ifdef ZLOC_OUTPUT_ERROR_MESSAGES
 #include <stdio.h>
 #define ZLOC_PRINT_ERROR(message_f, ...) printf(message_f"\033[0m", __VA_ARGS__)
