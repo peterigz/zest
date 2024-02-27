@@ -9,13 +9,15 @@ extern "C" {
 #include <vulkan/vulkan.h>
 #include <math.h>
 #include <string.h>
-#include <stdatomic.h>
 
 #if defined(__x86_64__) || defined(__i386__) || defined(_M_X64)
 #define ZEST_INTEL
 #include <immintrin.h>
+typedef volatile unsigned int zest_atomic_int;
 #elif defined(__arm__) || defined(__aarch64__)
+#include <stdatomic.h>
 #include <arm_neon.h>
+typedef _Atomic(int) zest_atomic_int;
 #define ZEST_ARM
 #endif
 
@@ -1636,7 +1638,7 @@ typedef struct zest_renderer_t {
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
     zest_texture *texture_reprocess_queue;
     zest_texture *texture_delete_queue;
-    _Atomic(int) lock_texture_reprocess_queue;
+    zest_atomic_int lock_texture_reprocess_queue;
     zest_uint current_frame;
 
     //Flags
