@@ -52,7 +52,7 @@ ENDIF()
 include_directories(${Vulkan_INCLUDE_DIRS})
 
 # Check if GLFW3 is available
-find_package(GLFW3 HINTS QUIET)
+find_package(GLFW3 QUIET)
 
 # Check if SDL is available
 find_package(SDL2 QUIET)
@@ -60,7 +60,9 @@ find_package(SDL2 QUIET)
 if (GLFW3_FOUND)
     # GLFW3 found, add the GLFW3 library and examples that require it
     add_library(GLFW3 INTERFACE)
+	IF(APPLE)
 	include_directories(${GLFW3_INCLUDE_DIR})
+	ENDIF(APPLE)
     target_link_libraries(GLFW3 INTERFACE glfw)
 else ()
 	IF(APPLE)
