@@ -1332,6 +1332,7 @@ void zest__get_required_extensions() {
 #ifdef ZEST_PORTABILITY_ENUMERATION
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Adding enumerate portability extension\n");
     zest_AddInstanceExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    zest_AddInstanceExtension("VK_KHR_get_physical_device_properties2");
 #endif
 }
 

@@ -255,7 +255,11 @@ typedef zest_uint zest_app_flags;
 
 enum zest__constants {
     zest__validation_layer_count = 1,
+#if defined(__APPLE__)
+    zest__required_extension_names_count = 2,
+#else
     zest__required_extension_names_count = 1,
+#endif
 };
 
 typedef enum {
@@ -1670,7 +1674,10 @@ ZEST_GLOBAL const char* zest_validation_layers[zest__validation_layer_count] = {
 };
 
 ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_count] = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+#if defined(__APPLE__)
+    "VK_KHR_portability_subset"
+#endif
 };
 
 

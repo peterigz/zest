@@ -101,6 +101,7 @@ int main(void) {
 
 	ImGuiApp imgui_app;
 
+    create_info.log_path = ".";
 	zest_Initialise(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
