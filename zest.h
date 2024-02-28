@@ -35,7 +35,7 @@ typedef _Atomic(int) zest_atomic_int;
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 //Helper macros
@@ -95,6 +95,9 @@ typedef _Atomic(int) zest_atomic_int;
 #else
 #define ZEST_PRINT_NOTICE(message_f, ...)
 #endif
+
+#define ZEST_LOG(log_file, message, ...) if(log_file) fprintf(log_file, message, ##__VA_ARGS__)
+#define ZEST_APPEND_LOG(log_path, message, ...) if(log_path) { FILE *log_file = zest__open_file(log_path, "a"); fprintf(log_file, message, ##__VA_ARGS__); fclose(log_file); }
 
 #define ZEST__ARRAY(name, type, count) type *name = ZEST__REALLOCATE(0, sizeof(type) * count)
 //FIF = Frame in Flight
@@ -928,7 +931,7 @@ typedef struct zest_device_t {
     zest_map_buffer_pool_sizes pool_sizes;
     void *allocator_start;
     void *allocator_end;
-    FILE *validation_log;
+    zest_text log_path;
 } zest_device_t;
 
 zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
@@ -936,6 +939,7 @@ zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
 typedef struct zest_create_info_t {
     const char *title;                                    //Title that shows in the window
     const char *shader_path_prefix;                     //Prefix prepending to the shader path when loading default shaders
+    const char* log_path;                               //path to the log to store log and validation messages
     zest_size memory_pool_size;                            //The size of each memory pool. More pools are added if needed
     int screen_width, screen_height;                    //Default width and height of the window that you open
     int screen_x, screen_y;                                //Default position of the window
@@ -1909,8 +1913,6 @@ ZEST_API void zest_SetUserData(void* data);
 ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
 //Start the main loop in the zest renderer. Must be run after zest_Initialise and also zest_SetUserUpdateCallback
 ZEST_API void zest_Start(void);
-//For debugging, if you need the validation messages to be output to a FILE you can set that here
-ZEST_API void zest_SetValidationFile(FILE *file);
 
 //-----------------------------------------------
 //        Vulkan Helper Functions
@@ -3165,6 +3167,9 @@ ZEST_API void zest_OutputQueues();
 //About all of the current memory usage that you're using in the renderer to the console. This won't include any allocations you've done elsewhere using you own allocation
 //functions or malloc/virtual_alloc etc.
 ZEST_API void zest_OutputMemoryUsage();
+//Set the path to the log where vulkan validation messages and other log messages can be output to. If this is not set and ZEST_VALIDATION_LAYER is 1 then validation messages and other log
+//messages will be output to the console if it's available.
+ZEST_API zest_bool zest_SetErrorLogPath(const char *path);
 //--End Debug Helpers
 
 #ifdef __cplusplus

@@ -1129,6 +1129,9 @@ void zest_Initialise(zest_create_info_t *info) {
     ZestDevice->allocation_callbacks.pfnAllocation = zest_vk_allocate_callback;
     ZestDevice->allocation_callbacks.pfnReallocation = zest_vk_reallocate_callback;
     ZestDevice->allocation_callbacks.pfnFree = zest_vk_free_callback;
+    if (info->log_path) {
+        zest_SetErrorLogPath(info->log_path);
+    }
     ZestRenderer->destroy_window_callback = info->destroy_window_callback;
     ZestRenderer->get_window_size_callback = info->get_window_size_callback;
     ZestRenderer->poll_events_callback = info->poll_events_callback;
@@ -1220,6 +1223,7 @@ void zest__create_instance(void) {
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     create_info.pApplicationInfo = &app_info;
 #ifdef ZEST_PORTABILITY_ENUMERATION
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Flagging for enumerate portability on MACOS\n");
     create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
     create_info.pNext = 0;
@@ -1250,6 +1254,10 @@ void zest__create_instance(void) {
 
     vkEnumerateInstanceExtensionProperties(ZEST_NULL, &extension_property_count, available_extensions);
 
+    for(zest_foreach_i(ZestDevice->extensions)) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Extension: %s\n", ZestDevice->extensions[i]);
+    }
+
     VkResult result = vkCreateInstance(&create_info, &ZestDevice->allocation_callbacks, &ZestDevice->instance);
 
     ZEST_VK_CHECK_RESULT(result);
@@ -1260,9 +1268,11 @@ void zest__create_instance(void) {
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback( VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
-    ZEST_PRINT_WARNING("Validation Layer: %s", pCallbackData->pMessage);
-    if (ZestDevice->validation_log) {
-        fprintf(ZestDevice->validation_log, "Validation Layer: %s\n", pCallbackData->pMessage);
+    if (ZestDevice->log_path.str) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validation Layer: %s\n", pCallbackData->pMessage);
+    }
+    else {
+        ZEST_PRINT_WARNING("Validation Layer: %s", pCallbackData->pMessage);
     }
 
     return VK_FALSE;
@@ -1303,10 +1313,6 @@ void zest__setup_validation(void) {
     ZestDevice->pfnSetDebugUtilsObjectNameEXT = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(ZestDevice->instance, "vkSetDebugUtilsObjectNameEXT");
 }
 
-void zest_SetValidationFile(FILE *file) {
-    ZestDevice->validation_log = file;
-}
-
 void zest_AddInstanceExtension(char *extension) {
     zest_vec_push(ZestDevice->extensions, extension);
 }
@@ -1324,6 +1330,7 @@ void zest__get_required_extensions() {
     }
     //zest_AddInstanceExtension(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
 #ifdef ZEST_PORTABILITY_ENUMERATION
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Adding enumerate portability extension\n");
     zest_AddInstanceExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 #endif
 }
@@ -5145,6 +5152,7 @@ zest_create_info_t zest_CreateInfo() {
     zest_create_info_t create_info = {
         .memory_pool_size = zloc__MEGABYTE(64),
         .shader_path_prefix = "spv/",
+        .log_path = NULL,
         .screen_width = 1280,
         .screen_height = 768,
         .screen_x = 0,
@@ -10022,6 +10030,19 @@ void zest_OutputMemoryUsage() {
     printf("\n");
     printf("\t\t\t\t-- * --\n");
     printf("\n");
+}
+
+zest_bool zest_SetErrorLogPath(const char *path) {
+    ZEST_ASSERT(ZestDevice);    //Have you initialised Zest yet?
+    zest_SetTextf(&ZestDevice->log_path, "%s/%s", path, "zest_log.txt");
+    FILE *log_file = zest__open_file(ZestDevice->log_path.str, "wb");
+    if (!log_file) {
+		printf("Could Not Create Log file!");
+        return ZEST_FALSE;
+    }
+    ZEST_LOG(log_file, "Start of Log\n");
+    fclose(log_file);
+    return ZEST_TRUE;
 }
 //-- End Debug helpers
 
