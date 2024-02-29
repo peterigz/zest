@@ -35,7 +35,7 @@ typedef _Atomic(int) zest_atomic_int;
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
 //Helper macros

@@ -1226,22 +1226,21 @@ void zest__create_instance(void) {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Flagging for enumerate portability on MACOS\n");
     create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
-    create_info.pNext = 0;
     
     zest__get_required_extensions();
     zest_uint extension_count = zest_vec_size(ZestDevice->extensions);
     create_info.enabledExtensionCount = extension_count;
     create_info.ppEnabledExtensionNames = (const char **)ZestDevice->extensions;
 
+    VkDebugUtilsMessengerCreateInfoEXT debug_create_info = { 0 };
     if (ZEST_ENABLE_VALIDATION_LAYER) {
         create_info.enabledLayerCount = (zest_uint)zest__validation_layer_count;
         create_info.ppEnabledLayerNames = zest_validation_layers;
-        VkDebugUtilsMessengerCreateInfoEXT debug_create_info = { 0 };
         debug_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
         debug_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
         debug_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         debug_create_info.pfnUserCallback = zest_debug_callback;
-        create_info.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debug_create_info;
+        create_info.pNext = &debug_create_info;
     }
     else {
         create_info.enabledLayerCount = 0;
@@ -1301,6 +1300,7 @@ void zest_destroy_debug_messenger(void) {
 
 void zest__setup_validation(void) {
     if (!ZEST_ENABLE_VALIDATION_LAYER) return;
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Enabling validation layers\n");
 
     VkDebugUtilsMessengerCreateInfoEXT create_info = { 0 };
     create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
