@@ -1849,7 +1849,7 @@ void zest__do_scheduled_tasks(void) {
             zest_ProcessTextureImages(ZestRenderer->texture_reprocess_queue[i]);
             zest_RefreshTextureDescriptors(ZestRenderer->texture_reprocess_queue[i]);
         }
-#if defined(ZEST_ARM)
+#if defined(ZEST_ATOMICS)
         atomic_store(&ZestRenderer->lock_texture_reprocess_queue, 0);
 #endif
         zest_vec_clear(ZestRenderer->texture_reprocess_queue);
@@ -2597,7 +2597,7 @@ void zest_SetDeviceImagePoolSize(const char *name, VkImageUsageFlags image_flags
 // --Renderer and related functions
 void zest__initialise_renderer(zest_create_info_t *create_info) {
     ZestRenderer->flags |= create_info->flags & zest_init_flag_enable_vsync;
-#if defined(ZEST_ARM)
+#if defined(ZEST_ATOMICS)
     ZestRenderer->lock_texture_reprocess_queue = ATOMIC_VAR_INIT(0);
 #else
     ZestRenderer->lock_texture_reprocess_queue = 0;
@@ -6709,13 +6709,13 @@ void zest_RefreshTextureDescriptors(zest_texture texture) {
 
 void zest_ScheduleTextureReprocess(zest_texture texture) {
     zest_vec_push(ZestRenderer->texture_reprocess_queue, texture);
-#if defined(ZEST_ARM)
+#if defined(ZEST_ATOMICS)
     atomic_store(&ZestRenderer->lock_texture_reprocess_queue, 1);
 #endif
 }
 
 void zest_WaitUntilTexturesReprocessed() {
-#if defined(ZEST_ARM)
+#if defined(ZEST_ATOMICS)
     while (atomic_load(&ZestRenderer->lock_texture_reprocess_queue)) {
         // Spin until lock is acquired
     }

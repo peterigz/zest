@@ -13,12 +13,17 @@ extern "C" {
 #if defined(__x86_64__) || defined(__i386__) || defined(_M_X64)
 #define ZEST_INTEL
 #include <immintrin.h>
-typedef volatile unsigned int zest_atomic_int;
 #elif defined(__arm__) || defined(__aarch64__)
-#include <stdatomic.h>
 #include <arm_neon.h>
-typedef _Atomic(int) zest_atomic_int;
 #define ZEST_ARM
+#endif
+
+#if defined(__APPLE__) || defined(__linux__)
+#include <stdatomic.h>
+typedef _Atomic(int) zest_atomic_int;
+#define ZEST_ATOMICS
+#else
+typedef volatile unsigned int zest_atomic_int;
 #endif
 
 #ifndef ZEST_MAX_FIF
