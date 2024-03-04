@@ -79,7 +79,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Assign our vertex input descriptions to the attributeDescriptions in the create info of the pipeline we're building
 	create_info.attributeDescriptions = app->vertice_attributes;
 	//Set the shader file to use in the pipeline
-	zest_SetPipelineTemplateShader(&create_info, "examples/assets/spv/particle.spv");
+	zest_SetPipelineTemplateShader(&create_info, "particle.spv", "examples/assets/spv/");
 	//We're going to use point sprites so set that
 	create_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 	//Assign the descriptor layout we created earlier
@@ -116,7 +116,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
 	//Declare the actual shader to use
-	zest_AddComputeShader(&builder, "examples/assets/spv/particle_comp.spv");
+	zest_AddComputeShader(&builder, "particle_comp.spv", "examples/assets/spv/");
 	//Finally, make the compute shader using the builder
 	zest_MakeCompute(&builder, app->compute);
 

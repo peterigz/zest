@@ -15,8 +15,8 @@ void InitExample(RenderTargetExample *example) {
 	//Add the push constant range to the shader 
 	zest_AddPipelineTemplatePushConstantRange(&create_info, image_pushconstant_range);
 	//Set the vert and frag shaders for the blur effect
-	zest_SetPipelineTemplateVertShader(&create_info, "examples/assets/spv/blur_vert.spv", "");
-	zest_SetPipelineTemplateFragShader(&create_info, "examples/assets/spv/blur_frag.spv", "");
+	zest_SetPipelineTemplateVertShader(&create_info, "blur_vert.spv", "examples/assets/spv/");
+	zest_SetPipelineTemplateFragShader(&create_info, "blur_frag.spv", "examples/assets/spv/");
 	//Theres no vertex data for the shader so set no_vertex_input to true
 	create_info.no_vertex_input = true;
 	//Add a new pipeline for the blur effect

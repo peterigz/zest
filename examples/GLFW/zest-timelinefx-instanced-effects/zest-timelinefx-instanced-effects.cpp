@@ -158,7 +158,7 @@ void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	zest_AddComputeBufferForBinding(&builder, example->emitter_properties_buffer);			//Binding 4
 	zest_AddComputeBufferForBinding(&builder, example->sprite_buffer);						//Binding 5
 	//Specify the shader that we want to use for the compute shader
-	example->compute_pipeline_3d = zest_AddComputeShader(&builder, "examples/assets/spv/sprite_data_playback.comp.spv");
+	example->compute_pipeline_3d = zest_AddComputeShader(&builder, "sprite_data_playback.comp.spv", "examples/assets/spv/");
 	//Specify the size of the push constant struct if we're using it
 	zest_SetComputePushConstantSize(&builder, sizeof(zest_compute_push_constant_t));
 	//Set the user data that can be passed to the callbacks
@@ -191,7 +191,7 @@ void PrepareComputeForBoundingBoxCalculation(ComputeExample *example) {
 	zest_AddComputeBufferForBinding(&builder, example->emitter_properties_buffer);			//Binding 3
 	zest_AddComputeBufferForBinding(&builder, example->bounding_boxes);						//Binding 4
 	//Specify the shader that we want to use for the compute shader
-	example->bb_compute_pipeline_3d = zest_AddComputeShader(&builder, "examples/assets/spv/sprite_data_bounding_box.comp.spv");
+	example->bb_compute_pipeline_3d = zest_AddComputeShader(&builder, "sprite_data_bounding_box.comp.spv", "examples/assets/spv/");
 	//Specify the size of the push constant struct if we're using it
 	zest_SetComputePushConstantSize(&builder, sizeof(zest_compute_push_constant_t));
 	//Set the user data that can be passed to the callbacks
@@ -743,6 +743,7 @@ void Update(zest_microsecs elapsed, void *data) {
 	zest_TimerSet(example->timer);
 }
 
+#if defined(_WIN32)
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 //int main() {
 	//Render specific
@@ -773,3 +774,32 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 
 	return EXIT_SUCCESS;
 }
+#else
+int main() {
+	//Render specific
+	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
+	//Create new config struct for Zest
+	zest_create_info_t create_info = zest_CreateInfo();
+	//Don't enable vsync so we can see how much FPS we get
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+
+	//Initialise TimelineFX. Must be run before using any timeline fx functionality.
+	InitialiseTimelineFX(std::thread::hardware_concurrency());
+
+	ComputeExample example;
+
+	//Initialise Zest
+	zest_Initialise(&create_info);
+	//Set the Zest use data
+	zest_SetUserData(&example);
+	//Set the udpate callback to be called every frame
+	zest_SetUserUpdateCallback(Update);
+	//Initialise our example
+	InitExample(&example);
+
+	//Start the main loop
+	zest_Start();
+
+	return EXIT_SUCCESS;
+}
+#endif

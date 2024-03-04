@@ -1196,15 +1196,20 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 }
 #else
 int main(void) {
+	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
+	zest_uint packed = zest_Pack8bitx3(&v);
 	zest_create_info_t create_info = zest_CreateInfo();
+	create_info.log_path = ".";
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	zest_implglfw_SetCallbacks(&create_info);
 
-	ImGuiApp imgui_app;
+	VadersGame game;
+	InitialiseTimelineFX(12);
 
 	zest_Initialise(&create_info);
-	zest_SetUserData(&imgui_app);
-	zest_SetUserUpdateCallback(UpdateCallback);
-	InitImGuiApp(&imgui_app);
+	zest_SetUserData(&game);
+	zest_SetUserUpdateCallback(UpdateTfxExample);
+	game.Init();
 
 	zest_Start();
 

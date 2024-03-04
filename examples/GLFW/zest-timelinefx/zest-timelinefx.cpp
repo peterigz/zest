@@ -1,7 +1,7 @@
 #include <zest.h>
 #include "imgui.h"
 #include "impl_glfw.h"
-#include "impl_imgui.h"
+#include "impl_imgui_glfw.h"
 #include "timelinefx.h"
 
 using namespace tfx;
@@ -16,16 +16,19 @@ using namespace tfx;
 
 typedef unsigned int u32;
 
+#define UpdateFrequency 0.016666666666f
+#define FrameLength 16.66666666667f
+
 struct VadersGame {
 	zest_timer timer;
 	zest_camera_t camera;
 	zest_texture particle_texture;
 	zest_texture imgui_font_texture;
 
-	tfxLibrary library;
-	tfxParticleManager pm;
+	tfx_library_t library;
+	tfx_particle_manager_t pm;
 
-	tfxEffectTemplate effect_template;
+	tfx_effect_template_t effect_template;
 
 	tfxEffectID effect_id;
 	zest_layer billboard_layer;
@@ -54,7 +57,7 @@ void UpdateUniform3d(VadersGame *game) {
 //void *raw_image_data			- The raw data of the image which you can use to load the image into graphics memory
 //int image_memory_size			- The size in bytes of the raw_image_data
 //void *custom_data				- This allows you to pass through an object you can use to access whatever is necessary to load the image into graphics memory, depending on the renderer that you're using
-void ShapeLoader(const char* filename, tfxImageData &image_data, void *raw_image_data, int image_memory_size, void *custom_data) {
+void ShapeLoader(const char* filename, tfx_image_data_t *image_data, void *raw_image_data, int image_memory_size, void *custom_data) {
 	//Cast your custom data, this can be anything you want
 	VadersGame *game = static_cast<VadersGame*>(custom_data);
 
@@ -65,27 +68,27 @@ void ShapeLoader(const char* filename, tfxImageData &image_data, void *raw_image
 	zest_ConvertBitmapToRGBA(&bitmap, 255);
 	//The editor has the option to convert an bitmap to an alpha map. I will probably change this so that it gets baked into the saved effect so you won't need to apply the filter here.
 	//Alpha map is where all color channels are set to 255
-	if (image_data.import_filter)
+	if (image_data->import_filter)
 		zest_ConvertBitmapToAlpha(&bitmap);
 
 	//Get the texture where we're storing all the particle shapes
 	//You'll probably need to load the image in such a way depending on whether or not it's an animation or not
-	if (image_data.animation_frames > 1) {
+	if (image_data->animation_frames > 1) {
 		//Add the spritesheet to the texture in our renderer
 		float max_radius = 0;
-		image_data.ptr = zest_AddTextureAnimationBitmap(game->particle_texture, &bitmap, (u32)image_data.image_size.x, (u32)image_data.image_size.y, (u32)image_data.animation_frames, &max_radius, 1);
+		image_data->ptr = zest_AddTextureAnimationBitmap(game->particle_texture, &bitmap, (u32)image_data->image_size.x, (u32)image_data->image_size.y, (u32)image_data->animation_frames, &max_radius, 1);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 	}
 	else {
 		//Add the image to the texture in our renderer
-		image_data.ptr = zest_AddTextureImageBitmap(game->particle_texture, &bitmap);
+		image_data->ptr = zest_AddTextureImageBitmap(game->particle_texture, &bitmap);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 	}
 }
 
-tfxVec3 ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_descriptor_buffer buffer) {
+tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_descriptor_buffer buffer) {
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(&camera_last_ray, depth_offset), camera_position);
@@ -101,7 +104,7 @@ void VadersGame::Init() {
 	int shape_count = GetShapeCountInLibrary("examples/assets/vaders/vadereffects.tfx");
 	particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, zest_texture_flag_use_filtering, zest_texture_format_rgba, shape_count);
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
-	LoadEffectLibraryPackage("examples/assets/effects.tfx", library, ShapeLoader, this);
+	LoadEffectLibraryPackage("examples/assets/effects.tfx", &library, ShapeLoader, this);
 	//Renderer specific
 	zest_ProcessTextureImages(particle_texture);
 	particle_descriptor = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d descriptor", "3d uniform");
@@ -109,9 +112,6 @@ void VadersGame::Init() {
 
 	//Application specific, set up a timer for the update loop
 	timer = zest_CreateTimer(60);
-
-	//Make sure that timelinefx udates effects at the same frequency as your update loop.
-	tfx::SetUpdateFrequency(60);
 
 	camera = zest_CreateCamera();
 	zest_CameraSetFoV(&camera, 60.f);
@@ -147,33 +147,33 @@ void VadersGame::Init() {
 
 	zest_TimerReset(timer);
 
-	assert(PrepareEffectTemplate(library, "Flicker Flare", effect_template));
+	PrepareEffectTemplate(&library, "Flicker Flare", &effect_template);
 }
 
 void BuildUI(VadersGame *game) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 	ImGui::Begin("Effects");
-	ImGui::Text("Game Particles: %i", game->pm.ParticleCount());
+	ImGui::Text("Game Particles: %i", ParticleCount(&game->pm));
 	ImGui::End();
 
 	ImGui::Render();
 	zest_imgui_UpdateBuffers(game->imgui_layer_info.mesh_layer);
 }
 
-void RenderParticles3d(tfxParticleManager &pm, float tween, VadersGame *game) {
+void RenderParticles3d(tfx_particle_manager_t &pm, float tween, VadersGame *game) {
 	//Renderer specific, get the layer that we will draw on (there's only one layer in this example)
 	tfxWideFloat lerp = tfxWideSetSingle(tween);
 	zest_SetBillboardDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
 	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
-		tfxSpriteSoA &sprites = pm.sprites[pm.current_sprite_buffer][layer];
+		tfx_sprite_soa_t &sprites = pm.sprites[pm.current_sprite_buffer][layer];
 		for (int i = 0; i != pm.sprite_buffer[pm.current_sprite_buffer][layer].current_size; ++i) {
 			zest_SetLayerColor(game->billboard_layer, sprites.color[i].r, sprites.color[i].g, sprites.color[i].b, sprites.color[i].a);
 			zest_SetLayerIntensity(game->billboard_layer, sprites.intensity[i]);
-			zest_image image = (zest_image)pm.library->emitter_properties.image[sprites.property_indexes[i] & 0x0000FFFF]->ptr;
-			tfxVec2 handle = pm.library->emitter_properties.image_handle[sprites.property_indexes[i] & 0x0000FFFF];
-			const tfxSpriteTransform3d &captured = pm.GetCapturedSprite3dTransform(layer, sprites.captured_index[i]);
-			tfxWideLerpTransformResult lerped = InterpolateSpriteTransform(lerp, sprites.transform_3d[i], captured);
+			zest_image image = (zest_image)pm.library->emitter_properties[sprites.property_indexes[i] & 0x0000FFFF].image->ptr;
+			tfx_vec2_t handle = pm.library->emitter_properties[sprites.property_indexes[i] & 0x0000FFFF].image_handle;
+			const tfx_sprite_transform3d_t *captured = GetCapturedSprite3dTransform(&pm, layer, sprites.captured_index[i]);
+			tfx_wide_lerp_transform_result_t lerped = InterpolateSpriteTransform(&lerp, &sprites.transform_3d[i], captured);
 			zest_DrawBillboard(game->billboard_layer, image + ((sprites.property_indexes[i] & 0x00FF0000) >> 16),
 				lerped.position,
 				sprites.alignment[i],
@@ -201,9 +201,9 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	BuildUI(game);
 
 	if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-		tfxEffectID effect_id = AddEffectToParticleManager(&game->pm, game->effect_template);
-		if (effect_id != tfxINVALID) {
-			tfxVec3 position = ScreenRay(ZestApp->mouse_x, ZestApp->mouse_y, 6.f, game->camera.position, game->uniform_buffer_3d);
+		tfxEffectID effect_id;
+		if(AddEffectToParticleManager(&game->pm, &game->effect_template, &effect_id)) {
+			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 6.f, game->camera.position, game->uniform_buffer_3d);
 			SetEffectPosition(&game->pm, effect_id, position);
 			//SetEffectBaseNoiseOffset(&game->pm, new_bullet.effect_index, game->noise_offset);
 		}
@@ -211,14 +211,14 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 	while (zest_TimerDoUpdate(game->timer)) {
 
-		UpdateParticleManager(&game->pm, tfxFRAME_LENGTH);
+		UpdateParticleManager(&game->pm, FrameLength);
 
 		zest_TimerUnAccumulate(game->timer);
 	}
 
 	zest_TimerSet(game->timer);
 
-	RenderParticles3d(game->pm, game->timer->lerp, game);
+	RenderParticles3d(game->pm, (float)game->timer->lerp, game);
 }
 
 #if defined(_WIN32)

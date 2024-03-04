@@ -65,8 +65,6 @@ int main(void) {
 
 	zest_example example;
     
-    zest_size cdata_size = sizeof(zest_font_character_t);
-
 	zest_Initialise(&create_info);
 	zest_SetUserData(&example);
 	zest_SetUserUpdateCallback(UpdateCallback);
