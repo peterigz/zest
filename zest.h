@@ -101,6 +101,7 @@ typedef volatile unsigned int zest_atomic_int;
 #define ZEST_PRINT_NOTICE(message_f, ...)
 #endif
 
+#define ZEST_NL u8"\n"
 #define ZEST_LOG(log_file, message, ...) if(log_file) fprintf(log_file, message, ##__VA_ARGS__)
 #define ZEST_APPEND_LOG(log_path, message, ...) if(log_path) { FILE *log_file = zest__open_file(log_path, "a"); fprintf(log_file, message, ##__VA_ARGS__); fclose(log_file); }
 
@@ -122,13 +123,14 @@ typedef volatile unsigned int zest_atomic_int;
 #define ZEST_EACH_FIF_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
 
 //For error checking vulkan commands
-#define ZEST_VK_CHECK_RESULT(res)                                                                                    \
-    {                                                                                                                \
-        if (res != VK_SUCCESS)                                                                                        \
-        {                                                                                                            \
-            printf("Fatal : VkResult is \" %s \" in %s at line %i\n", zest__vulkan_error(res), __FILE__, __LINE__);    \
-            ZEST_ASSERT(res == VK_SUCCESS);                                                                            \
-        }                                                                                                            \
+#define ZEST_VK_CHECK_RESULT(res)                                                                                   \
+    {                                                                                                               \
+        if (res != VK_SUCCESS)                                                                                      \
+        {                                                                                                           \
+            printf("Fatal : VkResult is \" %s \" in %s at line %i\n", zest__vulkan_error(res), __FILE__, __LINE__); \
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Fatal : VkResult is \" %s \" in %s at line %i" ZEST_NL, zest__vulkan_error(res), __FILE__, __LINE__);     \
+            ZEST_ASSERT(res == VK_SUCCESS);                                                                         \
+        }                                                                                                           \
     }
 
 const char *zest__vulkan_error(VkResult errorCode);

@@ -1178,7 +1178,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_uint packed = zest_Pack8bitx3(&v);
 	zest_create_info_t create_info = zest_CreateInfo();
-	//create_info.log_path = ".";
+	create_info.log_path = ".";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	zest_implglfw_SetCallbacks(&create_info);
 

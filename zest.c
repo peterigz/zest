@@ -1207,6 +1207,7 @@ Functions that create a vulkan device
 void zest__create_instance(void) {
     if (ZEST_ENABLE_VALIDATION_LAYER) {
         zest_bool validation_support = zest__check_validation_layer_support();
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Checking for validation support" ZEST_NL);
         ZEST_ASSERT(validation_support);
     }
 
@@ -1259,6 +1260,7 @@ void zest__create_instance(void) {
 
     VkResult result = vkCreateInstance(&create_info, &ZestDevice->allocation_callbacks, &ZestDevice->instance);
 
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validating Vulkan Instance" ZEST_NL);
     ZEST_VK_CHECK_RESULT(result);
 
     ZEST__FREE(available_extensions);
@@ -1389,6 +1391,7 @@ void zest__pick_physical_device(void) {
     ZestDevice->physical_device = VK_NULL_HANDLE;
     for (int i = 0; i != device_count; ++i) {
         if (zest__is_device_suitable(devices[i])) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device" ZEST_NL);
             ZestDevice->physical_device = devices[i];
             ZestDevice->msaa_samples = zest__get_max_useable_sample_count();
             break;
@@ -1453,6 +1456,9 @@ zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_de
             }
         }
     }
+    if (i == ZEST_INVALID) {
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Unable to find any queue families" ZEST_NL);
+    }
     assert(i != ZEST_INVALID);    //Counldn't find any graphics queue family!
     zest__set_graphics_family(&indices, i, queue_families[i].queueCount);
     //Try and assign the present queue to the graphics queue family
@@ -1507,6 +1513,9 @@ zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_de
             }
             i++;
         }
+    }
+    if (!zest__family_is_complete(&indices)) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Incomplete queue family: %i, %i, %i" ZEST_NL, indices.compute_family, indices.graphics_family, indices.present_family);
     }
     assert(zest__family_is_complete(&indices));
 
@@ -1641,6 +1650,7 @@ void zest__create_logical_device(void) {
         create_info.enabledLayerCount = 0;
     }
     
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating logical device" ZEST_NL);
     ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->logical_device));
 
     vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->graphics_queue);
@@ -1657,6 +1667,7 @@ void zest__create_logical_device(void) {
     cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     cmd_info_pool.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
     cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating command queues" ZEST_NL);
     ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->command_pool));
     ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->one_time_command_pool));
 }
@@ -1763,6 +1774,7 @@ void zest__set_default_pool_sizes() {
     usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     zest_SetDeviceBufferPoolSize("Index Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Set device pool sizes" ZEST_NL);
 }
 
 
@@ -1806,6 +1818,7 @@ void zest__initialise_app(zest_create_info_t *create_info) {
     ZestApp->render_time = 0;
     ZestApp->frame_timer = 0;
 
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create window with dimensions: %i, %i" ZEST_NL, create_info->screen_width, create_info->screen_height);
     ZestApp->window = ZestRenderer->create_window_callback(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, ZEST__FLAGGED(create_info->flags, zest_init_flag_maximised), "Zest");
 }
 
@@ -2603,29 +2616,39 @@ void zest__initialise_renderer(zest_create_info_t *create_info) {
     ZestRenderer->lock_texture_reprocess_queue = 0;
 #endif
     zest_SetText(&ZestRenderer->shader_path_prefix, create_info->shader_path_prefix);
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain" ZEST_NL);
     zest__create_swapchain();
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain image views" ZEST_NL);
     zest__create_swapchain_image_views();
 
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create standard render passes" ZEST_NL);
     zest__make_standard_render_passes();
 
     if (ZEST__FLAGGED(create_info->flags, zest_init_flag_use_depth_buffer)) {
         ZestRenderer->final_render_pass = *zest_map_at(ZestRenderer->render_passes, "Render pass present");
         ZestRenderer->flags |= zest_renderer_flag_has_depth_buffer;
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create depth passes" ZEST_NL);
         ZestRenderer->depth_resource_buffer = zest__create_depth_resources();
     }
     else {
         ZestRenderer->final_render_pass = *zest_map_at(ZestRenderer->render_passes, "Render pass present no depth");
     }
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain frame buffers" ZEST_NL);
     zest__create_swap_chain_frame_buffers(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer));
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create sync objects" ZEST_NL);
     zest__create_sync_objects();
     ZestRenderer->push_constants.screen_resolution.x = 1.f / ZestRenderer->swapchain_extent.width;
     ZestRenderer->push_constants.screen_resolution.y = 1.f / ZestRenderer->swapchain_extent.height;
 
     ZestRenderer->standard_uniform_buffer = zest_CreateUniformBuffer("Standard 2d Uniform Buffer", sizeof(zest_uniform_buffer_data_t));
 
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor pools" ZEST_NL);
     zest__create_descriptor_pools(create_info->pool_counts, create_info->max_descriptor_pool_sets);
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts" ZEST_NL);
     zest__make_standard_descriptor_layouts();
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create pipeline cache" ZEST_NL);
     zest__create_pipeline_cache();
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create standard pipelines" ZEST_NL);
     zest__prepare_standard_pipelines();
 
     VkFenceCreateInfo fence_info = { 0 };
@@ -4209,9 +4232,9 @@ void zest_SetTextfv(zest_text *buffer, const char *text, va_list args)
     int len = vsnprintf(NULL, 0, text, args);
     ZEST_ASSERT(len >= 0);
 
-    if (zest_TextLength(buffer) < len + 1)
+    if ((int)zest_TextLength(buffer) < len + 1)
     {
-        zest_vec_resize(buffer->str, len + 1);
+        zest_vec_resize(buffer->str, (zest_uint)(len + 1));
     }
     len = vsnprintf(buffer->str, len + 1, text, args2);
 #else
@@ -4281,6 +4304,7 @@ void zest__prepare_standard_pipelines() {
     sprite_instance_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
     sprite_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     sprite_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites pipeline" ZEST_NL);
     zest_BuildPipeline(sprite_instance_pipeline);
 
     instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
@@ -4291,6 +4315,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(sprite_instance_pipeline_alpha, render_pass, &instance_create_info);
     sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites alpha pipeline" ZEST_NL);
     zest_BuildPipeline(sprite_instance_pipeline_alpha);
 
     //SDF lines 2d
@@ -4315,6 +4340,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(line_instance_pipeline, render_pass, &instance_create_info);
     line_instance_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
     line_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF Lines pipeline" ZEST_NL);
     zest_BuildPipeline(line_instance_pipeline);
     zest_MakePipelineDescriptorWrites(line_instance_pipeline);
 
@@ -4327,6 +4353,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(font_pipeline, render_pass, &instance_create_info);
     font_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     font_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Font pipeline" ZEST_NL);
     zest_BuildPipeline(font_pipeline);
 
     //3d billboards
@@ -4353,6 +4380,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(billboard_instance_pipeline, render_pass, &instance_create_info);
     billboard_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     billboard_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard pipeline" ZEST_NL);
     zest_BuildPipeline(billboard_instance_pipeline);
 
     instance_create_info = zest_CopyTemplateFromPipeline("pipeline_billboard");
@@ -4362,6 +4390,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(billboard_pipeline_alpha, render_pass, &instance_create_info);
     billboard_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     billboard_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard alpha pipeline" ZEST_NL);
     zest_BuildPipeline(billboard_pipeline_alpha);
 
     //ImGuiPipeline
@@ -4399,6 +4428,7 @@ void zest__prepare_standard_pipelines() {
     imgui_pipeline->pipeline_template.colorBlendAttachment = zest_ImGuiBlendState();
     imgui_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
     imgui_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline" ZEST_NL);
     zest_BuildPipeline(imgui_pipeline);
 
     //General mesh drawing
@@ -4433,6 +4463,7 @@ void zest__prepare_standard_pipelines() {
     mesh_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
     mesh_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
     mesh_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_TRUE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Mesh pipeline" ZEST_NL);
     zest_BuildPipeline(mesh_pipeline);
 
     //Final Render Pipelines
@@ -4460,6 +4491,7 @@ void zest__prepare_standard_pipelines() {
 
     final_render->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendStateForSwap();
 
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Final render pipeline" ZEST_NL);
     zest_BuildPipeline(final_render);
 }
 
