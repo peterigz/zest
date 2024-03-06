@@ -513,14 +513,10 @@ typedef zest_descriptor_buffer zest_uniform_buffer;
 typedef struct zest_queue_family_indices {
     zest_uint graphics_family;
     zest_uint graphics_family_queue_count;
-    zest_uint present_family;
-    zest_uint present_family_queue_count;
+    zest_uint transfer_index;
+    zest_uint transfer_family_queue_count;
     zest_uint compute_family;
     zest_uint compute_family_queue_count;
-
-    zest_bool graphics_set;
-    zest_bool present_set;
-    zest_bool compute_set;
 } zest_queue_family_indices;
 
 // --Pocket Dynamic Array
@@ -915,7 +911,7 @@ typedef struct zest_device_t {
     zest_uint saved_fif;
     zest_uint max_image_size;
     zest_uint graphics_queue_family_index;
-    zest_uint present_queue_family_index;
+    zest_uint transfer_queue_family_index;
     zest_uint compute_queue_family_index;
     void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
     zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
@@ -935,6 +931,7 @@ typedef struct zest_device_t {
     VkQueue graphics_queue;
     VkQueue one_time_graphics_queue;
     VkQueue compute_queue;
+    VkQueue transfer_queue;
     VkCommandPool command_pool;
     VkCommandPool one_time_command_pool;
     PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
@@ -1875,11 +1872,7 @@ ZEST_PRIVATE VkResult zest_create_debug_messenger(VkInstance instance, const VkD
 ZEST_PRIVATE void zest_destroy_debug_messenger(void);
 ZEST_PRIVATE void zest__pick_physical_device(void);
 ZEST_PRIVATE zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device);
-ZEST_PRIVATE zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device);
-ZEST_PRIVATE inline void zest__set_graphics_family(zest_queue_family_indices *family, zest_uint v, zest_uint queue_count) { family->graphics_family = v; family->graphics_set = 1; family->graphics_family_queue_count = queue_count; }
-ZEST_PRIVATE inline void zest__set_present_family(zest_queue_family_indices *family, zest_uint v, zest_uint queue_count) { family->present_family = v; family->present_set = 1; family->present_family_queue_count = queue_count; }
-ZEST_PRIVATE inline void zest__set_compute_family(zest_queue_family_indices *family, zest_uint v, zest_uint queue_count) { family->compute_family = v; family->compute_set = 1; family->compute_family_queue_count = queue_count; }
-ZEST_PRIVATE inline zest_bool zest__family_is_complete(zest_queue_family_indices *family) { return family->graphics_set && family->present_set && family->compute_set; }
+ZEST_PRIVATE zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device, VkDeviceQueueCreateInfo *queue_create_infos);
 ZEST_PRIVATE zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_swapchain_support_details_t zest__query_swapchain_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE VkSampleCountFlagBits zest__get_max_useable_sample_count(void);

@@ -1417,8 +1417,6 @@ void zest__pick_physical_device(void) {
 }
 
 zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device) {
-    zest_queue_family_indices indices = zest__find_queue_families(physical_device);
-
     zest_bool extensions_supported = zest__check_device_extension_support(physical_device);
 
     zest_bool swapchain_adequate = 0;
@@ -1430,97 +1428,48 @@ zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device) {
     VkPhysicalDeviceFeatures supportedFeatures;
     vkGetPhysicalDeviceFeatures(physical_device, &supportedFeatures);
 
-    return zest__family_is_complete(&indices) && extensions_supported && swapchain_adequate && supportedFeatures.samplerAnisotropy;
+    return extensions_supported && swapchain_adequate && supportedFeatures.samplerAnisotropy;
 }
 
-zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device) {
-    zest_queue_family_indices indices = { 0 };
-
-    zest_uint queue_family_count = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, ZEST_NULL);
-
-    ZEST__ARRAY(queue_families, VkQueueFamilyProperties, queue_family_count);
-    //VkQueueFamilyProperties queue_families[10];
-    vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families);
-
-    zest_uint i = ZEST_INVALID;
-    zest_bool compute_found = 0;
-
-    //First find the graphics queue family with the highest queue count
-    zest_uint max_queue_count = 0;
-    for (int f = 0; f != queue_family_count; ++f) {
-        if (queue_families[f].queueCount > 0 && queue_families[f].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-            if (queue_families[f].queueCount > max_queue_count) {
-                max_queue_count = queue_families[f].queueCount;
-                i = f;
+zest_index zest__get_queue_family_index(VkQueueFlags queue_flags, VkQueueFamilyProperties *queue_families) {
+    // Dedicated queue for compute
+    // Try to find a queue family index that supports compute but not graphics
+    if ((queue_flags & VK_QUEUE_COMPUTE_BIT) == queue_flags)
+    {
+        for (zest_foreach_i(queue_families)) {
+            if ((queue_families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) && ((queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0))
+            {
+                return i;
             }
         }
     }
-    if (i == ZEST_INVALID) {
-		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Unable to find any queue families" ZEST_NL);
-    }
-    assert(i != ZEST_INVALID);    //Counldn't find any graphics queue family!
-    zest__set_graphics_family(&indices, i, queue_families[i].queueCount);
-    //Try and assign the present queue to the graphics queue family
-    VkBool32 present_support = VK_FALSE;
-    vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, ZestApp->window->surface, &present_support);
-    if (queue_families[i].queueCount > 0 && present_support && indices.present_set == 0) {
-        zest__set_present_family(&indices, i, queue_families[i].queueCount);
-    }
 
-    i = 0;
-
-    //Now find the compute family
-    for (int f = 0; f != queue_family_count; ++f) {
-        if ((queue_families[f].queueFlags & VK_QUEUE_COMPUTE_BIT) && indices.graphics_family != i){
-            zest__set_compute_family(&indices, i, queue_families[f].queueCount);
-            compute_found = 1;
-        }
-
-        if (indices.present_set == 0 && indices.compute_family != i) {
-            present_support = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, ZestApp->window->surface, &present_support);
-            if (queue_families[f].queueCount > 0 && present_support && indices.present_set == 0) {
-                zest__set_present_family(&indices, i, queue_families[f].queueCount);
+    // Dedicated queue for transfer
+    // Try to find a queue family index that supports transfer but not graphics and compute
+    if ((queue_flags & VK_QUEUE_TRANSFER_BIT) == queue_flags)
+    {
+        for (zest_foreach_i(queue_families)) {
+            if ((queue_families[i].queueFlags & VK_QUEUE_TRANSFER_BIT) && ((queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) && ((queue_families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) == 0))
+            {
+                return i;
             }
         }
-
-        if (zest__family_is_complete(&indices)) {
-            break;
-        }
-
-        i++;
     }
 
-    i = 0;
-    if (!compute_found) {
-        for (int f = 0; f != queue_family_count; ++f) {
-            if (queue_families[f].queueFlags & VK_QUEUE_COMPUTE_BIT) {
-                zest__set_compute_family(&indices, i, queue_families[f].queueCount);
-            }
-            i++;
+    // For other queue types or if no separate compute queue is present, return the first one to support the requested flags
+    for (zest_foreach_i(queue_families))
+    {
+        if ((queue_families[i].queueFlags & queue_flags) == queue_flags)
+        {
+            return i;
         }
     }
 
-    //Last chance to try and set the present family
-    if (present_support == VK_FALSE) {
-        i = 0;
-        for (int f = 0; f != queue_family_count; ++f) {
-            vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, ZestApp->window->surface, &present_support);
-            if (queue_families[f].queueCount > 0 && present_support && indices.present_set == 0) {
-                zest__set_present_family(&indices, i, queue_families[f].queueCount);
-                break;
-            }
-            i++;
-        }
-    }
-    if (!zest__family_is_complete(&indices)) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Incomplete queue family: %i, %i, %i" ZEST_NL, indices.compute_family, indices.graphics_family, indices.present_family);
-    }
-    assert(zest__family_is_complete(&indices));
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "ERROR: Failed to find any queue index for Flag: %i" ZEST_NL, queue_flags);
+    return 0;
+}
 
-    ZEST__FREE(queue_families);
-    return indices;
+zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device, VkDeviceQueueCreateInfo *queue_create_infos) {
 }
 
 zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device) {
@@ -1580,38 +1529,68 @@ VkSampleCountFlagBits zest__get_max_useable_sample_count(void) {
 }
 
 void zest__create_logical_device(void) {
-    zest_queue_family_indices indices = zest__find_queue_families(ZestDevice->physical_device);
+    zest_queue_family_indices indices = { 0 };
 
-    VkDeviceQueueCreateInfo queue_create_infos[3];
-    zest_uint unique_queue_families[3] = { indices.graphics_family, indices.present_family, indices.compute_family };
-    unique_queue_families[0] = indices.graphics_family;
-    unique_queue_families[1] = indices.graphics_family == indices.present_family ? indices.compute_family : indices.present_family;
-    unique_queue_families[2] = unique_queue_families[1] == indices.compute_family ? ZEST_INVALID : indices.compute_family;
-    if (unique_queue_families[0] == unique_queue_families[1]) {
-        unique_queue_families[1] = ZEST_INVALID;
-    }
+    zest_uint queue_family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(ZestDevice->physical_device, &queue_family_count, ZEST_NULL);
 
-    float graphics_queue_priority[2] = { 0.f, 1.0f };
+    VkQueueFamilyProperties* queue_families = 0;
+    zest_vec_resize(queue_families, queue_family_count);
+    //VkQueueFamilyProperties queue_families[10];
+    vkGetPhysicalDeviceQueueFamilyProperties(ZestDevice->physical_device, &queue_family_count, queue_families);
+
     float queue_priority = 0.0f;
-    zest_uint queue_create_count = 0;
-    for (int i = 0; i != 3; ++i) {
-        if (unique_queue_families[i] == ZEST_INVALID) {
-            break;
-        }
-        VkDeviceQueueCreateInfo queue_create_info = { 0 };
-        queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_create_info.queueFamilyIndex = unique_queue_families[i];
-        if (unique_queue_families[i] == indices.graphics_family) {
-            queue_create_info.queueCount = indices.graphics_family_queue_count > 2 ? 2 : 1;
-            queue_create_info.pQueuePriorities = graphics_queue_priority;
-        }
-        else {
-            queue_create_info.queueCount = 1;
-            queue_create_info.pQueuePriorities = &queue_priority;
-        }
-        queue_create_infos[i] = queue_create_info;
+    VkDeviceQueueCreateInfo queue_create_infos[3];
+
+    int queue_create_count = 0;
+    // Graphics queue
+    {
+        indices.graphics_family = zest__get_queue_family_index(VK_QUEUE_GRAPHICS_BIT, queue_families);
+        VkDeviceQueueCreateInfo queue_info = { 0 };
+        queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_info.queueFamilyIndex = indices.graphics_family;
+        queue_info.queueCount = 1;
+        queue_info.pQueuePriorities = &queue_priority;
+        queue_create_infos[0] = queue_info;
         queue_create_count++;
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Graphics queue index set to: %i" ZEST_NL, indices.graphics_family);
     }
+
+    // Dedicated compute queue
+    {
+        indices.compute_family = zest__get_queue_family_index(VK_QUEUE_COMPUTE_BIT, queue_families);
+        if (indices.compute_family != indices.graphics_family)
+        {
+            // If compute family index differs, we need an additional queue create info for the compute queue
+            VkDeviceQueueCreateInfo queue_info = { 0 };
+            queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_info.queueFamilyIndex = indices.compute_family;
+            queue_info.queueCount = 1;
+            queue_info.pQueuePriorities = &queue_priority;
+            queue_create_infos[1] = queue_info;
+            queue_create_count++;
+        }
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compute queue index set to: %i" ZEST_NL, indices.compute_family);
+    }
+
+    // Dedicated transfer queue - Note that currently we're not actually doing anything with dedicated transfer queues yet.
+    {
+        indices.transfer_index = zest__get_queue_family_index(VK_QUEUE_TRANSFER_BIT, queue_families);
+        if ((indices.transfer_index != indices.graphics_family) && (indices.transfer_index != indices.compute_family))
+        {
+            // If transfer_index family index differs, we need an additional queue create info for the transfer queue
+            VkDeviceQueueCreateInfo queue_info = { 0 };
+            queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_info.queueFamilyIndex = indices.transfer_index;
+            queue_info.queueCount = 1;
+            queue_info.pQueuePriorities = &queue_priority;
+            queue_create_infos[2] = queue_info;
+            queue_create_count++;
+        }
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Transfer queue index set to: %i" ZEST_NL, indices.transfer_index);
+    }
+
+    zest_vec_free(queue_families);
 
     VkPhysicalDeviceFeatures device_features = { 0 };
     device_features.samplerAnisotropy = VK_TRUE;
@@ -1656,11 +1635,12 @@ void zest__create_logical_device(void) {
     vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->graphics_queue);
     //There's no real point of a one time graphics queue on the same index. It seems like AMD cards have a queue count of one on the graphics family so you can't
     //do one off queues while other rendering is going on.
-    vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, indices.graphics_family_queue_count > 1 ? 1 : 0, &ZestDevice->one_time_graphics_queue);
+    vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->one_time_graphics_queue);
     vkGetDeviceQueue(ZestDevice->logical_device, indices.compute_family, 0, &ZestDevice->compute_queue);
+    vkGetDeviceQueue(ZestDevice->logical_device, indices.transfer_index, 0, &ZestDevice->transfer_queue);
 
     ZestDevice->graphics_queue_family_index = indices.graphics_family;
-    ZestDevice->present_queue_family_index = indices.present_family;
+    ZestDevice->transfer_queue_family_index = indices.transfer_index;
     ZestDevice->compute_queue_family_index = indices.compute_family;
 
     VkCommandPoolCreateInfo cmd_info_pool = { 0 };
@@ -9798,8 +9778,7 @@ void zest_MakeCompute(zest_compute_builder_t *builder, zest_compute compute) {
     }
 
     // Separate command pool as queue family for compute may be different than graphics
-    zest_queue_family_indices queue_family_indices = zest__find_queue_families(ZestDevice->physical_device);
-    compute->queue_family_index = queue_family_indices.compute_family;
+    compute->queue_family_index = ZestDevice->compute_queue_family_index;
     VkCommandPoolCreateInfo command_pool_info = { 0 };
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.queueFamilyIndex = compute->queue_family_index;
