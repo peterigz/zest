@@ -48,6 +48,7 @@ typedef volatile unsigned int zest_atomic_int;
 #define ZEST__MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define ZEST__CLAMP(v, min_v, max_v) ((v < min_v) ? min_v : ((v > max_v) ? max_v : v))
 #define ZEST__POW2(x) ((x) && !((x) & ((x) - 1)))
+#define ZEST__NEXTPOW2(x) pow(2, ceil(log(x)/log(2)));
 #define ZEST__FLAG(flag, bit) flag |= (bit)
 #define ZEST__MAYBE_FLAG(flag, bit, yesno) flag |= (yesno ? bit : 0)
 #define ZEST__UNFLAG(flag, bit) flag &= ~bit

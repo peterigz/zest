@@ -7116,6 +7116,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
     stbrp_rect *rects_to_process = 0;
 
     zest_uint max_width = 0;
+    int max_size = texture->texture_layer_size;
     for (zest_foreach_i(texture->images)) {
         zest_image image = texture->images[i];
         stbrp_rect rect;
@@ -7126,9 +7127,16 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
         rect.was_packed = 0;
         rect.id = image->index;
 
+        max_size = ZEST__MAX(max_size, rect.w);
+        max_size = ZEST__MAX(max_size, rect.h);
+
         zest_vec_push(rects, rect);
         zest_vec_push(rects_to_process, rect);
     }
+
+    //Todo: we need to return an error code if there's an images that is too large
+    zest_SetTextureLayerSize(texture, max_size);
+    size = texture->texture_layer_size;
 
     const zest_uint node_count = size * 2;
     stbrp_node *nodes = 0;
@@ -7437,8 +7445,9 @@ void zest_SetTextureWrappingRepeat(zest_texture texture) {
 }
 
 void zest_SetTextureLayerSize(zest_texture texture, zest_uint size) {
-    ZEST_ASSERT(ZEST__POW2(size));
-    texture->texture_layer_size = size;
+    zest_uint next_pow2 = (zest_uint)ZEST__NEXTPOW2(size);
+    ZEST_ASSERT(ZEST__POW2(next_pow2));
+    texture->texture_layer_size = next_pow2;
 }
 
 void zest_SetTextureMaxRadiusOnLoad(zest_texture texture, zest_bool yesno) {
