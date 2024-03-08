@@ -1397,10 +1397,10 @@ void zest__pick_physical_device(void) {
     //Prioritise discrete GPUs when picking physical device
     if (device_count == 1 && zest__is_device_suitable(devices[0])) {
         if (zest__device_is_discrete_gpu(devices[0])) {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one devcie found is suitable and is a discrete GPU");
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable and is a discrete GPU" ZEST_NL);
         }
         else {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable");
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable" ZEST_NL);
         }
 		ZestDevice->physical_device = devices[0];
     } else {
@@ -1428,6 +1428,9 @@ void zest__pick_physical_device(void) {
         }
     }
 
+    if (ZestDevice->physical_device == VK_NULL_HANDLE) {
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Could not find a suitable device!" ZEST_NL);
+    }
     ZEST_ASSERT(ZestDevice->physical_device != VK_NULL_HANDLE);    //Unable to find suitable GPU
 	ZestDevice->msaa_samples = zest__get_max_useable_sample_count();
 
@@ -1440,7 +1443,9 @@ void zest__pick_physical_device(void) {
     vkGetPhysicalDeviceMemoryProperties(ZestDevice->physical_device, &ZestDevice->memory_properties);
 
     //Print out the memory available
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory available in GPU:" ZEST_NL);
     for (int i = 0; i != ZestDevice->memory_properties.memoryHeapCount; ++i) {
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "\tHeap flags: %i, Size: %zi" ZEST_NL, ZestDevice->memory_properties.memoryHeaps[i].flags, ZestDevice->memory_properties.memoryHeaps[i].size);
         //std::cout << ZestDevice->memory_properties.memoryHeaps[i].flags << " - " << ZestDevice->memory_properties.memoryHeaps[i].size << std::endl;
     }
 
