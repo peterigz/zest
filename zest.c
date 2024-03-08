@@ -1396,8 +1396,12 @@ void zest__pick_physical_device(void) {
 
     //Prioritise discrete GPUs when picking physical device
     if (device_count == 1 && zest__is_device_suitable(devices[0])) {
-		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device that is a discrete GPU: ");
-        zest__log_device_name(devices[0]);
+        if (zest__device_is_discrete_gpu(devices[0])) {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one devcie found is suitable and is a discrete GPU");
+        }
+        else {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable");
+        }
 		ZestDevice->physical_device = devices[0];
     } else {
         VkPhysicalDevice discrete_device = VK_NULL_HANDLE;
