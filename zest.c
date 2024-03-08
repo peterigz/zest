@@ -1388,17 +1388,44 @@ void zest__pick_physical_device(void) {
     ZEST__ARRAY(devices, VkPhysicalDevice, device_count);
     vkEnumeratePhysicalDevices(ZestDevice->instance, &device_count, devices);
 
-    ZestDevice->physical_device = VK_NULL_HANDLE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found %i devices" ZEST_NL, device_count);
     for (int i = 0; i != device_count; ++i) {
-        if (zest__is_device_suitable(devices[i])) {
-			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device" ZEST_NL);
-            ZestDevice->physical_device = devices[i];
-            ZestDevice->msaa_samples = zest__get_max_useable_sample_count();
-            break;
+        zest__log_device_name(devices[i]);
+    }
+    ZestDevice->physical_device = VK_NULL_HANDLE;
+
+    //Prioritise discrete GPUs when picking physical device
+    if (device_count == 1 && zest__is_device_suitable(devices[0])) {
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device that is a discrete GPU: ");
+        zest__log_device_name(devices[0]);
+		ZestDevice->physical_device = devices[0];
+    } else {
+        VkPhysicalDevice discrete_device = VK_NULL_HANDLE;
+		for (int i = 0; i != device_count; ++i) {
+			if (zest__is_device_suitable(devices[i]) && zest__device_is_discrete_gpu(devices[i])) {
+                discrete_device = devices[i];
+				break;
+			}
+		}
+        if (discrete_device != VK_NULL_HANDLE) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device that is a discrete GPU: ");
+            zest__log_device_name(discrete_device);
+            ZestDevice->physical_device = discrete_device;
+        }
+        else {
+            for (int i = 0; i != device_count; ++i) {
+                if (zest__is_device_suitable(devices[i])) {
+					ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device:" ZEST_NL);
+					zest__log_device_name(discrete_device);
+					ZestDevice->physical_device = devices[i];
+                    break;
+                }
+            }
         }
     }
 
     ZEST_ASSERT(ZestDevice->physical_device != VK_NULL_HANDLE);    //Unable to find suitable GPU
+	ZestDevice->msaa_samples = zest__get_max_useable_sample_count();
 
     // Store Properties features, limits and properties of the physical ZestDevice for later use
     // ZestDevice properties also contain limits and sparse properties
@@ -1425,10 +1452,22 @@ zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device) {
         swapchain_adequate = ZestDevice->swapchain_support_details.formats_count && ZestDevice->swapchain_support_details.present_modes_count;
     }
 
-    VkPhysicalDeviceFeatures supportedFeatures;
-    vkGetPhysicalDeviceFeatures(physical_device, &supportedFeatures);
+    VkPhysicalDeviceFeatures supported_features;
+    vkGetPhysicalDeviceFeatures(physical_device, &supported_features);
 
-    return extensions_supported && swapchain_adequate && supportedFeatures.samplerAnisotropy;
+    return extensions_supported && swapchain_adequate && supported_features.samplerAnisotropy;
+}
+
+void zest__log_device_name(VkPhysicalDevice physical_device) {
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(physical_device, &properties);
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "\t%s" ZEST_NL, properties.deviceName);
+}
+
+zest_bool zest__device_is_discrete_gpu(VkPhysicalDevice physical_device) {
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(physical_device, &properties);
+    return properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 }
 
 zest_index zest__get_queue_family_index(VkQueueFlags queue_flags, VkQueueFamilyProperties *queue_families) {

@@ -1873,6 +1873,8 @@ ZEST_PRIVATE VkResult zest_create_debug_messenger(VkInstance instance, const VkD
 ZEST_PRIVATE void zest_destroy_debug_messenger(void);
 ZEST_PRIVATE void zest__pick_physical_device(void);
 ZEST_PRIVATE zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device);
+ZEST_PRIVATE zest_bool zest__device_is_discrete_gpu(VkPhysicalDevice physical_device);
+ZEST_PRIVATE void zest__log_device_name(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device, VkDeviceQueueCreateInfo *queue_create_infos);
 ZEST_PRIVATE zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_swapchain_support_details_t zest__query_swapchain_support(VkPhysicalDevice physical_device);
