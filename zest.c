@@ -2063,7 +2063,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
     if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
         alloc_info.pNext = &flags;
     }
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating memory pool, size: %zi type: %i, alignment: %zi, type bits: %i" ZEST_NL, alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating buffer memory pool, size: %zi type: %i, alignment: %zi, type bits: %i" ZEST_NL, alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 
     if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
@@ -2110,6 +2110,7 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, V
     buffer->property_flags = property_flags;
     buffer->usage_flags = 0;
 
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating image memory pool, size: %zi type: %i, alignment: %zi, type bits: %i" ZEST_NL, alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 }
 
