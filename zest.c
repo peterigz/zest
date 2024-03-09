@@ -1445,8 +1445,12 @@ void zest__pick_physical_device(void) {
     //Print out the memory available
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory available in GPU:" ZEST_NL);
     for (int i = 0; i != ZestDevice->memory_properties.memoryHeapCount; ++i) {
-		ZEST_APPEND_LOG(ZestDevice->log_path.str, "\tHeap flags: %i, Size: %zi" ZEST_NL, ZestDevice->memory_properties.memoryHeaps[i].flags, ZestDevice->memory_properties.memoryHeaps[i].size);
-        //std::cout << ZestDevice->memory_properties.memoryHeaps[i].flags << " - " << ZestDevice->memory_properties.memoryHeaps[i].size << std::endl;
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "    Heap flags: %i, Size: %zi" ZEST_NL, ZestDevice->memory_properties.memoryHeaps[i].flags, ZestDevice->memory_properties.memoryHeaps[i].size);
+    }
+
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory types mapping in GPU:" ZEST_NL);
+    for (int i = 0; i != ZestDevice->memory_properties.memoryTypeCount; ++i) {
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "    %i) Heap Index: %i, Property Flags: %i" ZEST_NL, i, ZestDevice->memory_properties.memoryTypes[i].heapIndex, ZestDevice->memory_properties.memoryTypes[i].propertyFlags);
     }
 
     ZEST__FREE(devices);
@@ -4224,8 +4228,16 @@ zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags) {
     return ZEST_FALSE;
 }
 
-zest_bool zest_GPUHasDeviceLocalHostVisible() {
-    return zest_IsMemoryPropertyAvailable(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+zest_bool zest_GPUHasDeviceLocalHostVisible(VkDeviceSize minimum_size) {
+    if (zest_IsMemoryPropertyAvailable(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+        //Even though the memory property is available, we should check that the heap type that it maps to has enough memory to work with.
+        zest_buffer_type_t buffer_type_large = zest__get_buffer_memory_type(VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, minimum_size);
+        int heap_index_large = ZestDevice->memory_properties.memoryTypes[buffer_type_large.memory_type_index].heapIndex;
+		if (ZestDevice->memory_properties.memoryHeaps[heap_index_large].size > minimum_size) {
+			return ZEST_TRUE;
+		}
+    }
+    return ZEST_FALSE;
 }
 
 zest_uint zest__grow_capacity(void *T, zest_uint size) {
@@ -8867,7 +8879,8 @@ void zest__initialise_sprite_layer(zest_layer sprite_layer, zest_uint instance_p
     sprite_layer->instance_struct_size = sizeof(zest_sprite_instance_t);
 
     zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
-    if (zest_GPUHasDeviceLocalHostVisible()) {
+    if (zest_GPUHasDeviceLocalHostVisible(sizeof(zest_sprite_instance_t) * instance_pool_size)) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for sprite layer" ZEST_NL);
         ZEST__FLAG(sprite_layer->flags, zest_layer_flag_device_local_direct);
         device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
     }
@@ -8982,7 +8995,8 @@ void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_
     font_layer->instance_struct_size = sizeof(zest_sprite_instance_t);
 
     zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
-    if (zest_GPUHasDeviceLocalHostVisible()) {
+    if (zest_GPUHasDeviceLocalHostVisible(sizeof(zest_sprite_instance_t) * instance_pool_size)) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for font layer" ZEST_NL);
         ZEST__FLAG(font_layer->flags, zest_layer_flag_device_local_direct);
         device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
     }
@@ -9233,7 +9247,8 @@ void zest__initialise_billboard_layer(zest_layer billboard_layer, zest_uint inst
     billboard_layer->instance_struct_size = sizeof(zest_billboard_instance_t);
 
     zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
-    if (zest_GPUHasDeviceLocalHostVisible()) {
+    if (zest_GPUHasDeviceLocalHostVisible(sizeof(zest_billboard_instance_t) * instance_pool_size)) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for billboard layer" ZEST_NL);
         ZEST__FLAG(billboard_layer->flags, zest_layer_flag_device_local_direct);
         device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
     }
@@ -9333,7 +9348,8 @@ void zest__initialise_shape_layer(zest_layer line_layer, zest_uint instance_pool
     line_layer->instance_struct_size = sizeof(zest_shape_instance_t);
 
     zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
-    if (zest_GPUHasDeviceLocalHostVisible()) {
+    if (zest_GPUHasDeviceLocalHostVisible(sizeof(zest_shape_instance_t) * instance_pool_size)) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for shape layer" ZEST_NL);
         ZEST__FLAG(line_layer->flags, zest_layer_flag_device_local_direct);
         device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
     }
@@ -9429,7 +9445,8 @@ void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_
 
     zest_buffer_info_t device_vertex_buffer_info = zest_CreateVertexBufferInfo(0);
     zest_buffer_info_t device_index_buffer_info = zest_CreateIndexBufferInfo(0);
-    if (zest_GPUHasDeviceLocalHostVisible()) {
+    if (zest_GPUHasDeviceLocalHostVisible(initial_vertex_capacity)) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for mesh layer" ZEST_NL);
         ZEST__FLAG(mesh_layer->flags, zest_layer_flag_device_local_direct);
         device_vertex_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
         device_index_buffer_info = zest_CreateIndexBufferInfo(ZEST_TRUE);
