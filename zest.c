@@ -1443,6 +1443,7 @@ void zest__pick_physical_device(void) {
     vkGetPhysicalDeviceMemoryProperties(ZestDevice->physical_device, &ZestDevice->memory_properties);
 
     //Print out the memory available
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Max Memory Allocation Count: %i" ZEST_NL, ZestDevice->properties.limits.maxMemoryAllocationCount);
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory available in GPU:" ZEST_NL);
     for (int i = 0; i != ZestDevice->memory_properties.memoryHeapCount; ++i) {
 		ZEST_APPEND_LOG(ZestDevice->log_path.str, "    Heap flags: %i, Size: %zi" ZEST_NL, ZestDevice->memory_properties.memoryHeaps[i].flags, ZestDevice->memory_properties.memoryHeaps[i].size);
@@ -1775,7 +1776,7 @@ void zest__set_default_pool_sizes() {
     //CPU Visible Vertex buffer
     usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     usage.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    zest_SetDeviceBufferPoolSize("CPU Visible Vertex Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+    zest_SetDeviceBufferPoolSize("CPU Visible Vertex Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(32));
 
     //Storage buffer
     usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -1785,7 +1786,7 @@ void zest__set_default_pool_sizes() {
     //CPU Visible Storage buffer
     usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     usage.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    zest_SetDeviceBufferPoolSize("CPU Visible Storage Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+    zest_SetDeviceBufferPoolSize("CPU Visible Storage Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(32));
 
     //Index buffer
     usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
@@ -1795,7 +1796,7 @@ void zest__set_default_pool_sizes() {
     //CPU Visible Index buffer
     usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     usage.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    zest_SetDeviceBufferPoolSize("Index Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+    zest_SetDeviceBufferPoolSize("Index Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(32));
 
     //Vertex buffer with storage flag
     usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -2074,7 +2075,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
             NULL,                                               // pNext
             VK_OBJECT_TYPE_BUFFER,                              // objectType
             (uint64_t)buffer->buffer,                           // objectHandle
-            name,                                                // pObjectName
+            name,                                               // pObjectName
         };
 
         ZestDevice->pfnSetDebugUtilsObjectNameEXT(ZestDevice->logical_device, &buffer_name_info);
@@ -4230,6 +4231,7 @@ zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags) {
 }
 
 zest_bool zest_GPUHasDeviceLocalHostVisible(VkDeviceSize minimum_size) {
+    return ZEST_FALSE;
     if (zest_IsMemoryPropertyAvailable(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
         //Even though the memory property is available, we should check that the heap type that it maps to has enough memory to work with.
         zest_buffer_type_t buffer_type_large = zest__get_buffer_memory_type(VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, minimum_size);
