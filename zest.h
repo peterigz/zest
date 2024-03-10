@@ -43,6 +43,8 @@ typedef volatile unsigned int zest_atomic_int;
 #define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
+#define ZEST_DISABLE_GPU_DIRECT_WRITE 1
+
 //Helper macros
 #define ZEST__MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define ZEST__MAX(a, b) (((a) > (b)) ? (a) : (b))
@@ -1714,6 +1716,7 @@ ZEST_PRIVATE VkResult zest__flush_memory(zest_device_memory_pool memory_allocati
 ZEST_PRIVATE zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_key key, zest_size size);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer_t *buffer, zest_bool is_host_visible);
+ZEST_PRIVATE void zest__buffer_write_barrier(VkCommandBuffer command_buffer, zest_buffer buffer);
 //End Buffer Management
 
 //Renderer functions
@@ -2143,7 +2146,9 @@ ZEST_API zest_bool zest_GrowDescriptorBuffer(zest_descriptor_buffer buffer, zest
 ZEST_API void zest_CopyBuffer(zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
 //Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
 //one off copy with a separate command buffer
-ZEST_API void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
+ZEST_API void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size, zest_bool use_barrier);
+//Flush the memory of - in most cases - a staging buffer so that it's memory is made available immediately to the device
+ZEST_API VkResult zest_FlushBuffer(zest_buffer buffer);
 //Free a zest_buffer and return it's memory to the pool
 ZEST_API void zest_FreeBuffer(zest_buffer buffer);
 //Free a zest_descriptor_buffer and return it's memory to the pool
