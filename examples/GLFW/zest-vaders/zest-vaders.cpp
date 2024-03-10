@@ -339,7 +339,7 @@ void VadersGame::Init() {
 	//Create another texture to store all of the particle shapes
 	particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, 0, zest_texture_format_rgba, 0);
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
-	LoadEffectLibraryPackage("examples/assets/vaders/vadereffects.tfx", &library, ShapeLoader, this);
+	LoadEffectLibrary("examples/assets/vaders/vadereffects.tfx", &library, ShapeLoader, this);
 
 	//Process the particle images in the texture
 	zest_ProcessTextureImages(particle_texture);

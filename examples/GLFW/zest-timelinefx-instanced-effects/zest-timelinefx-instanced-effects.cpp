@@ -300,7 +300,7 @@ void InitExample(ComputeExample *example) {
 	//Reserve the space for our images so that the image pointers don't get lost (render specific)
 	zest_SetTexturePackedBorder(example->particle_texture, 8);
 	//Load the effects library and pass our shape loader callback function which loads the particle shape images into our texture
-	auto result = LoadEffectLibraryPackage("examples/assets/instanced_effects.tfx", &example->library, ShapeLoader, example);
+	auto result = LoadEffectLibrary("examples/assets/instanced_effects.tfx", &example->library, ShapeLoader, example);
 	//ListEffectNames(&example->library);
 	assert(result == tfxErrorCode_success);		//Unable to load the effects library!
 	//Render specific - process the images onto a texture and upload to the gpu
@@ -381,7 +381,7 @@ void InitExample(ComputeExample *example) {
 	*/
 	//Check if the GPU allows writing directly to buffers that are device local. If so just create the device local buffers with the appropriate flags
 	//to be able to write directly
-	if (zest_GPUHasDeviceLocalHostVisible()) {
+	if (zest_GPUHasDeviceLocalHostVisible(sizeof(tfxU32) * MAX_INSTANCES)) {
 		example->offsets_buffer = zest_CreateCPUVisibleStorageDescriptorBuffer(sizeof(tfxU32) * MAX_INSTANCES, true);
 		example->animation_instances_buffer = zest_CreateCPUVisibleStorageDescriptorBuffer(sizeof(tfx_animation_instance_t) * MAX_INSTANCES, true);
 		example->using_staging_buffers = false;

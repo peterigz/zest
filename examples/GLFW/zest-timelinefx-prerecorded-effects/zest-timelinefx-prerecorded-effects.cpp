@@ -286,7 +286,7 @@ void InitExample(ComputeExample *example) {
 	*/
 	//Check if the GPU allows writing directly to buffers that are device local. If so just create the device local buffers with the appropriate flags
 	//to be able to write directly
-	if (zest_GPUHasDeviceLocalHostVisible()) {
+	if (zest_GPUHasDeviceLocalHostVisible(sizeof(tfxU32) * MAX_INSTANCES)) {
 		example->offsets_buffer = zest_CreateCPUVisibleStorageDescriptorBuffer(sizeof(tfxU32) * MAX_INSTANCES, true);
 		example->animation_instances_buffer = zest_CreateCPUVisibleStorageDescriptorBuffer(sizeof(tfx_animation_instance_t) * MAX_INSTANCES, true);
 		example->using_staging_buffers = false;
