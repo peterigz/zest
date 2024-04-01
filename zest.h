@@ -368,6 +368,7 @@ typedef enum {
     zest_builtin_layer_sprites = 0,
     zest_builtin_layer_billboards,
     zest_builtin_layer_lines,
+    zest_builtin_layer_3dlines,
     zest_builtin_layer_fonts,
     zest_builtin_layer_mesh
 } zest_builtin_layer_type;
@@ -1234,6 +1235,14 @@ typedef struct zest_shape_instance_t {
     zest_color end_color;                          //The color tint of the second point in the line
 } zest_shape_instance_t;
 
+//SDF 3D Lines
+typedef struct zest_line_instance_t {
+    zest_vec4 start;						        
+    zest_vec4 end;								
+    zest_color start_color;					
+    zest_color end_color;				
+} zest_line_instance_t;
+
 typedef struct zest_vertex_t {
     zest_vec3 pos;                                 //3d position
     float intensity;                               //Alpha level (can go over 1 to increase intensity of colors)
@@ -1821,6 +1830,11 @@ ZEST_PRIVATE void zest__draw_shape_layer_callback(zest_draw_routine draw_routine
 ZEST_PRIVATE void zest__next_shape_instance(zest_layer layer);
 ZEST_PRIVATE void zest__initialise_shape_layer(zest_layer line_layer, zest_uint instance_pool_size);
 
+// --3D Line instance layer internal functions
+ZEST_PRIVATE void zest__draw_3dline_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__next_3dline_instance(zest_layer layer);
+ZEST_PRIVATE void zest__initialise_3dline_layer(zest_layer line_layer, zest_uint instance_pool_size);
+
 // --Mesh layer internal functions
 ZEST_PRIVATE void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
@@ -2306,7 +2320,8 @@ ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
 //Helper functions for creating the builtin layers. these can be called separately outside of a command queue setup context
 ZEST_API zest_layer zest_CreateBuiltinSpriteLayer(const char *name);
-ZEST_API zest_layer zest_CreateBuiltinLineLayer(const char *name);
+ZEST_API zest_layer zest_CreateBuiltin2dLineLayer(const char *name);
+ZEST_API zest_layer zest_CreateBuiltin3dLineLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinBillboardLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinFontLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinMeshLayer(const char *name);
@@ -2869,7 +2884,7 @@ ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float
 //        Draw Line layers
 //        Built in layer for drawing 2d lines.
 //-----------------------------------------------
-//Set descriptor set and pipeline for any calls to zest_DrawBillboard that come after it. You must call this function if you want to do any billboard drawing, and you
+//Set descriptor set and pipeline for any calls to zest_DrawLine or zest_DrawRect that come after it. You must call this function if you want to do any billboard drawing, and you
 //must call it again if you wish to switch either the texture, descriptor set or pipeline to do the drawing. Everytime you call this function it creates a new draw instruction
 //in the layer for drawing billboards so each call represents a separate draw call in the render. So if you just call this function once you can call zest_DrawBillboard as many times
 //as you want and they will all be drawn with a single draw call.
@@ -2877,17 +2892,24 @@ ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float
 //1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
 ZEST_API void zest_SetShapeDrawing(zest_layer shape_layer, zest_shape_type shape_type, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
-//Draw a billboard in 3d space using the zest_layer (must be a built in billboard layer) and zest_image. Note that you will need to use a uniform buffer that sets an appropriate
-//projection and view matrix.  You must call zest_SetSpriteDrawing for the layer and the texture where the image exists.
-//Position:                Should be a pointer to 3 floats representing the x, y and z coordinates to draw the sprite at.
-//alignment:            A normalised 3d vector packed into a 8bit snorm uint. This is the alignment of the billboard when using stretch.
-//angles:                A pointer to 3 floats representing the pitch, yaw and roll of the billboard
-//handle:                A pointer to 2 floats representing the handle of the billboard which is the offset from the position
-//stretch:                How much to stretch the billboard along it's alignment.
-//alignment_type:        This is a bit flag with 2 bits 00. 00 = align to the camera. 11 = align to the alignment vector. 10 = align to the alignment vector and the camera.
-//sx, sy:                The size of the sprite in 3d units
 ZEST_API void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], float width);
 ZEST_API void zest_DrawRect(zest_layer layer, float top_left[2], float width, float height);
+//--End Draw line layers
+
+//-----------------------------------------------
+//        Draw 3D Line layers
+//        Built in layer for drawing 3d lines.
+//-----------------------------------------------
+//Set descriptor set and pipeline for any calls to zest_Draw3DLine that come after it. You must call this function if you want to do any line drawing, and you
+//must call it again if you wish to switch either the texture, descriptor set or pipeline to do the drawing. Everytime you call this function it creates a new draw instruction
+//in the layer for drawing billboards so each call represents a separate draw call in the render. So if you just call this function once you can call zest_Draw3DLine as many times
+//as you want and they will all be drawn with a single draw call.
+//Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
+//1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
+//2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
+ZEST_API void zest_Set3DLineDrawing(zest_layer line_layer, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
+//Draw a 3d line. pass in the layer to draw to and the 3d start and end points plus the width of the line.
+ZEST_API void zest_Draw3DLine(zest_layer layer, float start_point[3], float end_point[3], float width);
 //--End Draw line layers
 
 //-----------------------------------------------
