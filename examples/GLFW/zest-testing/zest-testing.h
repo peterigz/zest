@@ -7,9 +7,18 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
+const float pi = 3.14159265359f;
+const float two_pi = 2.f * 3.14159265359f;
+
 struct ellipsoid {
 	zest_vec3 position;
-	zest_vec2 radius;
+	zest_vec3 radius;
+};
+
+struct surface_point {
+	zest_vec3 position;
+	zest_vec3 normal;
+	zest_vec2 uv;
 };
 
 struct ImGuiApp {
@@ -28,6 +37,9 @@ struct ImGuiApp {
 	zest_pipeline line_pipeline;
 
 	zest_camera_t camera;
+	ellipsoid ellipse;
+	surface_point points[1000];
+	surface_point point;
 };
 
 void InitImGuiApp(ImGuiApp *app);

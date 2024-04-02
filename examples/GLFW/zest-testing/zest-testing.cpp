@@ -20,18 +20,84 @@ zest_vec3 ScreenRay(float x, float y, float depth_offset, zest_vec3& camera_posi
 	return { pos.x, pos.y, pos.z };
 }
 
-void InitImGuiApp(ImGuiApp *app) {
+zest_vec3 EllipseSurfaceNormal(float x, float y, float z, float width, float height, float depth) {
+	float dx = 2.f * x / (width * width);
+	float dy = 2.f * y / (height * height);
+	float dz = 2.f * z / (depth * depth);
+
+	// Normalize the gradient vector to obtain the surface normal
+	float length = sqrtf(dx * dx + dy * dy + dz * dz);
+	zest_vec3 normal;
+	normal.x = dx / length;
+	normal.y = dy / length;
+	normal.z = dz / length;
+
+	return normal;
+}
+
+zest_vec3 PointOnEllipse(float theta, float v, zest_vec3 radius) {
+	float phi = acosf(2.f * v - 1.f);
+	float sin_theta = sinf(theta);
+	float cos_theta = cosf(theta);
+	float sin_phi = sinf(phi);
+	float cos_phi = cosf(phi);
+
+	zest_vec3 position;
+	position.x = radius.x * sin_phi * cos_theta;
+	position.y = radius.y * sin_phi * sin_theta;
+	position.z = radius.z * cos_phi;
+	return position;
+}
+
+zest_vec3 NearestPointOnEllipsoid(ellipsoid e, zest_vec3 point) {
+	float x = point.x / e.radius.x;
+	float y = point.y / e.radius.y;
+	float z = point.z / e.radius.z;
+
+	float length = sqrtf(x * x + y * y + z * z);
+	x /= length;
+	y /= length;
+	z /= length;
+
+	zest_vec3 nearestPoint;
+	nearestPoint.x = e.radius.x * x;
+	nearestPoint.y = e.radius.y * y;
+	nearestPoint.z = e.radius.z * z;
+
+	return nearestPoint;
+}
+
+zest_vec3 RotateVectorOnPlane(const zest_vec3& planeNormal, const zest_vec3& vectorOnPlane) {
+	// Compute rotation angle
+	float dotProduct = planeNormal.y; // Assuming planeNormal is already normalized
+	float rotationAngle = acosf(dotProduct);
+
+	// Compute rotation axis
+	zest_vec3 rotationAxis = { planeNormal.z, 0.0f, -planeNormal.x }; // Cross product with {0, 1, 0}
+
+	// Rotate the vector
+	float sinAngle = sinf(rotationAngle);
+	float cosAngle = cosf(rotationAngle);
+	zest_vec3 rotated_vector;
+	rotated_vector.x = vectorOnPlane.x * cosAngle - vectorOnPlane.z * sinAngle;
+	rotated_vector.y = vectorOnPlane.y;
+	rotated_vector.z = vectorOnPlane.x * sinAngle + vectorOnPlane.z * cosAngle;
+
+	return rotated_vector;
+}
+
+void InitImGuiApp(ImGuiApp* app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&app->imgui_layer_info);
 	//Implement a dark style
 	DarkStyle2();
-	
+
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.Fonts->Clear();
 	float font_size = 15.f;
-	unsigned char *font_data;
+	unsigned char* font_data;
 	int tex_width, tex_height;
 	ImFontConfig config;
 	config.PixelSnapH = true;
@@ -77,7 +143,17 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	//Set up a timer
 	app->timer = zest_CreateTimer(60);
-
+	app->ellipse = {};
+	app->ellipse.radius.x = 5.f;
+	app->ellipse.radius.y = 5.f;
+	app->ellipse.radius.z = 5.f;
+	for (int i = 0; i != 1000; ++i) {
+		app->points[i].uv.x = (float)i / (float)1000 * two_pi;
+		app->points[i].uv.y = (float)rand() / (float)RAND_MAX;
+		app->points[i].position = PointOnEllipse(app->points[i].uv.x, app->points[i].uv.y, app->ellipse.radius);
+		app->points[i].normal = EllipseSurfaceNormal(app->points[i].position.x, app->points[i].position.y, app->points[i].position.z, app->ellipse.radius.x, app->ellipse.radius.y, app->ellipse.radius.z);
+	}
+	app->point = app->points[500];
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -118,6 +194,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui::NewFrame();
 		ImGui::Begin("Test Window");
 		ImGui::Text("FPS %i", ZestApp->last_fps);
+		ImGui::Text("u: %f, v: %f", app->point.uv.x, app->point.uv.y);
 		//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 		ImGui::End();
 		ImGui::Render();
@@ -162,13 +239,48 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	}
 	zest_TimerSet(app->timer);
 
-	zest_SetMeshDrawing(app->mesh_layer, app->floor_texture, 0, app->mesh_pipeline);
-	zest_DrawTexturedPlane(app->mesh_layer, app->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
+	//zest_SetMeshDrawing(app->mesh_layer, app->floor_texture, 0, app->mesh_pipeline);
+	//zest_DrawTexturedPlane(app->mesh_layer, app->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 
 	zest_Set3DLineDrawing(app->line_layer, 0, app->line_pipeline);
-	zest_vec3 start = { 0.f, 0.f, 0.f };
-	zest_vec3 end = { 0.f, 3.f, 3.f };
-	zest_Draw3DLine(app->line_layer, &start.x, &end.x, 3.f);
+	zest_SetLayerColor(app->line_layer, 255, 255, 255, 50);
+	for (int i = 0; i != 1000; ++i) {
+		zest_vec3 start = app->points[i].position;
+		zest_vec3 end = zest_AddVec3(app->points[i].position, zest_ScaleVec3(&app->points[i].normal, .1f));
+		zest_Draw3DLine(app->line_layer, &start.x, &end.x, 3.f);
+	}
+	zest_SetLayerColor(app->line_layer, 255, 50, 255, 255);
+	if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+		int i = ZEST__CLAMP(int(1000.f * (zest_MouseXf() / zest_ScreenWidth())), 0, 999);
+		app->point = app->points[i];
+	}
+	zest_vec3 start = app->point.position;
+	zest_vec3 end = zest_AddVec3(app->point.position, zest_ScaleVec3(&app->point.normal, 2.f));
+	zest_Draw3DLine(app->line_layer, &start.x, &end.x, 5.f);
+	zest_SetLayerColor(app->line_layer, 50, 200, 255, 255);
+	zest_vec3 np = { 0.f, 1.f, 0.f };
+	if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+	}
+	zest_vec3 perp = zest_CrossProduct(app->point.normal, np);
+	perp = zest_NormalizeVec3(perp);
+	start = app->point.position;
+	end = zest_AddVec3(app->point.position, zest_ScaleVec3(&perp, 2.f));
+	zest_Draw3DLine(app->line_layer, &start.x, &end.x, 5.f);
+	if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+		app->point.uv.x = ZEST__CLAMP(two_pi * (zest_MouseXf() / zest_ScreenWidthf()), 0, two_pi);
+		app->point.uv.y = ZEST__CLAMP(zest_MouseYf() / zest_ScreenHeight(), 0, 1.f);
+		app->point.position = PointOnEllipse(app->point.uv.x, app->point.uv.y, app->ellipse.radius);
+		app->point.normal = EllipseSurfaceNormal(app->point.position.x, app->point.position.y, app->point.position.z, app->ellipse.radius.x, app->ellipse.radius.y, app->ellipse.radius.z);
+	}
+	else {
+		perp = RotateVectorOnPlane(app->point.normal, perp);
+		app->point.position = zest_AddVec3(app->point.position, zest_ScaleVec3(&perp, 0.1f));
+		app->point.position = NearestPointOnEllipsoid(app->ellipse, app->point.position);
+		app->point.normal = EllipseSurfaceNormal(app->point.position.x, app->point.position.y, app->point.position.z, app->ellipse.radius.x, app->ellipse.radius.y, app->ellipse.radius.z);
+	}
+	zest_vec3 nearest = NearestPointOnEllipsoid(app->ellipse, end);
+	zest_SetLayerColor(app->line_layer, 255, 255, 100, 255);
+	zest_Draw3DLine(app->line_layer, &end.x, &nearest.x, 5.f);
 }
 
 #if defined(_WIN32)
