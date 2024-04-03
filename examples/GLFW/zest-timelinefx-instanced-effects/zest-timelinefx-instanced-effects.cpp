@@ -219,8 +219,8 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 		//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
 		//from there we copy to the GPU.
 		if (example->using_staging_buffers) {
-			zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], GetOffsetsSizeInBytes(&example->animation_manager_3d));
-			zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
+			zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], GetOffsetsSizeInBytes(&example->animation_manager_3d), 1);
+			zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], GetAnimationInstancesSizeInBytes(&example->animation_manager_3d), 1);
 		}
 
 		//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
