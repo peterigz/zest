@@ -19,6 +19,8 @@ struct surface_point {
 	zest_vec3 position;
 	zest_vec3 normal;
 	zest_vec2 uv;
+	float direction;
+	zest_vec3 direction_normal;
 };
 
 struct ImGuiApp {
@@ -40,6 +42,8 @@ struct ImGuiApp {
 	ellipsoid ellipse;
 	surface_point points[1000];
 	surface_point point;
+	bool repoint = true;
+	zest_vec3 cross_plane;
 };
 
 void InitImGuiApp(ImGuiApp *app);
