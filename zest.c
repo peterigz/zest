@@ -1421,7 +1421,7 @@ void zest__pick_physical_device(void) {
             for (int i = 0; i != device_count; ++i) {
                 if (zest__is_device_suitable(devices[i])) {
                     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device:" ZEST_NL);
-                    zest__log_device_name(discrete_device);
+                    zest__log_device_name(devices[i]);
                     ZestDevice->physical_device = devices[i];
                     break;
                 }
