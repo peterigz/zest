@@ -37,6 +37,7 @@ struct ImGuiApp {
 	zest_layer line_layer;
 	zest_pipeline mesh_pipeline;
 	zest_pipeline line_pipeline;
+	zest_pipeline billboard_pipeline;
 
 	zest_camera_t camera;
 	ellipsoid ellipse;
@@ -44,6 +45,10 @@ struct ImGuiApp {
 	surface_point point;
 	bool repoint = true;
 	zest_vec3 cross_plane;
+
+	float height_increment;
+	float angle_increment;
+	float radius;
 };
 
 void InitImGuiApp(ImGuiApp *app);

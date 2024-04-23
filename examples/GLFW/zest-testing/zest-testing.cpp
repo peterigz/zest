@@ -113,6 +113,62 @@ zest_matrix4 RotationMatrix(zest_vec3 axis, float angle)
 				0.f                              , 0.f                              , 0.f                              , 0.f };
 }
 
+zest_vec3 CirclePointY(zest_vec2 center, float height, float angle) {
+	float x = cosf(angle) * center.x + center.x;
+	float z = -sinf(angle) * center.y + center.y;
+	return { x, height, z };
+}
+
+zest_vec3 CirclePointX(zest_vec2 center, float height, float angle) {
+	float x = cosf(angle) * center.x + center.x;
+	float z = -sinf(angle) * center.y + center.y;
+	return { x, height, z };
+}
+
+// Catmull-Rom spline interpolation function
+zest_vec3 CatmullRomSpline(const zest_vec3& p0, const zest_vec3& p1, const zest_vec3& p2, const zest_vec3& p3, float t) {
+	float t2 = t * t;
+	float t3 = t2 * t;
+
+	float b0 = 0.5f * (-t3 + 2.0f * t2 - t);
+	float b1 = 0.5f * (3.0f * t3 - 5.0f * t2 + 2.0f);
+	float b2 = 0.5f * (-3.0f * t3 + 4.0f * t2 + t);
+	float b3 = 0.5f * (t3 - t2);
+
+	float x = p0.x * b0 + p1.x * b1 + p2.x * b2 + p3.x * b3;
+	float y = p0.y * b0 + p1.y * b1 + p2.y * b2 + p3.y * b3;
+
+	return { x, y, 0.f };
+}
+
+zest_vec3 CatmullRomSpline3D(const zest_vec3& p0, const zest_vec3& p1, const zest_vec3& p2, const zest_vec3& p3, float t) {
+	float t2 = t * t;
+	float t3 = t2 * t;
+
+	float b0 = 0.5f * (-t3 + 2.0f * t2 - t);
+	float b1 = 0.5f * (3.0f * t3 - 5.0f * t2 + 2.0f);
+	float b2 = 0.5f * (-3.0f * t3 + 4.0f * t2 + t);
+	float b3 = 0.5f * (t3 - t2);
+
+	float x = p0.x * b0 + p1.x * b1 + p2.x * b2 + p3.x * b3;
+	float y = p0.y * b0 + p1.y * b1 + p2.y * b2 + p3.y * b3;
+	float z = p0.z * b0 + p1.z * b1 + p2.z * b2 + p3.z * b3;
+
+	return { x, y, z };
+}
+
+void CreatePathPoints(ImGuiApp *app) {
+	float angle = 0.f;
+	float height = 0.f;
+	zest_vec3 point = CirclePointY({ app->radius, app->radius }, height, angle);
+	for (int i = 0; i != 1000; ++i) {
+		app->points[i].position = point;
+		angle += app->angle_increment;
+		height += app->height_increment;
+		point = CirclePointY({ app->radius, app->radius }, height, angle);
+	}
+}
+
 void InitImGuiApp(ImGuiApp* app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&app->imgui_layer_info);
@@ -139,9 +195,10 @@ void InitImGuiApp(ImGuiApp* app) {
 	zest_ProcessTextureImages(app->floor_texture);
 	app->sprite_texture = zest_CreateTexture("Sprite texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
 	app->sprite = zest_AddTextureImageFile(app->sprite_texture, "examples/assets/wabbit_alpha.png");
-	zest_ProcessTextureImages(app->floor_texture);
+	zest_ProcessTextureImages(app->sprite_texture);
 	app->mesh_pipeline = zest_Pipeline("pipeline_mesh");
 	app->line_pipeline = zest_Pipeline("pipeline_line3d_instance");
+	app->billboard_pipeline = zest_Pipeline("pipeline_billboard");
 
 	app->camera = zest_CreateCamera();
 	zest_CameraPosition(&app->camera, { -10.f, 0.f, 0.f });
@@ -174,6 +231,7 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->ellipse.radius.x = 5.f;
 	app->ellipse.radius.y = 5.f;
 	app->ellipse.radius.z = 10.f;
+	/*
 	for (int i = 0; i != 1000; ++i) {
 		app->points[i] = {};
 		app->points[i].uv.x = (float)i / (float)1000 * two_pi;
@@ -181,8 +239,13 @@ void InitImGuiApp(ImGuiApp* app) {
 		app->points[i].position = PointOnEllipse(app->points[i].uv.x, app->points[i].uv.y, app->ellipse.radius);
 		app->points[i].normal = EllipseSurfaceNormal(app->points[i].position.x, app->points[i].position.y, app->points[i].position.z, app->ellipse.radius.x, app->ellipse.radius.y, app->ellipse.radius.z);
 	}
+	*/
 	app->point = app->points[500];
 	app->cross_plane = { 1.f, 0.f, 0.f };
+	CreatePathPoints(app);
+	app->height_increment = 0.1f;
+	app->angle_increment = 0.1f;
+	app->radius = 2.f;
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -229,6 +292,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			app->cross_plane = zest_NormalizeVec3(app->cross_plane);
 		}
 		ImGui::DragFloat("direction", &app->point.direction, 0.01f);
+		ImGui::DragFloat("Height Increment", &app->height_increment, 0.001f); if (ImGui::IsItemEdited) CreatePathPoints(app);
+		ImGui::DragFloat("Angle Increment", &app->angle_increment, 0.001f); if (ImGui::IsItemEdited) CreatePathPoints(app);
+		ImGui::DragFloat("Radius", &app->radius, 0.001f); if (ImGui::IsItemEdited) CreatePathPoints(app);
+
 		zest_vec3 pole = {};
 		zest_vec3 nearest_point = {};
 		zest_vec3 perp = {};
@@ -245,8 +312,6 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui::Render();
 		//Let the layer know that it needs to reupload the imgui mesh data to the GPU
 		zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
-		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-		zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 
 		float speed = 5.f * (float)app->timer->update_time;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
@@ -299,7 +364,29 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_SetMeshDrawing(app->mesh_layer, app->floor_texture, 0, app->mesh_pipeline);
 	zest_DrawTexturedPlane(app->mesh_layer, app->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 
+	zest_SetBillboardDrawing(app->billboard_layer, app->sprite_texture, 0, app->billboard_pipeline);
+
 	zest_Set3DLineDrawing(app->line_layer, 0, app->line_pipeline);
+	bool start_drawing = false;
+	zest_vec3 p2;
+	for (int i = 0; i != 97; ++i) {
+		zest_vec3 point = app->points[i].position;
+		zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &point.x, 0.f, 0.2f, 0.2f);
+		zest_vec3 start = app->points[i].position;
+		zest_vec3 end = app->points[i + 1].position;
+		//zest_Draw3DLine(app->line_layer, &start.x, &end.x, 3.f);
+		float step = 0.1f; // Step size for interpolation
+		for (float t = 0.0f; t <= 1.0f; t += step) {
+			zest_vec3 p1 = CatmullRomSpline3D(app->points[i].position, app->points[i + 1].position, app->points[i + 2].position, app->points[i + 3].position, t);
+			if (start_drawing == true) {
+				zest_Draw3DLine(app->line_layer, &p1.x, &p2.x, 3.f);
+			}
+			start_drawing = true;
+			p2 = p1;
+		}
+	}
+
+	/*
 	zest_SetLayerColor(app->line_layer, 255, 255, 255, 50);
 	for (int i = 0; i != 1000; ++i) {
 		zest_vec3 start = app->points[i].position;
@@ -333,6 +420,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_Draw3DLine(app->line_layer, &start.x, &app->point.position.x, 2.f);
 	nearest_point = FindNearestPointOnPlane(start, app->point.normal, zest_LengthVec(app->point.position));
 	zest_Draw3DLine(app->line_layer, &start.x, &nearest_point.x, 2.f);
+	*/
+
+	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
+	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 }
 
 #if defined(_WIN32)
