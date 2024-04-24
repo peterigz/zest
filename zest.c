@@ -6093,6 +6093,7 @@ zest_bitmap_t zest_CreateBitmapFromRawBuffer(const char* name, unsigned char* pi
 }
 
 zest_bitmap_t* zest_GetBitmap(zest_texture texture, zest_index bitmap_index) {
+    zest_vec_test(texture->image_bitmaps, bitmap_index);
     return &texture->image_bitmaps[bitmap_index];
 }
 

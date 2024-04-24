@@ -535,6 +535,7 @@ enum {
 
 // --Pocket dynamic array
 #define zest__vec_header(T) ((zest_vec*)T - 1)
+#define zest_vec_test(T, index) ZEST_ASSERT(index < zest__vec_header(T)->current_size)
 zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_bump(T) zest__vec_header(T)->current_size++
 #define zest_vec_clip(T) zest__vec_header(T)->current_size--
@@ -562,7 +563,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k
 // --end of pocket dynamic array
 
-// --Pocket Hasher, converted to c from Stephen Brumme's XXHash code
+// --Pocket Hasher, converted to c from Stephen Brumme's XXHash code (https://github.com/stbrumme/xxhash) by Peter Rigby
 /*
     MIT License Copyright (c) 2018 Stephan Brumme
     Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
