@@ -15,6 +15,12 @@ struct ellipsoid {
 	zest_vec3 radius;
 };
 
+struct cylinder_t {
+	zest_vec3 position;
+	zest_vec2 radius;
+	float height;
+};
+
 struct surface_point {
 	zest_vec3 position;
 	zest_vec3 normal;
@@ -41,6 +47,7 @@ struct ImGuiApp {
 
 	zest_camera_t camera;
 	ellipsoid ellipse;
+	cylinder_t cylinder;
 	surface_point points[1000];
 	surface_point point;
 	bool repoint = true;
@@ -49,6 +56,7 @@ struct ImGuiApp {
 	float height_increment;
 	float angle_increment;
 	float radius;
+	float spline_points;
 };
 
 void InitImGuiApp(ImGuiApp *app);

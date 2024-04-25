@@ -35,6 +35,40 @@ zest_vec3 EllipseSurfaceNormal(float x, float y, float z, float width, float hei
 	return normal;
 }
 
+zest_vec3 CylinderSurfaceNormal(float x, float z, float width, float depth) {
+	// Calculate the gradient of the ellipse equation
+	float dx = 2.f * x / (width * width);
+	float dz = 2.f * z / (depth * depth);
+
+	// Normalize the gradient vector to obtain the surface normal
+	float length = sqrtf(dx * dx + dz * dz);
+	zest_vec3 normal;
+	normal.x = dx / length;
+	normal.y = 0.f;
+	normal.z = dz / length;
+
+	return normal;
+}
+
+zest_vec3 CylinderSurfaceGradient(cylinder_t cylinder, float x, float z) {
+	zest_vec3 gradient;
+
+	zest_vec3 centerToPoint;
+	centerToPoint.x = x;
+	centerToPoint.y = 0.f; 
+	centerToPoint.z = z;
+
+	float magnitude_x = cylinder.radius.x / sqrtf(centerToPoint.x * centerToPoint.x + centerToPoint.z * centerToPoint.z);
+	//float magnitude_y = cylinder.radius.y / sqrtf(centerToPoint.x * centerToPoint.x + centerToPoint.z * centerToPoint.z);
+
+	// Calculate the gradient components
+	gradient.x = magnitude_x * centerToPoint.x;
+	gradient.z = magnitude_x * centerToPoint.z;
+	gradient.y = 0.0;
+
+	return gradient;
+}
+
 zest_vec3 PointOnEllipse(float theta, float v, zest_vec3 radius) {
 	float phi = acosf(2.f * v - 1.f);
 	float sin_theta = sinf(theta);
@@ -227,11 +261,11 @@ void InitImGuiApp(ImGuiApp* app) {
 
 	//Set up a timer
 	app->timer = zest_CreateTimer(60);
+	/*
 	app->ellipse = {};
 	app->ellipse.radius.x = 5.f;
 	app->ellipse.radius.y = 5.f;
 	app->ellipse.radius.z = 10.f;
-	/*
 	for (int i = 0; i != 1000; ++i) {
 		app->points[i] = {};
 		app->points[i].uv.x = (float)i / (float)1000 * two_pi;
@@ -239,13 +273,31 @@ void InitImGuiApp(ImGuiApp* app) {
 		app->points[i].position = PointOnEllipse(app->points[i].uv.x, app->points[i].uv.y, app->ellipse.radius);
 		app->points[i].normal = EllipseSurfaceNormal(app->points[i].position.x, app->points[i].position.y, app->points[i].position.z, app->ellipse.radius.x, app->ellipse.radius.y, app->ellipse.radius.z);
 	}
-	*/
 	app->point = app->points[500];
 	app->cross_plane = { 1.f, 0.f, 0.f };
 	CreatePathPoints(app);
 	app->height_increment = 0.1f;
 	app->angle_increment = 0.1f;
 	app->radius = 2.f;
+	*/
+	app->cylinder = {};
+	app->cylinder.radius = { 5.f, 5.f };
+	app->cylinder.height = 6.f;
+	app->spline_points = 16.f;
+
+	float grid_segment_size = two_pi / (app->spline_points - 2.f);
+	float x = grid_segment_size;
+
+	for (int i = 1; i != (int)app->spline_points - 1; ++i) {
+		float th = x;
+		app->points[i].position.x = cosf(th) * app->cylinder.radius.x;
+		app->points[i].position.z = -sinf(th) * app->cylinder.radius.y;
+		app->points[i].position.y = 0.f;
+		x += grid_segment_size;
+	}
+	int i = (int)app->spline_points;
+	app->points[0] = app->points[i - 2];
+	app->points[i - 1] = app->points[1];
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -286,6 +338,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui::NewFrame();
 		ImGui::Begin("Test Window");
 		ImGui::Text("FPS %i", ZestApp->last_fps);
+		/*
 		ImGui::Text("u: %f, v: %f", app->point.uv.x, app->point.uv.y);
 		ImGui::DragFloat3("Plane", &app->cross_plane.x, 0.01f, -1.f, 1.f);
 		if (ImGui::IsItemEdited()) {
@@ -295,6 +348,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui::DragFloat("Height Increment", &app->height_increment, 0.001f); if (ImGui::IsItemEdited) CreatePathPoints(app);
 		ImGui::DragFloat("Angle Increment", &app->angle_increment, 0.001f); if (ImGui::IsItemEdited) CreatePathPoints(app);
 		ImGui::DragFloat("Radius", &app->radius, 0.001f); if (ImGui::IsItemEdited) CreatePathPoints(app);
+		*/
 
 		zest_vec3 pole = {};
 		zest_vec3 nearest_point = {};
@@ -367,6 +421,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_SetBillboardDrawing(app->billboard_layer, app->sprite_texture, 0, app->billboard_pipeline);
 
 	zest_Set3DLineDrawing(app->line_layer, 0, app->line_pipeline);
+	/*
 	bool start_drawing = false;
 	zest_vec3 p2;
 	for (int i = 0; i != 97; ++i) {
@@ -386,8 +441,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 	}
 
-	/*
-	zest_SetLayerColor(app->line_layer, 255, 255, 255, 50);
+	zest_SetLayerColor(app->line_layer, 255, 255, 255, 150);
 	for (int i = 0; i != 1000; ++i) {
 		zest_vec3 start = app->points[i].position;
 		zest_vec3 end = zest_AddVec3(app->points[i].position, zest_ScaleVec3(&app->points[i].normal, .1f));
@@ -421,6 +475,47 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	nearest_point = FindNearestPointOnPlane(start, app->point.normal, zest_LengthVec(app->point.position));
 	zest_Draw3DLine(app->line_layer, &start.x, &nearest_point.x, 2.f);
 	*/
+
+	//Cylinder testing
+
+	zest_SetLayerColor(app->line_layer, 255, 50, 255, 25);
+	float grid_segment_size = two_pi / 100.f;
+	zest_vec3 end;
+
+	for (float x = 0; x != 100.f; ++x) {
+		float th = x * grid_segment_size;
+		float local_position_x = cosf(th) * app->cylinder.radius.x + app->cylinder.radius.x;
+		float local_position_z = -sinf(th) * app->cylinder.radius.y + app->cylinder.radius.y;
+		zest_vec3 start = { local_position_x, 0.f, local_position_z };
+		end = start;
+		end.y = app->cylinder.height;
+		zest_Draw3DLine(app->line_layer, &start.x, &end.x, 2.f);
+	}
+
+	bool start_drawing = false;
+	zest_vec3 p2;
+	int c = (int)app->spline_points;
+	int c_mod = c - 2;
+	for (int i = 0; i != c - 1; ++i) {
+		app->point.position = app->points[i].position;
+		zest_vec3 tangent = {};
+		tangent.x = app->point.position.z;
+		tangent.z = -app->point.position.x;
+		tangent = zest_NormalizeVec3(tangent);
+		app->point.normal = CylinderSurfaceNormal(app->point.position.x - app->cylinder.radius.x, app->point.position.z - app->cylinder.radius.y, app->cylinder.radius.x, app->cylinder.radius.y);
+		end = zest_AddVec3(app->point.position, tangent);
+		zest_SetLayerColor(app->line_layer, 255, 255, 50, 255);
+		zest_Draw3DLine(app->line_layer, &app->point.position.x, &end.x, 4.f);
+		float step = 0.1f; // Step size for interpolation
+		for (float t = 0.0f; t <= 1.0f; t += step) {
+			zest_vec3 p1 = CatmullRomSpline3D(app->points[i % c_mod].position, app->points[(i + 1) % c_mod].position, app->points[(i + 2) % c_mod].position, app->points[(i + 3) % c_mod].position, t);
+			if (start_drawing == true) {
+				zest_Draw3DLine(app->line_layer, &p1.x, &p2.x, 3.f);
+			}
+			start_drawing = true;
+			p2 = p1;
+		}
+	}
 
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
