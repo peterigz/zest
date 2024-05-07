@@ -2,6 +2,50 @@
 #ifndef ZEST_RENDERER_H
 #define ZEST_RENDERER_H
 
+/*
+    Zest Pocket Renderer
+
+    Sections in this header file, you can search for the following keywords to jump to that section :
+
+    [Macro_Defines]                     Just a bunch of typedefs and macro definitions
+    [Platform_specific_code]            Windows/Mac specific, no linux yet
+    [Enums_and_flags]                   Enums and bit flag definitions
+    [Forward_declarations]              Forward declarations for structs and setting up of handles
+    [Pocket_dynamic_array]              Simple dynamic array
+    [Pocket_Hasher]                     XXHash code for use in hash map
+    [Pocket_hash_map]                   Simple hash map
+    [Pocket_text_buffer]                Very simple struct and functions for storing strings
+    [Structs]                           All the structs are defined here.
+    [Internal_functions]                Private functions only, no API access
+
+    --API functions
+    [Essential_setup_functions]         Functions for initialising Zest
+    [Vulkan_Helper_Functions]           Just general helper functions for working with Vulkan if you're doing more custom stuff
+    [Pipeline_related_vulkan_helpers]   Vulkan helper functions for setting up your own pipelines
+    [Platform_dependent_callbacks]      These are used depending one whether you're using glfw, sdl or just the os directly
+    [Buffer_functions]                  Functions for creating and using gpu buffers
+    [Command_queue_setup_and_creation]  All helper functions for setting up your own custom command queues in vulkan
+    [General_Math_helper_functions]     Vector and matrix math functions
+    [Camera_helpers]                    Functions for setting up and using a camera including frustom and screen ray etc. 
+    [Images_and_textures]               Load and setup images for using in textures accessed on the GPU
+    [Fonts]                             Basic functions for loading MSDF fonts
+    [Render_targets]                    Helper functions for setting up render targets for use in command queus
+    [Main_loop_update_functions]        Only one function currently, for setting the current command queue to render with
+    [Draw_Routines]                     Create a draw routine for custom drawing
+    [Draw_Layers_API]                   Draw layers are used to draw stuff as you'd imagine, there's a bunch of functions here to
+    [Draw_sprite_layers]                Functions for drawing the builtin sprite layer pipeline
+    [Draw_billboard_layers]             Functions for drawing the builtin billboard layer pipeline
+    [Draw_Line_layers]                  Functions for drawing the builtin line layer pipeline
+    [Draw_3D_Line_layers]               Functions for drawing the builtin 3d line layer pipeline
+    [Draw_MSDF_font_layers]             Functions for drawing the builtin MSDF font layer pipeline
+    [Draw_mesh_layers]                  Functions for drawing the builtin mesh layer pipeline
+    [Compute_shaders]                   Functions for setting up your own custom compute shaders
+    [Events_and_States]                 Just one function for now
+    [Timer_functions]                   High resolution timer functions
+    [General_Helper_functions]          General API functions - get screen dimensions some vulkan helper functions
+    [Debug_Helpers]                     Functions for debugging and outputting queues to the console.
+*/
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -188,7 +232,7 @@ typedef union zest_packed8bit
     zest_uint pack;
 } zest_packed8bit;
 
-/*Platform specific code*/
+/* Platform_specific_code*/
 
 FILE *zest__open_file(const char *file_name, const char *mode);
 ZEST_API zest_millisecs zest_Millisecs(void);
@@ -241,7 +285,7 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_INVALID 0xFFFFFFFF
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
 
-//enums and flags
+//Enums_and_flags
 typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
 
 typedef enum zest_struct_type {
@@ -468,7 +512,7 @@ typedef zest_uint zest_layer_flags;
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
 
-// --Forward declarations
+// --Forward_declarations
 typedef struct zest_texture_t zest_texture_t;
 typedef struct zest_image_t zest_image_t;
 typedef struct zest_draw_routine_t zest_draw_routine_t;
@@ -533,7 +577,7 @@ enum {
     zest__VEC_HEADER_OVERHEAD = sizeof(zest_vec)
 };
 
-// --Pocket dynamic array
+// --Pocket_dynamic_array
 #define zest__vec_header(T) ((zest_vec*)T - 1)
 #define zest_vec_test(T, index) ZEST_ASSERT(index < zest__vec_header(T)->current_size)
 zest_uint zest__grow_capacity(void *T, zest_uint size);
@@ -563,7 +607,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k
 // --end of pocket dynamic array
 
-// --Pocket Hasher, converted to c from Stephen Brumme's XXHash code (https://github.com/stbrumme/xxhash) by Peter Rigby
+// --Pocket_Hasher, converted to c from Stephen Brumme's XXHash code (https://github.com/stbrumme/xxhash) by Peter Rigby
 /*
     MIT License Copyright (c) 2018 Stephan Brumme
     Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
@@ -690,7 +734,7 @@ zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest
 extern zest_hasher *ZestHasher;
 //-- End of Pocket Hasher
 
-// --Begin pocket hash map
+// --Begin Pocket_hash_map
 typedef struct {
     zest_key key;
     zest_index index;
@@ -730,7 +774,7 @@ ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) {
 #define zest_map_foreach_j(hash_map) zest_foreach_j(hash_map.map)
 // --End pocket hash map
 
-// --Begin pocket text buffer
+// --Begin Pocket_text_buffer
 typedef struct zest_text {
     char *str;
 } zest_text;
@@ -742,6 +786,7 @@ ZEST_API void zest_FreeText(zest_text *buffer);
 ZEST_API zest_uint zest_TextLength(zest_text *buffer);
 // --End pocket text buffer
 
+// --Structs
 // --Matrix and vector structs
 typedef struct zest_vec2 {
     float x, y;
@@ -1252,6 +1297,11 @@ typedef struct zest_vertex_t {
     zest_uint parameters;                          //packed parameters such as texture layer
 } zest_vertex_t;
 
+typedef struct zest_mesh_instance_t {
+    zest_vec4 pos;                                 //3d position
+    zest_color color;                               //packed color
+} zest_mesh_instance_t;
+
 //We just have a copy of the ImGui Draw vert here so that we can setup things things for imgui
 //should anyone choose to use it
 typedef struct zest_ImDrawVert_t
@@ -1698,7 +1748,7 @@ ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_
 };
 
 
-//--Internal functions
+//--Internal_functions
 
 //Platform dependent functions
 //These functions need a different implementation depending on the platform being run on
@@ -1925,7 +1975,7 @@ ZEST_PRIVATE void zest__update_window_size(zest_window window, zest_uint width, 
 //User API functions
 
 //-----------------------------------------------
-//        Essential setup functions
+//        Essential_setup_functions
 //-----------------------------------------------
 //Create a new zest_create_info_t struct with default values for initialising Zest
 ZEST_API zest_create_info_t zest_CreateInfo(void);
@@ -1943,7 +1993,7 @@ ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*))
 ZEST_API void zest_Start(void);
 
 //-----------------------------------------------
-//        Vulkan Helper Functions
+//        Vulkan_Helper_Functions
 //        These functions are for more advanced customisation of the render where more knowledge of how Vulkan works is required.
 //-----------------------------------------------
 //Add a Vulkan instance extension. You don't really need to worry about this function unless you're looking to customise the render with some specific extensions
@@ -1998,7 +2048,7 @@ ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float hei
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 
 //-----------------------------------------------
-//        Pipeline related vulkan helpers
+//        Pipeline_related_vulkan_helpers
 //        Pipelines are essential to drawing things on screen. There are some builtin pipelines that Zest creates
 //        for sprite/billboard/mesh/font drawing. You can take a look in zest__prepare_standard_pipelines to see how
 //        the following functions are utilised, plus look at the exmaples for building your own custom pipelines.
@@ -2089,7 +2139,7 @@ ZEST_API void zest_MakePipelineDescriptorWrites(zest_pipeline pipeline);
 
 //--End vulkan helper functions
 
-//Platform dependent callbacks
+//Platform_dependent_callbacks
 //Depending on the platform and method you're using to create a window and poll events callbacks are used to do those things.
 //You can define those callbacks with these functions
 ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data));
@@ -2098,7 +2148,7 @@ ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
 ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
 
 //-----------------------------------------------
-//        Buffer functions.
+//        Buffer_functions.
 //        Use these functions to create memory buffers mainly on the GPU
 //        but you can also create staging buffers that are cpu visible and
 //        used to upload data to the GPU
@@ -2216,7 +2266,7 @@ ZEST_API void zest_BindIndexBuffer(zest_buffer buffer);
 //--End Buffer related
 
 //-----------------------------------------------
-//        Command queue setup and creation
+//        Command_queue_setup_and_creation
 //        Command queues are where all of the vulkan commands get written for submitting and executing
 //        on the GPU. A simple command queue is created by Zest when you Initialise zest for drawing
 //        sprites. The best way to understand them would be to look at the examples, such as the render
@@ -2369,7 +2419,7 @@ ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void);
 //-- End Command queue setup and creation
 
 //-----------------------------------------------
-//        General Math helper functions
+//        General_Math_helper_functions
 //-----------------------------------------------
 
 //Subtract right from left vector and return the result
@@ -2456,7 +2506,7 @@ ZEST_API zest_color zest_ColorSet1(zest_byte c);
 
 
 //-----------------------------------------------
-//        Camera helpers
+//        Camera_helpers
 //-----------------------------------------------
 //Create a new zest_camera_t. This will initialise values to default values such as up, right, field of view etc.
 ZEST_API zest_camera_t zest_CreateCamera(void);
@@ -2506,7 +2556,7 @@ ZEST_API zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float
 //-- End camera and other helpers
 
 //-----------------------------------------------
-//        Images and textures
+//        Images_and_textures
 //        Use textures to load in images and sample in a shader to display on screen. They're also used in
 //        render targets and any other things where you want to create images.
 //-----------------------------------------------
@@ -2708,7 +2758,7 @@ ZEST_API zest_font zest_GetFont(const char *font);
 //-- End Fonts
 
 //-----------------------------------------------
-//        Render targets
+//        Render_targets
 //        Render targets are objects you can use to draw to. You can set up a command queue to draw to any
 //        render targets that you need and then draw those render targets to the swap chain. For a more
 //        advanced example of using render targets see the zest-render-targets example.
@@ -2769,7 +2819,7 @@ ZEST_API void zest_RenderTargetClear(zest_render_target render_target, zest_uint
 //-- End Render targets
 
 //-----------------------------------------------
-//        Main loop update functions
+//        Main_loop_update_functions
 //-----------------------------------------------
 //Set the command queue that you want the next frame to be rendered by. You must call this function every frame or else
 //you will only render a blank screen. Just pass the zest_command_queue that you want to use. If you initialised the editor
@@ -2778,7 +2828,7 @@ ZEST_API void zest_RenderTargetClear(zest_render_target render_target, zest_uint
 ZEST_API void zest_SetActiveCommandQueue(zest_command_queue command_queue);
 
 //-----------------------------------------------
-//        Draw Routines
+//        Draw_Routines
 //        These are used to setup drawing in Zest. There are a few builtin draw routines
 //        for drawing sprites and billboards but you can set up your own for anything else.
 //-----------------------------------------------
@@ -2787,7 +2837,7 @@ ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
 //-- End Draw Routines
 
 //-----------------------------------------------
-//-- Draw Layers API
+//-- Draw_Layers_API
 //-----------------------------------------------
 //Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
 //instance layers more easily
@@ -2824,7 +2874,7 @@ ZEST_API void zest_SetLayerDirty(zest_layer layer);
 //-- End Draw Layers
 
 //-----------------------------------------------
-//        Draw sprite layers
+//        Draw_sprite_layers
 //        Built in layer for drawing 2d sprites on the screen. To add this type of layer to
 //        a command queue see zest_NewBuiltinLayerSetup or zest_CreateBuiltinSpriteLayer
 //-----------------------------------------------
@@ -2854,7 +2904,7 @@ ZEST_API void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float 
 //-- End Draw sprite layers
 
 //-----------------------------------------------
-//        Draw billboard layers
+//        Draw_billboard_layers
 //        Built in layer for drawing 3d sprites, or billboards. These can either always face the camera or be
 //        aligned to a vector, or even both depending on what you need. You'll need a uniform buffer with the
 //        appropriate projection and view matrix for 3d. See zest-instance-layers for examples.
@@ -2882,7 +2932,7 @@ ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float
 //--End Draw billboard layers
 
 //-----------------------------------------------
-//        Draw Line layers
+//        Draw_Line_layers
 //        Built in layer for drawing 2d lines.
 //-----------------------------------------------
 //Set descriptor set and pipeline for any calls to zest_DrawLine or zest_DrawRect that come after it. You must call this function if you want to do any billboard drawing, and you
@@ -2898,7 +2948,7 @@ ZEST_API void zest_DrawRect(zest_layer layer, float top_left[2], float width, fl
 //--End Draw line layers
 
 //-----------------------------------------------
-//        Draw 3D Line layers
+//        Draw_3D_Line_layers
 //        Built in layer for drawing 3d lines.
 //-----------------------------------------------
 //Set descriptor set and pipeline for any calls to zest_Draw3DLine that come after it. You must call this function if you want to do any line drawing, and you
@@ -2914,7 +2964,7 @@ ZEST_API void zest_Draw3DLine(zest_layer layer, float start_point[3], float end_
 //--End Draw line layers
 
 //-----------------------------------------------
-//        Draw MSDF font layers
+//        Draw_MSDF_font_layers
 //        Draw fonts at any scale using multi channel signed distance fields. This uses a zest font format
 //        ".zft" which contains a character map with uv coords and a png containing the MSDF image for
 //        sampling. You can use a simple application for generating these files in the examples:
@@ -2959,7 +3009,7 @@ ZEST_API float zest_TextWidth(zest_font font, const char *text, float font_size,
 //-- End Draw MSDF font layers
 
 //-----------------------------------------------
-//        Draw mesh layers
+//        Draw_mesh_layers
 //        Mesh layers let you upload a vertex and index buffer to draw meshes. I set this up primarily for
 //        use with Dear ImGui
 //-----------------------------------------------
@@ -2997,7 +3047,7 @@ ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x
 //--End Draw mesh layers
 
 //-----------------------------------------------
-//        Compute shaders
+//        Compute_shaders
 //        Build custom compute shaders and integrate into a command queue or just run separately as you need.
 //        See zest-compute-example for a full working example
 //-----------------------------------------------
@@ -3064,14 +3114,14 @@ ZEST_API void zest_DispatchComputeCB(VkCommandBuffer command_buffer, zest_comput
 //--End Compute shaders
 
 //-----------------------------------------------
-//        Events and States
+//        Events_and_States
 //-----------------------------------------------
 //Returns true is the swap chain was recreated last frame. The swap chain will mainly be recreated if the window size changes
 ZEST_API zest_bool zest_SwapchainWasRecreated(void);
 //--End Events and States
 
 //-----------------------------------------------
-//        Timer functions
+//        Timer_functions
 //        This is a simple API for a high resolution timer. You can use this to implement fixed step
 //        updating for your logic in the main loop, plus for anything else that you need to time.
 //-----------------------------------------------
@@ -3091,7 +3141,7 @@ ZEST_API void zest_TimerSet(zest_timer timer);                                  
 //--End Timer Functions
 
 //-----------------------------------------------
-//        General Helper functions
+//        General_Helper_functions
 //-----------------------------------------------
 //Read a file from disk into memory. Set terminate to 1 if you want to add \0 to the end of the file in memory
 ZEST_API char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
@@ -3196,7 +3246,7 @@ ZEST_API zest_bool zest_GPUHasDeviceLocalHostVisible(VkDeviceSize mimimum_size);
 //--End General Helper functions
 
 //-----------------------------------------------
-//Debug Helpers
+//Debug_Helpers
 //-----------------------------------------------
 //Convert one of the standard draw routine callback functions to a string and return it.
 ZEST_API const char *zest_DrawFunctionToString(void *function);
