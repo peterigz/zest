@@ -602,6 +602,45 @@ zest_matrix4 zest_Inverse(zest_matrix4* m) {
     return zest_ScaleMatrix4(&inverse, OneOverDeterminant);
 }
 
+zest_matrix4 zest_Matrix4RotateX(float angle) {
+    float c = cosf(angle);
+    float s = sinf(angle);
+    zest_matrix4 r =
+    { {
+        {1, 0, 0, 0},
+        {0, c,-s, 0},
+        {0, s, c, 0},
+        {0, 0, 0, 1}},
+    };
+    return r;
+}
+
+zest_matrix4 zest_Matrix4RotateY(float angle) {
+    float c = cosf(angle);
+    float s = sinf(angle);
+    zest_matrix4 r =
+    { {
+        { c, 0, s, 0},
+        { 0, 1, 0, 0},
+        {-s, 0, c, 0},
+        { 0, 0, 0, 1}},
+    };
+    return r;
+}
+
+zest_matrix4 zest_Matrix4RotateZ(float angle) {
+    float c = cosf(angle);
+    float s = sinf(angle);
+    zest_matrix4 r =
+    { {
+        {c, -s, 0, 0},
+        {s,  c, 0, 0},
+        {0,  0, 1, 0},
+        {0,  0, 0, 1}},
+    };
+    return r;
+}
+
 #ifdef ZEST_INTEL
 
 zest_vec4 zest_MatrixTransformVector(zest_matrix4* mat, zest_vec4 vec) {
@@ -4532,13 +4571,13 @@ void zest__prepare_standard_pipelines() {
     mesh_pushconstant_range.offset = 0;
     mesh_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     zest_vec_push(mesh_pipeline_template.pushConstantRange, mesh_pushconstant_range);
-    zest_AddVertexInputBindingDescription(&mesh_pipeline_template, 0, sizeof(zest_vertex_t), VK_VERTEX_INPUT_RATE_VERTEX);
+    zest_AddVertexInputBindingDescription(&mesh_pipeline_template, 0, sizeof(zest_textured_vertex_t), VK_VERTEX_INPUT_RATE_VERTEX);
     VkVertexInputAttributeDescription* zest_vertex_input_attributes = 0;
-    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_vertex_t, pos)));        // Location 0: Position
-    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32_SFLOAT, offsetof(zest_vertex_t, intensity)));        // Location 1: Alpha/Intensity
-    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_vertex_t, uv)));            // Location 2: Position
-    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_vertex_t, color)));        // Location 3: Color
-    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32_UINT, offsetof(zest_vertex_t, parameters)));        // Location 4: Parameters
+    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_textured_vertex_t, pos)));        // Location 0: Position
+    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32_SFLOAT, offsetof(zest_textured_vertex_t, intensity)));        // Location 1: Alpha/Intensity
+    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_textured_vertex_t, uv)));            // Location 2: Position
+    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_textured_vertex_t, color)));        // Location 3: Color
+    zest_vec_push(zest_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32_UINT, offsetof(zest_textured_vertex_t, parameters)));        // Location 4: Parameters
 
     mesh_pipeline_template.attributeDescriptions = zest_vertex_input_attributes;
     zest_SetText(&mesh_pipeline_template.vertShaderFile, "mesh.spv");
@@ -4557,6 +4596,46 @@ void zest__prepare_standard_pipelines() {
     mesh_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_TRUE;
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Mesh pipeline" ZEST_NL);
     zest_BuildPipeline(mesh_pipeline);
+
+    //Instanced mesh drawing for drawing primatives
+    zest_pipeline_template_create_info_t imesh_pipeline_template = zest_CreatePipelineTemplateCreateInfo();
+    imesh_pipeline_template.viewport.offset.x = 0;
+    imesh_pipeline_template.viewport.offset.y = 0;
+    VkPushConstantRange imesh_pushconstant_range;
+    imesh_pushconstant_range.size = sizeof(zest_push_constants_t);
+    imesh_pushconstant_range.offset = 0;
+    imesh_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    zest_vec_push(imesh_pipeline_template.pushConstantRange, imesh_pushconstant_range);
+    zest_AddVertexInputBindingDescription(&imesh_pipeline_template, 0, sizeof(zest_vertex_t), VK_VERTEX_INPUT_RATE_VERTEX);
+    zest_AddVertexInputBindingDescription(&imesh_pipeline_template, 1, sizeof(zest_mesh_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+    VkVertexInputAttributeDescription* imesh_input_attributes = 0;
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0));        // Location 0: Vertex Position
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 0));        // Location 1: Instance Position
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, color)));        // Location 2: Instance Color
+
+    imesh_pipeline_template.attributeDescriptions = imesh_input_attributes;
+    zest_SetText(&imesh_pipeline_template.vertShaderFile, "mesh_instance.spv");
+    zest_SetText(&imesh_pipeline_template.fragShaderFile, "mesh_instance.spv");
+
+    zest_pipeline imesh_pipeline = zest_AddPipeline("pipeline_mesh_instance");
+
+    imesh_pipeline_template.viewport.extent = zest_GetSwapChainExtent();
+    imesh_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
+    imesh_pipeline->descriptor_layout = zest_GetDescriptorSetLayout("Polygon layout (no sampler)");
+    imesh_pipeline_template.descriptorSetLayout = zest_GetDescriptorSetLayout("Polygon layout (no sampler)");
+    zest_MakePipelineTemplate(imesh_pipeline, render_pass, &imesh_pipeline_template);
+
+    imesh_pipeline->pipeline_template.rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    imesh_pipeline->pipeline_template.rasterizer.cullMode = VK_CULL_MODE_NONE;
+    imesh_pipeline->pipeline_template.rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    imesh_pipeline->pipeline_template.inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    imesh_pipeline->pipeline_template.colorBlendAttachment = zest_AlphaBlendState();
+    imesh_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
+    imesh_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_TRUE;
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Instance Mesh pipeline" ZEST_NL);
+    zest_BuildPipeline(imesh_pipeline);
+    zest_MakePipelineDescriptorWrites(imesh_pipeline);
 
     //Final Render Pipelines
     zest_pipeline final_render = zest_AddPipeline("pipeline_final_render");
@@ -5693,8 +5772,17 @@ zest_layer zest_CreateBuiltinFontLayer(const char* name) {
 zest_layer zest_CreateBuiltinMeshLayer(const char* name) {
     zest_layer layer = zest_NewLayer();
     layer->name = name;
-    layer->layer_type = zest_builtin_layer_fonts;
-    zest__initialise_mesh_layer(layer, sizeof(zest_vertex_t), 1000);
+    layer->layer_type = zest_builtin_layer_mesh;
+    zest__initialise_mesh_layer(layer, sizeof(zest_textured_vertex_t), 1000);
+    zest_map_insert(ZestRenderer->layers, name, layer);
+    return layer;
+}
+
+zest_layer zest_CreateBuiltinInstanceMeshLayer(const char* name) {
+    zest_layer layer = zest_NewLayer();
+    layer->name = name;
+    layer->layer_type = zest_builtin_layer_mesh_instance;
+    zest__initialise_instance_mesh_layer(layer, sizeof(zest_mesh_instance_t), 100);
     zest_map_insert(ZestRenderer->layers, name, layer);
     return layer;
 }
@@ -5746,6 +5834,11 @@ void zest_AddLayer(zest_layer layer) {
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
             draw_routine->draw_callback = zest__draw_mesh_layer_callback;
+        }
+        else if (layer->layer_type == zest_builtin_layer_mesh) {
+            draw_routine->draw_data = layer;
+            draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
+            draw_routine->draw_callback = zest__draw_instance_mesh_layer_callback;
         }
         else if (layer->layer_type == zest_builtin_layer_fonts) {
             draw_routine->draw_callback = zest__draw_font_layer_callback;
@@ -5822,6 +5915,12 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char* name,
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
         draw_routine->draw_callback = zest__draw_mesh_layer_callback;
+    }
+    else if (builtin_layer == zest_builtin_layer_mesh_instance) {
+        layer = zest_CreateBuiltinInstanceMeshLayer(name);
+        draw_routine->draw_data = layer;
+        draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
+        draw_routine->draw_callback = zest__draw_instance_mesh_layer_callback;
     }
     else if (builtin_layer == zest_builtin_layer_fonts) {
         layer = zest_CreateBuiltinFontLayer(name);
@@ -6093,7 +6192,7 @@ zest_bitmap_t zest_CreateBitmapFromRawBuffer(const char* name, unsigned char* pi
 }
 
 zest_bitmap_t* zest_GetBitmap(zest_texture texture, zest_index bitmap_index) {
-    zest_vec_test(texture->image_bitmaps, bitmap_index);
+    zest_vec_test(texture->image_bitmaps, (zest_uint)bitmap_index);
     return &texture->image_bitmaps[bitmap_index];
 }
 
@@ -8725,6 +8824,33 @@ void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer) {
     }
 }
 
+void zest_DrawInstanceMeshLayer(zest_layer instance_layer, VkCommandBuffer command_buffer) {
+    VkDeviceSize instance_data_offsets[] = { instance_layer->memory_refs[ZEST_FIF].device_instance_data->memory_offset };
+	zest_BindMeshVertexBuffer(instance_layer);
+	zest_BindMeshIndexBuffer(instance_layer);
+
+    for (zest_foreach_i(instance_layer->draw_instructions[ZEST_FIF])) {
+        zest_layer_instruction_t* current = &instance_layer->draw_instructions[ZEST_FIF][i];
+
+        vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
+        vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+
+        vkCmdBindVertexBuffers(command_buffer, 1, 1, zest_GetBufferDeviceBuffer(instance_layer->memory_refs[ZEST_FIF].device_instance_data), instance_data_offsets);
+
+        zest_BindPipelineCB(command_buffer, current->pipeline, current->descriptor_set);
+
+        vkCmdPushConstants(
+            command_buffer,
+            current->pipeline->pipeline_layout,
+            zest_PipelinePushConstantStageFlags(current->pipeline, 0),
+            zest_PipelinePushConstantOffset(current->pipeline, 0),
+            zest_PipelinePushConstantSize(current->pipeline, 0),
+            &current->push_constants);
+
+        vkCmdDrawIndexed(command_buffer, instance_layer->index_count, current->total_instances, 0, 0, current->start_index);
+    }
+}
+
 //Start internal sprite layer functionality -----
 void zest__draw_sprite_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer sprite_layer = (zest_layer)draw_routine->draw_data;
@@ -8927,6 +9053,45 @@ void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuf
     zest__reset_mesh_layer_drawing(layer);
 }
 // End internal mesh layer functionality -----
+
+//Start internal instanced mesh layer functionality -----
+void zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
+    zest_layer layer = (zest_layer)draw_routine->draw_data;
+    zest_DrawInstanceMeshLayer(layer, command_buffer);
+    zest_ResetInstanceLayerDrawing(layer);
+}
+
+void zest__next_mesh_instance(zest_layer layer) {
+    zest_mesh_instance_t* instance_ptr = (zest_mesh_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+    instance_ptr = instance_ptr + 1;
+    //Make sure we're not trying to write outside of the buffer range
+    ZEST_ASSERT(instance_ptr >= (zest_mesh_instance_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->data && instance_ptr <= (zest_mesh_instance_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->end);
+    if (instance_ptr == layer->memory_refs[ZEST_FIF].write_to_buffer->end) {
+        zest_bool grown = 0;
+        if (ZEST__FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
+            grown = zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_mesh_instance_t), 0);
+            layer->memory_refs[ZEST_FIF].write_to_buffer = layer->memory_refs[ZEST_FIF].device_instance_data;
+        }
+        else {
+            grown = zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].staging_instance_data, sizeof(zest_mesh_instance_t), 0);
+            zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_instance_data, sizeof(zest_mesh_instance_t), 0);
+            layer->memory_refs[ZEST_FIF].write_to_buffer = layer->memory_refs[ZEST_FIF].staging_instance_data;
+        }
+        if (grown) {
+            layer->memory_refs[ZEST_FIF].instance_count++;
+            instance_ptr = (zest_mesh_instance_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->data;
+            instance_ptr += layer->memory_refs[ZEST_FIF].instance_count;
+        }
+        else {
+            instance_ptr = instance_ptr - 1;
+        }
+    }
+    else {
+        layer->memory_refs[ZEST_FIF].instance_count++;
+    }
+    layer->memory_refs[ZEST_FIF].instance_ptr = instance_ptr;
+}
+// End internal instanced mesh layer functionality -----
 
 //-- Draw Layers API
 zest_layer zest_NewLayer() {
@@ -9376,7 +9541,7 @@ void zest__initialise_billboard_layer(zest_layer billboard_layer, zest_uint inst
         billboard_layer->memory_refs[i].instance_count = 0;
         billboard_layer->memory_refs[i].instance_count = 0;
         if (ZEST__NOT_FLAGGED(billboard_layer->flags, zest_layer_flag_device_local_direct)) {
-            billboard_layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(sizeof(zest_sprite_instance_t) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
+            billboard_layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(sizeof(zest_billboard_instance_t) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
             billboard_layer->memory_refs[i].instance_ptr = billboard_layer->memory_refs[i].staging_instance_data->data;
             billboard_layer->memory_refs[i].write_to_buffer = billboard_layer->memory_refs[i].staging_instance_data;
         }
@@ -9739,30 +9904,30 @@ void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuf
 }
 
 void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters) {
-    zest_vertex_t vertex = { 0 };
+    zest_textured_vertex_t vertex = { 0 };
     vertex.pos = zest_Vec3Set(pos_x, pos_y, pos_z);
     vertex.intensity = intensity;
     vertex.uv = zest_Vec2Set(uv_x, uv_y);
     vertex.color = color;
     vertex.parameters = parameters;
-    zest_vertex_t* vertex_ptr = (zest_vertex_t*)layer->memory_refs[ZEST_FIF].vertex_ptr;
+    zest_textured_vertex_t* vertex_ptr = (zest_textured_vertex_t*)layer->memory_refs[ZEST_FIF].vertex_ptr;
     *vertex_ptr = vertex;
     vertex_ptr = vertex_ptr + 1;
-    ZEST_ASSERT(vertex_ptr >= (zest_vertex_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->data && vertex_ptr <= (zest_vertex_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->end);
+    ZEST_ASSERT(vertex_ptr >= (zest_textured_vertex_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->data && vertex_ptr <= (zest_textured_vertex_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->end);
     if (vertex_ptr == layer->memory_refs[ZEST_FIF].write_to_buffer->end) {
         zest_bool grown = 0;
         if (ZEST__FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
-            grown = zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_vertex_data, sizeof(zest_vertex_t), 0);
+            grown = zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_vertex_data, sizeof(zest_textured_vertex_t), 0);
             layer->memory_refs[ZEST_FIF].write_to_buffer = layer->memory_refs[ZEST_FIF].device_vertex_data;
         }
         else {
-            grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].write_to_buffer, sizeof(zest_vertex_t), 0);
-            zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_vertex_data, sizeof(zest_vertex_t), 0);
+            grown = zest_GrowBuffer(&layer->memory_refs[ZestDevice->current_fif].write_to_buffer, sizeof(zest_textured_vertex_t), 0);
+            zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].device_vertex_data, sizeof(zest_textured_vertex_t), 0);
             layer->memory_refs[ZEST_FIF].write_to_buffer = layer->memory_refs[ZEST_FIF].staging_vertex_data;
         }
         if (grown) {
             layer->memory_refs[ZEST_FIF].vertex_count++;
-            vertex_ptr = (zest_vertex_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->data;
+            vertex_ptr = (zest_textured_vertex_t*)layer->memory_refs[ZEST_FIF].write_to_buffer->data;
             vertex_ptr += layer->memory_refs[ZEST_FIF].vertex_count;
         }
         else {
@@ -9854,6 +10019,202 @@ void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x, float y
     zest_PushVertex(layer, x + width, y, z + height, layer->intensity, uv.z, uv.w, layer->current_color, image->layer);
 }
 //-- End Mesh Drawing API
+
+//-- Instanced_mesh_drawing
+void zest__initialise_instance_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size instance_pool_size) {
+    mesh_layer->current_color.r = 255;
+    mesh_layer->current_color.g = 255;
+    mesh_layer->current_color.b = 255;
+    mesh_layer->current_color.a = 255;
+    mesh_layer->intensity = 1;
+    mesh_layer->push_constants.model = zest_M4(1);
+    mesh_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
+    mesh_layer->push_constants.parameters2.x = 0.f;
+    mesh_layer->push_constants.parameters2.y = 0.f;
+    mesh_layer->push_constants.parameters2.z = 0.25f;
+    mesh_layer->push_constants.parameters2.w = 0.5f;
+    mesh_layer->layer_size = zest_Vec2Set1(1.f);
+    mesh_layer->instance_struct_size = sizeof(zest_mesh_instance_t);
+
+    zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
+    if (zest_GPUHasDeviceLocalHostVisible(sizeof(zest_mesh_instance_t) * instance_pool_size)) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for billboard layer" ZEST_NL);
+        ZEST__FLAG(mesh_layer->flags, zest_layer_flag_device_local_direct);
+        device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
+    }
+
+    zest_buffer_info_t staging_buffer_info = zest_CreateStagingBufferInfo();
+    for (ZEST_EACH_FIF_i) {
+        mesh_layer->memory_refs[i].device_instance_data = zest_CreateBuffer(sizeof(zest_mesh_instance_t) * instance_pool_size, &device_buffer_info, ZEST_NULL);
+        mesh_layer->memory_refs[i].instance_count = 0;
+        mesh_layer->memory_refs[i].instance_count = 0;
+        if (ZEST__NOT_FLAGGED(mesh_layer->flags, zest_layer_flag_device_local_direct)) {
+            mesh_layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(sizeof(zest_mesh_instance_t) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
+            mesh_layer->memory_refs[i].instance_ptr = mesh_layer->memory_refs[i].staging_instance_data->data;
+            mesh_layer->memory_refs[i].write_to_buffer = mesh_layer->memory_refs[i].staging_instance_data;
+        }
+        else {
+            mesh_layer->memory_refs[i].instance_ptr = mesh_layer->memory_refs[i].device_instance_data->data;
+            mesh_layer->memory_refs[i].write_to_buffer = mesh_layer->memory_refs[i].device_instance_data;
+        }
+    }
+
+    zest_SetLayerViewPort(mesh_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
+
+    zest_ResetInstanceLayerDrawing(mesh_layer);
+}
+
+void zest_BindInstanceMeshVertexBuffer(zest_layer layer) {
+    zest_buffer_t* buffer = layer->memory_refs[ZEST_FIF].device_vertex_data;
+    VkDeviceSize offsets[] = { buffer->memory_offset };
+    vkCmdBindVertexBuffers(ZestRenderer->current_command_buffer, 0, 1, zest_GetBufferDeviceBuffer(buffer), offsets);
+}
+
+void zest_BindInstanceMeshIndexBuffer(zest_layer layer) {
+    zest_buffer_t* buffer = layer->memory_refs[ZEST_FIF].device_index_data;
+    vkCmdBindIndexBuffer(ZestRenderer->current_command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
+}
+
+void zest_SetInstanceMeshDrawing(zest_layer layer, zest_descriptor_set descriptor_set, zest_pipeline pipeline) {
+    zest_EndInstanceInstructions(layer);
+    zest_StartInstanceInstructions(layer);
+    layer->current_instruction.pipeline = pipeline;
+    if (descriptor_set) {
+        layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
+    }
+    else {
+        layer->current_instruction.descriptor_set = pipeline->descriptor_set[ZEST_FIF];
+    }
+    layer->current_instruction.draw_mode = zest_draw_mode_mesh_instance;
+    layer->current_instruction.scissor = layer->scissor;
+    layer->current_instruction.viewport = layer->viewport;
+    layer->last_draw_mode = zest_draw_mode_mesh_instance;
+}
+
+void zest_PushMeshVertex(zest_mesh_t* mesh, float pos_x, float pos_y, float pos_z) {
+    zest_vertex_t vertex = { pos_x, pos_y, pos_z, 0.f };
+    zest_vec_push(mesh->vertices, vertex);
+}
+void zest_PushMeshIndex(zest_mesh_t* mesh, zest_uint index) {
+    ZEST_ASSERT(index < zest_vec_size(mesh->vertices));
+    zest_vec_push(mesh->indexes, index);
+}
+void zest_PositionMesh(zest_mesh_t* mesh, zest_vec3 position) {
+    for (zest_foreach_i(mesh->vertices)) {
+        mesh->vertices[i].pos.x += position.x;
+        mesh->vertices[i].pos.y += position.y;
+        mesh->vertices[i].pos.z += position.z;
+    }
+}
+void zest_RotateMesh(zest_mesh_t* mesh, float pitch, float yaw, float roll) {
+    zest_matrix4 roll_mat = zest_Matrix4RotateX(roll);
+    zest_matrix4 pitch_mat = zest_Matrix4RotateX(pitch);
+    zest_matrix4 yaw_mat = zest_Matrix4RotateX(yaw);
+    zest_matrix4 rotate_mat = zest_MatrixTransform(&yaw_mat, &pitch_mat);
+    rotate_mat = zest_MatrixTransform(&rotate_mat, &roll_mat);
+    for (zest_foreach_i(mesh->vertices)) {
+        mesh->vertices->pos = zest_MatrixTransformVector(&rotate_mat, mesh->vertices->pos);
+    }
+}
+
+zest_size zest_MeshVertexDataSize(zest_mesh_t* mesh) {
+    return zest_vec_size(mesh->vertices) * sizeof(zest_vertex_t);
+}
+
+zest_size zest_MeshIndexDataSize(zest_mesh_t* mesh) {
+    return zest_vec_size(mesh->indexes) * sizeof(zest_uint);
+}
+
+void zest_AddMeshToMesh(zest_mesh_t* dst_mesh, zest_mesh_t* src_mesh) {
+    zest_vec_resize(dst_mesh->vertices, zest_vec_size(dst_mesh->vertices) + zest_vec_size(src_mesh->vertices));
+    memcpy(zest_vec_end(dst_mesh->vertices), src_mesh->vertices, zest_vec_size(src_mesh->vertices) * sizeof(zest_vertex_t));
+    zest_vec_resize(dst_mesh->indexes, zest_vec_size(dst_mesh->indexes) + zest_vec_size(src_mesh->indexes));
+    memcpy(zest_vec_end(dst_mesh->indexes), src_mesh->indexes, zest_vec_size(src_mesh->indexes) * sizeof(zest_uint));
+}
+
+void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t* src_mesh) {
+    zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(zest_MeshVertexDataSize(src_mesh), src_mesh->vertices);
+    zest_buffer index_staging_buffer = zest_CreateStagingBuffer(zest_MeshIndexDataSize(src_mesh), src_mesh->indexes);
+    layer->index_count = zest_vec_size(src_mesh->indexes);
+    for (ZEST_EACH_FIF_i) {
+		zest_FreeBuffer(layer->memory_refs[i].device_vertex_data);
+		zest_FreeBuffer(layer->memory_refs[i].device_index_data);
+        layer->memory_refs[i].device_vertex_data = zest_CreateVertexBuffer(vertex_staging_buffer->size, vertex_staging_buffer);
+        layer->memory_refs[i].device_index_data = zest_CreateVertexBuffer(index_staging_buffer->size, index_staging_buffer);
+    }
+}
+
+void zest_DrawInstancedMesh(zest_layer layer, float x, float y, float z) {
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh_instance);        //Call zest_StartSpriteDrawing before calling this function
+
+    zest_mesh_instance_t* instance = (zest_mesh_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+
+    instance->pos = zest_Vec4Set(x, y, z, 1.f);
+    instance->color = layer->current_color;
+    layer->current_instruction.total_instances++;
+
+    zest__next_mesh_instance(layer);
+}
+
+zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_bool cap) {
+    float angle_increment = 2.0f * 3.14159265359f / sides;
+
+    int vertex_count = sides * 2 + (cap ? sides * 2 : 0);
+    int index_count = sides * 2 + (cap ? sides : 0);
+
+    zest_mesh_t mesh = { 0 };
+    zest_vec_resize(mesh.vertices, vertex_count);
+
+    for (int i = 0; i < sides; ++i) {
+        float angle = i * angle_increment;
+        float x = radius * cos(angle);
+        float z = radius * sin(angle);
+
+        mesh.vertices[i].pos = zest_Vec4Set( x, height / 2.0f, z, 1.f );
+        mesh.vertices[i + sides].pos = zest_Vec4Set( x, -height / 2.0f, z, 1.f );
+    }
+
+    int base_index = sides * 2;
+
+    if (cap) {
+        // Generate vertices for the caps of the cylinder
+        for (int i = 0; i < sides; ++i) {
+            float angle = i * angle_increment;
+            float x = radius * cos(angle);
+            float z = radius * sin(angle);
+
+            mesh.vertices[base_index + i].pos = zest_Vec4Set( x, height / 2.0f, z, 1.f);
+            mesh.vertices[base_index + sides + i].pos = zest_Vec4Set( x, -height / 2.0f, z, 1.f );
+        }
+
+        // Generate indices for the caps of the cylinder
+        for (int i = 0; i < sides - 2; ++i) {
+			zest_PushMeshIndex(&mesh, base_index );
+			zest_PushMeshIndex(&mesh, base_index + i + 1);
+			zest_PushMeshIndex(&mesh, base_index + i + 2);
+
+			zest_PushMeshIndex(&mesh, base_index + sides);
+			zest_PushMeshIndex(&mesh, base_index + sides + i + 2);
+			zest_PushMeshIndex(&mesh, base_index + sides + i + 1);
+        }
+    }
+
+    // Generate indices for the sides of the cylinder
+    for (int i = 0; i < sides; ++i) {
+        int next = (i + 1) % sides;
+
+        zest_PushMeshIndex(&mesh, i);
+        zest_PushMeshIndex(&mesh, (i + 1) % sides);
+        zest_PushMeshIndex(&mesh, i + sides);
+
+        zest_PushMeshIndex(&mesh, i + sides);
+        zest_PushMeshIndex(&mesh, (i + 1) % sides);
+        zest_PushMeshIndex(&mesh, (i + 1) % sides + sides );
+    }
+    
+    return mesh;
+}
+//--End Instance Draw mesh layers
 
 //Compute shaders
 zest_compute zest_CreateCompute(const char* name) {

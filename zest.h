@@ -39,6 +39,7 @@
     [Draw_3D_Line_layers]               Functions for drawing the builtin 3d line layer pipeline
     [Draw_MSDF_font_layers]             Functions for drawing the builtin MSDF font layer pipeline
     [Draw_mesh_layers]                  Functions for drawing the builtin mesh layer pipeline
+    [Draw_instance_mesh_layers]         Functions for drawing the builtin instance mesh layer pipeline
     [Compute_shaders]                   Functions for setting up your own custom compute shaders
     [Events_and_States]                 Just one function for now
     [Timer_functions]                   High resolution timer functions
@@ -393,6 +394,7 @@ typedef enum {
     zest_draw_mode_instance,
     zest_draw_mode_images,
     zest_draw_mode_mesh,
+    zest_draw_mode_mesh_instance,
     zest_draw_mode_line_instance,
     zest_draw_mode_rect_instance,
     zest_draw_mode_dashed_line,
@@ -414,7 +416,8 @@ typedef enum {
     zest_builtin_layer_lines,
     zest_builtin_layer_3dlines,
     zest_builtin_layer_fonts,
-    zest_builtin_layer_mesh
+    zest_builtin_layer_mesh,
+    zest_builtin_layer_mesh_instance,
 } zest_builtin_layer_type;
 
 typedef enum {
@@ -1289,18 +1292,27 @@ typedef struct zest_line_instance_t {
     zest_color end_color;				
 } zest_line_instance_t;
 
-typedef struct zest_vertex_t {
+typedef struct zest_textured_vertex_t {
     zest_vec3 pos;                                 //3d position
     float intensity;                               //Alpha level (can go over 1 to increase intensity of colors)
     zest_vec2 uv;                                  //Texture coordinates
     zest_color color;                              //packed color
     zest_uint parameters;                          //packed parameters such as texture layer
-} zest_vertex_t;
+} zest_textured_vertex_t;
 
 typedef struct zest_mesh_instance_t {
     zest_vec4 pos;                                 //3d position
-    zest_color color;                               //packed color
+    zest_color color;                              //packed color
 } zest_mesh_instance_t;
+
+typedef struct zest_vertex_t {
+    zest_vec4 pos;                                 //3d position
+} zest_vertex_t;
+
+typedef struct zest_mesh_t {
+    zest_vertex_t* vertices;
+    zest_uint* indexes;
+} zest_mesh_t;
 
 //We just have a copy of the ImGui Draw vert here so that we can setup things things for imgui
 //should anyone choose to use it
@@ -1392,6 +1404,7 @@ typedef struct zest_layer_t {
 
     zest_vec2 layer_size;
     zest_vec2 screen_scale;
+    zest_uint index_count;
 
     VkRect2D scissor;
     VkViewport viewport;
@@ -1890,6 +1903,10 @@ ZEST_PRIVATE void zest__initialise_3dline_layer(zest_layer line_layer, zest_uint
 ZEST_PRIVATE void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
 
+// --Mesh layer internal functions
+ZEST_PRIVATE void zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__initialise_instance_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
+
 // --General Helper Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
 ZEST_PRIVATE void zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory);
@@ -2376,6 +2393,7 @@ ZEST_API zest_layer zest_CreateBuiltin3dLineLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinBillboardLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinFontLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinMeshLayer(const char *name);
+ZEST_API zest_layer zest_CreateBuiltinInstanceMeshLayer(const char *name);
 //Insert a layer into storage. You can use this for custom layers of you're own
 ZEST_API void zest_InsertLayer(zest_layer layer);
 //Get a zest_layer by name
@@ -2453,6 +2471,12 @@ zest_matrix4 zest_TransposeMatrix4(zest_matrix4 *mat);
 ZEST_API zest_matrix4 zest_MatrixTransform(zest_matrix4 *in, zest_matrix4 *m);
 //Get the inverse of a 4x4 matrix
 ZEST_API zest_matrix4 zest_Inverse(zest_matrix4 *m);
+//Create a rotation matrix on the x axis
+ZEST_API zest_matrix4 zest_Matrix4RotateX(float angle);
+//Create a rotation matrix on the y axis
+ZEST_API zest_matrix4 zest_Matrix4RotateY(float angle);
+//Create a rotation matrix on the z axis
+ZEST_API zest_matrix4 zest_Matrix4RotateZ(float angle);
 //Get the cross product between 2 vec3s
 ZEST_API zest_vec3 zest_CrossProduct(const zest_vec3 x, const zest_vec3 y);
 //Get the dot product between 2 vec3s
@@ -3045,6 +3069,30 @@ ZEST_API void zest_PushIndex(zest_layer layer, zest_uint offset);
 //offset_x, offset_y    The texture uv offset
 ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x, float y, float z, float width, float height, float scale_x, float scale_y, float offset_x, float offset_y);
 //--End Draw mesh layers
+
+//-----------------------------------------------
+//        Draw_instance_mesh_layers
+//        Instance mesh layers are for creating meshes and then drawing instances of them. It should be
+//        one mesh per layer (and obviously many instances of that mesh can be drawn.
+//-----------------------------------------------
+ZEST_API void zest_DrawInstanceMeshLayer(zest_layer instance_layer, VkCommandBuffer command_buffer);
+//These are helper functions you can use to bind the vertex and index buffers in your custom mesh draw routine callback
+ZEST_API void zest_BindInstanceMeshVertexBuffer(zest_layer layer);
+ZEST_API void zest_BindInstanceMeshIndexBuffer(zest_layer layer);
+//Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
+ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
+//Helper funciton Push a vertex to the vertex staging buffer. It will automatically grow the buffers if needed
+ZEST_API void zest_PushMeshVertex(zest_mesh_t *mesh, float pos_x, float pos_y, float pos_z);
+ZEST_API void zest_PushMeshIndex(zest_mesh_t *mesh, zest_uint index);
+ZEST_API void zest_PositionMesh(zest_mesh_t *mesh, zest_vec3 position);
+ZEST_API void zest_RotateMesh(zest_mesh_t *mesh, float pitch, float yaw, float roll);
+ZEST_API void zest_AddMeshToMesh(zest_mesh_t *dst_mesh, zest_mesh_t *src_mesh);
+ZEST_API void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t *src_mesh);
+ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh_t *mesh);
+ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh_t *mesh);
+ZEST_API void zest_DrawInstancedMesh(zest_layer mesh_layer, float x, float y, float z);
+ZEST_API zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_bool cap);
+//--End Instance Draw mesh layers
 
 //-----------------------------------------------
 //        Compute_shaders
