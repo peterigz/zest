@@ -119,6 +119,7 @@ set(EXAMPLES
 	zest-timelinefx-instanced-effects
 	zest-timelinefx-prerecorded-effects
 	zest-testing
+	zest-mesh-instances
 )
 
 buildExamples()

@@ -5,7 +5,7 @@
 void UpdateUniform3d(ImGuiApp* app) {
 	zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
 	ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
-	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.1f, 10000.f);
+	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.001f, 10000.f);
 	ubo_ptr->proj.v[1].y *= -1.f;
 	ubo_ptr->screen_size.x = zest_ScreenWidthf();
 	ubo_ptr->screen_size.y = zest_ScreenHeightf();
@@ -233,6 +233,7 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->mesh_pipeline = zest_Pipeline("pipeline_mesh");
 	app->line_pipeline = zest_Pipeline("pipeline_line3d_instance");
 	app->billboard_pipeline = zest_Pipeline("pipeline_billboard");
+	app->mesh_instance_pipeline = zest_Pipeline("pipeline_mesh_instance");
 
 	app->camera = zest_CreateCamera();
 	zest_CameraPosition(&app->camera, { -10.f, 0.f, 0.f });
@@ -249,12 +250,27 @@ void InitImGuiApp(ImGuiApp* app) {
 			app->mesh_layer = zest_NewBuiltinLayerSetup("Meshes", zest_builtin_layer_mesh);
 			app->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
 			app->line_layer = zest_NewBuiltinLayerSetup("Lines", zest_builtin_layer_3dlines);
+			app->mesh_instance_layer = zest_NewBuiltinLayerSetup("Instanced Mesh", zest_builtin_layer_mesh_instance);
 
 			//Create a Dear ImGui layer
 			zest_imgui_CreateLayer(&app->imgui_layer_info);
 		}
 		zest_FinishQueueSetup();
 	}
+
+	app->mesh = zest_CreateCylinderMesh(16, .25f, 5.f, zest_ColorSet(255, 0, 255, 255), 0);
+	//app->mesh = zest_CreateCone(32, 1.f, 5.f);
+	zest_mesh_t cone = zest_CreateCone(24, .5f, 2.f, zest_ColorSet(255, 100, 0, 255));
+	zest_mesh_t sphere = zest_CreateSphere(16, 16, 1.f, zest_ColorSet(100, 255, 0, 255));
+	zest_mesh_t cube = zest_CreateCube( 1.f, zest_ColorSet(255, 0, 0, 255));
+	zest_mesh_t rounded = zest_CreateRoundedRectangle(4.f, 2.f, 0.25f, 8, 1, zest_ColorSet(255, 0, 0, 255));
+	zest_PositionMesh(&cone, { 0.f, 2.5f, 0.f });
+	zest_PositionMesh(&cube, { 0.f, 3.5f, 0.f });
+	zest_AddMeshToMesh(&app->mesh, &cone);
+	zest_AddMeshToMesh(&app->mesh, &sphere);
+	zest_AddMeshToMesh(&app->mesh, &cube);
+	zest_AddMeshToMesh(&app->mesh, &rounded);
+	zest_AddMeshToLayer(app->mesh_instance_layer, &app->mesh);
 
 	//Render specific - Set up the callback for updating the uniform buffers containing the model and view matrices
 	UpdateUniform3d(app);
@@ -517,6 +533,16 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 	}
 
+	zest_SetInstanceMeshDrawing(app->mesh_instance_layer, 0, app->mesh_instance_pipeline);
+	zest_SetLayerColor(app->mesh_instance_layer, 255, 255, 255, 255);
+	float scale = zest_MouseXf() / zest_ScreenWidthf();
+	scale = 1.f;
+	float rotation = zest_MouseYf() / zest_ScreenHeightf();
+	zest_vec3 mesh_pos = { 0.f, 1.f, 0.f };
+	zest_vec3 mesh_rot = { 0.f, 0.f, 0.f};
+	zest_vec3 mesh_scale = { scale, scale, scale };
+	zest_DrawInstancedMesh(app->mesh_instance_layer, &mesh_pos.x, &mesh_rot.x, &mesh_scale.x);
+
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 }
@@ -527,6 +553,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 //int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
+	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//Implement GLFW for window creation

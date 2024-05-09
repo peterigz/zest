@@ -1,3 +1,4 @@
+@echo off
 E:/VulkanSDK/1.3.261.1/Bin/glslangValidator.exe -V image.frag -o image_frag.spv
 E:/VulkanSDK/1.3.261.1/Bin/glslangValidator.exe -V image_alpha.frag -o image_alpha_frag.spv
 E:/VulkanSDK/1.3.261.1/Bin/glslangValidator.exe -V font.frag -o font_frag.spv
@@ -12,6 +13,9 @@ E:/VulkanSDK/1.3.261.1/Bin/glslangValidator.exe -V shape_instance.vert -o shape_
 E:/VulkanSDK/1.3.261.1/Bin/glslangValidator.exe -V shape_instance.frag -o shape_instance_frag.spv
 E:/VulkanSDK/1.3.261.1/Bin/glslangValidator.exe -V 3d_lines.vert -o 3d_lines_vert.spv
 E:/VulkanSDK/1.3.261.1/Bin/glslangValidator.exe -V 3d_lines.frag -o 3d_lines_frag.spv
+E:/VulkanSDK/1.3.261.1/Bin/glslangValidator.exe -V mesh_instance.frag -o mesh_instance_frag.spv
+E:/VulkanSDK/1.3.261.1/Bin/glslangValidator.exe -V mesh_instance.vert -o mesh_instance_vert.spv
+
 
 E:/VulkanSDK/1.3.261.1/Bin/spirv-link instance_vert.spv image_frag.spv -o ../spv/instance.spv
 E:/VulkanSDK/1.3.261.1/Bin/spirv-link shape_instance_vert.spv shape_instance_frag.spv -o ../spv/shape_instance.spv
@@ -23,6 +27,7 @@ E:/VulkanSDK/1.3.261.1/Bin/spirv-link billboard_vert.spv image_frag.spv -o ../sp
 E:/VulkanSDK/1.3.261.1/Bin/spirv-link billboard_vert.spv image_alpha_frag.spv -o ../spv/billboard_alpha.spv
 E:/VulkanSDK/1.3.261.1/Bin/spirv-link swap_vert.spv swap_frag.spv -o ../spv/swap.spv
 E:/VulkanSDK/1.3.261.1/Bin/spirv-link imgui_vert.spv imgui_frag.spv -o ../spv/imgui.spv
+E:/VulkanSDK/1.3.261.1/Bin/spirv-link mesh_instance_vert.spv mesh_instance_frag.spv -o ../spv/mesh_instance.spv
 
 del image_frag.spv
 del image_alpha_frag.spv
@@ -38,3 +43,6 @@ del shape_instance_vert.spv
 del shape_instance_frag.spv
 del 3d_lines_vert.spv
 del 3d_lines_frag.spv
+del mesh_instance_vert.spv
+del mesh_instance_frag.spv
+

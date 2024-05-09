@@ -45,6 +45,10 @@ struct ImGuiApp {
 	zest_pipeline line_pipeline;
 	zest_pipeline billboard_pipeline;
 
+	zest_pipeline mesh_instance_pipeline;
+	zest_layer mesh_instance_layer;
+	zest_mesh_t mesh;
+
 	zest_camera_t camera;
 	ellipsoid ellipse;
 	cylinder_t cylinder;

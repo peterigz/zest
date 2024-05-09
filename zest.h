@@ -55,6 +55,7 @@ extern "C" {
 #include <math.h>
 #include <string.h>
 
+//Macro_Defines
 #if defined(__x86_64__) || defined(__i386__) || defined(_M_X64)
 #define ZEST_INTEL
 #include <immintrin.h>
@@ -161,6 +162,7 @@ typedef volatile unsigned int zest_atomic_int;
 #define ZEST_MILLISECONDS_IN_MICROSECONDS(millisecs) millisecs * ZEST_MICROSECS_MILLISECOND
 #define ZEST_SECONDS_IN_MICROSECONDS(seconds) seconds * ZEST_MICROSECS_SECOND
 #define ZEST_SECONDS_IN_MILLISECONDS(seconds) seconds * 1000
+#define ZEST_PI 3.14159265359f
 
 #ifndef ZEST_MAX_DEVICE_MEMORY_POOLS
 #define ZEST_MAX_DEVICE_MEMORY_POOLS 64
@@ -1301,12 +1303,18 @@ typedef struct zest_textured_vertex_t {
 } zest_textured_vertex_t;
 
 typedef struct zest_mesh_instance_t {
-    zest_vec4 pos;                                 //3d position
+    zest_vec3 pos;                                 //3d position
     zest_color color;                              //packed color
+    zest_vec3 rotation;
+    zest_uint parameters;                          //packed parameters
+    zest_vec3 scale;
 } zest_mesh_instance_t;
 
 typedef struct zest_vertex_t {
-    zest_vec4 pos;                                 //3d position
+    zest_vec3 pos;                                 //3d position
+    zest_color color;
+    zest_vec3 normal;                              //3d normal
+    float padding;
 } zest_vertex_t;
 
 typedef struct zest_mesh_t {
@@ -3082,16 +3090,22 @@ ZEST_API void zest_BindInstanceMeshIndexBuffer(zest_layer layer);
 //Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 //Helper funciton Push a vertex to the vertex staging buffer. It will automatically grow the buffers if needed
-ZEST_API void zest_PushMeshVertex(zest_mesh_t *mesh, float pos_x, float pos_y, float pos_z);
+ZEST_API void zest_PushMeshVertex(zest_mesh_t *mesh, float pos_x, float pos_y, float pos_z, zest_color color);
 ZEST_API void zest_PushMeshIndex(zest_mesh_t *mesh, zest_uint index);
+ZEST_API void zest_PushMeshTriangle(zest_mesh_t *mesh, zest_uint i1, zest_uint i2, zest_uint i3);
+ZEST_API void zest_FreeMesh(zest_mesh_t *mesh);
 ZEST_API void zest_PositionMesh(zest_mesh_t *mesh, zest_vec3 position);
 ZEST_API void zest_RotateMesh(zest_mesh_t *mesh, float pitch, float yaw, float roll);
 ZEST_API void zest_AddMeshToMesh(zest_mesh_t *dst_mesh, zest_mesh_t *src_mesh);
 ZEST_API void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t *src_mesh);
 ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh_t *mesh);
 ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh_t *mesh);
-ZEST_API void zest_DrawInstancedMesh(zest_layer mesh_layer, float x, float y, float z);
-ZEST_API zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_bool cap);
+ZEST_API void zest_DrawInstancedMesh(zest_layer mesh_layer, float pos[3], float rot[3], float scale[3]);
+ZEST_API zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_color color, zest_bool cap);
+ZEST_API zest_mesh_t zest_CreateCone(int sides, float radius, float height, zest_color color);
+ZEST_API zest_mesh_t zest_CreateSphere(int rings, int sectors, float radius, zest_color color);
+ZEST_API zest_mesh_t zest_CreateCube(float size, zest_color color);
+ZEST_API zest_mesh_t zest_CreateRoundedRectangle(float width, float height, float radius, int segments, zest_bool backface, zest_color color);
 //--End Instance Draw mesh layers
 
 //-----------------------------------------------

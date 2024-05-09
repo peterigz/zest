@@ -4609,9 +4609,14 @@ void zest__prepare_standard_pipelines() {
     zest_AddVertexInputBindingDescription(&imesh_pipeline_template, 0, sizeof(zest_vertex_t), VK_VERTEX_INPUT_RATE_VERTEX);
     zest_AddVertexInputBindingDescription(&imesh_pipeline_template, 1, sizeof(zest_mesh_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
     VkVertexInputAttributeDescription* imesh_input_attributes = 0;
-    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0));        // Location 0: Vertex Position
-    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 0));        // Location 1: Instance Position
-    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, color)));        // Location 2: Instance Color
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0));                                          // Location 0: Vertex Position
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_vertex_t, color)));               // Location 1: Vertex Color
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_vertex_t, normal)));            // Location 2: Vertex Position
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 3, VK_FORMAT_R32G32B32_SFLOAT, 0));                                          // Location 3: Instance Position
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 4, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, color)));        // Location 4: Instance Color
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 5, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_mesh_instance_t, rotation)));   // Location 5: Instance Rotation
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, parameters)));   // Location 6: Instance Parameters
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 7, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_mesh_instance_t, scale)));      // Location 7: Instance Scale
 
     imesh_pipeline_template.attributeDescriptions = imesh_input_attributes;
     zest_SetText(&imesh_pipeline_template.vertShaderFile, "mesh_instance.spv");
@@ -4626,7 +4631,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(imesh_pipeline, render_pass, &imesh_pipeline_template);
 
     imesh_pipeline->pipeline_template.rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    imesh_pipeline->pipeline_template.rasterizer.cullMode = VK_CULL_MODE_NONE;
+    imesh_pipeline->pipeline_template.rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
     imesh_pipeline->pipeline_template.rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     imesh_pipeline->pipeline_template.inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
@@ -10091,14 +10096,30 @@ void zest_SetInstanceMeshDrawing(zest_layer layer, zest_descriptor_set descripto
     layer->last_draw_mode = zest_draw_mode_mesh_instance;
 }
 
-void zest_PushMeshVertex(zest_mesh_t* mesh, float pos_x, float pos_y, float pos_z) {
-    zest_vertex_t vertex = { pos_x, pos_y, pos_z, 0.f };
+void zest_PushMeshVertex(zest_mesh_t* mesh, float pos_x, float pos_y, float pos_z, zest_color color) {
+    zest_vertex_t vertex = { pos_x, pos_y, pos_z, color };
     zest_vec_push(mesh->vertices, vertex);
 }
+
 void zest_PushMeshIndex(zest_mesh_t* mesh, zest_uint index) {
-    ZEST_ASSERT(index < zest_vec_size(mesh->vertices));
+    ZEST_ASSERT(index < zest_vec_size(mesh->vertices)); //Add vertices first before triangles to make sure you're indexing vertices that exist
     zest_vec_push(mesh->indexes, index);
 }
+
+void zest_PushMeshTriangle(zest_mesh_t *mesh, zest_uint i1, zest_uint i2, zest_uint i3) {
+    ZEST_ASSERT(i1 < zest_vec_size(mesh->vertices));	//Add vertices first before triangles to make sure you're indexing vertices that exist
+    ZEST_ASSERT(i2 < zest_vec_size(mesh->vertices));	//Add vertices first before triangles to make sure you're indexing vertices that exist
+    ZEST_ASSERT(i3 < zest_vec_size(mesh->vertices));	//Add vertices first before triangles to make sure you're indexing vertices that exist
+    zest_vec_push(mesh->indexes, i1);
+    zest_vec_push(mesh->indexes, i2);
+    zest_vec_push(mesh->indexes, i3);
+}
+
+void zest_FreeMesh(zest_mesh_t* mesh) {
+    zest_vec_free(mesh->vertices);
+    zest_vec_free(mesh->indexes);
+}
+
 void zest_PositionMesh(zest_mesh_t* mesh, zest_vec3 position) {
     for (zest_foreach_i(mesh->vertices)) {
         mesh->vertices[i].pos.x += position.x;
@@ -10113,7 +10134,9 @@ void zest_RotateMesh(zest_mesh_t* mesh, float pitch, float yaw, float roll) {
     zest_matrix4 rotate_mat = zest_MatrixTransform(&yaw_mat, &pitch_mat);
     rotate_mat = zest_MatrixTransform(&rotate_mat, &roll_mat);
     for (zest_foreach_i(mesh->vertices)) {
-        mesh->vertices->pos = zest_MatrixTransformVector(&rotate_mat, mesh->vertices->pos);
+        zest_vec4 pos = { mesh->vertices->pos.x, mesh->vertices->pos.y, mesh->vertices->pos.z, 1.f };
+        pos = zest_MatrixTransformVector(&rotate_mat, pos);
+        mesh->vertices->pos = zest_Vec3Set(pos.x, pos.y, pos.z);
     }
 }
 
@@ -10126,10 +10149,17 @@ zest_size zest_MeshIndexDataSize(zest_mesh_t* mesh) {
 }
 
 void zest_AddMeshToMesh(zest_mesh_t* dst_mesh, zest_mesh_t* src_mesh) {
-    zest_vec_resize(dst_mesh->vertices, zest_vec_size(dst_mesh->vertices) + zest_vec_size(src_mesh->vertices));
-    memcpy(zest_vec_end(dst_mesh->vertices), src_mesh->vertices, zest_vec_size(src_mesh->vertices) * sizeof(zest_vertex_t));
-    zest_vec_resize(dst_mesh->indexes, zest_vec_size(dst_mesh->indexes) + zest_vec_size(src_mesh->indexes));
-    memcpy(zest_vec_end(dst_mesh->indexes), src_mesh->indexes, zest_vec_size(src_mesh->indexes) * sizeof(zest_uint));
+    zest_uint dst_vertex_size = zest_vec_size(dst_mesh->vertices);
+    zest_uint src_vertex_size = zest_vec_size(src_mesh->vertices);
+    zest_uint dst_index_size = zest_vec_size(dst_mesh->indexes);
+    zest_uint src_index_size = zest_vec_size(src_mesh->indexes);
+    zest_vec_resize(dst_mesh->vertices, dst_vertex_size + src_vertex_size);
+    memcpy(dst_mesh->vertices + dst_vertex_size, src_mesh->vertices, src_vertex_size * sizeof(zest_vertex_t));
+    zest_vec_resize(dst_mesh->indexes, dst_index_size + src_index_size);
+    memcpy(dst_mesh->indexes + dst_index_size, src_mesh->indexes, src_index_size * sizeof(zest_uint));
+    for (int i = dst_index_size; i != src_index_size + dst_index_size; ++i) {
+        dst_mesh->indexes[i] += dst_vertex_size;
+    }
 }
 
 void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t* src_mesh) {
@@ -10144,34 +10174,39 @@ void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t* src_mesh) {
     }
 }
 
-void zest_DrawInstancedMesh(zest_layer layer, float x, float y, float z) {
+void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]) {
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh_instance);        //Call zest_StartSpriteDrawing before calling this function
 
     zest_mesh_instance_t* instance = (zest_mesh_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
-    instance->pos = zest_Vec4Set(x, y, z, 1.f);
+    instance->pos = zest_Vec3Set(pos[0], pos[1], pos[2]);
+    instance->rotation = zest_Vec3Set(rot[0], rot[1], rot[2]);
+    instance->scale = zest_Vec3Set(scale[0], scale[1], scale[2]);
     instance->color = layer->current_color;
+    instance->parameters = 0;
     layer->current_instruction.total_instances++;
 
     zest__next_mesh_instance(layer);
 }
 
-zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_bool cap) {
-    float angle_increment = 2.0f * 3.14159265359f / sides;
+zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_color color, zest_bool cap) {
+    float angle_increment = 2.0f * ZEST_PI / sides;
 
     int vertex_count = sides * 2 + (cap ? sides * 2 : 0);
     int index_count = sides * 2 + (cap ? sides : 0);
 
     zest_mesh_t mesh = { 0 };
-    zest_vec_resize(mesh.vertices, vertex_count);
+    zest_vec_resize(mesh.vertices, (zest_uint)vertex_count);
 
     for (int i = 0; i < sides; ++i) {
         float angle = i * angle_increment;
-        float x = radius * cos(angle);
-        float z = radius * sin(angle);
+        float x = radius * cosf(angle);
+        float z = radius * sinf(angle);
 
-        mesh.vertices[i].pos = zest_Vec4Set( x, height / 2.0f, z, 1.f );
-        mesh.vertices[i + sides].pos = zest_Vec4Set( x, -height / 2.0f, z, 1.f );
+        mesh.vertices[i].pos = zest_Vec3Set( x, height / 2.0f, z );
+        mesh.vertices[i + sides].pos = zest_Vec3Set( x, -height / 2.0f, z );
+        mesh.vertices[i].color = color;
+        mesh.vertices[i + sides].color = color;
     }
 
     int base_index = sides * 2;
@@ -10180,11 +10215,13 @@ zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_
         // Generate vertices for the caps of the cylinder
         for (int i = 0; i < sides; ++i) {
             float angle = i * angle_increment;
-            float x = radius * cos(angle);
-            float z = radius * sin(angle);
+            float x = radius * cosf(angle);
+            float z = radius * sinf(angle);
 
-            mesh.vertices[base_index + i].pos = zest_Vec4Set( x, height / 2.0f, z, 1.f);
-            mesh.vertices[base_index + sides + i].pos = zest_Vec4Set( x, -height / 2.0f, z, 1.f );
+            mesh.vertices[base_index + i].pos = zest_Vec3Set( x, height / 2.0f, z);
+            mesh.vertices[base_index + sides + i].pos = zest_Vec3Set( x, -height / 2.0f, z);
+			mesh.vertices[base_index + i].color = color;
+			mesh.vertices[base_index + i + sides].color = color;
         }
 
         // Generate indices for the caps of the cylinder
@@ -10212,6 +10249,195 @@ zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_
         zest_PushMeshIndex(&mesh, (i + 1) % sides + sides );
     }
     
+    return mesh;
+}
+
+zest_mesh_t zest_CreateCone(int sides, float radius, float height, zest_color color) {
+    // Calculate the angle between each side
+    float angle_increment = 2.0f * ZEST_PI / sides;
+
+    zest_mesh_t mesh = { 0 };
+    zest_vec_resize(mesh.vertices, (zest_uint)sides + 1);
+
+    // Generate vertices for the base of the cone
+    for (int i = 0; i < sides; ++i) {
+        float angle = i * angle_increment;
+        float x = radius * cosf(angle);
+        float z = radius * sinf(angle);
+
+        mesh.vertices[i].pos = zest_Vec3Set( x, 0.0f, z);
+        mesh.vertices[i].color = color;
+    }
+
+    // Generate the vertex for the tip of the cone
+    mesh.vertices[sides].pos = zest_Vec3Set( 0.0f, height, 0.0f);
+    mesh.vertices[sides].color = color;
+
+    // Generate indices for the sides of the cone
+    for (int i = 0; i < sides; ++i) {
+        zest_PushMeshTriangle(&mesh, i, sides, (i + 1) % sides);
+    }
+
+    // Generate indices for the base of the cone
+	for (int i = 0; i < sides; ++i) {
+		zest_PushMeshTriangle(&mesh, i, (i + 1) % sides, sides);
+	}
+
+    return mesh;
+}
+
+zest_mesh_t zest_CreateSphere(int rings, int sectors, float radius, zest_color color) {
+    // Calculate the angles between rings and sectors
+    float ring_angle_increment = ZEST_PI / rings;
+    float sector_angle_increment = 2.0f * ZEST_PI / sectors;
+    float ring_angle;
+    float sector_angle;
+
+    zest_mesh_t mesh = {0};
+
+    // Generate vertices for the sphere
+    for (int i = 0; i <= rings; ++i)
+    {
+        ring_angle = ZEST_PI / 2.f - i * ring_angle_increment; /* Starting -pi/2 to pi/2 */
+        float xy = radius * cosf(ring_angle);    /* r * cos(phi) */
+        float z = radius * sinf(ring_angle);     /* r * sin(phi )*/
+
+        /*
+         * We add (rings + 1) vertices per longitude because of equator,
+         * the North pole and South pole are not counted here, as they overlap.
+         * The first and last vertices have same position and normal, but
+         * different tex coords.
+         */
+        for (int j = 0; j <= sectors; ++j)
+        {
+            sector_angle = j * sector_angle_increment;
+            zest_vec3 vertex;
+            vertex.x = xy * cosf(sector_angle);       /* x = r * cos(phi) * cos(theta)  */
+            vertex.y = xy * sinf(sector_angle);       /* y = r * cos(phi) * sin(theta) */
+            vertex.z = z;                               /* z = r * sin(phi) */
+            zest_PushMeshVertex(&mesh, vertex.x, vertex.y, vertex.z, color);
+        }
+    }
+
+    // Generate indices for the sphere    
+    unsigned int k1, k2;
+    for (int i = 0; i < rings; ++i)
+    {
+        k1 = i * (sectors + 1);
+        k2 = k1 + sectors + 1;
+        // 2 Triangles per latitude block excluding the first and last sectors blocks
+        for (int j = 0; j < sectors; ++j, ++k1, ++k2)
+        {
+            if (i != 0)
+            {
+                zest_PushMeshIndex(&mesh, k1);
+                zest_PushMeshIndex(&mesh, k2);
+                zest_PushMeshIndex(&mesh, k1 + 1);
+            }
+
+            if (i != (rings - 1))
+            {
+                zest_PushMeshIndex(&mesh, k1 + 1);
+                zest_PushMeshIndex(&mesh, k2);
+                zest_PushMeshIndex(&mesh, k2 + 1);
+            }
+        }
+    }
+    
+    return mesh;
+}
+
+zest_mesh_t zest_CreateCube(float size, zest_color color) {
+    zest_mesh_t mesh = { 0 };
+
+    // Generate vertices for the corners of the cube
+    float halfSize = size / 2.0f;
+    zest_PushMeshVertex(&mesh, -halfSize, -halfSize, -halfSize, color);
+    zest_PushMeshVertex(&mesh, -halfSize, -halfSize, halfSize, color);
+    zest_PushMeshVertex(&mesh, halfSize, -halfSize, halfSize, color);
+    zest_PushMeshVertex(&mesh, halfSize, -halfSize, -halfSize, color);
+    zest_PushMeshVertex(&mesh, -halfSize, halfSize, -halfSize, color);
+    zest_PushMeshVertex(&mesh, -halfSize, halfSize, halfSize, color);
+    zest_PushMeshVertex(&mesh, halfSize, halfSize, halfSize, color);
+    zest_PushMeshVertex(&mesh, halfSize, halfSize, -halfSize, color);
+
+    // Generate indices for the cube
+    zest_PushMeshTriangle(&mesh, 0, 2, 1);
+    zest_PushMeshTriangle(&mesh, 0, 3, 2);
+    zest_PushMeshTriangle(&mesh, 4, 5, 6);
+    zest_PushMeshTriangle(&mesh, 4, 6, 7);
+    zest_PushMeshTriangle(&mesh, 1, 6, 5);
+    zest_PushMeshTriangle(&mesh, 1, 2, 6);
+    zest_PushMeshTriangle(&mesh, 0, 4, 7);
+    zest_PushMeshTriangle(&mesh, 0, 7, 3);
+    zest_PushMeshTriangle(&mesh, 0, 1, 5);
+    zest_PushMeshTriangle(&mesh, 0, 5, 4);
+    zest_PushMeshTriangle(&mesh, 2, 7, 6);
+    zest_PushMeshTriangle(&mesh, 2, 3, 7);
+
+    return mesh;
+}
+
+zest_mesh_t zest_CreateRoundedRectangle(float width, float height, float radius, int segments, zest_bool backface, zest_color color) {
+    // Calculate the number of vertices and indices needed
+    int num_vertices = segments * 4 + 8;
+
+    zest_mesh_t mesh = { 0 };
+    //zest_vec_resize(mesh.vertices, (zest_uint)num_vertices);
+
+    // Calculate the step angle
+    float angle_increment = ZEST_PI / 2.0f / segments;
+
+
+    //centre vertex;
+	zest_PushMeshVertex(&mesh, 0.f, 0.f, 0.0f, color);
+
+    // Bottom left corner
+    for (int i = 0; i <= segments; ++i) {
+        float angle = angle_increment * i;
+        float x = cosf(angle) * radius;
+        float y = sinf(angle) * radius;
+        zest_PushMeshVertex(&mesh, -width / 2.0f - x, -height / 2.0f - y, 0.0f, color);
+    }
+
+    // Bottom right corner
+    for (int i = segments; i >= 0; --i) {
+        float angle = angle_increment * i;
+        float x = cosf(angle) * radius;
+        float y = sinf(angle) * radius;
+        zest_PushMeshVertex(&mesh, width / 2.0f + x, -height / 2.0f - y, 0.0f, color);
+    }
+
+    // Top right corner
+    for (int i = 0; i <= segments; ++i) {
+        float angle = angle_increment * i;
+        float x = cosf(angle) * radius;
+        float y = sinf(angle) * radius;
+        zest_PushMeshVertex(&mesh, width / 2.0f + x, height / 2.0f + y, 0.0f, color);
+    }
+
+    // Top left corner
+    for (int i = segments; i >= 0; --i) {
+        float angle = angle_increment * i;
+        float x = cosf(angle) * radius;
+        float y = sinf(angle) * radius;
+        zest_PushMeshVertex(&mesh, - width / 2.0f - x, height / 2.0f + y, 0.0f, color);
+    }
+
+    zest_uint vertex_count = zest_vec_size(mesh.vertices);
+
+    for (int i = 1; i < vertex_count - 1; ++i) {
+        zest_PushMeshTriangle(&mesh, 0, i, i + 1);
+    }
+	zest_PushMeshTriangle(&mesh, 0, vertex_count - 1, 1);
+
+    if (backface) {
+		for (int i = 1; i < vertex_count - 1; ++i) {
+			zest_PushMeshTriangle(&mesh, 0, i + 1, i);
+		}
+		zest_PushMeshTriangle(&mesh, 0, 1, vertex_count - 1);
+    }
+
     return mesh;
 }
 //--End Instance Draw mesh layers
