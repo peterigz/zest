@@ -53,6 +53,7 @@ extern "C" {
 
 #include <vulkan/vulkan.h>
 #include <math.h>
+#include <float.h>
 #include <string.h>
 
 //Macro_Defines
@@ -801,6 +802,11 @@ typedef struct zest_vec3 {
     float x, y, z;
 } zest_vec3;
 
+typedef struct zest_bounding_box_t {
+    zest_vec3 min_bounds;
+    zest_vec3 max_bounds;
+} zest_bounding_box_t;
+
 //Note that using alignas on windows causes a crash in release mode relating to the allocator.
 //Not sure why though. We need the align as on Mac otherwise metal complains about the alignment
 //in the shaders
@@ -1314,7 +1320,7 @@ typedef struct zest_vertex_t {
     zest_vec3 pos;                                 //3d position
     zest_color color;
     zest_vec3 normal;                              //3d normal
-    float padding;
+    zest_uint group;
 } zest_vertex_t;
 
 typedef struct zest_mesh_t {
@@ -2479,6 +2485,8 @@ zest_matrix4 zest_TransposeMatrix4(zest_matrix4 *mat);
 ZEST_API zest_matrix4 zest_MatrixTransform(zest_matrix4 *in, zest_matrix4 *m);
 //Get the inverse of a 4x4 matrix
 ZEST_API zest_matrix4 zest_Inverse(zest_matrix4 *m);
+//Create a 4x4 matrix with rotation, position and scale applied
+ZEST_API zest_matrix4 zest_CreateMatrix4(float pitch, float yaw, float roll, float x, float y, float z, float sx, float sy, float sz);
 //Create a rotation matrix on the x axis
 ZEST_API zest_matrix4 zest_Matrix4RotateX(float angle);
 //Create a rotation matrix on the y axis
@@ -3095,7 +3103,10 @@ ZEST_API void zest_PushMeshIndex(zest_mesh_t *mesh, zest_uint index);
 ZEST_API void zest_PushMeshTriangle(zest_mesh_t *mesh, zest_uint i1, zest_uint i2, zest_uint i3);
 ZEST_API void zest_FreeMesh(zest_mesh_t *mesh);
 ZEST_API void zest_PositionMesh(zest_mesh_t *mesh, zest_vec3 position);
-ZEST_API void zest_RotateMesh(zest_mesh_t *mesh, float pitch, float yaw, float roll);
+ZEST_API zest_matrix4 zest_RotateMesh(zest_mesh_t *mesh, float pitch, float yaw, float roll);
+ZEST_API zest_matrix4 zest_TransformMesh(zest_mesh_t *mesh, float pitch, float yaw, float roll, float x, float y, float z, float sx, float sy, float sz);
+ZEST_API zest_bounding_box_t zest_NewBoundingBox();
+ZEST_API zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh_t *mesh);
 ZEST_API void zest_AddMeshToMesh(zest_mesh_t *dst_mesh, zest_mesh_t *src_mesh);
 ZEST_API void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t *src_mesh);
 ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh_t *mesh);

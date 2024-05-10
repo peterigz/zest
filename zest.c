@@ -641,6 +641,21 @@ zest_matrix4 zest_Matrix4RotateZ(float angle) {
     return r;
 }
 
+zest_matrix4 zest_CreateMatrix4(float pitch, float yaw, float roll, float x, float y, float z, float sx, float sy, float sz) {
+    zest_matrix4 roll_mat = zest_Matrix4RotateZ(roll);
+    zest_matrix4 pitch_mat = zest_Matrix4RotateX(pitch);
+    zest_matrix4 yaw_mat = zest_Matrix4RotateY(yaw);
+    zest_matrix4 matrix = zest_MatrixTransform(&yaw_mat, &pitch_mat);
+    matrix = zest_MatrixTransform(&matrix, &roll_mat);
+    matrix.v[0].w = x;
+    matrix.v[1].w = y;
+    matrix.v[2].w = z;
+    matrix.v[3].x = sx;
+    matrix.v[3].y = sy;
+    matrix.v[3].z = sz;
+    return matrix;
+}
+
 #ifdef ZEST_INTEL
 
 zest_vec4 zest_MatrixTransformVector(zest_matrix4* mat, zest_vec4 vec) {
@@ -4611,12 +4626,13 @@ void zest__prepare_standard_pipelines() {
     VkVertexInputAttributeDescription* imesh_input_attributes = 0;
     zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0));                                          // Location 0: Vertex Position
     zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_vertex_t, color)));               // Location 1: Vertex Color
-    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_vertex_t, normal)));            // Location 2: Vertex Position
-    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 3, VK_FORMAT_R32G32B32_SFLOAT, 0));                                          // Location 3: Instance Position
-    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 4, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, color)));        // Location 4: Instance Color
-    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 5, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_mesh_instance_t, rotation)));   // Location 5: Instance Rotation
-    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, parameters)));   // Location 6: Instance Parameters
-    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 7, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_mesh_instance_t, scale)));      // Location 7: Instance Scale
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32_UINT, offsetof(zest_vertex_t, group)));                     // Location 2: Group id
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_vertex_t, normal)));            // Location 3: Vertex Position
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 4, VK_FORMAT_R32G32B32_SFLOAT, 0));                                          // Location 4: Instance Position
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 5, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, color)));        // Location 5: Instance Color
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 6, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_mesh_instance_t, rotation)));   // Location 6: Instance Rotation
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 7, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, parameters)));   // Location 7: Instance Parameters
+    zest_vec_push(imesh_input_attributes, zest_CreateVertexInputDescription(1, 8, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_mesh_instance_t, scale)));      // Location 8: Instance Scale
 
     imesh_pipeline_template.attributeDescriptions = imesh_input_attributes;
     zest_SetText(&imesh_pipeline_template.vertShaderFile, "mesh_instance.spv");
@@ -10127,7 +10143,8 @@ void zest_PositionMesh(zest_mesh_t* mesh, zest_vec3 position) {
         mesh->vertices[i].pos.z += position.z;
     }
 }
-void zest_RotateMesh(zest_mesh_t* mesh, float pitch, float yaw, float roll) {
+
+zest_matrix4 zest_RotateMesh(zest_mesh_t* mesh, float pitch, float yaw, float roll) {
     zest_matrix4 roll_mat = zest_Matrix4RotateZ(roll);
     zest_matrix4 pitch_mat = zest_Matrix4RotateX(pitch);
     zest_matrix4 yaw_mat = zest_Matrix4RotateY(yaw);
@@ -10138,6 +10155,47 @@ void zest_RotateMesh(zest_mesh_t* mesh, float pitch, float yaw, float roll) {
         pos = zest_MatrixTransformVector(&rotate_mat, pos);
         mesh->vertices[i].pos = zest_Vec3Set(pos.x, pos.y, pos.z);
     }
+    return rotate_mat;
+}
+
+zest_matrix4 zest_TransformMesh(zest_mesh_t* mesh, float pitch, float yaw, float roll, float x, float y, float z, float sx, float sy, float sz) {
+    zest_matrix4 roll_mat = zest_Matrix4RotateZ(roll);
+    zest_matrix4 pitch_mat = zest_Matrix4RotateX(pitch);
+    zest_matrix4 yaw_mat = zest_Matrix4RotateY(yaw);
+    zest_matrix4 rotate_mat = zest_MatrixTransform(&yaw_mat, &pitch_mat);
+    rotate_mat = zest_MatrixTransform(&rotate_mat, &roll_mat);
+    rotate_mat.v[0].w = x;
+    rotate_mat.v[1].w = y;
+    rotate_mat.v[2].w = z;
+    rotate_mat.v[3].x = sx;
+    rotate_mat.v[3].y = sy;
+    rotate_mat.v[3].z = sz;
+    for (zest_foreach_i(mesh->vertices)) {
+        zest_vec4 pos = { mesh->vertices[i].pos.x, mesh->vertices[i].pos.y, mesh->vertices[i].pos.z, 1.f };
+        pos = zest_MatrixTransformVector(&rotate_mat, pos);
+        mesh->vertices[i].pos = zest_Vec3Set(pos.x, pos.y, pos.z);
+    }
+    return rotate_mat;
+}
+
+zest_bounding_box_t zest_NewBoundingBox() {
+    zest_bounding_box_t bb = { 0 };
+    bb.max_bounds = zest_Vec3Set( FLT_MIN, FLT_MIN, FLT_MIN );
+    bb.min_bounds = zest_Vec3Set( FLT_MAX, FLT_MAX, FLT_MAX );
+    return bb;
+}
+
+zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh_t* mesh) {
+    zest_bounding_box_t bb = zest_NewBoundingBox();
+    for (zest_foreach_i(mesh->vertices)) {
+        bb.max_bounds.x = ZEST__MAX(mesh->vertices[i].pos.x, bb.max_bounds.x);
+        bb.max_bounds.y = ZEST__MAX(mesh->vertices[i].pos.y, bb.max_bounds.y);
+        bb.max_bounds.z = ZEST__MAX(mesh->vertices[i].pos.z, bb.max_bounds.z);
+        bb.min_bounds.x = ZEST__MIN(mesh->vertices[i].pos.x, bb.min_bounds.x);
+        bb.min_bounds.y = ZEST__MIN(mesh->vertices[i].pos.y, bb.min_bounds.y);
+        bb.min_bounds.z = ZEST__MIN(mesh->vertices[i].pos.z, bb.min_bounds.z);
+    }
+    return bb;
 }
 
 zest_size zest_MeshVertexDataSize(zest_mesh_t* mesh) {
