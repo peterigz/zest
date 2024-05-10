@@ -10128,15 +10128,15 @@ void zest_PositionMesh(zest_mesh_t* mesh, zest_vec3 position) {
     }
 }
 void zest_RotateMesh(zest_mesh_t* mesh, float pitch, float yaw, float roll) {
-    zest_matrix4 roll_mat = zest_Matrix4RotateX(roll);
+    zest_matrix4 roll_mat = zest_Matrix4RotateZ(roll);
     zest_matrix4 pitch_mat = zest_Matrix4RotateX(pitch);
-    zest_matrix4 yaw_mat = zest_Matrix4RotateX(yaw);
+    zest_matrix4 yaw_mat = zest_Matrix4RotateY(yaw);
     zest_matrix4 rotate_mat = zest_MatrixTransform(&yaw_mat, &pitch_mat);
     rotate_mat = zest_MatrixTransform(&rotate_mat, &roll_mat);
     for (zest_foreach_i(mesh->vertices)) {
-        zest_vec4 pos = { mesh->vertices->pos.x, mesh->vertices->pos.y, mesh->vertices->pos.z, 1.f };
+        zest_vec4 pos = { mesh->vertices[i].pos.x, mesh->vertices[i].pos.y, mesh->vertices[i].pos.z, 1.f };
         pos = zest_MatrixTransformVector(&rotate_mat, pos);
-        mesh->vertices->pos = zest_Vec3Set(pos.x, pos.y, pos.z);
+        mesh->vertices[i].pos = zest_Vec3Set(pos.x, pos.y, pos.z);
     }
 }
 
@@ -10388,6 +10388,8 @@ zest_mesh_t zest_CreateRoundedRectangle(float width, float height, float radius,
     // Calculate the step angle
     float angle_increment = ZEST_PI / 2.0f / segments;
 
+    width = ZEST__MAX(radius, width - radius * 2.f);
+    height = ZEST__MAX(radius, height - radius * 2.f);
 
     //centre vertex;
 	zest_PushMeshVertex(&mesh, 0.f, 0.f, 0.0f, color);

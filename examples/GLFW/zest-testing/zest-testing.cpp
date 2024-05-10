@@ -260,17 +260,25 @@ void InitImGuiApp(ImGuiApp* app) {
 
 	app->mesh = zest_CreateCylinderMesh(16, .25f, 5.f, zest_ColorSet(255, 0, 255, 255), 0);
 	//app->mesh = zest_CreateCone(32, 1.f, 5.f);
+
+	zest_mesh_t cylinder = zest_CreateCylinderMesh(16, .5f, 1.5f, zest_ColorSet(100, 255, 0, 255), 0);
 	zest_mesh_t cone = zest_CreateCone(24, .5f, 2.f, zest_ColorSet(255, 100, 0, 255));
-	zest_mesh_t sphere = zest_CreateSphere(16, 16, 1.f, zest_ColorSet(100, 255, 0, 255));
+	zest_mesh_t sphere = zest_CreateSphere(16, 16, .5f, zest_ColorSet(100, 255, 0, 255));
 	zest_mesh_t cube = zest_CreateCube( 1.f, zest_ColorSet(255, 0, 0, 255));
-	zest_mesh_t rounded = zest_CreateRoundedRectangle(4.f, 2.f, 0.25f, 8, 1, zest_ColorSet(255, 0, 0, 255));
-	zest_PositionMesh(&cone, { 0.f, 2.5f, 0.f });
-	zest_PositionMesh(&cube, { 0.f, 3.5f, 0.f });
+	zest_mesh_t rounded1 = zest_CreateRoundedRectangle(.5f, .5f, 0.1f, 8, 1, zest_ColorSet(255, 0, 0, 255));
+	zest_mesh_t rounded2 = zest_CreateRoundedRectangle(.5f, .5f, 0.1f, 8, 1, zest_ColorSet(0, 255, 0, 255));
+	zest_mesh_t rounded3 = zest_CreateRoundedRectangle(.5f, .5f, 0.1f, 8, 1, zest_ColorSet(0, 0, 255, 255));
+	zest_RotateMesh(&rounded1, 0.f, zest_Radians(90.f), 0.f);
+	zest_RotateMesh(&rounded2, zest_Radians(90.f), 0.f, 0.f);
+	zest_PositionMesh(&rounded1, { .35f, 0.f, 0.f });
+	zest_PositionMesh(&rounded2, { 0.f, -.35f, 0.f });
+	zest_PositionMesh(&rounded3, { 0.f, 0.f, -.35f });
 	zest_AddMeshToMesh(&app->mesh, &cone);
 	zest_AddMeshToMesh(&app->mesh, &sphere);
 	zest_AddMeshToMesh(&app->mesh, &cube);
-	zest_AddMeshToMesh(&app->mesh, &rounded);
-	zest_AddMeshToLayer(app->mesh_instance_layer, &app->mesh);
+	zest_AddMeshToMesh(&rounded1, &rounded2);
+	zest_AddMeshToMesh(&rounded1, &rounded3);
+	zest_AddMeshToLayer(app->mesh_instance_layer, &rounded1);
 
 	//Render specific - Set up the callback for updating the uniform buffers containing the model and view matrices
 	UpdateUniform3d(app);
@@ -534,6 +542,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	}
 
 	zest_SetInstanceMeshDrawing(app->mesh_instance_layer, 0, app->mesh_instance_pipeline);
+	app->mesh_instance_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
 	zest_SetLayerColor(app->mesh_instance_layer, 255, 255, 255, 255);
 	float scale = zest_MouseXf() / zest_ScreenWidthf();
 	scale = 1.f;
