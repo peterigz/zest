@@ -22,12 +22,13 @@ layout(push_constant) uniform parameters
 
 layout(location = 0) in vec3 vertex_position;
 layout(location = 1) in vec4 vertex_color;
-layout(location = 2) in vec3 vertex_normal;
-layout(location = 3) in vec3 instance_position;
-layout(location = 4) in vec4 instance_color;
-layout(location = 5) in vec3 instance_rotation;
-layout(location = 6) in vec4 instance_parameters;
-layout(location = 7) in vec3 instance_scale;
+layout(location = 2) in uint group_id;
+layout(location = 3) in vec3 vertex_normal;
+layout(location = 4) in vec3 instance_position;
+layout(location = 5) in vec4 instance_color;
+layout(location = 6) in vec3 instance_rotation;
+layout(location = 7) in vec4 instance_parameters;
+layout(location = 8) in vec3 instance_scale;
 
 layout(location = 0) out vec4 out_frag_color;
 
@@ -60,19 +61,6 @@ void main() {
 	
 	mat3 rotation_matrix = mz * my * mx;
 	vec3 position = vertex_position * instance_scale * rotation_matrix + instance_position;
-
-	/*
-	mat3 rotation_matrix = mz * my * mx;
-	vec3 position = vertex_position * instance_scale * rotation_matrix + instance_position;
-	position.y *= -1;
-
-	vec4 clip = uboView.proj * uboView.view * vec4(instance_position, 1.0);
-	vec2 screen = uboView.res * (0.5 * clip.xy / clip.w + 0.5);
-
-	vec2 point = screen + position.xy * 25;
-	gl_Position = vec4(clip.w * ((2.0 * point) / uboView.res - 1.0), clip.z, clip.w);
-	*/
-
 	gl_Position = (uboView.proj * uboView.view * pc.model * vec4(position, 1.0));
 
 	out_frag_color = vertex_color * instance_color;
