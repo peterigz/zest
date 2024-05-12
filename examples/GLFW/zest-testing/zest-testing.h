@@ -29,6 +29,20 @@ struct surface_point {
 	zest_vec3 direction_normal;
 };
 
+struct zest_widget_part {
+	zest_bounding_box_t bb;
+	zest_matrix4 transform_matrix;
+	zest_mesh_t mesh;
+	float scale;
+};
+
+struct zest_plane_widget {
+	zest_vec3 position;
+	zest_widget_part x_plane;
+	zest_widget_part y_plane;
+	zest_widget_part z_plane;
+};
+
 struct ImGuiApp {
 	zest_imgui_layer_info imgui_layer_info;
 	zest_index imgui_draw_routine_index;
@@ -40,14 +54,23 @@ struct ImGuiApp {
 	zest_timer timer;
 	zest_layer mesh_layer;
 	zest_layer billboard_layer;
+	zest_layer lines_2d;
 	zest_layer line_layer;
 	zest_pipeline mesh_pipeline;
 	zest_pipeline line_pipeline;
+	zest_pipeline line_2d_pipeline;
 	zest_pipeline billboard_pipeline;
 
 	zest_pipeline mesh_instance_pipeline;
 	zest_layer mesh_instance_layer;
 	zest_mesh_t mesh;
+	zest_plane_widget plane_widget;
+	zest_widget_part *picked_widget = nullptr;
+	zest_vec3 first_intersection;
+	zest_vec3 clicked_widget_position;
+	zest_uniform_buffer uniform_buffer_3d;
+	zest_descriptor_set_layout descriptor_layout;
+	zest_descriptor_set_t descriptor_set;
 
 	zest_camera_t camera;
 	ellipsoid ellipse;
@@ -55,6 +78,7 @@ struct ImGuiApp {
 	surface_point points[1000];
 	surface_point point;
 	bool repoint = true;
+	bool orthagonal = false;
 	zest_vec3 cross_plane;
 
 	float height_increment;
