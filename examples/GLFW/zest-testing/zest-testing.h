@@ -32,15 +32,18 @@ struct surface_point {
 struct zest_widget_part {
 	zest_bounding_box_t bb;
 	zest_matrix4 transform_matrix;
-	zest_mesh_t mesh;
 	float scale;
 };
 
-struct zest_plane_widget {
+struct zest_move_widget {
 	zest_vec3 position;
 	zest_widget_part x_plane;
 	zest_widget_part y_plane;
 	zest_widget_part z_plane;
+	zest_widget_part x_rail;
+	zest_widget_part y_rail;
+	zest_widget_part z_rail;
+	zest_widget_part whole_widget;
 };
 
 struct ImGuiApp {
@@ -64,13 +67,14 @@ struct ImGuiApp {
 	zest_pipeline mesh_instance_pipeline;
 	zest_layer mesh_instance_layer;
 	zest_mesh_t mesh;
-	zest_plane_widget plane_widget;
+	zest_move_widget plane_widget;
 	zest_widget_part *picked_widget = nullptr;
 	zest_vec3 first_intersection;
 	zest_vec3 clicked_widget_position;
 	zest_uniform_buffer uniform_buffer_3d;
 	zest_descriptor_set_layout descriptor_layout;
 	zest_descriptor_set_t descriptor_set;
+	zest_vec3 plane_normal;
 
 	zest_camera_t camera;
 	ellipsoid ellipse;

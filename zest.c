@@ -407,6 +407,14 @@ zest_color zest_ColorSet1(zest_byte c) {
     return color;
 }
 
+zest_vec2 zest_AddVec2(zest_vec2 left, zest_vec2 right) {
+    zest_vec2 result = {
+        .x = left.x + right.x,
+        .y = left.y + right.y,
+    };
+    return result;
+}
+
 zest_vec3 zest_AddVec3(zest_vec3 left, zest_vec3 right) {
     zest_vec3 result = {
         .x = left.x + right.x,
@@ -422,6 +430,14 @@ zest_vec4 zest_AddVec4(zest_vec4 left, zest_vec4 right) {
         .y = left.y + right.y,
         .z = left.z + right.z,
         .w = left.w + right.w,
+    };
+    return result;
+}
+
+zest_vec2 zest_SubVec2(zest_vec2 left, zest_vec2 right) {
+    zest_vec2 result = {
+        .x = left.x - right.x,
+        .y = left.y - right.y,
     };
     return result;
 }
@@ -10180,7 +10196,7 @@ zest_matrix4 zest_TransformMesh(zest_mesh_t* mesh, float pitch, float yaw, float
 
 zest_bounding_box_t zest_NewBoundingBox() {
     zest_bounding_box_t bb = { 0 };
-    bb.max_bounds = zest_Vec3Set( FLT_MIN, FLT_MIN, FLT_MIN );
+    bb.max_bounds = zest_Vec3Set( -9999999.f, -9999999.f, -9999999.f );
     bb.min_bounds = zest_Vec3Set( FLT_MAX, FLT_MAX, FLT_MAX );
     return bb;
 }

@@ -392,19 +392,20 @@ typedef enum zest_buffer_upload_flag_bits {
 
 typedef zest_uint zest_buffer_upload_flags;
 
+//Be more careful about changing these numbers as they correlate to shaders. See zest_shape_type.
 typedef enum {
     zest_draw_mode_none = 0,            //Default no drawmode set when no drawing has been done yet
-    zest_draw_mode_instance,
-    zest_draw_mode_images,
-    zest_draw_mode_mesh,
-    zest_draw_mode_mesh_instance,
-    zest_draw_mode_line_instance,
-    zest_draw_mode_rect_instance,
-    zest_draw_mode_dashed_line,
-    zest_draw_mode_text,
-    zest_draw_mode_fill_screen,
-    zest_draw_mode_viewport,
-    zest_draw_mode_im_gui
+    zest_draw_mode_instance = 1,
+    zest_draw_mode_images = 2,
+    zest_draw_mode_mesh = 3,
+    zest_draw_mode_line_instance = 4,
+    zest_draw_mode_rect_instance = 5,
+    zest_draw_mode_dashed_line = 6,
+    zest_draw_mode_text = 7,
+    zest_draw_mode_fill_screen = 8,
+    zest_draw_mode_viewport = 9,
+    zest_draw_mode_im_gui = 10,
+    zest_draw_mode_mesh_instance = 11,
 } zest_draw_mode;
 
 typedef enum {
@@ -2455,8 +2456,10 @@ ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void);
 //-----------------------------------------------
 
 //Subtract right from left vector and return the result
+ZEST_API zest_vec2 zest_SubVec2(zest_vec2 left, zest_vec2 right);
 ZEST_API zest_vec3 zest_SubVec3(zest_vec3 left, zest_vec3 right);
 ZEST_API zest_vec4 zest_SubVec4(zest_vec4 left, zest_vec4 right);
+ZEST_API zest_vec2 zest_AddVec2(zest_vec2 left, zest_vec2 right);
 ZEST_API zest_vec3 zest_AddVec3(zest_vec3 left, zest_vec3 right);
 ZEST_API zest_vec4 zest_AddVec4(zest_vec4 left, zest_vec4 right);
 //Scale a vector by a scalar and return the result
