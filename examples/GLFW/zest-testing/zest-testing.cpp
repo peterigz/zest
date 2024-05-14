@@ -13,7 +13,7 @@ void UpdateUniform3d(ImGuiApp* app) {
 	}
 	else {
 		ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
-		ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.0001f, 10000.f);
+		ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.001f, 10000.f);
 	}
 	ubo_ptr->proj.v[1].y *= -1.f;
 	ubo_ptr->screen_size.x = zest_ScreenWidthf();
@@ -895,12 +895,22 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	if (app->picked_widget) {
 		zest_Set3DLineDrawing(app->line_layer, 0, app->line_pipeline);
 		zest_SetLayerColor(app->line_layer, 255, 200, 50, 255);
+		zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
+		zest_vec4 planes[6];
 		if (app->plane_normal.z != 0.f) {
-			zest_vec3 end = {100.f, 0.f, 0.f};
 			zest_vec3 start = app->plane_widget.position;
-			zest_Draw3DLine(app->line_layer, &start.x, &end.x, 20.f);
-			end = { -100.f, 0.f, 0.f };
-			zest_Draw3DLine(app->line_layer, &start.x, &end.x, 20.f);
+			zest_vec3 end = zest_AddVec3({100.f, 0.f, 0.f}, start);
+			zest_Draw3DLine(app->line_layer, &start.x, &end.x, 2.f);
+			end = {-1.f, 0.f, 0.f};
+			float distance;
+			zest_vec3 intersection;
+			if (zest_RayIntersectPlane(start, end, app->camera.position, app->camera.front, &distance, &intersection)) {
+				end = zest_ScaleVec3(&intersection, .999f);
+			}
+			else {
+				end = zest_AddVec3({ -1.f, 0.f, 0.f }, start);
+			}
+			zest_Draw3DLine(app->line_layer, &start.x, &end.x, 2.f);
 		}
 		//zest_vec3 end = {0.f, 0.f, 10.f};
 	}

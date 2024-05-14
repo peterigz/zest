@@ -6,6 +6,7 @@ layout(location = 1) in vec4 p1;
 layout(location = 2) in vec4 p2;
 layout(location = 3) in vec3 end;
 layout(location = 4) in float millisecs;
+layout(location = 5) in float res;
 
 layout(location = 0) out vec4 out_color;
 
@@ -19,6 +20,7 @@ float Line(in vec2 p, in vec2 a, in vec2 b) {
 float Fill(float sdf) {
 	//return step(0, -sdf);
 	return clamp(0.5 - sdf / fwidth(sdf), 0, 1);		//Anti Aliased
+	//return clamp( 0.5 - sdf, 0, 1 );
 }
 
 void main() {

@@ -38,6 +38,7 @@ layout(location = 1) out vec4 p1;
 layout(location = 2) out vec4 p2;
 layout(location = 3) out vec3 out_end;
 layout(location = 4) out float millisecs;
+layout(location = 5) out float res;
 
 void main() {
 	vec4 clip0 = uboView.proj * uboView.view * pc.model * vec4(start.xyz, 1.0);
@@ -51,8 +52,8 @@ void main() {
 
 	vec2 line = screen1 - screen0;
 	vec2 normal = normalize(vec2(-line.y, line.x));
-	vec2 pt0 = screen0 + start.w * (vertex.x * line + vertex.y * normal);
-	vec2 pt1 = screen1 + start.w * (vertex.x * line + vertex.y * normal);
+	vec2 pt0 = screen0 + (start.w * 1.25) * (vertex.x * line + vertex.y * normal);
+	vec2 pt1 = screen1 + (end.w * 1.25) * (vertex.x * line + vertex.y * normal);
 	vec2 vertex_position = mix(pt0, pt1, vertex.z);
 	vec4 clip = mix(clip0, clip1, vertex.z);
 	gl_Position = vec4(clip.w * ((2.0 * vertex_position) / uboView.res - 1.0), clip.z, clip.w);
@@ -63,4 +64,5 @@ void main() {
 	p2 = vec4(screen1, 0,  end.w);
 	out_end = p2.xyz;
 	millisecs = uboView.millisecs;
+	res = 1.0 / uboView.res.y;
 }
