@@ -10,6 +10,14 @@
 const float pi = 3.14159265359f;
 const float two_pi = 2.f * 3.14159265359f;
 
+typedef zest_uint zest_axis_flags;
+enum zest_axis_bits {
+	zest_Axis_none = 0,
+	zest_axis_x		= 1 << 0,
+	zest_axis_y		= 1 << 1,
+	zest_axis_z		= 1 << 2
+};
+
 struct ellipsoid {
 	zest_vec3 position;
 	zest_vec3 radius;
@@ -32,11 +40,14 @@ struct surface_point {
 struct zest_widget_part {
 	zest_bounding_box_t bb;
 	zest_matrix4 transform_matrix;
+	zest_uint group_id;
 	float scale;
 };
 
-struct zest_move_widget {
+struct zest_widget {
 	zest_vec3 position;
+	zest_layer layer;
+	zest_uint hovered_group_id;
 	zest_widget_part x_plane;
 	zest_widget_part y_plane;
 	zest_widget_part z_plane;
@@ -65,16 +76,20 @@ struct ImGuiApp {
 	zest_pipeline billboard_pipeline;
 
 	zest_pipeline mesh_instance_pipeline;
-	zest_layer mesh_instance_layer;
+	zest_layer move_widget_layer;
+	zest_layer scale_widget_layer;
 	zest_mesh_t mesh;
-	zest_move_widget plane_widget;
-	zest_widget_part *picked_widget = nullptr;
+	zest_widget move_widget;
+	zest_widget scale_widget;
+	zest_widget_part *picked_widget_part = nullptr;
+	zest_widget *picked_widget = nullptr;
 	zest_vec3 first_intersection;
 	zest_vec3 clicked_widget_position;
 	zest_uniform_buffer uniform_buffer_3d;
 	zest_descriptor_set_layout descriptor_layout;
 	zest_descriptor_set_t descriptor_set;
 	zest_vec3 plane_normal;
+	zest_axis_flags current_axis;
 
 	zest_camera_t camera;
 	ellipsoid ellipse;

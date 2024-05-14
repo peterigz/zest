@@ -52,6 +52,7 @@ void main() {
 
 	vec2 line = screen1 - screen0;
 	vec2 normal = normalize(vec2(-line.y, line.x));
+	//Note: lines made a bit thicker then the asked-for width so that there's room for anti-aliasing. Need to be more precise with this!
 	vec2 pt0 = screen0 + (start.w * 1.25) * (vertex.x * line + vertex.y * normal);
 	vec2 pt1 = screen1 + (end.w * 1.25) * (vertex.x * line + vertex.y * normal);
 	vec2 vertex_position = mix(pt0, pt1, vertex.z);

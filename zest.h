@@ -87,7 +87,7 @@ typedef volatile unsigned int zest_atomic_int;
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
 #define ZEST_DISABLE_GPU_DIRECT_WRITE 1
@@ -3111,6 +3111,7 @@ ZEST_API zest_matrix4 zest_TransformMesh(zest_mesh_t *mesh, float pitch, float y
 ZEST_API zest_bounding_box_t zest_NewBoundingBox();
 ZEST_API zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh_t *mesh);
 ZEST_API void zest_AddMeshToMesh(zest_mesh_t *dst_mesh, zest_mesh_t *src_mesh);
+ZEST_API void zest_SetMeshGroupID(zest_mesh_t *mesh, zest_uint group_id);
 ZEST_API void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t *src_mesh);
 ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh_t *mesh);
 ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh_t *mesh);

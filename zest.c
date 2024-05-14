@@ -10214,6 +10214,12 @@ zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh_t* mesh) {
     return bb;
 }
 
+void zest_SetMeshGroupID(zest_mesh_t* mesh, zest_uint group_id) {
+    for (zest_foreach_i(mesh->vertices)) {
+        mesh->vertices[i].group = group_id;
+    }
+}
+
 zest_size zest_MeshVertexDataSize(zest_mesh_t* mesh) {
     return zest_vec_size(mesh->vertices) * sizeof(zest_vertex_t);
 }

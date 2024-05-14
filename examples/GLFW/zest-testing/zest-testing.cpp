@@ -18,7 +18,7 @@ void UpdateUniform3d(ImGuiApp* app) {
 	ubo_ptr->proj.v[1].y *= -1.f;
 	ubo_ptr->screen_size.x = zest_ScreenWidthf();
 	ubo_ptr->screen_size.y = zest_ScreenHeightf();
-	ubo_ptr->millisecs = 0;
+	ubo_ptr->millisecs = zest_Millisecs() % 300;
 }
 
 //Function to project 2d screen coordinates into 3d space
@@ -286,13 +286,13 @@ bool PickWidget(zest_widget_part* widget, zest_vec3 ray_origin, zest_vec3 ray_di
 	}
 }
 
-void SetWidgetScale(zest_widget_part *widget, float scale) {
+void SetWidgetPartScale(zest_widget_part *widget, float scale) {
 	widget->transform_matrix.v[3].x = scale;
 	widget->transform_matrix.v[3].y = scale;
 	widget->transform_matrix.v[3].z = scale;
 }
 
-void SetWidgetPosition(zest_widget_part *widget, zest_vec3 position) {
+void SetWidgetPartPosition(zest_widget_part *widget, zest_vec3 position) {
 	widget->transform_matrix.v[0].w = position.x;
 	widget->transform_matrix.v[1].w = position.y;
 	widget->transform_matrix.v[2].w = position.z;
@@ -304,7 +304,7 @@ void MoveWidget(zest_widget_part *widget, zest_vec3 amount) {
 	widget->transform_matrix.v[2].w += amount.z;
 }
 
-void MovePlaneWidget(zest_move_widget *widget, zest_vec3 amount) {
+void MovePlaneWidget(zest_widget *widget, zest_vec3 amount) {
 	widget->x_plane.transform_matrix.v[0].w += amount.x;
 	widget->y_plane.transform_matrix.v[1].w += amount.y;
 	widget->z_plane.transform_matrix.v[2].w += amount.z;
@@ -313,7 +313,7 @@ void MovePlaneWidget(zest_move_widget *widget, zest_vec3 amount) {
 	widget->position.z += amount.z;
 }
 
-void SetPlaneWidgetPosition(zest_move_widget *widget, zest_vec3 position) {
+void SetWidgetPosition(zest_widget *widget, zest_vec3 position) {
 	widget->x_plane.transform_matrix.v[0].w = position.x;
 	widget->x_plane.transform_matrix.v[1].w = position.y;
 	widget->x_plane.transform_matrix.v[2].w = position.z;
@@ -391,7 +391,6 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->line_pipeline = zest_Pipeline("pipeline_line3d_instance");
 	app->line_2d_pipeline = zest_Pipeline("pipeline_line_instance");
 	app->billboard_pipeline = zest_Pipeline("pipeline_billboard");
-	app->mesh_instance_pipeline = zest_Pipeline("pipeline_mesh_instance");
 	app->uniform_buffer_3d = zest_CreateUniformBuffer("3d uniform", sizeof(zest_uniform_buffer_data_t));
 	app->descriptor_layout = zest_AddDescriptorLayout("mesh descriptor set", zest_CreateDescriptorSetLayout(1, 0, 0));
 	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
@@ -399,6 +398,12 @@ void InitImGuiApp(ImGuiApp* app) {
 		zest_AddBuilderDescriptorWriteBuffer(&set_builder, zest_GetUniformBufferInfo("3d uniform", i), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
 	}
 	app->descriptor_set = zest_BuildDescriptorSet(&set_builder, app->descriptor_layout);
+
+	zest_pipeline_template_create_info_t custom_mesh_pipeline = zest_CopyTemplateFromPipeline("pipeline_mesh_instance");
+	app->mesh_instance_pipeline = zest_AddPipeline("pipeline_mesh_instance_custom");
+	zest_SetPipelineTemplateShader(&custom_mesh_pipeline, "mesh_instance_custom.spv", "examples/assets/spv/");
+	zest_MakePipelineTemplate(app->mesh_instance_pipeline, zest_GetStandardRenderPass(), &custom_mesh_pipeline);
+	zest_BuildPipeline(app->mesh_instance_pipeline);
 
 	app->camera = zest_CreateCamera();
 	zest_CameraPosition(&app->camera, { -10.f, 0.f, 0.f });
@@ -415,7 +420,8 @@ void InitImGuiApp(ImGuiApp* app) {
 			app->mesh_layer = zest_NewBuiltinLayerSetup("Meshes", zest_builtin_layer_mesh);
 			app->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
 			app->line_layer = zest_NewBuiltinLayerSetup("Lines", zest_builtin_layer_3dlines);
-			app->mesh_instance_layer = zest_NewBuiltinLayerSetup("Instanced Mesh", zest_builtin_layer_mesh_instance);
+			app->move_widget_layer = zest_NewBuiltinLayerSetup("Move Widget", zest_builtin_layer_mesh_instance);
+			app->scale_widget_layer = zest_NewBuiltinLayerSetup("Scale Widget", zest_builtin_layer_mesh_instance);
 			app->lines_2d = zest_NewBuiltinLayerSetup("Lines 2d", zest_builtin_layer_lines);
 
 			//Create a Dear ImGui layer
@@ -423,12 +429,6 @@ void InitImGuiApp(ImGuiApp* app) {
 		}
 		zest_FinishQueueSetup();
 	}
-
-	app->mesh = zest_CreateCylinderMesh(16, .25f, 5.f, zest_ColorSet(255, 0, 255, 255), 0);
-	//app->mesh = zest_CreateCone(32, 1.f, 5.f);
-
-	zest_mesh_t sphere = zest_CreateSphere(16, 16, .5f, zest_ColorSet(100, 255, 0, 255));
-	zest_mesh_t cube = zest_CreateCube( 1.f, zest_ColorSet(255, 0, 0, 255));
 
 	float arrow_radius = 0.01f;
 	float point_radius = 0.05f;
@@ -439,40 +439,71 @@ void InitImGuiApp(ImGuiApp* app) {
 	float plane_size = 0.25;
 	float plane_radius = 0.025;
 
+	//Move Widget Setup
 	zest_mesh_t x_arrow = zest_CreateCylinderMesh(8, arrow_radius, arrow_length, zest_ColorSet(255, 0, 0, 255), 0);
 	zest_mesh_t x_arrow_pointer = zest_CreateCone(8, point_radius, point_length, zest_ColorSet(255, 0, 0, 255));
+	zest_mesh_t x_arrow_block = zest_CreateCube(point_radius * 2.f, zest_ColorSet(255, 0, 0, 255));
 	zest_mesh_t y_arrow = zest_CreateCylinderMesh(8, arrow_radius, arrow_length, zest_ColorSet(0, 255, 0, 255), 0);
 	zest_mesh_t y_arrow_pointer = zest_CreateCone(8, point_radius, point_length, zest_ColorSet(0, 255, 0, 255));
+	zest_mesh_t y_arrow_block = zest_CreateCube(point_radius * 2.f, zest_ColorSet(0, 255, 0, 255));
 	zest_mesh_t z_arrow = zest_CreateCylinderMesh(8, arrow_radius, arrow_length, zest_ColorSet(0, 0, 255, 255), 0);
 	zest_mesh_t z_arrow_pointer = zest_CreateCone(8, point_radius, point_length, zest_ColorSet(0, 0, 255, 255));
+	zest_mesh_t z_arrow_block = zest_CreateCube(point_radius * 2.f, zest_ColorSet(0, 0, 255, 255));
 	zest_mesh_t x_plane_mesh = zest_CreateRoundedRectangle(plane_size, plane_size, plane_radius, 8, 1, zest_ColorSet(255, 0, 0, 255));
 	zest_mesh_t y_plane_mesh = zest_CreateRoundedRectangle(plane_size, plane_size, plane_radius, 8, 1, zest_ColorSet(0, 0, 255, 255));
 	zest_mesh_t z_plane_mesh = zest_CreateRoundedRectangle(plane_size, plane_size, plane_radius, 8, 1, zest_ColorSet(0, 255, 0, 255));
-	app->plane_widget.position = { 0 };
+	app->move_widget.position = { 0 };
 	zest_TransformMesh(&x_arrow, zest_Radians(90.f), 0.f, 0.f, 0.f, 0.f, point_offset, 1.f, 1.f, 1.f);
 	zest_TransformMesh(&x_arrow_pointer, zest_Radians(90.f), 0.f, 0.f, 0.f, 0.f, point_offset + arrow_offset, 1.f, 1.f, 1.f);
+	zest_TransformMesh(&x_arrow_block, 0.f, 0.f, 0.f, 0.f, 0.f, point_offset + arrow_offset, 1.f, 1.f, 1.f);
 	zest_TransformMesh(&y_arrow, 0.f, 0.f, 0.f, 0.f, point_offset, 0.f, 1.f, 1.f, 1.f);
 	zest_TransformMesh(&y_arrow_pointer, 0.f, 0.f, 0.f, 0.f, arrow_offset + point_offset, 0.f, 1.f, 1.f, 1.f);
+	zest_TransformMesh(&y_arrow_block, 0.f, 0.f, 0.f, 0.f, arrow_offset + point_offset, 0.f, 1.f, 1.f, 1.f);
 	zest_TransformMesh(&z_arrow, 0.f, 0.f, zest_Radians(90.f), -point_offset, 0.f, 0.f, 1.f, 1.f, 1.f);
 	zest_TransformMesh(&z_arrow_pointer, 0.f, 0.f, zest_Radians(90.f), -(arrow_offset + point_offset), 0.f, 0.f, 1.f, 1.f, 1.f);
+	zest_TransformMesh(&z_arrow_block, 0.f, 0.f, 0.f, -(arrow_offset + point_offset), 0.f, 0.f, 1.f, 1.f, 1.f);
 	zest_TransformMesh(&x_plane_mesh, 0.f, zest_Radians(90.f), 0.f, 0.f, point_offset, point_offset, 1.f, 1.f, 1.f);
 	zest_TransformMesh(&z_plane_mesh, zest_Radians(90.f), 0.f, 0.f, -point_offset, 0.f, point_offset, 1.f, 1.f, 1.f);
 	zest_TransformMesh(&y_plane_mesh, 0.f, 0.f, 0.f, -point_offset, point_offset, 0.f, 1.f, 1.f, 1.f);
+	zest_mesh_t x_scale_arrow = { 0 };
+	zest_mesh_t y_scale_arrow = { 0 };
+	zest_mesh_t z_scale_arrow = { 0 };
+	zest_AddMeshToMesh(&x_scale_arrow, &x_arrow);
+	zest_AddMeshToMesh(&y_scale_arrow, &y_arrow);
+	zest_AddMeshToMesh(&z_scale_arrow, &z_arrow);
 	zest_AddMeshToMesh(&x_arrow, &x_arrow_pointer);
 	zest_AddMeshToMesh(&y_arrow, &y_arrow_pointer);
 	zest_AddMeshToMesh(&z_arrow, &z_arrow_pointer);
-	app->plane_widget.x_plane.bb = zest_GetMeshBoundingBox(&x_plane_mesh);
-	app->plane_widget.y_plane.bb = zest_GetMeshBoundingBox(&y_plane_mesh);
-	app->plane_widget.z_plane.bb = zest_GetMeshBoundingBox(&z_plane_mesh);
-	app->plane_widget.x_rail.bb = zest_GetMeshBoundingBox(&x_arrow);
-	app->plane_widget.y_rail.bb = zest_GetMeshBoundingBox(&y_arrow);
-	app->plane_widget.z_rail.bb = zest_GetMeshBoundingBox(&z_arrow);
-	app->plane_widget.x_plane.transform_matrix = zest_M4(1.f);
-	app->plane_widget.y_plane.transform_matrix = zest_M4(1.f);
-	app->plane_widget.z_plane.transform_matrix = zest_M4(1.f);
-	app->plane_widget.x_rail.transform_matrix = zest_M4(1.f);
-	app->plane_widget.y_rail.transform_matrix = zest_M4(1.f);
-	app->plane_widget.z_rail.transform_matrix = zest_M4(1.f);
+	zest_AddMeshToMesh(&x_scale_arrow, &x_arrow_block);
+	zest_AddMeshToMesh(&y_scale_arrow, &y_arrow_block);
+	zest_AddMeshToMesh(&z_scale_arrow, &z_arrow_block);
+	zest_SetMeshGroupID(&x_arrow, 1);
+	zest_SetMeshGroupID(&y_arrow, 2);
+	zest_SetMeshGroupID(&z_arrow, 3);
+	zest_SetMeshGroupID(&x_plane_mesh, 4);
+	zest_SetMeshGroupID(&y_plane_mesh, 5);
+	zest_SetMeshGroupID(&z_plane_mesh, 6);
+	zest_SetMeshGroupID(&x_scale_arrow, 1);
+	zest_SetMeshGroupID(&y_scale_arrow, 2);
+	zest_SetMeshGroupID(&z_scale_arrow, 3);
+	app->move_widget.x_rail.group_id = 1;
+	app->move_widget.y_rail.group_id = 2;
+	app->move_widget.z_rail.group_id = 3;
+	app->move_widget.x_plane.group_id = 4;
+	app->move_widget.y_plane.group_id = 5;
+	app->move_widget.z_plane.group_id = 6;
+	app->move_widget.x_plane.bb = zest_GetMeshBoundingBox(&x_plane_mesh);
+	app->move_widget.y_plane.bb = zest_GetMeshBoundingBox(&y_plane_mesh);
+	app->move_widget.z_plane.bb = zest_GetMeshBoundingBox(&z_plane_mesh);
+	app->move_widget.x_rail.bb = zest_GetMeshBoundingBox(&x_arrow);
+	app->move_widget.y_rail.bb = zest_GetMeshBoundingBox(&y_arrow);
+	app->move_widget.z_rail.bb = zest_GetMeshBoundingBox(&z_arrow);
+	app->move_widget.x_plane.transform_matrix = zest_M4(1.f);
+	app->move_widget.y_plane.transform_matrix = zest_M4(1.f);
+	app->move_widget.z_plane.transform_matrix = zest_M4(1.f);
+	app->move_widget.x_rail.transform_matrix = zest_M4(1.f);
+	app->move_widget.y_rail.transform_matrix = zest_M4(1.f);
+	app->move_widget.z_rail.transform_matrix = zest_M4(1.f);
 	zest_mesh_t move_mesh = { 0 };
 	zest_AddMeshToMesh(&move_mesh, &x_arrow);
 	zest_AddMeshToMesh(&move_mesh, &y_arrow);
@@ -480,9 +511,65 @@ void InitImGuiApp(ImGuiApp* app) {
 	zest_AddMeshToMesh(&move_mesh, &x_plane_mesh);
 	zest_AddMeshToMesh(&move_mesh, &z_plane_mesh);
 	zest_AddMeshToMesh(&move_mesh, &y_plane_mesh);
-	app->plane_widget.whole_widget.bb = zest_GetMeshBoundingBox(&move_mesh);
-	app->plane_widget.whole_widget.transform_matrix = zest_M4(1.f);
-	zest_AddMeshToLayer(app->mesh_instance_layer, &move_mesh);
+	app->move_widget.whole_widget.bb = zest_GetMeshBoundingBox(&move_mesh);
+	app->move_widget.whole_widget.transform_matrix = zest_M4(1.f);
+	app->move_widget.layer = app->move_widget_layer;
+	zest_AddMeshToLayer(app->move_widget_layer, &move_mesh);
+
+	//Scale Widget Setup
+	app->scale_widget = {};
+	zest_SetMeshGroupID(&x_arrow, 1);
+	zest_SetMeshGroupID(&y_arrow, 2);
+	zest_SetMeshGroupID(&z_arrow, 3);
+	app->scale_widget.x_rail.group_id = 1;
+	app->scale_widget.y_rail.group_id = 2;
+	app->scale_widget.z_rail.group_id = 3;
+	app->scale_widget.x_plane.group_id = 4;
+	app->scale_widget.y_plane.group_id = 5;
+	app->scale_widget.z_plane.group_id = 6;
+	app->scale_widget.x_plane.bb = zest_GetMeshBoundingBox(&x_plane_mesh);
+	app->scale_widget.y_plane.bb = zest_GetMeshBoundingBox(&y_plane_mesh);
+	app->scale_widget.z_plane.bb = zest_GetMeshBoundingBox(&z_plane_mesh);
+	app->scale_widget.x_rail.bb = zest_GetMeshBoundingBox(&x_arrow);
+	app->scale_widget.y_rail.bb = zest_GetMeshBoundingBox(&y_arrow);
+	app->scale_widget.z_rail.bb = zest_GetMeshBoundingBox(&z_arrow);
+	app->scale_widget.x_plane.transform_matrix = zest_M4(1.f);
+	app->scale_widget.y_plane.transform_matrix = zest_M4(1.f);
+	app->scale_widget.z_plane.transform_matrix = zest_M4(1.f);
+	app->scale_widget.x_rail.transform_matrix = zest_M4(1.f);
+	app->scale_widget.y_rail.transform_matrix = zest_M4(1.f);
+	app->scale_widget.z_rail.transform_matrix = zest_M4(1.f);
+	zest_mesh_t scale_mesh = { 0 };
+	zest_AddMeshToMesh(&scale_mesh, &x_plane_mesh);
+	zest_AddMeshToMesh(&scale_mesh, &z_plane_mesh);
+	zest_AddMeshToMesh(&scale_mesh, &y_plane_mesh);
+	zest_AddMeshToMesh(&scale_mesh, &x_scale_arrow);
+	zest_AddMeshToMesh(&scale_mesh, &y_scale_arrow);
+	zest_AddMeshToMesh(&scale_mesh, &z_scale_arrow);
+	zest_AddMeshToLayer(app->scale_widget_layer, &scale_mesh);
+	app->scale_widget.whole_widget.bb = zest_GetMeshBoundingBox(&scale_mesh);
+	app->scale_widget.whole_widget.transform_matrix = zest_M4(1.f);
+	app->scale_widget.layer = app->scale_widget_layer;
+	SetWidgetPosition(&app->scale_widget, { 2.f, 0, 2.f });
+
+	zest_FreeMesh(&move_mesh);
+	zest_FreeMesh(&scale_mesh);
+	zest_FreeMesh(&x_arrow);
+	zest_FreeMesh(&x_arrow_pointer);
+	zest_FreeMesh(&x_arrow_block);
+	zest_FreeMesh(&y_arrow);
+	zest_FreeMesh(&y_arrow_pointer);
+	zest_FreeMesh(&y_arrow_block);
+	zest_FreeMesh(&z_arrow);
+	zest_FreeMesh(&z_arrow_pointer);
+	zest_FreeMesh(&z_arrow_block);
+	zest_FreeMesh(&x_plane_mesh);
+	zest_FreeMesh(&y_plane_mesh);
+	zest_FreeMesh(&z_plane_mesh);
+	zest_FreeMesh(&x_scale_arrow);
+	zest_FreeMesh(&y_scale_arrow);
+	zest_FreeMesh(&z_scale_arrow);
+
 
 	//Render specific - Set up the callback for updating the uniform buffers containing the model and view matrices
 	UpdateUniform3d(app);
@@ -528,123 +615,145 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->points[i - 1] = app->points[1];
 }
 
-void HandleMoveWidget(ImGuiApp* app) {
+void HandleWidget(ImGuiApp* app, zest_widget *widget) {
 	zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
 	zest_vec3 ray_direction = zest_ScreenRay(zest_MouseXf(), zest_MouseYf(), zest_ScreenWidthf(), zest_ScreenHeightf(), &ubo_ptr->proj, &ubo_ptr->view);
 	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
 		int d = 0;
 	}
-	if (!app->picked_widget && !PickWidget(&app->plane_widget.whole_widget, app->camera.position, ray_direction)) {
+	if (!app->picked_widget_part && !PickWidget(&widget->whole_widget, app->camera.position, ray_direction)) {
 		//Early exit if none of the widget is hovered
+		widget->hovered_group_id = 0;
 		return;
 	}
-	if (app->picked_widget == &app->plane_widget.x_plane || (!app->picked_widget && PickWidget(&app->plane_widget.x_plane, app->camera.position, ray_direction))) {
+	if (app->picked_widget_part == &widget->x_plane || (!app->picked_widget_part && PickWidget(&widget->x_plane, app->camera.position, ray_direction))) {
 		ImGui::Text("Picked X!");
+		widget->hovered_group_id = 4;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-			zest_vec3 widget_position = GetWidgetPosition(&app->plane_widget.x_plane);
+			zest_vec3 widget_position = GetWidgetPosition(&widget->x_plane);
 			app->plane_normal = zest_Vec3Set(app->camera.position.x > widget_position.x ? 1.f : -1.f, 0, 0.f);
+			app->current_axis = zest_axis_x | zest_axis_y;
 			zest_vec3 intersection = { 0 };
 			float distance = 0.f;
 			if (zest_RayIntersectPlane(app->camera.position, ray_direction, widget_position, app->plane_normal, &distance, &intersection)) {
-				if (!app->picked_widget) {
+				if (!app->picked_widget_part) {
 					app->first_intersection = intersection;
-					app->clicked_widget_position = app->plane_widget.position;
-					app->picked_widget = &app->plane_widget.x_plane;
+					app->clicked_widget_position = widget->position;
+					app->picked_widget_part = &widget->x_plane;
+					app->picked_widget = widget;
 				}
 				zest_vec3 moved = zest_SubVec3(intersection, app->first_intersection);
-				SetPlaneWidgetPosition(&app->plane_widget, zest_AddVec3(moved, app->clicked_widget_position));
+				SetWidgetPosition(widget, zest_AddVec3(moved, app->clicked_widget_position));
 			}
 		}
 	}
-	else if (app->picked_widget == &app->plane_widget.z_plane || (!app->picked_widget && PickWidget(&app->plane_widget.z_plane, app->camera.position, ray_direction))) {
+	else if (app->picked_widget_part == &widget->z_plane || (!app->picked_widget_part && PickWidget(&widget->z_plane, app->camera.position, ray_direction))) {
 		ImGui::Text("Picked Y!");
+		widget->hovered_group_id = 6;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-			zest_vec3 widget_position = GetWidgetPosition(&app->plane_widget.z_plane);
+			zest_vec3 widget_position = GetWidgetPosition(&widget->z_plane);
 			app->plane_normal = zest_Vec3Set(0.f, app->camera.position.y > widget_position.y ? 1.f : -1.f, 0.f);
+			app->current_axis = zest_axis_z | zest_axis_x;
 			zest_vec3 intersection = { 0 };
 			float distance = 0.f;
 			if (zest_RayIntersectPlane(app->camera.position, ray_direction, widget_position, app->plane_normal, &distance, &intersection)) {
-				if (!app->picked_widget) {
+				if (!app->picked_widget_part) {
 					app->first_intersection = intersection;
-					app->clicked_widget_position = app->plane_widget.position;
-					app->picked_widget = &app->plane_widget.z_plane;
+					app->clicked_widget_position = widget->position;
+					app->picked_widget_part = &widget->z_plane;
+					app->picked_widget = widget;
 				}
 				zest_vec3 moved = zest_SubVec3(intersection, app->first_intersection);
-				SetPlaneWidgetPosition(&app->plane_widget, zest_AddVec3(moved, app->clicked_widget_position));
+				SetWidgetPosition(widget, zest_AddVec3(moved, app->clicked_widget_position));
 			}
 		}
 	}
-	else if (app->picked_widget == &app->plane_widget.y_plane || (!app->picked_widget && PickWidget(&app->plane_widget.y_plane, app->camera.position, ray_direction))) {
+	else if (app->picked_widget_part == &widget->y_plane || (!app->picked_widget_part && PickWidget(&widget->y_plane, app->camera.position, ray_direction))) {
 		ImGui::Text("Picked Z!");
+		widget->hovered_group_id = 5;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-			zest_vec3 widget_position = GetWidgetPosition(&app->plane_widget.y_plane);
+			zest_vec3 widget_position = GetWidgetPosition(&widget->y_plane);
 			app->plane_normal = zest_Vec3Set(0.f, 0.f, app->camera.position.z > widget_position.z ? 1.f : -1.f);
+			app->current_axis = zest_axis_z | zest_axis_y;
 			zest_vec3 intersection = { 0 };
 			float distance = 0.f;
 			if (zest_RayIntersectPlane(app->camera.position, ray_direction, widget_position, app->plane_normal, &distance, &intersection)) {
-				if (!app->picked_widget) {
+				if (!app->picked_widget_part) {
 					app->first_intersection = intersection;
-					app->clicked_widget_position = app->plane_widget.position;
-					app->picked_widget = &app->plane_widget.y_plane;
+					app->clicked_widget_position = widget->position;
+					app->picked_widget_part = &widget->y_plane;
+					app->picked_widget = widget;
 				}
 				zest_vec3 moved = zest_SubVec3(intersection, app->first_intersection);
-				SetPlaneWidgetPosition(&app->plane_widget, zest_AddVec3(moved, app->clicked_widget_position));
+				SetWidgetPosition(widget, zest_AddVec3(moved, app->clicked_widget_position));
 			}
 		}
 	}
-	else if (app->picked_widget == &app->plane_widget.x_rail || (!app->picked_widget && PickWidget(&app->plane_widget.x_rail, app->camera.position, ray_direction))) {
+	else if (app->picked_widget_part == &widget->x_rail || (!app->picked_widget_part && PickWidget(&widget->x_rail, app->camera.position, ray_direction))) {
 		ImGui::Text("Picked X Rail!");
-		app->plane_normal = zest_Vec3Set(app->camera.position.x > app->plane_widget.position.x ? 1.f : -1.f, 0.f, 0.f);
+		widget->hovered_group_id = 1;
+		app->plane_normal = zest_Vec3Set(app->camera.position.x > widget->position.x ? 1.f : -1.f, 0.f, 0.f);
+		app->current_axis = zest_axis_x;
 		zest_vec3 intersection = { 0 };
 		float distance = 0.f;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-			if (zest_RayIntersectPlane(app->camera.position, ray_direction, app->plane_widget.position, app->plane_normal, &distance, &intersection)) {
-				if (!app->picked_widget) {
+			if (zest_RayIntersectPlane(app->camera.position, ray_direction, widget->position, app->plane_normal, &distance, &intersection)) {
+				if (!app->picked_widget_part) {
 					app->first_intersection = intersection;
-					app->clicked_widget_position = app->plane_widget.position;
-					app->picked_widget = &app->plane_widget.x_rail;
+					app->clicked_widget_position = widget->position;
+					app->picked_widget_part = &widget->x_rail;
+					app->picked_widget = widget;
 				}
 				zest_vec3 moved = zest_Vec3Set(0.f, 0.f, intersection.z - app->first_intersection.z);
-				SetPlaneWidgetPosition(&app->plane_widget, zest_AddVec3(moved, app->clicked_widget_position));
+				SetWidgetPosition(widget, zest_AddVec3(moved, app->clicked_widget_position));
 			}
 		}
 	}
-	else if (app->picked_widget == &app->plane_widget.y_rail || (!app->picked_widget && PickWidget(&app->plane_widget.y_rail, app->camera.position, ray_direction))) {
+	else if (app->picked_widget_part == &widget->y_rail || (!app->picked_widget_part && PickWidget(&widget->y_rail, app->camera.position, ray_direction))) {
 		ImGui::Text("Picked Y Rail!");
-		app->plane_normal = zest_Vec3Set(app->camera.position.x > app->plane_widget.position.x ? 1.f : -1.f, 0.f, 0.f);
+		widget->hovered_group_id = 2;
+		app->plane_normal = zest_Vec3Set(app->camera.position.x > widget->position.x ? 1.f : -1.f, 0.f, 0.f);
+		app->current_axis = zest_axis_y;
 		zest_vec3 intersection = { 0 };
 		float distance = 0.f;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-			if (zest_RayIntersectPlane(app->camera.position, ray_direction, app->plane_widget.position, app->plane_normal, &distance, &intersection)) {
-				if (!app->picked_widget) {
+			if (zest_RayIntersectPlane(app->camera.position, ray_direction, widget->position, app->plane_normal, &distance, &intersection)) {
+				if (!app->picked_widget_part) {
 					app->first_intersection = intersection;
-					app->clicked_widget_position = app->plane_widget.position;
-					app->picked_widget = &app->plane_widget.y_rail;
+					app->clicked_widget_position = widget->position;
+					app->picked_widget_part = &widget->y_rail;
+					app->picked_widget = widget;
 				}
 				zest_vec3 moved = zest_Vec3Set(0.f, intersection.y - app->first_intersection.y, 0.f);
-				SetPlaneWidgetPosition(&app->plane_widget, zest_AddVec3(moved, app->clicked_widget_position));
+				SetWidgetPosition(widget, zest_AddVec3(moved, app->clicked_widget_position));
 			}
 		}
 	}
-	else if (app->picked_widget == &app->plane_widget.z_rail || (!app->picked_widget && PickWidget(&app->plane_widget.z_rail, app->camera.position, ray_direction))) {
+	else if (app->picked_widget_part == &widget->z_rail || (!app->picked_widget_part && PickWidget(&widget->z_rail, app->camera.position, ray_direction))) {
 		ImGui::Text("Picked Z Rail!");
-		app->plane_normal = zest_Vec3Set(0.f, 0.f, app->camera.position.z > app->plane_widget.position.z ? 1.f : -1.f);
+		widget->hovered_group_id = 3;
+		app->plane_normal = zest_Vec3Set(0.f, 0.f, app->camera.position.z > widget->position.z ? 1.f : -1.f);
+		app->current_axis = zest_axis_z;
 		zest_vec3 intersection = { 0 };
 		float distance = 0.f;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-			if (zest_RayIntersectPlane(app->camera.position, ray_direction, app->plane_widget.position, app->plane_normal, &distance, &intersection)) {
-				if (!app->picked_widget) {
+			if (zest_RayIntersectPlane(app->camera.position, ray_direction, widget->position, app->plane_normal, &distance, &intersection)) {
+				if (!app->picked_widget_part) {
 					app->first_intersection = intersection;
-					app->clicked_widget_position = app->plane_widget.position;
-					app->picked_widget = &app->plane_widget.z_rail;
+					app->clicked_widget_position = widget->position;
+					app->picked_widget_part = &widget->z_rail;
+					app->picked_widget = widget;
 				}
 				zest_vec3 moved = zest_Vec3Set(intersection.x - app->first_intersection.x, 0.f, 0.f);
-				SetPlaneWidgetPosition(&app->plane_widget, zest_AddVec3(moved, app->clicked_widget_position));
+				SetWidgetPosition(widget, zest_AddVec3(moved, app->clicked_widget_position));
 			}
 		}
 	}
+	else {
+		widget->hovered_group_id = 0;
+	}
 	if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-		app->picked_widget = nullptr;
+		app->picked_widget_part = nullptr;
 	}
 }
 
@@ -712,7 +821,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		app->point.direction_normal = zest_NormalizeVec3({ result.x, result.y, result.z });
 		//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 
-		HandleMoveWidget(app);
+		HandleWidget(app, &app->move_widget);
+		HandleWidget(app, &app->scale_widget);
 
 		ImGui::End();
 		ImGui::Render();
@@ -861,7 +971,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		float step = 0.1f; // Step size for interpolation
 		for (float t = 0.0f; t <= 1.0f; t += step) {
 			zest_vec3 p1 = CatmullRomSpline3D(app->points[i % c_mod].position, app->points[(i + 1) % c_mod].position, app->points[(i + 2) % c_mod].position, app->points[(i + 3) % c_mod].position, t);
-			p1 = zest_AddVec3(p1, app->plane_widget.position);
+			p1 = zest_AddVec3(p1, app->move_widget.position);
 			if (start_drawing == true) {
 				zest_Draw3DLine(app->line_layer, &p1.x, &p2.x, 3.f);
 			}
@@ -870,50 +980,93 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 	}
 
-	zest_SetInstanceMeshDrawing(app->mesh_instance_layer, 0, app->mesh_instance_pipeline);
-	app->mesh_instance_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
-	zest_SetLayerColor(app->mesh_instance_layer, 255, 255, 255, 255);
+	zest_SetInstanceMeshDrawing(app->scale_widget_layer, 0, app->mesh_instance_pipeline);
+	app->scale_widget_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
+	zest_SetInstanceMeshDrawing(app->move_widget_layer, 0, app->mesh_instance_pipeline);
+	app->move_widget_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
+	zest_SetLayerColor(app->move_widget_layer, 255, 255, 255, 255);
 
 	//X Plane
-	zest_vec3 mesh_pos = app->plane_widget.position;
+	zest_vec3 move_widget_position = app->move_widget.position;
 	zest_vec3 mesh_rot = zest_Vec3Set(0.f, 0.f, 0.f);
-	zest_vec3 cam_to_instance = zest_SubVec3(mesh_pos, app->camera.position);
+	zest_vec3 cam_to_instance = zest_SubVec3(move_widget_position, app->camera.position);
 	float length = zest_LengthVec(cam_to_instance);
 	float scale = length / 6.f;
-	//scale = 1.f;
-	//mesh_pos.x *= scale;
-	SetWidgetScale(&app->plane_widget.x_plane, scale);
-	SetWidgetScale(&app->plane_widget.y_plane, scale);
-	SetWidgetScale(&app->plane_widget.z_plane, scale);
-	SetWidgetScale(&app->plane_widget.x_rail, scale);
-	SetWidgetScale(&app->plane_widget.y_rail, scale);
-	SetWidgetScale(&app->plane_widget.z_rail, scale);
-	SetWidgetScale(&app->plane_widget.whole_widget, scale);
-	zest_vec3 mesh_scale = { scale,  scale,  scale };
-	zest_DrawInstancedMesh(app->mesh_instance_layer, &mesh_pos.x, &mesh_rot.x, &mesh_scale.x);
 
-	if (app->picked_widget) {
+	if (app->picked_widget_part) {
+		app->picked_widget->layer->current_instruction.push_constants.parameters1.x = (float)app->picked_widget_part->group_id;
 		zest_Set3DLineDrawing(app->line_layer, 0, app->line_pipeline);
-		zest_SetLayerColor(app->line_layer, 255, 200, 50, 255);
 		zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
-		zest_vec4 planes[6];
-		if (app->plane_normal.z != 0.f) {
-			zest_vec3 start = app->plane_widget.position;
-			zest_vec3 end = zest_AddVec3({100.f, 0.f, 0.f}, start);
-			zest_Draw3DLine(app->line_layer, &start.x, &end.x, 2.f);
-			end = {-1.f, 0.f, 0.f};
-			float distance;
-			zest_vec3 intersection;
-			if (zest_RayIntersectPlane(start, end, app->camera.position, app->camera.front, &distance, &intersection)) {
-				end = zest_ScaleVec3(&intersection, .999f);
+		zest_axis_flags axis = app->current_axis;
+		for (int i = 0; i != 2; ++i) {
+			zest_vec3 start = app->clicked_widget_position;
+			zest_vec3 end1 = {0};
+			zest_vec3 end2 = {0};
+			if (axis & zest_axis_x) {
+				end1.z = 1.f; end2.z = -1.f; axis &= ~zest_axis_x;
+				zest_SetLayerColor(app->line_layer, 255, 100, 100, 128);
+			}
+			else if (axis & zest_axis_y) {
+				end1.y = 1.f; end2.y = -1.f; axis &= ~zest_axis_y;
+				zest_SetLayerColor(app->line_layer, 100, 255, 100, 128);
+			}
+			else if (axis & zest_axis_z) {
+				end1.x = 1.f; end2.x = -1.f; axis &= ~zest_axis_z;
+				zest_SetLayerColor(app->line_layer, 100, 100, 255, 128);
 			}
 			else {
-				end = zest_AddVec3({ -1.f, 0.f, 0.f }, start);
+				break;
 			}
-			zest_Draw3DLine(app->line_layer, &start.x, &end.x, 2.f);
+			float distance;
+			zest_vec3 intersection;
+			if (zest_RayIntersectPlane(start, end1, app->camera.position, app->camera.front, &distance, &intersection)) {
+				start = zest_ScaleVec3(&intersection, .999f);
+				end1 = zest_AddVec3(zest_ScaleVec3(&end2, 1000.f), start);
+				zest_Draw3DLine(app->line_layer, &start.x, &end1.x, 3.f);
+			}
+			else if (zest_RayIntersectPlane(start, end2, app->camera.position, app->camera.front, &distance, &intersection)) {
+				start = zest_ScaleVec3(&intersection, .999f);
+				end2 = zest_AddVec3(zest_ScaleVec3(&end1, 1000.f), start);
+				zest_Draw3DLine(app->line_layer, &start.x, &end2.x, 3.f);
+			}
+			else {
+				end2 = zest_AddVec3(zest_ScaleVec3(&end2, 1000.f), start);
+				start = zest_AddVec3(zest_ScaleVec3(&end2, -1000.f), start);
+				zest_Draw3DLine(app->line_layer, &start.x, &end2.x, 3.f);
+			}
 		}
-		//zest_vec3 end = {0.f, 0.f, 10.f};
 	}
+	else {
+		app->scale_widget_layer->current_instruction.push_constants.parameters1.x = (float)app->scale_widget.hovered_group_id;
+		app->move_widget_layer->current_instruction.push_constants.parameters1.x = (float)app->move_widget.hovered_group_id;
+	}
+
+	SetWidgetPartScale(&app->move_widget.x_plane, scale);
+	SetWidgetPartScale(&app->move_widget.y_plane, scale);
+	SetWidgetPartScale(&app->move_widget.z_plane, scale);
+	SetWidgetPartScale(&app->move_widget.x_rail, scale);
+	SetWidgetPartScale(&app->move_widget.y_rail, scale);
+	SetWidgetPartScale(&app->move_widget.z_rail, scale);
+	SetWidgetPartScale(&app->move_widget.whole_widget, scale);
+	zest_vec3 mesh_scale = { scale,  scale,  scale };
+	zest_DrawInstancedMesh(app->move_widget_layer, &move_widget_position.x, &mesh_rot.x, &mesh_scale.x);
+
+	zest_vec3 scale_widget_position = app->scale_widget.position;
+	zest_vec3 scale_mesh_rot = zest_Vec3Set(0.f, 0.f, 0.f);
+	cam_to_instance = zest_SubVec3(scale_widget_position, app->camera.position);
+	length = zest_LengthVec(cam_to_instance);
+	scale = length / 6.f;
+	mesh_scale = { scale,  scale,  scale };
+	SetWidgetPartScale(&app->scale_widget.x_plane, scale);
+	SetWidgetPartScale(&app->scale_widget.y_plane, scale);
+	SetWidgetPartScale(&app->scale_widget.z_plane, scale);
+	SetWidgetPartScale(&app->scale_widget.x_rail, scale);
+	SetWidgetPartScale(&app->scale_widget.y_rail, scale);
+	SetWidgetPartScale(&app->scale_widget.z_rail, scale);
+	SetWidgetPartScale(&app->scale_widget.whole_widget, scale);
+
+	zest_SetLayerColor(app->scale_widget_layer, 255, 255, 255, 255);
+	zest_DrawInstancedMesh(app->scale_widget_layer, &scale_widget_position.x, &mesh_rot.x, &mesh_scale.x);
 
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
@@ -927,7 +1080,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
-	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
 
