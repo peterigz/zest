@@ -18,6 +18,21 @@ enum zest_axis_bits {
 	zest_axis_z		= 1 << 2
 };
 
+enum zest_widget_type {
+	zest_widget_type_move,
+	zest_widget_type_scale,
+};
+
+enum zest_widget_part_index {
+	zest_x_plane,
+	zest_y_plane,
+	zest_z_plane,
+	zest_x_rail,
+	zest_y_rail,
+	zest_z_rail,
+	zest_part_none
+};
+
 struct ellipsoid {
 	zest_vec3 position;
 	zest_vec3 radius;
@@ -48,12 +63,8 @@ struct zest_widget {
 	zest_vec3 position;
 	zest_layer layer;
 	zest_uint hovered_group_id;
-	zest_widget_part x_plane;
-	zest_widget_part y_plane;
-	zest_widget_part z_plane;
-	zest_widget_part x_rail;
-	zest_widget_part y_rail;
-	zest_widget_part z_rail;
+	zest_widget_type type;
+	zest_widget_part parts[6];
 	zest_widget_part whole_widget;
 };
 
@@ -88,7 +99,7 @@ struct ImGuiApp {
 	zest_uniform_buffer uniform_buffer_3d;
 	zest_descriptor_set_layout descriptor_layout;
 	zest_descriptor_set_t descriptor_set;
-	zest_vec3 plane_normal;
+	zest_vec3 plane_normals[6];
 	zest_axis_flags current_axis;
 
 	zest_camera_t camera;
