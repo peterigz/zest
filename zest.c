@@ -976,21 +976,21 @@ zest_vec3 zest_ScreenRay(float xpos, float ypos, float view_width, float view_he
     return ray_wor;
 }
 
-zest_vec2 zest_WorldToScreen(const zest_vec3* point, float view_width, float view_height, zest_matrix4* projection, zest_matrix4* view) {
-    float w = view->v[0].z * point->x + view->v[1].z * point->y + view->v[2].z * point->z + view->v[3].z;
+zest_vec2 zest_WorldToScreen(const float point[3], float view_width, float view_height, zest_matrix4* projection, zest_matrix4* view) {
+    float w = view->v[0].z * point[0] + view->v[1].z * point[1] + view->v[2].z * point[2] + view->v[3].z;
     // If you try to convert the camera's "from" position to screen space, you will
     // end up dividing by zero (please don't do that)
     //if (w <= 0) return [-1, -1];
     if (w == 0) return zest_Vec2Set(-1.f, -1.f);
-    float cx = projection->v[2].x + projection->v[0].x * (view->v[0].x * point->x + view->v[1].x * point->y + view->v[2].x * point->z + view->v[3].x) / w;
-    float cy = projection->v[2].y + projection->v[1].y * (view->v[0].y * point->x + view->v[1].y * point->y + view->v[2].y * point->z + view->v[3].y) / w;
+    float cx = projection->v[2].x + projection->v[0].x * (view->v[0].x * point[0] + view->v[1].x * point[1] + view->v[2].x * point[2] + view->v[3].x) / w;
+    float cy = projection->v[2].y + projection->v[1].y * (view->v[0].y * point[0] + view->v[1].y * point[1] + view->v[2].y * point[2] + view->v[3].y) / w;
 
     return zest_Vec2Set((0.5f + 0.5f * -cx) * view_width, (0.5f + 0.5f * -cy) * view_height);
 }
 
-zest_vec2 zest_WorldToScreenOrtho(const zest_vec3* point, float view_width, float view_height, zest_matrix4* projection, zest_matrix4* view) {
-    float cx = projection->v[3].x + projection->v[0].x * (view->v[0].x * point->x + view->v[1].x * point->y + view->v[2].x * point->z + view->v[3].x);
-    float cy = projection->v[3].y + projection->v[1].y * (view->v[0].y * point->x + view->v[1].y * point->y + view->v[2].y * point->z + view->v[3].y);
+zest_vec2 zest_WorldToScreenOrtho(const float point[3], float view_width, float view_height, zest_matrix4* projection, zest_matrix4* view) {
+    float cx = projection->v[3].x + projection->v[0].x * (view->v[0].x * point[0] + view->v[1].x * point[1] + view->v[2].x * point[2] + view->v[3].x);
+    float cy = projection->v[3].y + projection->v[1].y * (view->v[0].y * point[0] + view->v[1].y * point[1] + view->v[2].y * point[2] + view->v[3].y);
 
     return zest_Vec2Set((0.5f + 0.5f * -cx) * view_width, (0.5f + 0.5f * -cy) * view_height);
 }

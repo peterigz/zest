@@ -2585,7 +2585,7 @@ ZEST_API zest_bool zest_RayIntersectPlane(zest_vec3 ray_origin, zest_vec3 ray_di
 //of the camera which you'd usually retrieve from the uniform buffer.
 ZEST_API zest_vec3 zest_ScreenRay(float xpos, float ypos, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
 //Convert world 3d coordinates into screen x and y coordinates
-ZEST_API zest_vec2 zest_WorldToScreen(const zest_vec3 *point, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
+ZEST_API zest_vec2 zest_WorldToScreen(const float point[3], float view_width, float view_height, zest_matrix4* projection, zest_matrix4* view);
 //Convert world orthographic 3d coordinates into screen x and y coordinates
 ZEST_API zest_vec2 zest_WorldToScreenOrtho(const zest_vec3 *point, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
 //Create a perspective 4x4 matrix passing in the fov in radians, aspect ratio of the viewport and te near/far values
