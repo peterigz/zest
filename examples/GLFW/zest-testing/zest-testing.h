@@ -95,6 +95,7 @@ struct ImGuiApp {
 	zest_widget_part *picked_widget_part = nullptr;
 	zest_widget *picked_widget = nullptr;
 	zest_vec3 first_intersection;
+	zest_vec3 widget_dragged_amount;
 	zest_vec3 clicked_widget_position;
 	zest_uniform_buffer uniform_buffer_3d;
 	zest_descriptor_set_layout descriptor_layout;
