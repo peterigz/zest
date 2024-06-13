@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <zest.h>
 #include "implementations/impl_glfw.h"
@@ -6,6 +6,8 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
+#include <random>
+#include <intrin.h>
 
 const float pi = 3.14159265359f;
 const float two_pi = 2.f * 3.14159265359f;
@@ -68,6 +70,182 @@ struct zest_widget {
 	zest_widget_part whole_widget;
 };
 
+typedef union {
+	__m128 m;
+	float a[4];
+} tfxWideArray;
+
+struct Quaternion {
+	float w, x, y, z;
+
+	Quaternion() : w(0.f), x(0.f), y(0.f), z(0.f) {}
+	Quaternion(float w, float x, float y, float z) : w(w), x(x), y(y), z(z) {}
+
+	// Normalize the quaternion
+	Quaternion normalize() const {
+		float len = sqrtf(w * w + x * x + y * y + z * z);
+		return Quaternion(w / len, x / len, y / len, z / len);
+	}
+
+	float length() {
+		float len = sqrtf(w * w + x * x + y * y + z * z);
+		return len;
+	}
+
+	// Multiply quaternion by vector
+	zest_vec3 rotate(const zest_vec3& v) const {
+		// Convert zest_vec3 to Quaternion with w = 0
+		Quaternion qv(0, v.x, v.y, v.z);
+
+		// Calculate q * qv * q^-1
+		Quaternion q_conjugate = Quaternion(w, -x, -y, -z);
+		Quaternion result = (*this) * qv;
+		result = result * q_conjugate;
+
+		return {result.x, result.y, result.z};
+	}
+
+	// Quaternion multiplication
+	Quaternion operator*(const Quaternion& q) const {
+		return Quaternion(
+			w * q.w - x * q.x - y * q.y - z * q.z,
+			w * q.x + x * q.w + y * q.z - z * q.y,
+			w * q.y - x * q.z + y * q.w + z * q.x,
+			w * q.z + x * q.y - y * q.x + z * q.w
+		);
+	}
+
+};
+
+void TransformQuaternionVec3(const Quaternion* q, __m128* x, __m128* y, __m128* z) {
+	__m128 qv_x = *x;
+	__m128 qv_y = *y;
+	__m128 qv_z = *z;
+	__m128 qv_w = _mm_setzero_ps();
+
+	__m128 q_x = _mm_set1_ps(q->x);
+	__m128 q_y = _mm_set1_ps(q->y);
+	__m128 q_z = _mm_set1_ps(q->z);
+	__m128 q_w = _mm_set1_ps(q->w);
+
+	__m128 two = _mm_set1_ps(2.0f);
+
+	// Calculate t = 2 * cross(q.xyz, v)
+	__m128 t_x = _mm_sub_ps(_mm_mul_ps(q_y, qv_z), _mm_mul_ps(q_z, qv_y));
+	t_x = _mm_mul_ps(t_x, two);
+	__m128 t_y = _mm_sub_ps(_mm_mul_ps(q_z, qv_x), _mm_mul_ps(q_x, qv_z));
+	t_y = _mm_mul_ps(t_y, two);
+	__m128 t_z = _mm_sub_ps(_mm_mul_ps(q_x, qv_y), _mm_mul_ps(q_y, qv_x));
+	t_z = _mm_mul_ps(t_z, two);
+
+	// Calculate v' = v + q.w * t + cross(q.xyz, t)
+	__m128 qw_t_x = _mm_mul_ps(q_w, t_x);
+	__m128 qw_t_y = _mm_mul_ps(q_w, t_y);
+	__m128 qw_t_z = _mm_mul_ps(q_w, t_z);
+
+	__m128 t_cross_x = _mm_sub_ps(_mm_mul_ps(q_y, t_z), _mm_mul_ps(q_z, t_y));
+	__m128 t_cross_y = _mm_sub_ps(_mm_mul_ps(q_z, t_x), _mm_mul_ps(q_x, t_z));
+	__m128 t_cross_z = _mm_sub_ps(_mm_mul_ps(q_x, t_y), _mm_mul_ps(q_y, t_x));
+
+	*x = _mm_add_ps(_mm_add_ps(qv_x, qw_t_x), t_cross_x);
+	*y = _mm_add_ps(_mm_add_ps(qv_y, qw_t_y), t_cross_y);
+	*z = _mm_add_ps(_mm_add_ps(qv_z, qw_t_z), t_cross_z);
+}
+
+Quaternion ToQuaternion(float roll, float pitch, float yaw) // roll (x), pitch (y), yaw (z), angles are in radians
+{
+	// Abbreviations for the various angular functions
+
+	float cr = cosf(roll * 0.5);
+	float sr = sinf(roll * 0.5);
+	float cp = cosf(pitch * 0.5);
+	float sp = sinf(pitch * 0.5);
+	float cy = cosf(yaw * 0.5);
+	float sy = sinf(yaw * 0.5);
+
+	Quaternion q;
+	q.w = cr * cp * cy + sr * sp * sy;
+	q.x = sr * cp * cy - cr * sp * sy;
+	q.y = cr * sp * cy + sr * cp * sy;
+	q.z = cr * cp * sy - sr * sp * cy;
+
+	return q;
+}
+
+Quaternion FromDirection(const zest_vec3& dir) {
+	zest_vec3 initial_dir = {0.0f, 0.0f, 1.0f};
+	zest_vec3 normalized_dir = zest_NormalizeVec3(dir);
+
+	zest_vec3 rotation_axis = zest_CrossProduct(initial_dir, normalized_dir);
+	float dot_product = zest_DotProduct3(initial_dir, normalized_dir);
+	float angle = acosf(dot_product);  // Angle between initial_dir and dir
+
+	float half_angle = angle / 2.0f;
+	float sin_half_angle = sinf(half_angle);
+
+	return Quaternion(
+		cosf(half_angle),
+		rotation_axis.x * sin_half_angle,
+		rotation_axis.y * sin_half_angle,
+		rotation_axis.z * sin_half_angle
+	).normalize();
+}
+
+float randomFloat(float min, float max) {
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::uniform_real_distribution<> dis(min, max);
+	return dis(gen);
+}
+
+zest_vec3 randomVectorInCone(const zest_vec3& coneDirection, float coneAngleDegrees) {
+	// Convert cone angle to radians
+	float coneAngle = zest_Radians(coneAngleDegrees);
+
+	// Calculate the minimum z value for the cone
+	float minZ = cos(coneAngle);
+
+	// Randomly sample z in [minZ, 1]
+	float z = randomFloat(minZ, 1.0f);
+
+	// Randomly sample ϕ in [0, 2π)
+	float phi = randomFloat(0.0f, 2.0f * ZEST_PI);
+
+	// Calculate the corresponding x and y for the random point on the unit sphere
+	float sqrtOneMinusZSquared = sqrt(1.0f - z * z);
+	float x = sqrtOneMinusZSquared * cos(phi);
+	float y = sqrtOneMinusZSquared * sin(phi);
+
+	// Create the random vector in the cone's local space
+	zest_vec3 randomVector = {x, y, z};
+
+	// If the cone is centered around the north pole (0, 0, 1), return the vector as is
+	if (coneDirection.x == 0 && coneDirection.y == 0) {
+		return randomVector;
+	}
+
+	// Calculate the rotation axis (cross product of (0, 0, 1) and coneDirection)
+	zest_vec3 northPole = { 0, 0, 1 };
+	zest_vec3 rotationAxis = zest_CrossProduct(northPole, coneDirection);
+	rotationAxis = zest_NormalizeVec3(rotationAxis);
+
+
+	// Calculate the rotation angle (acos of dot product of (0, 0, 1) and coneDirection)
+	float rotationAngle = acosf(zest_DotProduct3(northPole, zest_NormalizeVec3(coneDirection)));
+
+	// Rotate the random vector to align with the cone direction
+	// Use Rodrigues' rotation formula
+	zest_vec3 xv = zest_ScaleVec3(&randomVector, cos(rotationAngle));
+	zest_vec3 yv = (zest_CrossProduct(rotationAxis, randomVector));
+	yv = zest_ScaleVec3(&yv, sin(rotationAngle));
+	float zv_dot = zest_DotProduct3(rotationAxis, randomVector);
+	zest_vec3 zv = zest_ScaleVec3(&rotationAxis, zv_dot);
+	zv = zest_ScaleVec3(&zv, (1.f - cosf(rotationAngle)));
+	zest_vec3 rotatedVector = zest_AddVec3(zest_AddVec3(xv, yv), zv);
+
+	return rotatedVector;
+}
+
 struct ImGuiApp {
 	zest_imgui_layer_info imgui_layer_info;
 	zest_index imgui_draw_routine_index;
@@ -102,6 +280,8 @@ struct ImGuiApp {
 	zest_descriptor_set_t descriptor_set;
 	zest_vec3 plane_normals[6];
 	zest_axis_flags current_axis;
+	zest_vec3 angles;
+	zest_vec3 velocity_normal;
 
 	zest_camera_t camera;
 	ellipsoid ellipse;
@@ -111,6 +291,7 @@ struct ImGuiApp {
 	bool repoint = true;
 	bool orthagonal = false;
 	zest_vec3 cross_plane;
+	zest_vec3 cube[8];
 
 	float height_increment;
 	float angle_increment;

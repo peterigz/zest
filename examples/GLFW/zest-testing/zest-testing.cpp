@@ -284,6 +284,8 @@ bool PickWidget(zest_widget_part* widget, zest_vec3 ray_origin, zest_vec3 ray_di
 	if (tMax < tMin) {
 		return false;
 	}
+
+	return true;
 }
 
 void SetWidgetPartScale(zest_widget *widget, float scale) {
@@ -531,6 +533,8 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->plane_normals[zest_y_rail] = zest_Vec3Set(1.f, 0.f, 0.f);
 	app->plane_normals[zest_z_rail] = zest_Vec3Set(0.f, 0.f, 1.f);
 
+	app->angles = {};
+
 	//Render specific - Set up the callback for updating the uniform buffers containing the model and view matrices
 	UpdateUniform3d(app);
 
@@ -573,6 +577,15 @@ void InitImGuiApp(ImGuiApp* app) {
 	int i = (int)app->spline_points;
 	app->points[0] = app->points[i - 2];
 	app->points[i - 1] = app->points[1];
+
+	app->cube[0] = { -1.f, 1.f, -1.f };
+	app->cube[1] = { 1.f, 1.f, -1.f };
+	app->cube[2] = { -1.f, -1.f, -1.f };
+	app->cube[3] = { 1.f, -1.f, -1.f };
+	app->cube[4] = { -1.f, 1.f, 1.f };
+	app->cube[5] = { 1.f, 1.f, 1.f };
+	app->cube[6] = { -1.f, -1.f, 1.f };
+	app->cube[7] = { 1.f, -1.f, 1.f };
 }
 
 void HandleWidget(ImGuiApp* app, zest_widget* widget) {
@@ -793,6 +806,34 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui::DragFloat("Radius", &app->radius, 0.001f); if (ImGui::IsItemEdited) CreatePathPoints(app);
 		*/
 
+		ImGui::DragFloat("Pitch", &app->angles.x, 0.1f); if (ImGui::IsItemEdited) CreatePathPoints(app);
+		ImGui::DragFloat("Yaw", &app->angles.y, 0.1f); if (ImGui::IsItemEdited) CreatePathPoints(app);
+		ImGui::DragFloat("Roll", &app->angles.z, 0.1f); if (ImGui::IsItemEdited) CreatePathPoints(app);
+
+		float pitch = zest_Radians(app->angles.x);
+		float yaw = zest_Radians(app->angles.y);
+		app->velocity_normal.z = cos(yaw) * cos(pitch);
+		app->velocity_normal.y = -sin(pitch);
+		app->velocity_normal.x = sin(yaw) * cos(pitch);
+
+		app->velocity_normal = zest_NormalizeVec3(app->velocity_normal);
+
+		Quaternion q = ToQuaternion(zest_Radians(app->angles.x), zest_Radians(app->angles.y), zest_Radians(app->angles.z));
+		ImGui::Text("w: %f, x: %f, y: %f, z: %f, length: %f", q.w, q.x, q.y, q.z, q.length());
+
+		zest_vec3 vec = { 0.f, 0.f, 1.f };
+		zest_vec3 rot_vec = q.rotate(vec);
+		ImGui::Text("Rotated Vec: x: %f, y: %f, z: %f", rot_vec.x, rot_vec.y, rot_vec.z);
+
+		tfxWideArray rx;
+		tfxWideArray ry;
+		tfxWideArray rz;
+		rx.m = _mm_set1_ps(0.f);
+		ry.m = _mm_set1_ps(0.f);
+		rz.m = _mm_set1_ps(1.f);
+		TransformQuaternionVec3(&q, &rx.m, &ry.m, &rz.m);
+		ImGui::Text("Rotated Wide Vec: x: %f, y: %f, z: %f", rx.a[0], ry.a[0], rz.a[0]);
+
 		zest_vec3 pole = {};
 		zest_vec3 nearest_point = {};
 		zest_vec3 perp = {};
@@ -965,7 +1006,68 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 	}
 
+	zest_vec3 direction;
+	direction.z = cosf(zest_Radians(app->angles.y)) * cosf(zest_Radians(app->angles.x));
+	direction.y = -sinf(zest_Radians(app->angles.x));
+	direction.x = sinf(zest_Radians(app->angles.y)) * cosf(zest_Radians(app->angles.x));
+	zest_vec3 start = { 0.f, 0.f, 0.f };
+	for (int i = 0; i != 20; ++i) {
+		zest_vec3 rand_vec = randomVectorInCone(direction, 90.f);
+		zest_SetLayerColor(app->line_layer, 255, 0, 0, 255);
+		end = zest_AddVec3(rand_vec, start);
+		zest_vec3 end1 = zest_AddVec3(end, zest_ScaleVec3(&rand_vec, 0.1f));
+		zest_Draw3DLine(app->line_layer, &end.x, &end1.x, 3.f);
+	}
+
+	Quaternion q = ToQuaternion(zest_Radians(app->angles.x), zest_Radians(app->angles.y), 0.f);
+	zest_vec3 vec = { 0.f, 0.f, 1.f };
+	zest_vec3 rot_vec = q.rotate(vec);
+	rot_vec = zest_ScaleVec3(&rot_vec, 3.f);
+
+	end = zest_AddVec3(rot_vec, start);
+	zest_Draw3DLine(app->line_layer, &start.x, &end.x, 3.f);
+
 	Draw3dWidgets(app);
+
+	Quaternion cube_q = ToQuaternion(zest_Radians(app->angles.x), zest_Radians(app->angles.y), zest_Radians(app->angles.z));
+
+	tfxWideArray rx;
+	tfxWideArray ry;
+	tfxWideArray rz;
+	rx.m = _mm_set1_ps(0.f);
+	ry.m = _mm_set1_ps(0.f);
+	rz.m = _mm_set1_ps(1.f);
+	TransformQuaternionVec3(&cube_q, &rx.m, &ry.m, &rz.m);
+
+	zest_vec3 tform_cube[8];
+	tfxWideArray tform_wcube_x[8];
+	tfxWideArray tform_wcube_y[8];
+	tfxWideArray tform_wcube_z[8];
+	for (int i = 0; i != 8; ++i) {
+		tfxWideArray xc;
+		tfxWideArray yc;
+		tfxWideArray zc;
+		xc.m = _mm_set1_ps(app->cube[i].x);
+		yc.m = _mm_set1_ps(app->cube[i].y);
+		zc.m = _mm_set1_ps(app->cube[i].z);
+		TransformQuaternionVec3(&cube_q, &xc.m, &yc.m, &zc.m);
+		tform_cube[i].x = xc.a[0];
+		tform_cube[i].y = yc.a[0];
+		tform_cube[i].z = zc.a[0];
+	}
+
+	zest_Draw3DLine(app->line_layer, &tform_cube[0].x, &tform_cube[1].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[1].x, &tform_cube[3].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[3].x, &tform_cube[2].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[2].x, &tform_cube[0].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[4].x, &tform_cube[5].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[5].x, &tform_cube[7].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[7].x, &tform_cube[6].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[6].x, &tform_cube[4].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[6].x, &tform_cube[2].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[4].x, &tform_cube[0].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[7].x, &tform_cube[3].x, 3.f);
+	zest_Draw3DLine(app->line_layer, &tform_cube[5].x, &tform_cube[1].x, 3.f);
 
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
