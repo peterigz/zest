@@ -586,6 +586,11 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->cube[5] = { 1.f, 1.f, 1.f };
 	app->cube[6] = { -1.f, -1.f, 1.f };
 	app->cube[7] = { 1.f, -1.f, 1.f };
+
+	for (int i = 0; i != 100; ++i) {
+		app->particles[i].position = { 0 };
+		app->particles[i].velocity = randomVectorInCone({1.f, 0.f, 0.f}, 180.f);
+	}
 }
 
 void HandleWidget(ImGuiApp* app, zest_widget* widget) {
@@ -753,6 +758,36 @@ void Draw3dWidgets(ImGuiApp* app) {
 
 	zest_SetLayerColor(app->scale_widget_layer, 255, 255, 255, 255);
 	zest_DrawInstancedMesh(app->scale_widget_layer, &scale_widget_position.x, &mesh_rot.x, &mesh_scale.x);
+}
+
+zest_vec3 RotateVector(const zest_vec3& vector, const zest_vec3& axis, float angle) {
+	float cosTheta = cosf(angle);
+	float sinTheta = sinf(angle);
+	float dotProduct = zest_DotProduct3(vector, axis);
+
+	zest_vec3 crossProduct = zest_CrossProduct(vector, axis);
+
+	return {
+		vector.x * cosTheta + crossProduct.x * sinTheta + axis.x * dotProduct * (1 - cosTheta),
+		vector.y * cosTheta + crossProduct.y * sinTheta + axis.y * dotProduct * (1 - cosTheta),
+		vector.z * cosTheta + crossProduct.z * sinTheta + axis.z * dotProduct * (1 - cosTheta)
+	};
+}
+
+void UpdateVelocity3D(particle *particle, float max_angle, int changeFrequency) {
+	static Random random;
+
+	if (random.randInt(1, changeFrequency) == 1) {
+		// Generate a random rotation axis
+		zest_vec3 axis = {random.uniform(), random.uniform(), random.uniform()};
+		axis = zest_NormalizeVec3(axis);
+
+		// Generate a random rotation angle
+		float angle = random.uniform() * max_angle;
+
+		// Apply the rotation to the velocity vector
+		particle->velocity = RotateVector(particle->velocity, axis, angle);
+	}
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -1068,6 +1103,13 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_Draw3DLine(app->line_layer, &tform_cube[4].x, &tform_cube[0].x, 3.f);
 	zest_Draw3DLine(app->line_layer, &tform_cube[7].x, &tform_cube[3].x, 3.f);
 	zest_Draw3DLine(app->line_layer, &tform_cube[5].x, &tform_cube[1].x, 3.f);
+
+	float delta_time = (float)elapsed / 1000000;
+	for (int i = 0; i != 100; ++i) {
+		UpdateVelocity3D(&app->particles[i], zest_Radians(20.f), 20);
+		app->particles[i].position = zest_AddVec3(app->particles[i].position, zest_ScaleVec3(&app->particles[i].velocity, 1.f * delta_time));
+		zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &app->particles[i].position.x, 0.f, 0.2f, 0.2f);
+	}
 
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);

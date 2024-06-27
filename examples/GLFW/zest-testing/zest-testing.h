@@ -35,6 +35,21 @@ enum zest_widget_part_index {
 	zest_part_none
 };
 
+struct Random {
+	std::mt19937 gen;
+	std::uniform_real_distribution<> dis;
+
+	Random() : gen(std::random_device{}()), dis(-1.0, 1.0) {}
+
+	double uniform() {
+		return dis(gen);
+	}
+
+	int randInt(int min, int max) {
+		return std::uniform_int_distribution<>(min, max)(gen);
+	}
+};
+
 struct ellipsoid {
 	zest_vec3 position;
 	zest_vec3 radius;
@@ -68,6 +83,11 @@ struct zest_widget {
 	zest_widget_type type;
 	zest_widget_part parts[6];
 	zest_widget_part whole_widget;
+};
+
+struct particle {
+	zest_vec3 position;
+	zest_vec3 velocity;
 };
 
 typedef union {
@@ -292,6 +312,8 @@ struct ImGuiApp {
 	bool orthagonal = false;
 	zest_vec3 cross_plane;
 	zest_vec3 cube[8];
+
+	particle particles[100];
 
 	float height_increment;
 	float angle_increment;
