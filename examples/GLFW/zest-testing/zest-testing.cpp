@@ -777,7 +777,7 @@ zest_vec3 RotateVector(const zest_vec3& vector, const zest_vec3& axis, float ang
 void UpdateVelocity3D(particle *particle, float max_angle, int changeFrequency) {
 	static Random random;
 
-	if (random.randInt(1, changeFrequency) == 1) {
+	//if (random.randInt(1, changeFrequency) == 1) {
 		// Generate a random rotation axis
 		zest_vec3 axis = {random.uniform(), random.uniform(), random.uniform()};
 		axis = zest_NormalizeVec3(axis);
@@ -787,7 +787,7 @@ void UpdateVelocity3D(particle *particle, float max_angle, int changeFrequency) 
 
 		// Apply the rotation to the velocity vector
 		particle->velocity = RotateVector(particle->velocity, axis, angle);
-	}
+	//}
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -1106,7 +1106,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 	float delta_time = (float)elapsed / 1000000;
 	for (int i = 0; i != 100; ++i) {
-		UpdateVelocity3D(&app->particles[i], zest_Radians(20.f), 20);
+		UpdateVelocity3D(&app->particles[i], zest_Radians(90.f), 1);
 		app->particles[i].position = zest_AddVec3(app->particles[i].position, zest_ScaleVec3(&app->particles[i].velocity, 1.f * delta_time));
 		zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &app->particles[i].position.x, 0.f, 0.2f, 0.2f);
 	}
