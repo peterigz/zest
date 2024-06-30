@@ -107,7 +107,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//Use the projection and view matrices in the buffer to project the mouse coordinates into 3d space.
 	zest_vec3 ray = zest_ScreenRay((float)ZestApp->mouse_x, (float)ZestApp->mouse_y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
 	//Scale the ray into the 3d space by 10 and add the camera position.
-	zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&ray, 10.f), example->camera.position);
+	zest_vec3 position = zest_AddVec3(zest_ScaleVec3(ray, 10.f), example->camera.position);
 	//Set some values to draw the billboard with
 	zest_vec3 angles = { 0 };
 	zest_vec3 handle = { .5f, .5f };

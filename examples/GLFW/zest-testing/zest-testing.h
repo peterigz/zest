@@ -50,6 +50,46 @@ struct Random {
 	}
 };
 
+class ValueNoise {
+private:
+	static constexpr int TABLE_SIZE = 256;
+	uint8_t permutationTable[TABLE_SIZE];
+
+	float lerp(float a, float b, float t) {
+		return a + t * (b - a);
+	}
+
+	float smoothstep(float t) {
+		return t * t * (3 - 2 * t);
+	}
+
+public:
+	ValueNoise(uint32_t seed = 0) {
+		for (int i = 0; i < TABLE_SIZE; ++i) {
+			permutationTable[i] = i;
+		}
+
+		// Fisher-Yates shuffle
+		for (int i = TABLE_SIZE - 1; i > 0; --i) {
+			seed = seed * 1103515245 + 12345;
+			int j = seed % (i + 1);
+			std::swap(permutationTable[i], permutationTable[j]);
+		}
+	}
+
+	float noise(float x) {
+		int x0 = static_cast<int>(std::floor(x)) & (TABLE_SIZE - 1);
+		int x1 = (x0 + 1) & (TABLE_SIZE - 1);
+		float t = x - std::floor(x);
+		float st = smoothstep(t);
+
+		float n0 = static_cast<float>(permutationTable[x0]) / 255.0f;
+		float n1 = static_cast<float>(permutationTable[x1]) / 255.0f;
+
+		return lerp(n0, n1, st);
+	}
+};
+
 struct ellipsoid {
 	zest_vec3 position;
 	zest_vec3 radius;
@@ -88,6 +128,7 @@ struct zest_widget {
 struct particle {
 	zest_vec3 position;
 	zest_vec3 velocity;
+	float age;
 };
 
 typedef union {
@@ -255,12 +296,12 @@ zest_vec3 randomVectorInCone(const zest_vec3& coneDirection, float coneAngleDegr
 
 	// Rotate the random vector to align with the cone direction
 	// Use Rodrigues' rotation formula
-	zest_vec3 xv = zest_ScaleVec3(&randomVector, cos(rotationAngle));
+	zest_vec3 xv = zest_ScaleVec3(randomVector, cos(rotationAngle));
 	zest_vec3 yv = (zest_CrossProduct(rotationAxis, randomVector));
-	yv = zest_ScaleVec3(&yv, sin(rotationAngle));
+	yv = zest_ScaleVec3(yv, sin(rotationAngle));
 	float zv_dot = zest_DotProduct3(rotationAxis, randomVector);
-	zest_vec3 zv = zest_ScaleVec3(&rotationAxis, zv_dot);
-	zv = zest_ScaleVec3(&zv, (1.f - cosf(rotationAngle)));
+	zest_vec3 zv = zest_ScaleVec3(rotationAxis, zv_dot);
+	zv = zest_ScaleVec3(zv, (1.f - cosf(rotationAngle)));
 	zest_vec3 rotatedVector = zest_AddVec3(zest_AddVec3(xv, yv), zv);
 
 	return rotatedVector;
@@ -303,6 +344,10 @@ struct ImGuiApp {
 	zest_vec3 angles;
 	zest_vec3 velocity_normal;
 
+	ValueNoise value_noise;
+	float noise_frequency = 0.01;
+	float noise_influence = 0.1;
+	float time = 1000.f;
 	zest_camera_t camera;
 	ellipsoid ellipse;
 	cylinder_t cylinder;

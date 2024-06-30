@@ -349,19 +349,19 @@ zest_matrix4 zest_M4SetWithVecs(zest_vec4 a, zest_vec4 b, zest_vec4 c, zest_vec4
 
 zest_matrix4 zest_ScaleMatrix4x4(zest_matrix4* m, zest_vec4* v) {
     zest_matrix4 result = zest_M4(1);
-    result.v[0] = zest_ScaleVec4(&m->v[0], v->x);
-    result.v[1] = zest_ScaleVec4(&m->v[1], v->y);
-    result.v[2] = zest_ScaleVec4(&m->v[2], v->z);
-    result.v[3] = zest_ScaleVec4(&m->v[3], v->w);
+    result.v[0] = zest_ScaleVec4(m->v[0], v->x);
+    result.v[1] = zest_ScaleVec4(m->v[1], v->y);
+    result.v[2] = zest_ScaleVec4(m->v[2], v->z);
+    result.v[3] = zest_ScaleVec4(m->v[3], v->w);
     return result;
 }
 
 zest_matrix4 zest_ScaleMatrix4(zest_matrix4* m, float scalar) {
     zest_matrix4 result = zest_M4(1);
-    result.v[0] = zest_ScaleVec4(&m->v[0], scalar);
-    result.v[1] = zest_ScaleVec4(&m->v[1], scalar);
-    result.v[2] = zest_ScaleVec4(&m->v[2], scalar);
-    result.v[3] = zest_ScaleVec4(&m->v[3], scalar);
+    result.v[0] = zest_ScaleVec4(m->v[0], scalar);
+    result.v[1] = zest_ScaleVec4(m->v[1], scalar);
+    result.v[2] = zest_ScaleVec4(m->v[2], scalar);
+    result.v[3] = zest_ScaleVec4(m->v[3], scalar);
     return result;
 }
 
@@ -461,53 +461,53 @@ zest_vec4 zest_SubVec4(zest_vec4 left, zest_vec4 right) {
     return result;
 }
 
-zest_vec3 zest_FlipVec3(zest_vec3* vec3) {
+zest_vec3 zest_FlipVec3(zest_vec3 vec3) {
     zest_vec3 flipped;
-    flipped.x = -vec3->x;
-    flipped.y = -vec3->y;
-    flipped.z = -vec3->z;
+    flipped.x = -vec3.x;
+    flipped.y = -vec3.y;
+    flipped.z = -vec3.z;
     return flipped;
 }
 
-zest_vec2 zest_ScaleVec2(zest_vec2* vec, float scalar) {
+zest_vec2 zest_ScaleVec2(zest_vec2 vec, float scalar) {
     zest_vec2 result;
-    result.x = vec->x * scalar;
-    result.y = vec->y * scalar;
+    result.x = vec.x * scalar;
+    result.y = vec.y * scalar;
     return result;
 }
 
-zest_vec3 zest_ScaleVec3(zest_vec3* vec, float scalar) {
+zest_vec3 zest_ScaleVec3(zest_vec3 vec, float scalar) {
     zest_vec3 result;
-    result.x = vec->x * scalar;
-    result.y = vec->y * scalar;
-    result.z = vec->z * scalar;
+    result.x = vec.x * scalar;
+    result.y = vec.y * scalar;
+    result.z = vec.z * scalar;
     return result;
 }
 
-zest_vec4 zest_ScaleVec4(zest_vec4* vec, float scalar) {
+zest_vec4 zest_ScaleVec4(zest_vec4 vec, float scalar) {
     zest_vec4 result;
-    result.x = vec->x * scalar;
-    result.y = vec->y * scalar;
-    result.z = vec->z * scalar;
-    result.w = vec->w * scalar;
+    result.x = vec.x * scalar;
+    result.y = vec.y * scalar;
+    result.z = vec.z * scalar;
+    result.w = vec.w * scalar;
     return result;
 }
 
-zest_vec3 zest_MulVec3(zest_vec3* left, zest_vec3* right) {
+zest_vec3 zest_MulVec3(zest_vec3 left, zest_vec3 right) {
     zest_vec3 result = {
-        .x = left->x * right->x,
-        .y = left->y * right->y,
-        .z = left->z * right->z,
+        .x = left.x * right.x,
+        .y = left.y * right.y,
+        .z = left.z * right.z,
     };
     return result;
 }
 
-zest_vec4 zest_MulVec4(zest_vec4* left, zest_vec4* right) {
+zest_vec4 zest_MulVec4(zest_vec4 left, zest_vec4 right) {
     zest_vec4 result = {
-        .x = left->x * right->x,
-        .y = left->y * right->y,
-        .z = left->z * right->z,
-        .w = left->w * right->w
+        .x = left.x * right.x,
+        .y = left.y * right.y,
+        .z = left.z * right.z,
+        .w = left.w * right.w
     };
     return result;
 }
@@ -599,18 +599,18 @@ zest_matrix4 zest_Inverse(zest_matrix4* m) {
     zest_vec4 Vec2 = zest_Vec4Set(m->v[1].z, m->v[0].z, m->v[0].z, m->v[0].z);
     zest_vec4 Vec3 = zest_Vec4Set(m->v[1].w, m->v[0].w, m->v[0].w, m->v[0].w);
 
-    zest_vec4 Inv0 = zest_Vec4SetVec(zest_AddVec4(zest_SubVec4(zest_MulVec4(&Vec1, &Fac0), zest_MulVec4(&Vec2, &Fac1)), zest_MulVec4(&Vec3, &Fac2)));
-    zest_vec4 Inv1 = zest_Vec4SetVec(zest_AddVec4(zest_SubVec4(zest_MulVec4(&Vec0, &Fac0), zest_MulVec4(&Vec2, &Fac3)), zest_MulVec4(&Vec3, &Fac4)));
-    zest_vec4 Inv2 = zest_Vec4SetVec(zest_AddVec4(zest_SubVec4(zest_MulVec4(&Vec0, &Fac1), zest_MulVec4(&Vec1, &Fac3)), zest_MulVec4(&Vec3, &Fac5)));
-    zest_vec4 Inv3 = zest_Vec4SetVec(zest_AddVec4(zest_SubVec4(zest_MulVec4(&Vec0, &Fac2), zest_MulVec4(&Vec1, &Fac4)), zest_MulVec4(&Vec2, &Fac5)));
+    zest_vec4 Inv0 = zest_Vec4SetVec(zest_AddVec4(zest_SubVec4(zest_MulVec4(Vec1, Fac0), zest_MulVec4(Vec2, Fac1)), zest_MulVec4(Vec3, Fac2)));
+    zest_vec4 Inv1 = zest_Vec4SetVec(zest_AddVec4(zest_SubVec4(zest_MulVec4(Vec0, Fac0), zest_MulVec4(Vec2, Fac3)), zest_MulVec4(Vec3, Fac4)));
+    zest_vec4 Inv2 = zest_Vec4SetVec(zest_AddVec4(zest_SubVec4(zest_MulVec4(Vec0, Fac1), zest_MulVec4(Vec1, Fac3)), zest_MulVec4(Vec3, Fac5)));
+    zest_vec4 Inv3 = zest_Vec4SetVec(zest_AddVec4(zest_SubVec4(zest_MulVec4(Vec0, Fac2), zest_MulVec4(Vec1, Fac4)), zest_MulVec4(Vec2, Fac5)));
 
     zest_vec4 SignA = zest_Vec4Set(+1, -1, +1, -1);
     zest_vec4 SignB = zest_Vec4Set(-1, +1, -1, +1);
-    zest_matrix4 inverse = zest_M4SetWithVecs(zest_MulVec4(&Inv0, &SignA), zest_MulVec4(&Inv1, &SignB), zest_MulVec4(&Inv2, &SignA), zest_MulVec4(&Inv3, &SignB));
+    zest_matrix4 inverse = zest_M4SetWithVecs(zest_MulVec4(Inv0, SignA), zest_MulVec4(Inv1, SignB), zest_MulVec4(Inv2, SignA), zest_MulVec4(Inv3, SignB));
 
     zest_vec4 Row0 = zest_Vec4Set(inverse.v[0].x, inverse.v[1].x, inverse.v[2].x, inverse.v[3].x);
 
-    zest_vec4 Dot0 = zest_Vec4SetVec(zest_MulVec4(&m->v[0], &Row0));
+    zest_vec4 Dot0 = zest_Vec4SetVec(zest_MulVec4(m->v[0], Row0));
     float Dot1 = (Dot0.x + Dot0.y) + (Dot0.z + Dot0.w);
 
     float OneOverDeterminant = 1.f / Dot1;
@@ -904,31 +904,31 @@ void zest_CameraUpdateFront(zest_camera_t* camera) {
 }
 
 void zest_CameraMoveForward(zest_camera_t* camera, float speed) {
-    camera->position = zest_AddVec3(camera->position, zest_ScaleVec3(&camera->front, speed));
+    camera->position = zest_AddVec3(camera->position, zest_ScaleVec3(camera->front, speed));
 }
 
 void zest_CameraMoveBackward(zest_camera_t* camera, float speed) {
-    camera->position = zest_SubVec3(camera->position, zest_ScaleVec3(&camera->front, speed));
+    camera->position = zest_SubVec3(camera->position, zest_ScaleVec3(camera->front, speed));
 }
 
 void zest_CameraMoveUp(zest_camera_t* camera, float speed) {
     zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(camera->front, camera->right));
-    camera->position = zest_AddVec3(camera->position, zest_ScaleVec3(&cross, speed));
+    camera->position = zest_AddVec3(camera->position, zest_ScaleVec3(cross, speed));
 }
 
 void zest_CameraMoveDown(zest_camera_t* camera, float speed) {
     zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(camera->front, camera->right));
-    camera->position = zest_SubVec3(camera->position, zest_ScaleVec3(&cross, speed));
+    camera->position = zest_SubVec3(camera->position, zest_ScaleVec3(cross, speed));
 }
 
 void zest_CameraStrafLeft(zest_camera_t* camera, float speed) {
     zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(camera->front, camera->up));
-    camera->position = zest_SubVec3(camera->position, zest_ScaleVec3(&cross, speed));
+    camera->position = zest_SubVec3(camera->position, zest_ScaleVec3(cross, speed));
 }
 
 void zest_CameraStrafRight(zest_camera_t* camera, float speed) {
     zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(camera->front, camera->up));
-    camera->position = zest_AddVec3(camera->position, zest_ScaleVec3(&cross, speed));
+    camera->position = zest_AddVec3(camera->position, zest_ScaleVec3(cross, speed));
 }
 
 void zest_CameraPosition(zest_camera_t* camera, zest_vec3 position) {
@@ -953,7 +953,7 @@ zest_bool zest_RayIntersectPlane(zest_vec3 ray_origin, zest_vec3 ray_direction, 
         return ZEST_FALSE;
     float d = zest_DotProduct3(plane, plane_normal);
     *distance = (d - zest_DotProduct3(ray_origin, plane_normal)) / ray_to_plane_normal_dp;
-    *intersection = zest_ScaleVec3(&ray_direction, *distance);
+    *intersection = zest_ScaleVec3(ray_direction, *distance);
     *intersection = zest_AddVec3(*intersection, ray_origin);
     return ZEST_TRUE;
 }
@@ -1139,7 +1139,7 @@ zest_uint zest_Pack16bitStretch(float x, float y) {
 }
 
 zest_uint zest_Pack10bit(zest_vec3* v, zest_uint extra) {
-    zest_vec3 converted = zest_ScaleVec3(v, 511.f);
+    zest_vec3 converted = zest_ScaleVec3(*v, 511.f);
     zest_packed10bit result;
     result.pack = 0;
     result.data.x = (zest_uint)converted.z;
@@ -1150,7 +1150,7 @@ zest_uint zest_Pack10bit(zest_vec3* v, zest_uint extra) {
 }
 
 zest_uint zest_Pack8bitx3(zest_vec3* v) {
-    zest_vec3 converted = zest_ScaleVec3(v, 255.f);
+    zest_vec3 converted = zest_ScaleVec3(*v, 255.f);
     zest_packed8bit result;
     result.pack = 0;
     result.data.x = (zest_uint)converted.z;
@@ -1168,7 +1168,7 @@ float zest_Radians(float degrees) { return degrees * 0.0174532925199432957692369
 float zest_Degrees(float radians) { return radians * 57.295779513082320876798154814105f; }
 
 zest_vec3 zest_Lerp(zest_vec3* captured, zest_vec3* present, float lerp) {
-    return zest_AddVec3(zest_ScaleVec3(present, lerp), zest_ScaleVec3(captured, (1.f - lerp)));
+    return zest_AddVec3(zest_ScaleVec3(*present, lerp), zest_ScaleVec3(*captured, (1.f - lerp)));
 }
 
 //  --End Math

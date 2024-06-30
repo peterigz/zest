@@ -2463,12 +2463,12 @@ ZEST_API zest_vec2 zest_AddVec2(zest_vec2 left, zest_vec2 right);
 ZEST_API zest_vec3 zest_AddVec3(zest_vec3 left, zest_vec3 right);
 ZEST_API zest_vec4 zest_AddVec4(zest_vec4 left, zest_vec4 right);
 //Scale a vector by a scalar and return the result
-ZEST_API zest_vec2 zest_ScaleVec2(zest_vec2 *vec2, float v);
-ZEST_API zest_vec3 zest_ScaleVec3(zest_vec3 *vec3, float v);
-ZEST_API zest_vec4 zest_ScaleVec4(zest_vec4 *vec4, float v);
+ZEST_API zest_vec2 zest_ScaleVec2(zest_vec2 vec2, float v);
+ZEST_API zest_vec3 zest_ScaleVec3(zest_vec3 vec3, float v);
+ZEST_API zest_vec4 zest_ScaleVec4(zest_vec4 vec4, float v);
 //Multiply 2 vectors and return the result
-ZEST_API zest_vec3 zest_MulVec3(zest_vec3 *left, zest_vec3 *right);
-ZEST_API zest_vec4 zest_MulVec4(zest_vec4 *left, zest_vec4 *right);
+ZEST_API zest_vec3 zest_MulVec3(zest_vec3 left, zest_vec3 *right);
+ZEST_API zest_vec4 zest_MulVec4(zest_vec4 left, zest_vec4 *right);
 //Get the length of a vec without square rooting
 ZEST_API float zest_LengthVec3(zest_vec3 const v);
 ZEST_API float zest_LengthVec4(zest_vec4 const v);

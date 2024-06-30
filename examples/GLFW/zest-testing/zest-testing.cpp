@@ -25,7 +25,7 @@ void UpdateUniform3d(ImGuiApp* app) {
 zest_vec3 ScreenRay(float x, float y, float depth_offset, zest_vec3& camera_position, zest_descriptor_buffer buffer) {
 	zest_uniform_buffer_data_t* buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
-	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(&camera_last_ray, depth_offset), camera_position);
+	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
 	return { pos.x, pos.y, pos.z };
 }
 
@@ -590,7 +590,9 @@ void InitImGuiApp(ImGuiApp* app) {
 	for (int i = 0; i != 100; ++i) {
 		app->particles[i].position = { 0 };
 		app->particles[i].velocity = randomVectorInCone({1.f, 0.f, 0.f}, 180.f);
+		app->particles[i].age = i * 20.f;
 	}
+	app->value_noise = ValueNoise(12345);
 }
 
 void HandleWidget(ImGuiApp* app, zest_widget* widget) {
@@ -635,7 +637,7 @@ void HandleWidget(ImGuiApp* app, zest_widget* widget) {
 		float distance = 0.f;
 		zest_vec3 plane_normal = app->plane_normals[widget->hovered_group_id];
 		float ray_to_plane_normal_dp = zest_DotProduct3(plane_normal, ray_direction);
-		plane_normal = zest_ScaleVec3(&plane_normal, ray_to_plane_normal_dp < 0 ? 1.f : -1.f);
+		plane_normal = zest_ScaleVec3(plane_normal, ray_to_plane_normal_dp < 0 ? 1.f : -1.f);
 		if (zest_RayIntersectPlane(app->camera.position, ray_direction, widget->position, plane_normal, &distance, &intersection)) {
 			if (!app->picked_widget) {
 				app->first_intersection = intersection;
@@ -723,18 +725,18 @@ void Draw3dWidgets(ImGuiApp* app) {
 			float distance;
 			zest_vec3 intersection;
 			if (zest_RayIntersectPlane(start, end1, app->camera.position, app->camera.front, &distance, &intersection)) {
-				start = zest_ScaleVec3(&intersection, .999f);
-				end1 = zest_AddVec3(zest_ScaleVec3(&end2, 1000.f), start);
+				start = zest_ScaleVec3(intersection, .999f);
+				end1 = zest_AddVec3(zest_ScaleVec3(end2, 1000.f), start);
 				zest_Draw3DLine(app->line_layer, &start.x, &end1.x, 3.f);
 			}
 			else if (zest_RayIntersectPlane(start, end2, app->camera.position, app->camera.front, &distance, &intersection)) {
-				start = zest_ScaleVec3(&intersection, .999f);
-				end2 = zest_AddVec3(zest_ScaleVec3(&end1, 1000.f), start);
+				start = zest_ScaleVec3(intersection, .999f);
+				end2 = zest_AddVec3(zest_ScaleVec3(end1, 1000.f), start);
 				zest_Draw3DLine(app->line_layer, &start.x, &end2.x, 3.f);
 			}
 			else {
-				end2 = zest_AddVec3(zest_ScaleVec3(&end2, 1000.f), start);
-				start = zest_AddVec3(zest_ScaleVec3(&end2, -1000.f), start);
+				end2 = zest_AddVec3(zest_ScaleVec3(end2, 1000.f), start);
+				start = zest_AddVec3(zest_ScaleVec3(end2, -1000.f), start);
 				zest_Draw3DLine(app->line_layer, &start.x, &end2.x, 3.f);
 			}
 		}
@@ -774,20 +776,26 @@ zest_vec3 RotateVector(const zest_vec3& vector, const zest_vec3& axis, float ang
 	};
 }
 
-void UpdateVelocity3D(particle *particle, float max_angle, int changeFrequency) {
+void UpdateVelocity3D(particle *particle, ValueNoise *noise, float time, float speed, float influence) {
 	static Random random;
 
-	//if (random.randInt(1, changeFrequency) == 1) {
-		// Generate a random rotation axis
-		zest_vec3 axis = {random.uniform(), random.uniform(), random.uniform()};
-		axis = zest_NormalizeVec3(axis);
+	float noiseX = 1.f - noise->noise(time) * 2.f;
+	float noiseY = 1.f - noise->noise(time + 100.0f) * 2.f;
+	float noiseZ = 1.f - noise->noise(time + 200.0f) * 2.f;
 
-		// Generate a random rotation angle
-		float angle = random.uniform() * max_angle;
+	// Create a noise vector
+	zest_vec3 noiseVector = { noiseX, noiseY, noiseZ };
 
-		// Apply the rotation to the velocity vector
-		particle->velocity = RotateVector(particle->velocity, axis, angle);
-	//}
+	// Normalize the noise vector
+	noiseVector = zest_NormalizeVec3(noiseVector);
+	noiseVector = zest_ScaleVec3(noiseVector, influence); 
+
+	// Blend the current velocity with the noise vector
+	zest_vec3 velocity = zest_AddVec3(particle->velocity, noiseVector); 
+	velocity = zest_NormalizeVec3(velocity);
+
+	// Normalize the velocity and apply the speed
+	particle->position = zest_AddVec3(particle->position, zest_ScaleVec3(velocity, speed));
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -869,6 +877,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		TransformQuaternionVec3(&q, &rx.m, &ry.m, &rz.m);
 		ImGui::Text("Rotated Wide Vec: x: %f, y: %f, z: %f", rx.a[0], ry.a[0], rz.a[0]);
 
+		ImGui::DragFloat("Noise Influence", &app->noise_influence, 0.001f, 0.f); 
+		ImGui::DragFloat("Noise Frequency", &app->noise_frequency, 0.001f, 0.f);
+
 		zest_vec3 pole = {};
 		zest_vec3 nearest_point = {};
 		zest_vec3 perp = {};
@@ -915,12 +926,12 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		else {
 			if (ImGui::IsKeyDown(ImGuiKey_W)) {
-				app->point.position = zest_AddVec3(app->point.position, zest_ScaleVec3(&app->point.direction_normal, 0.1f));
+				app->point.position = zest_AddVec3(app->point.position, zest_ScaleVec3(app->point.direction_normal, 0.1f));
 				app->point.position = NearestPointOnEllipsoid(app->ellipse, app->point.position);
 				app->point.normal = EllipseSurfaceNormal(app->point.position.x, app->point.position.y, app->point.position.z, app->ellipse.radius.x, app->ellipse.radius.y, app->ellipse.radius.z);
 			} else if(ImGui::IsKeyDown(ImGuiKey_S)) {
 				zest_vec3 perp = zest_CrossProduct(app->point.normal, app->cross_plane);
-				app->point.position = zest_SubVec3(app->point.position, zest_ScaleVec3(&perp, 0.1f));
+				app->point.position = zest_SubVec3(app->point.position, zest_ScaleVec3(perp, 0.1f));
 				app->point.position = NearestPointOnEllipsoid(app->ellipse, app->point.position);
 				app->point.normal = EllipseSurfaceNormal(app->point.position.x, app->point.position.y, app->point.position.z, app->ellipse.radius.x, app->ellipse.radius.y, app->ellipse.radius.z);
 			}
@@ -1050,14 +1061,14 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_vec3 rand_vec = randomVectorInCone(direction, 90.f);
 		zest_SetLayerColor(app->line_layer, 255, 0, 0, 255);
 		end = zest_AddVec3(rand_vec, start);
-		zest_vec3 end1 = zest_AddVec3(end, zest_ScaleVec3(&rand_vec, 0.1f));
+		zest_vec3 end1 = zest_AddVec3(end, zest_ScaleVec3(rand_vec, 0.1f));
 		zest_Draw3DLine(app->line_layer, &end.x, &end1.x, 3.f);
 	}
 
 	Quaternion q = ToQuaternion(zest_Radians(app->angles.x), zest_Radians(app->angles.y), 0.f);
 	zest_vec3 vec = { 0.f, 0.f, 1.f };
 	zest_vec3 rot_vec = q.rotate(vec);
-	rot_vec = zest_ScaleVec3(&rot_vec, 3.f);
+	rot_vec = zest_ScaleVec3(rot_vec, 3.f);
 
 	end = zest_AddVec3(rot_vec, start);
 	zest_Draw3DLine(app->line_layer, &start.x, &end.x, 3.f);
@@ -1105,10 +1116,25 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_Draw3DLine(app->line_layer, &tform_cube[5].x, &tform_cube[1].x, 3.f);
 
 	float delta_time = (float)elapsed / 1000000;
+	app->time += app->noise_frequency;
 	for (int i = 0; i != 100; ++i) {
-		UpdateVelocity3D(&app->particles[i], zest_Radians(90.f), 1);
-		app->particles[i].position = zest_AddVec3(app->particles[i].position, zest_ScaleVec3(&app->particles[i].velocity, 1.f * delta_time));
+		UpdateVelocity3D(&app->particles[i], &app->value_noise, app->time + (float)i, 2.f * delta_time, app->noise_influence);
+		//app->particles[i].position = zest_AddVec3(app->particles[i].position, app->particles[i].velocity);
 		zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &app->particles[i].position.x, 0.f, 0.2f, 0.2f);
+		app->particles[i].age += (float)elapsed / 1000;
+		if (app->particles[i].age > 4000.f) {
+			app->particles[i].position = { 0 };
+			app->particles[i].velocity = randomVectorInCone({ 1.f, 0.f, 0.f }, 180.f);
+			app->particles[i].age = i * 20.f;
+		}
+	}
+
+	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
+		for (int i = 0; i != 100; ++i) {
+			app->particles[i].position = { 0 };
+			app->particles[i].velocity = randomVectorInCone({ 1.f, 0.f, 0.f }, 180.f);
+			app->particles[i].age = i * 40.f;
+		}
 	}
 
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering

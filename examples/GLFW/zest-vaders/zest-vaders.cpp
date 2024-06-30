@@ -301,7 +301,7 @@ void ShapeLoader(const char* filename, tfx_image_data_t *image_data, void *raw_i
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_descriptor_buffer buffer) {
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
-	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(&camera_last_ray, depth_offset), camera_position);
+	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
 	return { pos.x, pos.y, pos.z };
 }
 
@@ -402,7 +402,7 @@ void VadersGame::Init() {
 
 	//Add the background effect nad title effect to the particle manager and set their positions
 	if (AddEffectToParticleManager(&background_pm, &background, &background_index)) {
-		zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&camera.front, 12.f), camera.position);
+		zest_vec3 position = zest_AddVec3(zest_ScaleVec3(camera.front, 12.f), camera.position);
 		SetEffectPosition(&background_pm, background_index, { position.x, position.y, position.z });
 	}
 	if (AddEffectToParticleManager(&title_pm, &title, &title_index)) {
@@ -838,7 +838,7 @@ void SetParticleOption(VadersGame *game) {
 		DisableTemplateEmitter(&game->laser, "Laser/Flare");
 
 		if (AddEffectToParticleManager(&game->background_pm, &game->background, &game->background_index)) {
-			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&game->camera.front, 12.f), game->camera.position);
+			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(game->camera.front, 12.f), game->camera.position);
 			SetEffectPosition(&game->background_pm, game->background_index, { position.x, position.y, position.z });
 		}
 		if (AddEffectToParticleManager(&game->title_pm, &game->title, &game->title_index)) {
@@ -864,7 +864,7 @@ void SetParticleOption(VadersGame *game) {
 		DisableTemplateEmitter(&game->laser, "Laser/Flare");
 
 		if (AddEffectToParticleManager(&game->background_pm, &game->background, &game->background_index)) {
-			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&game->camera.front, 12.f), game->camera.position);
+			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(game->camera.front, 12.f), game->camera.position);
 			SetEffectPosition(&game->background_pm, game->background_index, { position.x, position.y, position.z });
 		}
 		if (AddEffectToParticleManager(&game->title_pm, &game->title, &game->title_index)) {
@@ -890,7 +890,7 @@ void SetParticleOption(VadersGame *game) {
 		EnableTemplateEmitter(&game->laser, "Laser/Flare");
 
 		if (AddEffectToParticleManager(&game->background_pm, &game->background, &game->background_index)) {
-			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(&game->camera.front, 12.f), game->camera.position);
+			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(game->camera.front, 12.f), game->camera.position);
 			SetEffectPosition(&game->background_pm, game->background_index, { position.x, position.y, position.z });
 		}
 		if (AddEffectToParticleManager(&game->title_pm, &game->title, &game->title_index)) {
