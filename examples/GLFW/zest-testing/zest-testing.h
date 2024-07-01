@@ -50,10 +50,93 @@ struct Random {
 	}
 };
 
+const uint8_t perm[] =
+{
+	151,160,137,91,90,15,
+	131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,
+	190, 6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,
+	88,237,149,56,87,174,20,125,136,171,168, 68,175,74,165,71,134,139,48,27,166,
+	77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,
+	102,143,54, 65,25,63,161, 1,216,80,73,209,76,132,187,208, 89,18,169,200,196,
+	135,130,116,188,159,86,164,100,109,198,173,186, 3,64,52,217,226,250,124,123,
+	5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,
+	223,183,170,213,119,248,152, 2,44,154,163, 70,221,153,101,155,167, 43,172,9,
+	129,22,39,253, 19,98,108,110,79,113,224,232,178,185, 112,104,218,246,97,228,
+	251,34,242,193,238,210,144,12,191,179,162,241, 81,51,145,235,249,14,239,107,
+	49,192,214, 31,181,199,106,157,184, 84,204,176,115,121,50,45,127, 4,150,254,
+	138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180,
+	151,160,137,91,90,15,
+	131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,
+	190, 6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,
+	88,237,149,56,87,174,20,125,136,171,168, 68,175,74,165,71,134,139,48,27,166,
+	77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,
+	102,143,54, 65,25,63,161, 1,216,80,73,209,76,132,187,208, 89,18,169,200,196,
+	135,130,116,188,159,86,164,100,109,198,173,186, 3,64,52,217,226,250,124,123,
+	5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,
+	223,183,170,213,119,248,152, 2,44,154,163, 70,221,153,101,155,167, 43,172,9,
+	129,22,39,253, 19,98,108,110,79,113,224,232,178,185, 112,104,218,246,97,228,
+	251,34,242,193,238,210,144,12,191,179,162,241, 81,51,145,235,249,14,239,107,
+	49,192,214, 31,181,199,106,157,184, 84,204,176,115,121,50,45,127, 4,150,254,
+	138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180
+};
+
+float hash(zest_ivec2 p) {
+
+	// 2D -> 1D
+	int n = p.x * 3 + p.y * 113;
+
+	// 1D hash by Hugo Elias
+	n = (n << 13) ^ n;
+	n = n * (n * n * 15731 + 789221) + 1376312589;
+	return -1.0 + 2.0 * float(n & 0x0fffffff) / float(0x0fffffff);
+}
+
+uint32_t SeedGen(zest_ivec2 p)
+{
+	uint32_t h = (uint32_t)p.x + (uint32_t)p.y * 2654435761u;
+	h ^= h >> 15;
+	h *= 0x85ebca6b;
+	h ^= h >> 13;
+	h *= 0xc2b2ae35;
+	h ^= h >> 16;
+	return h;
+}
+
+uint32_t SeedGen(uint32_t h)
+{
+	h ^= h >> 15;
+	h *= 0x85ebca6b;
+	h ^= h >> 13;
+	h *= 0xc2b2ae35;
+	h ^= h >> 16;
+	return h;
+}
+
+float xxhash32(zest_ivec2 p)
+{
+	uint32_t h = (uint32_t)p.x + (uint32_t)p.y * 2654435761u;
+	h ^= h >> 15;
+	h *= 0x85ebca6b;
+	h ^= h >> 13;
+	h *= 0xc2b2ae35;
+	h ^= h >> 16;
+	return -1.0f + 2.0f * float(h) / float(UINT32_MAX);
+}
+
+float noise(zest_vec2 p)
+{
+	zest_ivec2 i = { (int)p.x, (int)p.y };
+	zest_vec2 f = { p.x - (int)p.x, p.y - (int)p.y };
+	zest_vec2 u = { f.x * f.x * (3.f - 2.f * f.x), f.y * f.y * (3.f - 2.f * f.y) };
+	return	zest_Lerp(	zest_Lerp(	xxhash32(zest_AddiVec2(i, {0, 0})),
+									xxhash32(zest_AddiVec2(i, {1, 0})), u.x),
+						zest_Lerp(	xxhash32(zest_AddiVec2(i, {0, 1})),
+									xxhash32(zest_AddiVec2(i, {1, 1})), u.x), u.y);
+}
+
 class ValueNoise {
 private:
 	static constexpr int TABLE_SIZE = 256;
-	uint8_t permutationTable[TABLE_SIZE];
 
 	float lerp(float a, float b, float t) {
 		return a + t * (b - a);
@@ -64,27 +147,14 @@ private:
 	}
 
 public:
-	ValueNoise(uint32_t seed = 0) {
-		for (int i = 0; i < TABLE_SIZE; ++i) {
-			permutationTable[i] = i;
-		}
-
-		// Fisher-Yates shuffle
-		for (int i = TABLE_SIZE - 1; i > 0; --i) {
-			seed = seed * 1103515245 + 12345;
-			int j = seed % (i + 1);
-			std::swap(permutationTable[i], permutationTable[j]);
-		}
-	}
-
 	float noise(float x) {
 		int x0 = static_cast<int>(std::floor(x)) & (TABLE_SIZE - 1);
 		int x1 = (x0 + 1) & (TABLE_SIZE - 1);
 		float t = x - std::floor(x);
 		float st = smoothstep(t);
 
-		float n0 = static_cast<float>(permutationTable[x0]) / 255.0f;
-		float n1 = static_cast<float>(permutationTable[x1]) / 255.0f;
+		float n0 = static_cast<float>(perm[x0]) / 255.0f;
+		float n1 = static_cast<float>(perm[x1]) / 255.0f;
 
 		return lerp(n0, n1, st);
 	}
@@ -128,7 +198,17 @@ struct zest_widget {
 struct particle {
 	zest_vec3 position;
 	zest_vec3 velocity;
+	float speed;
+	int id;
 	float age;
+};
+
+struct particle2d {
+	zest_vec3 position;
+	zest_vec2 velocity;
+	float age;
+	float speed;
+	int id;
 };
 
 typedef union {
@@ -217,12 +297,12 @@ Quaternion ToQuaternion(float roll, float pitch, float yaw) // roll (x), pitch (
 {
 	// Abbreviations for the various angular functions
 
-	float cr = cosf(roll * 0.5);
-	float sr = sinf(roll * 0.5);
-	float cp = cosf(pitch * 0.5);
-	float sp = sinf(pitch * 0.5);
-	float cy = cosf(yaw * 0.5);
-	float sy = sinf(yaw * 0.5);
+	float cr = cosf(roll * 0.5f);
+	float sr = sinf(roll * 0.5f);
+	float cp = cosf(pitch * 0.5f);
+	float sp = sinf(pitch * 0.5f);
+	float cy = cosf(yaw * 0.5f);
+	float sy = sinf(yaw * 0.5f);
 
 	Quaternion q;
 	q.w = cr * cp * cy + sr * sp * sy;
@@ -345,8 +425,11 @@ struct ImGuiApp {
 	zest_vec3 velocity_normal;
 
 	ValueNoise value_noise;
-	float noise_frequency = 0.01;
-	float noise_influence = 0.1;
+	float noise_frequency = 0.025f;
+	float noise_influence = 0.05f;
+	float speed = 2.f;
+	float emission_direction = 0.f;
+	float emission_range = ZEST_PI * .05f;
 	float time = 1000.f;
 	zest_camera_t camera;
 	ellipsoid ellipse;
@@ -359,6 +442,7 @@ struct ImGuiApp {
 	zest_vec3 cube[8];
 
 	particle particles[100];
+	particle2d particles2d[100];
 
 	float height_increment;
 	float angle_increment;

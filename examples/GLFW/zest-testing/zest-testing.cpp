@@ -6,7 +6,7 @@ void UpdateUniform3d(ImGuiApp* app) {
 	zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
 	if (app->orthagonal == true) {
 		zest_vec3 front = zest_NormalizeVec3(app->camera.position);
-		front = zest_FlipVec3(&front);
+		front = zest_FlipVec3(front);
 		ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, front), app->camera.up);
 		float ratio = zest_ScreenWidthf() / zest_ScreenHeightf();
 		ubo_ptr->proj = zest_Ortho(-(app->camera.ortho_scale * ratio), app->camera.ortho_scale * ratio, -app->camera.ortho_scale, app->camera.ortho_scale, -1000.f, 10000.f);
@@ -589,10 +589,18 @@ void InitImGuiApp(ImGuiApp* app) {
 
 	for (int i = 0; i != 100; ++i) {
 		app->particles[i].position = { 0 };
-		app->particles[i].velocity = randomVectorInCone({1.f, 0.f, 0.f}, 180.f);
+		app->particles[i].velocity = randomVectorInCone({ 1.f, 0.f, 0.f }, zest_Degrees(app->emission_range));
 		app->particles[i].age = i * 20.f;
+		app->particles[i].speed = app->speed;
+		app->particles[i].id = i * 10000;
+
+		app->particles2d[i].position = { 3.f, 0.f, 0.f };
+		float direction = randomFloat(-app->emission_range, app->emission_range) + app->emission_direction;
+		app->particles2d[i].velocity = { sinf(direction), cosf(direction) };
+		app->particles2d[i].age = i * 20.f;
+		app->particles2d[i].speed = app->speed;
+		app->particles2d[i].id = i * 10000;
 	}
-	app->value_noise = ValueNoise(12345);
 }
 
 void HandleWidget(ImGuiApp* app, zest_widget* widget) {
@@ -776,26 +784,62 @@ zest_vec3 RotateVector(const zest_vec3& vector, const zest_vec3& axis, float ang
 	};
 }
 
-void UpdateVelocity3D(particle *particle, ValueNoise *noise, float time, float speed, float influence) {
+void UpdateVelocity3D(particle* particle, float time, float delta_time, float influence) {
 	static Random random;
+	int time_step = (int)(time / 0.25f);
+	uint32_t seed = SeedGen({ time_step, particle->id });
 
-	float noiseX = 1.f - noise->noise(time) * 2.f;
-	float noiseY = 1.f - noise->noise(time + 100.0f) * 2.f;
-	float noiseZ = 1.f - noise->noise(time + 200.0f) * 2.f;
+	// Generate random values for each dimension
+	float randomX = (-1.0f + 2.0f * float(SeedGen(seed)) / float(UINT32_MAX)) * influence;
+	float randomY = (-1.0f + 2.0f * float(SeedGen(seed + 1)) / float(UINT32_MAX)) * influence;
+	float randomZ = (-1.0f + 2.0f * float(SeedGen(seed + 2)) / float(UINT32_MAX)) * influence;
+	float randomSpeed = (-1.0f + 2.0f * float(SeedGen(seed + 3)) / float(UINT32_MAX)) * 0.1f * influence;
 
-	// Create a noise vector
-	zest_vec3 noiseVector = { noiseX, noiseY, noiseZ };
+	// Create a random direction vector
+	zest_vec3 randomDirection = { randomX, randomY, randomZ };
 
-	// Normalize the noise vector
-	noiseVector = zest_NormalizeVec3(noiseVector);
-	noiseVector = zest_ScaleVec3(noiseVector, influence); 
+	// Normalize the random direction vector
+	float length = sqrtf(randomDirection.x * randomDirection.x +
+		randomDirection.y * randomDirection.y +
+		randomDirection.z * randomDirection.z);
+	randomDirection = zest_ScaleVec3(randomDirection, 1.0f / length);
 
-	// Blend the current velocity with the noise vector
-	zest_vec3 velocity = zest_AddVec3(particle->velocity, noiseVector); 
-	velocity = zest_NormalizeVec3(velocity);
+	// Add the random direction to the current velocity
+	particle->velocity = zest_AddVec3(particle->velocity, zest_ScaleVec3(randomDirection, 0.1f * influence));
+
+	// Update speed
+	particle->speed += randomSpeed;
 
 	// Normalize the velocity and apply the speed
-	particle->position = zest_AddVec3(particle->position, zest_ScaleVec3(velocity, speed));
+	length = sqrtf(particle->velocity.x * particle->velocity.x +
+		particle->velocity.y * particle->velocity.y +
+		particle->velocity.z * particle->velocity.z);
+	particle->velocity = zest_ScaleVec3(particle->velocity, particle->speed / length);
+
+	// Update position
+	zest_vec3 position_change = zest_ScaleVec3(particle->velocity, delta_time);
+	particle->position = zest_AddVec3(particle->position, position_change);
+}
+
+void UpdateVelocity2D(particle2d* particle, float time, float delta_time, float influence) {
+	static Random random;
+	int time_step = (int)(time / 0.25f);
+
+	uint32_t seed = SeedGen({time_step, particle->id});
+
+	float randomDirection = (- 1.0f + 2.0f * float(SeedGen(seed)) / float(UINT32_MAX)) * 10.f * influence;
+	float randomSpeed = (- 1.0f + 2.0f * float(SeedGen(seed + 1)) / float(UINT32_MAX)) * 0.1f * influence;
+
+	float direction = atan2f(particle->velocity.y, particle->velocity.x);
+	direction += zest_Radians(randomDirection);
+	particle->speed += randomSpeed;
+	particle->velocity = { cosf(direction), sinf(direction) };
+
+	//printf("%i) %i, %f, %f, rs: %f, rd: %f\n", particle->id, seed, particle->speed, direction, randomSpeed, randomDirection);
+
+	// Normalize the velocity and apply the speed
+	zest_vec2 position = zest_AddVec2({ particle->position.x, particle->position.y }, zest_ScaleVec2(particle->velocity, particle->speed * delta_time));
+	particle->position = { position.x, position.y, 0.f };
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -879,6 +923,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		ImGui::DragFloat("Noise Influence", &app->noise_influence, 0.001f, 0.f); 
 		ImGui::DragFloat("Noise Frequency", &app->noise_frequency, 0.001f, 0.f);
+		ImGui::DragFloat("Particle Speed", &app->speed, 0.001f, 0.f);
+		ImGui::DragFloat("Emission Direction", &app->emission_direction, 0.001f, 0.f);
+		ImGui::DragFloat("Emission Range", &app->emission_range, 0.001f, 0.f);
 
 		zest_vec3 pole = {};
 		zest_vec3 nearest_point = {};
@@ -1116,16 +1163,27 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_Draw3DLine(app->line_layer, &tform_cube[5].x, &tform_cube[1].x, 3.f);
 
 	float delta_time = (float)elapsed / 1000000;
-	app->time += app->noise_frequency;
+	app->time += delta_time;
 	for (int i = 0; i != 100; ++i) {
-		UpdateVelocity3D(&app->particles[i], &app->value_noise, app->time + (float)i, 2.f * delta_time, app->noise_influence);
-		//app->particles[i].position = zest_AddVec3(app->particles[i].position, app->particles[i].velocity);
+		UpdateVelocity3D(&app->particles[i], app->time, delta_time, app->noise_influence);
 		zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &app->particles[i].position.x, 0.f, 0.2f, 0.2f);
 		app->particles[i].age += (float)elapsed / 1000;
 		if (app->particles[i].age > 4000.f) {
+			app->particles[i].speed = app->speed;
 			app->particles[i].position = { 0 };
-			app->particles[i].velocity = randomVectorInCone({ 1.f, 0.f, 0.f }, 180.f);
+			app->particles[i].velocity = randomVectorInCone({ 1.f, 0.f, 0.f }, zest_Degrees(app->emission_range));
 			app->particles[i].age = i * 20.f;
+		}
+
+		UpdateVelocity2D(&app->particles2d[i], app->time, delta_time, app->noise_influence);
+		zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &app->particles2d[i].position.x, 0.f, 0.2f, 0.2f);
+		app->particles2d[i].age += (float)elapsed / 1000;
+		if (app->particles2d[i].age > 4000.f) {
+			app->particles2d[i].speed = app->speed;
+			app->particles2d[i].position = { 3.f, 0.f, 0.f };
+			float direction = randomFloat(-app->emission_range, app->emission_range) + app->emission_direction;
+			app->particles2d[i].velocity = { sinf(direction), cosf(direction) };
+			app->particles2d[i].age = i * 20.f;
 		}
 	}
 
@@ -1134,6 +1192,12 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			app->particles[i].position = { 0 };
 			app->particles[i].velocity = randomVectorInCone({ 1.f, 0.f, 0.f }, 180.f);
 			app->particles[i].age = i * 40.f;
+
+			app->particles2d[i].position = { 3.f, 0.f, 0.f };
+			float direction = randomFloat(-app->emission_range, app->emission_range) + app->emission_direction;
+			app->particles2d[i].velocity = { sinf(direction), cosf(direction) };
+			app->particles2d[i].age = i * 40.f;
+			app->particles2d[i].speed = app->speed;
 		}
 	}
 
@@ -1143,8 +1207,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);

@@ -434,6 +434,23 @@ zest_vec4 zest_AddVec4(zest_vec4 left, zest_vec4 right) {
     return result;
 }
 
+zest_ivec2 zest_AddiVec2(zest_ivec2 left, zest_ivec2 right) {
+    zest_ivec2 result = {
+        .x = left.x + right.x,
+        .y = left.y + right.y,
+    };
+    return result;
+}
+
+zest_ivec3 zest_AddiVec3(zest_ivec3 left, zest_ivec3 right) {
+    zest_ivec3 result = {
+        .x = left.x + right.x,
+        .y = left.y + right.y,
+        .z = left.z + right.z,
+    };
+    return result;
+}
+
 zest_vec2 zest_SubVec2(zest_vec2 left, zest_vec2 right) {
     zest_vec2 result = {
         .x = left.x - right.x,
@@ -1167,8 +1184,16 @@ zest_size zest_GetNextPower(zest_size n) {
 float zest_Radians(float degrees) { return degrees * 0.01745329251994329576923690768489f; }
 float zest_Degrees(float radians) { return radians * 57.295779513082320876798154814105f; }
 
-zest_vec3 zest_Lerp(zest_vec3* captured, zest_vec3* present, float lerp) {
+zest_vec3 zest_LerpVec3(zest_vec3* captured, zest_vec3* present, float lerp) {
     return zest_AddVec3(zest_ScaleVec3(*present, lerp), zest_ScaleVec3(*captured, (1.f - lerp)));
+}
+
+zest_vec2 zest_LerpVec2(zest_vec2* captured, zest_vec2* present, float lerp) {
+    return zest_AddVec2(zest_ScaleVec2(*present, lerp), zest_ScaleVec2(*captured, (1.f - lerp)));
+}
+
+float zest_Lerp(float captured, float present, float lerp) {
+    return present * lerp + captured * (1.f - lerp);
 }
 
 //  --End Math
@@ -10508,13 +10533,13 @@ zest_mesh_t zest_CreateRoundedRectangle(float width, float height, float radius,
 
     zest_uint vertex_count = zest_vec_size(mesh.vertices);
 
-    for (int i = 1; i < vertex_count - 1; ++i) {
+    for (zest_uint i = 1; i < vertex_count - 1; ++i) {
         zest_PushMeshTriangle(&mesh, 0, i, i + 1);
     }
 	zest_PushMeshTriangle(&mesh, 0, vertex_count - 1, 1);
 
     if (backface) {
-		for (int i = 1; i < vertex_count - 1; ++i) {
+		for (zest_uint i = 1; i < vertex_count - 1; ++i) {
 			zest_PushMeshTriangle(&mesh, 0, i + 1, i);
 		}
 		zest_PushMeshTriangle(&mesh, 0, 1, vertex_count - 1);

@@ -799,9 +799,17 @@ typedef struct zest_vec2 {
     float x, y;
 } zest_vec2;
 
+typedef struct zest_ivec2 {
+    int x, y;
+} zest_ivec2;
+
 typedef struct zest_vec3 {
     float x, y, z;
 } zest_vec3;
+
+typedef struct zest_ivec3 {
+    int x, y, z;
+} zest_ivec3;
 
 typedef struct zest_bounding_box_t {
     zest_vec3 min_bounds;
@@ -2462,13 +2470,15 @@ ZEST_API zest_vec4 zest_SubVec4(zest_vec4 left, zest_vec4 right);
 ZEST_API zest_vec2 zest_AddVec2(zest_vec2 left, zest_vec2 right);
 ZEST_API zest_vec3 zest_AddVec3(zest_vec3 left, zest_vec3 right);
 ZEST_API zest_vec4 zest_AddVec4(zest_vec4 left, zest_vec4 right);
+ZEST_API zest_ivec2 zest_AddiVec2(zest_ivec2 left, zest_ivec2 right);
+ZEST_API zest_ivec3 zest_AddiVec3(zest_ivec3 left, zest_ivec3 right);
 //Scale a vector by a scalar and return the result
 ZEST_API zest_vec2 zest_ScaleVec2(zest_vec2 vec2, float v);
 ZEST_API zest_vec3 zest_ScaleVec3(zest_vec3 vec3, float v);
 ZEST_API zest_vec4 zest_ScaleVec4(zest_vec4 vec4, float v);
 //Multiply 2 vectors and return the result
-ZEST_API zest_vec3 zest_MulVec3(zest_vec3 left, zest_vec3 *right);
-ZEST_API zest_vec4 zest_MulVec4(zest_vec4 left, zest_vec4 *right);
+ZEST_API zest_vec3 zest_MulVec3(zest_vec3 left, zest_vec3 right);
+ZEST_API zest_vec4 zest_MulVec4(zest_vec4 left, zest_vec4 right);
 //Get the length of a vec without square rooting
 ZEST_API float zest_LengthVec3(zest_vec3 const v);
 ZEST_API float zest_LengthVec4(zest_vec4 const v);
@@ -2524,11 +2534,15 @@ ZEST_API float zest_Radians(float degrees);
 //Convert radians into degrees
 ZEST_API float zest_Degrees(float radians);
 //Interpolate 2 vec3s
-ZEST_API zest_vec3 zest_Lerp(zest_vec3 *captured, zest_vec3 *present, float lerp);
+ZEST_API zest_vec3 zest_LerpVec3(zest_vec3 *captured, zest_vec3 *present, float lerp);
+//Interpolate 2 vec2s
+ZEST_API zest_vec2 zest_LerpVec2(zest_vec2 *captured, zest_vec2 *present, float lerp);
+//Interpolate 2 floats
+ZEST_API float zest_Lerp(float captured, float present, float lerp);
 //Initialise a new 4x4 matrix
 ZEST_API zest_matrix4 zest_M4(float v);
 //Flip the signs on a vec3 and return the result
-ZEST_API zest_vec3 zest_FlipVec3(zest_vec3 *vec3);
+ZEST_API zest_vec3 zest_FlipVec3(zest_vec3 vec3);
 //Scale a 4x4 matrix by a vec4 and return the result
 ZEST_API zest_matrix4 zest_ScaleMatrix4x4(zest_matrix4 *m, zest_vec4 *v);
 //Scale a 4x4 matrix by a float scalar and return the result
@@ -2587,7 +2601,7 @@ ZEST_API zest_vec3 zest_ScreenRay(float xpos, float ypos, float view_width, floa
 //Convert world 3d coordinates into screen x and y coordinates
 ZEST_API zest_vec2 zest_WorldToScreen(const float point[3], float view_width, float view_height, zest_matrix4* projection, zest_matrix4* view);
 //Convert world orthographic 3d coordinates into screen x and y coordinates
-ZEST_API zest_vec2 zest_WorldToScreenOrtho(const zest_vec3 *point, float view_width, float view_height, zest_matrix4 *projection, zest_matrix4 *view);
+ZEST_API zest_vec2 zest_WorldToScreenOrtho(const float point[3], float view_width, float view_height, zest_matrix4* projection, zest_matrix4* view);
 //Create a perspective 4x4 matrix passing in the fov in radians, aspect ratio of the viewport and te near/far values
 ZEST_API zest_matrix4 zest_Perspective(float fovy, float aspect, float zNear, float zFar);
 //Calculate the 6 planes of the camera fustrum
