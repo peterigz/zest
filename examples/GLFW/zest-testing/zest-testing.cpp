@@ -785,27 +785,31 @@ zest_vec3 RotateVector(const zest_vec3& vector, const zest_vec3& axis, float ang
 }
 
 void UpdateVelocity3D(particle* particle, float time, float delta_time, float influence) {
-	static Random random;
 	int time_step = (int)(time / 0.25f);
 	uint32_t seed = SeedGen({ time_step, particle->id });
 
 	// Generate random values for each dimension
-	float randomX = (-1.0f + 2.0f * float(SeedGen(seed)) / float(UINT32_MAX)) * influence;
-	float randomY = (-1.0f + 2.0f * float(SeedGen(seed + 1)) / float(UINT32_MAX)) * influence;
-	float randomZ = (-1.0f + 2.0f * float(SeedGen(seed + 2)) / float(UINT32_MAX)) * influence;
-	float randomSpeed = (-1.0f + 2.0f * float(SeedGen(seed + 3)) / float(UINT32_MAX)) * 0.1f * influence;
+	float point_one_influence = .1f * influence;
+	float randomX = (-1.0f + 2.0f * float(SeedGen(seed)) / float(UINT32_MAX));
+	float randomY = (-1.0f + 2.0f * float(SeedGen(seed + 1)) / float(UINT32_MAX));
+	float randomZ = (-1.0f + 2.0f * float(SeedGen(seed + 2)) / float(UINT32_MAX));
+	//zest_vec3 randomDirection = randomVectorInCone2(particle->velocity, 22.5 * influence, seed);
+	float randomSpeed = (-1.0f + 2.0f * float(SeedGen(seed + 3)) / float(UINT32_MAX)) * point_one_influence;
 
 	// Create a random direction vector
-	zest_vec3 randomDirection = { randomX, randomY, randomZ };
+	//zest_vec3 randomDirection = { randomX, randomY, randomZ };
 
 	// Normalize the random direction vector
-	float length = sqrtf(randomDirection.x * randomDirection.x +
-		randomDirection.y * randomDirection.y +
-		randomDirection.z * randomDirection.z);
-	randomDirection = zest_ScaleVec3(randomDirection, 1.0f / length);
+	float length = sqrtf(randomX * randomX +
+		randomY * randomY +
+		randomZ * randomZ);
+	zest_vec3 randomDirection{ randomX, randomY, randomZ };
+	
+	float length_one = 1.f / length;
+	randomDirection = zest_ScaleVec3(randomDirection, length_one);
 
 	// Add the random direction to the current velocity
-	particle->velocity = zest_AddVec3(particle->velocity, zest_ScaleVec3(randomDirection, 0.1f * influence));
+	particle->velocity = zest_AddVec3(particle->velocity, zest_ScaleVec3(randomDirection, point_one_influence));
 
 	// Update speed
 	particle->speed += randomSpeed;
@@ -814,15 +818,15 @@ void UpdateVelocity3D(particle* particle, float time, float delta_time, float in
 	length = sqrtf(particle->velocity.x * particle->velocity.x +
 		particle->velocity.y * particle->velocity.y +
 		particle->velocity.z * particle->velocity.z);
-	particle->velocity = zest_ScaleVec3(particle->velocity, particle->speed / length);
+	particle->velocity = zest_NormalizeVec3(particle->velocity);
+	zest_vec3 current_velocity = zest_ScaleVec3(particle->velocity, length);
 
 	// Update position
-	zest_vec3 position_change = zest_ScaleVec3(particle->velocity, delta_time);
+	zest_vec3 position_change = zest_ScaleVec3(current_velocity, delta_time);
 	particle->position = zest_AddVec3(particle->position, position_change);
 }
 
 void UpdateVelocity2D(particle2d* particle, float time, float delta_time, float influence) {
-	static Random random;
 	int time_step = (int)(time / 0.25f);
 
 	uint32_t seed = SeedGen({time_step, particle->id});
@@ -1176,7 +1180,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 
 		UpdateVelocity2D(&app->particles2d[i], app->time, delta_time, app->noise_influence);
-		zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &app->particles2d[i].position.x, 0.f, 0.2f, 0.2f);
+		//zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &app->particles2d[i].position.x, 0.f, 0.2f, 0.2f);
 		app->particles2d[i].age += (float)elapsed / 1000;
 		if (app->particles2d[i].age > 4000.f) {
 			app->particles2d[i].speed = app->speed;

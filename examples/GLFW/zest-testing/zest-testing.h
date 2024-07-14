@@ -387,6 +387,55 @@ zest_vec3 randomVectorInCone(const zest_vec3& coneDirection, float coneAngleDegr
 	return rotatedVector;
 }
 
+zest_vec3 randomVectorInCone2(const zest_vec3& coneDirection, float coneAngleDegrees, zest_uint seed) {
+	// Convert cone angle to radians
+	float coneAngle = zest_Radians(coneAngleDegrees);
+
+	// Calculate the minimum z value for the cone
+	float minZ = cos(coneAngle);
+
+	// Randomly sample z in [minZ, 1]
+	float z = SeedGen(seed) / (float)UINT32_MAX;
+	z = z - (minZ - 1.f) * z;
+
+	// Randomly sample ϕ in [0, 2π)
+	float phi = (SeedGen(seed + 1) / (float)UINT32_MAX) * (2.0f * ZEST_PI);
+
+	// Calculate the corresponding x and y for the random point on the unit sphere
+	float sqrtOneMinusZSquared = sqrt(1.0f - z * z);
+	float x = sqrtOneMinusZSquared * cos(phi);
+	float y = sqrtOneMinusZSquared * sin(phi);
+
+	// Create the random vector in the cone's local space
+	zest_vec3 randomVector = { x, y, z };
+
+	// If the cone is centered around the north pole (0, 0, 1), return the vector as is
+	if (coneDirection.x == 0 && coneDirection.y == 0) {
+		return randomVector;
+	}
+
+	// Calculate the rotation axis (cross product of (0, 0, 1) and coneDirection)
+	zest_vec3 northPole = { 0, 0, 1 };
+	zest_vec3 rotationAxis = zest_CrossProduct(northPole, coneDirection);
+	rotationAxis = zest_NormalizeVec3(rotationAxis);
+
+
+	// Calculate the rotation angle (acos of dot product of (0, 0, 1) and coneDirection)
+	float rotationAngle = acosf(zest_DotProduct3(northPole, zest_NormalizeVec3(coneDirection)));
+
+	// Rotate the random vector to align with the cone direction
+	// Use Rodrigues' rotation formula
+	zest_vec3 xv = zest_ScaleVec3(randomVector, cos(rotationAngle));
+	zest_vec3 yv = (zest_CrossProduct(rotationAxis, randomVector));
+	yv = zest_ScaleVec3(yv, sin(rotationAngle));
+	float zv_dot = zest_DotProduct3(rotationAxis, randomVector);
+	zest_vec3 zv = zest_ScaleVec3(rotationAxis, zv_dot);
+	zv = zest_ScaleVec3(zv, (1.f - cosf(rotationAngle)));
+	zest_vec3 rotatedVector = zest_AddVec3(zest_AddVec3(xv, yv), zv);
+
+	return rotatedVector;
+}
+
 struct ImGuiApp {
 	zest_imgui_layer_info imgui_layer_info;
 	zest_index imgui_draw_routine_index;
@@ -427,9 +476,9 @@ struct ImGuiApp {
 	ValueNoise value_noise;
 	float noise_frequency = 0.025f;
 	float noise_influence = 0.05f;
-	float speed = 2.f;
+	float speed = 0.f;
 	float emission_direction = 0.f;
-	float emission_range = ZEST_PI * .05f;
+	float emission_range = 0.f;
 	float time = 1000.f;
 	zest_camera_t camera;
 	ellipsoid ellipse;
