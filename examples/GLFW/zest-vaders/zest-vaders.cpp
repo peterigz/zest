@@ -369,10 +369,17 @@ void VadersGame::Init() {
 	//Initialise a particle manager. This manages effects, emitters and the particles that they spawn
 	//Depending on your needs you can use as many particle managers as you need.
 	//pm.InitFor3d(layer_max_values, 100, tfx_particle_manager_tMode_ordered_by_depth_guaranteed, 512);
-	InitParticleManagerFor3d(&background_pm, &library, layer_max_values, 100, tfxParticleManagerMode_ordered_by_depth, true, false, 2048);
-	InitParticleManagerFor3d(&game_pm, &library, layer_max_values, 1000, tfxParticleManagerMode_unordered, true, true, 2048);
-	InitParticleManagerFor3d(&title_pm, &library, layer_max_values, 100, tfxParticleManagerMode_unordered, true, false, 2048);
+	tfx_particle_manager_info_t background_pm_info = CreateParticleManagerInfo(tfxParticleManagerSetup_3d_ordered_by_depth);
+	InitializeParticleManager(&background_pm, &library, background_pm_info);
+	//InitParticleManagerFor3d(&background_pm, &library, layer_max_values, 100, tfxParticleManagerMode_ordered_by_depth, true, false, false, 2048);
+	tfx_particle_manager_info_t game_pm_info = CreateParticleManagerInfo(tfxParticleManagerSetup_3d_group_sprites_by_effect);
+	InitializeParticleManager(&game_pm, &library, game_pm_info);
+	//InitParticleManagerFor3d(&game_pm, &library, layer_max_values, 1000, tfxParticleManagerMode_unordered, true, true, true, 2048);
+	game_pm_info.max_effects = 10;
+	InitializeParticleManager(&title_pm, &library, game_pm_info);
+	//InitParticleManagerFor3d(&title_pm, &library, layer_max_values, 100, tfxParticleManagerMode_unordered, true, true, true, 2048);
 
+	TFX_ASSERT(!(background_pm.flags & tfxParticleManagerFlags_use_effect_sprite_buffers));
 	//Load a font we can draw text with
 	font = zest_LoadMSDFFont("examples/assets/RussoOne-Regular.zft");
 
@@ -448,6 +455,7 @@ void VadersGame::Init() {
 	zest_TimerReset(timer);
 	//Output the memory usage to the console
 	zest_OutputMemoryUsage();
+	TFX_ASSERT(!(background_pm.flags & tfxParticleManagerFlags_use_effect_sprite_buffers));
 }
 
 //Some helper functions
@@ -1000,25 +1008,58 @@ void RenderParticles3d(tfx_particle_manager_t &pm, float tween, VadersGame *game
 			//const float &captured_intensity = pm.GetCapturedSprite3dIntensity(layer, sprites.captured_index[i]);
 			//float lerped_intensity = Interpolatef(tween, captured_intensity, sprites.intensity[i]);
 			zest_SetLayerIntensity(game->billboard_layer, sprites.intensity[i]);
-			tfxU32 property_index = sprites.property_indexes[i] & 0x0000FFFF;
+			tfxU32 property_index = tfxEXTRACT_SPRITE_PROPERTY_INDEX(sprites.property_indexes[i]);
 			zest_image image = (zest_image)pm.library->emitter_properties[property_index].image->ptr;
 			tfx_vec2_t handle = pm.library->emitter_properties[property_index].image_handle;
 			const tfx_sprite_transform3d_t *captured = GetCapturedSprite3dTransform(&pm, layer, sprites.captured_index[i]);
 			tfx_wide_lerp_transform_result_t lerped = InterpolateSpriteTransform(&lerp, &sprites.transform_3d[i], captured);
-			zest_DrawBillboard(game->billboard_layer, image + ((sprites.property_indexes[i] & 0x00FF0000) >> 16),
+			zest_DrawBillboard(game->billboard_layer, image + tfxEXTRACT_SPRITE_IMAGE_FRAME(sprites.property_indexes[i]),
 				lerped.position,
 				sprites.alignment[i],
 				lerped.rotations,
 				&handle.x,
 				sprites.stretch[i],
-				(sprites.property_indexes[i] & 0xFF000000) >> 24,
+				tfxEXTRACT_SPRITE_ALIGNMENT(sprites.property_indexes[i]),
 				lerped.scale[0], lerped.scale[1]);
 		}
 	}
 }
 
+//Render the particles by effect
+void RenderEffectParticles(tfx_particle_manager_t &pm, float tween, VadersGame *game) {
+	//Renderer specific, get the layer that we will draw on (there's only one layer in this example)
+	tfxWideFloat lerp = tfxWideSetSingle(tween);
+	//Set the billboard drawing to use the particle texture
+	zest_SetBillboardDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
+	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
+		tfx_sprite_soa_t* sprites = nullptr;
+		tfx_effect_sprites_t* effect_sprites = nullptr;
+		tfxU32 sprite_count = 0;
+		while (GetNextSpriteBuffer(&pm, layer, &sprites, &effect_sprites, &sprite_count)) {
+			for (int i = 0; i != sprite_count; ++i) {
+				zest_SetLayerColor(game->billboard_layer, sprites->color[i].r, sprites->color[i].g, sprites->color[i].b, sprites->color[i].a);
+				zest_SetLayerIntensity(game->billboard_layer, sprites->intensity[i]);
+				tfxU32 property_index = tfxEXTRACT_SPRITE_PROPERTY_INDEX(sprites->property_indexes[i]);
+				zest_image image = (zest_image)pm.library->emitter_properties[property_index].image->ptr;
+				tfx_vec2_t handle = pm.library->emitter_properties[property_index].image_handle;
+				const tfx_sprite_transform3d_t* captured = GetCapturedEffectSprite3dTransform(effect_sprites, layer, sprites->captured_index[i]);
+				tfx_wide_lerp_transform_result_t lerped = InterpolateSpriteTransform(&lerp, &sprites->transform_3d[i], captured);
+				zest_DrawBillboard(game->billboard_layer, image + tfxEXTRACT_SPRITE_IMAGE_FRAME(sprites->property_indexes[i]),
+					lerped.position,
+					sprites->alignment[i],
+					lerped.rotations,
+					&handle.x,
+					sprites->stretch[i],
+					tfxEXTRACT_SPRITE_ALIGNMENT(sprites->property_indexes[i]),
+					lerped.scale[0], lerped.scale[1]);
+			}
+		}
+	}
+	ResetSpriteBufferLoopIndex(&pm);
+}
+
 void ResetGame(VadersGame *game) {
-	ClearParticleManager(&game->game_pm, false);
+	ClearParticleManager(&game->game_pm, false, false);
 	game->vaders[game->current_buffer].clear();
 	game->big_vaders[game->current_buffer].clear();
 	game->player_bullets[game->current_buffer].clear();
@@ -1051,6 +1092,7 @@ void VadersGame::Update(float ellapsed) {
 		//Render based on the current game state
 		if (state == GameState_title) {
 			//Update the background particle manager
+			TFX_ASSERT(!(background_pm.flags & tfxParticleManagerFlags_use_effect_sprite_buffers));
 			UpdateParticleManager(&background_pm, FrameLength);
 			//Update the title particle manager
 			UpdateParticleManager(&title_pm, FrameLength);
@@ -1125,7 +1167,7 @@ void VadersGame::Update(float ellapsed) {
 
 	if (state == GameState_title) {
 		//If showing the title screen, render the title particles
-		RenderParticles3d(title_pm, (float)timer->lerp, this);
+		RenderEffectParticles(title_pm, (float)timer->lerp, this);
 		//Draw the start text
 		zest_DrawMSDFText(font_layer, "Press Button to Start", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 30.f, 0.f);
 	}
@@ -1137,7 +1179,7 @@ void VadersGame::Update(float ellapsed) {
 		DrawPlayer(this);
 		DrawVaders(this, (float)timer->lerp);
 		//Render all of the game particles
-		RenderParticles3d(game_pm, (float)timer->lerp, this);
+		RenderEffectParticles(game_pm, (float)timer->lerp, this);
 		//Set the billboard drawing back to the sprite texture (after rendering the particles with the particle texture)
 		//We want to draw the vader bullets over the top of the particles so that they're easier to see
 		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
@@ -1157,7 +1199,7 @@ void VadersGame::Update(float ellapsed) {
 		//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
 		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		DrawVaders(this, (float)timer->lerp);
-		RenderParticles3d(game_pm, (float)timer->lerp, this);
+		RenderEffectParticles(game_pm, (float)timer->lerp, this);
 		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		DrawVaderBullets(this, (float)timer->lerp);
 		zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 60.f, 0.f);
@@ -1183,7 +1225,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	zest_implglfw_SetCallbacks(&create_info);
 
 	VadersGame game;
-	InitialiseTimelineFX(12);
+	InitialiseTimelineFX(12, tfxMegabyte(128));
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&game);
