@@ -371,13 +371,10 @@ void VadersGame::Init() {
 	//pm.InitFor3d(layer_max_values, 100, tfx_particle_manager_tMode_ordered_by_depth_guaranteed, 512);
 	tfx_particle_manager_info_t background_pm_info = CreateParticleManagerInfo(tfxParticleManagerSetup_3d_ordered_by_depth);
 	InitializeParticleManager(&background_pm, &library, background_pm_info);
-	//InitParticleManagerFor3d(&background_pm, &library, layer_max_values, 100, tfxParticleManagerMode_ordered_by_depth, true, false, false, 2048);
 	tfx_particle_manager_info_t game_pm_info = CreateParticleManagerInfo(tfxParticleManagerSetup_3d_group_sprites_by_effect);
 	InitializeParticleManager(&game_pm, &library, game_pm_info);
-	//InitParticleManagerFor3d(&game_pm, &library, layer_max_values, 1000, tfxParticleManagerMode_unordered, true, true, true, 2048);
 	game_pm_info.max_effects = 10;
 	InitializeParticleManager(&title_pm, &library, game_pm_info);
-	//InitParticleManagerFor3d(&title_pm, &library, layer_max_values, 100, tfxParticleManagerMode_unordered, true, true, true, 2048);
 
 	TFX_ASSERT(!(background_pm.flags & tfxParticleManagerFlags_use_effect_sprite_buffers));
 	//Load a font we can draw text with
