@@ -28,7 +28,8 @@ struct VadersGame {
 	tfx_library_t library;
 	tfx_particle_manager_t pm;
 
-	tfx_effect_template_t effect_template;
+	tfx_effect_template_t effect_template1;
+	tfx_effect_template_t effect_template2;
 
 	tfxEffectID effect_id;
 	zest_layer billboard_layer;
@@ -120,33 +121,14 @@ void VadersGame::Init() {
 
 	UpdateUniform3d(this);
 
-	//Initialise a particle manager. This manages effects, emitters and the particles that they spawn
-	//Depending on your needs you can use as many particle managers as you need.
-	//We can define the maximum amount of particles for each layer in an array and pass that into the initialisation function
-	tfxU32 layer_max_values[tfxLAYERS];
-	layer_max_values[0] = 5000;
-	layer_max_values[1] = 2500;
-	layer_max_values[2] = 2500;
-	layer_max_values[3] = 2500;
 	/*
-	Initialise a tfx_particle_manager_t for 3d usage
-	* @param pm						A pointer to an unitialised tfx_particle_manager_t. If you want to reconfigure a particle manager for a different usage then you can call ReconfigureParticleManager.
-	* @param library				A pointer to a tfx_library_t that you will be using to add all of the effects from to the particle manager.
-	* @param layer_max_values		An array of ints representing the maximum amount of particles you want available for each layer. This will allocate the appropriate amount of memory ahead of time.
-	* @param effects_limit			The maximum amount of effects and emitters that can be updated in a single frame. This will allocate the appropriate amount of memory ahead of time. Default: 1000.
-	* @param mode					The operation mode of the particle manager regarding how particles are ordered. Default value: tfxParticleManagerMode_unordered. Possible modes are:
-		tfxParticleManagerMode_unordered					Particles will be updated by emitter. No ordering is maintained, each emitter will spawn and update their particles in turn and sprites will be ordered
-															according to that sequence.
-		tfxParticleManagerMode_ordered_by_age				Particles will be kept in age order, older particles will be drawn first and newer ones last
-		tfxParticleManagerMode_ordered_by_depth				Particles will be drawn in depth order or distance from the camera. You can specify the number of sort passes when setting up the effects in TimelineFX editor
-		tfxParticleManagerMode_ordered_by_depth_guaranteed	Particles will be sorted each update and kept in depth order
-	* @param double_buffer_sprites	True or False, whether the last frame of sprites is kept so that you can use to do interpolations for smoother animation
-	* @param dynamic_allocation		If set to true then when the layer_max_values is hit for a layer the sprite and particle memory allocation will be grown dynamically. This can be useful when you're unsure of how
-									many particles you will need to display while developing you're game/app. Default is false.
-	* @param mt_batch_size			When using multithreading you can alter the size of each batch of particles that each thread will update. The default is 2048
+	Initialise a particle manager. This manages effects, emitters and the particles that they spawn. First call CreateParticleManagerInfo and pass in a setup mode to create an info object with the config we need.
+	If you need to you can tweak this further before passing into InitializingParticleManager.
 
+	In this example we'll setup a particle manager for 3d effects and group the sprites by each effect.
 	*/
-	InitParticleManagerFor3d(&pm, &library, layer_max_values, 1000, tfxParticleManagerMode_unordered, true, false, 2048);
+	tfx_particle_manager_info_t pm_info = CreateParticleManagerInfo(tfxParticleManagerSetup_3d_group_sprites_by_effect);
+	InitializeParticleManager(&pm, &library, pm_info);
 
 	//Renderer specific that sets up some draw layers
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);
@@ -174,7 +156,8 @@ void VadersGame::Init() {
 	* @param effect_template			The empty tfx_effect_template_t object that you want the effect loading into
 	//Returns true on success.
 	*/
-	PrepareEffectTemplate(&library, "Star Burst Flash", &effect_template);
+	PrepareEffectTemplate(&library, "Star Burst Flash", &effect_template1);
+	PrepareEffectTemplate(&library, "Star Burst Flash.1", &effect_template2);
 }
 
 //Draw a Dear ImGui window to output some basic stats
@@ -194,7 +177,7 @@ void BuildUI(VadersGame *game) {
 	zest_SetLayerDirty(game->imgui_layer_info.mesh_layer);
 }
 
-//A simple example to render the particles. 
+//A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void RenderParticles3d(tfx_particle_manager_t& pm, float tween, VadersGame* game) {
 	//Let our renderer know that we want to draw to the billboard layer.
 	zest_SetBillboardDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
@@ -229,6 +212,45 @@ void RenderParticles3d(tfx_particle_manager_t& pm, float tween, VadersGame* game
 	}
 }
 
+//A simple example to render the particles. This is for when the particle manager groups all it's sprites by effect so that you can draw the effects in different orders if you need
+void RenderParticles3dGroupedByEffect(tfx_particle_manager_t& pm, float tween, VadersGame* game) {
+	//Let our renderer know that we want to draw to the billboard layer.
+	zest_SetBillboardDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
+	//Cycle through each layer
+	//There is also a macro :tfxEachLayer which you could use like so:
+	//for(tfxEachLayer) {
+	//and that will output exactly the same code as the below line
+	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
+		//Cycle through all the active effects in the particle manager and retrieve the buffers containing everything we need to render the sprites
+		tfx_sprite_soa_t* sprites = nullptr;
+		tfx_effect_sprites_t* effect_sprites = nullptr;
+		tfxU32 sprite_count = 0;
+		while (GetNextSpriteBuffer(&pm, layer, &sprites, &effect_sprites, &sprite_count)) {
+			for (int i = 0; i != sprite_count; ++i) {
+				//Set the color to draw the sprite using the sprite color. Note that bacuase this is a struct of arrays we access each sprite element
+				//using an array lookup
+				zest_SetLayerColor(game->billboard_layer, sprites->color[i].r, sprites->color[i].g, sprites->color[i].b, sprites->color[i].a);
+				//Set the instensity of the sprite.
+				zest_SetLayerIntensity(game->billboard_layer, sprites->intensity[i]);
+				//Grab the image pointer from the emitter properties in the library
+				zest_image image = (zest_image)GetSpriteImagePointer(&pm, sprites->property_indexes[i]);
+				//Grab the sprite handle which is used to offset the position of the sprite
+				tfx_vec2_t handle = GetSpriteHandle(&pm, sprites->property_indexes[i]);
+				//Render specific functino to draw a billboard to the screen using the values in the sprite data
+				zest_DrawBillboard(game->billboard_layer, image + ((sprites->property_indexes[i] & 0x00FF0000) >> 16),
+					&sprites->transform_3d[i].position.x,
+					sprites->alignment[i],
+					&sprites->transform_3d[i].rotations.x,
+					&handle.x,
+					sprites->stretch[i],
+					(sprites->property_indexes[i] & 0xFF000000) >> 24,
+					sprites->transform_3d[i].scale.x, sprites->transform_3d[i].scale.y);
+			}
+		}
+	}
+	ResetSpriteBufferLoopIndex(&pm);
+}
+
 //Application specific, this just sets the function to call each render update
 void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	VadersGame *game = static_cast<VadersGame*>(data);
@@ -247,7 +269,19 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 		tfxEffectID effect_id;
 		//Add the effect template to the particle manager
-		if(AddEffectToParticleManager(&game->pm, &game->effect_template, &effect_id)) {
+		if(AddEffectToParticleManager(&game->pm, &game->effect_template1, &effect_id)) {
+			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
+			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, game->camera.position, game->uniform_buffer_3d);
+			//Set the effect position
+			SetEffectPosition(&game->pm, effect_id, position);
+		}
+	}
+
+	if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+		//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
+		tfxEffectID effect_id;
+		//Add the effect template to the particle manager
+		if(AddEffectToParticleManager(&game->pm, &game->effect_template2, &effect_id)) {
 			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
 			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, game->camera.position, game->uniform_buffer_3d);
 			//Set the effect position
@@ -266,14 +300,14 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	zest_TimerSet(game->timer);
 
 	//Render the particles with our custom render function
-	RenderParticles3d(game->pm, (float)game->timer->lerp, game);
+	RenderParticles3dGroupedByEffect(game->pm, (float)game->timer->lerp, game);
 	zest_imgui_UpdateBuffers(game->imgui_layer_info.mesh_layer);
 }
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
 	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_uint packed = zest_Pack8bitx3(&v);
 	zest_create_info_t create_info = zest_CreateInfo();
@@ -282,7 +316,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 
 	VadersGame game;
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated it's own thread.
-	InitialiseTimelineFX(std::thread::hardware_concurrency());
+	InitialiseTimelineFX(std::thread::hardware_concurrency(), tfxMegabyte(128));
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&game);
