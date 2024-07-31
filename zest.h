@@ -609,6 +609,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_insert(T, location, value) { ptrdiff_t offset = location - T; zest_vec_grow(T); if(offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); }
 #define zest_vec_erase(T, location) { ptrdiff_t offset = location - T; ZEST_ASSERT(T && offset >= 0 && location < zest_vec_end(T)); memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); }
 #define zest_vec_erase_range(T, it, it_last) { ZEST_ASSERT(T && it >= T && it < zest_vec_end(T)); const ptrdiff_t count = it_last - it; const ptrdiff_t off = it - T; memmove(T + off, T + off + count, ((size_t)zest_vec_size(T) - (size_t)off - count) * sizeof(*T)); zest_vec_trim(T, (zest_uint)count); }
+#define zest_vec_set(T, index, value) ZEST_ASSERT((zest_uint)index < zest__vec_header(T)->current_size); T[index] = value;
 #define zest_foreach_i(T) int i = 0; i != zest_vec_size(T); ++i
 #define zest_foreach_j(T) int j = 0; j != zest_vec_size(T); ++j
 #define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k

@@ -3142,7 +3142,7 @@ void zest__create_swapchain_image_views() {
     zest_vec_resize(ZestRenderer->swapchain_image_views, zest_vec_size(ZestRenderer->swapchain_images));
 
     for (zest_foreach_i(ZestRenderer->swapchain_images)) {
-        ZestRenderer->swapchain_image_views[i] = zest__create_image_view(ZestRenderer->swapchain_images[i], ZestRenderer->swapchain_image_format, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 1);
+        zest_vec_set(ZestRenderer->swapchain_image_views, i, zest__create_image_view(ZestRenderer->swapchain_images[i], ZestRenderer->swapchain_image_format, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 1));
     }
 }
 
@@ -7581,6 +7581,7 @@ void zest__update_texture_single_image_meta(zest_texture texture, zest_uint widt
         zest_vec_push(texture->images, zest_CreateImage());
         texture->image_index = 0;
     }
+    ZEST_ASSERT(zest_vec_size(texture->images) > 0);
     *texture->images[0] = image;
 }
 
