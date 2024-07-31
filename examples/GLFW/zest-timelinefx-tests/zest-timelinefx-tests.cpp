@@ -30,6 +30,7 @@ struct TimelineFXExample {
 
 	tfx_effect_template_t effect_template1;
 	tfx_effect_template_t effect_template2;
+	tfx_effect_template_t cube_ordered;
 
 	tfxEffectID effect_id;
 	zest_layer billboard_layer;
@@ -37,7 +38,11 @@ struct TimelineFXExample {
 	zest_descriptor_set particle_descriptor;
 	zest_pipeline billboard_pipeline;
 
+	tfx_vector_t<tfxEffectID> test_effects;
+
 	zest_imgui_layer_info imgui_layer_info;
+	tfx_random_t random;
+	tfx_vector_t<tfx_pool_stats_t> memory_stats;
 
 	void Init();
 };
@@ -117,6 +122,7 @@ void TimelineFXExample::Init() {
 	timer = zest_CreateTimer(60);
 
 	camera = zest_CreateCamera();
+	zest_CameraPosition(&camera, { -2.5f, 0.f, 0.f });
 	zest_CameraSetFoV(&camera, 60.f);
 
 	UpdateUniform3d(this);
@@ -129,6 +135,7 @@ void TimelineFXExample::Init() {
 	*/
 	tfx_particle_manager_info_t pm_info = CreateParticleManagerInfo(tfxParticleManagerSetup_3d_group_sprites_by_effect);
 	InitializeParticleManager(&pm, &library, pm_info);
+	SetPMCamera(&pm, &camera.front.x, &camera.position.x);
 
 	//Renderer specific that sets up some draw layers
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);
@@ -158,6 +165,26 @@ void TimelineFXExample::Init() {
 	*/
 	PrepareEffectTemplate(&library, "Star Burst Flash", &effect_template1);
 	PrepareEffectTemplate(&library, "Star Burst Flash.1", &effect_template2);
+	PrepareEffectTemplate(&library, "Cube Ordered", &cube_ordered);
+
+	random = NewRandom(zest_Millisecs());
+
+	for (int i = 0; i != 10; ++i) {
+		tfxEffectID effect_id;
+		if (AddEffectToParticleManager(&pm, &cube_ordered, &effect_id)) {
+			tfx_vec3_t position = {RandomRange(&random, 5.f), RandomRange(&random, -2.f, 2.f), RandomRange(&random, -4.f, 4.f)};
+			SetEffectPosition(&pm, effect_id, position);
+			test_effects.push_back(effect_id);
+		}
+	}
+
+	memory_stats.reserve(100);
+	tfx__lock_thread_access(tfxMemoryAllocator);
+	for (int i = 0; i != GetGlobals()->memory_pool_count; ++i) {
+		tfx_pool_stats_t stats = CreateMemorySnapshot(tfx__first_block_in_pool(GetGlobals()->memory_pools[i]));
+		memory_stats.push_back(stats);
+	}
+	tfx__unlock_thread_access(tfxMemoryAllocator)
 }
 
 //Draw a Dear ImGui window to output some basic stats
@@ -165,10 +192,19 @@ void BuildUI(TimelineFXExample *game) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
 	ImGui::Begin("Effects");
+	if (ParticleCount(&game->pm) >= 1980) {
+		int d = 0;
+	}
+	ImGui::Text("FPS: %i", zest_FPS());
 	ImGui::Text("Particles: %i", ParticleCount(&game->pm));
 	ImGui::Text("Effects: %i", EffectCount(&game->pm));
 	ImGui::Text("Emitters: %i", EmitterCount(&game->pm));
 	ImGui::Text("Free Emitters: %i", game->pm.free_emitters.size());
+	for (tfx_pool_stats_t& stats : game->memory_stats) {
+		ImGui::Text("Free Blocks: %i, Used Blocks: %i", stats.free_blocks, stats.used_blocks);
+		ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024);
+		ImGui::Text("Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
+	}
 	ImGui::End();
 
 	ImGui::Render();
@@ -266,12 +302,19 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	BuildUI(game);
 
 	if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+		//for (tfxEffectID &effect_id : game->test_effects) {
+			//HardExpireEffect(&game->pm, effect_id);
+			//if (AddEffectToParticleManager(&game->pm, &game->cube_ordered, &effect_id)) {
+				//tfx_vec3_t position = { RandomRange(&game->random, 6.f), RandomRange(&game->random, 2.f), RandomRange(&game->random, 6.f) };
+				//SetEffectPosition(&game->pm, effect_id, position);
+			//}
+		//}
 		//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 		tfxEffectID effect_id;
 		//Add the effect template to the particle manager
 		if(AddEffectToParticleManager(&game->pm, &game->effect_template1, &effect_id)) {
 			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, game->camera.position, game->uniform_buffer_3d);
+			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 6.f, game->camera.position, game->uniform_buffer_3d);
 			//Set the effect position
 			SetEffectPosition(&game->pm, effect_id, position);
 		}
@@ -283,13 +326,30 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Add the effect template to the particle manager
 		if(AddEffectToParticleManager(&game->pm, &game->effect_template2, &effect_id)) {
 			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, game->camera.position, game->uniform_buffer_3d);
+			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 6.f, game->camera.position, game->uniform_buffer_3d);
 			//Set the effect position
 			SetEffectPosition(&game->pm, effect_id, position);
 		}
 	}
 
 	while (zest_TimerDoUpdate(game->timer)) {
+		for (tfxEffectID &effect_id : game->test_effects) {
+			float chance = GenerateRandom(&game->random);
+			if (chance < 0.01f) {
+				SoftExpireEffect(&game->pm, effect_id);
+				if (AddEffectToParticleManager(&game->pm, &game->cube_ordered, &effect_id)) {
+					tfx_vec3_t position = {RandomRange(&game->random, 5.f), RandomRange(&game->random, -2.f, 2.f), RandomRange(&game->random, -4.f, 4.f)};
+					SetEffectPosition(&game->pm, effect_id, position);
+				}
+				tfx__lock_thread_access(tfxMemoryAllocator);
+				game->memory_stats.clear();
+				for (int i = 0; i != GetGlobals()->memory_pool_count; ++i) {
+					tfx_pool_stats_t stats = CreateMemorySnapshot(tfx__first_block_in_pool(GetGlobals()->memory_pools[i]));
+					game->memory_stats.push_back(stats);
+				}
+				tfx__unlock_thread_access(tfxMemoryAllocator)
+			}
+		}
 
 		//Update the particle manager
 		UpdateParticleManager(&game->pm, FrameLength);

@@ -376,7 +376,6 @@ void VadersGame::Init() {
 	game_pm_info.max_effects = 10;
 	InitializeParticleManager(&title_pm, &library, game_pm_info);
 
-	TFX_ASSERT(!(background_pm.flags & tfxParticleManagerFlags_use_effect_sprite_buffers));
 	//Load a font we can draw text with
 	font = zest_LoadMSDFFont("examples/assets/RussoOne-Regular.zft");
 
@@ -1222,7 +1221,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	zest_implglfw_SetCallbacks(&create_info);
 
 	VadersGame game;
-	InitialiseTimelineFX(12, tfxMegabyte(128));
+	InitialiseTimelineFX(std::thread::hardware_concurrency(), tfxMegabyte(128));
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&game);
