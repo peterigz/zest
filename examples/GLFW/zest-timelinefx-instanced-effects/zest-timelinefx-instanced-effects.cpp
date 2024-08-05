@@ -214,6 +214,12 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 		//Grab our ComputeExample struct out of the user data
 		ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
 
+		//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
+		auto metrics = GetAnimationBufferMetrics(&example->animation_manager_3d);
+		if (metrics.total_sprites_to_draw == 0) {
+			continue;
+		}
+
 		//Bind the compute shader pipeline
 		zest_BindComputePipeline(compute, example->compute_pipeline_3d);
 		//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
@@ -223,9 +229,6 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 			zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], GetAnimationInstancesSizeInBytes(&example->animation_manager_3d), 1);
 		}
 
-		//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
-		auto metrics = GetAnimationBufferMetrics(&example->animation_manager_3d);
-
 		//Update the push constants with some metrics. These are referenced in the compute shader.
 		//The total number of animation instances that need to be drawn
 		compute->push_constants.parameters.x = (float)metrics.instances_size;
@@ -234,6 +237,7 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 		compute->push_constants.parameters.y = float(example->animation_manager_3d.flags & tfxAnimationManagerFlags_has_animated_shapes);
 		//Set the total number of sprites that need to be processed by the shader
 		compute->push_constants.parameters.z = (float)metrics.total_sprites_to_draw;
+		//Set the offset into the sprite data that the sprites start at
 		compute->push_constants.parameters.w = (float)example->animation_manager_3d.render_queue[0].offset_into_sprite_data;
 
 		//Send the push constants in the compute object to the shader
@@ -335,14 +339,14 @@ void InitExample(ComputeExample *example) {
 	//Initialise the particle manager for 3d effects. this is the particle manager that we'll use to record our animation for us.
 	//Note: when we call RecordSpriteData3d the particle manager is reconfigured based on the effect we're using, meaning: reconfigure
 	//for ordereded/unordered, 3d etc.
-	tfx::InitParticleManagerFor3d(&example->pm, &example->library, layer_max_values, 1000, tfxParticleManagerMode_unordered, true, true, 2048);
+	tfx::InitParticleManagerFor3d(&example->pm, &example->library, layer_max_values, 1000, tfxParticleManagerMode_unordered, true, true, false, 2048);
 	//Set up the camera in the particle manager
 	tfx::SetPMCamera(&example->pm, &example->camera.front.x, &example->camera.position.x);
 
 	//Initialise an animation manager. An animation manager maintains our animation instances for us and provides all the necessary metrics we'll
 	//need to upload the buffers we need to both to initialise the compute shader and when we upload the offsets and instances buffer each frame.
 	//Specify the maximum number of animation instances that you might want to play each frame
-	tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_INSTANCES);
+	tfx::InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_INSTANCES, MAX_SPRITES);
 	//Here we set the callback that will be used to decide if an animation should be drawn or not. We use the bounding box to check if it's inside
 	//the view frustum and cull it if it's not.
 	example->animation_manager_3d.maybe_render_instance_callback = CullAnimationInstancesCallback;
@@ -610,16 +614,16 @@ void Update(zest_microsecs elapsed, void *data) {
 		tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, example->camera.position);
 		tfxAnimationID anim_id = tfxINVALID;
 		if (r == 0) {
-			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion");
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion", 0);
 		}
 		else if (r == 1) {
-			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash");
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash", 0);
 		}
 		else if (r == 2) {
-			anim_id = AddAnimationInstance(&example->animation_manager_3d, "EmissionSingleShot");
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "EmissionSingleShot", 0);
 		}
 		else if (r == 3) {
-			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework");
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework", 0);
 		}
 		if (anim_id != tfxINVALID) {
 			//As long as we get a valie anim id, set it's position and random scale.
@@ -637,13 +641,13 @@ void Update(zest_microsecs elapsed, void *data) {
 	if (example->trigger_effect >= ZEST_MILLISECONDS_IN_MICROSECONDS(25)) {
 		tfxAnimationID anim_id = tfxINVALID;
 		if (r == 0) {
-			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion");
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion", 0);
 		} else if (r == 1) {
-			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash");
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash", 0);
 		} else if (r == 2) {
-			anim_id = AddAnimationInstance(&example->animation_manager_3d, "EmissionSingleShot");
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "EmissionSingleShot", 0);
 		} else if (r == 3) {
-			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework");
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework", 0);
 		}
 		if (anim_id != tfxINVALID) {
 			tfx_vec3_t position = tfx_vec3_t(RandomRange(&example->pm.random, -10.f, 10.f), RandomRange(&example->pm.random, 8.f, 15.f), RandomRange(&example->pm.random, -10.f, 10.f));
@@ -756,7 +760,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	zest_implglfw_SetCallbacks(&create_info);
 
 	//Initialise TimelineFX. Must be run before using any timeline fx functionality.
-	InitialiseTimelineFX(std::thread::hardware_concurrency());
+	InitialiseTimelineFX(std::thread::hardware_concurrency(), tfxMegabyte(128));
 
 	ComputeExample example;
 
