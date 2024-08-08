@@ -6581,7 +6581,7 @@ zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t* bitma
     return image;
 }
 
-zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, unsigned char* buffer, int buffer_size) {
+zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, const unsigned char* buffer, int buffer_size) {
     zest_image image = zest_CreateImage();
     zest_vec_push(texture->images, image);
     texture->image_index = zest_vec_last_index(texture->images);

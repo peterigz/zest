@@ -2715,7 +2715,7 @@ ZEST_API zest_image zest_AddTextureImageFile(zest_texture texture, const char* n
 //Add an image to a texture using a zest_bitmap_t
 ZEST_API zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t *bitmap_to_load);
 //Add an image to a texture from a buffer.
-ZEST_API zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, unsigned char* buffer, int buffer_size);
+ZEST_API zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, const unsigned char* buffer, int buffer_size);
 //Add a sequence of images (in a sprite sheet) to a texture from a file. specify the width and height of each frame (they must all be the same size), the number of frames in the animation.
 //You can also pass in a pointer to a float where the max radius can be set (the max radius is the furthest pixel from the center of the frame). Lastly you can specify
 //whether the animation runs row by row, set to 0 to read column by column.
