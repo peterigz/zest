@@ -6589,7 +6589,7 @@ zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, co
     zest_vec_push(texture->image_bitmaps, zest_NewBitmap());
     zest_bitmap_t* bitmap = zest_GetBitmap(texture, zest__texture_image_index(texture));
 
-    zest_LoadBitmapImageMemory(bitmap, buffer, buffer_size, texture->color_channels);
+    zest_LoadBitmapImageMemory(bitmap, buffer, buffer_size, 0);
     ZEST_ASSERT(bitmap->data != ZEST_NULL);
     zest_ConvertBitmapToTextureFormat(bitmap, texture->image_format);
 
@@ -6599,7 +6599,7 @@ zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, co
     if (texture->flags & zest_texture_flag_get_max_radius) {
         image->max_radius = zest_FindBitmapRadius(bitmap);
     }
-    zest_SetText(&image->name, bitmap->name.str);
+    zest_SetText(&image->name, name);
     zest__update_image_vertices(image);
 
     return image;
