@@ -4010,26 +4010,41 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
     if (!pipeline->pipeline_template.vertShaderFile.str || !pipeline->pipeline_template.fragShaderFile.str) {
         ZEST_ASSERT(0);        //You must specify a vertex and frag shader file to load
     }
-    char* vert_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.vertShaderFile.str, ZEST_FALSE);
-    char* frag_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.fragShaderFile.str, ZEST_FALSE);
 
-    ZEST_ASSERT(vert_shader_code);        //Failed to load the shader file, make sure it exists at the location
-    ZEST_ASSERT(frag_shader_code);        //Failed to load the shader file, make sure it exists at the location
+    VkShaderModule vert_shader_module = { 0 };
+    VkShaderModule frag_shader_module = { 0 };
+    if (zest_map_valid_name(ZestRenderer->shaders, pipeline->pipeline_template.vertShaderFile.str)) {
+        zest_shader vert_shader = *zest_map_at(ZestRenderer->shaders, pipeline->pipeline_template.vertShaderFile.str);
+		vert_shader_module = zest__create_shader_module(vert_shader->spv);
+		pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
+    }
+    else {
+		char* vert_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.vertShaderFile.str, ZEST_FALSE);
+		ZEST_ASSERT(vert_shader_code);        //Failed to load the shader file, make sure it exists at the location
+		vert_shader_module = zest__create_shader_module(vert_shader_code);
+		zest_vec_free(vert_shader_code);
+		pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
+    }
 
-    VkShaderModule vert_shader_module = zest__create_shader_module(vert_shader_code);
-    VkShaderModule frag_shader_module = zest__create_shader_module(frag_shader_code);
-
-    zest_vec_free(vert_shader_code);
-    zest_vec_free(frag_shader_code);
+    if (zest_map_valid_name(ZestRenderer->shaders, pipeline->pipeline_template.fragShaderFile.str)) {
+        zest_shader frag_shader = *zest_map_at(ZestRenderer->shaders, pipeline->pipeline_template.fragShaderFile.str);
+		frag_shader_module = zest__create_shader_module(frag_shader->spv);
+		pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
+    }
+    else {
+		char* frag_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.fragShaderFile.str, ZEST_FALSE);
+		ZEST_ASSERT(frag_shader_code);        //Failed to load the shader file, make sure it exists at the location
+		frag_shader_module = zest__create_shader_module(frag_shader_code);
+		zest_vec_free(frag_shader_code);
+		pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
+    }
 
     pipeline->pipeline_template.vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipeline->pipeline_template.vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
     pipeline->pipeline_template.vertShaderStageInfo.pName = pipeline->create_info.vertShaderFunctionName.str;
 
     pipeline->pipeline_template.fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     pipeline->pipeline_template.fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
     pipeline->pipeline_template.fragShaderStageInfo.pName = pipeline->create_info.fragShaderFunctionName.str;
 
     VkPipelineShaderStageCreateInfo shaderStages[2] = { pipeline->pipeline_template.vertShaderStageInfo, pipeline->pipeline_template.fragShaderStageInfo };
@@ -4174,14 +4189,19 @@ void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type
         shaderc_result_release(result);
     }
 
-    zest_size spv_size = shaderc_result_get_length(result);
+    zest_uint spv_size = (zest_uint)shaderc_result_get_length(result);
     const char *spv_binary = shaderc_result_get_bytes(result);
     zest_shader shader = zest_NewShader();
     zest_vec_resize(shader->spv, spv_size);
     memcpy(shader->spv, spv_binary, spv_size);
     zest_SetText(&shader->shader_code, shader_code);
-    zest_SetText(&shader->name, name);
-    zest_map_insert(ZestRenderer->shaders, name, shader);
+    if (zest_TextLength(&ZestRenderer->shader_path_prefix)) {
+        zest_SetTextf(&shader->name, "%s%s", ZestRenderer->shader_path_prefix, name);
+    }
+    else {
+        zest_SetTextf(&shader->name, "%s", name);
+    }
+    zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compiled shader %s and added to renderer shaders." ZEST_NL, name);
     shaderc_result_release(result);
 }
@@ -4469,8 +4489,8 @@ zest_uint zest_TextLength(zest_text* buffer) {
 //End api functions
 
 void zest__compile_builtin_shaders(void) {
-    zest_CompileShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert");
-    zest_CompileShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag");
+    zest_CompileShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert.spv");
+    zest_CompileShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag.spv");
 }
 
 void zest__prepare_standard_pipelines() {
@@ -4634,8 +4654,8 @@ void zest__prepare_standard_pipelines() {
     zest_vec_push(imgui_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col)));    // Location 2: Color
 
     imgui_pipeline_template.attributeDescriptions = imgui_vertex_input_attributes;
-    zest_SetText(&imgui_pipeline_template.vertShaderFile, "imgui.spv");
-    zest_SetText(&imgui_pipeline_template.fragShaderFile, "imgui.spv");
+    zest_SetText(&imgui_pipeline_template.vertShaderFile, "imgui_vert.spv");
+    zest_SetText(&imgui_pipeline_template.fragShaderFile, "imgui_frag.spv");
 
     zest_pipeline imgui_pipeline = zest_AddPipeline("pipeline_imgui");
 
