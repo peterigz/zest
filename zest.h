@@ -9,6 +9,7 @@
 
     [Macro_Defines]                     Just a bunch of typedefs and macro definitions
     [Platform_specific_code]            Windows/Mac specific, no linux yet
+    [Shader_code]                       glsl shader code for all the built in shaders
     [Enums_and_flags]                   Enums and bit flag definitions
     [Forward_declarations]              Forward declarations for structs and setting up of handles
     [Pocket_dynamic_array]              Simple dynamic array
@@ -52,6 +53,7 @@ extern "C" {
 #endif
 
 #include <vulkan/vulkan.h>
+#include <shaderc/shaderc.h>
 #include <math.h>
 #include <float.h>
 #include <string.h>
@@ -152,6 +154,7 @@ typedef volatile unsigned int zest_atomic_int;
 #endif
 
 #define ZEST_NL u8"\n"
+#define ZEST_TAB u8"\t"
 #define ZEST_LOG(log_file, message, ...) if(log_file) fprintf(log_file, message, ##__VA_ARGS__)
 #define ZEST_APPEND_LOG(log_path, message, ...) if(log_path) { FILE *log_file = zest__open_file(log_path, "a"); fprintf(log_file, message, ##__VA_ARGS__); fclose(log_file); }
 
@@ -288,6 +291,48 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_FALSE 0
 #define ZEST_INVALID 0xFFFFFFFF
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
+
+//Shader_code
+static const char *zest_shader_imgui_vert =
+"#version 450 core" ZEST_NL
+"layout(binding = 0) uniform UboView" ZEST_NL
+"{" ZEST_NL
+ZEST_TAB "mat4 view;" ZEST_NL
+ZEST_TAB "mat4 proj;" ZEST_NL
+ZEST_TAB "vec4 parameters1;" ZEST_NL
+ZEST_TAB "vec4 parameters2;" ZEST_NL
+ZEST_TAB "vec2 res;" ZEST_NL
+ZEST_TAB "uint millisecs;" ZEST_NL
+"} uboView;" ZEST_NL
+"layout(push_constant) uniform quad_index" ZEST_NL
+"{" ZEST_NL
+ZEST_TAB "mat4 model;" ZEST_NL
+ZEST_TAB "vec4 transform;" ZEST_NL
+ZEST_TAB "vec4 parameters;" ZEST_NL
+ZEST_TAB "vec4 parameters3;" ZEST_NL
+ZEST_TAB "vec4 camera;" ZEST_NL
+"} pc;" ZEST_NL
+"layout(location = 0) in vec2 in_position;" ZEST_NL
+"layout(location = 1) in vec2 in_tex_coord;" ZEST_NL
+"layout(location = 2) in vec4 in_color;" ZEST_NL
+"layout(location = 0) out vec4 out_color;" ZEST_NL
+"layout(location = 1) out vec3 out_uv;" ZEST_NL
+"void main() {" ZEST_NL
+ZEST_TAB "gl_Position = vec4(in_position * pc.transform.xy + pc.transform.zw, 0.0, 1.0);" ZEST_NL
+ZEST_TAB "out_uv = vec3(in_tex_coord, pc.parameters.x);" ZEST_NL
+ZEST_TAB "out_color = in_color;" ZEST_NL
+"}" ZEST_NL;
+
+static const char *zest_shader_imgui_frag =
+"#version 450 core" ZEST_NL
+"layout(location = 0) in vec4 in_color;" ZEST_NL
+"layout(location = 1) in vec3 in_uv;" ZEST_NL
+"layout(location = 0) out vec4 out_color;" ZEST_NL
+"layout(binding = 1) uniform sampler2DArray tex_sampler;" ZEST_NL
+"void main()" ZEST_NL
+"{" ZEST_NL
+ZEST_TAB "out_color = in_color * texture(tex_sampler, in_uv);" ZEST_NL
+"}" ZEST_NL;
 
 //Enums_and_flags
 typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
@@ -540,6 +585,7 @@ typedef struct zest_buffer_t zest_buffer_t;
 typedef struct zest_device_memory_pool_t zest_device_memory_pool_t;
 typedef struct zest_timer_t zest_timer_t;
 typedef struct zest_window_t zest_window_t;
+typedef struct zest_shader_t zest_shader_t;
 
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image)
@@ -561,6 +607,7 @@ ZEST__MAKE_HANDLE(zest_buffer)
 ZEST__MAKE_HANDLE(zest_device_memory_pool)
 ZEST__MAKE_HANDLE(zest_timer)
 ZEST__MAKE_HANDLE(zest_window)
+ZEST__MAKE_HANDLE(zest_shader)
 
 typedef zest_descriptor_buffer zest_uniform_buffer;
 
@@ -1627,6 +1674,12 @@ typedef struct zest_texture_t {
     zest_thread_access lock;
 } zest_texture_t;
 
+typedef struct zest_shader_t {
+    char *spv;
+    zest_text shader_code;
+    zest_text name;
+} zest_shader_t;
+
 typedef struct zest_render_target_create_info_t {
     VkRect2D viewport;                                           //The viewport/size of the render target
     zest_vec2 ratio_of_screen_size;                              //If you want the size of the target to be a ration of the current swap chain/window size
@@ -1685,6 +1738,7 @@ zest_hash_map(zest_texture) zest_map_textures;
 zest_hash_map(zest_render_target) zest_map_render_targets;
 zest_hash_map(zest_font) zest_map_fonts;
 zest_hash_map(zest_compute) zest_map_computes;
+zest_hash_map(zest_shader) zest_map_shaders;
 
 typedef struct zest_renderer_t {
     zest_semaphores_t semaphores[ZEST_MAX_FIF];
@@ -1720,6 +1774,8 @@ typedef struct zest_renderer_t {
     zest_command_queue_draw_commands current_draw_commands;
     zest_command_queue_compute current_compute_routine;
 
+    shaderc_compiler_t shader_compiler;
+
     //General Storage
     zest_map_command_queues command_queues;
     zest_map_render_passes render_passes;
@@ -1735,6 +1791,7 @@ typedef struct zest_renderer_t {
     zest_map_uniform_buffers uniform_buffers;
     zest_map_descriptor_sets descriptor_sets;
     zest_map_computes computes;
+    zest_map_shaders shaders;
 
     zest_command_queue active_command_queue;
     zest_command_queue_t empty_queue;
@@ -1840,6 +1897,7 @@ ZEST_PRIVATE void zest__create_sync_objects(void);
 ZEST_PRIVATE zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__create_descriptor_pools(zest_map_descriptor_pool_sizes pool_sizes, zest_uint max_sets);
 ZEST_PRIVATE void zest__make_standard_descriptor_layouts(void);
+ZEST_PRIVATE void zest__compile_builtin_shaders(void);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__create_empty_command_queue(zest_command_queue command_queue);
 ZEST_PRIVATE void zest__render_blank(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
@@ -2087,6 +2145,10 @@ ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
 ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
 //Create a VkRect2D, generally used when building a render pass.
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
+//Create a new shader handle
+ZEST_API zest_shader zest_NewShader();
+//Compile a shader from a string and add it to the library of shaders in the renderer
+ZEST_API void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name);
 
 //-----------------------------------------------
 //        Pipeline_related_vulkan_helpers
@@ -2663,7 +2725,7 @@ ZEST_API zest_image zest_CreateAnimation(zest_uint frames);
 ZEST_API void zest_LoadBitmapImage(zest_bitmap_t *image, const char *file, int color_channels);
 //Load a bitmap from a memory buffer. Set color_channels to 0 to auto detect the number of channels. Pass in a pointer to the memory buffer containing
 //the bitmap, the size in bytes and how many channels it has.
-ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap_t *image, unsigned char *buffer, int size, int desired_no_channels);
+ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap_t *image, const unsigned char *buffer, int size, int desired_no_channels);
 //Free the memory used in a zest_bitmap_t
 ZEST_API void zest_FreeBitmap(zest_bitmap_t *image);
 //Create a new initialise zest_bitmap_t

@@ -48,6 +48,17 @@ ELSE()
 	message(STATUS ${Vulkan_LIBRARY})
 ENDIF()
 
+# Find ShaderC library
+find_library(SHADERC_LIBRARY
+    NAMES shaderc_combined
+    PATHS ${Vulkan_LIBRARY_DIR} ${Vulkan_LIBRARY_DIR}/../
+)
+
+# If ShaderC library is not found, print an error message
+if(NOT SHADERC_LIBRARY)
+    message(FATAL_ERROR "ShaderC library not found. Make sure you have installed the Vulkan SDK correctly.")
+endif()
+
 # Include directories for Vulkan
 include_directories(${Vulkan_INCLUDE_DIRS})
 
@@ -93,7 +104,7 @@ ELSE(WIN32)
 ENDIF(WIN32)
 
 # Link zest-lib with Vulkan
-target_link_libraries(zest-lib Vulkan::Vulkan)
+target_link_libraries(zest-lib Vulkan::Vulkan ${SHADERC_LIBRARY})
 add_subdirectory(submodules/freetype)
 # Add the remaining example projects
 add_subdirectory(examples/Simple)

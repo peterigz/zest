@@ -1233,6 +1233,8 @@ void zest_Initialise(zest_create_info_t* info) {
     ZestRenderer->add_platform_extensions_callback = info->add_platform_extensions_callback;
     ZestRenderer->create_window_callback = info->create_window_callback;
     ZestRenderer->create_window_surface_callback = info->create_window_surface_callback;
+    ZestRenderer->shader_compiler = shaderc_compiler_initialize();
+    ZEST_ASSERT(ZestRenderer->shader_compiler); //Unable to create the shader compiler
     zest__initialise_app(info);
     zest__initialise_device();
     zest__initialise_renderer(info);
@@ -2801,6 +2803,8 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     zest__make_standard_descriptor_layouts();
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create pipeline cache" ZEST_NL);
     zest__create_pipeline_cache();
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compile shaders" ZEST_NL);
+    zest__compile_builtin_shaders();
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create standard pipelines" ZEST_NL);
     zest__prepare_standard_pipelines();
 
@@ -4153,6 +4157,35 @@ void zest__rebuild_pipeline(zest_pipeline_t* pipeline) {
     }
 }
 
+zest_shader zest_NewShader() {
+    zest_shader_t blank_shader = { 0 };
+    zest_shader shader = ZEST__NEW(zest_shader);
+    *shader = blank_shader;
+    return shader;
+}
+
+void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name) {
+    ZEST_ASSERT(name);     //You must give the shader a name
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, name));
+    shaderc_compilation_result_t result = shaderc_compile_into_spv( ZestRenderer->shader_compiler, shader_code, strlen(shader_code), shader_type, name, "main", NULL );
+
+    if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Shader compilation failed: %s, %s" ZEST_NL, name, shaderc_result_get_error_message(result));
+        shaderc_result_release(result);
+    }
+
+    zest_size spv_size = shaderc_result_get_length(result);
+    const char *spv_binary = shaderc_result_get_bytes(result);
+    zest_shader shader = zest_NewShader();
+    zest_vec_resize(shader->spv, spv_size);
+    memcpy(shader->spv, spv_binary, spv_size);
+    zest_SetText(&shader->shader_code, shader_code);
+    zest_SetText(&shader->name, name);
+    zest_map_insert(ZestRenderer->shaders, name, shader);
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compiled shader %s and added to renderer shaders." ZEST_NL, name);
+    shaderc_result_release(result);
+}
+
 zest_pipeline zest_AddPipeline(const char* name) {
     zest_pipeline pipeline = zest__create_pipeline();
     zest_map_insert(ZestRenderer->pipelines, name, pipeline);
@@ -4434,6 +4467,11 @@ zest_uint zest_TextLength(zest_text* buffer) {
 }
 
 //End api functions
+
+void zest__compile_builtin_shaders(void) {
+    zest_CompileShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert");
+    zest_CompileShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag");
+}
 
 void zest__prepare_standard_pipelines() {
     VkRenderPass render_pass = zest_GetStandardRenderPass();
@@ -6212,7 +6250,7 @@ void zest_LoadBitmapImage(zest_bitmap_t* image, const char* file, int color_chan
     }
 }
 
-void zest_LoadBitmapImageMemory(zest_bitmap_t* image, unsigned char* buffer, int size, int desired_no_channels) {
+void zest_LoadBitmapImageMemory(zest_bitmap_t* image, const unsigned char* buffer, int size, int desired_no_channels) {
     int width, height, original_no_channels;
     unsigned char* img = stbi_load_from_memory(buffer, size, &width, &height, &original_no_channels, desired_no_channels);
     if (img != NULL) {
