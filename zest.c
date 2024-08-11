@@ -4019,10 +4019,9 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
 		pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
     }
     else {
-		char* vert_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.vertShaderFile.str, ZEST_FALSE);
-		ZEST_ASSERT(vert_shader_code);        //Failed to load the shader file, make sure it exists at the location
-		vert_shader_module = zest__create_shader_module(vert_shader_code);
-		zest_vec_free(vert_shader_code);
+		zest_shader vert_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.vertShaderFile.str, shaderc_vertex_shader);
+		ZEST_ASSERT(vert_shader);        //Failed to load the shader file, make sure it exists at the location
+		vert_shader_module = zest__create_shader_module(vert_shader->spv);
 		pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
     }
 
@@ -4032,10 +4031,10 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
 		pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
     }
     else {
-		char* frag_shader_code = zest_ReadEntireFile(pipeline->pipeline_template.fragShaderFile.str, ZEST_FALSE);
-		ZEST_ASSERT(frag_shader_code);        //Failed to load the shader file, make sure it exists at the location
-		frag_shader_module = zest__create_shader_module(frag_shader_code);
-		zest_vec_free(frag_shader_code);
+		zest_shader frag_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.fragShaderFile.str, shaderc_fragment_shader);
+		ZEST_ASSERT(frag_shader);        //Failed to load the shader file, make sure it exists at the location
+		frag_shader_module = zest__create_shader_module(frag_shader->spv);
+		zest_vec_free(frag_shader);
 		pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
     }
 
@@ -4181,7 +4180,7 @@ zest_shader zest_NewShader() {
 
 void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name) {
     ZEST_ASSERT(name);     //You must give the shader a name
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, name));
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, name));     //Shader already exitst, use zest_UpdateShader to update an existing shader
     zest_shader shader = zest_NewShader();
     if (zest_TextLength(&ZestRenderer->shader_path_prefix)) {
         zest_SetTextf(&shader->name, "%s%s", ZestRenderer->shader_path_prefix, name);
@@ -4229,6 +4228,37 @@ void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type
         }
         fclose(shader_file);
     }
+}
+
+zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind shader_type) {
+    ZEST_ASSERT(filename);     //You must give the shader a name
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, filename));     //Shader already exitst, use zest_UpdateShader to update an existing shader
+	char* shader_code = zest_ReadEntireFile(filename, ZEST_FALSE);
+    zest_shader shader = zest_NewShader();
+    shader->spv = zest_ReadEntireFile(shader->name.str, ZEST_FALSE);
+    if (shader->spv) {
+        zest_SetText(&shader->name, filename);
+        zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Loaded shader %s and added to renderer shaders." ZEST_NL, filename);
+        return shader;
+    }
+    ZEST__FREE(shader);
+    return 0;
+}
+
+zest_shader zest_AddShaderFromSPVMemory(const char *name, const char *buffer, zest_uint size, shaderc_shader_kind shader_type) {
+    ZEST_ASSERT(name);     //You must give the shader a name
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, name));     //Shader already exitst, use zest_UpdateShader to update an existing shader
+    if (buffer && size) {
+		zest_shader shader = zest_NewShader();
+		zest_vec_resize(shader->spv, size);
+		memcpy(shader->spv, buffer, size);
+        zest_SetText(&shader->name, name);
+        zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Read shader %s from memory and added to renderer shaders." ZEST_NL, name);
+        return shader;
+    }
+    return 0;
 }
 
 zest_pipeline zest_AddPipeline(const char* name) {

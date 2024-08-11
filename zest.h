@@ -3022,6 +3022,10 @@ ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offse
 ZEST_API zest_shader zest_NewShader();
 //Compile a shader from a string and add it to the library of shaders in the renderer
 ZEST_API void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name);
+//Add a shader straight from an spv file and return a handle to the shader
+ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind shader_type);
+//Add an spv shader straight from memory and return a handle to the shader
+ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const char *buffer, zest_uint size, shaderc_shader_kind shader_type);
 
 //-----------------------------------------------
 //        Pipeline_related_vulkan_helpers
