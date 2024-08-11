@@ -48,8 +48,6 @@ ELSE()
 	message(STATUS ${Vulkan_LIBRARY})
 ENDIF()
 
-message(STATUS "Using Shaderc library: ${Vulkan_shaderc_combined_LIBRARY}")
-
 # Include directories for Vulkan
 include_directories(${Vulkan_INCLUDE_DIRS})
 
@@ -89,7 +87,7 @@ endfunction(buildExtraExamples)
 IF(WIN32)
 	# Nothing here (yet)
 ELSEIF(APPLE)
-	link_libraries(${Vulkan_LIBRARY} ${GLFW3_LIBRARY} "-framework AppKit" "-framework QuartzCore")
+	link_libraries(Vulkan::Vulkan Vulkan::shaderc_combined ${GLFW3_LIBRARY} "-framework AppKit" "-framework QuartzCore")
 ELSE(WIN32)
 #	link_libraries(${XCB_LIBRARIES} ${Vulkan_LIBRARY} ${DIRECTFB_LIBRARIES} ${WAYLAND_CLIENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 ENDIF(WIN32)
