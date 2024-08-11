@@ -26,7 +26,7 @@ FIND_LIBRARY(MSDF_GEN_EXT NAMES msdfgen-ext.lib)
 # Use FindVulkan module added with CMAKE 3.7
 if (NOT CMAKE_VERSION VERSION_LESS 3.7.0)
 	message(STATUS "Using module to find Vulkan")
-	find_package(Vulkan)
+	find_package(Vulkan COMPONENTS shaderc_combined)
 endif()
 
 IF(WIN32)
@@ -48,16 +48,7 @@ ELSE()
 	message(STATUS ${Vulkan_LIBRARY})
 ENDIF()
 
-# Find ShaderC library
-find_library(SHADERC_LIBRARY
-    NAMES shaderc_combined
-    PATHS ${Vulkan_LIBRARY_DIR} ${Vulkan_LIBRARY_DIR}/../
-)
-
-# If ShaderC library is not found, print an error message
-if(NOT SHADERC_LIBRARY)
-    message(FATAL_ERROR "ShaderC library not found. Make sure you have installed the Vulkan SDK correctly.")
-endif()
+message(STATUS "Using Shaderc library: ${Vulkan_shaderc_combined_LIBRARY}")
 
 # Include directories for Vulkan
 include_directories(${Vulkan_INCLUDE_DIRS})
@@ -104,7 +95,7 @@ ELSE(WIN32)
 ENDIF(WIN32)
 
 # Link zest-lib with Vulkan
-target_link_libraries(zest-lib Vulkan::Vulkan ${SHADERC_LIBRARY})
+target_link_libraries(zest-lib Vulkan::Vulkan Vulkan::shaderc_combined)
 add_subdirectory(submodules/freetype)
 # Add the remaining example projects
 add_subdirectory(examples/Simple)

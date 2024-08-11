@@ -293,46 +293,918 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
 
 //Shader_code
-static const char *zest_shader_imgui_vert =
-"#version 450 core" ZEST_NL
-"layout(binding = 0) uniform UboView" ZEST_NL
-"{" ZEST_NL
-ZEST_TAB "mat4 view;" ZEST_NL
-ZEST_TAB "mat4 proj;" ZEST_NL
-ZEST_TAB "vec4 parameters1;" ZEST_NL
-ZEST_TAB "vec4 parameters2;" ZEST_NL
-ZEST_TAB "vec2 res;" ZEST_NL
-ZEST_TAB "uint millisecs;" ZEST_NL
-"} uboView;" ZEST_NL
-"layout(push_constant) uniform quad_index" ZEST_NL
-"{" ZEST_NL
-ZEST_TAB "mat4 model;" ZEST_NL
-ZEST_TAB "vec4 transform;" ZEST_NL
-ZEST_TAB "vec4 parameters;" ZEST_NL
-ZEST_TAB "vec4 parameters3;" ZEST_NL
-ZEST_TAB "vec4 camera;" ZEST_NL
-"} pc;" ZEST_NL
-"layout(location = 0) in vec2 in_position;" ZEST_NL
-"layout(location = 1) in vec2 in_tex_coord;" ZEST_NL
-"layout(location = 2) in vec4 in_color;" ZEST_NL
-"layout(location = 0) out vec4 out_color;" ZEST_NL
-"layout(location = 1) out vec3 out_uv;" ZEST_NL
-"void main() {" ZEST_NL
-ZEST_TAB "gl_Position = vec4(in_position * pc.transform.xy + pc.transform.zw, 0.0, 1.0);" ZEST_NL
-ZEST_TAB "out_uv = vec3(in_tex_coord, pc.parameters.x);" ZEST_NL
-ZEST_TAB "out_color = in_color;" ZEST_NL
-"}" ZEST_NL;
+//For nicer formatting of the shader code
+#define ZEST_GLSL(version, shader) "#version " #version "\n" #shader
+//As an alternative I might just embed the spv's directly in the future.
 
-static const char *zest_shader_imgui_frag =
-"#version 450 core" ZEST_NL
-"layout(location = 0) in vec4 in_color;" ZEST_NL
-"layout(location = 1) in vec3 in_uv;" ZEST_NL
-"layout(location = 0) out vec4 out_color;" ZEST_NL
-"layout(binding = 1) uniform sampler2DArray tex_sampler;" ZEST_NL
-"void main()" ZEST_NL
-"{" ZEST_NL
-ZEST_TAB "out_color = in_color * texture(tex_sampler, in_uv);" ZEST_NL
-"}" ZEST_NL;
+//----------------------
+//Imgui vert shader
+//----------------------
+static const char *zest_shader_imgui_vert = ZEST_GLSL(450 core,
+
+//Not actually used with imgui
+layout(binding = 0) uniform UboView
+{
+	mat4 view;
+	mat4 proj;
+	vec4 parameters1;
+	vec4 parameters2;
+	vec2 res;
+	uint millisecs;
+} uboView;
+
+layout(push_constant) uniform quad_index
+{
+	mat4 model;
+	vec4 transform;
+	vec4 parameters;
+	vec4 parameters3;
+	vec4 camera;
+} pc;
+
+layout(location = 0) in vec2 in_position;
+layout(location = 1) in vec2 in_tex_coord;
+layout(location = 2) in vec4 in_color;
+
+layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec3 out_uv;
+
+void main() {
+
+	gl_Position = vec4(in_position * pc.transform.xy + pc.transform.zw, 0.0, 1.0);
+
+	out_uv = vec3(in_tex_coord, pc.parameters.x);
+	out_color = in_color;
+}
+
+);
+
+//----------------------
+//Imgui fragment shader
+//----------------------
+static const char *zest_shader_imgui_frag = ZEST_GLSL(450 core,
+
+layout(location = 0) in vec4 in_color;
+layout(location = 1) in vec3 in_uv;
+
+layout(location = 0) out vec4 out_color;
+layout(binding = 1) uniform sampler2DArray tex_sampler;
+
+void main()
+{
+	out_color = in_color * texture(tex_sampler, in_uv);
+}
+
+);
+
+
+//----------------------
+//3d billboard vertex shader
+//----------------------
+//because of const keyword in the macro we just have to resort to a string literal for this one
+static const char *zest_shader_billboard_vert = ZEST_GLSL(450,
+//This is an all in one billboard vertex shader which can handle both free align and align to camera.
+//If you have an effect with multiple emitters using both align methods then you can use this shader to 
+//draw the effect with one draw call. Otherwise if your effect only uses one or the other you can optimise by
+//using the shaders that only handle whatever you need for the effect.
+
+//Quad indexes
+const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
+
+//We add an epsilon to avoid nans with the cross product
+const vec3 up = vec3( 0, 1, 0.00001 );
+const vec3 front = vec3( 0, 0, 1 );
+const vec3 left = vec3( 1, 0, 0 );
+
+layout(binding = 0) uniform UboView
+{
+    mat4 view;
+    mat4 proj;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec2 res;
+    uint millisecs;
+} uboView;
+
+layout(push_constant) uniform quad_index
+{
+    mat4 model;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
+
+//Vertex
+//layout(location = 0) in vec2 vertex_position;
+
+//Instance
+layout(location = 0) in vec3 position;
+layout(location = 1) in vec2 uv_xy;
+layout(location = 2) in vec3 rotations;
+layout(location = 3) in vec2 uv_zw;
+layout(location = 4) in vec2 scale;
+layout(location = 5) in vec2 handle;
+layout(location = 6) in uint blend_texture_index;
+layout(location = 7) in vec4 in_color;
+layout(location = 8) in float stretch;
+layout(location = 9) in vec3 alignment;
+
+layout(location = 0) out vec4 out_frag_color;
+layout(location = 1) out vec3 out_tex_coord;
+layout(location = 2) out float out_blend_factor;
+
+mat3 RotationMatrix(vec3 axis, float angle)
+{
+    axis = normalize(axis);
+    float s = sin(angle);
+    float c = cos(angle);
+    float oc = 1.0 - c;
+    return mat3(oc * axis.x * axis.x + c, oc * axis.x * axis.y - axis.z * s, oc * axis.z * axis.x + axis.y * s,
+        oc * axis.x * axis.y + axis.z * s, oc * axis.y * axis.y + c, oc * axis.y * axis.z - axis.x * s,
+        oc * axis.z * axis.x - axis.y * s, oc * axis.y * axis.z + axis.x * s, oc * axis.z * axis.z + c);
+}
+
+void main() {
+    float blend_factor = blend_texture_index & uint(0x003fffff);
+    blend_factor /= 524287.875;
+
+    //Info about how to align the billboard is stored in bits 22 and 23 of blend_texture_index
+
+    //Billboarding determines whether the quad will align to the camera or not. 0 means that it will 
+    //align to the camera. This value is determined by the first bit: 01
+    float billboarding = float((blend_texture_index & uint(0x00400000)) >> 22);
+
+    //align_type is set to 1 when we want the quad to align to the vector stored in alignment.xyz with
+    //no billboarding. Billboarding will always be set to 1 in this case, so in other words both bits
+    //will be set: 11.
+    float align_type = float((blend_texture_index & uint(0x00C00000)) == 12582912);
+
+    //vector_align is set to 1 when we want the billboard to align to the camera and the vector
+    //stored in alignment.xyz. billboarding and align_type will always be 0 if this is the case. the second
+    //bit is the only bit set if this is the case: 10
+    float vector_align = float((blend_texture_index & uint(0x00C00000)) == 8388608);
+
+    //vec3 alignment_up_cross = dot(alignment.xyz, up) == 0 ? vec3(0, 1, 0) : normalize(cross(alignment.xyz, up));
+    vec3 alignment_up_cross = normalize(cross(alignment, up));
+
+    vec2 uvs[4];
+    uvs[0].x = uv_xy.x; uvs[0].y = uv_xy.y;
+    uvs[1].x = uv_zw.x; uvs[1].y = uv_xy.y;
+    uvs[2].x = uv_xy.x; uvs[2].y = uv_zw.y;
+    uvs[3].x = uv_zw.x; uvs[3].y = uv_zw.y;
+
+    vec3 camera_relative_aligment = alignment * inverse(mat3(uboView.view));
+    float dp_up = dot(camera_relative_aligment.xy, -up.xy);
+    float det = camera_relative_aligment.x * -up.y;
+    float dp_angle = vector_align * atan(-det, -dp_up) + rotations.z;
+
+    const vec3 identity_bounds[4] = vec3[4](
+        vec3( scale.x * (0 - handle.x), -scale.y * (0 - handle.y), 0),
+        vec3( scale.x * (1 - handle.x), -scale.y * (0 - handle.y), 0),
+        vec3( scale.x * (0 - handle.x), -scale.y * (1 - handle.y), 0),
+        vec3( scale.x * (1 - handle.x), -scale.y * (1 - handle.y), 0)
+    );
+
+    vec3 bounds[4];
+    bounds[0] = align_type == 1 ? ((-scale.y * alignment * (0 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
+    bounds[1] = align_type == 1 ? ((-scale.y * alignment * (0 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
+    bounds[2] = align_type == 1 ? ((-scale.y * alignment * (1 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
+    bounds[3] = align_type == 1 ? ((-scale.y * alignment * (1 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
+
+    int index = indexes[gl_VertexIndex];
+
+    vec3 vertex_position = bounds[index];
+
+    vec3 surface_normal = cross(bounds[1] - bounds[0], bounds[2] - bounds[0]);
+    mat3 matrix_roll = RotationMatrix(align_type * alignment + front * (1 - align_type), align_type * rotations.z + dp_angle * (1 - align_type));
+    mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * (1 - align_type), rotations.x * billboarding);
+    mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * (1 - align_type), rotations.y * billboarding);
+
+    mat4 model = mat4(1.0);
+    model[3][0] = position.x;
+    model[3][1] = position.y;
+    model[3][2] = position.z;
+
+    mat3 rot_mat = matrix_pitch * matrix_yaw * matrix_roll;
+
+    mat4 modelView = uboView.view * model;
+    vec3 pos = rot_mat * vertex_position;
+    //Stretch effect but negate if billboarding is not active
+    pos += camera_relative_aligment * dot(pos, camera_relative_aligment) * stretch * (1 - billboarding);
+    pos += alignment * dot(pos, alignment) * stretch * billboarding;
+
+    //Billboarding. If billboarding = 0 then billboarding is active and the quad will always face the camera, 
+    //otherwise the modelView matrix is used as it is.
+    modelView[0][0] = (billboarding * modelView[0][0]) + 1 * (1 - billboarding);
+    modelView[0][1] = (billboarding * modelView[0][1]);
+    modelView[0][2] = (billboarding * modelView[0][2]);
+    modelView[1][0] = (billboarding * modelView[1][0]);
+    modelView[1][1] = (billboarding * modelView[1][1]) + 1 * (1 - billboarding);
+    modelView[1][2] = (billboarding * modelView[1][2]);
+    modelView[2][0] = (billboarding * modelView[2][0]);
+    modelView[2][1] = (billboarding * modelView[2][1]);
+    modelView[2][2] = (billboarding * modelView[2][2]) + 1 * (1 - billboarding);
+
+    vec4 p = modelView * vec4(pos, 1.0);
+    gl_Position = uboView.proj * p;
+
+    //----------------
+    out_frag_color = in_color * blend_factor;
+    out_tex_coord = vec3(uvs[index], (blend_texture_index & uint(0xFF000000)) >> 24);
+}
+);
+
+//----------------------
+//2d/3d billboard fragment shader
+//----------------------
+static const char *zest_shader_sprite_frag = ZEST_GLSL(450,
+layout(location = 0) in vec4 in_frag_color;
+layout(location = 1) in vec3 in_tex_coord;
+layout(location = 0) out vec4 outColor;
+layout(binding = 1) uniform sampler2DArray texSampler;
+layout(push_constant) uniform quad_index
+{
+    mat4 model;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
+
+void main() {
+    vec4 texel = texture(texSampler, in_tex_coord);
+    //Pre multiply alpha
+    outColor.rgb = texel.rgb * in_frag_color.rgb * texel.a;
+    //If in_frag_color.a is 0 then color will be additive. The higher the value of a the more alpha blended the color will be.
+    outColor.a = texel.a * in_frag_color.a;
+}
+);
+
+//----------------------
+//2d/3d billboard fragment shader single alpha channel only
+//----------------------
+static const char *zest_shader_sprite_alpha_frag = ZEST_GLSL(450,
+layout(location = 0) in vec4 in_frag_color;
+layout(location = 1) in vec3 in_tex_coord;
+
+layout(location = 0) out vec4 outColor;
+
+layout(binding = 1) uniform sampler2DArray texSampler;
+
+layout(push_constant) uniform quad_index
+{
+    mat4 model;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
+
+void main() {
+    float texel = texture(texSampler, in_tex_coord).r;
+
+    outColor.rgb = in_frag_color.rgb * texel;
+    outColor.a = texel * in_frag_color.a;
+}
+);
+
+//----------------------
+//2d sprite vertex shader
+//----------------------
+static const char *zest_shader_sprite_vert = ZEST_GLSL(450,
+//Quad indexes
+const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
+
+layout(binding = 0) uniform UboView
+{
+    mat4 view;
+    mat4 proj;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec2 res;
+    uint millisecs;
+} uboView;
+
+layout(push_constant) uniform quad_index
+{
+    mat4 model;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
+
+//Vertex
+//layout(location = 0) in vec2 vertex_position;
+
+//Instance
+layout(location = 0) in vec2 size;
+layout(location = 1) in vec2 handle;
+layout(location = 2) in vec4 uv;
+layout(location = 3) in vec4 position_rotation;
+layout(location = 4) in float intensity;
+layout(location = 5) in vec2 alignment;
+layout(location = 6) in vec4 in_color;
+layout(location = 7) in uint texture_array_index;
+
+layout(location = 0) out vec4 out_frag_color;
+layout(location = 1) out vec3 out_tex_coord;
+
+void main() {
+    vec2 alignment_normal = normalize(vec2(alignment.x, alignment.y + 0.000001)) * position_rotation.z;
+
+    vec2 uvs[4];
+    uvs[0].x = uv.x; uvs[0].y = uv.y;
+    uvs[1].x = uv.z; uvs[1].y = uv.y;
+    uvs[2].x = uv.x; uvs[2].y = uv.w;
+    uvs[3].x = uv.z; uvs[3].y = uv.w;
+
+    vec2 bounds[4];
+    bounds[0].x = size.x * (0 - handle.x);
+    bounds[0].y = size.y * (0 - handle.y);
+    bounds[3].x = size.x * (1 - handle.x);
+    bounds[3].y = size.y * (1 - handle.y);
+    bounds[1].x = bounds[3].x;
+    bounds[1].y = bounds[0].y;
+    bounds[2].x = bounds[0].x;
+    bounds[2].y = bounds[3].y;
+
+    int index = indexes[gl_VertexIndex];
+
+    vec2 vertex_position = bounds[index];
+
+    mat3 matrix = mat3(1.0);
+    float s = sin(position_rotation.w);
+    float c = cos(position_rotation.w);
+
+    matrix[0][0] = c;
+    matrix[0][1] = s;
+    matrix[1][0] = -s;
+    matrix[1][1] = c;
+
+    mat4 modelView = uboView.view * pc.model;
+    vec3 pos = matrix * vec3(vertex_position.x, vertex_position.y, 1);
+    pos.xy += alignment_normal * dot(pos.xy, alignment_normal);
+    pos.xy += position_rotation.xy;
+    gl_Position = uboView.proj * modelView * vec4(pos, 1.0);
+
+    //----------------
+    out_tex_coord = vec3(uvs[index], texture_array_index);
+    out_frag_color = in_color * intensity;
+}
+);
+
+//----------------------
+//2d shape vertex shader
+//----------------------
+static const char *zest_shader_shape_vert = ZEST_GLSL(450,
+//Quad indexes
+const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
+const vec2 vertex[4] = vec2[4]( 
+    vec2(-.5, -.5), vec2(-.5, .5), vec2(.5, -.5), vec2(.5, .5)
+);
+
+layout(binding = 0) uniform UboView
+{
+    mat4 view;
+    mat4 proj;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec2 res;
+    uint millisecs;
+} uboView;
+
+layout(push_constant) uniform quad_index
+{
+    mat4 model;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
+
+//Line instance data
+layout(location = 0) in vec4 rect;
+layout(location = 1) in vec4 parameters;
+layout(location = 2) in vec4 start_color;
+
+layout(location = 0) out vec4 out_frag_color;
+layout(location = 1) out vec4 p1;
+layout(location = 2) out vec4 p2;
+layout(location = 3) out float shape_type;
+layout(location = 4) out float millisecs;
+
+void main() {
+    int index = indexes[gl_VertexIndex];
+    shape_type = pc.parameters1.x;
+
+    vec2 vertex_position;
+    if (shape_type == 4) {
+        //line drawing
+        vec2 line = rect.zw - rect.xy;
+        vec2 normal = normalize(vec2(-line.y, line.x));
+        vertex_position = rect.xy + line * (vertex[index].x + .5) + normal * parameters.x * vertex[index].y;
+    }
+    else if (shape_type == 5) {
+        //Rect drawing
+        vec2 size = rect.zw - rect.xy;
+        vec2 position = size * .5 + rect.xy;
+        vertex_position = size.xy * vertex[index] + position;
+    }
+    else if (shape_type == 6) {
+        //line drawing
+        vec2 line = rect.zw - rect.xy;
+        vec2 normal = normalize(vec2(-line.y, line.x));
+        vertex_position = rect.xy + line * (vertex[index].x + .5) + normal * parameters.x * vertex[index].y;
+    }
+
+    mat4 modelView = uboView.view * pc.model;
+    vec3 pos = vec3(vertex_position.x, vertex_position.y, 1);
+    gl_Position = uboView.proj * modelView * vec4(pos, 1.0);
+
+    //----------------
+    out_frag_color = start_color;
+    p1 = rect;
+    p2 = parameters;
+    millisecs = float(uboView.millisecs);
+}
+);
+
+//----------------------
+//2d shape frag shader
+//----------------------
+static const char *zest_shader_shape_frag = ZEST_GLSL(450,
+layout(location = 0) in vec4 fragColor;
+layout(location = 1) in vec4 p1;
+layout(location = 2) in vec4 p2;
+layout(location = 3) in float shape_type;
+layout(location = 4) in float millisecs;
+
+layout(location = 0) out vec4 outColor;
+
+float Line(in vec2 p, in vec2 a, in vec2 b) {
+    vec2 ba = b - a;
+    vec2 pa = p - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.);
+    return length(pa - h * ba);
+}
+
+float Fill(float sdf) {
+    //return step(0, -sdf);
+    return clamp(0.5 - sdf / fwidth(sdf), 0, 1);		//Anti Aliased
+}
+
+float Circle(vec2 p, float r)
+{
+    return length(p) - r;
+}
+
+float Stroke(float sdf, float width) {
+    return Fill(abs(sdf) - width);
+}
+
+float Difference(float sdf1, float sdf2) {
+    return max(sdf1, -sdf2);
+}
+
+float Union(float sdf1, float sdf2) {
+    return min(sdf1, sdf2);
+}
+
+float Intersection(float sdf1, float sdf2) {
+    return max(sdf1, sdf2);
+}
+
+float Trapezoid(in vec2 p, in vec2 a, in vec2 b, in float ra, float rb)
+{
+    float rba = rb - ra;
+    float baba = dot(b - a, b - a);
+    float papa = dot(p - a, p - a);
+    float paba = dot(p - a, b - a) / baba;
+    float x = sqrt(papa - paba * paba * baba);
+    float cax = max(0.0, x - ((paba < 0.5) ? ra : rb));
+    float cay = abs(paba - 0.5) - 0.5;
+    float k = rba * rba + baba;
+    float f = clamp((rba * (x - ra) + paba * baba) / k, 0.0, 1.0);
+    float cbx = x - ra - f * rba;
+    float cby = paba - f;
+    float s = (cbx < 0.0 && cay < 0.0) ? -1.0 : 1.0;
+    return s * sqrt(min(cax * cax + cay * cay * baba, cbx * cbx + cby * cby * baba));
+}
+
+float cro(in vec2 a, in vec2 b) { return a.x * b.y - a.y * b.x; }
+
+float UnevenCapsule(in vec2 p, in vec2 pa, in vec2 pb, in float ra, in float rb)
+{
+    p -= pa;
+    pb -= pa;
+    float h = dot(pb, pb);
+    vec2  q = vec2(dot(p, vec2(pb.y, -pb.x)), dot(p, pb)) / h;
+
+    //-----------
+
+    q.x = abs(q.x);
+
+    float b = ra - rb;
+    vec2  c = vec2(sqrt(h - b * b), b);
+
+    float k = cro(c, q);
+    float m = dot(c, q);
+    float n = dot(q, q);
+
+    if (k < 0.0) return sqrt(h * (n)) - ra;
+    else if (k > c.x) return sqrt(h * (n + 1.0 - 2.0 * q.y)) - rb;
+    return m - ra;
+}
+
+float OrientedBox(in vec2 p, in vec2 a, in vec2 b, float th)
+{
+    float l = length(b - a);
+    vec2  d = (b - a) / l;
+    vec2  q = (p - (a + b) * 0.5);
+    q = mat2(d.x, -d.y, d.y, d.x) * q;
+    q = abs(q) - vec2(l, th) * 0.5;
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+}
+
+void main() {
+
+    float brightness = 0;
+    if (shape_type == 4) {
+        //Line sdf seems to give perfectly fine results, UnevenCapsule would be more accurate though if widths change drastically over the course of the ribbon.
+        //float line_sdf = Line(gl_FragCoord.xy, p1.xy, p1.zw) - p2.x * .5; 
+        //float line_sdf = OrientedBox(gl_FragCoord.xy, p1.xy, p1.zw, p2.x); 
+        //float trap_sdf = UnevenCapsule(gl_FragCoord.xy, p1.xy, p1.zw, p2.x * .95, p2.x * .95); 
+        //brightness = Fill(line_sdf);
+        brightness = 1;
+    }
+    else if (shape_type == 5) {
+        brightness = 1;
+    }
+    else if (shape_type == 6) {
+        vec2 line = vec2(p1.xy - gl_FragCoord.xy);
+        brightness = step(5, mod(length(line) + (millisecs * 0.05), 10));
+    }
+
+    outColor = fragColor * brightness;
+    outColor.rgb *= fragColor.a;
+}
+);
+
+//----------------------
+//3d lines vert shader
+//----------------------
+static const char *zest_shader_3d_lines_vert = ZEST_GLSL(450,
+//Quad indexes
+const int indexes[] = int[](0, 1, 2, 0, 2, 3);
+const vec3 vertices[4] = vec3[]( 
+    vec3(0, -.5, 0),
+	vec3(0, -.5, 1),
+	vec3(0,  .5, 1),
+	vec3(0,  .5, 0)
+);
+
+layout(binding = 0) uniform UboView
+{
+    mat4 view;
+    mat4 proj;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec2 res;
+    uint millisecs;
+} uboView;
+
+layout(push_constant) uniform quad_index
+{
+    mat4 model;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
+
+//Instance
+layout(location = 0) in vec4 start;
+layout(location = 1) in vec4 end;
+layout(location = 2) in vec4 line_color;
+
+layout(location = 0) out vec4 out_frag_color;
+layout(location = 1) out vec4 p1;
+layout(location = 2) out vec4 p2;
+layout(location = 3) out vec3 out_end;
+layout(location = 4) out float millisecs;
+layout(location = 5) out float res;
+
+void main() {
+    vec4 clip0 = uboView.proj * uboView.view * pc.model * vec4(start.xyz, 1.0);
+    vec4 clip1 = uboView.proj * uboView.view * pc.model * vec4(end.xyz, 1.0);
+
+    vec2 screen0 = uboView.res * (0.5 * clip0.xy / clip0.w + 0.5);
+    vec2 screen1 = uboView.res * (0.5 * clip1.xy / clip1.w + 0.5);
+
+    int index = indexes[gl_VertexIndex];
+    vec3 vertex = vertices[index];
+
+    vec2 line = screen1 - screen0;
+    vec2 normal = normalize(vec2(-line.y, line.x));
+    //Note: lines made a bit thicker then the asked-for width so that there's room for anti-aliasing. Need to be more precise with this!
+    vec2 pt0 = screen0 + (start.w * 1.25) * (vertex.x * line + vertex.y * normal);
+    vec2 pt1 = screen1 + (end.w * 1.25) * (vertex.x * line + vertex.y * normal);
+    vec2 vertex_position = mix(pt0, pt1, vertex.z);
+    vec4 clip = mix(clip0, clip1, vertex.z);
+    gl_Position = vec4(clip.w * ((2.0 * vertex_position) / uboView.res - 1.0), clip.z, clip.w);
+
+    //----------------
+    out_frag_color = line_color;
+    p1 = vec4(screen0, 0, start.w);
+    p2 = vec4(screen1, 0, end.w);
+    out_end = p2.xyz;
+    millisecs = uboView.millisecs;
+    res = 1.0 / uboView.res.y;
+}
+);
+
+//----------------------
+//2d font frag shader
+//----------------------
+static const char *zest_shader_font_frag = ZEST_GLSL(450,
+layout(location = 0) in vec4 frag_color;
+layout(location = 1) in vec3 frag_tex_coord;
+
+layout(location = 0) out vec4 out_color;
+
+layout(binding = 1) uniform sampler2DArray texture_sampler;
+
+layout(push_constant) uniform quad_index
+{
+    mat4 model;
+    vec4 parameters;
+    vec4 shadow_parameters;
+    vec4 shadow_color;
+    vec4 camera;
+} font;
+
+float median(float r, float g, float b) {
+    return max(min(r, g), min(max(r, g), b));
+}
+
+vec4 blend(vec4 src, vec4 dst, float alpha) {
+    // src OVER dst porter-duff blending
+    float a = src.a + dst.a * (1.0 - src.a);
+    vec3 rgb = (src.a * src.rgb + dst.a * dst.rgb * (1.0 - src.a)) / (a == 0.0 ? 1.0 : a);
+    return vec4(rgb, a * alpha);
+}
+
+float linearstep(float a, float b, float x) {
+    return clamp((x - a) / (b - a), 0.0, 1.0);
+}
+
+float get_uv_scale(vec2 uv) {
+    vec2 dx = dFdx(uv);
+    vec2 dy = dFdy(uv);
+    return (length(dx) + length(dy)) * 0.5;
+}
+
+void main() {
+
+    vec4 glyph = frag_color;
+    float opacity;
+    vec4 sampled = texture(texture_sampler, frag_tex_coord);
+
+    vec2 texture_size = textureSize(texture_sampler, 0).xy;
+    float scale = get_uv_scale(frag_tex_coord.xy * texture_size) * font.parameters.z;
+    float d = (median(sampled.r, sampled.g, sampled.b) - 0.75) * font.parameters.x;
+    float sdf = (d + font.parameters.w) / scale + 0.5 + font.parameters.y;
+    float mask = clamp(sdf, 0.0, 1.0);
+    glyph = vec4(glyph.rgb, glyph.a * mask);
+
+    if (font.shadow_color.a > 0) {
+        float sd = texture(texture_sampler, vec3(frag_tex_coord.xy - font.shadow_parameters.xy / texture_size.xy, 0)).a;
+        float shadowAlpha = linearstep(0.5 - font.shadow_parameters.z, 0.5 + font.shadow_parameters.z, sd) * font.shadow_color.a;
+        shadowAlpha *= 1.0 - mask * font.shadow_parameters.w;
+        vec4 shadow = vec4(font.shadow_color.rgb, shadowAlpha);
+        out_color = blend(blend(vec4(0), glyph, 1.0), shadow, frag_color.a);
+        out_color.rgb = out_color.rgb * out_color.a;
+    }
+    else {
+        out_color.rgb = glyph.rgb * glyph.a;
+        out_color.a = glyph.a;
+    }
+
+}
+);
+
+//----------------------
+//3d lines frag shader
+//----------------------
+static const char *zest_shader_3d_lines_frag = ZEST_GLSL(450,
+layout(location = 0) in vec4 frag_color;
+layout(location = 1) in vec4 p1;
+layout(location = 2) in vec4 p2;
+layout(location = 3) in vec3 end;
+layout(location = 4) in float millisecs;
+layout(location = 5) in float res;
+
+layout(location = 0) out vec4 out_color;
+
+float Line(in vec2 p, in vec2 a, in vec2 b) {
+    vec2 ba = b - a;
+    vec2 pa = p - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.);
+    return length(pa - h * ba);
+}
+
+float Fill(float sdf) {
+    //return step(0, -sdf);
+    return clamp(0.5 - sdf / fwidth(sdf), 0, 1);		//Anti Aliased
+    //return clamp( 0.5 - sdf, 0, 1 );
+}
+
+void main() {
+    vec3 line = vec3(p1.xyz - gl_FragCoord.xyz);
+    float animated_brightness = step(5, mod(length(line) + (millisecs * 0.05), 10));
+
+    //Line sdf seems to give perfectly fine results, UnevenCapsule would be more accurate though if widths change drastically over the course of the ribbon.
+    float radius = p2.w * .5;
+    float line_sdf = Line(gl_FragCoord.xy, p1.xy, p2.xy) - radius;
+
+    float brightness = Fill(line_sdf);
+
+    out_color = frag_color * brightness;
+    out_color.rgb *= frag_color.a;
+}
+);
+
+//----------------------
+//mesh vert shader
+//----------------------
+static const char *zest_shader_mesh_vert = ZEST_GLSL(450,
+//Blendmodes
+layout(binding = 0) uniform ubo_view
+{
+    mat4 view;
+    mat4 proj;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec2 res;
+    uint millisecs;
+} uboView;
+
+layout(push_constant) uniform parameters
+{
+    mat4 model;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
+
+layout(location = 0) in vec3 in_position;
+layout(location = 1) in float in_intensity;
+layout(location = 2) in vec2 in_tex_coord;
+layout(location = 3) in vec4 in_color;
+layout(location = 4) in uint in_texture_array_index;
+
+layout(location = 0) out vec4 out_frag_color;
+layout(location = 1) out vec3 out_tex_coord;
+
+void main() {
+    gl_Position = uboView.proj * uboView.view * pc.model * vec4(in_position.xyz, 1.0);
+
+    out_tex_coord = vec3(in_tex_coord, in_texture_array_index);
+
+    out_frag_color = in_color * in_intensity;
+}
+);
+
+//----------------------
+//mesh instance (for primatives) vert shader
+//----------------------
+static const char *zest_shader_mesh_instance_vert = ZEST_GLSL(450,
+layout(binding = 0) uniform ubo_view
+{
+    mat4 view;
+    mat4 proj;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec2 res;
+    uint millisecs;
+} uboView;
+
+layout(push_constant) uniform parameters
+{
+    mat4 model;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
+
+layout(location = 0) in vec3 vertex_position;
+layout(location = 1) in vec4 vertex_color;
+layout(location = 2) in uint group_id;
+layout(location = 3) in vec3 vertex_normal;
+layout(location = 4) in vec3 instance_position;
+layout(location = 5) in vec4 instance_color;
+layout(location = 6) in vec3 instance_rotation;
+layout(location = 7) in vec4 instance_parameters;
+layout(location = 8) in vec3 instance_scale;
+
+layout(location = 0) out vec4 out_frag_color;
+
+void main() {
+    mat3 mx;
+    mat3 my;
+    mat3 mz;
+
+    // rotate around x
+    float s = sin(instance_rotation.x);
+    float c = cos(instance_rotation.x);
+
+    mx[0] = vec3(c, s, 0.0);
+    mx[1] = vec3(-s, c, 0.0);
+    mx[2] = vec3(0.0, 0.0, 1.0);
+
+    // rotate around y
+    s = sin(instance_rotation.y);
+    c = cos(instance_rotation.y);
+
+    my[0] = vec3(c, 0.0, s);
+    my[1] = vec3(0.0, 1.0, 0.0);
+    my[2] = vec3(-s, 0.0, c);
+
+    // rot around z
+    s = sin(instance_rotation.z);
+    c = cos(instance_rotation.z);
+
+    mz[0] = vec3(1.0, 0.0, 0.0);
+    mz[1] = vec3(0.0, c, s);
+    mz[2] = vec3(0.0, -s, c);
+
+    mat3 rotation_matrix = mz * my * mx;
+    vec3 position = vertex_position * instance_scale * rotation_matrix + instance_position;
+    gl_Position = (uboView.proj * uboView.view * pc.model * vec4(position, 1.0));
+
+    out_frag_color = vertex_color * instance_color;
+}
+);
+
+//----------------------
+//mesh instance (for primatives) frag shader
+//----------------------
+static const char *zest_shader_mesh_instance_frag = ZEST_GLSL(450,
+layout(location = 0) in vec4 in_frag_color;
+layout(location = 0) out vec4 outColor;
+
+layout(push_constant) uniform quad_index
+{
+    mat4 model;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
+
+void main() {
+    outColor = in_frag_color;
+}
+);
+
+//----------------------
+//Swap chain vert shader
+//----------------------
+static const char *zest_shader_swap_vert = ZEST_GLSL(450,
+layout(location = 0) out vec2 outUV;
+layout(push_constant) uniform pushes
+{
+	vec2 res;
+} pc;
+
+out gl_PerVertex
+{
+    vec4 gl_Position;
+};
+
+void main()
+{
+    outUV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+    gl_Position = vec4(outUV * 2.0f - 1.0f, 0.0f, 1.0f);
+}
+);
+
+//----------------------
+//Swap chain frag shader
+//----------------------
+static const char *zest_shader_swap_frag = ZEST_GLSL(450,
+layout(binding = 1) uniform sampler2DArray samplerColor;
+layout(location = 0) in vec2 inUV;
+layout(location = 0) out vec4 outFragColor;
+void main(void)
+{
+    outFragColor = texture(samplerColor, vec3(inUV, 0));
+}
+);
 
 //Enums_and_flags
 typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
@@ -424,6 +1296,7 @@ typedef enum zest_init_flag_bits {
     zest_init_flag_initialise_with_command_queue                  = 1 << 0,
     zest_init_flag_use_depth_buffer                               = 1 << 1,
     zest_init_flag_maximised                                      = 1 << 2,
+    zest_init_flag_cache_shaders                                  = 1 << 3,
     zest_init_flag_enable_vsync                                   = 1 << 6,
 } zest_init_flag_bits;
 
@@ -1063,17 +1936,17 @@ typedef struct zest_device_t {
 zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
 
 typedef struct zest_create_info_t {
-    const char *title;                                    //Title that shows in the window
+    const char *title;                                  //Title that shows in the window
     const char *shader_path_prefix;                     //Prefix prepending to the shader path when loading default shaders
     const char* log_path;                               //path to the log to store log and validation messages
-    zest_size memory_pool_size;                            //The size of each memory pool. More pools are added if needed
+    zest_size memory_pool_size;                         //The size of each memory pool. More pools are added if needed
     int screen_width, screen_height;                    //Default width and height of the window that you open
-    int screen_x, screen_y;                                //Default position of the window
-    int virtual_width, virtual_height;                    //The virtial width/height of the viewport
-    VkFormat color_format;                                //Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
-    zest_map_descriptor_pool_sizes pool_counts;            //You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
-    zest_uint max_descriptor_pool_sets;                    //The maximum number of descriptor pool sets for the descriptor pool. 100 is default but set to more depending on your needs.
-    zest_uint flags;                                    //Set flags to apply different initialisation options
+    int screen_x, screen_y;                             //Default position of the window
+    int virtual_width, virtual_height;                  //The virtial width/height of the viewport
+    VkFormat color_format;                              //Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
+    zest_map_descriptor_pool_sizes pool_counts;         //You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
+    zest_uint max_descriptor_pool_sets;                 //The maximum number of descriptor pool sets for the descriptor pool. 100 is default but set to more depending on your needs.
+    zest_init_flags flags;                              //Set flags to apply different initialisation options
 
     //Callbacks use these to implement your own preferred window creation functionality
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);

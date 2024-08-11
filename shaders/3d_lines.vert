@@ -2,12 +2,13 @@
 #extension GL_ARB_separate_shader_objects : enable
 
 //Quad indexes
-const int indexes[6] = {0, 1, 2, 0, 2, 3};
-const vec3 vertices[4] = {	{0, -.5, 0}, 
-							{0, -.5, 1},
-							{0,  .5, 1},
-							{0,  .5, 0},
-						};
+const int indexes[] = int[](0, 1, 2, 0, 2, 3);
+const vec3 vertices[4] = vec3[]( 
+    vec3(0, -.5, 0),
+	vec3(0, -.5, 1),
+	vec3(0,  .5, 1),
+	vec3(0,  .5, 0)
+);
 
 layout (binding = 0) uniform UboView 
 {
