@@ -1157,7 +1157,7 @@ zest_uint zest_Pack16bitStretch(float x, float y) {
 
 zest_uint zest_Pack10bit(zest_vec3* v, zest_uint extra) {
     zest_vec3 converted = zest_ScaleVec3(*v, 511.f);
-    zest_packed10bit result;
+    zest_packed10bit result = { 0 };
     result.pack = 0;
     result.data.x = (zest_uint)converted.z;
     result.data.y = (zest_uint)converted.y;
@@ -1168,7 +1168,7 @@ zest_uint zest_Pack10bit(zest_vec3* v, zest_uint extra) {
 
 zest_uint zest_Pack8bitx3(zest_vec3* v) {
     zest_vec3 converted = zest_ScaleVec3(*v, 255.f);
-    zest_packed8bit result;
+    zest_packed8bit result = { 0 };
     result.pack = 0;
     result.data.x = (zest_uint)converted.z;
     result.data.y = (zest_uint)converted.y;
@@ -2675,7 +2675,7 @@ void zest_AddCopyCommand(zest_buffer_uploader_t* uploader, zest_buffer_t* source
     uploader->target_buffer = target_buffer;
     uploader->flags |= zest_buffer_upload_flag_initialised;
 
-    VkBufferCopy buffer_info;
+    VkBufferCopy buffer_info = { 0 };
     buffer_info.srcOffset = source_buffer->memory_offset;
     buffer_info.dstOffset = target_buffer->memory_offset + target_offset;
     buffer_info.size = source_buffer->memory_in_use;
