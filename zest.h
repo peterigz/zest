@@ -3025,7 +3025,7 @@ ZEST_API void zest_CompileShader(const char *shader_code, shaderc_shader_kind sh
 //Add a shader straight from an spv file and return a handle to the shader
 ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind shader_type);
 //Add an spv shader straight from memory and return a handle to the shader
-ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const char *buffer, zest_uint size, shaderc_shader_kind shader_type);
+ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind shader_type);
 
 //-----------------------------------------------
 //        Pipeline_related_vulkan_helpers
