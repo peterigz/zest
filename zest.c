@@ -10867,17 +10867,27 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
 
     // One pipeline for each effect
     compute->shader_names = builder->shader_names;
+    VkShaderModule shader_module = { 0 };
     for (zest_foreach_i(compute->shader_names)) {
         zest_text filename = compute->shader_names[i];
         char* code = zest_ReadEntireFile(filename.str, ZEST_FALSE);
-        VkShaderModule shader_module = zest__create_shader_module(code);
 
-        VkPipelineShaderStageCreateInfo vert_shader_stage_info = { 0 };
-        vert_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vert_shader_stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        vert_shader_stage_info.module = shader_module;
-        vert_shader_stage_info.pName = "main";
-        compute_pipeline_create_info.stage = vert_shader_stage_info;
+        if (zest_map_valid_name(ZestRenderer->shaders, filename.str)) {
+            zest_shader shader = *zest_map_at(ZestRenderer->shaders, filename.str);
+            shader_module = zest__create_shader_module(shader->spv);
+        }
+        else {
+            zest_shader vert_shader = zest_AddShaderFromSPVFile(filename.str, shaderc_compute_shader);
+            ZEST_ASSERT(vert_shader);        //Failed to load the shader file, make sure it exists at the location
+            shader_module = zest__create_shader_module(vert_shader->spv);
+        }
+
+        VkPipelineShaderStageCreateInfo compute_shader_stage_info = { 0 };
+        compute_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        compute_shader_stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        compute_shader_stage_info.module = shader_module;
+        compute_shader_stage_info.pName = "main";
+        compute_pipeline_create_info.stage = compute_shader_stage_info;
 
         VkPipeline pipeline;
         ZEST_VK_CHECK_RESULT(vkCreateComputePipelines(ZestDevice->logical_device, VK_NULL_HANDLE, 1, &compute_pipeline_create_info, &ZestDevice->allocation_callbacks, &pipeline));
