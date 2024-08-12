@@ -4253,7 +4253,12 @@ zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, ze
 		zest_shader shader = zest_NewShader();
 		zest_vec_resize(shader->spv, size);
 		memcpy(shader->spv, buffer, size);
-        zest_SetText(&shader->name, name);
+        if (zest_TextLength(&ZestRenderer->shader_path_prefix)) {
+            zest_SetTextf(&shader->name, "%s%s", ZestRenderer->shader_path_prefix, name);
+        }
+        else {
+            zest_SetTextf(&shader->name, "%s", name);
+        }
         zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Read shader %s from memory and added to renderer shaders." ZEST_NL, name);
         return shader;

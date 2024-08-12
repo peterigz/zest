@@ -3022,9 +3022,12 @@ ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offse
 ZEST_API zest_shader zest_NewShader();
 //Compile a shader from a string and add it to the library of shaders in the renderer
 ZEST_API void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name);
-//Add a shader straight from an spv file and return a handle to the shader
+//Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 
+//pass in the full path to the file relative to the executable being run.
 ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind shader_type);
-//Add an spv shader straight from memory and return a handle to the shader
+//Add an spv shader straight from memory and return a handle to the shader. Note that the name should just be the name of the shader, 
+//If a path prefix is set (ZestRenderer->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
+//This prefix will be prepending to the name you pass in here.
 ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind shader_type);
 
 //-----------------------------------------------
