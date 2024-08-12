@@ -3029,6 +3029,8 @@ ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_sha
 //If a path prefix is set (ZestRenderer->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
 ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind shader_type);
+//Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
+ZEST_API void zest_FreeShader(zest_shader shader);
 
 //-----------------------------------------------
 //        Pipeline_related_vulkan_helpers
