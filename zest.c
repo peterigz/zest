@@ -4019,7 +4019,7 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
 		pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
     }
     else {
-		zest_shader vert_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.vertShaderFile.str, shaderc_vertex_shader);
+		zest_shader vert_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.vertShaderFile.str);
 		ZEST_ASSERT(vert_shader);        //Failed to load the shader file, make sure it exists at the location
 		vert_shader_module = zest__create_shader_module(vert_shader->spv);
 		pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
@@ -4031,7 +4031,7 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
 		pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
     }
     else {
-		zest_shader frag_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.fragShaderFile.str, shaderc_fragment_shader);
+		zest_shader frag_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.fragShaderFile.str);
 		ZEST_ASSERT(frag_shader);        //Failed to load the shader file, make sure it exists at the location
 		frag_shader_module = zest__create_shader_module(frag_shader->spv);
 		zest_vec_free(frag_shader);
@@ -10877,7 +10877,7 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
             shader_module = zest__create_shader_module(shader->spv);
         }
         else {
-            zest_shader vert_shader = zest_AddShaderFromSPVFile(filename.str, shaderc_compute_shader);
+            zest_shader vert_shader = zest_AddShaderFromSPVFile(filename.str);
             ZEST_ASSERT(vert_shader);        //Failed to load the shader file, make sure it exists at the location
             shader_module = zest__create_shader_module(vert_shader->spv);
         }
