@@ -4230,7 +4230,7 @@ void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type
     }
 }
 
-zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind shader_type) {
+zest_shader zest_AddShaderFromSPVFile(const char *filename) {
     ZEST_ASSERT(filename);     //You must give the shader a name
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, filename));     //Shader already exitst, use zest_UpdateShader to update an existing shader
     zest_shader shader = zest_NewShader();
@@ -4245,7 +4245,7 @@ zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind 
     return 0;
 }
 
-zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind shader_type) {
+zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size) {
     ZEST_ASSERT(name);     //You must give the shader a name
     if (buffer && size) {
 		zest_shader shader = zest_NewShader();
