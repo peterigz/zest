@@ -94,6 +94,7 @@ ENDIF(WIN32)
 
 # Link zest-lib with Vulkan
 target_link_libraries(zest-lib Vulkan::Vulkan Vulkan::shaderc_combined)
+set_target_properties(zest-lib PROPERTIES LINK_FLAGS "/ignore:4099")
 add_subdirectory(submodules/freetype)
 # Add the remaining example projects
 add_subdirectory(examples/Simple)
