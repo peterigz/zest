@@ -4265,6 +4265,20 @@ zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, ze
     return 0;
 }
 
+zest_shader zest_CopyShader(const char *name) {
+    if (zest_map_valid_name(ZestRenderer->shaders, name)) {
+        zest_shader shader_copy = zest_NewShader();
+        zest_shader shader = *zest_map_at(ZestRenderer->shaders, name);
+        zest_SetText(&shader_copy->shader_code, shader->shader_code.str);
+        if (zest_vec_size(shader->spv)) {
+            zest_vec_resize(shader_copy->spv, zest_vec_size(shader->spv));
+            memcpy(shader_copy->spv, shader->spv, zest_vec_size(shader->spv));
+        }
+        return shader_copy;
+	}
+    return 0;
+}
+
 void zest_FreeShader(zest_shader shader) {
     if (zest_map_valid_name(ZestRenderer->shaders, shader->name.str)) {
         zest_map_remove(ZestRenderer->shaders, shader->name.str);
@@ -4498,7 +4512,7 @@ void* zest__vec_reserve(void* T, zest_uint unit_size, zest_uint new_capacity) {
     return T;
 }
 
-void zest_SetText(zest_text* buffer, const char* text) {
+void zest_SetText(zest_text_t* buffer, const char* text) {
     if (!text) {
         zest_FreeText(buffer);
         return;
@@ -4508,7 +4522,11 @@ void zest_SetText(zest_text* buffer, const char* text) {
     zest_strcpy(buffer->str, length, text);
 }
 
-void zest_SetTextfv(zest_text* buffer, const char* text, va_list args)
+void zest_ResizeText(zest_text_t *buffer, zest_uint size) {
+    zest_vec_resize(buffer->str, size);
+}
+
+void zest_SetTextfv(zest_text_t* buffer, const char* text, va_list args)
 {
     va_list args2;
     va_copy(args2, args);
@@ -4536,19 +4554,19 @@ void zest_SetTextfv(zest_text* buffer, const char* text, va_list args)
     ZEST_ASSERT(buffer->str);
 }
 
-void zest_SetTextf(zest_text* buffer, const char* text, ...) {
+void zest_SetTextf(zest_text_t* buffer, const char* text, ...) {
     va_list args;
     va_start(args, text);
     zest_SetTextfv(buffer, text, args);
     va_end(args);
 }
 
-void zest_FreeText(zest_text* buffer) {
+void zest_FreeText(zest_text_t* buffer) {
     zest_vec_free(buffer->str);
     buffer->str = ZEST_NULL;
 }
 
-zest_uint zest_TextLength(zest_text* buffer) {
+zest_uint zest_TextLength(zest_text_t* buffer) {
     return zest_vec_size(buffer->str);
 }
 
@@ -10761,7 +10779,7 @@ void zest_AddComputeImageForBinding(zest_compute_builder_t* builder, zest_textur
 }
 
 zest_index zest_AddComputeShader(zest_compute_builder_t* builder, const char* path, const char* prefix) {
-    zest_text path_text = { 0 };
+    zest_text_t path_text = { 0 };
     if (!prefix) {
         zest_SetText(&path_text, path);
     }
@@ -10869,7 +10887,7 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
     compute->shader_names = builder->shader_names;
     VkShaderModule shader_module = { 0 };
     for (zest_foreach_i(compute->shader_names)) {
-        zest_text filename = compute->shader_names[i];
+        zest_text_t filename = compute->shader_names[i];
         char* code = zest_ReadEntireFile(filename.str, ZEST_FALSE);
 
         if (zest_map_valid_name(ZestRenderer->shaders, filename.str)) {

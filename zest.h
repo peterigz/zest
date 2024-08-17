@@ -293,7 +293,7 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
 
 //Shader_code
-//For nicer formatting of the shader code
+//For nicer formatting of the shader code, but note that new lines are ignored when this becomes an actual string.
 #define ZEST_GLSL(version, shader) "#version " #version "\n" #shader
 //As an alternative I might just embed the spv's directly in the future.
 
@@ -1703,15 +1703,16 @@ ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) {
 // --End pocket hash map
 
 // --Begin Pocket_text_buffer
-typedef struct zest_text {
+typedef struct zest_text_t {
     char *str;
-} zest_text;
+} zest_text_t;
 
-ZEST_API void zest_SetText(zest_text *buffer, const char *text);
-ZEST_API void zest_SetTextf(zest_text *buffer, const char *text, ...);
-ZEST_API void zest_SetTextfv(zest_text *buffer, const char *text, va_list args);
-ZEST_API void zest_FreeText(zest_text *buffer);
-ZEST_API zest_uint zest_TextLength(zest_text *buffer);
+ZEST_API void zest_SetText(zest_text_t *buffer, const char *text);
+ZEST_API void zest_ResizeText(zest_text_t *buffer, zest_uint size);
+ZEST_API void zest_SetTextf(zest_text_t *buffer, const char *text, ...);
+ZEST_API void zest_SetTextfv(zest_text_t *buffer, const char *text, va_list args);
+ZEST_API void zest_FreeText(zest_text_t *buffer);
+ZEST_API zest_uint zest_TextLength(zest_text_t *buffer);
 // --End pocket text buffer
 
 // --Structs
@@ -1930,7 +1931,7 @@ typedef struct zest_device_t {
     zest_map_buffer_pool_sizes pool_sizes;
     void *allocator_start;
     void *allocator_end;
-    zest_text log_path;
+    zest_text_t log_path;
 } zest_device_t;
 
 zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
@@ -2090,11 +2091,11 @@ typedef struct zest_pipeline_template_create_info_t {
     VkVertexInputBindingDescription *bindingDescriptions;
     VkDynamicState *dynamicStates;
     zest_bool no_vertex_input;
-    zest_text shader_path_prefix;
-    zest_text vertShaderFile;
-    zest_text fragShaderFile;
-    zest_text vertShaderFunctionName;
-    zest_text fragShaderFunctionName;
+    zest_text_t shader_path_prefix;
+    zest_text_t vertShaderFile;
+    zest_text_t fragShaderFile;
+    zest_text_t vertShaderFunctionName;
+    zest_text_t fragShaderFunctionName;
     VkPrimitiveTopology topology;
 } zest_pipeline_template_create_info_t;
 
@@ -2119,8 +2120,8 @@ typedef struct zest_pipeline_template_t {
     VkPipelineDynamicStateCreateInfo dynamicState;
     VkRenderPass renderPass;
     
-    zest_text vertShaderFile;
-    zest_text fragShaderFile;
+    zest_text_t vertShaderFile;
+    zest_text_t fragShaderFile;
 } zest_pipeline_template_t;
 
 //A pipeline set is all of the necessary things required to setup and maintain a pipeline
@@ -2375,7 +2376,7 @@ typedef struct zest_font_character_t {
 } zest_font_character_t;
 
 typedef struct zest_font_t {
-    zest_text name;
+    zest_text_t name;
     zest_texture texture;
     zest_pipeline pipeline;
     zest_descriptor_set descriptor_set;
@@ -2408,7 +2409,7 @@ struct zest_compute_t {
     VkDescriptorSet descriptor_set[ZEST_MAX_FIF];             // Compute shader bindings
     VkPipelineLayout pipeline_layout;                         // Layout of the compute pipeline
     VkDescriptorSetLayoutBinding *set_layout_bindings;
-    zest_text *shader_names;                                  // Names of the shader files to use
+    zest_text_t *shader_names;                                  // Names of the shader files to use
     VkPipeline *pipelines;                                    // Compute pipelines, one for each shader
     zest_descriptor_infos_for_binding_t *descriptor_infos;    // All the buffers/images that are bound to the compute shader
     int32_t pipeline_index;                                   // Current image filtering compute pipeline index
@@ -2436,7 +2437,7 @@ typedef struct zest_compute_builder_t {
     zest_map_descriptor_pool_sizes descriptor_pool_sizes;
     VkDescriptorSetLayoutBinding *layout_bindings;
     zest_descriptor_infos_for_binding_t *descriptor_infos;
-    zest_text *shader_names;
+    zest_text_t *shader_names;
     VkPipelineLayoutCreateInfo layout_create_info;
     zest_uint push_constant_size;
     zest_compute_flags flags;
@@ -2464,7 +2465,7 @@ typedef struct zest_bitmap_t {
     int height;
     int channels;
     int stride;
-    zest_text name;
+    zest_text_t name;
     size_t size;
     zest_byte *data;
 } zest_bitmap_t;
@@ -2484,7 +2485,7 @@ typedef struct zest_bitmap_array_t {
 typedef struct zest_image_t {
     zest_struct_type struct_type;
     zest_index index;            //index within the QulkanTexture
-    zest_text name;              //Filename of the image
+    zest_text_t name;              //Filename of the image
     zest_uint width;
     zest_uint height;
     zest_vec4 uv;                //UV coords are set after the ProcessImages function is called and the images are packed into the texture
@@ -2514,7 +2515,7 @@ typedef struct zest_texture_t {
     VkImageLayout image_layout;
     VkFormat image_format;
 
-    zest_text name;
+    zest_text_t name;
 
     zest_imgui_blendtype imgui_blend_type;
     VkSampler sampler;
@@ -2549,8 +2550,8 @@ typedef struct zest_texture_t {
 
 typedef struct zest_shader_t {
     char *spv;
-    zest_text shader_code;
-    zest_text name;
+    zest_text_t shader_code;
+    zest_text_t name;
 } zest_shader_t;
 
 typedef struct zest_render_target_create_info_t {
@@ -2687,7 +2688,7 @@ typedef struct zest_renderer_t {
     zest_renderer_flags flags;
     
     //Optional prefix path for loading shaders
-    zest_text shader_path_prefix;
+    zest_text_t shader_path_prefix;
 
     //Callbacks for customising window and surface creation
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
@@ -3029,6 +3030,8 @@ ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename);
 //If a path prefix is set (ZestRenderer->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
 ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size);
+//Copy a shader that's stored in the renderer
+ZEST_API zest_shader zest_CopyShader(const char *name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader shader);
 
