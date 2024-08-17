@@ -23,6 +23,8 @@ struct ImGuiApp {
 void InitImGuiApp(ImGuiApp *app);
 int EditShaderCode(ImGuiInputTextCallbackData *data);
 void FormatShaderCode(zest_text_t *code);
+zest_uint ReadNextChunk(zest_text_t *text, zest_uint offset, char chunk[64]);
+void AddLine(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 
 void DarkStyle2() {
 	ImGui::GetStyle().FrameRounding = 4.0f;
