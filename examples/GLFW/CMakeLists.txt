@@ -64,7 +64,11 @@ function(buildExample EXAMPLE_NAME)
 		SET(IMGUI_FILE_DIALOG_SOURCE "")
 	endif()
 
-	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects" OR ${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
+	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR 
+		${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR 
+		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR 
+		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects" OR 
+		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-tests")
 		file(GLOB TIMELINEFX_SOURCE 
 			${TIMELINEFX}timelinefx.h
 			${TIMELINEFX}timelinefx.cpp
@@ -121,6 +125,7 @@ set(EXAMPLES
 	zest-testing
 	zest-mesh-instances
 	zest-timelinefx-tests
+	zest-shader-compiling
 )
 
 buildExamples()
