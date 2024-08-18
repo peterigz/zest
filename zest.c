@@ -1999,6 +1999,13 @@ void zest__do_scheduled_tasks(void) {
         zest_vec_clear(ZestRenderer->texture_reprocess_queue);
     }
 
+    if (zest_vec_size(ZestRenderer->pipeline_recreate_queue)) {
+        for (zest_foreach_i(ZestRenderer->pipeline_recreate_queue)) {
+            zest__rebuild_pipeline(ZestRenderer->pipeline_recreate_queue[i]);
+        }
+        zest_vec_clear(ZestRenderer->pipeline_recreate_queue);
+    }
+
     if (zest_vec_size(ZestRenderer->render_target_recreate_queue[ZEST_FIF])) {
         for (zest_foreach_i(ZestRenderer->render_target_recreate_queue[ZEST_FIF])) {
             zest_render_target render_target = ZestRenderer->render_target_recreate_queue[ZEST_FIF][i];
@@ -4235,6 +4242,13 @@ void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type
     }
 }
 
+ZEST_API void zest_UpdateShaderSPV(zest_shader shader, shaderc_compilation_result_t result) {
+    zest_uint spv_size = (zest_uint)shaderc_result_get_length(result);
+    const char *spv_binary = shaderc_result_get_bytes(result);
+    zest_vec_resize(shader->spv, spv_size);
+    memcpy(shader->spv, spv_binary, spv_size);
+}
+
 zest_shader zest_AddShaderFromSPVFile(const char *filename) {
     ZEST_ASSERT(filename);     //You must give the shader a name
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, filename));     //Shader already exitst, use zest_UpdateShader to update an existing shader
@@ -4270,12 +4284,23 @@ zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, ze
     return 0;
 }
 
-zest_shader zest_CopyShader(const char *name) {
+void zest_AddShader(zest_shader shader) {
+    if (!zest_map_valid_name(ZestRenderer->shaders, shader->name.str)) {
+        zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
+    }
+}
+
+zest_shader zest_CopyShader(const char *name, const char *new_name) {
     if (zest_map_valid_name(ZestRenderer->shaders, name)) {
         zest_shader shader_copy = zest_NewShader();
         zest_shader shader = *zest_map_at(ZestRenderer->shaders, name);
         zest_SetText(&shader_copy->shader_code, shader->shader_code.str);
-        zest_SetText(&shader_copy->name, shader->name.str);
+        if (zest_TextLength(&ZestRenderer->shader_path_prefix)) {
+            zest_SetTextf(&shader_copy->name, "%s%s", ZestRenderer->shader_path_prefix, new_name);
+        }
+        else {
+            zest_SetTextf(&shader_copy->name, "%s", new_name);
+        }
         if (zest_vec_size(shader->spv)) {
             zest_vec_resize(shader_copy->spv, zest_vec_size(shader->spv));
             memcpy(shader_copy->spv, shader->spv, zest_vec_size(shader->spv));
@@ -7183,6 +7208,10 @@ void zest_ScheduleTextureReprocess(zest_texture texture) {
 #if defined(ZEST_ATOMICS)
     atomic_store(&ZestRenderer->lock_texture_reprocess_queue, 1);
 #endif
+}
+
+void zest_SchedulePipelineRecreate(zest_pipeline pipeline) {
+    zest_vec_push(ZestRenderer->pipeline_recreate_queue, pipeline);
 }
 
 void zest_WaitUntilTexturesReprocessed() {

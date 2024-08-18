@@ -2681,6 +2681,7 @@ typedef struct zest_renderer_t {
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
     zest_texture *texture_reprocess_queue;
     zest_texture *texture_delete_queue;
+    zest_pipeline *pipeline_recreate_queue;
     zest_atomic_int lock_texture_reprocess_queue;
     zest_uint current_frame;
 
@@ -3025,6 +3026,8 @@ ZEST_API zest_shader zest_NewShader();
 ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name);
 //Compile a shader from a string and add it to the library of shaders in the renderer
 ZEST_API void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name);
+//Update an existing shader with a new version
+ZEST_API void zest_UpdateShaderSPV(zest_shader shader, shaderc_compilation_result_t result);
 //Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 
 //pass in the full path to the file relative to the executable being run.
 ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename);
@@ -3032,8 +3035,10 @@ ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename);
 //If a path prefix is set (ZestRenderer->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
 ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size);
+//Add a shader to the renderer list of shaders.
+ZEST_API void zest_AddShader(zest_shader shader);
 //Copy a shader that's stored in the renderer
-ZEST_API zest_shader zest_CopyShader(const char *name);
+ZEST_API zest_shader zest_CopyShader(const char *name, const char *new_name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader shader);
 
@@ -3745,6 +3750,8 @@ ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
 ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture);
 //Call this from a separate thread that's waiting for a texture to be reprocessed.
 ZEST_API void zest_WaitUntilTexturesReprocessed();
+//Schedule a pipeline to be recreated. 
+ZEST_API void zest_SchedulePipelineRecreate(zest_pipeline pipeline);
 //Copies an area of a frame buffer such as from a render target, to a zest_texture.
 ZEST_API void zest_CopyFramebufferToTexture(zest_frame_buffer_t *src_image, zest_texture texture, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 //Copies an area of a zest_texture to another zest_texture

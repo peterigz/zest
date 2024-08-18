@@ -34,12 +34,14 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_ResizeText(&app->shader_code, 2048);
 	zest_SetText(&app->shader_code, "Shader Code");
 
-	app->custom_frag_shader = zest_CopyShader("spv/image_frag.spv");
+	app->custom_frag_shader = zest_CopyShader("spv/image_frag.spv", "custom_frag.spv");
 	FormatShaderCode(&app->custom_frag_shader->shader_code);
+	zest_AddShader(app->custom_frag_shader);
 
 	zest_pipeline_template_create_info_t custom_pipeline_template = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
 	app->custom_pipeline = zest_AddPipeline("pipeline_custom_shader");
 	zest_SetPipelineTemplateVertShader(&custom_pipeline_template, "sprite_vert.spv", 0);
+	zest_SetPipelineTemplateFragShader(&custom_pipeline_template, "custom_frag.spv", 0);
 	zest_MakePipelineTemplate(app->custom_pipeline, zest_GetStandardRenderPass(), &custom_pipeline_template);
 	zest_BuildPipeline(app->custom_pipeline);
 	app->validation_result = nullptr;
@@ -177,6 +179,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::NewFrame();
 	ImGui::Begin("Test Window");
 	if (ImGui::Button("Compile")) {
+		shaderc_result_release(app->validation_result);
 		app->validation_result = zest_ValidateShader(app->custom_frag_shader->shader_code.str, shaderc_fragment_shader, app->custom_frag_shader->name.str);
 	}
 	if (app->validation_result) {
@@ -188,7 +191,11 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 			ImGui::SameLine();
 			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(.1f, 1.f, .1f, 1.f));
 			ImGui::Text("OK!");
-			ImGui::PopStyleColor();;
+			ImGui::PopStyleColor();
+			zest_UpdateShaderSPV(app->custom_frag_shader, app->validation_result);
+			shaderc_result_release(app->validation_result);
+			app->validation_result = nullptr;
+			zest_SchedulePipelineRecreate(app->custom_pipeline);
 		}
 	}
 	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 1.00f, 1.00f, .75f));
