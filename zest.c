@@ -4178,6 +4178,11 @@ zest_shader zest_NewShader() {
     return shader;
 }
 
+shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name) {
+    shaderc_compilation_result_t result = shaderc_compile_into_spv(ZestRenderer->shader_compiler, shader_code, strlen(shader_code), shader_type, name, "main", NULL);
+    return result;
+}
+
 void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name) {
     ZEST_ASSERT(name);     //You must give the shader a name
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, name));     //Shader already exitst, use zest_UpdateShader to update an existing shader
@@ -4270,6 +4275,7 @@ zest_shader zest_CopyShader(const char *name) {
         zest_shader shader_copy = zest_NewShader();
         zest_shader shader = *zest_map_at(ZestRenderer->shaders, name);
         zest_SetText(&shader_copy->shader_code, shader->shader_code.str);
+        zest_SetText(&shader_copy->name, shader->name.str);
         if (zest_vec_size(shader->spv)) {
             zest_vec_resize(shader_copy->spv, zest_vec_size(shader->spv));
             memcpy(shader_copy->spv, shader->spv, zest_vec_size(shader->spv));

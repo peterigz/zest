@@ -3021,6 +3021,8 @@ ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float hei
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 //Create a new shader handle
 ZEST_API zest_shader zest_NewShader();
+//Validate a shader from a string and add it to the library of shaders in the renderer
+ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name);
 //Compile a shader from a string and add it to the library of shaders in the renderer
 ZEST_API void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name);
 //Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 

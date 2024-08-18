@@ -18,6 +18,7 @@ struct ImGuiApp {
 	zest_shader custom_frag_shader;
 	zest_layer custom_layer;
 	zest_text_t shader_code;
+	shaderc_compilation_result_t validation_result;
 };
 
 void InitImGuiApp(ImGuiApp *app);
