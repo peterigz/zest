@@ -89,7 +89,7 @@ typedef volatile unsigned int zest_atomic_int;
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 #define ZEST_DISABLE_GPU_DIRECT_WRITE 1
@@ -2135,6 +2135,11 @@ typedef struct zest_pipeline_t {
     zest_pipeline_set_flags flags;                                               //Flag bits
 } zest_pipeline_t;
 
+typedef struct zest_pipeline_handles_t {                                         //Struct for storing pipeline handles for future destroying after a scheduled pipeline rebuild
+    VkPipeline pipeline;                                                         //The vulkan handle for the pipeline
+    VkPipelineLayout pipeline_layout;                                            //The vulkan handle for the pipeline layout
+} zest_pipeline_handles_t;
+
 typedef struct zest_command_setup_context_t {
     zest_command_queue command_queue;
     zest_command_queue_draw_commands draw_commands;
@@ -2675,6 +2680,7 @@ typedef struct zest_renderer_t {
     zest_texture *texture_reprocess_queue;
     zest_texture *texture_delete_queue;
     zest_pipeline *pipeline_recreate_queue;
+    zest_pipeline_handles_t *pipeline_destroy_queue;
     zest_atomic_int lock_texture_reprocess_queue;
     zest_uint current_frame;
 

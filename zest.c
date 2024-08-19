@@ -2000,9 +2000,23 @@ void zest__do_scheduled_tasks(void) {
         zest_vec_clear(ZestRenderer->texture_reprocess_queue);
     }
 
+    if (zest_vec_size(ZestRenderer->pipeline_destroy_queue)) {
+        for (zest_foreach_i(ZestRenderer->pipeline_destroy_queue)) {
+            zest_pipeline_handles_t handles = ZestRenderer->pipeline_destroy_queue[i];
+			vkDestroyPipeline(ZestDevice->logical_device, handles.pipeline, &ZestDevice->allocation_callbacks);
+			vkDestroyPipelineLayout(ZestDevice->logical_device, handles.pipeline_layout, &ZestDevice->allocation_callbacks);
+        }
+        zest_vec_clear(ZestRenderer->pipeline_destroy_queue);
+    }
+
     if (zest_vec_size(ZestRenderer->pipeline_recreate_queue)) {
         for (zest_foreach_i(ZestRenderer->pipeline_recreate_queue)) {
-            zest__rebuild_pipeline(ZestRenderer->pipeline_recreate_queue[i]);
+            zest_pipeline pipeline = ZestRenderer->pipeline_recreate_queue[i];
+            zest_pipeline_handles_t handles = {0};
+            handles.pipeline = pipeline->pipeline;
+            handles.pipeline_layout = pipeline->pipeline_layout;
+            zest_vec_push(ZestRenderer->pipeline_destroy_queue, handles);
+            zest__rebuild_pipeline(pipeline);
         }
         zest_vec_clear(ZestRenderer->pipeline_recreate_queue);
     }
