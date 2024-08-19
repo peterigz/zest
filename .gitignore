@@ -412,3 +412,4 @@ examples/assets/vaders/vadereffects.tfx_r
 *.tfx_r
 test.png
 zest_log.txt
+spv/
