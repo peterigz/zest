@@ -139,6 +139,8 @@ typedef volatile unsigned int zest_atomic_int;
 #define ZEST_NOTICE_COLOR "\033[0m"
 #endif
 
+#define ZEST_PRINT(message_f, ...) printf(message_f"\n", ##__VA_ARGS__)
+
 #ifdef ZEST_OUTPUT_WARNING_MESSAGES
 #include <stdio.h>
 #define ZEST_PRINT_WARNING(message_f, ...) printf(message_f"\n\033[0m", __VA_ARGS__)
@@ -302,7 +304,7 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 //----------------------
 static const char *zest_shader_imgui_vert = ZEST_GLSL(450 core,
 
-//Not actually used with imgui
+//Not actually used with imgui (Todo: so why is it here?)
 layout(binding = 0) uniform UboView
 {
 	mat4 view;
@@ -412,7 +414,6 @@ layout(location = 9) in vec3 alignment;
 
 layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec3 out_tex_coord;
-layout(location = 2) out float out_blend_factor;
 
 mat3 RotationMatrix(vec3 axis, float angle)
 {
@@ -523,14 +524,6 @@ layout(location = 0) in vec4 in_frag_color;
 layout(location = 1) in vec3 in_tex_coord;
 layout(location = 0) out vec4 outColor;
 layout(binding = 1) uniform sampler2DArray texSampler;
-layout(push_constant) uniform quad_index
-{
-    mat4 model;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec4 parameters3;
-    vec4 camera;
-} pc;
 
 void main() {
     vec4 texel = texture(texSampler, in_tex_coord);
@@ -1424,7 +1417,7 @@ typedef enum zest_compute_flag_bits {
 typedef enum zest_layer_flag_bits {
     zest_layer_flag_none                                  = 0,
     zest_layer_flag_static                                = 1 << 0,    // Layer only uploads new buffer data when required
-    zest_layer_flag_device_local_direct                   = 1 << 1,    // Layer only uploads new buffer data when required
+    zest_layer_flag_device_local_direct                   = 1 << 1,    // Upload directly to device buffer (has issues so is disabled by default for now)
 } zest_layer_flag_bits;
 
 typedef enum zest_command_queue_type {
@@ -1432,8 +1425,8 @@ typedef enum zest_command_queue_type {
     zest_command_queue_type_secondary                     = VK_COMMAND_BUFFER_LEVEL_SECONDARY           //For vulkan secondary command buffers
 } zest_command_queue_type;
 
-typedef zest_uint zest_compute_flags;
-typedef zest_uint zest_layer_flags;
+typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
+typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
 
