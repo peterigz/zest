@@ -1705,7 +1705,8 @@ ZEST_API void zest_ResizeText(zest_text_t *buffer, zest_uint size);
 ZEST_API void zest_SetTextf(zest_text_t *buffer, const char *text, ...);
 ZEST_API void zest_SetTextfv(zest_text_t *buffer, const char *text, va_list args);
 ZEST_API void zest_FreeText(zest_text_t *buffer);
-ZEST_API zest_uint zest_TextLength(zest_text_t *buffer);
+ZEST_API zest_uint zest_TextSize(zest_text_t *buffer);      //Will include a null terminator
+ZEST_API zest_uint zest_TextLength(zest_text_t *buffer);    //Uses strlen to get the length
 // --End pocket text buffer
 
 // --Structs
@@ -2550,6 +2551,7 @@ typedef struct zest_shader_t {
     char *spv;
     zest_text_t shader_code;
     zest_text_t name;
+    shaderc_shader_kind type;
 } zest_shader_t;
 
 typedef struct zest_render_target_create_info_t {
@@ -3020,22 +3022,24 @@ ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float hei
 //Create a VkRect2D, generally used when building a render pass.
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 //Create a new shader handle
-ZEST_API zest_shader zest_NewShader();
+ZEST_API zest_shader zest_NewShader(shaderc_shader_kind type);
 //Validate a shader from a string and add it to the library of shaders in the renderer
-ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name);
-//Compile a shader from a string and add it to the library of shaders in the renderer
-ZEST_API void zest_CompileShader(const char *shader_code, shaderc_shader_kind shader_type, const char *name);
+ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name);
+//Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
+ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name);
+//Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
+ZEST_API zest_bool zest_CompileShader(zest_shader shader);
 //Update an existing shader with a new version
 ZEST_API void zest_UpdateShaderSPV(zest_shader shader, shaderc_compilation_result_t result);
 //Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 
 //pass in the full path to the file relative to the executable being run.
-ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename);
+ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind type);
 //Add an spv shader straight from memory and return a handle to the shader. Note that the name should just be the name of the shader, 
 //If a path prefix is set (ZestRenderer->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
-ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size);
+ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind type);
 //Add a shader to the renderer list of shaders.
-ZEST_API void zest_AddShader(zest_shader shader);
+ZEST_API void zest_AddShader(zest_shader shader, const char *name);
 //Copy a shader that's stored in the renderer
 ZEST_API zest_shader zest_CopyShader(const char *name, const char *new_name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)

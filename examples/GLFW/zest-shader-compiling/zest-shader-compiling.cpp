@@ -2,6 +2,11 @@
 #include "imgui_internal.h"
 #include <string>
 
+/*
+
+
+*/
+
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&app->imgui_layer_info);
@@ -24,27 +29,26 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_imgui_RebuildFontTexture(&app->imgui_layer_info, tex_width, tex_height, font_data);
 
 	//Create a texture to load in a test image to show drawing that image in an imgui window
-	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	app->test_texture = zest_CreateTexture("test image", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
 	//Load in the image and add it to the texture
-	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
+	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/smoke.png");
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
-	app->shader_code = { 0 };
-	zest_ResizeText(&app->shader_code, 2048);
-	zest_SetText(&app->shader_code, "Shader Code");
-
-	app->custom_frag_shader = zest_CopyShader("spv/image_frag.spv", "custom_frag.spv");
+	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_frag.spv");
 	FormatShaderCode(&app->custom_frag_shader->shader_code);
-	zest_AddShader(app->custom_frag_shader);
+
+	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_vert.spv");
+	FormatShaderCode(&app->custom_vert_shader->shader_code);
 
 	zest_pipeline_template_create_info_t custom_pipeline_template = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
 	app->custom_pipeline = zest_AddPipeline("pipeline_custom_shader");
-	zest_SetPipelineTemplateVertShader(&custom_pipeline_template, "sprite_vert.spv", 0);
+	zest_SetPipelineTemplateVertShader(&custom_pipeline_template, "custom_vert.spv", 0);
 	zest_SetPipelineTemplateFragShader(&custom_pipeline_template, "custom_frag.spv", 0);
 	zest_MakePipelineTemplate(app->custom_pipeline, zest_GetStandardRenderPass(), &custom_pipeline_template);
 	zest_BuildPipeline(app->custom_pipeline);
 	app->validation_result = nullptr;
+	app->mix_value = 0.f;
 
 	//Modify the existing default queue
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
@@ -62,8 +66,8 @@ void InitImGuiApp(ImGuiApp *app) {
 }
 
 zest_uint ReadNextChunk(zest_text_t *text, zest_uint offset, char chunk[64]) {
-	if (offset < zest_TextLength(text)) {
-		zest_uint max_length = zest_TextLength(text) - offset;
+	if (offset < zest_TextSize(text)) {
+		zest_uint max_length = zest_TextSize(text) - offset;
 		memcpy(chunk, text->str, ZEST__MIN(64, max_length));
 		return max_length;
 	}
@@ -74,9 +78,9 @@ zest_uint ReadNextChunk(zest_text_t *text, zest_uint offset, char chunk[64]) {
 }
 
 void AddLine(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs) {
-	ZEST_ASSERT(*position < zest_TextLength(text));
+	ZEST_ASSERT(*position < zest_TextSize(text));
 	text->str[(*position)++] = current_char;
-	ZEST_ASSERT(*position < zest_TextLength(text));
+	ZEST_ASSERT(*position < zest_TextSize(text));
 	text->str[(*position)++] = '\n';
 	for (int t = 0; t != tabs; ++t) {
 		text->str[(*position)++] = '\t';
@@ -84,7 +88,7 @@ void AddLine(zest_text_t *text, char current_char, zest_uint *position, zest_uin
 }
 
 void FormatShaderCode(zest_text_t *code) {
-	zest_uint length = zest_TextLength(code);
+	zest_uint length = zest_TextSize(code);
 	zest_uint pos = 0;
 	zest_text_t formatted_code = {};
 	//First pass to calculate the new formatted buffer size
@@ -108,7 +112,7 @@ void FormatShaderCode(zest_text_t *code) {
 	}
 	pos = 0;
 	zest_ResizeText(&formatted_code, length + extra_size);
-	zest_uint new_length = zest_TextLength(&formatted_code);
+	zest_uint new_length = zest_TextSize(&formatted_code);
 	zest_uint f_pos = 0;
 	bool new_line_added = false;
 	for (zest_uint i = 0; i != length; ++i) {
@@ -149,15 +153,15 @@ void FormatShaderCode(zest_text_t *code) {
 int EditShaderCode(ImGuiInputTextCallbackData *data) {
 	if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
 		zest_text_t *code = static_cast<zest_text_t *>(data->UserData);
-		if (zest_TextLength(code) < (zest_uint)data->BufSize) {
+		if (zest_TextSize(code) < (zest_uint)data->BufSize) {
 			zest_ResizeText(code, data->BufSize);
 			data->Buf = code->str;
 		}
 	}
 	else if (data->EventFlag == ImGuiInputTextFlags_CallbackEdit) {
 		zest_text_t *code = static_cast<zest_text_t *>(data->UserData);
-		if (zest_TextLength(code) <= (zest_uint)data->BufTextLen) {
-			if ((int)zest_TextLength(code) >= data->BufTextLen + 1) {
+		if (zest_TextSize(code) <= (zest_uint)data->BufTextLen) {
+			if ((int)zest_TextSize(code) >= data->BufTextLen + 1) {
 				zest_ResizeText(code, data->BufSize + 1);
 			}
 		}
@@ -178,6 +182,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Draw our imgui stuff
 	ImGui::NewFrame();
 	ImGui::Begin("Test Window");
+	ImGui::SliderFloat("Mix", &app->mix_value, 0.f, 1.f);
 	if (ImGui::Button("Compile")) {
 		shaderc_result_release(app->validation_result);
 		app->validation_result = zest_ValidateShader(app->custom_frag_shader->shader_code.str, shaderc_fragment_shader, app->custom_frag_shader->name.str);
@@ -210,17 +215,19 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 
 	zest_SetSpriteDrawing(app->custom_layer, app->test_texture, 0, app->custom_pipeline);
-	zest_DrawSprite(app->custom_layer, app->test_image, 800.f, 400.f, 0.f, 100.f, 100.f, .5f, .5f, 0, 0.f);
+	app->custom_layer->push_constants.parameters1.x = app->mix_value;
+	zest_DrawSprite(app->custom_layer, app->test_image, 1000.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f);
 }
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-	//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+	int main(void) {
 		//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	create_info.log_path = ".";
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
 
