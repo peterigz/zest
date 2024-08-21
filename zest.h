@@ -511,7 +511,7 @@ void main() {
     gl_Position = uboView.proj * p;
 
     //----------------
-    out_frag_color = vec4(in_color.rgb * intensity, in_color.a);
+    out_frag_color = in_color * intensity;
     out_tex_coord = vec3(uvs[index], (blend_texture_index & uint(0xFF000000)) >> 24);
 }
 );
@@ -644,7 +644,7 @@ void main() {
 
     //----------------
     out_tex_coord = vec3(uvs[index], texture_array_index);
-    out_frag_color = vec4(in_color.rgb * intensity, in_color.a);
+    out_frag_color = in_color * intensity;
 }
 );
 
