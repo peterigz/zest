@@ -131,21 +131,14 @@ void DarkStyle2() {
 static const char *custom_frag_shader = ZEST_GLSL(450 core,
 layout(location = 0) in vec4 in_frag_color;
 layout(location = 1) in vec3 in_tex_coord;
-layout(location = 2) in float in_slider;
+layout(location = 2) in float mix_value;
 layout(location = 0) out vec4 outColor;
 layout(binding = 1) uniform sampler2DArray texSampler;
-float rampAlpha(float alpha, float intensity) {
-	intensity = clamp(intensity, 0.0, 1.0);
-	float rampedAlpha = pow(alpha, 1.0 / (intensity * 3.0 + 1.0));
-	return clamp(rampedAlpha, 0.0, 1.0);
-}
+
 void main() {
 	vec4 texel = texture(texSampler, in_tex_coord);
-	vec4 color = vec4(1, .5, .25, 1);
-	vec3 color2 = vec3(0.1, 0.1, 0.1);
-	float intensity = 5;
-	color = color * intensity;
-	vec3 frag_color = mix(color2.rgb, color.rgb, texel.a * in_slider);
+	vec3 color2 = vec3(1, 0, 1);
+	vec3 frag_color = mix(color2.rgb, in_frag_color.rgb, texel.a * mix_value);
 	outColor.rgb = texel.rgb * frag_color.rgb * texel.a;
 	outColor.a = texel.a * in_frag_color.a;
 }
@@ -231,7 +224,7 @@ void main() {
 
 	//----------------
 	out_tex_coord = vec3(uvs[index], texture_array_index);
-	out_frag_color = in_color * intensity;
+	out_frag_color = vec4(in_color.rgb * intensity, in_color.a);
 	out_slider = pc.parameters1.x;
 }
 );

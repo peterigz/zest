@@ -31,7 +31,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Create a texture to load in a test image to show drawing that image in an imgui window
 	app->test_texture = zest_CreateTexture("test image", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
 	//Load in the image and add it to the texture
-	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/smoke.png");
+	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/glow.png");
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
@@ -55,6 +55,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
+			zest_ContextSetClsColor(0.2f, 0.2f, 0.2f, 1);
 			app->custom_layer = zest_NewBuiltinLayerSetup("Custom Sprites", zest_builtin_layer_sprites);
 			//Create a Dear ImGui layer
 			zest_imgui_CreateLayer(&app->imgui_layer_info);
@@ -216,6 +217,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	zest_SetSpriteDrawing(app->custom_layer, app->test_texture, 0, app->custom_pipeline);
 	app->custom_layer->push_constants.parameters1.x = app->mix_value;
+	zest_SetLayerIntensity(app->custom_layer, 5.f);
+	zest_SetLayerColor(app->custom_layer, 255, 128, 64, 255);
 	zest_DrawSprite(app->custom_layer, app->test_image, 1000.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f);
 }
 
