@@ -10524,7 +10524,7 @@ void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t* src_mesh) {
 		zest_FreeBuffer(layer->memory_refs[i].device_vertex_data);
 		zest_FreeBuffer(layer->memory_refs[i].device_index_data);
         layer->memory_refs[i].device_vertex_data = zest_CreateVertexBuffer(vertex_staging_buffer->size, vertex_staging_buffer);
-        layer->memory_refs[i].device_index_data = zest_CreateVertexBuffer(index_staging_buffer->size, index_staging_buffer);
+        layer->memory_refs[i].device_index_data = zest_CreateIndexBuffer(index_staging_buffer->size, index_staging_buffer);
     }
 }
 

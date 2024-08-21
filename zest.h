@@ -4068,7 +4068,7 @@ ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x
 //        Instance mesh layers are for creating meshes and then drawing instances of them. It should be
 //        one mesh per layer (and obviously many instances of that mesh can be drawn with the layer).
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
-//        but this can all be expanding on for general 3d models in the future.
+//        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
 ZEST_API void zest_DrawInstanceMeshLayer(zest_layer instance_layer, VkCommandBuffer command_buffer);
 //These are helper functions you can use to bind the vertex and index buffers in your custom mesh draw routine callback

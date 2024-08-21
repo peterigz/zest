@@ -230,7 +230,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	create_info.log_path = ".";
+	//create_info.log_path = ".";
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
 

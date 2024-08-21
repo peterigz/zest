@@ -374,9 +374,11 @@ void InitImGuiApp(ImGuiApp* app) {
 
 	zest_pipeline_template_create_info_t custom_mesh_pipeline = zest_CopyTemplateFromPipeline("pipeline_mesh_instance");
 	app->mesh_instance_pipeline = zest_AddPipeline("pipeline_mesh_instance_custom");
+    app->mesh_instance_pipeline->descriptor_layout = zest_GetDescriptorSetLayout("Polygon layout (no sampler)");
 	zest_SetPipelineTemplateShader(&custom_mesh_pipeline, "mesh_instance_custom.spv", "examples/assets/spv/");
 	zest_MakePipelineTemplate(app->mesh_instance_pipeline, zest_GetStandardRenderPass(), &custom_mesh_pipeline);
 	zest_BuildPipeline(app->mesh_instance_pipeline);
+    zest_MakePipelineDescriptorWrites(app->mesh_instance_pipeline);
 
 	app->camera = zest_CreateCamera();
 	zest_CameraPosition(&app->camera, { -10.f, 0.f, 0.f });
@@ -1211,8 +1213,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
