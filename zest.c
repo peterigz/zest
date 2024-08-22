@@ -1165,7 +1165,6 @@ zest_uint zest_FloatToHalf(float f) {
     return (uint16_t)(sign | ((exponent - 0x38000000) >> 13) | (mantissa >> 13));
 }
 
-// Function to pack 4 floats into a u64 as 16-bit floats
 zest_u64 zest_Pack16bit4SFloat(float x, float y, float z, float w) {
     uint16_t hx = zest_FloatToHalf(x);
     uint16_t hy = zest_FloatToHalf(y);
@@ -1177,16 +1176,18 @@ zest_u64 zest_Pack16bit4SFloat(float x, float y, float z, float w) {
         ((zest_u64)hw << 48);
 }
 
-// Function to pack 4 floats into a u64 as 16-bit floats
 zest_u64 zest_Pack16bit4SScaled(float x, float y, float z, float w, float max_value_xy, float max_value_zw) {
-    // Scale and convert to 16-bit signed integers
     int16_t x_scaled = (int16_t)roundf(x * 32767.0f / max_value_xy);
     int16_t y_scaled = (int16_t)roundf(y * 32767.0f / max_value_xy);
     int16_t z_scaled = (int16_t)roundf(z * 32767.0f / max_value_zw);
     int16_t w_scaled = (int16_t)roundf(w * 32767.0f / max_value_zw);
-
-    // Pack the two 16-bit values into a 32-bit unsigned integer
     return ((zest_u64)x_scaled) | ((zest_u64)y_scaled << 16) | ((zest_u64)z_scaled << 32) | ((zest_u64)w_scaled << 48);
+}
+
+zest_u64 zest_Pack16bit4SScaledZWPacked(float x, float y, zest_uint zw, float max_value_xy) {
+    int16_t x_scaled = (int16_t)roundf(x * 32767.0f / max_value_xy);
+    int16_t y_scaled = (int16_t)roundf(y * 32767.0f / max_value_xy);
+    return ((zest_u64)x_scaled) | ((zest_u64)y_scaled << 16) | ((zest_u64)zw << 32);
 }
 
 zest_uint zest_Pack8bit(float x, float y, float z) {
@@ -9949,6 +9950,23 @@ void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], z
     billboard->rotations_stretch = zest_Vec4Set(angles[0], angles[1], angles[2], stretch);
     billboard->uv = image->uv_packed;
     billboard->scale_handle = zest_Pack16bit4SScaled(sx, sy, handle[0], handle[1], 256.f, 128.f);
+    billboard->alignment = alignment;
+    billboard->color = layer->current_color;
+    billboard->intensity_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
+    layer->current_instruction.total_instances++;
+
+    zest__next_billboard_instance(layer);
+}
+
+void zest_DrawBillboardPacked(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], zest_u64 scale_handle, float stretch, zest_uint alignment_type) {
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);    //Call zest_StartSpriteDrawing before calling this function
+
+    zest_billboard_instance_t* billboard = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+
+    billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
+    billboard->rotations_stretch = zest_Vec4Set(angles[0], angles[1], angles[2], stretch);
+    billboard->uv = image->uv_packed;
+    billboard->scale_handle = scale_handle;
     billboard->alignment = alignment;
     billboard->color = layer->current_color;
     billboard->intensity_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);

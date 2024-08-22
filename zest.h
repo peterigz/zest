@@ -3515,8 +3515,12 @@ ZEST_API zest_uint zest_Pack16bit2SNorm(float x, float y);
 ZEST_API zest_u64 zest_Pack16bit4SNorm(float x, float y, float z, float w);
 //Convert a 32bit float to a 16bit float packed into a 16bit uint
 ZEST_API zest_uint zest_FloatToHalf(float f);
+//Convert 4 32bit floats into packed 16bit floats
 ZEST_API zest_u64 zest_Pack16bit4SFloat(float x, float y, float z, float w);
+//Convert 4 32bit floats into packed 16bit scaled floats. You can pass 2 max_values if you need to scale xy/zw separately
 ZEST_API zest_u64 zest_Pack16bit4SScaled(float x, float y, float z, float w, float max_value_xy, float max_value_zw);
+//Convert 2 32bit floats into packed 16bit scaled floats and pass zw as a prepacked value. 
+ZEST_API zest_u64 zest_Pack16bit4SScaledZWPacked(float x, float y, zest_uint zw, float max_value_xy);
 ZEST_API zest_uint zest_Pack16bitStretch(float x, float y);
 //Pack 3 floats into an unsigned int
 ZEST_API zest_uint zest_Pack8bit(float x, float y, float z);
@@ -3975,11 +3979,13 @@ ZEST_API void zest_SetBillboardDrawing(zest_layer billboard_layer , zest_texture
 //Position:                Should be a pointer to 3 floats representing the x, y and z coordinates to draw the sprite at.
 //alignment:            A normalised 3d vector packed into a 8bit snorm uint. This is the alignment of the billboard when using stretch.
 //angles:                A pointer to 3 floats representing the pitch, yaw and roll of the billboard
-//handle:                A pointer to 2 floats representing the handle of the billboard which is the offset from the position
+//handle:                A pointer to 2 floats representing the handle of the billboard which is the offset from the position, max value should be 128. 
 //stretch:                How much to stretch the billboard along it's alignment.
 //alignment_type:        This is a bit flag with 2 bits 00. 00 = align to the camera. 11 = align to the alignment vector. 10 = align to the alignment vector and the camera.
-//sx, sy:                The size of the sprite in 3d units
+//sx, sy:                The size of the sprite in 3d units. Max scale value should be 256
 ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
+//This version of draw billboard lets you pass in a pre-packed scale_handle to save computation
+ZEST_API void zest_DrawBillboardPacked(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], zest_u64 scale_handle, float stretch, zest_uint alignment_type);
 //A simplified version of zest_DrawBillboard where you only need to set the position, rotation and size of the billboard. The alignment will always be set to face the camera.
 //Note that because scale is packed into 16 bit floats, the max value for scale is 256
 ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy);
