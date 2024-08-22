@@ -1104,7 +1104,7 @@ float zest_Distance(float fromx, float fromy, float tox, float toy) {
     return sqrtf(w * w + h * h);
 }
 
-zest_uint zest_Pack16bit(float x, float y) {
+zest_uint zest_Pack16bit2SNorm(float x, float y) {
     union
     {
         signed short in[2];
@@ -1118,6 +1118,64 @@ zest_uint zest_Pack16bit(float x, float y) {
     u.in[1] = (signed short)y;
 
     return u.out;
+}
+
+zest_u64 zest_Pack16bit4SNorm(float x, float y, float z, float w) {
+    union
+    {
+        signed short in[4];
+        zest_u64 out;
+    } u;
+
+    x = x * 32767.f;
+    y = y * 32767.f;
+    z = z * 32767.f;
+    w = w * 32767.f;
+
+    u.in[0] = (signed short)x;
+    u.in[1] = (signed short)y;
+    u.in[2] = (signed short)z;
+    u.in[3] = (signed short)w;
+
+    return u.out;
+}
+
+zest_uint zest_FloatToHalf(float f) {
+    union {
+        float f;
+        uint32_t u;
+    } u = { f };
+
+    uint32_t sign = (u.u & 0x80000000) >> 16;
+    uint32_t rest = u.u & 0x7FFFFFFF;
+
+    if (rest >= 0x47800000) {  // Infinity or NaN
+        return (uint16_t)(sign | 0x7C00 | (rest > 0x7F800000 ? 0x0200 : 0));
+    }
+
+    if (rest < 0x38800000) {  // Subnormal or zero
+        rest = (rest & 0x007FFFFF) | 0x00800000;  // Add leading 1
+        int shift = 113 - (rest >> 23);
+        rest = (rest << 14) >> shift;
+        return (uint16_t)(sign | rest);
+    }
+
+    uint32_t exponent = rest & 0x7F800000;
+    uint32_t mantissa = rest & 0x007FFFFF;
+    return (uint16_t)(sign | ((exponent - 0x38000000) >> 13) | (mantissa >> 13));
+}
+
+// Function to pack 4 floats into a u64 as 16-bit floats
+zest_u64 zest_Pack16bit4SFloat(float x, float y, float z, float w) {
+    uint16_t hx = zest_FloatToHalf(x);
+    uint16_t hy = zest_FloatToHalf(y);
+    uint16_t hz = zest_FloatToHalf(z);
+    uint16_t hw = zest_FloatToHalf(w);
+
+    return ((zest_u64)hx) |
+        ((zest_u64)hy << 16) |
+        ((zest_u64)hz << 32) |
+        ((zest_u64)hw << 48);
 }
 
 zest_uint zest_Pack8bit(float x, float y, float z) {
@@ -4779,16 +4837,13 @@ void zest__prepare_standard_pipelines() {
     zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
     VkVertexInputAttributeDescription* billboard_vertex_input_attributes = 0;
 
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));                    // Location 0: Position
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance_t, uv_xy)));                            // Location 1: uv_xy
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, rotations)));                    // Location 2: scale pitch yaw
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_billboard_instance_t, uv_zw)));                            // Location 3: uv_zw
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, scale)));                            // Location 4: Handle
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_billboard_instance_t, handle)));                        // Location 5: Handle
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, blend_texture_array)));                // Location 6: texture array index
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));                        // Location 7: Instance Color
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 8, VK_FORMAT_R32_SFLOAT, offsetof(zest_billboard_instance_t, stretch)));                            // Location 8: Stretch
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 9, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));                        // Location 9: Alignment X, Y and Z
+    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));			    // Location 0: Position
+    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));		         	// Location 9: Alignment X, Y and Z
+    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch)));	// Location 2: Rotations + stretch
+    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv)));		    		// Location 1: uv_packed
+    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16B16A16_SFLOAT, offsetof(zest_billboard_instance_t, scale_handle)));		// Location 4: Scale + Handle
+    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, blend_texture_array)));			// Location 6: texture array index * intensity
+    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			        // Location 7: Instance Color
 
     zest_pipeline billboard_instance_pipeline = zest_AddPipeline("pipeline_billboard");
     instance_create_info.attributeDescriptions = billboard_vertex_input_attributes;
@@ -7500,8 +7555,7 @@ void zest__make_image_bank(zest_texture texture, zest_uint size) {
         image->uv.y = 0;
         image->uv.z = 1.f;
         image->uv.w = 1.f;
-        image->uv_xy = zest_Pack16bit(image->uv.x, image->uv.y);
-        image->uv_zw = zest_Pack16bit(image->uv.z, image->uv.w);
+        image->uv_packed = zest_Pack16bit4SNorm(image->uv.x, image->uv.y, image->uv.z, image->uv.w);
         image->left = 0;
         image->top = 0;
         image->layer = id;
@@ -7636,8 +7690,7 @@ void zest__make_sprite_sheet(zest_texture texture) {
             image->uv.y = (rect_y + 0.5f) / (float)size;
             image->uv.z = ((float)image->width + (rect_x - 0.5f)) / (float)size;
             image->uv.w = ((float)image->height + (rect_y - 0.5f)) / (float)size;
-            image->uv_xy = zest_Pack16bit(image->uv.x, image->uv.y);
-            image->uv_zw = zest_Pack16bit(image->uv.z, image->uv.w);
+            image->uv_packed = zest_Pack16bit4SNorm(image->uv.x, image->uv.y, image->uv.z, image->uv.w);
             image->left = (zest_uint)rect_x;
             image->top = (zest_uint)rect_y;
             image->layer = current_layer;
@@ -7745,8 +7798,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
                 image->uv.y = (rect_y + 0.5f) / (float)size;
                 image->uv.z = ((float)image->width + (rect_x - 0.5f)) / (float)size;
                 image->uv.w = ((float)image->height + (rect_y - 0.5f)) / (float)size;
-                image->uv_xy = zest_Pack16bit(image->uv.x, image->uv.y);
-                image->uv_zw = zest_Pack16bit(image->uv.z, image->uv.w);
+                image->uv_packed = zest_Pack16bit4SNorm(image->uv.x, image->uv.y, image->uv.z, image->uv.w);
                 image->left = (zest_uint)rect_x;
                 image->top = (zest_uint)rect_y;
                 image->layer = current_layer;
@@ -7821,8 +7873,7 @@ void zest__update_texture_single_image_meta(zest_texture texture, zest_uint widt
     image.uv.y = 0.f;
     image.uv.z = 1.f;
     image.uv.w = 1.f;
-    image.uv_xy = zest_Pack16bit(image.uv.x, image.uv.y);
-    image.uv_zw = zest_Pack16bit(image.uv.z, image.uv.w);
+	image.uv_packed = zest_Pack16bit4SNorm(image.uv.x, image.uv.y, image.uv.z, image.uv.w);
     image.texture = texture;
     image.layer = 0;
     if (zest_vec_empty(texture->images)) {
@@ -9888,13 +9939,10 @@ void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], z
 
     zest_billboard_instance_t* billboard = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
-    billboard->scale = zest_Vec2Set(sx, sy);
     billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
-    billboard->rotations = zest_Vec3Set(angles[0], angles[1], angles[2]);
-    billboard->uv_xy = image->uv_xy;
-    billboard->uv_zw = image->uv_zw;
-    billboard->handle = zest_Vec2Set(handle[0], handle[1]);
-    billboard->stretch = stretch;
+    billboard->rotations_stretch = zest_Vec4Set(angles[0], angles[1], angles[2], stretch);
+    billboard->uv = image->uv_packed;
+    billboard->scale_handle = zest_Pack16bit4SFloat(sx, sy, handle[0], handle[1]);
     billboard->alignment = alignment;
     billboard->color = layer->current_color;
     billboard->blend_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
@@ -9908,13 +9956,10 @@ void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position
 
     zest_billboard_instance_t* billboard = (zest_billboard_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
-    billboard->scale = zest_Vec2Set(sx, sy);
+    billboard->scale_handle = zest_Pack16bit4SFloat(sx, sy, .5f, .5f);
     billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
-    billboard->rotations = zest_Vec3Set(0.f, 0.f, angle);
-    billboard->uv_xy = image->uv_xy;
-    billboard->uv_zw = image->uv_zw;
-    billboard->handle = zest_Vec2Set(0.5f, 0.5f);
-    billboard->stretch = 0;
+    billboard->rotations_stretch = zest_Vec4Set( 0.f, 0.f, angle, 0.f );
+    billboard->uv = image->uv_packed;
     billboard->alignment = 16711680;        //x = 0.f, y = 1.f, z = 0.f;
     billboard->color = layer->current_color;
     billboard->blend_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);

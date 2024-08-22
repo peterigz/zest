@@ -194,6 +194,8 @@ const char *zest__vulkan_error(VkResult errorCode);
 typedef unsigned int zest_uint;
 typedef int zest_index;
 typedef unsigned long long zest_ull;
+typedef uint16_t zest_u16;
+typedef uint64_t zest_u64;
 typedef zest_uint zest_millisecs;
 typedef zest_uint zest_thread_access;
 typedef zest_ull zest_microsecs;
@@ -402,15 +404,12 @@ layout(push_constant) uniform quad_index
 
 //Instance
 layout(location = 0) in vec3 position;
-layout(location = 1) in vec2 uv_xy;
-layout(location = 2) in vec3 rotations;
-layout(location = 3) in vec2 uv_zw;
-layout(location = 4) in vec2 scale;
-layout(location = 5) in vec2 handle;
-layout(location = 6) in uint blend_texture_index;
-layout(location = 7) in vec4 in_color;
-layout(location = 8) in float stretch;
-layout(location = 9) in vec3 alignment;
+layout(location = 1) in vec3 alignment;
+layout(location = 2) in vec4 rotations_stretch;
+layout(location = 3) in vec4 uv;
+layout(location = 4) in vec4 scale_handle;
+layout(location = 5) in uint blend_texture_index;
+layout(location = 6) in vec4 in_color;
 
 layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec3 out_tex_coord;
@@ -450,37 +449,37 @@ void main() {
     vec3 alignment_up_cross = normalize(cross(alignment, up));
 
     vec2 uvs[4];
-    uvs[0].x = uv_xy.x; uvs[0].y = uv_xy.y;
-    uvs[1].x = uv_zw.x; uvs[1].y = uv_xy.y;
-    uvs[2].x = uv_xy.x; uvs[2].y = uv_zw.y;
-    uvs[3].x = uv_zw.x; uvs[3].y = uv_zw.y;
+    uvs[0].x = uv.x; uvs[0].y = uv.y;
+    uvs[1].x = uv.z; uvs[1].y = uv.y;
+    uvs[2].x = uv.x; uvs[2].y = uv.w;
+    uvs[3].x = uv.z; uvs[3].y = uv.w;
 
     vec3 camera_relative_aligment = alignment * inverse(mat3(uboView.view));
     float dp_up = dot(camera_relative_aligment.xy, -up.xy);
     float det = camera_relative_aligment.x * -up.y;
-    float dp_angle = vector_align * atan(-det, -dp_up) + rotations.z;
+    float dp_angle = vector_align * atan(-det, -dp_up) + rotations_stretch.z;
 
     const vec3 identity_bounds[4] = vec3[4](
-        vec3( scale.x * (0 - handle.x), -scale.y * (0 - handle.y), 0),
-        vec3( scale.x * (1 - handle.x), -scale.y * (0 - handle.y), 0),
-        vec3( scale.x * (0 - handle.x), -scale.y * (1 - handle.y), 0),
-        vec3( scale.x * (1 - handle.x), -scale.y * (1 - handle.y), 0)
+        vec3( scale_handle.x * (0 - scale_handle.z), -scale_handle.y * (0 - scale_handle.w), 0),
+        vec3( scale_handle.x * (1 - scale_handle.z), -scale_handle.y * (0 - scale_handle.w), 0),
+        vec3( scale_handle.x * (0 - scale_handle.z), -scale_handle.y * (1 - scale_handle.w), 0),
+        vec3( scale_handle.x * (1 - scale_handle.z), -scale_handle.y * (1 - scale_handle.w), 0)
     );
 
     vec3 bounds[4];
-    bounds[0] = align_type == 1 ? ((-scale.y * alignment * (0 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
-    bounds[1] = align_type == 1 ? ((-scale.y * alignment * (0 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
-    bounds[2] = align_type == 1 ? ((-scale.y * alignment * (1 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
-    bounds[3] = align_type == 1 ? ((-scale.y * alignment * (1 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
+    bounds[0] = align_type == 1 ? ((-scale_handle.y * alignment * (0 - scale_handle.w)) + (scale_handle.x * alignment_up_cross * (0 - scale_handle.z))) : identity_bounds[0];
+    bounds[1] = align_type == 1 ? ((-scale_handle.y * alignment * (0 - scale_handle.w)) + (scale_handle.x * alignment_up_cross * (1 - scale_handle.z))) : identity_bounds[1];
+    bounds[2] = align_type == 1 ? ((-scale_handle.y * alignment * (1 - scale_handle.w)) + (scale_handle.x * alignment_up_cross * (0 - scale_handle.z))) : identity_bounds[2];
+    bounds[3] = align_type == 1 ? ((-scale_handle.y * alignment * (1 - scale_handle.w)) + (scale_handle.x * alignment_up_cross * (1 - scale_handle.z))) : identity_bounds[3];
 
     int index = indexes[gl_VertexIndex];
 
     vec3 vertex_position = bounds[index];
 
     vec3 surface_normal = cross(bounds[1] - bounds[0], bounds[2] - bounds[0]);
-    mat3 matrix_roll = RotationMatrix(align_type * alignment + front * (1 - align_type), align_type * rotations.z + dp_angle * (1 - align_type));
-    mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * (1 - align_type), rotations.x * billboarding);
-    mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * (1 - align_type), rotations.y * billboarding);
+    mat3 matrix_roll = RotationMatrix(align_type * alignment + front * (1 - align_type), align_type * rotations_stretch.z + dp_angle * (1 - align_type));
+    mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * (1 - align_type), rotations_stretch.x * billboarding);
+    mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * (1 - align_type), rotations_stretch.y * billboarding);
 
     mat4 model = mat4(1.0);
     model[3][0] = position.x;
@@ -492,8 +491,8 @@ void main() {
     mat4 modelView = uboView.view * model;
     vec3 pos = rot_mat * vertex_position;
     //Stretch effect but negate if billboarding is not active
-    pos += camera_relative_aligment * dot(pos, camera_relative_aligment) * stretch * (1 - billboarding);
-    pos += alignment * dot(pos, alignment) * stretch * billboarding;
+    pos += camera_relative_aligment * dot(pos, camera_relative_aligment) * rotations_stretch.w * (1 - billboarding);
+    pos += alignment * dot(pos, alignment) * rotations_stretch.w * billboarding;
 
     //Billboarding. If billboarding = 0 then billboarding is active and the quad will always face the camera, 
     //otherwise the modelView matrix is used as it is.
@@ -2201,18 +2200,27 @@ typedef struct zest_sprite_instance_t {            //64 bytes
     zest_uint image_layer_index;                   //reference for the texture array if used
 } zest_sprite_instance_t;
 
-typedef struct zest_billboard_instance_t {         //64 bytes
+typedef struct zest_billboard_instance_t {         //56 bytes
     zest_vec3 position;                            //The position of the sprite
-    zest_uint uv_xy;                               //The UV coords of the image in the texture, x and y packed in a zest_uint as SNORM 16bit floats
-    zest_vec3 rotations;                           //Pitch yaw and roll
-    zest_uint uv_zw;                               //The UV coords of the image in the texture, z and w packed in a zest_uint as SNORM 16bit floats
-    zest_vec2 scale;                               //The scale of the billboard
-    zest_vec2 handle;                              //The handle of the billboard
-    float stretch;                                 //Amount to stretch the billboard along it's alignment vector and the x component of the alignment vector packed into a uint
+    zest_uint alignment;                           //Alignment x, y and z packed into a uint as 8bit floats
+    zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch 
+    zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
+    zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
     zest_uint blend_texture_array;                 //reference for the texture array (8bits) and blend factor (24bits)
     zest_color color;                              //The color tint of the sprite
-    zest_uint alignment;                           //Alignment x, y and z packed into a uint as 8bit floats
 } zest_billboard_instance_t;
+
+typedef struct zest_billboard_instance2_t {        //64 bytes
+    zest_vec3 position;                            //The position of the sprite
+    zest_uint alignment;                           //Alignment x, y and z packed into a uint as 8bit floats
+    zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch. This could be packed into 16bit floats if we need to save space, but the packing is swapping one overhead for another
+    zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
+    zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
+    zest_uint blend_texture_array;                 //reference for the texture array (8bits) and intensity (24bits)
+    zest_color color;                              //The color tint of the sprite
+    zest_color color_hint;                         //A secondary color for mixing in the shader
+    zest_uint color_mix;                           //Intensity for the color_hint and the balance value to mix between the 2 colors (2 16bit floats)
+} zest_billboard_instance2_t;
 
 //SDF Lines
 typedef struct zest_shape_instance_t {
@@ -2488,8 +2496,7 @@ typedef struct zest_image_t {
     zest_uint width;
     zest_uint height;
     zest_vec4 uv;                //UV coords are set after the ProcessImages function is called and the images are packed into the texture
-    zest_uint uv_xy;
-    zest_uint uv_zw;
+    zest_u64 uv_packed;          //UV packed into 16bit floats
     zest_index layer;            //the layer index of the image when it's packed into an image/texture array
     zest_uint frames;            //Will be one if this is a single image or more if it's part of and animation
     zest_uint top, left;         //the top left location of the image on the layer or spritesheet
@@ -3481,7 +3488,11 @@ ZEST_API zest_uint zest_Pack10bit(zest_vec3 *v, zest_uint extra);
 //Pack a vec3 into an unsigned int
 ZEST_API zest_uint zest_Pack8bitx3(zest_vec3 *v);
 //Pack 2 floats into an unsigned int
-ZEST_API zest_uint zest_Pack16bit(float x, float y);
+ZEST_API zest_uint zest_Pack16bit2SNorm(float x, float y);
+ZEST_API zest_u64 zest_Pack16bit4SNorm(float x, float y, float z, float w);
+//Convert a 32bit float to a 16bit float packed into a 16bit uint
+ZEST_API zest_uint zest_FloatToHalf(float f);
+ZEST_API zest_u64 zest_Pack16bit4SFloat(float x, float y, float z, float w);
 ZEST_API zest_uint zest_Pack16bitStretch(float x, float y);
 //Pack 3 floats into an unsigned int
 ZEST_API zest_uint zest_Pack8bit(float x, float y, float z);
