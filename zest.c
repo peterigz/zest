@@ -1177,16 +1177,16 @@ zest_u64 zest_Pack16bit4SFloat(float x, float y, float z, float w) {
 }
 
 zest_u64 zest_Pack16bit4SScaled(float x, float y, float z, float w, float max_value_xy, float max_value_zw) {
-    int16_t x_scaled = (int16_t)roundf(x * 32767.0f / max_value_xy);
-    int16_t y_scaled = (int16_t)roundf(y * 32767.0f / max_value_xy);
-    int16_t z_scaled = (int16_t)roundf(z * 32767.0f / max_value_zw);
-    int16_t w_scaled = (int16_t)roundf(w * 32767.0f / max_value_zw);
+    int16_t x_scaled = (int16_t)(x * 32767.0f / max_value_xy);
+    int16_t y_scaled = (int16_t)(y * 32767.0f / max_value_xy);
+    int16_t z_scaled = (int16_t)(z * 32767.0f / max_value_zw);
+    int16_t w_scaled = (int16_t)(w * 32767.0f / max_value_zw);
     return ((zest_u64)x_scaled) | ((zest_u64)y_scaled << 16) | ((zest_u64)z_scaled << 32) | ((zest_u64)w_scaled << 48);
 }
 
 zest_u64 zest_Pack16bit4SScaledZWPacked(float x, float y, zest_uint zw, float max_value_xy) {
-    int16_t x_scaled = (int16_t)roundf(x * 32767.0f / max_value_xy);
-    int16_t y_scaled = (int16_t)roundf(y * 32767.0f / max_value_xy);
+    int16_t x_scaled = (int16_t)(x * 32767.0f / max_value_xy);
+    int16_t y_scaled = (int16_t)(y * 32767.0f / max_value_xy);
     return ((zest_u64)x_scaled) | ((zest_u64)y_scaled << 16) | ((zest_u64)zw << 32);
 }
 
