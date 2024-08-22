@@ -114,7 +114,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	float scale_x = (float)ZestApp->mouse_x * 5.f / zest_ScreenWidthf();
 	float scale_y = (float)ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
 	//Draw the billboard
-	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, 1.f, 1.f);
+	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->texture, example->billboard_descriptor, example->mesh_pipeline);
 	//Draw the textured plane
@@ -134,7 +134,7 @@ int main(void)
 	zest_create_info_t create_info = zest_CreateInfo();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
-	//create_info.log_path = "./";
+	create_info.log_path = "./";
 
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);

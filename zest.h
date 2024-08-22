@@ -379,6 +379,8 @@ const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
 const vec3 up = vec3( 0, 1, 0.00001 );
 const vec3 front = vec3( 0, 0, 1 );
 const vec3 left = vec3( 1, 0, 0 );
+const float scale_max_value = 256.0 / 32767.0;
+const float handle_max_value = 128.0 / 32767.0;
 
 layout(binding = 0) uniform UboView
 {
@@ -408,7 +410,7 @@ layout(location = 1) in vec3 alignment;
 layout(location = 2) in vec4 rotations_stretch;
 layout(location = 3) in vec4 uv;
 layout(location = 4) in vec4 scale_handle;
-layout(location = 5) in uint blend_texture_index;
+layout(location = 5) in uint intensity_texture_array;
 layout(location = 6) in vec4 in_color;
 
 layout(location = 0) out vec4 out_frag_color;
@@ -426,24 +428,28 @@ mat3 RotationMatrix(vec3 axis, float angle)
 }
 
 void main() {
-    float intensity = blend_texture_index & uint(0x003fffff);
+    //Pluck out the intensity value from 
+    float intensity = intensity_texture_array & uint(0x003fffff);
     intensity /= 524287.875;
 
-    //Info about how to align the billboard is stored in bits 22 and 23 of blend_texture_index
+    vec2 scale = scale_handle.xy * scale_max_value;
+    vec2 handle = scale_handle.zw * handle_max_value;
+
+    //Info about how to align the billboard is stored in bits 22 and 23 of intensity_texture_array
 
     //Billboarding determines whether the quad will align to the camera or not. 0 means that it will 
     //align to the camera. This value is determined by the first bit: 01
-    float billboarding = float((blend_texture_index & uint(0x00400000)) >> 22);
+    float billboarding = float((intensity_texture_array & uint(0x00400000)) >> 22);
 
     //align_type is set to 1 when we want the quad to align to the vector stored in alignment.xyz with
     //no billboarding. Billboarding will always be set to 1 in this case, so in other words both bits
     //will be set: 11.
-    float align_type = float((blend_texture_index & uint(0x00C00000)) == 12582912);
+    float align_type = float((intensity_texture_array & uint(0x00C00000)) == 12582912);
 
     //vector_align is set to 1 when we want the billboard to align to the camera and the vector
     //stored in alignment.xyz. billboarding and align_type will always be 0 if this is the case. the second
     //bit is the only bit set if this is the case: 10
-    float vector_align = float((blend_texture_index & uint(0x00C00000)) == 8388608);
+    float vector_align = float((intensity_texture_array & uint(0x00C00000)) == 8388608);
 
     //vec3 alignment_up_cross = dot(alignment.xyz, up) == 0 ? vec3(0, 1, 0) : normalize(cross(alignment.xyz, up));
     vec3 alignment_up_cross = normalize(cross(alignment, up));
@@ -460,17 +466,17 @@ void main() {
     float dp_angle = vector_align * atan(-det, -dp_up) + rotations_stretch.z;
 
     const vec3 identity_bounds[4] = vec3[4](
-        vec3( scale_handle.x * (0 - scale_handle.z), -scale_handle.y * (0 - scale_handle.w), 0),
-        vec3( scale_handle.x * (1 - scale_handle.z), -scale_handle.y * (0 - scale_handle.w), 0),
-        vec3( scale_handle.x * (0 - scale_handle.z), -scale_handle.y * (1 - scale_handle.w), 0),
-        vec3( scale_handle.x * (1 - scale_handle.z), -scale_handle.y * (1 - scale_handle.w), 0)
+        vec3( scale.x * (0 - handle.x), -scale.y * (0 - handle.y), 0),
+        vec3( scale.x * (1 - handle.x), -scale.y * (0 - handle.y), 0),
+        vec3( scale.x * (0 - handle.x), -scale.y * (1 - handle.y), 0),
+        vec3( scale.x * (1 - handle.x), -scale.y * (1 - handle.y), 0)
     );
 
     vec3 bounds[4];
-    bounds[0] = align_type == 1 ? ((-scale_handle.y * alignment * (0 - scale_handle.w)) + (scale_handle.x * alignment_up_cross * (0 - scale_handle.z))) : identity_bounds[0];
-    bounds[1] = align_type == 1 ? ((-scale_handle.y * alignment * (0 - scale_handle.w)) + (scale_handle.x * alignment_up_cross * (1 - scale_handle.z))) : identity_bounds[1];
-    bounds[2] = align_type == 1 ? ((-scale_handle.y * alignment * (1 - scale_handle.w)) + (scale_handle.x * alignment_up_cross * (0 - scale_handle.z))) : identity_bounds[2];
-    bounds[3] = align_type == 1 ? ((-scale_handle.y * alignment * (1 - scale_handle.w)) + (scale_handle.x * alignment_up_cross * (1 - scale_handle.z))) : identity_bounds[3];
+    bounds[0] = align_type == 1 ? ((-scale.y * alignment * (0 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
+    bounds[1] = align_type == 1 ? ((-scale.y * alignment * (0 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
+    bounds[2] = align_type == 1 ? ((-scale.y * alignment * (1 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
+    bounds[3] = align_type == 1 ? ((-scale.y * alignment * (1 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
 
     int index = indexes[gl_VertexIndex];
 
@@ -511,7 +517,7 @@ void main() {
 
     //----------------
     out_frag_color = in_color * intensity;
-    out_tex_coord = vec3(uvs[index], (blend_texture_index & uint(0xFF000000)) >> 24);
+    out_tex_coord = vec3(uvs[index], (intensity_texture_array & uint(0xFF000000)) >> 24);
 }
 );
 
@@ -595,15 +601,18 @@ layout(location = 0) in vec2 size;
 layout(location = 1) in vec2 handle;
 layout(location = 2) in vec4 uv;
 layout(location = 3) in vec4 position_rotation;
-layout(location = 4) in float intensity;
-layout(location = 5) in vec2 alignment;
-layout(location = 6) in vec4 in_color;
-layout(location = 7) in uint texture_array_index;
+layout(location = 4) in vec2 alignment;
+layout(location = 5) in vec4 in_color;
+layout(location = 6) in uint intensity_texture_array;
 
 layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec3 out_tex_coord;
 
 void main() {
+    //Pluck out the intensity value from 
+    float intensity = intensity_texture_array & uint(0x003fffff);
+    intensity /= 524287.875;
+
     vec2 alignment_normal = normalize(vec2(alignment.x, alignment.y + 0.000001)) * position_rotation.z;
 
     vec2 uvs[4];
@@ -642,7 +651,7 @@ void main() {
     gl_Position = uboView.proj * modelView * vec4(pos, 1.0);
 
     //----------------
-    out_tex_coord = vec3(uvs[index], texture_array_index);
+    out_tex_coord = vec3(uvs[index], (intensity_texture_array & uint(0xFF000000)) >> 24);
     out_frag_color = in_color * intensity;
 }
 );
@@ -2189,16 +2198,29 @@ typedef struct zest_command_queue_draw_commands_t {
     const char *name;
 } zest_command_queue_draw_commands_t;
 
-typedef struct zest_sprite_instance_t {            //64 bytes
+typedef struct zest_sprite_instance_t {            //60 bytes
     zest_vec2 size;                                //Size of the sprite in pixels
     zest_vec2 handle;                              //The handle of the sprite
-    zest_vec4 uv;                                  //The UV coords of the image in the texture
+    zest_vec4 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
     zest_vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
-    float intensity;                               //Multiply blend factor, y is unused
     zest_uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
     zest_color color;                              //The color tint of the sprite
-    zest_uint image_layer_index;                   //reference for the texture array if used
+    zest_uint layer_instensity;                    //Texture array index and intensity
+    zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
 } zest_sprite_instance_t;
+
+typedef struct zest_sprite_instance2_t {           //64 bytes
+    zest_vec2 size;                                //Size of the sprite in pixels
+    zest_vec2 handle;                              //The handle of the sprite
+    zest_vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
+    zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
+    zest_uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
+    zest_color color;                              //The color tint of the sprite
+    zest_uint layer_instensity;                    //Texture array index and intensity
+    zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
+    zest_color color_hint;                         //A secondary color for mixing in the shader
+    zest_uint color_mix;                           //Intensity for the color_hint and the balance value to mix between the 2 colors (2 16bit floats)
+} zest_sprite_instance2_t;
 
 typedef struct zest_billboard_instance_t {         //56 bytes
     zest_vec3 position;                            //The position of the sprite
@@ -2206,7 +2228,7 @@ typedef struct zest_billboard_instance_t {         //56 bytes
     zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch 
     zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
     zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
-    zest_uint blend_texture_array;                 //reference for the texture array (8bits) and blend factor (24bits)
+    zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
     zest_color color;                              //The color tint of the sprite
 } zest_billboard_instance_t;
 
@@ -2216,7 +2238,7 @@ typedef struct zest_billboard_instance2_t {        //64 bytes
     zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch. This could be packed into 16bit floats if we need to save space, but the packing is swapping one overhead for another
     zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
     zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
-    zest_uint blend_texture_array;                 //reference for the texture array (8bits) and intensity (24bits)
+    zest_uint intensity_texture_array;                 //reference for the texture array (8bits) and intensity (24bits)
     zest_color color;                              //The color tint of the sprite
     zest_color color_hint;                         //A secondary color for mixing in the shader
     zest_uint color_mix;                           //Intensity for the color_hint and the balance value to mix between the 2 colors (2 16bit floats)
@@ -2379,7 +2401,8 @@ typedef struct zest_font_character_t {
     zest_uint flags;
     float reserved1;
     zest_vec4 uv;
-    float reserved2[4];
+    zest_u64 uv_packed;
+    float reserved2[2];
 } zest_font_character_t;
 
 typedef struct zest_font_t {
@@ -3493,6 +3516,7 @@ ZEST_API zest_u64 zest_Pack16bit4SNorm(float x, float y, float z, float w);
 //Convert a 32bit float to a 16bit float packed into a 16bit uint
 ZEST_API zest_uint zest_FloatToHalf(float f);
 ZEST_API zest_u64 zest_Pack16bit4SFloat(float x, float y, float z, float w);
+ZEST_API zest_u64 zest_Pack16bit4SScaled(float x, float y, float z, float w, float max_value_xy, float max_value_zw);
 ZEST_API zest_uint zest_Pack16bitStretch(float x, float y);
 //Pack 3 floats into an unsigned int
 ZEST_API zest_uint zest_Pack8bit(float x, float y, float z);
@@ -3944,6 +3968,7 @@ ZEST_API void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float 
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
+//Note that because scale and handle is packed into 16 bit floats, the max value for scale is 256 and the max value for handle is 128
 ZEST_API void zest_SetBillboardDrawing(zest_layer billboard_layer , zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 //Draw a billboard in 3d space using the zest_layer (must be a built in billboard layer) and zest_image. Note that you will need to use a uniform buffer that sets an appropriate
 //projection and view matrix.  You must call zest_SetSpriteDrawing for the layer and the texture where the image exists.
@@ -3956,6 +3981,7 @@ ZEST_API void zest_SetBillboardDrawing(zest_layer billboard_layer , zest_texture
 //sx, sy:                The size of the sprite in 3d units
 ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
 //A simplified version of zest_DrawBillboard where you only need to set the position, rotation and size of the billboard. The alignment will always be set to face the camera.
+//Note that because scale is packed into 16 bit floats, the max value for scale is 256
 ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy);
 //--End Draw billboard layers
 
