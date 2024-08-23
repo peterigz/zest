@@ -2208,6 +2208,7 @@ typedef struct zest_sprite_instance_t {            //52 bytes
     zest_color color;                              //The color tint of the sprite
     zest_uint layer_instensity;                    //Texture array index and intensity
     zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
+    zest_uint padding[3];
 } zest_sprite_instance_t;
 
 typedef struct zest_sprite_instance2_t {           //56 bytes - For 2 colored sprites
@@ -2220,6 +2221,7 @@ typedef struct zest_sprite_instance2_t {           //56 bytes - For 2 colored sp
     zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
     zest_color color_hint;                         //A secondary color for mixing in the shader
     zest_uint color_mix;                           //Intensity for the color_hint and the balance value to mix between the 2 colors (2 16bit floats)
+    zest_u64 padding;
 } zest_sprite_instance2_t;
 
 typedef struct zest_billboard_instance_t {         //56 bytes
@@ -2230,6 +2232,7 @@ typedef struct zest_billboard_instance_t {         //56 bytes
     zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
     zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
     zest_color color;                              //The color tint of the sprite
+    zest_u64 padding;
 } zest_billboard_instance_t;
 
 typedef struct zest_billboard_instance2_t {        //64 bytes - For 2 colored billboards
