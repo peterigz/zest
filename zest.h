@@ -597,9 +597,9 @@ layout(push_constant) uniform quad_index
 //layout(location = 0) in vec2 vertex_position;
 
 //Instance
-layout(location = 0) in vec4 size_handle;
-layout(location = 1) in vec4 uv;
-layout(location = 2) in vec4 position_rotation;
+layout(location = 0) in vec4 uv;
+layout(location = 1) in vec4 position_rotation;
+layout(location = 2) in vec4 size_handle;
 layout(location = 3) in vec2 alignment;
 layout(location = 4) in vec4 in_color;
 layout(location = 5) in uint intensity_texture_array;
@@ -2201,14 +2201,14 @@ typedef struct zest_command_queue_draw_commands_t {
 } zest_command_queue_draw_commands_t;
 
 typedef struct zest_sprite_instance_t {            //52 bytes
-    zest_u64 size_handle;                          //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
     zest_vec4 uv;                                  //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
     zest_vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
+    zest_u64 size_handle;                          //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
     zest_uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
     zest_color color;                              //The color tint of the sprite
     zest_uint layer_instensity;                    //Texture array index and intensity
     zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
-    zest_uint padding[3];
+    zest_uint padding[2];
 } zest_sprite_instance_t;
 
 typedef struct zest_sprite_instance2_t {           //56 bytes - For 2 colored sprites

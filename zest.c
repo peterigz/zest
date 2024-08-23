@@ -4848,12 +4848,12 @@ void zest__prepare_standard_pipelines() {
 
     VkVertexInputAttributeDescription* instance_vertex_input_attributes = 0;
 
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_sprite_instance_t, size_handle)));        // Location 0: Size of the sprite in pixels
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_sprite_instance_t, uv)));                  // Location 2: UV coords
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_sprite_instance_t, position_rotation)));   // Location 3: Instance Position and rotation
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_sprite_instance_t, alignment)));                  // Location 5: Alignment
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_sprite_instance_t, color)));                    // Location 6: Instance Color
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_sprite_instance_t, intensity_texture_array)));        // Location 7: Instance Parameters
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_sprite_instance_t, uv)));                  // Location 0: UV coords
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_sprite_instance_t, position_rotation)));   // Location 1: Instance Position and rotation
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_sprite_instance_t, size_handle)));        // Location 2: Size of the sprite in pixels
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_sprite_instance_t, alignment)));                  // Location 3: Alignment
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_sprite_instance_t, color)));                    // Location 4: Instance Color
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_sprite_instance_t, intensity_texture_array)));        // Location 5: Instance Parameters
 
     instance_create_info.attributeDescriptions = instance_vertex_input_attributes;
     zest_SetText(&instance_create_info.vertShaderFile, "sprite_vert.spv");
