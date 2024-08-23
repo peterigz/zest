@@ -299,8 +299,6 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 //Shader_code
 //For nicer formatting of the shader code, but note that new lines are ignored when this becomes an actual string.
 #define ZEST_GLSL(version, shader) "#version " #version "\n" #shader
-//As an alternative I might just embed the spv's directly in the future.
-
 //----------------------
 //Imgui vert shader
 //----------------------
@@ -573,6 +571,8 @@ void main() {
 static const char *zest_shader_sprite_vert = ZEST_GLSL(450,
 //Quad indexes
 const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
+const float size_max_value = 4096.0 / 32767.0;
+const float handle_max_value = 128.0 / 32767.0;
 
 layout(binding = 0) uniform UboView
 {
@@ -597,13 +597,12 @@ layout(push_constant) uniform quad_index
 //layout(location = 0) in vec2 vertex_position;
 
 //Instance
-layout(location = 0) in vec2 size;
-layout(location = 1) in vec2 handle;
-layout(location = 2) in vec4 uv;
-layout(location = 3) in vec4 position_rotation;
-layout(location = 4) in vec2 alignment;
-layout(location = 5) in vec4 in_color;
-layout(location = 6) in uint intensity_texture_array;
+layout(location = 0) in vec4 size_handle;
+layout(location = 1) in vec4 uv;
+layout(location = 2) in vec4 position_rotation;
+layout(location = 3) in vec2 alignment;
+layout(location = 4) in vec4 in_color;
+layout(location = 5) in uint intensity_texture_array;
 
 layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec3 out_tex_coord;
@@ -612,6 +611,9 @@ void main() {
     //Pluck out the intensity value from 
     float intensity = intensity_texture_array & uint(0x003fffff);
     intensity /= 524287.875;
+    //Scale the size and handle to the correct values
+    vec2 size = size_handle.xy * size_max_value;
+    vec2 handle = size_handle.zw * handle_max_value;
 
     vec2 alignment_normal = normalize(vec2(alignment.x, alignment.y + 0.000001)) * position_rotation.z;
 
@@ -2198,10 +2200,9 @@ typedef struct zest_command_queue_draw_commands_t {
     const char *name;
 } zest_command_queue_draw_commands_t;
 
-typedef struct zest_sprite_instance_t {            //60 bytes
-    zest_vec2 size;                                //Size of the sprite in pixels
-    zest_vec2 handle;                              //The handle of the sprite
-    zest_vec4 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
+typedef struct zest_sprite_instance_t {            //52 bytes
+    zest_u64 size_handle;                          //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
+    zest_vec4 uv;                                  //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
     zest_vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
     zest_uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
     zest_color color;                              //The color tint of the sprite
@@ -2209,9 +2210,8 @@ typedef struct zest_sprite_instance_t {            //60 bytes
     zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
 } zest_sprite_instance_t;
 
-typedef struct zest_sprite_instance2_t {           //64 bytes
-    zest_vec2 size;                                //Size of the sprite in pixels
-    zest_vec2 handle;                              //The handle of the sprite
+typedef struct zest_sprite_instance2_t {           //56 bytes - For 2 colored sprites
+    zest_u64 size_handle;                          //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
     zest_vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
     zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
     zest_uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
@@ -2232,13 +2232,13 @@ typedef struct zest_billboard_instance_t {         //56 bytes
     zest_color color;                              //The color tint of the sprite
 } zest_billboard_instance_t;
 
-typedef struct zest_billboard_instance2_t {        //64 bytes
+typedef struct zest_billboard_instance2_t {        //64 bytes - For 2 colored billboards
     zest_vec3 position;                            //The position of the sprite
     zest_uint alignment;                           //Alignment x, y and z packed into a uint as 8bit floats
     zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch. This could be packed into 16bit floats if we need to save space, but the packing is swapping one overhead for another
     zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
     zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
-    zest_uint intensity_texture_array;                 //reference for the texture array (8bits) and intensity (24bits)
+    zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
     zest_color color;                              //The color tint of the sprite
     zest_color color_hint;                         //A secondary color for mixing in the shader
     zest_uint color_mix;                           //Intensity for the color_hint and the balance value to mix between the 2 colors (2 16bit floats)
@@ -2803,6 +2803,8 @@ ZEST_PRIVATE void zest__create_sync_objects(void);
 ZEST_PRIVATE zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__create_descriptor_pools(zest_map_descriptor_pool_sizes pool_sizes, zest_uint max_sets);
 ZEST_PRIVATE void zest__make_standard_descriptor_layouts(void);
+ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
+ZEST_PRIVATE void zest__format_shader_code(zest_text_t *code);
 ZEST_PRIVATE void zest__compile_builtin_shaders(void);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__create_empty_command_queue(zest_command_queue command_queue);
@@ -3056,7 +3058,7 @@ ZEST_API zest_shader zest_NewShader(shaderc_shader_kind type);
 //Validate a shader from a string and add it to the library of shaders in the renderer
 ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name);
+ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
 ZEST_API zest_bool zest_CompileShader(zest_shader shader);
 //Update an existing shader with a new version

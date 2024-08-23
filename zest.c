@@ -4296,7 +4296,7 @@ zest_bool zest_CompileShader(zest_shader shader) {
     return 0;
 }
 
-zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name) {
+zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code) {
     ZEST_ASSERT(name);     //You must give the shader a name
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, name));     //Shader already exitst, use zest_UpdateShader to update an existing shader
     zest_shader shader = zest_NewShader(type);
@@ -4311,19 +4311,25 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
         shader->spv = zest_ReadEntireFile(shader->name.str, ZEST_FALSE);
         if (shader->spv) {
 			zest_SetText(&shader->shader_code, shader_code);
+            if (format_code != 0) {
+                zest__format_shader_code(&shader->shader_code);
+            }
 			zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
 			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Loaded shader %s from cache and added to renderer shaders." ZEST_NL, name);
             return shader;
         }
     }
 
-    shaderc_compilation_result_t result = shaderc_compile_into_spv( ZestRenderer->shader_compiler, shader_code, strlen(shader_code), type, name, "main", NULL );
+	zest_SetText(&shader->shader_code, shader_code);
+	if (format_code != 0) {
+		zest__format_shader_code(&shader->shader_code);
+	}
+    shaderc_compilation_result_t result = shaderc_compile_into_spv( ZestRenderer->shader_compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", NULL );
 
     if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
 		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Shader compilation failed: %s, %s" ZEST_NL, name, shaderc_result_get_error_message(result));
         shaderc_result_release(result);
-        zest_FreeText(&shader->name);
-        ZEST__FREE(shader);
+        zest_FreeShader(shader);
         ZEST_ASSERT(0); //There's a bug in this shader that needs fixing. You can check the log file for the error message
     }
 
@@ -4434,6 +4440,11 @@ void zest_FreeShader(zest_shader shader) {
     if (zest_map_valid_name(ZestRenderer->shaders, shader->name.str)) {
         zest_map_remove(ZestRenderer->shaders, shader->name.str);
 	}
+    zest_FreeText(&shader->name);
+    zest_FreeText(&shader->shader_code);
+    if (shader->spv) {
+        ZEST__FREE(shader->spv);
+    }
     ZEST__FREE(shader);
 }
 
@@ -4726,24 +4737,96 @@ zest_uint zest_TextSize(zest_text_t* buffer) {
 }
 
 //End api functions
+void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs) {
+    ZEST_ASSERT(*position < zest_TextSize(text));
+    text->str[(*position)++] = current_char;
+    ZEST_ASSERT(*position < zest_TextSize(text));
+    text->str[(*position)++] = '\n';
+    for (int t = 0; t != tabs; ++t) {
+        text->str[(*position)++] = '\t';
+    }
+}
+
+void zest__format_shader_code(zest_text_t *code) {
+    zest_uint length = zest_TextSize(code);
+    zest_uint pos = 0;
+    zest_text_t formatted_code = { 0 };
+    //First pass to calculate the new formatted buffer size
+    zest_uint extra_size = 0;
+    int tabs = 0;
+    for (zest_uint i = 0; i != length; ++i) {
+        if (code->str[i] == ';') {
+            extra_size++;
+            extra_size += tabs;
+        }
+        else if (code->str[i] == '{') {
+            extra_size++;
+            extra_size += tabs;
+            tabs++;
+        }
+        else if (code->str[i] == '}') {
+            extra_size++;
+            extra_size += tabs;
+            tabs--;
+        }
+    }
+    pos = 0;
+    zest_ResizeText(&formatted_code, length + extra_size);
+    zest_uint new_length = zest_TextSize(&formatted_code);
+    zest_uint f_pos = 0;
+    bool new_line_added = false;
+    for (zest_uint i = 0; i != length; ++i) {
+        if (new_line_added) {
+            if (code->str[i] == ' ') {
+                continue;
+            }
+            else {
+                new_line_added = false;
+            }
+        }
+        if (code->str[i] == ';') {
+            zest__add_line(&formatted_code, code->str[i], &f_pos, tabs);
+            new_line_added = true;
+        }
+        else if (code->str[i] == '{') {
+            tabs++;
+            zest__add_line(&formatted_code, code->str[i], &f_pos, tabs);
+            new_line_added = true;
+        }
+        else if (code->str[i] == '}') {
+            if (tabs > 0) {
+                f_pos--;
+                tabs--;
+            }
+            zest__add_line(&formatted_code, code->str[i], &f_pos, tabs);
+            new_line_added = true;
+        }
+        else {
+            ZEST_ASSERT(f_pos < new_length);
+            formatted_code.str[f_pos++] = code->str[i];
+        }
+    }
+    zest_FreeText(code);
+    *code = formatted_code;
+}
 
 void zest__compile_builtin_shaders(void) {
-    zest_CreateShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert.spv");
-    zest_CreateShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag.spv");
-    zest_CreateShader(zest_shader_billboard_vert, shaderc_vertex_shader, "billboard_vert.spv");
-    zest_CreateShader(zest_shader_sprite_frag, shaderc_fragment_shader, "image_frag.spv");
-    zest_CreateShader(zest_shader_sprite_alpha_frag, shaderc_fragment_shader, "sprite_alpha_frag.spv");
-    zest_CreateShader(zest_shader_sprite_vert, shaderc_vertex_shader, "sprite_vert.spv");
-    zest_CreateShader(zest_shader_shape_vert, shaderc_vertex_shader, "shape_vert.spv");
-    zest_CreateShader(zest_shader_shape_frag, shaderc_fragment_shader, "shape_frag.spv");
-    zest_CreateShader(zest_shader_3d_lines_vert, shaderc_vertex_shader, "3d_lines_vert.spv");
-    zest_CreateShader(zest_shader_3d_lines_frag, shaderc_fragment_shader, "3d_lines_frag.spv");
-    zest_CreateShader(zest_shader_font_frag, shaderc_fragment_shader, "font_frag.spv");
-    zest_CreateShader(zest_shader_mesh_vert, shaderc_vertex_shader, "mesh_vert.spv");
-    zest_CreateShader(zest_shader_mesh_instance_vert, shaderc_vertex_shader, "mesh_instance_vert.spv");
-    zest_CreateShader(zest_shader_mesh_instance_frag, shaderc_fragment_shader, "mesh_instance_frag.spv");
-    zest_CreateShader(zest_shader_swap_vert, shaderc_vertex_shader, "swap_vert.spv");
-    zest_CreateShader(zest_shader_swap_frag, shaderc_fragment_shader, "swap_frag.spv");
+    zest_CreateShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert.spv", 1);
+    zest_CreateShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag.spv", 1);
+    zest_CreateShader(zest_shader_billboard_vert, shaderc_vertex_shader, "billboard_vert.spv", 1);
+    zest_CreateShader(zest_shader_sprite_frag, shaderc_fragment_shader, "image_frag.spv", 1);
+    zest_CreateShader(zest_shader_sprite_alpha_frag, shaderc_fragment_shader, "sprite_alpha_frag.spv", 1);
+    zest_CreateShader(zest_shader_sprite_vert, shaderc_vertex_shader, "sprite_vert.spv", 1);
+    zest_CreateShader(zest_shader_shape_vert, shaderc_vertex_shader, "shape_vert.spv", 1);
+    zest_CreateShader(zest_shader_shape_frag, shaderc_fragment_shader, "shape_frag.spv", 1);
+    zest_CreateShader(zest_shader_3d_lines_vert, shaderc_vertex_shader, "3d_lines_vert.spv", 1);
+    zest_CreateShader(zest_shader_3d_lines_frag, shaderc_fragment_shader, "3d_lines_frag.spv", 1);
+    zest_CreateShader(zest_shader_font_frag, shaderc_fragment_shader, "font_frag.spv", 1);
+    zest_CreateShader(zest_shader_mesh_vert, shaderc_vertex_shader, "mesh_vert.spv", 1);
+    zest_CreateShader(zest_shader_mesh_instance_vert, shaderc_vertex_shader, "mesh_instance_vert.spv", 1);
+    zest_CreateShader(zest_shader_mesh_instance_frag, shaderc_fragment_shader, "mesh_instance_frag.spv", 1);
+    zest_CreateShader(zest_shader_swap_vert, shaderc_vertex_shader, "swap_vert.spv", 1);
+    zest_CreateShader(zest_shader_swap_frag, shaderc_fragment_shader, "swap_frag.spv", 1);
 }
 
 void zest__prepare_standard_pipelines() {
@@ -4765,13 +4848,12 @@ void zest__prepare_standard_pipelines() {
 
     VkVertexInputAttributeDescription* instance_vertex_input_attributes = 0;
 
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_sprite_instance_t, size)));                      // Location 0: Size of the sprite in pixels
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_sprite_instance_t, handle)));                    // Location 1: Handle of the sprite
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_sprite_instance_t, uv)));                  // Location 2: UV coords
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_sprite_instance_t, position_rotation)));   // Location 3: Instance Position and rotation
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SNORM, offsetof(zest_sprite_instance_t, alignment)));                  // Location 5: Alignment
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_sprite_instance_t, color)));                    // Location 6: Instance Color
-    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(zest_sprite_instance_t, intensity_texture_array)));        // Location 7: Instance Parameters
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_sprite_instance_t, size_handle)));        // Location 0: Size of the sprite in pixels
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_sprite_instance_t, uv)));                  // Location 2: UV coords
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_sprite_instance_t, position_rotation)));   // Location 3: Instance Position and rotation
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_sprite_instance_t, alignment)));                  // Location 5: Alignment
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_sprite_instance_t, color)));                    // Location 6: Instance Color
+    zest_vec_push(instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_sprite_instance_t, intensity_texture_array)));        // Location 7: Instance Parameters
 
     instance_create_info.attributeDescriptions = instance_vertex_input_attributes;
     zest_SetText(&instance_create_info.vertShaderFile, "sprite_vert.spv");
@@ -9582,8 +9664,7 @@ void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float
 
     zest_sprite_instance_t* sprite = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
-    sprite->size = zest_Vec2Set(sx, sy);
-    sprite->handle = zest_Vec2Set(hx, hy);
+    sprite->size_handle = zest_Pack16bit4SScaled(sx, sy, hx, hy, 4096.f, 128.f);
     sprite->position_rotation = zest_Vec4Set(x, y, stretch, r);
     sprite->uv = image->uv;
     sprite->alignment = alignment;
@@ -9610,8 +9691,7 @@ void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float x, float 
     scale_y *= height / (float)image->height;
     sprite->uv = zest_Vec4Set(-offset_x, -offset_y, scale_x - offset_x, scale_y - offset_y);
 
-    sprite->size = zest_Vec2Set(width, height);
-    sprite->handle = zest_Vec2Set(0.f, 0.f);
+    sprite->size_handle = zest_Pack16bit4SScaledZWPacked(width, height, 0, 4096.f);
     sprite->position_rotation = zest_Vec4Set(x, y, 0.f, 0.f);
     sprite->alignment = 0;
     sprite->color = layer->current_color;
@@ -9776,8 +9856,7 @@ float zest_DrawMSDFText(zest_layer font_layer, const char* text, float x, float 
         float uv_height = font->texture->texture.height * (character->uv.y - character->uv.w);
         float scale = width / uv_width;
 
-        font_instance->size = zest_Vec2Set(width, height);
-        font_instance->handle = zest_Vec2Set1(0.f);
+		font_instance->size_handle = zest_Pack16bit4SScaledZWPacked(width, height, 0, 4096.f);
         font_instance->position_rotation = zest_Vec4Set(xpos + xoffset, y + yoffset, 0.f, 0.f);
         font_instance->uv = character->uv;
         font_instance->alignment = 1;
@@ -9842,8 +9921,7 @@ float zest_DrawMSDFParagraph(zest_layer font_layer, const char* text, float x, f
         float uv_height = font->texture->texture.height * (character->uv.y - character->uv.w);
         float scale = width / uv_width;
 
-        font_instance->size = zest_Vec2Set(width, height);
-        font_instance->handle = zest_Vec2Set1(0.f);
+		font_instance->size_handle = zest_Pack16bit4SScaledZWPacked(width, height, 0, 4096.f);
         font_instance->position_rotation = zest_Vec4Set(xpos + xoffset, y + yoffset, 0.f, 0.f);
         font_instance->uv = character->uv;
         font_instance->alignment = 1;
