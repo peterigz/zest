@@ -3952,6 +3952,8 @@ ZEST_API void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture textur
 //alignment: If you're stretching the sprite then this should be a normalised 2d vector. You zest_Pack16bit to pack a vector into a zest_uint
 //stretch: the stretch factor of the sprite.
 ZEST_API void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch);
+//An alternative draw sprite function where you can pass in the size and handle pre-packed into a U64 as 16bit scaled floats
+ZEST_API void zest_DrawSpritePacked(zest_layer layer, zest_image image, float x, float y, float r, zest_u64 size_handle, zest_uint alignment, float stretch);
 //Draw a textured sprite which is basically a textured rect if you just want to repeat a image across an area. The texture that's used for the image should be
 //zest_texture_storage_type_bank or zest_texture_storage_type_single. You must call zest_SetSpriteDrawing for th layer and the texture where the image exists.
 //x,y:                    The coordinates on the screen of the top left corner of the sprite.

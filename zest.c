@@ -9676,6 +9676,23 @@ void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float
     zest__next_sprite_instance(layer);
 }
 
+void zest_DrawSpritePacked(zest_layer layer, zest_image image, float x, float y, float r, zest_u64 size_handle, zest_uint alignment, float stretch) {
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);    //Call zest_StartSpriteDrawing before calling this function
+
+    zest_sprite_instance_t* sprite = (zest_sprite_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+
+    sprite->size_handle = size_handle;
+    sprite->position_rotation = zest_Vec4Set(x, y, stretch, r);
+    sprite->uv = image->uv;
+    sprite->alignment = alignment;
+    sprite->color = layer->current_color;
+    sprite->intensity_texture_array = image->layer;
+    sprite->intensity_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
+    layer->current_instruction.total_instances++;
+
+    zest__next_sprite_instance(layer);
+}
+
 void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float x, float y, float width, float height, float scale_x, float scale_y, float offset_x, float offset_y) {
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);    //Call zest_StartSpriteDrawing before calling this function
 
