@@ -2206,9 +2206,8 @@ typedef struct zest_sprite_instance_t {            //52 bytes
     zest_u64 size_handle;                          //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
     zest_uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
     zest_color color;                              //The color tint of the sprite
-    zest_uint layer_instensity;                    //Texture array index and intensity
     zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
-    zest_uint padding[2];
+    zest_uint padding[3];
 } zest_sprite_instance_t;
 
 typedef struct zest_sprite_instance2_t {           //56 bytes - For 2 colored sprites
