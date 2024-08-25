@@ -2058,7 +2058,7 @@ typedef struct zest_descriptor_set_t {
 } zest_descriptor_set_t;
 
 typedef struct zest_descriptor_set_builder_t {
-    VkWriteDescriptorSet *writes;
+    VkWriteDescriptorSet *writes[ZEST_MAX_FIF];
 } zest_descriptor_set_builder_t;
 
 typedef struct zest_descriptor_buffer_t {
@@ -2245,6 +2245,17 @@ typedef struct zest_billboard_instance2_t {        //64 bytes - For 2 colored bi
     zest_color color_hint;                         //A secondary color for mixing in the shader
     zest_uint color_mix;                           //Intensity for the color_hint and the balance value to mix between the 2 colors (2 16bit floats)
 } zest_billboard_instance2_t;
+
+typedef struct zest_billboard_instance3_t {        //56 bytes - For 2 colored billboards
+    zest_vec3 position;                            //The position of the sprite
+    zest_uint alignment_life;                      //Alignment x, y and z packed into a uint as 8bit floats plus life value 
+    zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch. This could be packed into 16bit floats if we need to save space, but the packing is swapping one overhead for another
+    zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
+    zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
+    zest_uint intensity;                           //2 intensities for color and color hint
+    zest_uint mix_life;                            //The mix value for mixing between the 2 colors, and life of the particle
+    zest_uint texture_indexes;                     //4 indexes: 2 y positions for the color band position and 2 texture array indexes
+} zest_billboard_instance3_t;
 
 //SDF Lines
 typedef struct zest_shape_instance_t {
@@ -2542,7 +2553,7 @@ typedef struct zest_framebuffer_attachment_t {
 
 typedef struct zest_texture_t {
     zest_struct_type struct_type;
-    VkDescriptorImageInfo descriptor;
+    VkDescriptorImageInfo descriptor_image_info;
     VkImageLayout image_layout;
     VkFormat image_format;
 
@@ -3038,11 +3049,11 @@ ZEST_API zest_descriptor_set_builder_t zest_NewDescriptorSetBuilder();
 //Add a VkDescriptorImageInfo from a zest_texture (or render target) to a descriptor set builder.
 ZEST_API void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder.
-ZEST_API void zest_AddBuilderDescriptorWriteBuffer(zest_descriptor_set_builder_t *builder, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API void zest_AddBuilderDescriptorWriteUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uniform_buffer buffer, zest_uint dst_binding);
 //Add an array of VkDescriptorImageInfos to a descriptor set builder.
-ZEST_API void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t *builder, zest_uint image_count, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t *builder, zest_uint image_count, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type, zest_uint fif);
 //Add an array of VkDescriptorBufferInfos to a descriptor set builder.
-ZEST_API void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t *builder, zest_uint buffer_count, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t *builder, zest_uint buffer_count, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type, zest_uint fif);
 //Build a zest_descriptor_set_t using a builder that you made using the AddBuilder command. The layout that you pass to this function must be configured properly.
 //zest_descriptor_set_t will contain a VkDescriptorSet for each frame in flight as well as descriptor writes used to create the set.
 ZEST_API zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *builder, zest_descriptor_set_layout layout);
@@ -3287,6 +3298,8 @@ ZEST_API void *zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer);
 ZEST_API void *zest_GetUniformBufferDataFIF(zest_uniform_buffer uniform_buffer, zest_index fif);
 //Get the VkDescriptorBufferInfo of a uniform buffer by name and specific frame in flight. Use ZEST_FIF you just want the current frame in flight
 ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfo(const char *name, zest_index fif);
+//Get the VkDescriptorBufferInfo of a uniform buffer by name. This will return a pointer to the first index in the frames of flight array in the buffer.
+ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfoArray(const char *name);
 //Get a uniform buffer by name
 ZEST_API zest_descriptor_buffer zest_GetUniformBuffer(const char *name);
 //Returns true if a uniform buffer exists

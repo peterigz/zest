@@ -3666,22 +3666,34 @@ void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t* builder,
     write.descriptorType = type;
     write.descriptorCount = 1;
     write.pImageInfo = view_image_info;
-    zest_vec_push(builder->writes, write);
+    for (ZEST_EACH_FIF_i) {
+        zest_vec_push(builder->writes[i], write);
+    }
 }
 
-void zest_AddBuilderDescriptorWriteBuffer(zest_descriptor_set_builder_t* builder, VkDescriptorBufferInfo* view_buffer_info, zest_uint dst_binding, VkDescriptorType type) {
+void zest_AddBuilderDescriptorWriteUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uniform_buffer buffer, zest_uint dst_binding) {
     VkWriteDescriptorSet write = { 0 };
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = 0;
     write.dstBinding = dst_binding;
     write.dstArrayElement = 0;
-    write.descriptorType = type;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     write.descriptorCount = 1;
-    write.pBufferInfo = view_buffer_info;
-    zest_vec_push(builder->writes, write);
+    if (buffer->all_frames_in_flight) {
+        for (ZEST_EACH_FIF_i) {
+            write.pBufferInfo = &buffer->descriptor_info[i];
+			zest_vec_push(builder->writes[i], write);
+        }
+    }
+    else {
+		write.pBufferInfo = &buffer->descriptor_info[0];
+        for (ZEST_EACH_FIF_i) {
+            zest_vec_push(builder->writes[i], write);
+        }
+    }
 }
 
-void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t* builder, zest_uint image_count, VkDescriptorImageInfo* view_image_infos, zest_uint dst_binding, VkDescriptorType type) {
+void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t* builder, zest_uint image_count, VkDescriptorImageInfo* view_image_infos, zest_uint dst_binding, VkDescriptorType type, zest_uint fif) {
     VkWriteDescriptorSet write = { 0 };
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = 0;
@@ -3690,10 +3702,10 @@ void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t* builder
     write.descriptorType = type;
     write.descriptorCount = image_count;
     write.pImageInfo = view_image_infos;
-    zest_vec_push(builder->writes, write);
+    zest_vec_push(builder->writes[fif], write);
 }
 
-void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t* builder, zest_uint buffer_count, VkDescriptorBufferInfo* view_buffer_infos, zest_uint dst_binding, VkDescriptorType type) {
+void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t* builder, zest_uint buffer_count, VkDescriptorBufferInfo* view_buffer_infos, zest_uint dst_binding, VkDescriptorType type, zest_uint fif) {
     VkWriteDescriptorSet write = { 0 };
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = 0;
@@ -3702,7 +3714,7 @@ void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t* builde
     write.descriptorType = type;
     write.descriptorCount = buffer_count;
     write.pBufferInfo = view_buffer_infos;
-    zest_vec_push(builder->writes, write);
+    zest_vec_push(builder->writes[fif], write);
 }
 
 zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t* builder, zest_descriptor_set_layout layout) {
@@ -3711,8 +3723,8 @@ zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t* bui
     zest_descriptor_set_t set = { 0 };
     for (ZEST_EACH_FIF_i) {
         zest_AllocateDescriptorSet(ZestRenderer->descriptor_pool, layout->descriptor_layout, &set.descriptor_set[i]);
-        for (zest_foreach_j(builder->writes)) {
-            VkWriteDescriptorSet write = builder->writes[j];
+        for (zest_foreach_j(builder->writes[i])) {
+            VkWriteDescriptorSet write = builder->writes[i][j];
             write.dstSet = set.descriptor_set[i];
             zest_vec_push(set.descriptor_writes[i], write);
         }
@@ -3720,7 +3732,9 @@ zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t* bui
     for (ZEST_EACH_FIF_i) {
         zest_UpdateDescriptorSet(set.descriptor_writes[i]);
     }
-    zest_vec_free(builder->writes);
+    for (ZEST_EACH_FIF_i) {
+        zest_vec_free(builder->writes[i]);
+    }
     return set;
 }
 
@@ -4510,6 +4524,11 @@ void zest_GetMouseSpeed(double* x, double* y) {
 VkDescriptorBufferInfo* zest_GetUniformBufferInfo(const char* name, zest_index fif) {
     ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name));
     return zest_map_at(ZestRenderer->uniform_buffers, name)->descriptor_info[fif];
+}
+
+VkDescriptorBufferInfo* zest_GetUniformBufferInfoArray(const char* name) {
+    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, name));
+    return zest_map_at(ZestRenderer->uniform_buffers, name)->descriptor_info[0];
 }
 
 void* zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer) {
@@ -7213,9 +7232,9 @@ void zest_ProcessTextureImages(zest_texture texture) {
         zest__create_texture_image_view(texture, texture->image_view_type, mip_levels, texture->layer_count);
         zest__create_texture_sampler(texture, texture->sampler_info, mip_levels);
 
-        texture->descriptor.imageView = texture->frame_buffer.view;
-        texture->descriptor.sampler = texture->sampler;
-        texture->descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        texture->descriptor_image_info.imageView = texture->frame_buffer.view;
+        texture->descriptor_image_info.sampler = texture->sampler;
+        texture->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         texture->flags |= zest_texture_flag_textures_ready;
     }
@@ -7232,18 +7251,18 @@ void zest_ProcessTextureImages(zest_texture texture) {
         if (texture->image_layout == VK_IMAGE_LAYOUT_GENERAL) {
             flags |= VK_IMAGE_USAGE_STORAGE_BIT;
             zest__create_texture_image(texture, mip_levels, flags, VK_IMAGE_LAYOUT_GENERAL, ZEST_TRUE);
-            texture->descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            texture->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         }
         else {
             zest__create_texture_image(texture, mip_levels, flags, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ZEST_TRUE);
-            texture->descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            texture->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
         zest__create_texture_image_view(texture, texture->image_view_type, mip_levels, texture->layer_count);
         zest__create_texture_sampler(texture, texture->sampler_info, mip_levels);
 
-        texture->descriptor.imageView = texture->frame_buffer.view;
-        texture->descriptor.sampler = texture->sampler;
+        texture->descriptor_image_info.imageView = texture->frame_buffer.view;
+        texture->descriptor_image_info.sampler = texture->sampler;
         texture->flags |= zest_texture_flag_textures_ready;
 
     }
@@ -7260,18 +7279,18 @@ void zest_ProcessTextureImages(zest_texture texture) {
         if (texture->image_layout == VK_IMAGE_LAYOUT_GENERAL) {
             flags |= VK_IMAGE_USAGE_STORAGE_BIT;
             zest__create_texture_image(texture, mip_levels, flags, VK_IMAGE_LAYOUT_GENERAL, ZEST_TRUE);
-            texture->descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            texture->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         }
         else {
             zest__create_texture_image(texture, mip_levels, flags, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ZEST_TRUE);
-            texture->descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            texture->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
         zest__create_texture_image_view(texture, texture->image_view_type, mip_levels, texture->layer_count);
         zest__create_texture_sampler(texture, texture->sampler_info, mip_levels);
 
-        texture->descriptor.imageView = texture->frame_buffer.view;
-        texture->descriptor.sampler = texture->sampler;
+        texture->descriptor_image_info.imageView = texture->frame_buffer.view;
+        texture->descriptor_image_info.sampler = texture->sampler;
         texture->flags |= zest_texture_flag_textures_ready;
 
     }
@@ -7288,18 +7307,18 @@ void zest_ProcessTextureImages(zest_texture texture) {
         if (texture->image_layout == VK_IMAGE_LAYOUT_GENERAL) {
             flags |= VK_IMAGE_USAGE_STORAGE_BIT;
             zest__create_texture_stream(texture, mip_levels, flags, VK_IMAGE_LAYOUT_GENERAL, ZEST_TRUE);
-            texture->descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            texture->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         }
         else {
             zest__create_texture_stream(texture, mip_levels, flags, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ZEST_TRUE);
-            texture->descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            texture->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
 
         zest__create_texture_image_view(texture, texture->image_view_type, mip_levels, texture->layer_count);
         zest__create_texture_sampler(texture, texture->sampler_info, mip_levels);
 
-        texture->descriptor.imageView = texture->frame_buffer.view;
-        texture->descriptor.sampler = texture->sampler;
+        texture->descriptor_image_info.imageView = texture->frame_buffer.view;
+        texture->descriptor_image_info.sampler = texture->sampler;
         texture->flags |= zest_texture_flag_textures_ready;
 
     }
@@ -7311,9 +7330,9 @@ void zest_ProcessTextureImages(zest_texture texture) {
         zest__create_texture_image_view(texture, texture->image_view_type, mip_levels, texture->layer_count);
         zest__create_texture_sampler(texture, texture->sampler_info, mip_levels);
 
-        texture->descriptor.imageView = texture->frame_buffer.view;
-        texture->descriptor.sampler = texture->sampler;
-        texture->descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        texture->descriptor_image_info.imageView = texture->frame_buffer.view;
+        texture->descriptor_image_info.sampler = texture->sampler;
+        texture->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         texture->flags |= zest_texture_flag_textures_ready;
     }
 
@@ -7342,7 +7361,7 @@ zest_descriptor_set zest_CreateSimpleTextureDescriptorSet(zest_texture texture, 
     for (ZEST_EACH_FIF_i) {
         zest_AllocateDescriptorSet(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler")->descriptor_layout, &set->descriptor_set[i]);
         zest_vec_push(set->descriptor_writes[i], zest_CreateBufferDescriptorWriteWithType(set->descriptor_set[i], &set->buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
-        zest_vec_push(set->descriptor_writes[i], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[i], &texture->descriptor, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
+        zest_vec_push(set->descriptor_writes[i], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[i], &texture->descriptor_image_info, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
     }
     zest_AddTextureDescriptorSet(texture, name, set);
     zest_UpdateTextureSingleDescriptorSet(texture, name);
@@ -7386,7 +7405,7 @@ void zest__update_all_texture_descriptor_writes(zest_texture texture) {
                     write->pBufferInfo = &set->buffer->descriptor_info[i];
                 }
                 else if (write->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-                    write->pImageInfo = &texture->descriptor;
+                    write->pImageInfo = &texture->descriptor_image_info;
                 }
             }
         }
@@ -8208,7 +8227,7 @@ void zest_TextureClear(zest_texture texture) {
 void zest_CopyFramebufferToTexture(zest_frame_buffer_t* src_image, zest_texture texture, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
     VkCommandBuffer copy_command = zest__begin_single_time_commands();
 
-    VkImageLayout target_layout = texture->descriptor.imageLayout;
+    VkImageLayout target_layout = texture->descriptor_image_info.imageLayout;
 
     VkImageSubresourceRange image_range = { 0 };
     image_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -8223,7 +8242,7 @@ void zest_CopyFramebufferToTexture(zest_frame_buffer_t* src_image, zest_texture 
         texture->frame_buffer.image,
         0,
         VK_ACCESS_TRANSFER_WRITE_BIT,
-        texture->descriptor.imageLayout,
+        texture->descriptor_image_info.imageLayout,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -8310,7 +8329,7 @@ void zest_CopyFramebufferToTexture(zest_frame_buffer_t* src_image, zest_texture 
 void zest_CopyTextureToTexture(zest_texture src_image, zest_texture target, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
     VkCommandBuffer copy_command = zest__begin_single_time_commands();
 
-    VkImageLayout target_layout = target->descriptor.imageLayout;
+    VkImageLayout target_layout = target->descriptor_image_info.imageLayout;
 
     VkImageSubresourceRange image_range = { 0 };
     image_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -8325,7 +8344,7 @@ void zest_CopyTextureToTexture(zest_texture src_image, zest_texture target, int 
         target->frame_buffer.image,
         0,
         VK_ACCESS_TRANSFER_WRITE_BIT,
-        target->descriptor.imageLayout,
+        target->descriptor_image_info.imageLayout,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -8337,7 +8356,7 @@ void zest_CopyTextureToTexture(zest_texture src_image, zest_texture target, int 
         src_image->frame_buffer.image,
         VK_ACCESS_MEMORY_READ_BIT,
         VK_ACCESS_TRANSFER_READ_BIT,
-        src_image->descriptor.imageLayout,
+        src_image->descriptor_image_info.imageLayout,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -8400,7 +8419,7 @@ void zest_CopyTextureToTexture(zest_texture src_image, zest_texture target, int 
         VK_ACCESS_TRANSFER_READ_BIT,
         VK_ACCESS_MEMORY_READ_BIT,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        src_image->descriptor.imageLayout,
+        src_image->descriptor_image_info.imageLayout,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
         image_range);
@@ -8758,7 +8777,7 @@ void zest__create_render_target_sampler_image(zest_render_target render_target) 
         image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         image_info.imageView = render_target->framebuffers[i].color_buffer.view;
         image_info.sampler = texture->sampler;
-        texture->descriptor = image_info;
+        texture->descriptor_image_info = image_info;
         zest_CreateSimpleTextureDescriptorSet(texture, "Default", "Standard 2d Uniform Buffer");
         zest_SwitchTextureDescriptorSet(texture, "Default");
 
@@ -8955,7 +8974,7 @@ void zest__refresh_render_target_sampler(zest_render_target render_target, zest_
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     image_info.imageView = render_target->framebuffers[fif].color_buffer.view;
     image_info.sampler = texture->sampler;
-    texture->descriptor = image_info;
+    texture->descriptor_image_info = image_info;
     zest_RefreshTextureDescriptors(texture);
 }
 
@@ -11027,7 +11046,7 @@ void zest_AddComputeBufferForBinding(zest_compute_builder_t* builder, zest_descr
 void zest_AddComputeImageForBinding(zest_compute_builder_t* builder, zest_texture texture) {
     zest_descriptor_infos_for_binding_t info = { 0 };
     for (ZEST_EACH_FIF_i) {
-        info.descriptor_image_info[i] = texture->descriptor;
+        info.descriptor_image_info[i] = texture->descriptor_image_info;
     }
     info.texture = texture;
     info.all_frames_in_flight = ZEST_FALSE;
@@ -11272,7 +11291,7 @@ void zest_UpdateComputeDescriptorInfos(zest_compute compute) {
                 descriptor_info->descriptor_buffer_info[i] = descriptor_info->buffer->descriptor_info[descriptor_fif_index];
             }
             else if (descriptor_info->descriptor_image_info[i].sampler) {
-                descriptor_info->descriptor_image_info[i] = descriptor_info->texture->descriptor;
+                descriptor_info->descriptor_image_info[i] = descriptor_info->texture->descriptor_image_info;
             }
         }
     }
