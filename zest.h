@@ -1336,7 +1336,8 @@ typedef enum {
 } zest_shape_type;
 
 typedef enum {
-    zest_builtin_layer_sprites = 0,
+    zest_builtin_layer_custom = 0,
+    zest_builtin_layer_sprites,
     zest_builtin_layer_billboards,
     zest_builtin_layer_lines,
     zest_builtin_layer_3dlines,
@@ -1679,14 +1680,13 @@ ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index inde
 ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
 #define zest_map_hash(hash_map, name) zest_Hash(ZestHasher, name, strlen(name), ZEST_HASH_SEED)
 #define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ZestHasher, ptr, size, ZEST_HASH_SEED)
-//Free slots isn't really needed now, I should probably remove it.
 #define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; zest_index *free_slots; zest_index last_index; }
 #define zest_map_valid_name(hash_map, name) (hash_map.map && zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
 #define zest_map_valid_key(hash_map, key) (hash_map.map && zest__map_get_index(hash_map.map, key) != -1)
 #define zest_map_valid_index(hash_map, index) (hash_map.map && (zest_uint)index < zest_vec_size(hash_map.data))
 #define zest_map_valid_hash(hash_map, ptr, size) (zest__map_get_index(hash_map.map, zest_map_hash_ptr(hash_map, ptr, size)) != -1)
 #define zest_map_set_index(hash_map, hash_key, value) zest_hash_pair *it = zest__lower_bound(hash_map.map, hash_key); if(!hash_map.map || it == zest_vec_end(hash_map.map) || it->key != hash_key) { if(zest_vec_size(hash_map.free_slots)) { hash_map.last_index = zest_vec_pop(hash_map.free_slots); hash_map.data[hash_map.last_index] = value; } else {hash_map.last_index = zest_vec_size(hash_map.data); zest_vec_push(hash_map.data, value);} zest_hash_pair new_pair; new_pair.key = hash_key; new_pair.index = hash_map.last_index; zest_vec_insert(hash_map.map, it, new_pair); } else {hash_map.data[it->index] = value;}
-#define zest_map_insert(hash_map, name, value) { zest_key key = zest_map_hash(hash_map, name); zest_map_set_index(hash_map, key, value); }
+#define zest_map_insert(hash_map, name, value) { zest_key key = zest_Hash(ZestHasher, name, strlen(name), ZEST_HASH_SEED); zest_map_set_index(hash_map, key, value); }
 #define zest_map_insert_key(hash_map, hash_key, value) { zest_map_set_index(hash_map, hash_key, value) }
 #define zest_map_insert_with_ptr_hash(hash_map, ptr, size, value) { zest_key key = zest_map_hash_ptr(hash_map, ptr, size); zest_map_set_index(hash_map, key, value) }
 #define zest_map_at(hash_map, name) &hash_map.data[zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name))]
@@ -2875,40 +2875,16 @@ ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_targe
 ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target);
 ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target, zest_index fif);
 
-// --Sprite layer internal functions
-ZEST_PRIVATE void zest__draw_sprite_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__next_sprite_instance(zest_layer layer);
-ZEST_PRIVATE void zest__initialise_sprite_layer(zest_layer sprite_layer, zest_uint instance_pool_size);
+ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size);
 
 // --Font layer internal functions
-ZEST_PRIVATE void zest__draw_font_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__next_font_instance(zest_layer layer);
-ZEST_PRIVATE void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_size);
 ZEST_PRIVATE void zest__setup_font_texture(zest_font font);
 ZEST_PRIVATE zest_font zest__add_font(zest_font font);
-
-// --Billboard layer internal functions
-ZEST_PRIVATE void zest__draw_billboard_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__next_billboard_instance(zest_layer layer);
-ZEST_PRIVATE void zest__initialise_billboard_layer(zest_layer billboard_layer, zest_uint instance_pool_size);
-
-// --Line instance layer internal functions
-ZEST_PRIVATE void zest__draw_shape_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__next_shape_instance(zest_layer layer);
-ZEST_PRIVATE void zest__initialise_shape_layer(zest_layer line_layer, zest_uint instance_pool_size);
-
-// --3D Line instance layer internal functions
-ZEST_PRIVATE void zest__draw_3dline_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__next_3dline_instance(zest_layer layer);
-ZEST_PRIVATE void zest__initialise_3dline_layer(zest_layer line_layer, zest_uint instance_pool_size);
 
 // --Mesh layer internal functions
 ZEST_PRIVATE void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
-
-// --Mesh layer internal functions
 ZEST_PRIVATE void zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__initialise_instance_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
 
 // --General Helper Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
@@ -3071,7 +3047,7 @@ ZEST_API zest_shader zest_NewShader(shaderc_shader_kind type);
 //Validate a shader from a string and add it to the library of shaders in the renderer
 ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code);
+ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
 ZEST_API zest_bool zest_CompileShader(zest_shader shader);
 //Update an existing shader with a new version
@@ -3340,6 +3316,9 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
     ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupSwap(const char *name);
         //Add a new draw routine to the current draw commands context. Draw routines are where you can setup your own custom drawing commands
         ZEST_API void zest_AddDrawRoutine(zest_draw_routine draw_routine);
+        //You can use this to add a draw routine that you created with zest_CreateInstanceDrawRoutine to the draw commands. Returns a layer that you can
+        //use to draw with in your render/update loop
+        ZEST_API zest_layer zest_AddInstanceDrawRoutine(zest_draw_routine draw_routine);
             //Get the current context draw routine. Must be within a draw routine context
             ZEST_API zest_draw_routine zest_ContextDrawRoutine();
         //Add a new mesh layer to the current draw commands context. A mesh layer can be used to render anything that will use an index and vertex
@@ -3530,6 +3509,8 @@ ZEST_API zest_uint zest_Pack8bitx3(zest_vec3 *v);
 //Pack 2 floats into an unsigned int
 ZEST_API zest_uint zest_Pack16bit2SNorm(float x, float y);
 ZEST_API zest_u64 zest_Pack16bit4SNorm(float x, float y, float z, float w);
+//Convert 4 32bit floats into packed 16bit scaled floats. You can pass 2 max_values if you need to scale xy/zw separately
+ZEST_API zest_uint zest_Pack16bit2SScaled(float x, float y, float max_value);
 //Convert a 32bit float to a 16bit float packed into a 16bit uint
 ZEST_API zest_uint zest_FloatToHalf(float f);
 //Convert 4 32bit floats into packed 16bit floats
@@ -3907,11 +3888,19 @@ ZEST_API void zest_SetActiveCommandQueue(zest_command_queue command_queue);
 //-----------------------------------------------
 //Create a new draw routine which you can use to set up your own custom drawing
 ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
+ZEST_API zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size instance_size);
 //-- End Draw Routines
 
 //-----------------------------------------------
 //-- Draw_Layers_API
 //-----------------------------------------------
+
+// --Initialise a layer for drawing instanced data like billboards or other mesh instances. This function will create a buffer to store instance data that can
+//be uploaded to the GPU for drawing each frame
+ZEST_API void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
+//A standar callback function you can use to draw all instances in your layer each frame. When creating your own custom layers you can override this callback
+//if needed but you should find that this one covers most uses of instance drawing.
+ZEST_API void zest_DrawInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 //Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
 //instance layers more easily
 ZEST_API void zest_StartInstanceInstructions(zest_layer instance_layer);
@@ -3919,8 +3908,10 @@ ZEST_API void zest_StartInstanceInstructions(zest_layer instance_layer);
 ZEST_API void zest_EndInstanceInstructions(zest_layer instance_layer);
 //Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
 ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
-//Send all the draw commands for an instance layer to the GPU
+//Send all the draw commands for an instance layer to the GPU. This is generally called from the draw routine callback function: zest_DrawInstanceLayerCallback
 ZEST_API void zest_DrawInstanceLayer(zest_layer instance_layer, VkCommandBuffer command_buffer);
+//Move the pointer in memory to the next instance to write to.
+ZEST_API void zest_NextInstance(zest_layer layer);
 //Allocate a new zest_layer and return it's handle. This is mainly used internally but will leave it in the API for now
 ZEST_API zest_layer zest_NewLayer();
 //Set the viewport of a layer. This is important to set right as when the layer is drawn it needs to be clipped correctly and in a lot of cases match how the
@@ -3951,15 +3942,8 @@ ZEST_API void zest_SetLayerDirty(zest_layer layer);
 //        Built in layer for drawing 2d sprites on the screen. To add this type of layer to
 //        a command queue see zest_NewBuiltinLayerSetup or zest_CreateBuiltinSpriteLayer
 //-----------------------------------------------
-//Set the texture, descriptor set and pipeline for any calls to zest_DrawSprite that come after it. You must call this function if you want to do any sprite drawing, and you
-//must call it again if you wish to switch either the texture, descriptor set or pipeline to do the drawing. Everytime you call this function it creates a new draw instruction
-//in the layer for drawing sprites so each call represents a separate draw call in the render. So if you just call this function once you can call zest_DrawSprite as many times
-//as you want and they will all be drawn with a single draw call.
-//Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
-//1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
-//2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetSpriteDrawing(zest_layer sprite_layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 //Draw a sprite on the screen using the zest_layer and zest_image you pass to the function. You must call zest_SetSpriteDrawing for the layer and the texture where the image exists.
+//You must call zest_SetInstanceDrawing before calling this function.
 //x, y: Coordinates on the screen to position the sprite at.
 //r: Rotation of the sprite in radians
 //sx, sy: The size of the sprite in pixels
@@ -3979,21 +3963,26 @@ ZEST_API void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float 
 //-- End Draw sprite layers
 
 //-----------------------------------------------
+//        Draw_instance_layers
+//        General purpose functions you can use to either draw built in instances like billboards and sprites or your own custom instances
+//-----------------------------------------------
+//Set the texture, descriptor set and pipeline for any calls to the same layer that come after it. You must call this function if you want to do any instance drawing for a particular layer, and you
+//must call it again if you wish to switch either the texture, descriptor set or pipeline to do the drawing. Everytime you call this function it creates a new draw instruction
+//in the layer for drawing instances so each call represents a separate draw call in the render. So if you just call this function once you can call a draw instance function as many times
+//as you want (like zest_DrawBillboard or your own custom draw instance function) and they will all be drawn with a single draw call.
+//Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
+//1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
+//2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
+ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
+
+//-----------------------------------------------
 //        Draw_billboard_layers
 //        Built in layer for drawing 3d sprites, or billboards. These can either always face the camera or be
 //        aligned to a vector, or even both depending on what you need. You'll need a uniform buffer with the
 //        appropriate projection and view matrix for 3d. See zest-instance-layers for examples.
 //-----------------------------------------------
-//Set the texture, descriptor set and pipeline for any calls to zest_DrawBillboard that come after it. You must call this function if you want to do any billboard drawing, and you
-//must call it again if you wish to switch either the texture, descriptor set or pipeline to do the drawing. Everytime you call this function it creates a new draw instruction
-//in the layer for drawing billboards so each call represents a separate draw call in the render. So if you just call this function once you can call zest_DrawBillboard as many times
-//as you want and they will all be drawn with a single draw call.
-//Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
-//1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
-//2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-//Note that because scale and handle is packed into 16 bit floats, the max value for scale is 256 and the max value for handle is 128
-ZEST_API void zest_SetBillboardDrawing(zest_layer billboard_layer , zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
-//Draw a billboard in 3d space using the zest_layer (must be a built in billboard layer) and zest_image. Note that you will need to use a uniform buffer that sets an appropriate
+//Draw a billboard in 3d space using the zest_layer (must be a built in billboard layer) and zest_image. Note that you will need to use a uniform buffer that sets an appropriate. You must call
+//zest_SetInstanceDrawing before calling this function
 //projection and view matrix.  You must call zest_SetSpriteDrawing for the layer and the texture where the image exists.
 //Position:                Should be a pointer to 3 floats representing the x, y and z coordinates to draw the sprite at.
 //alignment:            A normalised 3d vector packed into a 8bit snorm uint. This is the alignment of the billboard when using stretch.
@@ -4002,6 +3991,7 @@ ZEST_API void zest_SetBillboardDrawing(zest_layer billboard_layer , zest_texture
 //stretch:                How much to stretch the billboard along it's alignment.
 //alignment_type:        This is a bit flag with 2 bits 00. 00 = align to the camera. 11 = align to the alignment vector. 10 = align to the alignment vector and the camera.
 //sx, sy:                The size of the sprite in 3d units. Max scale value should be 256
+//Note that because scale and handle is packed into 16 bit floats, the max value for scale is 256 and the max value for handle is 128
 ZEST_API void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy);
 //This version of draw billboard lets you pass in a pre-packed scale_handle to save computation
 ZEST_API void zest_DrawBillboardPacked(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], zest_u64 scale_handle, float stretch, zest_uint alignment_type);
@@ -4136,8 +4126,6 @@ ZEST_API void zest_DrawInstanceMeshLayer(zest_layer instance_layer, VkCommandBuf
 //These are helper functions you can use to bind the vertex and index buffers in your custom mesh draw routine callback
 ZEST_API void zest_BindInstanceMeshVertexBuffer(zest_layer layer);
 ZEST_API void zest_BindInstanceMeshIndexBuffer(zest_layer layer);
-//Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
-ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
 ZEST_API void zest_PushMeshVertex(zest_mesh_t *mesh, float pos_x, float pos_y, float pos_z, zest_color color);
 //Push an index to a mesh to build triangles
@@ -4167,6 +4155,7 @@ ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh_t *mesh);
 //Get the size in bytes for the index data in a mesh
 ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh_t *mesh);
 //Draw an instance of a mesh with an instanced mesh layer. Pass in the position, rotations and scale to transform the instance.
+//You must call zest_SetInstanceDrawing before calling this function as many times as you need.
 ZEST_API void zest_DrawInstancedMesh(zest_layer mesh_layer, float pos[3], float rot[3], float scale[3]);
 //Create a cylinder mesh of given number of sides, radius and height. Set cap to 1 to cap the cylinder.
 ZEST_API zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_color color, zest_bool cap);
