@@ -6636,7 +6636,7 @@ zest_image zest_CreateAnimation(zest_uint frames) {
     return image;
 }
 
-void zest_AllocateBitmap(zest_bitmap_t* bitmap, int width, int height, int channels, zest_uint fill_color) {
+void zest_AllocateBitmap(zest_bitmap_t* bitmap, int width, int height, int channels, zest_color fill_color) {
     bitmap->size = width * height * channels;
     if (bitmap->size > 0) {
         bitmap->data = (zest_byte*)ZEST__ALLOCATE(bitmap->size);
@@ -6645,7 +6645,7 @@ void zest_AllocateBitmap(zest_bitmap_t* bitmap, int width, int height, int chann
         bitmap->channels = channels;
         bitmap->stride = width * channels;
     }
-    memset(bitmap->data, fill_color, bitmap->size);
+    zest_FillBitmap(bitmap, fill_color);
 }
 
 void zest_LoadBitmapImage(zest_bitmap_t* image, const char* file, int color_channels) {
@@ -6732,7 +6732,7 @@ void zest_ConvertBitmapTo1Channel(zest_bitmap_t* image) {
     }
 
     zest_bitmap_t converted = { 0 };
-    zest_AllocateBitmap(&converted, image->width, image->height, 1, 0);
+    zest_AllocateBitmap(&converted, image->width, image->height, 1, zest_ColorSet1(0));
     zest_ConvertBitmapToAlpha(image);
 
     zest_size pos = 0;
@@ -6757,6 +6757,71 @@ void zest_ConvertBitmapTo1Channel(zest_bitmap_t* image) {
     }
     zest_FreeBitmap(image);
     *image = converted;
+}
+
+void zest_PlotBitmap(zest_bitmap_t *image, int x, int y, zest_color color) {
+
+    size_t pos = y * image->stride + (x * image->channels);
+
+    if (pos >= image->size) {
+        return;
+    }
+
+    if (image->channels == 4) {
+		*(image->data + pos) = color.r;
+		*(image->data + pos + 1) = color.g;
+		*(image->data + pos + 2) = color.b;
+		*(image->data + pos + 3) = color.a;
+    }
+    else if (image->channels == 3) {
+		*(image->data + pos) = color.r;
+		*(image->data + pos + 1) = color.g;
+		*(image->data + pos + 2) = color.b;
+    }
+    else if (image->channels == 2) {
+		*(image->data + pos) = color.r;
+		*(image->data + pos + 3) = color.a;
+    }
+    else if (image->channels == 1) {
+		*(image->data + pos) = color.r;
+    }
+
+}
+
+void zest_FillBitmap(zest_bitmap_t *image, zest_color color) {
+
+    zest_size pos = 0;
+
+    if (image->channels == 4) {
+        while (pos < image->size) {
+            *(image->data + pos) = color.r;
+            *(image->data + pos + 1) = color.g;
+            *(image->data + pos + 2) = color.b;
+            *(image->data + pos + 3) = color.a;
+            pos += image->channels;
+        }
+    }
+    else if (image->channels == 3) {
+        while (pos < image->size) {
+            *(image->data + pos) = color.r;
+            *(image->data + pos + 1) = color.g;
+            *(image->data + pos + 2) = color.b;
+            pos += image->channels;
+        }
+    }
+    else if (image->channels == 2) {
+        while (pos < image->size) {
+            *(image->data + pos) = color.r;
+            *(image->data + pos + 3) = color.a;
+            pos += image->channels;
+        }
+    }
+    else if (image->channels == 1) {
+        while (pos < image->size) {
+            *(image->data + pos) = color.r;
+            pos += image->channels;
+        }
+    }
 }
 
 void zest_ConvertBitmapToAlpha(zest_bitmap_t* image) {
@@ -7158,7 +7223,7 @@ float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t* spriteshe
             frame->index = texture->image_index;
             zest_vec_push(texture->image_bitmaps, zest_NewBitmap());
             zest_bitmap_t* image_bitmap = zest_GetBitmap(texture, texture->image_index);
-            zest_AllocateBitmap(image_bitmap, width, height, spritesheet->channels, 0);
+            zest_AllocateBitmap(image_bitmap, width, height, spritesheet->channels, zest_ColorSet1(0));
             zest_CopyBitmap(spritesheet, c * width, r * height, width, height, image_bitmap, 0, 0);
             frame->width = image_bitmap->width;
             frame->height = image_bitmap->height;
@@ -7716,7 +7781,7 @@ void zest__make_image_bank(zest_texture texture, zest_uint size) {
         image->texture = texture;
 
         zest_bitmap_t tmp_image = zest_NewBitmap();
-        zest_AllocateBitmap(&tmp_image, image->width, image->height, texture->color_channels, 0);
+        zest_AllocateBitmap(&tmp_image, image->width, image->height, texture->color_channels, zest_ColorSet1(0));
 
         if (image->width != size || image->height != size) {
             zest_bitmap_t* image_bitmap = &texture->image_bitmaps[image->index];
@@ -7827,7 +7892,7 @@ void zest__make_sprite_sheet(zest_texture texture) {
     zest_vec_clear(rects);
 
     zest_FreeBitmap(&texture->texture_bitmap);
-    zest_AllocateBitmap(&texture->texture_bitmap, size, size, texture->color_channels, 0);
+    zest_AllocateBitmap(&texture->texture_bitmap, size, size, texture->color_channels, zest_ColorSet1(0));
     texture->texture.width = size;
     texture->texture.height = size;
 
@@ -7936,7 +8001,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
         zest_vec_clear(rects);
 
         zest_bitmap_t tmp_image = zest_NewBitmap();
-        zest_AllocateBitmap(&tmp_image, size, size, texture->color_channels, 0);
+        zest_AllocateBitmap(&tmp_image, size, size, texture->color_channels, zest_ColorSet1(0));
         int count = 0;
 
         for (zest_foreach_i(current_rects)) {
@@ -9382,7 +9447,7 @@ zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size) {
     return grown;
 }
 
-//Start internal sprite layer functionality -----
+//Start general instance layer functionality -----
 void zest_DrawInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
     zest_DrawInstanceLayer(layer, command_buffer);
@@ -9408,7 +9473,7 @@ void zest_NextInstance(zest_layer layer) {
     }
     layer->memory_refs[ZEST_FIF].instance_ptr = instance_ptr;
 }
-// End internal sprite layer functionality -----
+// End general instance layer functionality -----
 
 //Start internal mesh layer functionality -----
 void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
@@ -9800,6 +9865,7 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_texture texture, zest_descri
     layer->current_instruction.draw_mode = zest_draw_mode_instance;
     layer->current_instruction.scissor = layer->scissor;
     layer->current_instruction.viewport = layer->viewport;
+    layer->current_instruction.push_constants = layer->push_constants;
     layer->last_draw_mode = zest_draw_mode_instance;
 }
 

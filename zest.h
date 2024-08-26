@@ -3666,7 +3666,7 @@ ZEST_API zest_bitmap_t zest_NewBitmap(void);
 //and the number of color channels
 ZEST_API zest_bitmap_t zest_CreateBitmapFromRawBuffer(const char *name, unsigned char *pixels, int size, int width, int height, int channels);
 //Allocate the memory for a bitmap based on the width, height and number of color channels. You can also specify the fill color
-ZEST_API void zest_AllocateBitmap(zest_bitmap_t *bitmap, int width, int height, int channels, zest_uint fill_color);
+ZEST_API void zest_AllocateBitmap(zest_bitmap_t *bitmap, int width, int height, int channels, zest_color fill_color);
 //Copy all of a source bitmap to a destination bitmap
 ZEST_API void zest_CopyWholeBitmap(zest_bitmap_t *src, zest_bitmap_t *dst);
 //Copy an area of a source bitmap to another bitmap
@@ -3683,6 +3683,10 @@ ZEST_API void zest_ConvertBitmapToTextureFormat(zest_bitmap_t *src, VkFormat for
 ZEST_API void zest_ConvertBitmap(zest_bitmap_t *src, zest_texture_format format, zest_byte alpha_level);
 //Convert a bitmap to BGRA format
 ZEST_API void zest_ConvertBitmapToBGRA(zest_bitmap_t *src, zest_byte alpha_level);
+//Fill a bitmap with a color
+ZEST_API void zest_FillBitmap(zest_bitmap_t *image, zest_color color);
+//plot a single pixel in the bitmap with a color
+ZEST_API void zest_PlotBitmap(zest_bitmap_t *image, int x, int y, zest_color color);
 //Convert a bitmap to RGBA format
 ZEST_API void zest_ConvertBitmapToRGBA(zest_bitmap_t *src, zest_byte alpha_level);
 //Convert a BGRA bitmap to RGBA format
