@@ -1260,16 +1260,20 @@ zest_size zest_GetNextPower(zest_size n) {
 float zest_Radians(float degrees) { return degrees * 0.01745329251994329576923690768489f; }
 float zest_Degrees(float radians) { return radians * 57.295779513082320876798154814105f; }
 
-zest_vec3 zest_LerpVec3(zest_vec3* captured, zest_vec3* present, float lerp) {
-    return zest_AddVec3(zest_ScaleVec3(*present, lerp), zest_ScaleVec3(*captured, (1.f - lerp)));
+zest_vec4 zest_LerpVec4(zest_vec4* from, zest_vec4* to, float lerp) {
+    return zest_AddVec4(zest_ScaleVec4(*to, lerp), zest_ScaleVec4(*from, (1.f - lerp)));
 }
 
-zest_vec2 zest_LerpVec2(zest_vec2* captured, zest_vec2* present, float lerp) {
-    return zest_AddVec2(zest_ScaleVec2(*present, lerp), zest_ScaleVec2(*captured, (1.f - lerp)));
+zest_vec3 zest_LerpVec3(zest_vec3* from, zest_vec3* to, float lerp) {
+    return zest_AddVec3(zest_ScaleVec3(*to, lerp), zest_ScaleVec3(*from, (1.f - lerp)));
 }
 
-float zest_Lerp(float captured, float present, float lerp) {
-    return present * lerp + captured * (1.f - lerp);
+zest_vec2 zest_LerpVec2(zest_vec2* from, zest_vec2* to, float lerp) {
+    return zest_AddVec2(zest_ScaleVec2(*to, lerp), zest_ScaleVec2(*from, (1.f - lerp)));
+}
+
+float zest_Lerp(float from, float to, float lerp) {
+    return to * lerp + from * (1.f - lerp);
 }
 
 //  --End Math

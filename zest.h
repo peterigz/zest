@@ -3528,12 +3528,14 @@ ZEST_API zest_size zest_GetNextPower(zest_size n);
 ZEST_API float zest_Radians(float degrees);
 //Convert radians into degrees
 ZEST_API float zest_Degrees(float radians);
-//Interpolate 2 vec3s
-ZEST_API zest_vec3 zest_LerpVec3(zest_vec3 *captured, zest_vec3 *present, float lerp);
-//Interpolate 2 vec2s
-ZEST_API zest_vec2 zest_LerpVec2(zest_vec2 *captured, zest_vec2 *present, float lerp);
-//Interpolate 2 floats
-ZEST_API float zest_Lerp(float captured, float present, float lerp);
+//Interpolate 2 vec4s and return the result
+ZEST_API zest_vec4 zest_LerpVec4(zest_vec4 *from, zest_vec4 *to, float lerp);
+//Interpolate 2 vec3s and return the result
+ZEST_API zest_vec3 zest_LerpVec3(zest_vec3 *from, zest_vec3 *to, float lerp);
+//Interpolate 2 vec2s and return the result
+ZEST_API zest_vec2 zest_LerpVec2(zest_vec2 *from, zest_vec2 *to, float lerp);
+//Interpolate 2 floats and return the result
+ZEST_API float zest_Lerp(float from, float to, float lerp);
 //Initialise a new 4x4 matrix
 ZEST_API zest_matrix4 zest_M4(float v);
 //Flip the signs on a vec3 and return the result
