@@ -6247,7 +6247,7 @@ zest_layer zest_CreateBuiltinFontLayer(const char* name) {
     zest_layer layer = zest_NewLayer();
     layer->name = name;
     layer->layer_type = zest_builtin_layer_fonts;
-    zest_InitialiseInstanceLayer(layer, sizeof(zest_sprite_instance_t), 1000);
+    zest__initialise_font_layer(layer, 1000);
     zest_map_insert(ZestRenderer->layers, name, layer);
     return layer;
 }
@@ -8801,6 +8801,56 @@ void zest__setup_font_texture(zest_font font) {
 
     font->pipeline = zest_Pipeline("pipeline_fonts");
     font->descriptor_set = zest_GetTextureDescriptorSet(font->texture, "Default");
+}
+
+void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_size) {
+    font_layer->current_color.r = 255;
+    font_layer->current_color.g = 255;
+    font_layer->current_color.b = 255;
+    font_layer->current_color.a = 255;
+    font_layer->intensity = 1;
+    font_layer->push_constants.model = zest_M4(1);
+    font_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
+    font_layer->push_constants.parameters2.x = 1.f;     //Shadow Vector
+    font_layer->push_constants.parameters2.y = 1.f;
+    font_layer->push_constants.parameters2.z = 0.2f;    //Shadow Smoothing
+    font_layer->push_constants.parameters2.w = 0.f;     //Shadow Clipping
+
+    //Font defaults.
+    font_layer->push_constants.parameters1.x = 25.f;    //Radius
+    font_layer->push_constants.parameters1.y = 0.25f;   //Bleed
+    font_layer->push_constants.parameters1.z = 5.f;     //AA factor
+    font_layer->push_constants.parameters1.w = 5.5f;    //Thickness
+
+    font_layer->layer_size = zest_Vec2Set1(1.f);
+    font_layer->instance_struct_size = sizeof(zest_sprite_instance_t);
+
+    zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
+    if (zest_GPUHasDeviceLocalHostVisible(sizeof(zest_sprite_instance_t) * instance_pool_size)) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for font layer" ZEST_NL);
+        ZEST__FLAG(font_layer->flags, zest_layer_flag_device_local_direct);
+        device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
+    }
+
+    zest_buffer_info_t staging_buffer_info = zest_CreateStagingBufferInfo();
+    for (ZEST_EACH_FIF_i) {
+        font_layer->memory_refs[i].device_instance_data = zest_CreateBuffer(sizeof(zest_sprite_instance_t) * instance_pool_size, &device_buffer_info, ZEST_NULL);
+        if (ZEST__NOT_FLAGGED(font_layer->flags, zest_layer_flag_device_local_direct)) {
+            font_layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(sizeof(zest_sprite_instance_t) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
+            font_layer->memory_refs[i].instance_ptr = font_layer->memory_refs[i].staging_instance_data->data;
+            font_layer->memory_refs[i].write_to_buffer = font_layer->memory_refs[i].staging_instance_data;
+        }
+        else {
+            font_layer->memory_refs[i].instance_ptr = font_layer->memory_refs[i].device_instance_data->data;
+            font_layer->memory_refs[i].write_to_buffer = font_layer->memory_refs[i].device_instance_data;
+        }
+        font_layer->memory_refs[i].instance_count = 0;
+        font_layer->memory_refs[i].instance_count = 0;
+    }
+
+    zest_SetLayerViewPort(font_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
+
+    zest_ResetInstanceLayerDrawing(font_layer);
 }
 //-- End Fonts
 

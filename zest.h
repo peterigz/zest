@@ -2881,6 +2881,7 @@ ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size ty
 // --Font layer internal functions
 ZEST_PRIVATE void zest__setup_font_texture(zest_font font);
 ZEST_PRIVATE zest_font zest__add_font(zest_font font);
+ZEST_PRIVATE void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_size);
 
 // --Mesh layer internal functions
 ZEST_PRIVATE void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
