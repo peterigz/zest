@@ -147,9 +147,9 @@ zest_vec3 FindNearestPointOnPlane(zest_vec3 point, zest_vec3 plane_normal, float
 
 zest_matrix4 RotationMatrix(zest_vec3 axis, float angle)
 {
-	float s = sin(angle);
-	float c = cos(angle);
-	float oc = 1.0 - c;
+	float s = sinf(angle);
+	float c = cosf(angle);
+	float oc = 1.f - c;
 	return {	oc * axis.x * axis.x + c         , oc * axis.x * axis.y - axis.z * s, oc * axis.z * axis.x + axis.y * s, 0.f,
 				oc * axis.x * axis.y + axis.z * s, oc * axis.y * axis.y + c         , oc * axis.y * axis.z - axis.x * s, 0.f,
 				oc * axis.z * axis.x - axis.y * s, oc * axis.y * axis.z + axis.x * s, oc * axis.z * axis.z + c         , 0.f, 
@@ -367,9 +367,7 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->uniform_buffer_3d = zest_CreateUniformBuffer("3d uniform", sizeof(zest_uniform_buffer_data_t));
 	app->descriptor_layout = zest_AddDescriptorLayout("mesh descriptor set", zest_CreateDescriptorSetLayout(1, 0, 0));
 	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
-	for (ZEST_EACH_FIF_i) {
-		zest_AddBuilderDescriptorWriteBuffer(&set_builder, zest_GetUniformBufferInfo("3d uniform", i), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-	}
+	zest_AddBuilderDescriptorWriteUniformBuffer(&set_builder, zest_GetUniformBuffer("3d uniform"), 0);
 	app->descriptor_set = zest_BuildDescriptorSet(&set_builder, app->descriptor_layout);
 
 	zest_pipeline_template_create_info_t custom_mesh_pipeline = zest_CopyTemplateFromPipeline("pipeline_mesh_instance");
@@ -410,9 +408,9 @@ void InitImGuiApp(ImGuiApp* app) {
 	float arrow_length = .5f;
 	float point_length = .1f;
 	float point_offset = .35f;
-	float arrow_offset = arrow_length * .5;
-	float plane_size = 0.25;
-	float plane_radius = 0.025;
+	float arrow_offset = arrow_length * .5f;
+	float plane_size = 0.25f;
+	float plane_radius = 0.025f;
 
 	//Move Widget Setup
 	zest_mesh_t x_arrow = zest_CreateCylinderMesh(8, arrow_radius, arrow_length, zest_ColorSet(255, 0, 0, 255), 0);
@@ -692,9 +690,9 @@ void HandleWidget(ImGuiApp* app, zest_widget* widget) {
 }
 
 void Draw3dWidgets(ImGuiApp* app) {
-	zest_SetInstanceMeshDrawing(app->scale_widget_layer, 0, app->mesh_instance_pipeline);
+	zest_SetInstanceDrawing(app->scale_widget_layer, 0, 0, app->mesh_instance_pipeline);
 	app->scale_widget_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
-	zest_SetInstanceMeshDrawing(app->move_widget_layer, 0, app->mesh_instance_pipeline);
+	zest_SetInstanceDrawing(app->move_widget_layer, 0, 0, app->mesh_instance_pipeline);
 	app->move_widget_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
 	zest_SetLayerColor(app->move_widget_layer, 255, 255, 255, 255);
 
@@ -899,9 +897,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui::DragFloat("Radius", &app->radius, 0.001f); if (ImGui::IsItemEdited) CreatePathPoints(app);
 		*/
 
-		ImGui::DragFloat("Pitch", &app->angles.x, 0.1f); if (ImGui::IsItemEdited) CreatePathPoints(app);
-		ImGui::DragFloat("Yaw", &app->angles.y, 0.1f); if (ImGui::IsItemEdited) CreatePathPoints(app);
-		ImGui::DragFloat("Roll", &app->angles.z, 0.1f); if (ImGui::IsItemEdited) CreatePathPoints(app);
+		ImGui::DragFloat("Pitch", &app->angles.x, 0.1f); if (ImGui::IsItemEdited()) CreatePathPoints(app);
+		ImGui::DragFloat("Yaw", &app->angles.y, 0.1f); if (ImGui::IsItemEdited()) CreatePathPoints(app);
+		ImGui::DragFloat("Roll", &app->angles.z, 0.1f); if (ImGui::IsItemEdited()) CreatePathPoints(app);
 
 		float pitch = zest_Radians(app->angles.x);
 		float yaw = zest_Radians(app->angles.y);
@@ -1005,7 +1003,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_SetMeshDrawing(app->mesh_layer, app->floor_texture, 0, app->mesh_pipeline);
 	zest_DrawTexturedPlane(app->mesh_layer, app->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 
-	zest_SetBillboardDrawing(app->billboard_layer, app->sprite_texture, 0, app->billboard_pipeline);
+	zest_SetInstanceDrawing(app->billboard_layer, app->sprite_texture, 0, app->billboard_pipeline);
 
 	zest_Set3DLineDrawing(app->line_layer, 0, app->line_pipeline);
 	/*

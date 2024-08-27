@@ -71,8 +71,7 @@ The callback requires the following parameters:
 tfx_vec4_t GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
 	zest_image image = (static_cast<zest_image>(ptr) + offset);
 	image_data->texture_array_index = image->layer;
-	image_data->uv_xy = image->uv_xy;
-	image_data->uv_zw = image->uv_zw;
+	image_data->uv_packed = image->uv_packed;
 	return tfx_vec4_t(image->uv.x, image->uv.y, image->uv.z, image->uv.w);
 }
 
@@ -192,12 +191,10 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 
 		//Bind the compute shader pipeline
 		zest_BindComputePipeline(compute, example->compute_pipeline_3d);
-		//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
-		//from there we copy to the GPU.
-		if (example->using_staging_buffers) {
-			zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], GetOffsetsSizeInBytes(&example->animation_manager_3d), 1);
-			zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], GetAnimationInstancesSizeInBytes(&example->animation_manager_3d), 1);
-		}
+
+		//Copy the animation instance buffers to the staging buffers.
+		zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], GetOffsetsSizeInBytes(&example->animation_manager_3d), 1);
+		zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], GetAnimationInstancesSizeInBytes(&example->animation_manager_3d), 1);
 
 		//Update the push constants with some metrics. These are referenced in the compute shader.
 		//The total number of animation instances that need to be drawn
@@ -289,23 +286,14 @@ void InitExample(ComputeExample *example) {
 	3)	Create the 2 buffers that need writing to from the CPU, this is the offset's buffer containing the index offset for each instance into the sprite data and
 		the actually instances data containing position, scale and so on.
 	*/
-	//Check if the GPU allows writing directly to buffers that are device local. If so just create the device local buffers with the appropriate flags
-	//to be able to write directly
-	if (zest_GPUHasDeviceLocalHostVisible(sizeof(tfxU32) * MAX_INSTANCES)) {
-		example->offsets_buffer = zest_CreateCPUVisibleStorageDescriptorBuffer(sizeof(tfxU32) * MAX_INSTANCES, true);
-		example->animation_instances_buffer = zest_CreateCPUVisibleStorageDescriptorBuffer(sizeof(tfx_animation_instance_t) * MAX_INSTANCES, true);
-		example->using_staging_buffers = false;
+	//If there's no direct to GPU writing then create staging buffers as well to copy to and then upload to the GPU buffers.
+	example->offsets_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfxU32) * MAX_INSTANCES, true);
+	example->animation_instances_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfx_animation_instance_t) * MAX_INSTANCES, true);
+	for (ZEST_EACH_FIF_i) {
+		example->offsets_staging_buffer[i] = zest_CreateStagingBuffer(sizeof(tfxU32) * MAX_INSTANCES, 0);
+		example->animation_instances_staging_buffer[i] = zest_CreateStagingBuffer(sizeof(tfx_animation_instance_t) * MAX_INSTANCES, 0);
 	}
-	else {
-		//If there's no direct to GPU writing then create staging buffers as well to copy to and then upload to the GPU buffers.
-		example->offsets_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfxU32) * MAX_INSTANCES, true);
-		example->animation_instances_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfx_animation_instance_t) * MAX_INSTANCES, true);
-		for (ZEST_EACH_FIF_i) {
-			example->offsets_staging_buffer[i] = zest_CreateStagingBuffer(sizeof(tfxU32) * MAX_INSTANCES, 0);
-			example->animation_instances_staging_buffer[i] = zest_CreateStagingBuffer(sizeof(tfx_animation_instance_t) * MAX_INSTANCES, 0);
-		}
-		example->using_staging_buffers = true;
-	}
+
 	/*
 	5)	Image data buffer contains data about all of the shapes being used in the library. Use GetComputeShapeCount and GetComputeShapeSizeInBytes to get the metrics you need
 		to create the buffer.
@@ -537,16 +525,9 @@ void Update(zest_microsecs elapsed, void *data) {
 	zest_SetMeshDrawing(example->mesh_layer, example->floor_texture, 0, example->mesh_pipeline);
 	zest_DrawTexturedPlane(example->mesh_layer, example->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 
-	//Copy the offsets and animation instances either to the GPU buffers directly if that's an optional or the staging buffers. The staging buffers
-	//will then be uploaded in the render pipeline if they're used.
-    if (example->using_staging_buffers) {
-        memcpy(example->offsets_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.offsets.data, GetOffsetsSizeInBytes(&example->animation_manager_3d));
-        memcpy(example->animation_instances_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
-    }
-    else {
-        memcpy(example->offsets_buffer->buffer[ZEST_FIF]->data, example->animation_manager_3d.offsets.data, GetOffsetsSizeInBytes(&example->animation_manager_3d));
-        memcpy(example->animation_instances_buffer->buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
-    }
+	//Copy the offsets and animation instances either to the staging buffers. The staging buffers will then be uploaded in the render pipeline.
+	memcpy(example->offsets_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.offsets.data, GetOffsetsSizeInBytes(&example->animation_manager_3d));
+	memcpy(example->animation_instances_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
 	zest_TimerSet(example->timer);
 }
 

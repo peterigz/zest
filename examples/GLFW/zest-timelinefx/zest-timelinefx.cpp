@@ -180,7 +180,7 @@ void BuildUI(TimelineFXExample *game) {
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void RenderParticles3d(tfx_particle_manager_t& pm, float tween, TimelineFXExample* game) {
 	//Let our renderer know that we want to draw to the billboard layer.
-	zest_SetBillboardDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
+	zest_SetInstanceDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
 	//Cycle through each layer
 	//There is also a macro :tfxEachLayer which you could use like so:
 	//for(tfxEachLayer) {
@@ -215,7 +215,7 @@ void RenderParticles3d(tfx_particle_manager_t& pm, float tween, TimelineFXExampl
 //A simple example to render the particles. This is for when the particle manager groups all it's sprites by effect so that you can draw the effects in different orders if you need
 void RenderParticles3dGroupedByEffect(tfx_particle_manager_t& pm, float tween, TimelineFXExample* game) {
 	//Let our renderer know that we want to draw to the billboard layer.
-	zest_SetBillboardDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
+	zest_SetInstanceDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
 	//Cycle through each layer
 	//There is also a macro :tfxEachLayer which you could use like so:
 	//for(tfxEachLayer) {

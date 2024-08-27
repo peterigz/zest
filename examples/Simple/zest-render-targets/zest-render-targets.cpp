@@ -179,7 +179,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	float delta = (float)elapsed / ZEST_MICROSECS_SECOND;
 
 	//Set the sprite drawing to use the texture with our images
-	zest_SetSpriteDrawing(example->base_layer, example->texture, 0, zest_Pipeline("pipeline_2d_sprites"));
+	zest_SetInstanceDrawing(example->base_layer, example->texture, 0, zest_Pipeline("pipeline_2d_sprites"));
 	//Set the layer intensity
 	zest_SetLayerIntensity(example->base_layer, 1.f);
 	//Draw the statue sprite to cover the screen
@@ -208,7 +208,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Set it's color and blend mix
 	zest_SetLayerColor(example->top_layer, 255, 255, 255, (zest_byte)(blend * 255));
 	//Set the sprite drawing for the top layer to use the final blur texture with the standard pipeline for sprites
-	zest_SetSpriteDrawing(example->top_layer, target_texture, 0, zest_Pipeline("pipeline_2d_sprites"));
+	zest_SetInstanceDrawing(example->top_layer, target_texture, 0, zest_Pipeline("pipeline_2d_sprites"));
 	//Draw the render target as a sprite to the top layer.
 	zest_DrawSprite(example->top_layer, zest_GetRenderTargetImage(example->final_blur), zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f);
 	//Set the font to use for the font layer

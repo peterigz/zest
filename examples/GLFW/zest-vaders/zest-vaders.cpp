@@ -996,7 +996,7 @@ void RenderParticles3d(tfx_particle_manager_t &pm, float tween, VadersGame *game
 	//Renderer specific, get the layer that we will draw on (there's only one layer in this example)
 	tfxWideFloat lerp = tfxWideSetSingle(tween);
 	//Set the billboard drawing to use the particle texture
-	zest_SetBillboardDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
+	zest_SetInstanceDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
 	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
 		tfx_sprite_soa_t &sprites = pm.sprites[pm.current_sprite_buffer][layer];
 		for (int i = 0; i != pm.sprite_buffer[pm.current_sprite_buffer][layer].current_size; ++i) {
@@ -1026,7 +1026,7 @@ void RenderEffectParticles(tfx_particle_manager_t &pm, float tween, VadersGame *
 	//Renderer specific, get the layer that we will draw on (there's only one layer in this example)
 	tfxWideFloat lerp = tfxWideSetSingle(tween);
 	//Set the billboard drawing to use the particle texture
-	zest_SetBillboardDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
+	zest_SetInstanceDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
 	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
 		tfx_sprite_soa_t* sprites = nullptr;
 		tfx_effect_sprites_t* effect_sprites = nullptr;
@@ -1170,7 +1170,7 @@ void VadersGame::Update(float ellapsed) {
 	else if (state == GameState_game) {
 		//If the game is in the play state draw all the game billboards
 		//Set the billboard drawing to the sprite texture
-		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
+		zest_SetInstanceDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		//Draw the player and vaders
 		DrawPlayer(this);
 		DrawVaders(this, (float)timer->lerp);
@@ -1178,7 +1178,7 @@ void VadersGame::Update(float ellapsed) {
 		RenderEffectParticles(game_pm, (float)timer->lerp, this);
 		//Set the billboard drawing back to the sprite texture (after rendering the particles with the particle texture)
 		//We want to draw the vader bullets over the top of the particles so that they're easier to see
-		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
+		zest_SetInstanceDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		DrawVaderBullets(this, (float)timer->lerp);
 		tfx_str16_t score_text;
 		tfx_str32_t high_score_text = "High Score: ";
@@ -1193,10 +1193,10 @@ void VadersGame::Update(float ellapsed) {
 	}
 	else if (state == GameState_game_over) {
 		//Game over but keep drawing vaders until the player presses the mouse again to go back to the title screen
-		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
+		zest_SetInstanceDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		DrawVaders(this, (float)timer->lerp);
 		RenderEffectParticles(game_pm, (float)timer->lerp, this);
-		zest_SetBillboardDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
+		zest_SetInstanceDrawing(billboard_layer, sprite_texture, billboard_descriptor, billboard_pipeline);
 		DrawVaderBullets(this, (float)timer->lerp);
 		zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 60.f, 0.f);
 	}

@@ -83,7 +83,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//You must call this command before doing any sprite draw to set the current texture, descriptor and pipeline to draw with.
 	//Call this function anytime that you need to draw with a different texture. Note that a single texture and contain many images
 	//you can draw a lot with a single draw call
-	zest_SetSpriteDrawing(example->sprite_layer, example->texture, example->sprite_descriptor, example->sprite_pipeline);
+	zest_SetInstanceDrawing(example->sprite_layer, example->texture, example->sprite_descriptor, example->sprite_pipeline);
 	//Set the alpha of the sprite layer to 0. This means that the sprites will be additive. 1 = alpha blending and anything imbetween
 	//is a mix between the two.
 	example->sprite_layer->current_color.a = 0;
@@ -101,7 +101,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawTexturedSprite(example->sprite_layer, example->image, 600.f, 100.f, 500.f, 500.f, 1.f, 1.f, 0.f, 0.f);
 
 	//Now lets draw a billboard. Similar to the sprite, we must call this command before any billboard drawing.
-	zest_SetBillboardDrawing(example->billboard_layer, example->texture, example->billboard_descriptor, example->billboard_pipeline);
+	zest_SetInstanceDrawing(example->billboard_layer, example->texture, example->billboard_descriptor, example->billboard_pipeline);
 	//Get a pointer to the uniform buffer data and cast it to the struct that we're storing there
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(example->uniform_buffer_3d);
 	//Use the projection and view matrices in the buffer to project the mouse coordinates into 3d space.

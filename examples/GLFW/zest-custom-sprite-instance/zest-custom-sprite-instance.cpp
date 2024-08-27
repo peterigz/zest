@@ -2,16 +2,11 @@
 #include "imgui_internal.h"
 #include <string>
 
-/*
-
-
-*/
-
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&app->imgui_layer_info);
 	//Implement a dark style
-	DarkStyle2();
+	zest_imgui_DarkStyle();
 
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO &io = ImGui::GetIO();
@@ -40,15 +35,27 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->color_ramps_texture->sampler_info.magFilter = VK_FILTER_NEAREST;
 	app->color_ramps_texture->sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 	app->color_ramps_bitmap = zest_NewBitmap();
-	zest_AllocateBitmap(&app->color_ramps_bitmap, 256, 256, 4, 0);
+	zest_vec4 start_color1 = {255.f, 255.f, 0.f, 255.f};
+	zest_vec4 end_color1 = {0.f, 255.f, 255.f, 255.f};
+	zest_vec4 start_color2 = {0.f, 255.f, 0.f, 255.f};
+	zest_vec4 end_color2 = {255.f, 0.f, 255.f, 255.f};
+	zest_AllocateBitmap(&app->color_ramps_bitmap, 256, 256, 4, { 0 });
+	for (int x = 0; x != 256; ++x) {
+		float lerp = (float)x / 255.f;
+		zest_vec4 color1 = zest_LerpVec4(&start_color1, &end_color1, lerp);
+		zest_vec4 color2 = zest_LerpVec4(&start_color2, &end_color2, lerp);
+		zest_PlotBitmap(&app->color_ramps_bitmap, x, 0, { (zest_byte)color1.x, (zest_byte)color1.y, (zest_byte)color1.z, (zest_byte)color1.w});
+		zest_PlotBitmap(&app->color_ramps_bitmap, x, 1, { (zest_byte)color2.x, (zest_byte)color2.y, (zest_byte)color2.z, (zest_byte)color2.w});
+	}
 	app->color_ramps_image = zest_AddTextureImageBitmap(app->color_ramps_texture, &app->color_ramps_bitmap);
 	zest_ProcessTextureImages(app->color_ramps_texture);
 
+	app->lerp_value = 0.f;
 	app->mix_value = 0.f;
 
 	//Create and compile the shaders for our custom sprite pipeline
-	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_sprite_frag.spv", true);
-	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_sprite_vert.spv", true);
+	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_sprite_frag.spv", true, 1);
+	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_sprite_vert.spv", true, 1);
 
 	//We need to make a custom descriptor set and layout that can sample from 2 different textures (the image and the color ramps)
     app->custom_descriptor_set_layout = zest_AddDescriptorLayout("Standard 1 uniform 2 samplers", zest_CreateDescriptorSetLayout(1, 2, 0));
@@ -68,10 +75,10 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Add each input description to bind the layout in the shader to the offset in the custom sprite instance struct.
 	zest_AddVertexInputDescription(&app->custom_sprite_vertice_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_custom_sprite_instance_t, position_rotation)));	// Location 0: Postion, rotation and stretch
 	zest_AddVertexInputDescription(&app->custom_sprite_vertice_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_custom_sprite_instance_t, size_handle)));		// Location 1: Size and handle of the sprite
-	zest_AddVertexInputDescription(&app->custom_sprite_vertice_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R16G16B16A16_UNORM, offsetof(zest_custom_sprite_instance_t, uv)));					// Location 2: Instance Position and rotation
+	zest_AddVertexInputDescription(&app->custom_sprite_vertice_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_custom_sprite_instance_t, uv)));					// Location 2: Instance Position and rotation
 	zest_AddVertexInputDescription(&app->custom_sprite_vertice_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, alignment)));				// Location 3: Alignment
 	zest_AddVertexInputDescription(&app->custom_sprite_vertice_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(zest_custom_sprite_instance_t, intensity)));				// Location 4: 2 intensities for each color
-	zest_AddVertexInputDescription(&app->custom_sprite_vertice_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R16G16_SSCALED, offsetof(zest_custom_sprite_instance_t, lerp_values)));			// Location 5: Interpolation values for mixing and sampling the colors
+	zest_AddVertexInputDescription(&app->custom_sprite_vertice_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, lerp_values)));				// Location 5: Interpolation values for mixing and sampling the colors
 	zest_AddVertexInputDescription(&app->custom_sprite_vertice_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(zest_custom_sprite_instance_t, texture_indexes))); 				// Location 6: texture indexes to sample the correct texture and 2 color rampls
 
 	instance_create_info.attributeDescriptions = app->custom_sprite_vertice_attributes;
@@ -91,6 +98,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->custom_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
 	//Finally build the pipeline ready for use
 	zest_BuildPipeline(app->custom_pipeline);
+	//------------------------------------------
+
+	app->custom_draw_routine = zest_CreateInstanceDrawRoutine("custom sprites", sizeof(zest_custom_sprite_instance_t));
 
 	//Modify the existing default queue
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
@@ -98,7 +108,7 @@ void InitImGuiApp(ImGuiApp *app) {
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			zest_ContextSetClsColor(0.2f, 0.2f, 0.2f, 1);
-			app->custom_layer = zest_NewBuiltinLayerSetup("Custom Sprites", zest_builtin_layer_sprites);
+			app->custom_layer = zest_AddInstanceDrawRoutine(app->custom_draw_routine);
 			//Create a Dear ImGui layer
 			zest_imgui_CreateLayer(&app->imgui_layer_info);
 		}
@@ -106,6 +116,24 @@ void InitImGuiApp(ImGuiApp *app) {
 		zest_FinishQueueSetup();
 	}
 
+	app->layer_data = {};
+	zest_SetLayerUserData(app->custom_layer, &app->layer_data);
+
+}
+
+void zest_DrawCustomSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_vec2 lerp_values) {
+	zest_custom_sprite_instance_t *sprite = zest_GetLayerInstance(zest_custom_sprite_instance_t, layer);
+
+	sprite->size_handle = zest_Pack16bit4SScaled(sx, sy, hx, hy, 4096.f, 128.f);
+	sprite->position_rotation = zest_Vec4Set(x, y, stretch, r);
+	sprite->uv = image->uv_packed;
+	sprite->alignment = alignment;
+	sprite->lerp_values = zest_Pack16bit2SNorm(lerp_values.x, lerp_values.y);
+	sprite->texture_indexes = (image->layer << 24) | (0 << 16) | (1 << 8) | 0;
+	sprite->intensity = zest_Pack16bit2SScaled(layer->intensity, zest_GetLayerUserData(extra_layer_data, layer)->intensity2, 128.f);
+	layer->current_instruction.total_instances++;
+
+	zest_NextInstance(layer);
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
@@ -121,12 +149,19 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::NewFrame();
 	ImGui::Begin("Test Window");
 	ImGui::SliderFloat("Mix", &app->mix_value, 0.f, 1.f);
+	ImGui::SliderFloat("Interpolation", &app->lerp_value, 0.f, 1.f);
+	ImGui::SliderFloat("Intensity 1", &app->custom_layer->intensity, 0.f, 10.f);
+	ImGui::SliderFloat("Intensity 2", &zest_GetLayerUserData(extra_layer_data, app->custom_layer)->intensity2, 0.f, 10.f);
 	ImGui::End();
 	ImGui::Render();
 	//Let the layer know that it needs to reupload the imgui mesh data to the GPU
 	zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
+
+	//Set the pipeline and descriptor set to use in the layer for our custom sprite drawing
+	zest_SetInstanceDrawing(app->custom_layer, 0, &app->custom_descriptor_set, app->custom_pipeline);
+	zest_DrawCustomSprite(app->custom_layer, app->test_image, 800.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f, {app->lerp_value, app->mix_value});
 }
 
 #if defined(_WIN32)

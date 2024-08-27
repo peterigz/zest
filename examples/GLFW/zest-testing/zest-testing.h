@@ -88,7 +88,7 @@ float hash(zest_ivec2 p) {
 	// 1D hash by Hugo Elias
 	n = (n << 13) ^ n;
 	n = n * (n * n * 15731 + 789221) + 1376312589;
-	return -1.0 + 2.0 * float(n & 0x0fffffff) / float(0x0fffffff);
+	return -1.f + 2.f * float(n & 0x0fffffff) / float(0x0fffffff);
 }
 
 uint32_t SeedGen(zest_ivec2 p)
@@ -336,7 +336,7 @@ float randomFloat(float min, float max) {
 	std::random_device rd;
 	std::mt19937 gen(rd());
 	std::uniform_real_distribution<> dis(min, max);
-	return dis(gen);
+	return (float)dis(gen);
 }
 
 zest_vec3 randomVectorInCone(const zest_vec3& coneDirection, float coneAngleDegrees) {

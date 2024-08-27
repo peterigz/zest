@@ -155,7 +155,7 @@ void warp_reduce(uint tid) {
 
 //This function basically does what the vertex shader does so we can find out where the vertices are for each sprite
 void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uint sprite_data_index) {
-	uint property_index = sprite_data[sprite_data_index].property_indexes & 0x0000FFFF;
+	uint property_index = sprite_data[sprite_data_index].property_indexes & 0x00007FFF;
 	vec2 alignment = unpackSnorm2x16(sprite_data[sprite_data_index].alignment);
 	vec2 alignment_normal = normalize(vec2(alignment.x, alignment.y + 0.000001)) * sprite_data[sprite_data_index].stretch;
 	vec2 handle = emitter_properties[property_index].handle;
@@ -210,9 +210,10 @@ void main()
 	//wait here until all threads in the group have set the shared values
 	barrier();
 
-	// Don't try to write beyond position count
-    if (global_index >= pc.parameters.z) 
-		return;	
+	// Don't try to write beyond position count. Note that we don't try and exit early as it can 
+	// cause a timeout when the shader hits the barrier. I think it depends on the platform, Mac had issues with this
+	// for example.
+    global_index = min(global_index, int(pc.parameters.z - 1));
 
 	uint sprite_index_offset = 0;
 

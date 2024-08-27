@@ -46,6 +46,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 {
 	zest_create_info_t create_info = zest_CreateInfo();
+	create_info.log_path = "./";
 	zest_example example;
 
 	zest_Initialise(&create_info);

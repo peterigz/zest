@@ -2,16 +2,11 @@
 #include "imgui_internal.h"
 #include <string>
 
-/*
-
-
-*/
-
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&app->imgui_layer_info);
 	//Implement a dark style
-	DarkStyle2();
+	zest_imgui_DarkStyle();
 
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO &io = ImGui::GetIO();
@@ -35,11 +30,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
-	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_frag.spv");
-	FormatShaderCode(&app->custom_frag_shader->shader_code);
-
-	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_vert.spv");
-	FormatShaderCode(&app->custom_vert_shader->shader_code);
+	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_frag.spv", true, true);
+	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_vert.spv", true, true);
 
 	zest_pipeline_template_create_info_t custom_pipeline_template = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
 	app->custom_pipeline = zest_AddPipeline("pipeline_custom_shader");
@@ -215,7 +207,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 
-	zest_SetSpriteDrawing(app->custom_layer, app->test_texture, 0, app->custom_pipeline);
+	zest_SetInstanceDrawing(app->custom_layer, app->test_texture, 0, app->custom_pipeline);
 	app->custom_layer->push_constants.parameters1.x = app->mix_value;
 	zest_SetLayerIntensity(app->custom_layer, 3.f);
 	zest_SetLayerColor(app->custom_layer, 255, 128, 64, 0);
@@ -224,8 +216,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-	int main(void) {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 		//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate

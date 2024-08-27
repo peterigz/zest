@@ -77,7 +77,6 @@ struct ComputeExample {
 	tfx_sprite_data_settings_t anim_test;
 	zest_millisecs record_time;
 	bool effect_is_3d;
-	bool using_staging_buffers;
 	zest_vec4 planes[6];
 
 	zest_microsecs trigger_effect;

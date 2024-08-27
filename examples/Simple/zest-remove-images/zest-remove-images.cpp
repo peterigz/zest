@@ -38,7 +38,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Update the builtin 2d uniform buffer
 	zest_Update2dUniformBuffer();
 	//Start the sprite drawing
-	zest_SetSpriteDrawing(ZestApp->default_layer, app->texture, 0, app->sprite_pipeline);
+	zest_SetInstanceDrawing(ZestApp->default_layer, app->texture, 0, app->sprite_pipeline);
 	//Draw the first sprite, this one won't be deleted
 	zest_DrawSprite(ZestApp->default_layer, app->image2, 200.f, 200.f, 0.f, (float)app->image2->width, (float)app->image2->height, 0.5f, 0.5f, 0, 0.f);
 	if (app->image1 && zest_Microsecs() - app->timer->start_time > app->period) {

@@ -41,7 +41,7 @@ struct SpriteData {				//64 bytes
 	vec3 rotations;				
 	float stretch;
 	vec2 scale;
-	uint property_indexes;		//Index to Emitter Properties in 0x0000FFFF, image frame in 0x00FF0000, billboard option in 0xFF000000
+	uint property_indexes;		//Index to Emitter Properties in 0x00007FFF, image frame in 0x00FF0000, billboard option in 0xFF000000
 	uint captured_index;
 	uint alignment;		
 	uint color;		
@@ -126,22 +126,6 @@ mat3 RotationMatrix(vec3 axis, float angle)
 shared vec3 local_min[group_size];
 shared vec3 local_max[group_size];
 
-//Packing functions to pack a vec3 into an snorm 10bit uint
-//Replit came in very useful for these functions (for the packing function, and the sign preserving right shift)
-//Unfortunately glsl/gpus don't have a way to preserve the sign when right shifting hence the extra code required
-//inside the float conversion
-//Note: profiling required here to test if saving the space is actually worth it
-vec3 UnPack10bit(in uint packed) {
-	vec3 result;
-	int x = int(packed << 2);
-	int y = int(packed << 12);
-	int z = int(packed << 22);
-	result.x = float(sign(x) * floor(abs(x) * pow_2_22)) * one_div_511;
-	result.y = float(sign(y) * floor(abs(y) * pow_2_22)) * one_div_511;
-	result.z = float(sign(z) * floor(abs(z) * pow_2_22)) * one_div_511;
-	return result;
-}
-
 //Once we reduce down to the final 32 elements in the group, we can perform the final reduction
 //without the need for barriers because 1 wave is 32 wide and therefore synchronous across all threads
 void warp_reduce(uint tid) {
@@ -162,7 +146,7 @@ void warp_reduce(uint tid) {
 //This function basically does what the vertex shader does so we can find out where the vertices are for each sprite
 void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uint sprite_data_index) {
 	uint current_frame = (sprite_data[sprite_data_index].property_indexes & 0x00FF0000) >> 16;
-	uint property_index = sprite_data[sprite_data_index].property_indexes & 0x0000FFFF;
+	uint property_index = sprite_data[sprite_data_index].property_indexes & 0x00007FFF;
 	uint billboard_option = (sprite_data[sprite_data_index].property_indexes & 0xFF000000) >> 24;
 
 	Sprite s;
@@ -199,10 +183,10 @@ void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uin
 		{ scale.x * (1 - s.handle.x), -scale.y * (1 - s.handle.y), 0},
 	};
 
-	vec3 alignment = UnPack10bit(s.alignment);
+	vec3 alignment = unpackSnorm4x8(s.alignment).xyz;
 	//vec3 alignment = vec3(0, 0, 1);
-	vec3 alignment_normal = normalize(alignment.xyz);
-	vec3 alignment_up_cross = normalize(cross(alignment.xyz, up));
+	vec3 alignment_normal = normalize(alignment);
+	vec3 alignment_up_cross = normalize(cross(alignment, up));
 
 	float apply_align_type = 1 - align_type;
 
@@ -265,9 +249,10 @@ void main()
 	//wait here until all threads in the group have set the shared values
 	barrier();
 
-	// Don't try to write beyond position count
-    if (global_index >= pc.parameters.z) 
-		return;	
+	// Don't try to write beyond position count. Note that we don't try and exit early as it can 
+	// cause a timeout when the shader hits the barrier. I think it depends on the platform, Mac had issues with this
+	// for example.
+    global_index = min(global_index, int(pc.parameters.z - 1));
 
 	//Calculate the current sprite index that we should read from
 	//We are loading every second group and doing the first comparison on the first load, therefore the number of groups is half what it would normally be.
@@ -284,12 +269,13 @@ void main()
 	//explained above.
 	//Calculate the next_index to compare min/max values with but make sure it doesn't go beyond the sprites in the frame
 	uint next_sprite_index = min(sprite_data_index + gl_WorkGroupSize.x, (uint(pc.parameters.z) + instances[0].offset_into_sprite_data) - 1);
+    
 	calculate_vertex_position(min_vertex, max_vertex, sprite_data_index);
 	calculate_vertex_position(min_vertex, max_vertex, next_sprite_index);
 
 	local_min[local_index] = min_vertex;
 	local_max[local_index] = max_vertex;
-
+    
 	//Wait here until all threads (0 - 128) have completed the above work
 	barrier();
 
