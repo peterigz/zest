@@ -3914,6 +3914,9 @@ ZEST_API void zest_EndInstanceInstructions(zest_layer instance_layer);
 ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
 //Send all the draw commands for an instance layer to the GPU. This is generally called from the draw routine callback function: zest_DrawInstanceLayerCallback
 ZEST_API void zest_DrawInstanceLayer(zest_layer instance_layer, VkCommandBuffer command_buffer);
+//Get the pointer to the current instance in the layer if it's an instanced based layer (meaning you're drawing instances of sprites, billboards meshes etc.)
+//This will return a void* so you can cast it to whatever struct you're using for the instance data
+#define zest_GetLayerInstance(type, layer) (type*)layer->memory_refs[ZEST_FIF].instance_ptr
 //Move the pointer in memory to the next instance to write to.
 ZEST_API void zest_NextInstance(zest_layer layer);
 //Allocate a new zest_layer and return it's handle. This is mainly used internally but will leave it in the API for now
