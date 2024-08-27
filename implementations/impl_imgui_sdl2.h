@@ -22,3 +22,4 @@ bool zest_imgui_DrawButton(zest_image image, const char* user_texture_id, float 
 void zest_imgui_Initialise(zest_imgui_layer_info *imgui_layer_info);
 void zest_imgui_RebuildFontTexture(zest_imgui_layer_info *imgui_layer_info, zest_uint width, zest_uint height, unsigned char* pixels);
 void zest_imgui_CreateLayer(zest_imgui_layer_info *imgui_layer_info);
+void zest_imgui_DarkStyle();
