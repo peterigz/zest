@@ -4158,7 +4158,6 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
 		zest_shader frag_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.fragShaderFile.str, shaderc_fragment_shader);
 		ZEST_ASSERT(frag_shader);        //Failed to load the shader file, make sure it exists at the location
 		frag_shader_module = zest__create_shader_module(frag_shader->spv);
-		zest_vec_free(frag_shader);
 		pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
     }
 
@@ -4361,7 +4360,6 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
     const char *spv_binary = shaderc_result_get_bytes(result);
     zest_vec_resize(shader->spv, spv_size);
     memcpy(shader->spv, spv_binary, spv_size);
-    zest_SetText(&shader->shader_code, shader_code);
     zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compiled shader %s and added to renderer shaders." ZEST_NL, name);
     shaderc_result_release(result);
@@ -9914,9 +9912,12 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_texture texture, zest_descri
     if (descriptor_set) {
         layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
     }
-    else {
-        ZEST_ASSERT(texture);   //You must specifiy either a texture or a descriptor set or the pipeline won't have anything to bind to.
+    else if(texture) {
         layer->current_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+    }
+    else {
+        ZEST_ASSERT(pipeline->descriptor_set[ZEST_FIF]);   //You must specifiy either a texture or a descriptor set or the pipeline must have it's own descriptor set
+        layer->current_instruction.descriptor_set = pipeline->descriptor_set[ZEST_FIF];
     }
     layer->current_instruction.draw_mode = zest_draw_mode_instance;
     layer->current_instruction.scissor = layer->scissor;
@@ -10457,7 +10458,7 @@ void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t* src_mesh) {
 }
 
 void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]) {
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh_instance);        //Call zest_StartSpriteDrawing before calling this function
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
 
     zest_mesh_instance_t* instance = (zest_mesh_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
