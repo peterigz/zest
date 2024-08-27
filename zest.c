@@ -6493,9 +6493,7 @@ zest_layer zest_AddInstanceDrawRoutine(zest_draw_routine draw_routine) {
 }
 
 void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine) {
-    ZEST_ASSERT(draw_routine->draw_data);   //the draw routine must have valide draw_data set.
     zest_vec_push(draw_commands->draw_routines, draw_routine);
-    //draw_routine.command_queue = command_queue_index;
     draw_routine->draw_commands = draw_commands;
 }
 
@@ -9540,6 +9538,10 @@ void zest_SetLayerDirty(zest_layer layer) {
     for (ZEST_EACH_FIF_i) {
         layer->dirty[i] = 1;
     }
+}
+
+void zest_SetLayerUserData(zest_layer layer, void *data) {
+    layer->user_data = data;
 }
 //-- End Draw Layers
 

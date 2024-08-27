@@ -2402,6 +2402,7 @@ typedef struct zest_layer_t {
     zest_draw_routine draw_routine;
     zest_layer_flags flags;
     zest_builtin_layer_type layer_type;
+    void *user_data;
 } zest_layer_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_font_character_t {
@@ -3944,6 +3945,10 @@ ZEST_API void zest_SetLayerColorf(zest_layer layer, float red, float green, floa
 ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
 //A dirty layer denotes that it's buffers have changed and therefore needs uploading to the GPU again. This is currently used for Dear Imgui layers.
 ZEST_API void zest_SetLayerDirty(zest_layer layer);
+//Set the user data of a layer. You can use this to extend the functionality of the layers for your own needs.
+ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
+//Get the user data from the layer
+#define zest_GetLayerUserData(type, layer) ((type*)layer->user_data)
 //-- End Draw Layers
 
 //-----------------------------------------------
