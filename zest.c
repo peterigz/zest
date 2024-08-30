@@ -2064,19 +2064,25 @@ void zest__do_scheduled_tasks(void) {
         zest_vec_clear(ZestRenderer->texture_delete_queue);
     }
 
-    if (zest_vec_size(ZestRenderer->texture_reprocess_queue)) {
-#ifdef __APPLE__
-        //Temporary measure to get Mac working
-        //Without this metal complains about the texture being in use
-        zest_WaitForIdleDevice();
-#endif
-        for (zest_foreach_i(ZestRenderer->texture_reprocess_queue)) {
-            zest_ProcessTextureImages(ZestRenderer->texture_reprocess_queue[i]);
-            zest_RefreshTextureDescriptors(ZestRenderer->texture_reprocess_queue[i]);
+    if (zest_vec_size(ZestRenderer->texture_cleanup_queue)) {
+        for (zest_foreach_i(ZestRenderer->texture_cleanup_queue)) {
+            zest_texture texture = ZestRenderer->texture_cleanup_queue[i];
+            zest__cleanup_unused_texture_buffers(texture);
+            if (texture->cleanup_callback) {
+                texture->cleanup_callback(texture, texture->user_data);
+            }
         }
-#if defined(ZEST_ATOMICS)
-        atomic_store(&ZestRenderer->lock_texture_reprocess_queue, 0);
-#endif
+    }
+
+    if (zest_vec_size(ZestRenderer->texture_reprocess_queue)) {
+        for (zest_foreach_i(ZestRenderer->texture_reprocess_queue)) {
+            zest_texture texture = ZestRenderer->texture_reprocess_queue[i];
+            zest_ProcessTextureImages(texture);
+            if (texture->reprocess_callback) {
+                texture->reprocess_callback(texture, texture->user_data);
+            }
+            zest_vec_push(ZestRenderer->texture_cleanup_queue, texture);
+        }
         zest_vec_clear(ZestRenderer->texture_reprocess_queue);
     }
 
@@ -7269,7 +7275,6 @@ void zest__free_all_texture_images(zest_texture texture) {
 void zest__delete_texture(zest_texture texture) {
     zest__cleanup_texture(texture);
     zest__free_all_texture_images(texture);
-    zest_map_free(texture->descriptor_sets);
     if (texture->stream_staging_buffer) {
         zest_FreeBuffer(texture->stream_staging_buffer);
     }
@@ -7299,6 +7304,18 @@ void zest__cleanup_texture(zest_texture texture) {
     texture->flags &= ~zest_texture_flag_textures_ready;
 }
 
+void zest__cleanup_unused_texture_buffers(zest_texture texture) {
+    zest_uint index = texture->current_index ^ 1;
+	vkDestroySampler(ZestDevice->logical_device, texture->sampler[index], &ZestDevice->allocation_callbacks);
+	vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer[index].view, &ZestDevice->allocation_callbacks);
+	vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer[index].image, &ZestDevice->allocation_callbacks);
+	zest_FreeBuffer(texture->frame_buffer[index].buffer);
+	texture->frame_buffer[index].buffer = 0;
+	texture->sampler[index] = VK_NULL_HANDLE;
+	texture->frame_buffer[index].view = VK_NULL_HANDLE;
+	texture->frame_buffer[index].image = VK_NULL_HANDLE;
+}
+
 void zest__reindex_texture_images(zest_texture texture) {
     zest_index index = 0;
     for (zest_foreach_i(texture->images)) {
@@ -7309,10 +7326,7 @@ void zest__reindex_texture_images(zest_texture texture) {
 // --End Internal Texture functions
 
 void zest_ProcessTextureImages(zest_texture texture) {
-    if (texture->flags & zest_texture_flag_textures_ready) {
-        zest__cleanup_texture(texture);
-    }
-
+    texture->current_index = texture->current_index ^ 1;
     zest_uint size = zest_vec_size(texture->images);
     if (zest_vec_empty(texture->images) && texture->storage_type != zest_texture_storage_type_storage && texture->storage_type != zest_texture_storage_type_single)
         return;
@@ -7444,10 +7458,7 @@ void zest_ProcessTextureImages(zest_texture texture) {
         texture->flags |= zest_texture_flag_textures_ready;
     }
 
-    if (!(texture->flags & zest_texture_flag_descriptor_sets_created)) {
-        zest_CreateSimpleTextureDescriptorSet(texture, "Default", "Standard 2d Uniform Buffer");
-        zest_SwitchTextureDescriptorSet(texture, "Default");
-    }
+	zest__create_simple_texture_descriptor_set(texture, "Standard 2d Uniform Buffer");
 
     zest__delete_texture_layers(texture);
 
@@ -7460,42 +7471,25 @@ void zest__delete_texture_layers(zest_texture texture) {
     zest_vec_free(texture->layers);
 }
 
-zest_descriptor_set zest_CreateSimpleTextureDescriptorSet(zest_texture texture, const char* name, const char* uniform_buffer_name) {
+void zest__create_simple_texture_descriptor_set(zest_texture texture, const char* uniform_buffer_name) {
     ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, uniform_buffer_name));    //No uniform buffer found with that name
-    zest_descriptor_set_t blank_set = { 0 };
-    zest_descriptor_set set = ZEST__NEW(zest_descriptor_set);
-    *set = blank_set;
+    zest_descriptor_set set = &texture->descriptor_sets[texture->current_index];
     set->buffer = zest_GetUniformBuffer(uniform_buffer_name);
     for (ZEST_EACH_FIF_i) {
         zest_AllocateDescriptorSet(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler")->descriptor_layout, &set->descriptor_set[i]);
         zest_vec_push(set->descriptor_writes[i], zest_CreateBufferDescriptorWriteWithType(set->descriptor_set[i], &set->buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
         zest_vec_push(set->descriptor_writes[i], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[i], &texture->descriptor_image_info[texture->current_index], 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
     }
-    zest_AddTextureDescriptorSet(texture, name, set);
-    zest_UpdateTextureSingleDescriptorSet(texture, name);
+    zest_UpdateTextureSingleDescriptorSet(texture);
     texture->flags |= zest_texture_flag_descriptor_sets_created;
-    return set;
 }
 
-zest_descriptor_set zest_GetTextureDescriptorSet(zest_texture texture, const char* name) {
-    ZEST_ASSERT(zest_map_valid_name(texture->descriptor_sets, name));
-    return *zest_map_at(texture->descriptor_sets, name);
+VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture texture) {
+    return texture->descriptor_sets[texture->current_index].descriptor_set[ZEST_FIF];
 }
 
-void zest_SwitchTextureDescriptorSet(zest_texture texture, const char* name) {
-    ZEST_ASSERT(zest_map_valid_name(texture->descriptor_sets, name));
-    for (ZEST_EACH_FIF_i) {
-        texture->current_descriptor_set[i] = *zest_map_at(texture->descriptor_sets, name)->descriptor_set[i];
-    }
-}
-
-VkDescriptorSet zest_CurrentTextureDescriptorSet(zest_texture texture) {
-    return texture->current_descriptor_set[ZEST_FIF];
-}
-
-void zest_UpdateTextureSingleDescriptorSet(zest_texture texture, const char* name) {
-    ZEST_ASSERT(zest_map_valid_name(texture->descriptor_sets, name));
-    zest_descriptor_set set = *zest_map_at(texture->descriptor_sets, name);
+void zest_UpdateTextureSingleDescriptorSet(zest_texture texture) {
+    zest_descriptor_set set = &texture->descriptor_sets[texture->current_index];
     for (ZEST_EACH_FIF_i) {
         zest_UpdateDescriptorSet(set->descriptor_writes[i]);
     }
@@ -7503,36 +7497,30 @@ void zest_UpdateTextureSingleDescriptorSet(zest_texture texture, const char* nam
 
 void zest__update_all_texture_descriptor_writes(zest_texture texture) {
     for (ZEST_EACH_FIF_i) {
-        for (zest_map_foreach_j(texture->descriptor_sets)) {
-            zest_index set_index = zest_map_index(texture->descriptor_sets, j);
-            zest_descriptor_set set = *zest_map_at_index(texture->descriptor_sets, set_index);
-            for (zest_foreach_k(set->descriptor_writes[i])) {
-                VkWriteDescriptorSet* write = &set->descriptor_writes[i][k];
-                write->dstSet = set->descriptor_set[i];
-                if (write->descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
-                    write->pBufferInfo = &set->buffer->descriptor_info[i];
-                }
-                else if (write->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-                    write->pImageInfo = &texture->descriptor_image_info[texture->current_index];
-                }
+        zest_descriptor_set set = &texture->descriptor_sets[texture->current_index];
+        for (zest_foreach_k(set->descriptor_writes[i])) {
+            VkWriteDescriptorSet *write = &set->descriptor_writes[i][k];
+            write->dstSet = set->descriptor_set[i];
+            if (write->descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
+                write->pBufferInfo = &set->buffer->descriptor_info[i];
+            }
+            else if (write->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+                write->pImageInfo = &texture->descriptor_image_info[texture->current_index];
             }
         }
     }
 }
 
-void zest__update_all_texture_descriptor_sets(zest_texture texture) {
+void zest__update_texture_descriptor_set(zest_texture texture) {
     for (ZEST_EACH_FIF_i) {
-        for (zest_map_foreach_j(texture->descriptor_sets)) {
-            zest_index set_index = zest_map_index(texture->descriptor_sets, j);
-            zest_descriptor_set set = *zest_map_at_index(texture->descriptor_sets, set_index);
-            zest_UpdateDescriptorSet(set->descriptor_writes[i]);
-        }
+        zest_descriptor_set set = &texture->descriptor_sets[texture->current_index];
+		zest_UpdateDescriptorSet(set->descriptor_writes[i]);
     }
 }
 
 void zest_RefreshTextureDescriptors(zest_texture texture) {
     zest__update_all_texture_descriptor_writes(texture);
-    zest__update_all_texture_descriptor_sets(texture);
+    zest__update_texture_descriptor_set(texture);
 }
 
 void zest_ScheduleTextureReprocess(zest_texture texture) {
@@ -7556,10 +7544,6 @@ void zest_WaitUntilTexturesReprocessed() {
         //Spin. This should be run from a separate thread so the scheduler can actually do it's thing
     }
 #endif
-}
-
-void zest_AddTextureDescriptorSet(zest_texture texture, const char* name, zest_descriptor_set descriptor_set) {
-    zest_map_insert(texture->descriptor_sets, name, descriptor_set);
 }
 
 zest_bitmap_t* zest_GetTextureSingleBitmap(zest_texture texture) {
@@ -8219,6 +8203,18 @@ void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format
     }
 }
 
+void zest_SetTextureUserData(zest_texture texture, void *user_data) {
+    texture->user_data = user_data;
+}
+
+void zest_SetTextureReprocessCallback(zest_texture texture, void(*callback)(zest_texture texture, void *user_data)) {
+    texture->reprocess_callback = callback;
+}
+
+void zest_SetTextureCleanupCallback(zest_texture texture, void(*callback)(zest_texture texture, void *user_data)) {
+    texture->reprocess_callback = callback;
+}
+
 zest_byte* zest_BitmapArrayLookUp(zest_bitmap_array_t* bitmap_array, zest_index index) {
     ZEST_ASSERT((zest_uint)index < bitmap_array->size_of_array);
     return bitmap_array->data + index * bitmap_array->size_of_each_image;
@@ -8799,7 +8795,7 @@ void zest__setup_font_texture(zest_font font) {
     zest_ProcessTextureImages(font->texture);
 
     font->pipeline = zest_Pipeline("pipeline_fonts");
-    font->descriptor_set = zest_GetTextureDescriptorSet(font->texture, "Default");
+    font->descriptor_set = &font->texture->descriptor_sets[font->texture->current_index];
 }
 
 void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_size) {
@@ -8936,8 +8932,7 @@ void zest__create_render_target_sampler_image(zest_render_target render_target) 
         image_info.imageView = render_target->framebuffers[i].color_buffer.view;
         image_info.sampler = texture->sampler[texture->current_index];
         texture->descriptor_image_info[texture->current_index] = image_info;
-        zest_CreateSimpleTextureDescriptorSet(texture, "Default", "Standard 2d Uniform Buffer");
-        zest_SwitchTextureDescriptorSet(texture, "Default");
+        zest__create_simple_texture_descriptor_set(texture, "Standard 2d Uniform Buffer");
 
         zest_vec_free(texture_name);
     }
@@ -9032,7 +9027,8 @@ void zest_SetRenderTargetPostProcessUserData(zest_render_target render_target, v
 }
 
 VkDescriptorSet* zest_GetRenderTargetSamplerDescriptorSet(zest_render_target render_target) {
-    return &render_target->sampler_textures[ZEST_FIF]->descriptor_sets.data[0]->descriptor_set[ZEST_FIF];
+    zest_texture texture = render_target->sampler_textures[ZEST_FIF];
+    return &texture->descriptor_sets[0].descriptor_set[ZEST_FIF];
 }
 
 VkDescriptorSet* zest_GetRenderTargetSourceDescriptorSet(zest_render_target render_target) {
@@ -9708,7 +9704,7 @@ void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font) {
         font_layer->current_instruction.descriptor_set = font->descriptor_set->descriptor_set[ZEST_FIF];
     }
     else {
-        font_layer->current_instruction.descriptor_set = font->texture->current_descriptor_set[ZEST_FIF];
+        font_layer->current_instruction.descriptor_set = zest_GetTextureDescriptorSet(font->texture);
     }
     font_layer->current_instruction.draw_mode = zest_draw_mode_text;
     font_layer->current_instruction.asset = font;
@@ -9914,7 +9910,7 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_texture texture, zest_descri
         layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
     }
     else if(texture) {
-        layer->current_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+        layer->current_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture);
     }
     else {
         ZEST_ASSERT(pipeline->descriptor_set[ZEST_FIF]);   //You must specifiy either a texture or a descriptor set or the pipeline must have it's own descriptor set
@@ -10264,7 +10260,7 @@ void zest_SetMeshDrawing(zest_layer layer, zest_texture texture, zest_descriptor
         layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
     }
     else {
-        layer->current_instruction.descriptor_set = texture->current_descriptor_set[ZEST_FIF];
+        layer->current_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture);
     }
     layer->current_instruction.draw_mode = zest_draw_mode_mesh;
     layer->current_instruction.scissor = layer->scissor;

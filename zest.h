@@ -2503,7 +2503,6 @@ struct zest_command_queue_compute_t {
     const char *name;
 };
 
-zest_hash_map(zest_descriptor_set) zest_map_texture_descriptor_sets;
 zest_hash_map(zest_descriptor_set_builder_t) zest_map_texture_descriptor_builders;
 
 typedef struct zest_bitmap_t {
@@ -2565,8 +2564,6 @@ typedef struct zest_texture_t {
 
     zest_imgui_blendtype imgui_blend_type;
     zest_index image_index;                                    //Tracks the UID of image indexes in the list
-    VkDescriptorSet current_descriptor_set[ZEST_MAX_FIF];
-    zest_map_texture_descriptor_sets descriptor_sets;
     zest_uint packed_border_size;
 
     zest_buffer stream_staging_buffer;                         //Used for stream buffers only if you need to update the texture every frame
@@ -2578,6 +2575,7 @@ typedef struct zest_texture_t {
     zest_frame_buffer_attachment_t frame_buffer[2];
     VkDescriptorImageInfo descriptor_image_info[2];
     VkSampler sampler[2];
+    zest_descriptor_set_t descriptor_sets[2];
     zest_uint current_index;
     // --- 
 
@@ -2594,6 +2592,9 @@ typedef struct zest_texture_t {
 
     zest_texture_flags flags;
     zest_thread_access lock;
+    void *user_data;
+    void(*reprocess_callback)(zest_texture texture, void *user_data);
+    void(*cleanup_callback)(zest_texture texture, void *user_data);
 } zest_texture_t;
 
 typedef struct zest_shader_t {
@@ -2729,6 +2730,7 @@ typedef struct zest_renderer_t {
     zest_render_target *rt_sampler_refresh_queue[ZEST_MAX_FIF];
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
     zest_texture *texture_reprocess_queue;
+    zest_texture *texture_cleanup_queue;
     zest_texture *texture_delete_queue;
     zest_pipeline *pipeline_recreate_queue;
     zest_pipeline_handles_t *pipeline_destroy_queue;
@@ -2874,7 +2876,9 @@ ZEST_PRIVATE void zest__pack_images(zest_texture texture, zest_uint size);
 ZEST_PRIVATE void zest__update_image_vertices(zest_image image);
 ZEST_PRIVATE void zest__update_texture_single_image_meta(zest_texture texture, zest_uint width, zest_uint height);
 ZEST_PRIVATE void zest__create_texture_image_view(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
-ZEST_PRIVATE void zest__update_all_texture_descriptor_sets(zest_texture texture);
+ZEST_PRIVATE void zest__update_texture_descriptor_set(zest_texture texture);
+ZEST_PRIVATE void zest__cleanup_unused_texture_buffers(zest_texture texture);
+ZEST_PRIVATE void zest__create_simple_texture_descriptor_set(zest_texture texture, const char *uniform_buffer_name);
 
 // --Render target internal functions
 ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
@@ -3658,6 +3662,15 @@ ZEST_API void zest_RemoveTextureImage(zest_texture texture, zest_image image);
 ZEST_API void zest_RemoveTextureAnimation(zest_texture texture, zest_image first_image);
 //Set the format of the texture. You will need to reprocess the texture if you have processed it already with zest_ProcessTextureImages
 ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
+//Set the callback for the texture which is used whenever a texture is scheduled for reprocessing. This allows you to make changes to textures that 
+//might be in use.
+ZEST_API void zest_SetTextureReprocessCallback(zest_texture texture, void(*callback)(zest_texture texture, void *user_data));
+//Set the callback for a texture which is called after a texture has been scheduled for reprocessing. This lets you cleanup any out of date descriptor sets
+//that you might be using for the texture.
+ZEST_API void zest_SetTextureCleanupCallback(zest_texture texture, void(*callback)(zest_texture texture, void *user_data));
+//Set the user data for a texture. This is passed though to a texture reprocess callback which you can use to perform tasks such as updating any 
+//descriptor sets you've made that might use the texture
+ZEST_API void zest_SetTextureUserData(zest_texture texture, void *user_data);
 //Create a blank zest_image. This is more for internal usage, prefer the zest_AddTextureImage functions. Will leave these in the API for now though
 ZEST_API zest_image_t zest_NewImage(void);
 ZEST_API zest_image zest_CreateImage(void);
@@ -3735,20 +3748,11 @@ ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const c
 //You can then use the image handles to draw the images along with the descriptor set - either the one that gets created automatically with the the texture to draw sprites and billboards
 //or your own descriptor set.
 ZEST_API void zest_ProcessTextureImages(zest_texture texture);
-//This function will create a simple 1 sampler 1 uniform buffer descriptor set using the uniform buffer that you pass to it by name. Pass the texture that you will
-//create the descriptor set in and give it a unique name in the texture. This will return a handle to the descriptor set.
-ZEST_API zest_descriptor_set zest_CreateSimpleTextureDescriptorSet(zest_texture texture, const char *name, const char *uniform_buffer_name);
-//Get a descriptor set from a texture. When a texture is processed a default descriptor set is created for drawing sprites and billboards called "Default". Otherwise you can build
-//your own descriptor set for the texture tailored to your own shaders.
-ZEST_API zest_descriptor_set zest_GetTextureDescriptorSet(zest_texture texture, const char *name);
-//Every texture has a current descriptor set as the default descriptor set stored in texture->current_descriptor_set. Use this command to switch the current descriptor set to another
-//descriptor set stored in the texture.
-ZEST_API void zest_SwitchTextureDescriptorSet(zest_texture texture, const char *name);
-//Get the current descriptor set in the texture which was set with zest_SwitchTextureDescriptorSet.
-ZEST_API VkDescriptorSet zest_CurrentTextureDescriptorSet(zest_texture texture);
+//Get the descriptor set in the texture. This will always be a simple sampler + uniform buffer descriptor set
+ZEST_API VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture texture);
 //Update the descriptor set for a single descriptor set in the texture. Just pass the name of the descriptor that you want to update. This is necessary to run after making any changes
 //to the texture that required a call to zest_ProcessTexture
-ZEST_API void zest_UpdateTextureSingleDescriptorSet(zest_texture texture, const char *name);
+ZEST_API void zest_UpdateTextureSingleDescriptorSet(zest_texture texture);
 //Create a vulkan frame buffer. Maybe this should be a private function, but leaving API for now. This returns a zest_frame_buffer_t containing the frame buffer attachment and other
 //details about the frame buffer. You must pass in a valid render pass that the frame buffer will use (you can use zest_GetRenderPass), the width/height of the frame buffer, a valid
 //VkFormat, whether or not you want to use a depth buffer with it, and if it's a frame buffer that will be used as a src buffer for something else so that it gets the appropriate
@@ -3790,8 +3794,6 @@ ZEST_API void zest_TextureResize(zest_texture texture, zest_uint width, zest_uin
 ZEST_API void zest_TextureClear(zest_texture texture);
 //For single or storage textures, get the bitmap for the texture.
 ZEST_API zest_bitmap_t *zest_GetTextureSingleBitmap(zest_texture texture);
-//Add a descriptor set to the texture. You'll need this if your using your own shaders that have different bindings from the default.
-ZEST_API void zest_AddTextureDescriptorSet(zest_texture texture, const char *name, zest_descriptor_set descriptor_set);
 //Every texture you create is stored by name in the render, use this to retrieve one by name.
 ZEST_API zest_texture zest_GetTexture(const char *name);
 //Returns true if the texture has a storage type of zest_texture_storage_type_bank or zest_texture_storage_type_single.
