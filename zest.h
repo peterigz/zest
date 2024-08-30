@@ -92,6 +92,8 @@ typedef volatile unsigned int zest_atomic_int;
 #define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
+//I had to add this because some dell laptops have their own drivers that are basically broken. Even though the gpu signals that
+//it can write direct it actually doesn't and just crashes. Maybe there's another way to detect or do a pre-test?
 #define ZEST_DISABLE_GPU_DIRECT_WRITE 1
 
 //Helper macros
@@ -2554,15 +2556,15 @@ typedef struct zest_framebuffer_attachment_t {
 
 typedef struct zest_texture_t {
     zest_struct_type struct_type;
-    VkDescriptorImageInfo descriptor_image_info;
     VkImageLayout image_layout;
     VkFormat image_format;
+    VkImageViewType image_view_type;
+    VkSamplerCreateInfo sampler_info;
 
     zest_text_t name;
 
     zest_imgui_blendtype imgui_blend_type;
-    VkSampler sampler;
-    zest_index image_index;                                    //Tracks the UID of image indexes in the qvec
+    zest_index image_index;                                    //Tracks the UID of image indexes in the list
     VkDescriptorSet current_descriptor_set[ZEST_MAX_FIF];
     zest_map_texture_descriptor_sets descriptor_sets;
     zest_uint packed_border_size;
@@ -2571,7 +2573,13 @@ typedef struct zest_texture_t {
     zest_uint texture_layer_size;
     zest_image_t texture;
     zest_bitmap_t texture_bitmap;
-    zest_frame_buffer_attachment_t frame_buffer;
+
+    // --- GPU data. When changing a texture that is in use, we double buffer then flip when ready
+    zest_frame_buffer_attachment_t frame_buffer[2];
+    VkDescriptorImageInfo descriptor_image_info[2];
+    VkSampler sampler[2];
+    zest_uint current_index;
+    // --- 
 
     //Todo: option to not keep the images in memory after they're uploaded to the graphics card
     zest_bitmap_t *image_bitmaps;
@@ -2582,11 +2590,8 @@ typedef struct zest_texture_t {
     VkBufferImageCopy *buffer_copy_regions;
     zest_texture_storage_type storage_type;
 
-    VkSamplerCreateInfo sampler_info;
     zest_uint color_channels;
 
-    //Use this for adding samplers to bind to the shader
-    VkImageViewType image_view_type;
     zest_texture_flags flags;
     zest_thread_access lock;
 } zest_texture_t;
