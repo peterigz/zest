@@ -47,7 +47,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Null out the image handle
 		app->image1 = 0;
 		//Schedule the texture for reprocessing when we know the texture won't be in use
-		zest_ScheduleTextureReprocess(app->texture);
+		zest_ScheduleTextureReprocess(app->texture, 0);
 	}
 	else if(app->image1) {
 		//Draw the sprite if it still exists
@@ -58,7 +58,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Remove the animation if it still exists and the time is up.
 		zest_RemoveTextureAnimation(app->texture, app->animation);
 		//Schedule the texture for reprocessing when we know the texture won't be in use
-		zest_ScheduleTextureReprocess(app->texture);
+		zest_ScheduleTextureReprocess(app->texture, 0);
 		//Null out the animation handle
 		app->animation = 0;
 	}

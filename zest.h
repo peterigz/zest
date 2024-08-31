@@ -3812,7 +3812,7 @@ ZEST_API zest_bool zest_TextureCanTile(zest_texture texture);
 //by the renderer (accessed by a command queue).
 ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
 //Schedule a texture to be reprocessed. This will ensure that it only gets processed (zest_ProcessTextureImages) when not in use.
-ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture);
+ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture, void(*callback)(zest_texture texture, void *user_data));
 //Schedule a texture to clean up it's unused buffers. Textures are double buffered so that they can safely be changed whilst
 //in use. So you can call zest_ProcessTexture to reprocess and add any new images which will do so in the unused buffer index,
 //then you can call this function to schedule the cleanup of the old buffers when it's safe to do so.
