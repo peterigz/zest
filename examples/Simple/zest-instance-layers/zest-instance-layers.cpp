@@ -37,13 +37,13 @@ void InitExample(zest_example *example) {
 	//To save having to lookup these handles in the mainloop, we can look them up here in advance and store the handles in our example struct
 	example->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites");
 	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
-	example->sprite_descriptor = zest_GetTextureDescriptorSet(example->texture, "Default");
+	example->sprite_descriptor = zest_GetTextureDescriptorSet(example->texture);
 	example->billboard_pipeline = zest_Pipeline("pipeline_billboard");
 	example->mesh_pipeline = zest_Pipeline("pipeline_mesh");
 	//Create a new uniform buffer for the 3d view
 	example->uniform_buffer_3d = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
 	//Create a new descriptor set to use the 3d uniform buffer
-	example->billboard_descriptor = zest_CreateSimpleTextureDescriptorSet(example->texture, "3d", "example 3d uniform");
+	example->billboard_descriptor = zest_CreateSimpleTextureDescriptorSet(example->texture, "example 3d uniform");
 	//Get the sprite draw commands and set the clear color for its render pass
 	zest_command_queue_draw_commands sprite_draw = zest_GetDrawCommands("Default Draw Commands");
 	sprite_draw->cls_color = zest_Vec4Set1(0.25f);
@@ -124,8 +124,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-int main(void) 
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+//int main(void) 
 {
 	zest_example example = { 0 };
 
@@ -134,7 +134,7 @@ int main(void)
 	zest_create_info_t create_info = zest_CreateInfo();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
-	create_info.log_path = "./";
+	//create_info.log_path = "./";
 
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);

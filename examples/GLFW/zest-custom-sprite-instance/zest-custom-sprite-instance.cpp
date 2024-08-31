@@ -61,8 +61,8 @@ void InitImGuiApp(ImGuiApp *app) {
     app->custom_descriptor_set_layout = zest_AddDescriptorLayout("Standard 1 uniform 2 samplers", zest_CreateDescriptorSetLayout(1, 2, 0));
 	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
 	zest_AddBuilderDescriptorWriteUniformBuffer(&set_builder, zest_GetUniformBuffer("Standard 2d Uniform Buffer"), 0);
-	zest_AddBuilderDescriptorWriteImage(&set_builder, &app->test_texture->descriptor_image_info, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	zest_AddBuilderDescriptorWriteImage(&set_builder, &app->color_ramps_texture->descriptor_image_info, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->test_texture), 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->color_ramps_texture), 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 	app->custom_descriptor_set = zest_BuildDescriptorSet(&set_builder, app->custom_descriptor_set_layout);
 
 	//Create a new pipeline using our custom sprite struct for the binding descriptions
@@ -167,12 +167,12 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 #if defined(_WIN32)
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-	int main(void) {
-		//Create new config struct for Zest
+int main(void) {
+	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	create_info.log_path = ".";
+	//create_info.log_path = ".";
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
 

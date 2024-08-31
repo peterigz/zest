@@ -5,7 +5,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&app->imgui_layer_info);
 	//Implement a dark style
-	DarkStyle2();
+	zest_imgui_DarkStyle();
 	
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO& io = ImGui::GetIO();

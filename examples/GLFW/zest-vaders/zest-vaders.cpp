@@ -330,7 +330,7 @@ void VadersGame::Init() {
 	//Create a uniform buffer for 3d billboard drawing and the particle rendering too
 	uniform_buffer_3d = zest_CreateUniformBuffer("3d uniform", sizeof(zest_uniform_buffer_data_t));
 	//Create a descriptor set for the texture that uses the 3d uniform buffer
-	billboard_descriptor = zest_CreateSimpleTextureDescriptorSet(sprite_texture, "3d descriptor", "3d uniform");
+	billboard_descriptor = zest_CreateSimpleTextureDescriptorSet(sprite_texture, "3d uniform");
 	//Store the handle of the billboard pipeline so we don't have to look it up each frame
 	billboard_pipeline = zest_Pipeline("pipeline_billboard");
 
@@ -344,7 +344,7 @@ void VadersGame::Init() {
 	//Process the particle images in the texture
 	zest_ProcessTextureImages(particle_texture);
 	//Create a descriptor set for the texture that uses the 3d uniform buffer
-	particle_descriptor = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d descriptor", "3d uniform");
+	particle_descriptor = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d uniform");
 
 	//Specific, set up a timer for the update loop
 	timer = zest_CreateTimer(60);
@@ -404,10 +404,10 @@ void VadersGame::Init() {
 	SetTemplateEffectUpdateCallback(&got_power_up, UpdateGotPowerUpEffect);
 
 	//Add the background effect nad title effect to the particle manager and set their positions
-	if (AddEffectToParticleManager(&background_pm, &background, &background_index)) {
-		zest_vec3 position = zest_AddVec3(zest_ScaleVec3(camera.front, 12.f), camera.position);
-		SetEffectPosition(&background_pm, background_index, { position.x, position.y, position.z });
-	}
+	//if (AddEffectToParticleManager(&background_pm, &background, &background_index)) {
+		//zest_vec3 position = zest_AddVec3(zest_ScaleVec3(camera.front, 12.f), camera.position);
+		//SetEffectPosition(&background_pm, background_index, { position.x, position.y, position.z });
+	//}
 	if (AddEffectToParticleManager(&title_pm, &title, &title_index)) {
 		SetEffectPosition(&title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, uniform_buffer_3d));
 	}

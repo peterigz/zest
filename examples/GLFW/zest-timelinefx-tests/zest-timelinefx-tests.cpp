@@ -115,7 +115,7 @@ void TimelineFXExample::Init() {
 	LoadEffectLibrary("examples/assets/effects.tfx", &library, ShapeLoader, this);
 	//Renderer specific
 	zest_ProcessTextureImages(particle_texture);
-	particle_descriptor = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d descriptor", "3d uniform");
+	particle_descriptor = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d uniform");
 	zest_RefreshTextureDescriptors(particle_texture);
 
 	//Application specific, set up a timer for the update loop

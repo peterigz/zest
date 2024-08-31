@@ -81,9 +81,9 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 					continue;
 				}
 
-				if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_CurrentTextureDescriptorSet(current_image->texture)) {
-					zest_BindPipeline(layer_info->pipeline, zest_CurrentTextureDescriptorSet(current_image->texture));
-					last_descriptor_set = zest_CurrentTextureDescriptorSet(current_image->texture);
+				if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_GetTextureDescriptorSetVK(current_image->texture)) {
+					zest_BindPipeline(layer_info->pipeline, zest_GetTextureDescriptorSetVK(current_image->texture));
+					last_descriptor_set = zest_GetTextureDescriptorSetVK(current_image->texture);
 					last_pipeline = layer_info->pipeline;
 				}
 

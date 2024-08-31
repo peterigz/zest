@@ -100,7 +100,7 @@ void DrawComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffe
 
 	//Draw all the sprites in the buffer that is built by the compute shader
 	zest_pipeline pipeline = zest_Pipeline("pipeline_billboard");
-	zest_BindPipeline(pipeline, zest_CurrentTextureDescriptorSet(example.particle_texture));
+	zest_BindPipeline(pipeline, zest_GetTextureDescriptorSetVK(example.particle_texture));
 	zest_SendPushConstants(pipeline, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(zest_push_constants_t), &example.push_contants);
 	zest_Draw(6, GetTotalSpritesThatNeedDrawing(&example.animation_manager_3d), 0, 0);
 }
