@@ -2657,7 +2657,6 @@ zest_hash_map(zest_draw_routine) zest_map_draw_routines;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 zest_hash_map(zest_layer) zest_map_layers;
 zest_hash_map(zest_descriptor_buffer) zest_map_uniform_buffers;
-zest_hash_map(VkDescriptorSet) zest_map_descriptor_sets;
 zest_hash_map(zest_texture) zest_map_textures;
 zest_hash_map(zest_render_target) zest_map_render_targets;
 zest_hash_map(zest_font) zest_map_fonts;
@@ -2713,7 +2712,6 @@ typedef struct zest_renderer_t {
     zest_map_render_targets render_targets;
     zest_map_fonts fonts;
     zest_map_uniform_buffers uniform_buffers;
-    zest_map_descriptor_sets descriptor_sets;
     zest_map_computes computes;
     zest_map_shaders shaders;
 
@@ -3749,7 +3747,13 @@ ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const c
 //or your own descriptor set.
 ZEST_API void zest_ProcessTextureImages(zest_texture texture);
 //Get the descriptor set in the texture. This will always be a simple sampler + uniform buffer descriptor set
-ZEST_API VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture texture);
+ZEST_API zest_descriptor_set zest_GetTextureDescriptorSet(zest_texture texture);
+//This accesses the specific VkDescriptorSet type within the zest_descriptor_set as an extra convenience
+ZEST_API VkDescriptorSet zest_GetTextureDescriptorSetVK(zest_texture texture);
+//Get the descriptor image info for the texture that you can use to build a descriptor set with
+ZEST_API VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture texture);
+//Build a simple descriptor set for a texture with a specific uniform buffer
+ZEST_API zest_descriptor_set zest_CreateSimpleTextureDescriptorSet(zest_texture texture, const char *uniform_buffer_name);
 //Update the descriptor set for a single descriptor set in the texture. Just pass the name of the descriptor that you want to update. This is necessary to run after making any changes
 //to the texture that required a call to zest_ProcessTexture
 ZEST_API void zest_UpdateTextureSingleDescriptorSet(zest_texture texture);

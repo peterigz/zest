@@ -7484,8 +7484,33 @@ void zest__create_simple_texture_descriptor_set(zest_texture texture, const char
     texture->flags |= zest_texture_flag_descriptor_sets_created;
 }
 
-VkDescriptorSet zest_GetTextureDescriptorSet(zest_texture texture) {
+zest_descriptor_set zest_GetTextureDescriptorSet(zest_texture texture) {
+    return &texture->descriptor_sets[texture->current_index];
+}
+
+VkDescriptorSet zest_GetTextureDescriptorSetVK(zest_texture texture) {
     return texture->descriptor_sets[texture->current_index].descriptor_set[ZEST_FIF];
+}
+
+VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture texture) {
+    return &texture->descriptor_image_info[texture->current_index];
+}
+
+zest_descriptor_set zest_CreateSimpleTextureDescriptorSet(zest_texture texture, const char *uniform_buffer_name) {
+    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, uniform_buffer_name));    //No uniform buffer found with that name
+    zest_descriptor_set_t blank_set = { 0 };
+    zest_descriptor_set set = ZEST__NEW(zest_descriptor_set);
+    *set = blank_set;
+    set->buffer = zest_GetUniformBuffer(uniform_buffer_name);
+    for (ZEST_EACH_FIF_i) {
+        zest_AllocateDescriptorSet(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler")->descriptor_layout, &set->descriptor_set[i]);
+        zest_vec_push(set->descriptor_writes[i], zest_CreateBufferDescriptorWriteWithType(set->descriptor_set[i], &set->buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
+        zest_vec_push(set->descriptor_writes[i], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[i], zest_GetTextureDescriptorImageInfo(texture), 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
+    }
+    for (ZEST_EACH_FIF_i) {
+        zest_UpdateDescriptorSet(set->descriptor_writes[i]);
+    }
+    return set;
 }
 
 void zest_UpdateTextureSingleDescriptorSet(zest_texture texture) {
@@ -9704,7 +9729,7 @@ void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font) {
         font_layer->current_instruction.descriptor_set = font->descriptor_set->descriptor_set[ZEST_FIF];
     }
     else {
-        font_layer->current_instruction.descriptor_set = zest_GetTextureDescriptorSet(font->texture);
+        font_layer->current_instruction.descriptor_set = zest_GetTextureDescriptorSet(font->texture)->descriptor_set[ZEST_FIF];
     }
     font_layer->current_instruction.draw_mode = zest_draw_mode_text;
     font_layer->current_instruction.asset = font;
@@ -9910,7 +9935,7 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_texture texture, zest_descri
         layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
     }
     else if(texture) {
-        layer->current_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture);
+        layer->current_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture)->descriptor_set[ZEST_FIF];
     }
     else {
         ZEST_ASSERT(pipeline->descriptor_set[ZEST_FIF]);   //You must specifiy either a texture or a descriptor set or the pipeline must have it's own descriptor set
@@ -10260,7 +10285,7 @@ void zest_SetMeshDrawing(zest_layer layer, zest_texture texture, zest_descriptor
         layer->current_instruction.descriptor_set = descriptor_set->descriptor_set[ZEST_FIF];
     }
     else {
-        layer->current_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture);
+        layer->current_instruction.descriptor_set = zest_GetTextureDescriptorSet(texture)->descriptor_set[ZEST_FIF];
     }
     layer->current_instruction.draw_mode = zest_draw_mode_mesh;
     layer->current_instruction.scissor = layer->scissor;
