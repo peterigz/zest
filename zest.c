@@ -4225,7 +4225,6 @@ zest_pipeline_template_t* zest_PipelineTemplate(zest_pipeline pipeline) {
 }
 
 void zest_MakePipelineTemplate(zest_pipeline pipeline, VkRenderPass render_pass, zest_pipeline_template_create_info_t* create_info) {
-
     if (create_info != &pipeline->create_info) {
         pipeline->create_info = zest__copy_pipeline_create_info(create_info);
         zest__free_pipeline_create_info(create_info);
@@ -4237,6 +4236,7 @@ void zest_MakePipelineTemplate(zest_pipeline pipeline, VkRenderPass render_pass,
 
     zest__set_pipeline_template(&pipeline->pipeline_template, &pipeline->create_info);
     pipeline->pipeline_template.multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    pipeline->descriptor_layout = create_info->descriptorSetLayout;
 }
 
 VkShaderModule zest__create_shader_module(char* code) {
