@@ -3771,8 +3771,10 @@ void zest_UpdateDescriptorSet(VkWriteDescriptorSet* descriptor_writes) {
 
 void zest_FreeDescriptorSets(zest_descriptor_set descriptor_set) {
     vkFreeDescriptorSets(ZestDevice->logical_device, ZestRenderer->descriptor_pool, ZEST_MAX_FIF, descriptor_set->descriptor_set);
-    descriptor_set->descriptor_set[0] = VK_NULL_HANDLE;
-    descriptor_set->descriptor_set[1] = VK_NULL_HANDLE;
+    for (ZEST_EACH_FIF_i) {
+        descriptor_set->descriptor_set[i] = VK_NULL_HANDLE;
+        zest_vec_free(descriptor_set->descriptor_writes[i]);
+    }
 }
 
 void zest__add_pipeline_descriptor_write(zest_pipeline pipeline, VkWriteDescriptorSet set, zest_index fif) {
