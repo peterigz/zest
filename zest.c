@@ -3542,6 +3542,7 @@ void zest__create_descriptor_pools(zest_map_descriptor_pool_sizes pool_sizes, ze
     pool_info.poolSizeCount = (zest_uint)(zest_map_size(pool_sizes));
     pool_info.pPoolSizes = pool_sizes.data;
     pool_info.maxSets = max_sets;
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
     ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_info, &ZestDevice->allocation_callbacks, &ZestRenderer->descriptor_pool));
 }
@@ -3766,6 +3767,12 @@ void zest_AllocateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSe
 
 void zest_UpdateDescriptorSet(VkWriteDescriptorSet* descriptor_writes) {
     vkUpdateDescriptorSets(ZestDevice->logical_device, zest_vec_size(descriptor_writes), descriptor_writes, 0, ZEST_NULL);
+}
+
+void zest_FreeDescriptorSets(zest_descriptor_set descriptor_set) {
+    vkFreeDescriptorSets(ZestDevice->logical_device, ZestRenderer->descriptor_pool, ZEST_MAX_FIF, descriptor_set->descriptor_set);
+    descriptor_set->descriptor_set[0] = VK_NULL_HANDLE;
+    descriptor_set->descriptor_set[1] = VK_NULL_HANDLE;
 }
 
 void zest__add_pipeline_descriptor_write(zest_pipeline pipeline, VkWriteDescriptorSet set, zest_index fif) {
@@ -7474,9 +7481,13 @@ void zest__delete_texture_layers(zest_texture texture) {
 void zest__create_simple_texture_descriptor_set(zest_texture texture, const char* uniform_buffer_name) {
     ZEST_ASSERT(zest_map_valid_name(ZestRenderer->uniform_buffers, uniform_buffer_name));    //No uniform buffer found with that name
     zest_descriptor_set set = &texture->descriptor_sets[texture->current_index];
+    if (set->descriptor_set[0]) {
+        zest_FreeDescriptorSets(set);
+    }
     set->buffer = zest_GetUniformBuffer(uniform_buffer_name);
     for (ZEST_EACH_FIF_i) {
         zest_AllocateDescriptorSet(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("Standard 1 uniform 1 sampler")->descriptor_layout, &set->descriptor_set[i]);
+		zest_vec_clear(set->descriptor_writes[i]);
         zest_vec_push(set->descriptor_writes[i], zest_CreateBufferDescriptorWriteWithType(set->descriptor_set[i], &set->buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
         zest_vec_push(set->descriptor_writes[i], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[i], &texture->descriptor_image_info[texture->current_index], 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
     }
@@ -10866,6 +10877,7 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
     pool_info.poolSizeCount = zest_map_size(builder->descriptor_pool_sizes);
     pool_info.pPoolSizes = builder->descriptor_pool_sizes.data;
     pool_info.maxSets = zest_vec_size(builder->descriptor_infos);
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
     ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_info, &ZestDevice->allocation_callbacks, &compute->descriptor_pool));
 

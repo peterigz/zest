@@ -3047,6 +3047,8 @@ ZEST_API zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_build
 ZEST_API void zest_AllocateDescriptorSet(VkDescriptorPool descriptor_pool, VkDescriptorSetLayout descriptor_layout, VkDescriptorSet *descriptor_set);
 //Update a VkDescriptorSet with an array of descriptor writes. For when the images/buffers in a descriptor set have changed, the corresponding descriptor set will need to be updated.
 ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
+//Free a descriptor set and make it available able in the pool.
+ZEST_API void zest_FreeDescriptorSets(zest_descriptor_set descriptor_set);
 //Create a VkViewport, generally used when building a render pass.
 ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
 //Create a VkRect2D, generally used when building a render pass.
