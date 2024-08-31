@@ -7555,6 +7555,10 @@ void zest_ScheduleTextureReprocess(zest_texture texture) {
 #endif
 }
 
+void zest_ScheduleTextureCleanOldBuffers(zest_texture texture) {
+    zest_vec_push(ZestRenderer->texture_cleanup_queue, texture);
+}
+
 void zest_SchedulePipelineRecreate(zest_pipeline pipeline) {
     zest_vec_push(ZestRenderer->pipeline_recreate_queue, pipeline);
 }

@@ -2455,7 +2455,7 @@ struct zest_compute_t {
     VkDescriptorSet descriptor_set[ZEST_MAX_FIF];             // Compute shader bindings
     VkPipelineLayout pipeline_layout;                         // Layout of the compute pipeline
     VkDescriptorSetLayoutBinding *set_layout_bindings;
-    zest_text_t *shader_names;                                  // Names of the shader files to use
+    zest_text_t *shader_names;                                // Names of the shader files to use
     VkPipeline *pipelines;                                    // Compute pipelines, one for each shader
     zest_descriptor_infos_for_binding_t *descriptor_infos;    // All the buffers/images that are bound to the compute shader
     int32_t pipeline_index;                                   // Current image filtering compute pipeline index
@@ -3745,6 +3745,10 @@ ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const c
 //After adding all the images you want to a texture, you will then need to process the texture which will create all of the necessary GPU resources and upload the texture to the GPU.
 //You can then use the image handles to draw the images along with the descriptor set - either the one that gets created automatically with the the texture to draw sprites and billboards
 //or your own descriptor set.
+//Don't call this in the middle of sending draw commands that are using the texture because it will switch the texture buffer
+//index so some drawcalls will use the outdated texture, some the new. Call before any draw calls are made or better still,
+//just call zest_ScheduleTextureReprocess which will recreate the texture between frames and then schedule a cleanup the next
+//frame after.
 ZEST_API void zest_ProcessTextureImages(zest_texture texture);
 //Get the descriptor set in the texture. This will always be a simple sampler + uniform buffer descriptor set
 ZEST_API zest_descriptor_set zest_GetTextureDescriptorSet(zest_texture texture);
@@ -3807,6 +3811,10 @@ ZEST_API zest_bool zest_TextureCanTile(zest_texture texture);
 ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
 //Schedule a texture to be reprocessed. This will ensure that it only gets processed (zest_ProcessTextureImages) when not in use.
 ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture);
+//Schedule a texture to clean up it's unused buffers. Textures are double buffered so that they can safely be changed whilst
+//in use. So you can call zest_ProcessTexture to reprocess and add any new images which will do so in the unused buffer index,
+//then you can call this function to schedule the cleanup of the old buffers when it's safe to do so.
+ZEST_API void zest_ScheduleTextureCleanOldBuffers(zest_texture texture);
 //Call this from a separate thread that's waiting for a texture to be reprocessed.
 ZEST_API void zest_WaitUntilTexturesReprocessed();
 //Schedule a pipeline to be recreated. 
