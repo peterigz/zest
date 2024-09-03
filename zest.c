@@ -3572,12 +3572,12 @@ VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_ui
         zest_vec_push(bindings, zest_CreateUniformLayoutBinding(c));
     }
 
-    for (int c = 0; c != samplers; ++c) {
-        zest_vec_push(bindings, zest_CreateSamplerLayoutBinding(c + uniforms));
+    for (int c = 0; c != storage_buffers; ++c) {
+        zest_vec_push(bindings, zest_CreateStorageLayoutBinding(c + uniforms));
     }
 
-    for (int c = 0; c != storage_buffers; ++c) {
-        zest_vec_push(bindings, zest_CreateStorageLayoutBinding(c + samplers + uniforms));
+    for (int c = 0; c != samplers; ++c) {
+        zest_vec_push(bindings, zest_CreateSamplerLayoutBinding(c + uniforms + storage_buffers));
     }
 
     VkDescriptorSetLayout layout = zest_CreateDescriptorSetLayoutWithBindings(zest_vec_size(bindings), bindings);
