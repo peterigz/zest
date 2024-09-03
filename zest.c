@@ -3711,6 +3711,28 @@ void zest_AddBuilderDescriptorWriteUniformBuffer(zest_descriptor_set_builder_t *
     }
 }
 
+void zest_AddBuilderDescriptorWriteStorageBuffer(zest_descriptor_set_builder_t *builder, zest_descriptor_buffer buffer, zest_uint dst_binding) {
+    VkWriteDescriptorSet write = { 0 };
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = 0;
+    write.dstBinding = dst_binding;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    write.descriptorCount = 1;
+    if (buffer->all_frames_in_flight) {
+        for (ZEST_EACH_FIF_i) {
+            write.pBufferInfo = &buffer->descriptor_info[i];
+			zest_vec_push(builder->writes[i], write);
+        }
+    }
+    else {
+		write.pBufferInfo = &buffer->descriptor_info[0];
+        for (ZEST_EACH_FIF_i) {
+            zest_vec_push(builder->writes[i], write);
+        }
+    }
+}
+
 void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t* builder, zest_uint image_count, VkDescriptorImageInfo* view_image_infos, zest_uint dst_binding, VkDescriptorType type, zest_uint fif) {
     VkWriteDescriptorSet write = { 0 };
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -3720,18 +3742,6 @@ void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t* builder
     write.descriptorType = type;
     write.descriptorCount = image_count;
     write.pImageInfo = view_image_infos;
-    zest_vec_push(builder->writes[fif], write);
-}
-
-void zest_AddBuilderDescriptorWriteBuffers(zest_descriptor_set_builder_t* builder, zest_uint buffer_count, VkDescriptorBufferInfo* view_buffer_infos, zest_uint dst_binding, VkDescriptorType type, zest_uint fif) {
-    VkWriteDescriptorSet write = { 0 };
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = 0;
-    write.dstBinding = dst_binding;
-    write.dstArrayElement = 0;
-    write.descriptorType = type;
-    write.descriptorCount = buffer_count;
-    write.pBufferInfo = view_buffer_infos;
     zest_vec_push(builder->writes[fif], write);
 }
 
