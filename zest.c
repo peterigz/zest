@@ -2804,8 +2804,6 @@ zest_bool zest_UploadBuffer(zest_buffer_uploader_t* uploader, VkCommandBuffer co
     uploader->flags = 0;
     uploader->source_buffer = 0;
     uploader->target_buffer = 0;
-    //zest_buffer_uploader_t fresh_uploader = { 0 };
-    //*uploader = fresh_uploader;
 
     return ZEST_TRUE;
 }
