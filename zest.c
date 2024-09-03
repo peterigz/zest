@@ -2800,10 +2800,12 @@ zest_bool zest_UploadBuffer(zest_buffer_uploader_t* uploader, VkCommandBuffer co
     vkCmdCopyBuffer(command_buffer, *zest_GetBufferDeviceBuffer(uploader->source_buffer), *zest_GetBufferDeviceBuffer(uploader->target_buffer), zest_vec_size(uploader->buffer_copies), uploader->buffer_copies);
     zest__buffer_write_barrier(command_buffer, uploader->target_buffer);
 
-    zest_vec_free(uploader->buffer_copies);
+    zest_vec_clear(uploader->buffer_copies);
     uploader->flags = 0;
-    zest_buffer_uploader_t fresh_uploader = { 0 };
-    *uploader = fresh_uploader;
+    uploader->source_buffer = 0;
+    uploader->target_buffer = 0;
+    //zest_buffer_uploader_t fresh_uploader = { 0 };
+    //*uploader = fresh_uploader;
 
     return ZEST_TRUE;
 }
