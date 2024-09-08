@@ -2175,7 +2175,6 @@ ZEST_PRIVATE inline void zest__reset_command_setup_context(zest_command_setup_co
 struct zest_draw_routine_t {
     const char *name;
     zest_command_queue command_queue;                                            //The index of the render queue that this draw routine is within
-    zest_command_queue_draw_commands draw_commands;                              //The draw commands within the command queue that this draw routine belongs to
     void *draw_data;                                                             //The user index of the draw routine. Use this to index the routine in your own lists. For Qulkan layers, this is used to hold the index of the layer in the renderer
     zest_index *command_queues;                                                  //A list of the render queues that this draw routine belongs to
     void *user_data;                                                             //Pointer to some user data
