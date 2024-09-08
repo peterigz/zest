@@ -6325,7 +6325,6 @@ void zest_AddLayer(zest_layer layer) {
         *draw_routine = blank_draw_routine;
         draw_routine->name = layer->name;
         draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
-        draw_routine->draw_commands = ZestRenderer->setup_context.draw_commands;
         if (layer->layer_type == zest_builtin_layer_sprites) {
             draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
             draw_routine->draw_data = layer;
