@@ -7306,14 +7306,16 @@ void zest__delete_font(zest_font_t* font) {
 }
 
 void zest__cleanup_texture(zest_texture texture) {
-	vkDestroySampler(ZestDevice->logical_device, texture->sampler[texture->current_index], &ZestDevice->allocation_callbacks);
-	vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer[texture->current_index].view, &ZestDevice->allocation_callbacks);
-	vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer[texture->current_index].image, &ZestDevice->allocation_callbacks);
-	zest_FreeBuffer(texture->frame_buffer[texture->current_index].buffer);
-	texture->frame_buffer[texture->current_index].buffer = 0;
-	texture->sampler[texture->current_index] = VK_NULL_HANDLE;
-	texture->frame_buffer[texture->current_index].view = VK_NULL_HANDLE;
-	texture->frame_buffer[texture->current_index].image = VK_NULL_HANDLE;
+    for (int i = 0; i != 2; i++) {
+        if(texture->sampler[i]) vkDestroySampler(ZestDevice->logical_device, texture->sampler[i], &ZestDevice->allocation_callbacks);
+        if(texture->frame_buffer[i].view) vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer[i].view, &ZestDevice->allocation_callbacks);
+        if(texture->frame_buffer[i].image) vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer[i].image, &ZestDevice->allocation_callbacks);
+        if(texture->frame_buffer[i].buffer) zest_FreeBuffer(texture->frame_buffer[i].buffer);
+        texture->frame_buffer[i].buffer = 0;
+        texture->sampler[i] = VK_NULL_HANDLE;
+        texture->frame_buffer[i].view = VK_NULL_HANDLE;
+        texture->frame_buffer[i].image = VK_NULL_HANDLE;
+    }
     texture->flags &= ~zest_texture_flag_textures_ready;
 }
 
