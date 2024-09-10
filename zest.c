@@ -9569,6 +9569,30 @@ void zest_NextInstance(zest_layer layer) {
     }
     layer->memory_refs[ZEST_FIF].instance_ptr = instance_ptr;
 }
+
+void zest_DrawInstanceBulk(zest_layer layer, void *src, zest_uint amount) {
+    zest_size size_in_bytes_to_copy = amount * layer->instance_struct_size;
+    zest_byte* instance_ptr = (zest_byte*)layer->memory_refs[ZEST_FIF].instance_ptr;
+    zest_byte* future_instance_ptr = (zest_byte*)layer->memory_refs[ZEST_FIF].instance_ptr + layer->instance_struct_size * amount;
+    if (future_instance_ptr >= (zest_byte*)layer->memory_refs[ZEST_FIF].write_to_buffer->end) {
+        if (zest_GrowBuffer(&layer->memory_refs[ZEST_FIF].write_to_buffer, layer->instance_struct_size, (layer->memory_refs[ZEST_FIF].instance_count * layer->instance_struct_size) + (layer->instance_struct_size * amount))) {
+            layer->memory_refs[ZEST_FIF].instance_count += amount;
+            instance_ptr = (zest_byte*)layer->memory_refs[ZEST_FIF].write_to_buffer->data;
+            instance_ptr += layer->memory_refs[ZEST_FIF].instance_count * layer->instance_struct_size;
+        }
+        else {
+            ZEST_ASSERT(0); //Unable to grow the instance buffer in the layer.
+            return;
+        }
+    }
+    else {
+		layer->memory_refs[ZEST_FIF].instance_count += amount;
+    }
+    memcpy(instance_ptr, src, size_in_bytes_to_copy);
+    layer->current_instruction.total_instances++;
+    instance_ptr += layer->instance_struct_size * amount;
+    layer->memory_refs[ZEST_FIF].instance_ptr = instance_ptr;
+}
 // End general instance layer functionality -----
 
 //Start internal mesh layer functionality -----

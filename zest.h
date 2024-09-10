@@ -4009,6 +4009,12 @@ ZEST_API void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float 
 //1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
 ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_texture texture, zest_descriptor_set descriptor_set, zest_pipeline pipeline);
+//Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
+//to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
+//in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
+//there is not enough room.
+//Note that the struct size of the data you're copying MUST be the same size as the layer->struct_size.
+ZEST_API void zest_DrawInstanceBulk(zest_layer layer, void *src, zest_uint amount);
 
 //-----------------------------------------------
 //        Draw_billboard_layers
