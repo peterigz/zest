@@ -13,6 +13,7 @@ struct ImGuiApp {
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;
 	zest_image test_image;
+	bool sync_refresh;
 };
 
 void InitImGuiApp(ImGuiApp *app);

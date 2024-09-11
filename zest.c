@@ -9401,6 +9401,11 @@ void zest_StartInstanceInstructions(zest_layer layer) {
 void zest_ResetLayer(zest_layer layer) {
     layer->draw_routine->last_fif = layer->fif;
     layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
+}
+
+void zest_ResetInstanceLayer(zest_layer layer) {
+    layer->draw_routine->last_fif = layer->fif;
+    layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
     zest_ResetInstanceLayerDrawing(layer);
 }
 

@@ -3902,6 +3902,7 @@ ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
 //Set the layer frame in flight to the next layer. Use this if you're manually setting the current fif for the layer so
 //that you can avoid uploading the staging buffers every frame and only do so when it's neccessary.
 ZEST_API void zest_ResetLayer(zest_layer layer);
+ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
 //Flags a layer to manual frame in flight so you can determine when the buffers should be uploaded to the GPU
 ZEST_API void zest_SetLayerToManualFIF(zest_layer layer);
 //End a set of draw instructs for a standard zest_layer

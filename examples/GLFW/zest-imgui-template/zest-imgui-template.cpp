@@ -29,6 +29,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
+	app->sync_refresh = true;
+
 	//Modify the existing default queue
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
@@ -57,11 +59,21 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	ImGui::ShowDemoWindow();
 	ImGui::Begin("Test Window");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
+	if (ImGui::Button("Toggle Refresh Rate Sync")) {
+		if (app->sync_refresh) {
+			zest_DisableVSync();
+			app->sync_refresh = false;
+		}
+		else {
+			zest_EnableVSync();
+			app->sync_refresh = true;
+		}
+	}
 	//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 	ImGui::End();
 	ImGui::Render();
-	//Let the layer know that it needs to reupload the imgui mesh data to the GPU
-	zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
+	//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
+	zest_ResetLayer(app->imgui_layer_info.mesh_layer);
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 }
