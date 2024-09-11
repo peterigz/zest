@@ -2882,7 +2882,7 @@ ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_targe
 ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target);
 ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target, zest_index fif);
 
-ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size);
+ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);
 
 // --Font layer internal functions
 ZEST_PRIVATE void zest__setup_font_texture(zest_font font);
