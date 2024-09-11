@@ -1431,6 +1431,7 @@ typedef enum zest_layer_flag_bits {
     zest_layer_flag_none                                  = 0,
     zest_layer_flag_static                                = 1 << 0,    // Layer only uploads new buffer data when required
     zest_layer_flag_device_local_direct                   = 1 << 1,    // Upload directly to device buffer (has issues so is disabled by default for now)
+    zest_layer_flag_manual_fif                            = 1 << 2,    // Manually set the frame in flight for the layer
 } zest_layer_flag_bits;
 
 typedef enum zest_command_queue_type {
@@ -2170,12 +2171,13 @@ ZEST_PRIVATE inline void zest__reset_command_setup_context(zest_command_setup_co
     context->type = zest_setup_context_type_none;
 }
 
-//A draw routine is used to actually draw things to the render target. Qulkan provides Layers that have a set of draw commands for doing this or you can develop your own
+//A draw routine is used to actually draw things to the render target. Zest provides Layers that have a set of draw commands for doing this or you can develop your own
 //By settting the callbacks and data pointers in the draw routine
 struct zest_draw_routine_t {
     const char *name;
+    zest_uint last_fif;                                                          //The frame in flight index that was set
     zest_command_queue command_queue;                                            //The index of the render queue that this draw routine is within
-    void *draw_data;                                                             //The user index of the draw routine. Use this to index the routine in your own lists. For Qulkan layers, this is used to hold the index of the layer in the renderer
+    void *draw_data;                                                             //The user index of the draw routine. Use this to index the routine in your own lists. For Zest layers, this is used to hold the index of the layer in the renderer
     zest_index *command_queues;                                                  //A list of the render queues that this draw routine belongs to
     void *user_data;                                                             //Pointer to some user data
     void(*update_buffers_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);            //The callback used to update and upload the buffers before rendering
@@ -2211,19 +2213,6 @@ typedef struct zest_sprite_instance_t {            //52 bytes
     zest_uint padding[3];
 } zest_sprite_instance_t;
 
-typedef struct zest_sprite_instance2_t {           //56 bytes - For 2 colored sprites
-    zest_u64 size_handle;                          //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
-    zest_vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
-    zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
-    zest_uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
-    zest_color color;                              //The color tint of the sprite
-    zest_uint layer_instensity;                    //Texture array index and intensity
-    zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
-    zest_color color_hint;                         //A secondary color for mixing in the shader
-    zest_uint color_mix;                           //Intensity for the color_hint and the balance value to mix between the 2 colors (2 16bit floats)
-    zest_u64 padding;
-} zest_sprite_instance2_t;
-
 typedef struct zest_billboard_instance_t {         //56 bytes
     zest_vec3 position;                            //The position of the sprite
     zest_uint alignment;                           //Alignment x, y and z packed into a uint as 8bit floats
@@ -2234,29 +2223,6 @@ typedef struct zest_billboard_instance_t {         //56 bytes
     zest_color color;                              //The color tint of the sprite
     zest_u64 padding;
 } zest_billboard_instance_t;
-
-typedef struct zest_billboard_instance2_t {        //64 bytes - For 2 colored billboards
-    zest_vec3 position;                            //The position of the sprite
-    zest_uint alignment;                           //Alignment x, y and z packed into a uint as 8bit floats
-    zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch. This could be packed into 16bit floats if we need to save space, but the packing is swapping one overhead for another
-    zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
-    zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
-    zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
-    zest_color color;                              //The color tint of the sprite
-    zest_color color_hint;                         //A secondary color for mixing in the shader
-    zest_uint color_mix;                           //Intensity for the color_hint and the balance value to mix between the 2 colors (2 16bit floats)
-} zest_billboard_instance2_t;
-
-typedef struct zest_billboard_instance3_t {        //56 bytes - For 2 colored billboards
-    zest_vec3 position;                            //The position of the sprite
-    zest_uint alignment_life;                      //Alignment x, y and z packed into a uint as 8bit floats plus life value 
-    zest_vec4 rotations_stretch;                   //Pitch, yaw, roll and stretch. This could be packed into 16bit floats if we need to save space, but the packing is swapping one overhead for another
-    zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
-    zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
-    zest_uint intensity;                           //2 intensities for color and color hint
-    zest_uint mix_life;                            //The mix value for mixing between the 2 colors, and life of the particle
-    zest_uint texture_indexes;                     //4 indexes: 2 y positions for the color band position and 2 texture array indexes
-} zest_billboard_instance3_t;
 
 //SDF Lines
 typedef struct zest_shape_instance_t {
@@ -2370,6 +2336,7 @@ typedef struct zest_layer_t {
 
     const char *name;
 
+    zest_uint fif;
     zest_layer_buffers_t memory_refs[ZEST_MAX_FIF];
     zest_bool dirty[ZEST_MAX_FIF];
     zest_uint initial_instance_pool_size;
@@ -2849,8 +2816,8 @@ ZEST_PRIVATE void zest__set_queue_context(zest_setup_context_type context);
 ZEST_PRIVATE zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer);
 
 // --Draw layer internal functions
-ZEST_PRIVATE void zest__start_mesh_instructions(zest_layer instance_layer);
-ZEST_PRIVATE void zest__end_mesh_instructions(zest_layer instance_layer);
+ZEST_PRIVATE void zest__start_mesh_instructions(zest_layer layer);
+ZEST_PRIVATE void zest__end_mesh_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
 ZEST_PRIVATE void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer);
@@ -3931,13 +3898,18 @@ ZEST_API void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size
 ZEST_API void zest_DrawInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 //Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
 //instance layers more easily
-ZEST_API void zest_StartInstanceInstructions(zest_layer instance_layer);
+ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
+//Set the layer frame in flight to the next layer. Use this if you're manually setting the current fif for the layer so
+//that you can avoid uploading the staging buffers every frame and only do so when it's neccessary.
+ZEST_API void zest_ResetLayer(zest_layer layer);
+//Flags a layer to manual frame in flight so you can determine when the buffers should be uploaded to the GPU
+ZEST_API void zest_SetLayerToManualFIF(zest_layer layer);
 //End a set of draw instructs for a standard zest_layer
-ZEST_API void zest_EndInstanceInstructions(zest_layer instance_layer);
+ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
 //Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
 ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
 //Send all the draw commands for an instance layer to the GPU. This is generally called from the draw routine callback function: zest_DrawInstanceLayerCallback
-ZEST_API void zest_DrawInstanceLayer(zest_layer instance_layer, VkCommandBuffer command_buffer);
+ZEST_API void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer command_buffer);
 //Get the pointer to the current instance in the layer if it's an instanced based layer (meaning you're drawing instances of sprites, billboards meshes etc.)
 //This will return a void* so you can cast it to whatever struct you're using for the instance data
 #define zest_GetLayerInstance(type, layer) (type*)layer->memory_refs[ZEST_FIF].instance_ptr
@@ -3947,8 +3919,8 @@ ZEST_API void zest_NextInstance(zest_layer layer);
 ZEST_API zest_layer zest_NewLayer();
 //Set the viewport of a layer. This is important to set right as when the layer is drawn it needs to be clipped correctly and in a lot of cases match how the
 //uniform buffer is setup
-ZEST_API void zest_SetLayerViewPort(zest_layer instance_layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
-ZEST_API void zest_SetLayerScissor(zest_layer instance_layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height);
+ZEST_API void zest_SetLayerViewPort(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
+ZEST_API void zest_SetLayerScissor(zest_layer layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height);
 //Set the size of the layer. Called internally to set it to the window size. Can this be internal?
 ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
 //Set the scale of the layer. For example, you might have a layer which is 256x256 displaying in a window that is 1280x768, so you can set the scale to
@@ -4163,7 +4135,7 @@ ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
-ZEST_API void zest_DrawInstanceMeshLayer(zest_layer instance_layer, VkCommandBuffer command_buffer);
+ZEST_API void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer);
 //These are helper functions you can use to bind the vertex and index buffers in your custom mesh draw routine callback
 ZEST_API void zest_BindInstanceMeshVertexBuffer(zest_layer layer);
 ZEST_API void zest_BindInstanceMeshIndexBuffer(zest_layer layer);
