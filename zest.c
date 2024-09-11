@@ -6480,6 +6480,7 @@ zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size ins
     zest_layer layer = zest_NewLayer();
     layer->name = name;
     layer->layer_type = zest_builtin_layer_custom;
+    layer->draw_routine = draw_routine;
     zest_InitialiseInstanceLayer(layer, instance_size, 1000);
     zest_map_insert(ZestRenderer->layers, name, layer);
     draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
@@ -6506,6 +6507,7 @@ zest_layer zest_AddInstanceDrawRoutine(zest_draw_routine draw_routine) {
     ZEST_ASSERT(draw_routine);  //Must be valid draw_rouine, use zest_CreateDrawRoutine or zest_CreateInstanceDrawRoutine
     ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);    //The current setup context must be a render pass, layer or compute
     ZEST_ASSERT(draw_routine->draw_data);   //Draw data must have been set and should be a zest_layer handle
+    ZEST_ASSERT(((zest_layer)draw_routine->draw_data)->draw_routine == draw_routine);   //The layer in the draw routine must match this draw routin you're adding
     zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
     ZestRenderer->setup_context.type = zest_setup_context_type_layer;
     ZestRenderer->setup_context.draw_routine = draw_routine;
