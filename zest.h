@@ -3893,7 +3893,7 @@ ZEST_API void zest_SetActiveCommandQueue(zest_command_queue command_queue);
 //-----------------------------------------------
 //Create a new draw routine which you can use to set up your own custom drawing
 ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
-ZEST_API zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size instance_size);
+ZEST_API zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size instance_size, zest_size reserve_amount);
 //-- End Draw Routines
 
 //-----------------------------------------------

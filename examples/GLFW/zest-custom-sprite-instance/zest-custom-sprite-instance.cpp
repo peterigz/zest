@@ -100,7 +100,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_BuildPipeline(app->custom_pipeline);
 	//------------------------------------------
 
-	app->custom_draw_routine = zest_CreateInstanceDrawRoutine("custom sprites", sizeof(zest_custom_sprite_instance_t));
+	app->custom_draw_routine = zest_CreateInstanceDrawRoutine("custom sprites", sizeof(zest_custom_sprite_instance_t), 1000);
 
 	//Modify the existing default queue
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
