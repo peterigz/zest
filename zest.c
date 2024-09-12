@@ -6510,7 +6510,7 @@ zest_draw_routine zest_CreateDrawRoutine(const char* name) {
     return draw_routine;
 }
 
-zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size instance_size, zest_size reserve_amount) {
+zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size instance_size, zest_uint reserve_amount) {
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));    //A draw routine with that name already exists
     ZEST_ASSERT(instance_size > 0); //Must be an instace size greater than 0. You should just use sizeof(your_instance_struct)
 
