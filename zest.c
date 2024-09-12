@@ -2713,6 +2713,18 @@ zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible) {
     return buffer_info;
 }
 
+zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible) {
+    zest_buffer_info_t buffer_info = { 0 };
+    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    if (cpu_visible) {
+        buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    }
+    else {
+        buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
+    return buffer_info;
+}
+
 zest_buffer_info_t zest_CreateCPUVisibleStorageBufferInfo() {
     zest_buffer_info_t buffer_info = { 0 };
     buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -3731,6 +3743,20 @@ void zest_AddBuilderDescriptorWriteStorageBuffer(zest_descriptor_set_builder_t *
             zest_vec_push(builder->writes[i], write);
         }
     }
+}
+
+void zest_AddBuilderDescriptorWriteInstanceBuffer(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding) {
+    VkWriteDescriptorSet write = { 0 };
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = 0;
+    write.dstBinding = dst_binding;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    write.descriptorCount = 1;
+	for (ZEST_EACH_FIF_i) {
+		write.pBufferInfo = &layer->memory_refs[i].instance_descriptor;
+		zest_vec_push(builder->writes[i], write);
+	}
 }
 
 void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t* builder, zest_uint image_count, VkDescriptorImageInfo* view_image_infos, zest_uint dst_binding, VkDescriptorType type, zest_uint fif) {
@@ -9713,7 +9739,7 @@ void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_ui
     layer->layer_size = zest_Vec2Set1(1.f);
     layer->instance_struct_size = type_size;
 
-    zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
+    zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfoWithStorage(0);
     if (zest_GPUHasDeviceLocalHostVisible(type_size * instance_pool_size)) {
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for sprite layer" ZEST_NL);
         ZEST__FLAG(layer->flags, zest_layer_flag_device_local_direct);
@@ -9723,6 +9749,9 @@ void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_ui
     zest_buffer_info_t staging_buffer_info = zest_CreateStagingBufferInfo();
     for (ZEST_EACH_FIF_i) {
         layer->memory_refs[i].device_instance_data = zest_CreateBuffer(type_size * instance_pool_size, &device_buffer_info, ZEST_NULL);
+		layer->memory_refs[i].instance_descriptor.buffer = *zest_GetBufferDeviceBuffer(layer->memory_refs[i].device_instance_data);
+		layer->memory_refs[i].instance_descriptor.offset = layer->memory_refs[i].device_instance_data->memory_offset;
+		layer->memory_refs[i].instance_descriptor.range = layer->memory_refs[i].device_instance_data->size;
         if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
             layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(type_size * instance_pool_size, &staging_buffer_info, ZEST_NULL);
             layer->memory_refs[i].instance_ptr = layer->memory_refs[i].staging_instance_data->data;
@@ -9738,6 +9767,14 @@ void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_ui
     zest_SetLayerViewPort(layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
 
     zest_ResetInstanceLayerDrawing(layer);
+}
+
+void zest_UpdateInstanceLayerDescriptorInfo(zest_layer layer) {
+    for (ZEST_EACH_FIF_i) {
+        layer->memory_refs[i].instance_descriptor.buffer = *zest_GetBufferDeviceBuffer(layer->memory_refs[i].device_instance_data);
+        layer->memory_refs[i].instance_descriptor.offset = layer->memory_refs[i].device_instance_data->memory_offset;
+        layer->memory_refs[i].instance_descriptor.range = layer->memory_refs[i].device_instance_data->size;
+    }
 }
 
 void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch) {

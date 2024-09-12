@@ -2301,6 +2301,8 @@ typedef struct zest_layer_buffers_t {
     zest_buffer write_to_buffer;
     zest_buffer write_to_index_buffer;
 
+    VkDescriptorBufferInfo instance_descriptor;
+
     zest_uint instance_count;
     zest_uint index_count;
     zest_uint index_position;
@@ -3003,6 +3005,8 @@ ZEST_API void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t 
 ZEST_API void zest_AddBuilderDescriptorWriteUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uniform_buffer buffer, zest_uint dst_binding);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a storage buffer.
 ZEST_API void zest_AddBuilderDescriptorWriteStorageBuffer(zest_descriptor_set_builder_t *builder, zest_descriptor_buffer buffer, zest_uint dst_binding);
+//Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a storage buffer.
+ZEST_API void zest_AddBuilderDescriptorWriteInstanceLayer(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding);
 //Add an array of VkDescriptorImageInfos to a descriptor set builder.
 ZEST_API void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t *builder, zest_uint image_count, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type, zest_uint fif);
 //Build a zest_descriptor_set_t using a builder that you made using the AddBuilder command. The layout that you pass to this function must be configured properly.
@@ -3177,6 +3181,7 @@ ZEST_API zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buff
 ZEST_API zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 //The following functions can be used to generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
+ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeIndexBufferInfo(void);
@@ -3902,9 +3907,12 @@ ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
 //Set the layer frame in flight to the next layer. Use this if you're manually setting the current fif for the layer so
 //that you can avoid uploading the staging buffers every frame and only do so when it's neccessary.
 ZEST_API void zest_ResetLayer(zest_layer layer);
+//Same as ResetLayer but specifically for an instance layer
 ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
 //Flags a layer to manual frame in flight so you can determine when the buffers should be uploaded to the GPU
 ZEST_API void zest_SetLayerToManualFIF(zest_layer layer);
+//Upate the descriptor info for the layer. Call this if the buffer is resized, will be done automatically when NextInstance is called
+ZEST_API void zest_UpdateInstanceLayerDescriptorInfo(zest_layer layer);
 //End a set of draw instructs for a standard zest_layer
 ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
 //Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
