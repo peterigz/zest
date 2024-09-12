@@ -3759,6 +3759,21 @@ void zest_AddBuilderDescriptorWriteInstanceLayer(zest_descriptor_set_builder_t *
 	}
 }
 
+void zest_AddBuilderDescriptorWriteInstanceLayerLerp(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding) {
+    VkWriteDescriptorSet write = { 0 };
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = 0;
+    write.dstBinding = dst_binding;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    write.descriptorCount = 1;
+	for (ZEST_EACH_FIF_i) {
+        int index = (int)i - 1 < 0 ? ZEST_MAX_FIF - 1 : (int)i - 1;
+		write.pBufferInfo = &layer->memory_refs[index].instance_descriptor;
+		zest_vec_push(builder->writes[i], write);
+	}
+}
+
 void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t* builder, zest_uint image_count, VkDescriptorImageInfo* view_image_infos, zest_uint dst_binding, VkDescriptorType type, zest_uint fif) {
     VkWriteDescriptorSet write = { 0 };
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

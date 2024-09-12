@@ -3005,8 +3005,13 @@ ZEST_API void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t 
 ZEST_API void zest_AddBuilderDescriptorWriteUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uniform_buffer buffer, zest_uint dst_binding);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a storage buffer.
 ZEST_API void zest_AddBuilderDescriptorWriteStorageBuffer(zest_descriptor_set_builder_t *builder, zest_descriptor_buffer buffer, zest_uint dst_binding);
-//Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a storage buffer.
+//Add a VkDescriptorBufferInfo from a zest_layer instance buffer.
 ZEST_API void zest_AddBuilderDescriptorWriteInstanceLayer(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding);
+//Add a VkDescriptorBufferInfo from a zest_layer instance buffer for the purpose of interpolating in the shader.
+//This will assign the buffer to the descriptor so that the previous frame in fligh will be set. This means that you can then access
+//the preview frame in flight instance buffer in the vertex shader as a storage buffer and use it to interpolate position and other 
+//attributes of the instance.
+ZEST_API void zest_AddBuilderDescriptorWriteInstanceLayerLerp(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding);
 //Add an array of VkDescriptorImageInfos to a descriptor set builder.
 ZEST_API void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t *builder, zest_uint image_count, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type, zest_uint fif);
 //Build a zest_descriptor_set_t using a builder that you made using the AddBuilder command. The layout that you pass to this function must be configured properly.
