@@ -3745,7 +3745,7 @@ void zest_AddBuilderDescriptorWriteStorageBuffer(zest_descriptor_set_builder_t *
     }
 }
 
-void zest_AddBuilderDescriptorWriteInstanceBuffer(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding) {
+void zest_AddBuilderDescriptorWriteInstanceLayer(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding) {
     VkWriteDescriptorSet write = { 0 };
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = 0;
