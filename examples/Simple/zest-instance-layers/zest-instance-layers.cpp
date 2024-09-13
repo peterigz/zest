@@ -11,8 +11,9 @@ typedef struct zest_example {
 	zest_pipeline mesh_pipeline;				//The pipeline for drawing the textured plane
 	zest_camera_t camera;						//A camera for the 3d view
 	zest_uniform_buffer uniform_buffer_3d;		//A uniform buffer to contain the projection and view matrix
-	zest_descriptor_set sprite_descriptor;		//Handle for the sprite descriptor
-	zest_descriptor_set billboard_descriptor;	//Hanlde for the billboard descriptor
+	zest_descriptor_set uniform_descriptor_set_3d;		//A descriptor set for the 3d uniform buffer
+	zest_shader_resources sprite_shader_resources;		//Handle for the sprite descriptor
+	zest_shader_resources billboard_shader_resources;	//Handle for the billboard shader resources
 	zest_vec3 last_position;
 } zest_example;
 
@@ -37,13 +38,14 @@ void InitExample(zest_example *example) {
 	//To save having to lookup these handles in the mainloop, we can look them up here in advance and store the handles in our example struct
 	example->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites");
 	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
-	example->sprite_descriptor = zest_GetTextureDescriptorSet(example->texture);
+	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, example->texture);
 	example->billboard_pipeline = zest_Pipeline("pipeline_billboard");
 	example->mesh_pipeline = zest_Pipeline("pipeline_mesh");
 	//Create a new uniform buffer for the 3d view
 	example->uniform_buffer_3d = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
+	example->uniform_descriptor_set_3d = zest_CreateUniformDescriptorSet(example->uniform_buffer_3d);
 	//Create a new descriptor set to use the 3d uniform buffer
-	example->billboard_descriptor = zest_CreateSimpleTextureDescriptorSet(example->texture, "example 3d uniform");
+	example->billboard_shader_resources = zest_CombineUniformAndTextureSampler(example->uniform_descriptor_set_3d, example->texture);
 	//Get the sprite draw commands and set the clear color for its render pass
 	zest_command_queue_draw_commands sprite_draw = zest_GetDrawCommands("Default Draw Commands");
 	sprite_draw->cls_color = zest_Vec4Set1(0.25f);
@@ -66,6 +68,7 @@ void InitExample(zest_example *example) {
 		//Finish modifying the queue
 		zest_FinishQueueSetup();
 	}
+	zest_SetLayerToManualFIF(example->billboard_layer);
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
@@ -83,7 +86,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//You must call this command before doing any sprite draw to set the current texture, descriptor and pipeline to draw with.
 	//Call this function anytime that you need to draw with a different texture. Note that a single texture and contain many images
 	//you can draw a lot with a single draw call
-	zest_SetInstanceDrawing(example->sprite_layer, example->texture, example->sprite_descriptor, example->sprite_pipeline);
+	zest_SetInstanceDrawing(example->sprite_layer, example->sprite_shader_resources, example->sprite_pipeline);
 	//Set the alpha of the sprite layer to 0. This means that the sprites will be additive. 1 = alpha blending and anything imbetween
 	//is a mix between the two.
 	example->sprite_layer->current_color.a = 0;
@@ -100,8 +103,9 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//Draw a textured sprite to the sprite (basically a textured rect). 
 	zest_DrawTexturedSprite(example->sprite_layer, example->image, 600.f, 100.f, 500.f, 500.f, 1.f, 1.f, 0.f, 0.f);
 
+	zest_ResetInstanceLayer(example->billboard_layer);
 	//Now lets draw a billboard. Similar to the sprite, we must call this command before any billboard drawing.
-	zest_SetInstanceDrawing(example->billboard_layer, example->texture, example->billboard_descriptor, example->billboard_pipeline);
+	zest_SetInstanceDrawing(example->billboard_layer, example->billboard_shader_resources, example->billboard_pipeline);
 	//Get a pointer to the uniform buffer data and cast it to the struct that we're storing there
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(example->uniform_buffer_3d);
 	//Use the projection and view matrices in the buffer to project the mouse coordinates into 3d space.
@@ -116,7 +120,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//Draw the billboard
 	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
 	//Now set the mesh drawing so that we can draw a textured plane
-	zest_SetMeshDrawing(example->mesh_layer, example->texture, example->billboard_descriptor, example->mesh_pipeline);
+	zest_SetMeshDrawing(example->mesh_layer, example->billboard_shader_resources, example->mesh_pipeline);
 	//Draw the textured plane
 	zest_DrawTexturedPlane(example->mesh_layer, example->image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 	example->last_position = position;
@@ -134,7 +138,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	zest_create_info_t create_info = zest_CreateInfo();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
-	//create_info.log_path = "./";
+	create_info.log_path = "./";
 
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);

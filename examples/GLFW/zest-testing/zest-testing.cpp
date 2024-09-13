@@ -368,11 +368,11 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->descriptor_layout = zest_AddDescriptorLayout("mesh descriptor set", zest_CreateDescriptorSetLayout(1, 0, 0));
 	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
 	zest_AddBuilderDescriptorWriteUniformBuffer(&set_builder, zest_GetUniformBuffer("3d uniform"), 0);
-	app->descriptor_set = zest_BuildDescriptorSet(&set_builder, app->descriptor_layout);
+	app->descriptor_set = zest_BuildDescriptorSet(&set_builder, app->descriptor_layout->layouts[0]);
 
 	zest_pipeline_template_create_info_t custom_mesh_pipeline = zest_CopyTemplateFromPipeline("pipeline_mesh_instance");
 	app->mesh_instance_pipeline = zest_AddPipeline("pipeline_mesh_instance_custom");
-    app->mesh_instance_pipeline->descriptor_layout = zest_GetDescriptorSetLayout("Polygon layout (no sampler)");
+    app->mesh_instance_pipeline->descriptor_layouts = zest_GetDescriptorSetLayout("Polygon layout (no sampler)");
 	zest_SetPipelineTemplateShader(&custom_mesh_pipeline, "mesh_instance_custom.spv", "examples/assets/spv/");
 	zest_MakePipelineTemplate(app->mesh_instance_pipeline, zest_GetStandardRenderPass(), &custom_mesh_pipeline);
 	zest_BuildPipeline(app->mesh_instance_pipeline);
@@ -1211,8 +1211,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);

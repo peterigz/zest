@@ -58,17 +58,21 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_sprite_vert.spv", true, 1);
 
 	//We need to make a custom descriptor set and layout that can sample from 2 different textures (the image and the color ramps)
-    app->custom_descriptor_set_layout = zest_AddDescriptorLayout("Standard 1 uniform 2 samplers", zest_CreateDescriptorSetLayout(1, 2, 0));
-	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
-	zest_AddBuilderDescriptorWriteUniformBuffer(&set_builder, zest_GetUniformBuffer("Standard 2d Uniform Buffer"), 0);
-	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->test_texture), 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->color_ramps_texture), 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	app->custom_descriptor_set = zest_BuildDescriptorSet(&set_builder, app->custom_descriptor_set_layout);
+    app->custom_descriptor_set_layout = zest_AddDescriptorLayout("2 samplers", zest_CreateDescriptorSetLayout(0, 0, 2));
+	zest_descriptor_set_builder_t sampler_set_builder = zest_NewDescriptorSetBuilder();
+	zest_AddBuilderDescriptorWriteImage(&sampler_set_builder, zest_GetTextureDescriptorImageInfo(app->test_texture), 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	zest_AddBuilderDescriptorWriteImage(&sampler_set_builder, zest_GetTextureDescriptorImageInfo(app->color_ramps_texture), 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	app->custom_descriptor_set = zest_BuildDescriptorSet(&sampler_set_builder, app->custom_descriptor_set_layout, zest_descriptor_type_dynamic);
+
+	app->shader_resources = zest_CreateShaderResources();
+	zest_AddDescriptorSetToResources(app->shader_resources, ZestRenderer->uniform_descriptor_set);
+	zest_AddDescriptorSetToResources(app->shader_resources, &app->custom_descriptor_set);
 
 	//Create a new pipeline using our custom sprite struct for the binding descriptions
 	//Start with creating a fresh pipeline template
 	zest_pipeline_template_create_info_t instance_create_info = zest_CreatePipelineTemplateCreateInfo();
-	instance_create_info.descriptorSetLayout = app->custom_descriptor_set_layout;
+
+	zest_AddPipelineTemplateDescriptorLayout(&instance_create_info, app->custom_descriptor_set_layout->vk_layout);
 	instance_create_info.viewport.extent = zest_GetSwapChainExtent();
 	//Add a vertex input binding description specifying the size of the custom sprite instance struct
 	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(zest_custom_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
@@ -160,7 +164,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 
 	//Set the pipeline and descriptor set to use in the layer for our custom sprite drawing
-	zest_SetInstanceDrawing(app->custom_layer, 0, &app->custom_descriptor_set, app->custom_pipeline);
+	zest_SetInstanceDrawing(app->custom_layer, 0, app->shader_resources, app->custom_pipeline);
 	zest_DrawCustomSprite(app->custom_layer, app->test_image, 800.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f, {app->lerp_value, app->mix_value});
 }
 

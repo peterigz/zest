@@ -90,6 +90,13 @@ void ShapeLoader(const char* filename, tfx_image_data_t *image_data, void *raw_i
 	}
 }
 
+void GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
+	zest_image image = (static_cast<zest_image>(ptr) + offset);
+	image_data->uv = { image->uv.x, image->uv.y, image->uv.z, image->uv.w };
+	image_data->texture_array_index = image->layer;
+	image_data->uv_packed = image->uv_packed;
+}
+
 //Allows us to cast a ray into the screen from the mouse position to place an effect where we click
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_descriptor_buffer buffer) {
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
@@ -107,7 +114,7 @@ void TimelineFXExample::Init() {
 	int shape_count = GetShapeCountInLibrary("examples/assets/vaders/vadereffects.tfx");
 	particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, zest_texture_flag_use_filtering, zest_texture_format_rgba, shape_count);
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
-	LoadEffectLibrary("examples/assets/effects.tfx", &library, ShapeLoader, this);
+	LoadEffectLibrary("examples/assets/effects.tfx", &library, ShapeLoader, GetUV, this);
 	//Renderer specific
 	zest_ProcessTextureImages(particle_texture);
 	particle_descriptor = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d uniform");
@@ -186,32 +193,12 @@ void RenderParticles3d(tfx_particle_manager_t& pm, float tween, TimelineFXExampl
 	//for(tfxEachLayer) {
 	//and that will output exactly the same code as the below line
 	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
-		//tfx_sprite_soa_t is a struct of arrays so first get a pointer to it from the particle manager
-		tfx_sprite_soa_t *sprites = SpritesInLayer(&pm, layer);
-		//Now loop over all the sprites in the layer
-		for (int i = 0; i != SpritesInLayerCount(&pm, layer); ++i) {
-			//Set the color to draw the sprite using the sprite color. Note that bacuase this is a struct of arrays we access each sprite element
-			//using an array lookup
-			zest_SetLayerColor(game->billboard_layer, sprites->color[i].r, sprites->color[i].g, sprites->color[i].b, sprites->color[i].a);
-			//Set the instensity of the sprite.
-			zest_SetLayerIntensity(game->billboard_layer, sprites->intensity[i]);
-			//Grab the image pointer from the emitter properties in the library
-			zest_image image = (zest_image)GetSpriteImagePointer(&pm, sprites->property_indexes[i]);
-			//Grab the sprite handle which is used to offset the position of the sprite
-			tfx_vec2_t handle = GetSpriteHandle(&pm, sprites->property_indexes[i]);
-			//Render specific functino to draw a billboard to the screen using the values in the sprite data
-			zest_DrawBillboard(game->billboard_layer, image + ((sprites->property_indexes[i] & 0x00FF0000) >> 16),
-				&sprites->transform_3d[i].position.x,
-				sprites->alignment[i],
-				&sprites->transform_3d[i].rotations.x,
-				&handle.x,
-				sprites->stretch[i],
-				(sprites->property_indexes[i] & 0xFF000000) >> 24,
-				sprites->transform_3d[i].scale.x, sprites->transform_3d[i].scale.y);
-		}
+		tfx_sprite_instance_t *sprites = tfxCastBufferRef(tfx_sprite_instance_t, pm.instance_buffer[pm.current_sprite_buffer][layer]);
+		zest_DrawInstanceBulk(game->billboard_layer, sprites, pm.instance_buffer[pm.current_sprite_buffer][layer].current_size);
 	}
 }
 
+/*
 //A simple example to render the particles. This is for when the particle manager groups all it's sprites by effect so that you can draw the effects in different orders if you need
 void RenderParticles3dGroupedByEffect(tfx_particle_manager_t& pm, float tween, TimelineFXExample* game) {
 	//Let our renderer know that we want to draw to the billboard layer.
@@ -250,6 +237,7 @@ void RenderParticles3dGroupedByEffect(tfx_particle_manager_t& pm, float tween, T
 	}
 	ResetSpriteBufferLoopIndex(&pm);
 }
+*/
 
 //Application specific, this just sets the function to call each render update
 void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
@@ -300,7 +288,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	zest_TimerSet(game->timer);
 
 	//Render the particles with our custom render function
-	RenderParticles3dGroupedByEffect(game->pm, (float)game->timer->lerp, game);
+	RenderParticles3d(game->pm, (float)game->timer->lerp, game);
 	zest_imgui_UpdateBuffers(game->imgui_layer_info.mesh_layer);
 }
 

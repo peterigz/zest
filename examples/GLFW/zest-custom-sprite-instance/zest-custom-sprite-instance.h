@@ -32,6 +32,7 @@ struct ImGuiApp {
 	zest_bitmap_t color_ramps_bitmap;
 	zest_descriptor_set_layout custom_descriptor_set_layout;
 	zest_descriptor_set_t custom_descriptor_set;
+	zest_shader_resources shader_resources;
 
 	zest_vertex_input_descriptions custom_sprite_vertice_attributes = 0;	//Must be zero'd
 	zest_pipeline custom_pipeline;
@@ -54,8 +55,8 @@ layout(location = 1) in float mix_value;
 layout(location = 2) in flat ivec4 in_color_ramp_coords;
 layout(location = 3) in vec2 intensity;
 layout(location = 0) out vec4 outColor;
-layout(binding = 1) uniform sampler2DArray texSampler;
-layout(binding = 2) uniform sampler2DArray color_ramps;
+layout(set = 1, binding = 0) uniform sampler2DArray texSampler;
+layout(set = 1, binding = 1) uniform sampler2DArray color_ramps;
 
 void main() {
 	vec4 texel = texture(texSampler, in_tex_coord);
@@ -75,7 +76,7 @@ const int indexes[6] = int[6](0, 1, 2, 2, 1, 3);
 const float scale_max_value = 4096.0 / 32767.0;
 const float handle_max_value = 128.0 / 32767.0;
 
-layout(binding = 0) uniform UboView
+layout(set = 0, binding = 0) uniform UboView
 {
 	mat4 view;
 	mat4 proj;

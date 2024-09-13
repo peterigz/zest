@@ -30,6 +30,7 @@ struct ImGuiApp {
 	zest_texture gradient_texture;
 	zest_descriptor_set_layout descriptor_layout;
 	zest_descriptor_set_t descriptor_set;
+	zest_shader_resources shader_resources;
 
 	zest_descriptor_buffer particle_buffer;
 	zest_pipeline particle_pipeline;
@@ -39,6 +40,7 @@ struct ImGuiApp {
 	zest_command_queue_compute compute_commands;
 	zest_draw_routine draw_routine;
 	zest_command_queue command_queue;
+    VkDescriptorSet *draw_sets;
 
 	float frame_timer;
 	float anim_start;
