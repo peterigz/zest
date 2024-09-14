@@ -23,6 +23,7 @@ struct TimelineFXExample {
 	zest_timer timer;
 	zest_camera_t camera;
 	zest_texture particle_texture;
+	zest_shader_resources shader_resources;
 	zest_texture imgui_font_texture;
 
 	tfx_library_t library;
@@ -34,7 +35,7 @@ struct TimelineFXExample {
 	tfxEffectID effect_id;
 	zest_layer billboard_layer;
 	zest_descriptor_buffer uniform_buffer_3d;
-	zest_descriptor_set particle_descriptor;
+	zest_descriptor_set uniform_descriptor;
 	zest_pipeline billboard_pipeline;
 
 	zest_imgui_layer_info imgui_layer_info;
@@ -117,8 +118,10 @@ void TimelineFXExample::Init() {
 	LoadEffectLibrary("examples/assets/effects.tfx", &library, ShapeLoader, GetUV, this);
 	//Renderer specific
 	zest_ProcessTextureImages(particle_texture);
-	particle_descriptor = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d uniform");
 	zest_RefreshTextureDescriptors(particle_texture);
+	uniform_descriptor = zest_CreateUniformDescriptorSet(uniform_buffer_3d);
+	shader_resources = zest_CombineUniformAndTextureSampler(uniform_descriptor, particle_texture);
+
 
 	//Application specific, set up a timer for the update loop
 	timer = zest_CreateTimer(60);
@@ -187,7 +190,7 @@ void BuildUI(TimelineFXExample *game) {
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
 void RenderParticles3d(tfx_particle_manager_t& pm, float tween, TimelineFXExample* game) {
 	//Let our renderer know that we want to draw to the billboard layer.
-	zest_SetInstanceDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
+	zest_SetInstanceDrawing(game->billboard_layer, game->shader_resources, game->billboard_pipeline);
 	//Cycle through each layer
 	//There is also a macro :tfxEachLayer which you could use like so:
 	//for(tfxEachLayer) {

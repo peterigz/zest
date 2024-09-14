@@ -164,7 +164,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 
 	//Set the pipeline and descriptor set to use in the layer for our custom sprite drawing
-	zest_SetInstanceDrawing(app->custom_layer, 0, app->shader_resources, app->custom_pipeline);
+	zest_SetInstanceDrawing(app->custom_layer, app->shader_resources, app->custom_pipeline);
 	zest_DrawCustomSprite(app->custom_layer, app->test_image, 800.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f, {app->lerp_value, app->mix_value});
 }
 

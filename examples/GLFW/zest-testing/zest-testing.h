@@ -465,9 +465,9 @@ struct ImGuiApp {
 	zest_vec3 first_intersection;
 	zest_vec3 widget_dragged_amount;
 	zest_vec3 clicked_widget_position;
-	zest_uniform_buffer uniform_buffer_3d;
-	zest_descriptor_set_layouts descriptor_layout;
-	zest_descriptor_set_t descriptor_set;
+	zest_shader_resources billboard_shader_resources;
+	zest_shader_resources floor_shader_resources;
+	zest_shader_resources mesh_shader_resources;
 	zest_vec3 plane_normals[6];
 	zest_axis_flags current_axis;
 	zest_vec3 angles;

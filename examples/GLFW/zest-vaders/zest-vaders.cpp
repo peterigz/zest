@@ -137,8 +137,9 @@ struct VadersGame {
 	zest_layer font_layer;
 	zest_layer billboard_layer;
 	zest_descriptor_buffer uniform_buffer_3d;
-	zest_descriptor_set billboard_descriptor;
-	zest_descriptor_set particle_descriptor[2];
+	zest_descriptor_set uniform_descriptor;
+	zest_shader_resources tfx_shader_resources;
+	zest_shader_resources billboard_shader_resources;
 	zest_uint particle_ds_index;
 	zest_pipeline billboard_pipeline;
 
@@ -298,6 +299,13 @@ void ShapeLoader(const char* filename, tfx_image_data_t *image_data, void *raw_i
 	}
 }
 
+void GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
+	zest_image image = (static_cast<zest_image>(ptr) + offset);
+	image_data->uv = { image->uv.x, image->uv.y, image->uv.z, image->uv.w };
+	image_data->texture_array_index = image->layer;
+	image_data->uv_packed = image->uv_packed;
+}
+
 //Function to project 2d screen coordinates into 3d space
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_descriptor_buffer buffer) {
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
@@ -310,16 +318,6 @@ tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_pos
 void UpdateGotPowerUpEffect(tfx_particle_manager_t *pm, tfxEffectID effect_index) {
 	VadersGame *game = static_cast<VadersGame*>(GetEffectUserData(pm, effect_index));
 	SetEffectPosition(pm, effect_index, game->player.position);
-}
-
-void RecreateParticleDescriptorSet(zest_texture texture, void *user_data) {
-	VadersGame *game = static_cast<VadersGame *>(user_data);
-	game->particle_ds_index = game->particle_ds_index ^ 1;
-	int i = game->particle_ds_index;
-	if (game->particle_descriptor[i]) {
-		zest_FreeDescriptorSets(game->particle_descriptor[i]);
-	}
-	game->particle_descriptor[game->particle_ds_index] = zest_CreateSimpleTextureDescriptorSet(game->particle_texture, "3d uniform");
 }
 
 //Initialise the game and set up the renderer
@@ -342,7 +340,7 @@ void VadersGame::Init() {
 	uniform_buffer_3d = zest_CreateUniformBuffer("3d uniform", sizeof(zest_uniform_buffer_data_t));
 	//Create a descriptor set for the texture that uses the 3d uniform buffer
 	particle_ds_index = 0;
-	billboard_descriptor = zest_CreateSimpleTextureDescriptorSet(sprite_texture, "3d uniform");
+	uniform_descriptor = zest_CreateUniformDescriptorSet(uniform_buffer_3d);
 	//Store the handle of the billboard pipeline so we don't have to look it up each frame
 	billboard_pipeline = zest_Pipeline("pipeline_billboard");
 
@@ -351,14 +349,12 @@ void VadersGame::Init() {
 	//Create another texture to store all of the particle shapes
 	particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, 0, zest_texture_format_rgba, 0);
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
-	LoadEffectLibrary("examples/assets/vaders/vadereffects.tfx", &library, ShapeLoader, this);
+	LoadEffectLibrary("examples/assets/vaders/vadereffects.tfx", &library, ShapeLoader, GetUV, this);
 
 	//Process the particle images in the texture
 	zest_ProcessTextureImages(particle_texture);
-	particle_descriptor[0] = {0};
-	particle_descriptor[1] = {0};
 	//Create a descriptor set for the texture that uses the 3d uniform buffer
-	particle_descriptor[particle_ds_index] = zest_CreateSimpleTextureDescriptorSet(particle_texture, "3d uniform");
+	tfx_shader_resources = zest_CombineUniformAndTextureSampler(uniform_descriptor, particle_texture);
 	zest_SetTextureUserData(particle_texture, this);
 
 	//Specific, set up a timer for the update loop
@@ -936,7 +932,7 @@ void BuildUI(VadersGame *game) {
 	ImGui::Checkbox("Texture Filtering", &filtering);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
 		zest_SetTextureUseFiltering(game->particle_texture, filtering);
-		zest_ScheduleTextureReprocess(game->particle_texture, RecreateParticleDescriptorSet);
+		zest_ProcessTextureImages(game->particle_texture);
 	}
 	ImGui::Checkbox("Sync FPS", &sync_fps);
 	if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -1011,7 +1007,7 @@ void RenderParticles3d(tfx_particle_manager_t &pm, float tween, VadersGame *game
 	//Renderer specific, get the layer that we will draw on (there's only one layer in this example)
 	tfxWideFloat lerp = tfxWideSetSingle(tween);
 	//Set the billboard drawing to use the particle texture
-	zest_SetInstanceDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor[game->particle_ds_index], game->billboard_pipeline);
+	zest_SetInstanceDrawing(game->billboard_layer, game->tfx_shader_resources, game->billboard_pipeline);
 	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
 		tfx_sprite_soa_t &sprites = pm.sprites[pm.current_sprite_buffer][layer];
 		for (int i = 0; i != pm.sprite_buffer[pm.current_sprite_buffer][layer].current_size; ++i) {
@@ -1041,7 +1037,7 @@ void RenderEffectParticles(tfx_particle_manager_t &pm, float tween, VadersGame *
 	//Renderer specific, get the layer that we will draw on (there's only one layer in this example)
 	tfxWideFloat lerp = tfxWideSetSingle(tween);
 	//Set the billboard drawing to use the particle texture
-	zest_SetInstanceDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor[game->particle_ds_index], game->billboard_pipeline);
+	zest_SetInstanceDrawing(game->billboard_layer, game->tfx_shader_resources, game->billboard_pipeline);
 	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
 		tfx_sprite_soa_t* sprites = nullptr;
 		tfx_effect_sprites_t* effect_sprites = nullptr;

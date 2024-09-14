@@ -17,6 +17,7 @@ struct ImGuiApp {
 	zest_pipeline custom_pipeline;
 	zest_shader custom_frag_shader;
 	zest_shader custom_vert_shader;
+	zest_shader_resources shader_resources;
 	zest_layer custom_layer;
 	shaderc_compilation_result_t validation_result;
 	float mix_value;
@@ -33,7 +34,7 @@ layout(location = 0) in vec4 in_frag_color;
 layout(location = 1) in vec3 in_tex_coord;
 layout(location = 2) in float mix_value;
 layout(location = 0) out vec4 outColor;
-layout(binding = 1) uniform sampler2DArray texSampler;
+layout(set = 1, binding = 0) uniform sampler2DArray texSampler;
 
 void main() {
 	vec4 texel = texture(texSampler, in_tex_coord);
@@ -50,7 +51,7 @@ const int indexes[6] = int[6](0, 1, 2, 2, 1, 3);
 const float size_max_value = 4096.0 / 32767.0;
 const float handle_max_value = 128.0 / 32767.0;
 
-layout(binding = 0) uniform UboView
+layout(set = 0, binding = 0) uniform UboView
 {
 	mat4 view;
 	mat4 proj;

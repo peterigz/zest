@@ -68,7 +68,6 @@ void InitExample(zest_example *example) {
 		//Finish modifying the queue
 		zest_FinishQueueSetup();
 	}
-	zest_SetLayerToManualFIF(example->billboard_layer);
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
@@ -103,7 +102,6 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//Draw a textured sprite to the sprite (basically a textured rect). 
 	zest_DrawTexturedSprite(example->sprite_layer, example->image, 600.f, 100.f, 500.f, 500.f, 1.f, 1.f, 0.f, 0.f);
 
-	zest_ResetInstanceLayer(example->billboard_layer);
 	//Now lets draw a billboard. Similar to the sprite, we must call this command before any billboard drawing.
 	zest_SetInstanceDrawing(example->billboard_layer, example->billboard_shader_resources, example->billboard_pipeline);
 	//Get a pointer to the uniform buffer data and cast it to the struct that we're storing there

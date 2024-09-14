@@ -42,6 +42,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->validation_result = nullptr;
 	app->mix_value = 0.f;
 
+	app->shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, app->test_texture);
+
 	//Modify the existing default queue
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
@@ -207,7 +209,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 
-	zest_SetInstanceDrawing(app->custom_layer, app->test_texture, 0, app->custom_pipeline);
+	zest_SetInstanceDrawing(app->custom_layer, app->shader_resources, app->custom_pipeline);
 	app->custom_layer->push_constants.parameters1.x = app->mix_value;
 	zest_SetLayerIntensity(app->custom_layer, 3.f);
 	zest_SetLayerColor(app->custom_layer, 255, 128, 64, 0);
@@ -222,7 +224,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	//create_info.log_path = ".";
+	create_info.log_path = ".";
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
 

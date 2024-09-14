@@ -15,8 +15,16 @@ void InitExample(RenderTargetExample *example) {
 	//Add the push constant range to the shader 
 	zest_AddPipelineTemplatePushConstantRange(&create_info, image_pushconstant_range);
 	//Set the vert and frag shaders for the blur effect
-	zest_SetPipelineTemplateVertShader(&create_info, "blur_vert.spv", "examples/assets/spv/");
-	zest_SetPipelineTemplateFragShader(&create_info, "blur_frag.spv", "examples/assets/spv/");
+
+	example->blur_frag_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.frag", "blur_frag.spv", shaderc_fragment_shader, 1);
+	example->blur_vert_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.vert", "blur_vert.spv", shaderc_vertex_shader, 1);
+	
+	zest_SetPipelineTemplateVertShader(&create_info, "blur_vert.spv", 0);
+	zest_SetPipelineTemplateFragShader(&create_info, "blur_frag.spv", 0);
+	//Add a descriptor set layout for the pipeline, it only needs a single sampler for the fragment shader.
+	//Clear the current layouts that are in the pipeline.
+	zest_ClearPipelineTemplateDescriptorLayouts(&create_info);
+    zest_AddPipelineTemplateDescriptorLayout(&create_info, *zest_GetDescriptorSetLayout("1 sampler"));
 	//Theres no vertex data for the shader so set no_vertex_input to true
 	create_info.no_vertex_input = true;
 	//Add a new pipeline for the blur effect
@@ -121,6 +129,11 @@ void InitExample(RenderTargetExample *example) {
 	example->wabbit = zest_AddTextureImageFile(example->texture, "examples/assets/wabbit_alpha.png");
 	//Process the images so the texture is ready to use
 	zest_ProcessTextureImages(example->texture);
+	//Create the shader resources for the texture and sprite drawing. This will take in a builtin uniform buffer descriptor set
+	//and the texture containing the sprites and create the shader resources for them.
+	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, example->texture);
+	//Do the same with the final blur render target so that can also be drawn to the screen anywhere we want
+	example->rt_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, zest_GetRenderTargetTexture(example->final_blur));
 	//Load a font
 	example->font = zest_LoadMSDFFont("examples/assets/SourceSansPro-Regular.zft");
 	//Set an initial position for the rabbit.
@@ -134,7 +147,7 @@ void AddHorizontalBlur(zest_render_target_t *target, void *data) {
 	//Grab the example struct from the user data set in the call to zest_AddPostProcessRenderTarget
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(data);
 	//Bind our custom blur pipeline that we created
-	zest_BindPipeline(example->blur_pipeline, *zest_GetRenderTargetSourceDescriptorSet(target));
+	zest_BindPipeline(example->blur_pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
 	//Set the pusch constant to tell the shader to blur horizontally
 	example->push_constants.blur.x = 1.f;
 	example->push_constants.blur.y = 1.f;
@@ -152,7 +165,7 @@ void AddVerticalBlur(zest_render_target_t *target, void *data) {
 	//Grab the example struct from the user data set in the call to zest_AddPostProcessRenderTarget
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(data);
 	//Bind our custom blur pipeline that we created
-	zest_BindPipeline(example->blur_pipeline, *zest_GetRenderTargetSourceDescriptorSet(target));
+	zest_BindPipeline(example->blur_pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
 	//Set the pusch constant to tell the shader to blur vertically
 	example->push_constants.blur.x = 1.f;
 	example->push_constants.blur.y = 1.f;
@@ -178,12 +191,12 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//delta time for calculating the speed of the rabbit
 	float delta = (float)elapsed / ZEST_MICROSECS_SECOND;
 
-	//Set the sprite drawing to use the texture with our images
-	zest_SetInstanceDrawing(example->base_layer, example->texture, 0, zest_Pipeline("pipeline_2d_sprites"));
+	//Set the sprite drawing to use the shader resources we created earlier
+	zest_SetInstanceDrawing(example->base_layer, example->sprite_shader_resources, zest_Pipeline("pipeline_2d_sprites"));
 	//Set the layer intensity
 	zest_SetLayerIntensity(example->base_layer, 1.f);
 	//Draw the statue sprite to cover the screen
-	zest_DrawSprite(example->base_layer, example->image, zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f);
+	zest_DrawSprite(example->base_layer, example->image, 0.f, 0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 0.f, 0, 0.f);
 	//bounce the rabbit if it hits the screen edge
 	if (example->wabbit_pos.x >= zest_ScreenWidthf()) example->wabbit_pos.vx *= -1.f;
 	if (example->wabbit_pos.y >= zest_ScreenHeightf()) example->wabbit_pos.vy *= -1.f;
@@ -195,8 +208,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Draw the rabbit sprite
 	zest_DrawSprite(example->base_layer, example->wabbit, example->wabbit_pos.x, example->wabbit_pos.y, 0.f, 200.f, 200.f, 0.5f, 0.5f, 0, 0.f);
 
-	//Get the texture from the final blur render target.
-	zest_texture target_texture = zest_GetRenderTargetTexture(example->final_blur);
 	//We can adjust the alpha and blend type based on the mouse position
 	float top_layer_intensity = (float)ZestApp->mouse_x / zest_ScreenWidthf();
 	float blend = ((float)ZestApp->mouse_y < 0 ? 0 : (float)ZestApp->mouse_y) / zest_ScreenHeightf();
@@ -208,9 +219,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Set it's color and blend mix
 	zest_SetLayerColor(example->top_layer, 255, 255, 255, (zest_byte)(blend * 255));
 	//Set the sprite drawing for the top layer to use the final blur texture with the standard pipeline for sprites
-	zest_SetInstanceDrawing(example->top_layer, target_texture, 0, zest_Pipeline("pipeline_2d_sprites"));
+	zest_SetInstanceDrawing(example->top_layer, example->rt_shader_resources, zest_Pipeline("pipeline_2d_sprites"));
 	//Draw the render target as a sprite to the top layer.
-	zest_DrawSprite(example->top_layer, zest_GetRenderTargetImage(example->final_blur), zest_ScreenWidthf() * 0.5f, zest_ScreenHeightf() * 0.5f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.5f, 0.5f, 0, 0.f);
+	zest_DrawSprite(example->top_layer, zest_GetRenderTargetImage(example->final_blur), 0.f, 0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 0.f, 0, 0.f);
 	//Set the font to use for the font layer
 	zest_SetMSDFFontDrawing(example->font_layer, example->font);
 	//Set the shadow and color
@@ -228,6 +239,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 {
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	create_info.log_path = "./";
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);
 

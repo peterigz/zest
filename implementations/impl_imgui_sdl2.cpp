@@ -82,8 +82,8 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
 				}
 
 				if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_GetTextureDescriptorSetVK(current_image->texture)) {
-					zest_BindPipeline(layer_info->pipeline, zest_GetTextureDescriptorSetVK(current_image->texture));
 					last_descriptor_set = zest_GetTextureDescriptorSetVK(current_image->texture);
+					zest_BindPipeline(layer_info->pipeline, &last_descriptor_set, 1);
 					last_pipeline = layer_info->pipeline;
 				}
 

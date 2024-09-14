@@ -4,6 +4,7 @@
 //Update the uniform buffer used to transform vertices in the vertex buffer
 void UpdateUniform3d(ImGuiApp* app) {
 	zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
+
 	if (app->orthagonal == true) {
 		zest_vec3 front = zest_NormalizeVec3(app->camera.position);
 		front = zest_FlipVec3(front);
@@ -364,15 +365,14 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->line_pipeline = zest_Pipeline("pipeline_line3d_instance");
 	app->line_2d_pipeline = zest_Pipeline("pipeline_line_instance");
 	app->billboard_pipeline = zest_Pipeline("pipeline_billboard");
-	app->uniform_buffer_3d = zest_CreateUniformBuffer("3d uniform", sizeof(zest_uniform_buffer_data_t));
-	app->descriptor_layout = zest_AddDescriptorLayout("mesh descriptor set", zest_CreateDescriptorSetLayout(1, 0, 0));
-	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
-	zest_AddBuilderDescriptorWriteUniformBuffer(&set_builder, zest_GetUniformBuffer("3d uniform"), 0);
-	app->descriptor_set = zest_BuildDescriptorSet(&set_builder, app->descriptor_layout->layouts[0]);
+
+	app->billboard_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, app->sprite_texture);
+	app->floor_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, app->floor_texture);
+	app->mesh_shader_resources = zest_CreateShaderResources();
+	zest_AddDescriptorSetToResources(app->mesh_shader_resources, ZestRenderer->uniform_descriptor_set);
 
 	zest_pipeline_template_create_info_t custom_mesh_pipeline = zest_CopyTemplateFromPipeline("pipeline_mesh_instance");
 	app->mesh_instance_pipeline = zest_AddPipeline("pipeline_mesh_instance_custom");
-    app->mesh_instance_pipeline->descriptor_layouts = zest_GetDescriptorSetLayout("Polygon layout (no sampler)");
 	zest_SetPipelineTemplateShader(&custom_mesh_pipeline, "mesh_instance_custom.spv", "examples/assets/spv/");
 	zest_MakePipelineTemplate(app->mesh_instance_pipeline, zest_GetStandardRenderPass(), &custom_mesh_pipeline);
 	zest_BuildPipeline(app->mesh_instance_pipeline);
@@ -690,9 +690,9 @@ void HandleWidget(ImGuiApp* app, zest_widget* widget) {
 }
 
 void Draw3dWidgets(ImGuiApp* app) {
-	zest_SetInstanceDrawing(app->scale_widget_layer, 0, 0, app->mesh_instance_pipeline);
+	zest_SetInstanceDrawing(app->scale_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
 	app->scale_widget_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
-	zest_SetInstanceDrawing(app->move_widget_layer, 0, 0, app->mesh_instance_pipeline);
+	zest_SetInstanceDrawing(app->move_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
 	app->move_widget_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
 	zest_SetLayerColor(app->move_widget_layer, 255, 255, 255, 255);
 
@@ -708,7 +708,7 @@ void Draw3dWidgets(ImGuiApp* app) {
 
 	if (app->picked_widget_part && app->picked_widget) {
 		app->picked_widget->layer->current_instruction.push_constants.parameters1.x = (float)app->picked_widget_part->group_id;
-		zest_Set3DLineDrawing(app->line_layer, 0, app->line_pipeline);
+		zest_Set3DLineDrawing(app->line_layer, app->line_pipeline->shader_resources, app->line_pipeline);
 		zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
 		zest_axis_flags axis = app->current_axis;
 		for (int i = 0; i != 2; ++i) {
@@ -1000,12 +1000,12 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	}
 	zest_TimerSet(app->timer);
 
-	zest_SetMeshDrawing(app->mesh_layer, app->floor_texture, 0, app->mesh_pipeline);
+	zest_SetMeshDrawing(app->mesh_layer, app->floor_shader_resources, app->mesh_pipeline);
 	zest_DrawTexturedPlane(app->mesh_layer, app->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 
-	zest_SetInstanceDrawing(app->billboard_layer, app->sprite_texture, 0, app->billboard_pipeline);
+	zest_SetInstanceDrawing(app->billboard_layer, app->billboard_shader_resources, app->billboard_pipeline);
 
-	zest_Set3DLineDrawing(app->line_layer, 0, app->line_pipeline);
+	zest_Set3DLineDrawing(app->line_layer, app->line_pipeline->shader_resources, app->line_pipeline);
 	/*
 	bool start_drawing = false;
 	zest_vec3 p2;
