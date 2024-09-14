@@ -2067,7 +2067,7 @@ void zest__do_scheduled_tasks(void) {
     if (zest_vec_size(ZestRenderer->texture_cleanup_queue)) {
         for (zest_foreach_i(ZestRenderer->texture_cleanup_queue)) {
             zest_texture texture = ZestRenderer->texture_cleanup_queue[i];
-            zest__cleanup_unused_texture_buffers(texture);
+            zest__cleanup_unused_texture_buffers(texture, texture->current_index ^ 1);
             if (texture->cleanup_callback) {
                 texture->cleanup_callback(texture, texture->user_data);
             }
@@ -3083,7 +3083,7 @@ void zest__cleanup_pipelines() {
 void zest__cleanup_textures() {
     for (zest_map_foreach_i(ZestRenderer->textures)) {
         zest_texture texture = *zest_map_at_index(ZestRenderer->textures, i);
-        if (texture->flags & zest_texture_flag_textures_ready) {
+        if (texture->flags & zest_texture_flag_ready) {
             zest__cleanup_texture(texture);
         }
     }
@@ -3838,8 +3838,12 @@ void zest_AddDescriptorSetToResources(zest_shader_resources resources, zest_desc
 }
 
 void zest_UpdateShaderResources(zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint index) {
-	ZEST_ASSERT(index < zest_vec_size(resources->sets[index]));    //Must be a valid index for the descriptor set in the resources that you want to update.
+	ZEST_ASSERT(index < zest_vec_size(resources->sets));    //Must be a valid index for the descriptor set in the resources that you want to update.
 	resources->sets[index] = descriptor_set;
+}
+
+void zest_ClearShaderResources(zest_shader_resources shader_resources) {
+    zest_vec_clear(shader_resources->sets);
 }
 
 void zest_FreeShaderResources(zest_shader_resources shader_resources) {
@@ -3847,7 +3851,7 @@ void zest_FreeShaderResources(zest_shader_resources shader_resources) {
 }
 
 zest_shader_resources zest_CombineUniformAndTextureSampler(zest_descriptor_set descriptor_set, zest_texture texture) {
-    ZEST_ASSERT(ZEST__FLAGGED(texture->flags, zest_texture_flag_textures_ready));   //Texture must have been processed an descriptor set created
+    ZEST_ASSERT(ZEST__FLAGGED(texture->flags, zest_texture_flag_ready));   //Texture must have been processed an descriptor set created
     zest_shader_resources shader_resources = zest_CreateShaderResources();
     zest_AddDescriptorSetToResources(shader_resources, descriptor_set);
     zest_AddDescriptorSetToResources(shader_resources, &texture->descriptor_sets[texture->current_index]);
@@ -3877,46 +3881,51 @@ void zest_FreeDescriptorSets(zest_descriptor_set descriptor_set) {
 }
 
 void zest__add_pipeline_descriptor_write(zest_pipeline pipeline, zest_uint layout_index, VkWriteDescriptorSet set, zest_index fif) {
-    zest_vec_push(pipeline->descriptor_writes[layout_index].writes[fif], set);
+    zest_vec_push(pipeline->descriptor_sets[layout_index].descriptor_writes[fif], set);
 }
 
 void zest__free_pipeline_descriptor_writes(zest_pipeline pipeline) {
     for (ZEST_EACH_FIF_i) {
-        for (zest_foreach_j(pipeline->descriptor_writes)) {
-            zest_vec_free(pipeline->descriptor_writes[j].writes[i]);
+        for (zest_foreach_j(pipeline->descriptor_sets)) {
+            zest_vec_free(pipeline->descriptor_sets[j].descriptor_writes[i]);
         }
     }
-    zest_vec_clear(pipeline->descriptor_writes);
 }
 
 void zest_MakePipelineDescriptorWrites(zest_pipeline pipeline) {
     zest_uint binding = 0;
 	zest__free_pipeline_descriptor_writes(pipeline);
-    for (ZEST_EACH_FIF_i) {
-        zest_vec_resize(pipeline->descriptor_set[i], zest_vec_size(pipeline->descriptor_layouts));
+    zest_vec_foreach(i, pipeline->descriptor_sets) {
+        zest_FreeDescriptorSets(&pipeline->descriptor_sets[i]);
     }
-    for (zest_vec_foreach(layout_index, pipeline->descriptor_layouts)) {
-        zest_pipeline_descriptor_writes_t writes = { 0 };
-        zest_vec_push(pipeline->descriptor_writes, writes);
+    zest_vec_foreach(layout_index, pipeline->descriptor_layouts) {
+		zest_descriptor_set_t set = { 0 };
+        zest_vec_push(pipeline->descriptor_sets, set);
         for (ZEST_EACH_FIF_i) {
-            zest_AllocateDescriptorSets(ZestRenderer->descriptor_pool, &pipeline->descriptor_layouts[layout_index], 1, &pipeline->descriptor_set[i][layout_index]);
+            zest_AllocateDescriptorSets(ZestRenderer->descriptor_pool, &pipeline->descriptor_layouts[layout_index], 1, &pipeline->descriptor_sets[layout_index].descriptor_set[i]);
             if (pipeline->uniforms) {
                 if (!pipeline->uniform_buffer) {
-                    zest__add_pipeline_descriptor_write(pipeline, layout_index, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_set[i][layout_index], zest_GetUniformBufferInfo("Standard 2d Uniform Buffer", i), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), i);
+                    zest__add_pipeline_descriptor_write(pipeline, layout_index, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_sets[layout_index].descriptor_set[i], zest_GetUniformBufferInfo("Standard 2d Uniform Buffer", i), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), i);
                 }
                 else {
-                    zest__add_pipeline_descriptor_write(pipeline, layout_index, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_set[i][layout_index], &pipeline->uniform_buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), i);
+                    zest__add_pipeline_descriptor_write(pipeline, layout_index, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_sets[layout_index].descriptor_set[i], &pipeline->uniform_buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), i);
                 }
                 binding++;
             }
         }
         for (ZEST_EACH_FIF_i) {
-            zest_UpdateDescriptorSet(pipeline->descriptor_writes[layout_index].writes[i]);
+            zest_UpdateDescriptorSet(pipeline->descriptor_sets[layout_index].descriptor_writes[i]);
         }
     }
     if (!pipeline->shader_resources) {
-        zest_AddDescriptorSetToResources(pipeline->shader_resources, pipeline->descriptor_set);
+        pipeline->shader_resources = zest_CreateShaderResources();
     }
+    else {
+        zest_ClearShaderResources(pipeline->shader_resources);
+    }
+	zest_vec_foreach(i, pipeline->descriptor_sets) {
+		zest_AddDescriptorSetToResources(pipeline->shader_resources, &pipeline->descriptor_sets[i]);
+	}
 }
 
 zest_pipeline zest__create_pipeline() {
@@ -4364,7 +4373,7 @@ void zest_MakePipelineTemplate(zest_pipeline pipeline, VkRenderPass render_pass,
     ZEST_ASSERT(zest_vec_size(create_info->descriptorSetLayouts));  //you must define at least one descriptor set layout for the pipeline
     pipeline->pipeline_template.multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     zest_vec_clear(pipeline->descriptor_layouts);
-    for (zest_vec_foreach(i, create_info->descriptorSetLayouts)) {
+    zest_vec_foreach(i, create_info->descriptorSetLayouts) {
         zest_vec_push(pipeline->descriptor_layouts, create_info->descriptorSetLayouts[i]);
     }
 }
@@ -4388,7 +4397,7 @@ zest_pipeline_template_create_info_t zest__copy_pipeline_create_info(zest_pipeli
     copy.topology = create_info->topology;
     copy.viewport = create_info->viewport;
     zest_vec_clear(copy.descriptorSetLayouts);
-    for (zest_vec_foreach(i, create_info->descriptorSetLayouts)) {
+    zest_vec_foreach(i, create_info->descriptorSetLayouts) {
         zest_vec_push(copy.descriptorSetLayouts, create_info->descriptorSetLayouts[i]);
     }
     if (create_info->pushConstantRange) {
@@ -4438,7 +4447,7 @@ void zest__rebuild_pipeline(zest_pipeline_t* pipeline) {
     zest__update_pipeline_template(&pipeline->pipeline_template, &pipeline->create_info);
     zest_BuildPipeline(pipeline);
     for (ZEST_EACH_FIF_i) {
-        zest_vec_clear(pipeline->descriptor_writes);
+        zest_vec_clear(pipeline->descriptor_sets);
     }
 }
 
@@ -4465,6 +4474,12 @@ zest_bool zest_CompileShader(zest_shader shader) {
 	const char *error_message = shaderc_result_get_error_message(result);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Error compiling shader: %s.\n%s", shader->name.str, error_message);
     return 0;
+}
+
+zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching) {
+    char *shader_code = zest_ReadEntireFile(file, ZEST_TRUE);
+    ZEST_ASSERT(shader_code);   //Unable to load the shader code, check the path is valid
+    return zest_CreateShader(shader_code, type, name, ZEST_FALSE, disable_caching);
 }
 
 zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching) {
@@ -4619,7 +4634,7 @@ void zest_FreeShader(zest_shader shader) {
 }
 
 void zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resources, VkDescriptorSet **draw_sets, zest_uint static_index) {
-    for (zest_vec_foreach(set_index, shader_resources->sets)) {
+    zest_vec_foreach(set_index, shader_resources->sets) {
         zest_descriptor_set set = shader_resources->sets[set_index];
         zest_vec_push(*draw_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : static_index]);
     }
@@ -7439,7 +7454,7 @@ void zest__delete_texture(zest_texture texture) {
         zest_FreeBuffer(texture->stream_staging_buffer);
     }
     zest_vec_free(texture->buffer_copy_regions);
-    ZEST__UNFLAG(texture->flags, zest_texture_flag_textures_ready);
+    ZEST__UNFLAG(texture->flags, zest_texture_flag_ready);
     zest_map_remove(ZestRenderer->textures, texture->name.str);
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, texture->name.str));
     zest_FreeText(&texture->name);
@@ -7463,19 +7478,18 @@ void zest__cleanup_texture(zest_texture texture) {
         texture->frame_buffer[i].view = VK_NULL_HANDLE;
         texture->frame_buffer[i].image = VK_NULL_HANDLE;
     }
-    texture->flags &= ~zest_texture_flag_textures_ready;
+    texture->flags &= ~zest_texture_flag_ready;
 }
 
-void zest__cleanup_unused_texture_buffers(zest_texture texture) {
-    zest_uint index = texture->current_index ^ 1;
-	vkDestroySampler(ZestDevice->logical_device, texture->sampler[index], &ZestDevice->allocation_callbacks);
-	vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer[index].view, &ZestDevice->allocation_callbacks);
-	vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer[index].image, &ZestDevice->allocation_callbacks);
-	zest_FreeBuffer(texture->frame_buffer[index].buffer);
-	texture->frame_buffer[index].buffer = 0;
-	texture->sampler[index] = VK_NULL_HANDLE;
-	texture->frame_buffer[index].view = VK_NULL_HANDLE;
-	texture->frame_buffer[index].image = VK_NULL_HANDLE;
+void zest__cleanup_unused_texture_buffers(zest_texture texture, zest_uint i) {
+    if (texture->sampler[i]) vkDestroySampler(ZestDevice->logical_device, texture->sampler[i], &ZestDevice->allocation_callbacks);
+    if (texture->frame_buffer[i].view) vkDestroyImageView(ZestDevice->logical_device, texture->frame_buffer[i].view, &ZestDevice->allocation_callbacks);
+    if (texture->frame_buffer[i].image) vkDestroyImage(ZestDevice->logical_device, texture->frame_buffer[i].image, &ZestDevice->allocation_callbacks);
+    if (texture->frame_buffer[i].buffer) zest_FreeBuffer(texture->frame_buffer[i].buffer);
+	texture->frame_buffer[i].buffer = 0;
+	texture->sampler[i] = VK_NULL_HANDLE;
+	texture->frame_buffer[i].view = VK_NULL_HANDLE;
+	texture->frame_buffer[i].image = VK_NULL_HANDLE;
 }
 
 void zest__reindex_texture_images(zest_texture texture) {
@@ -7489,6 +7503,7 @@ void zest__reindex_texture_images(zest_texture texture) {
 
 void zest_ProcessTextureImages(zest_texture texture) {
     texture->current_index = texture->current_index ^ 1;
+    zest__cleanup_unused_texture_buffers(texture, texture->current_index);
     zest_uint size = zest_vec_size(texture->images);
     if (zest_vec_empty(texture->images) && texture->storage_type != zest_texture_storage_type_storage && texture->storage_type != zest_texture_storage_type_single)
         return;
@@ -7520,7 +7535,7 @@ void zest_ProcessTextureImages(zest_texture texture) {
         texture->descriptor_image_info[texture->current_index].sampler = texture->sampler[texture->current_index];
         texture->descriptor_image_info[texture->current_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        texture->flags |= zest_texture_flag_textures_ready;
+        texture->flags |= zest_texture_flag_ready;
     }
     else if (texture->storage_type == zest_texture_storage_type_sprite_sheet) {
 
@@ -7547,7 +7562,7 @@ void zest_ProcessTextureImages(zest_texture texture) {
 
         texture->descriptor_image_info[texture->current_index].imageView = texture->frame_buffer[texture->current_index].view;
         texture->descriptor_image_info[texture->current_index].sampler = texture->sampler[texture->current_index];
-        texture->flags |= zest_texture_flag_textures_ready;
+        texture->flags |= zest_texture_flag_ready;
 
     }
     else if (texture->storage_type == zest_texture_storage_type_single) {
@@ -7575,7 +7590,7 @@ void zest_ProcessTextureImages(zest_texture texture) {
 
         texture->descriptor_image_info[texture->current_index].imageView = texture->frame_buffer[texture->current_index].view;
         texture->descriptor_image_info[texture->current_index].sampler = texture->sampler[texture->current_index];
-        texture->flags |= zest_texture_flag_textures_ready;
+        texture->flags |= zest_texture_flag_ready;
 
     }
     else if (texture->storage_type == zest_texture_storage_type_stream) {
@@ -7603,7 +7618,7 @@ void zest_ProcessTextureImages(zest_texture texture) {
 
         texture->descriptor_image_info[texture->current_index].imageView = texture->frame_buffer[texture->current_index].view;
         texture->descriptor_image_info[texture->current_index].sampler = texture->sampler[texture->current_index];
-        texture->flags |= zest_texture_flag_textures_ready;
+        texture->flags |= zest_texture_flag_ready;
 
     }
     else if (texture->storage_type == zest_texture_storage_type_storage) {
@@ -7617,7 +7632,7 @@ void zest_ProcessTextureImages(zest_texture texture) {
         texture->descriptor_image_info[texture->current_index].imageView = texture->frame_buffer[texture->current_index].view;
         texture->descriptor_image_info[texture->current_index].sampler = texture->sampler[texture->current_index];
         texture->descriptor_image_info[texture->current_index].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        texture->flags |= zest_texture_flag_textures_ready;
+        texture->flags |= zest_texture_flag_ready;
     }
 
 	zest__create_texture_sampler_descriptor_set(texture);
@@ -8471,7 +8486,7 @@ void zest_TextureResize(zest_texture texture, zest_uint width, zest_uint height)
     zest__update_image_vertices(&texture->texture);
     zest_GetTextureSingleBitmap(texture)->width = width;
     zest_GetTextureSingleBitmap(texture)->height = height;
-    ZEST__UNFLAG(texture->flags, zest_texture_flag_textures_ready);
+    ZEST__UNFLAG(texture->flags, zest_texture_flag_ready);
     zest_ProcessTextureImages(texture);
 }
 
@@ -8973,7 +8988,7 @@ zest_font zest_GetFont(const char* name) {
 }
 
 void zest__setup_font_texture(zest_font font) {
-    if (ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready)) {
+    if (ZEST__FLAGGED(font->texture->flags, zest_texture_flag_ready)) {
         zest__cleanup_texture(font->texture);
     }
 
@@ -9121,6 +9136,7 @@ void zest__create_render_target_sampler_image(zest_render_target render_target) 
         image_info.sampler = texture->sampler[texture->current_index];
         texture->descriptor_image_info[texture->current_index] = image_info;
         zest__create_texture_sampler_descriptor_set(texture);
+        ZEST__FLAG(texture->flags, zest_texture_flag_ready);
 
         zest_vec_free(texture_name);
     }
@@ -9618,7 +9634,8 @@ void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer command_buffer) {
 
         vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[layer->fif].device_instance_data), instance_data_offsets);
 
-        for (zest_vec_foreach(set_index, current->shader_resources->sets)) {
+        ZEST_ASSERT(current->shader_resources); //Shader resources must be set in the instruction
+        zest_vec_foreach(set_index, current->shader_resources->sets) {
             zest_descriptor_set set = current->shader_resources->sets[set_index];
             zest_vec_push(layer->draw_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : layer->fif]);
         }
@@ -9649,7 +9666,7 @@ void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer) {
         vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
         vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
 
-        for (zest_vec_foreach(set_index, current->shader_resources->sets)) {
+        zest_vec_foreach(set_index, current->shader_resources->sets) {
             zest_descriptor_set set = current->shader_resources->sets[set_index];
             zest_vec_push(layer->draw_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : layer->fif]);
         }
@@ -9681,7 +9698,7 @@ void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer
         vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
         vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
 
-        for (zest_vec_foreach(set_index, current->shader_resources->sets)) {
+        zest_vec_foreach(set_index, current->shader_resources->sets) {
             zest_descriptor_set set = current->shader_resources->sets[set_index];
             zest_vec_push(layer->draw_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : layer->fif]);
         }
@@ -9970,7 +9987,7 @@ void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float x, float 
 void zest_SetMSDFFontDrawing(zest_layer layer, zest_font font) {
     zest_EndInstanceInstructions(layer);
     zest_StartInstanceInstructions(layer);
-    ZEST_ASSERT(ZEST__FLAGGED(font->texture->flags, zest_texture_flag_textures_ready));        //Make sure the font is properly loaded or wasn't recently deleted
+    ZEST_ASSERT(ZEST__FLAGGED(font->texture->flags, zest_texture_flag_ready));        //Make sure the font is properly loaded or wasn't recently deleted
     layer->current_instruction.pipeline = font->pipeline;
 	layer->current_instruction.shader_resources = font->shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_text;

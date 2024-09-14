@@ -1350,7 +1350,7 @@ typedef enum zest_texture_flag_bits {
     zest_texture_flag_premultiply_mode                    = 1 << 0,
     zest_texture_flag_use_filtering                       = 1 << 1,
     zest_texture_flag_get_max_radius                      = 1 << 2,
-    zest_texture_flag_textures_ready                      = 1 << 3,
+    zest_texture_flag_ready                      = 1 << 3,
     zest_texture_flag_dirty                               = 1 << 4,
     zest_texture_flag_descriptor_sets_created             = 1 << 5,
 } zest_texture_flag_bits;
@@ -1530,7 +1530,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_erase(T, location) { ptrdiff_t offset = location - T; ZEST_ASSERT(T && offset >= 0 && location < zest_vec_end(T)); memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); }
 #define zest_vec_erase_range(T, it, it_last) { ZEST_ASSERT(T && it >= T && it < zest_vec_end(T)); const ptrdiff_t count = it_last - it; const ptrdiff_t off = it - T; memmove(T + off, T + off + count, ((size_t)zest_vec_size(T) - (size_t)off - count) * sizeof(*T)); zest_vec_trim(T, (zest_uint)count); }
 #define zest_vec_set(T, index, value) ZEST_ASSERT((zest_uint)index < zest__vec_header(T)->current_size); T[index] = value;
-#define zest_vec_foreach(index, T) int index = 0; index != zest_vec_size(T); ++index
+#define zest_vec_foreach(index, T) for(int index = 0; index != zest_vec_size(T); ++index)
 #define zest_foreach_i(T) int i = 0; i != zest_vec_size(T); ++i
 #define zest_foreach_j(T) int j = 0; j != zest_vec_size(T); ++j
 #define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k
@@ -2138,7 +2138,7 @@ typedef struct zest_pipeline_t {
     zest_pipeline_template_create_info_t create_info;                            //A copy of the create info and template is stored so that they can be used to update the pipeline later for any reason (like the swap chain is recreated)
     zest_pipeline_template_t pipeline_template;
     VkDescriptorSetLayout *descriptor_layouts;                                   //The descriptor layout being used which is stored in the Renderer. Layouts can be reused an shared between pipelines
-    VkDescriptorSet *descriptor_set[ZEST_MAX_FIF];                               //Descriptor sets are only stored here for certain pipelines like non textured drawing or the final render pipelines for render targets in the swap chain
+    zest_descriptor_set_t *descriptor_sets;                                         //Descriptor sets are only stored here for certain pipelines like non textured drawing or the final render pipelines for render targets in the swap chain
     zest_shader_resources shader_resources;                                      //By default this contails a uniform buffer for line drawing and final render pipelines
     VkPipeline pipeline;                                                         //The vulkan handle for the pipeline
     VkPipelineLayout pipeline_layout;                                            //The vulkan handle for the pipeline layout
@@ -2146,7 +2146,6 @@ typedef struct zest_pipeline_t {
     zest_uint uniforms;                                                          //Number of uniform buffers in the pipeline, usually 1 or 0
     zest_uint push_constant_size;                                                //Size of the push constant struct if it uses one
     zest_uint *textures;                                                         //A reference to the textures used by the pipeline - only used by final render, not even sure if it's needed.
-    zest_pipeline_descriptor_writes_t *descriptor_writes;
     const char *name;                                                            //Name for the pipeline just for labelling it when listing all the renderer objects in debug
     void(*rebuild_pipeline_function)(void*);                                     //Override the function to rebuild the pipeline when the swap chain is recreated
     zest_pipeline_set_flags flags;                                               //Flag bits
@@ -2848,7 +2847,7 @@ ZEST_PRIVATE void zest__update_image_vertices(zest_image image);
 ZEST_PRIVATE void zest__update_texture_single_image_meta(zest_texture texture, zest_uint width, zest_uint height);
 ZEST_PRIVATE void zest__create_texture_image_view(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
 ZEST_PRIVATE void zest__update_texture_descriptor_set(zest_texture texture);
-ZEST_PRIVATE void zest__cleanup_unused_texture_buffers(zest_texture texture);
+ZEST_PRIVATE void zest__cleanup_unused_texture_buffers(zest_texture texture, zest_uint i);
 ZEST_PRIVATE void zest__create_texture_sampler_descriptor_set(zest_texture texture);
 
 // --Render target internal functions
@@ -3029,6 +3028,8 @@ ZEST_API zest_shader_resources zest_CreateShaderResources();
 //according to their set and binding number. So therefore it's important that you add the descriptor sets to the shader_resources in the same order
 //that you set up the descriptor set layouts.
 ZEST_API void zest_AddDescriptorSetToResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set);
+//Clear all the descriptor sets in a shader resources object. This does not free the memory, call zest_FreeShaderResources to do that.
+ZEST_API void zest_ClearShaderResources(zest_shader_resources shader_resources);
 //Update the descriptor set in a shader_resources. You'll need this whenever you update a descriptor set for whatever reason. Pass the index of the
 //descriptor set in the shader_resources that you want to update.
 ZEST_API void zest_UpdateShaderResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set, zest_uint index);
@@ -3054,6 +3055,8 @@ ZEST_API zest_shader zest_NewShader(shaderc_shader_kind type);
 ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
 ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching);
+//Creates a shader from a file containing the shader glsl code
+ZEST_API zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
 ZEST_API zest_bool zest_CompileShader(zest_shader shader);
 //Update an existing shader with a new version
