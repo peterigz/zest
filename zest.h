@@ -2317,7 +2317,7 @@ typedef struct zest_push_constants_t {             //128 bytes seems to be the l
     zest_vec4 parameters1;                         //Can be used for anything
     zest_vec4 parameters2;                         //Can be used for anything
     zest_vec4 parameters3;                         //Can be used for anything
-    zest_vec4 camera;                              //For 3d drawing
+    zest_vec4 global;                              //Can be set every frame for all current draw instructions
 } zest_push_constants_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_layer_instruction_t {
@@ -2360,6 +2360,7 @@ typedef struct zest_layer_t {
     zest_color current_color;
     float intensity;
     zest_push_constants_t push_constants;
+    zest_vec4 global_push_values;
 
     zest_vec2 layer_size;
     zest_vec2 screen_scale;
@@ -3991,6 +3992,9 @@ ZEST_API void zest_SetLayerDirty(zest_layer layer);
 ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
 //Get the user data from the layer
 #define zest_GetLayerUserData(type, layer) ((type*)layer->user_data)
+//Set the global values of a push constant. This gives you 4 values that you can set for all draw calls in a layer that will immediately 
+//apply to the next frame render.
+ZEST_API void zest_SetLayerGlobalPushConstants(zest_layer layer, float x, float y, float z, float w);
 //-- End Draw Layers
 
 //-----------------------------------------------

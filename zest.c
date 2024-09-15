@@ -9643,6 +9643,8 @@ void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer command_buffer) {
 
         zest_BindPipelineCB(command_buffer, current->pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
+        current->push_constants.global = layer->global_push_values;
+
 		vkCmdPushConstants(
 			command_buffer,
 			current->pipeline->pipeline_layout,
@@ -9673,6 +9675,8 @@ void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer) {
         }
 
         zest_BindPipelineCB(command_buffer, current->pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
+
+        current->push_constants.global = layer->global_push_values;
 
         vkCmdPushConstants(
             command_buffer,
@@ -9707,6 +9711,8 @@ void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer
         vkCmdBindVertexBuffers(command_buffer, 1, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[layer->fif].device_instance_data), instance_data_offsets);
 
         zest_BindPipelineCB(command_buffer, current->pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
+
+        current->push_constants.global = layer->global_push_values;
 
         vkCmdPushConstants(
             command_buffer,
@@ -9867,6 +9873,13 @@ void zest_SetLayerDirty(zest_layer layer) {
 void zest_SetLayerUserData(zest_layer layer, void *data) {
     layer->user_data = data;
 }
+
+void zest_SetLayerGlobalPushConstants(zest_layer layer, float x, float y, float z, float w) {
+    layer->global_push_values.x = x;
+    layer->global_push_values.y = y;
+    layer->global_push_values.z = z;
+    layer->global_push_values.w = w;
+}
 //-- End Draw Layers
 
 //-- Start Sprite Drawing API
@@ -10019,12 +10032,10 @@ void zest_TweakMSDFFont(zest_layer layer, float bleed, float thickness, float aa
     layer->push_constants.parameters1.z = aa_factor;
     layer->push_constants.parameters1.w = thickness;
     layer->current_instruction.push_constants.parameters1 = layer->push_constants.parameters1;
-    layer->current_instruction.push_constants.camera.w = bleed;
 }
 
 void zest_SetMSDFFontBleed(zest_layer layer, float bleed) {
     layer->push_constants.parameters1.y = bleed;
-    layer->current_instruction.push_constants.camera.w = bleed;
 }
 
 void zest_SetMSDFFontThickness(zest_layer layer, float thickness) {

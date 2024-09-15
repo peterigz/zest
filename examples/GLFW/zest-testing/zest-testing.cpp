@@ -691,9 +691,9 @@ void HandleWidget(ImGuiApp* app, zest_widget* widget) {
 
 void Draw3dWidgets(ImGuiApp* app) {
 	zest_SetInstanceDrawing(app->scale_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
-	app->scale_widget_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
+	zest_SetLayerGlobalPushConstants(app->scale_widget_layer, app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
 	zest_SetInstanceDrawing(app->move_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
-	app->move_widget_layer->current_instruction.push_constants.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
+	zest_SetLayerGlobalPushConstants(app->move_widget_layer, app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
 	zest_SetLayerColor(app->move_widget_layer, 255, 255, 255, 255);
 
 	//X Plane
