@@ -3359,7 +3359,7 @@ zest_descriptor_set zest_CreateUniformDescriptorSet(zest_uniform_buffer buffer) 
     set->type = zest_descriptor_type_dynamic;
     for (ZEST_EACH_FIF_i) {
         zest_AllocateDescriptorSets(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("uniform buffer"), 1, &set->descriptor_set[i]);
-        zest_vec_push(set->descriptor_writes[i], zest_CreateBufferDescriptorWriteWithType(set->descriptor_set[i], buffer->descriptor_info, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
+        zest_vec_push(set->descriptor_writes[i], zest_CreateBufferDescriptorWriteWithType(set->descriptor_set[i], &buffer->descriptor_info[i], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER));
     }
     for (ZEST_EACH_FIF_i) {
         zest_UpdateDescriptorSet(set->descriptor_writes[i]);
@@ -3838,6 +3838,7 @@ void zest_AddDescriptorSetToResources(zest_shader_resources resources, zest_desc
 }
 
 void zest_UpdateShaderResources(zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint index) {
+	ZEST_ASSERT(resources);    //Make sure the resources have been created, use zest_CreateShaderResources()
 	ZEST_ASSERT(index < zest_vec_size(resources->sets));    //Must be a valid index for the descriptor set in the resources that you want to update.
 	resources->sets[index] = descriptor_set;
 }
