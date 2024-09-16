@@ -36,6 +36,7 @@ void zest_imgui_CreateLayer(zest_imgui_layer_info *imgui_layer_info) {
 	imgui_layer_info->pipeline = zest_Pipeline("pipeline_imgui");
 	zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
 	zest_ContextDrawRoutine()->user_data = imgui_layer_info;
+	zest_SetLayerToManualFIF(imgui_layer_info->mesh_layer);
 }
 
 void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer) {

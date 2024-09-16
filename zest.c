@@ -9806,17 +9806,21 @@ void zest_DrawInstanceBulk(zest_layer layer, void *src, zest_uint amount) {
 void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
     zest__draw_mesh_layer(layer, command_buffer);
-    zest__reset_mesh_layer_drawing(layer);
-	layer->draw_routine->last_fif = layer->fif;
-	layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
+    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
+        zest__reset_mesh_layer_drawing(layer);
+        layer->draw_routine->last_fif = layer->fif;
+        layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
+    }
 }
 
 void zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
     zest_DrawInstanceMeshLayer(layer, command_buffer);
-    zest_ResetInstanceLayerDrawing(layer);
-	layer->draw_routine->last_fif = layer->fif;
-	layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
+    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
+        zest_ResetInstanceLayerDrawing(layer);
+        layer->draw_routine->last_fif = layer->fif;
+        layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
+    }
 }
 // End internal mesh layer functionality -----
 
@@ -10441,6 +10445,7 @@ void zest_GrowMeshIndexBuffers(zest_layer layer) {
 
 void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
+    if (draw_routine->last_fif == layer->fif) return;
     zest__end_mesh_instructions(layer);
 
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
@@ -11534,12 +11539,14 @@ double zest_TimerAccumulate(zest_timer timer) {
 
     timer->accumulator_delta = timer->accumulator;
     timer->accumulator += frame_time;
+    timer->update_count = 0;
     return frame_time;
 }
 
 void zest_TimerUnAccumulate(zest_timer timer) {
     timer->accumulator -= timer->update_tick_length;
     timer->accumulator_delta = timer->accumulator_delta - timer->accumulator;
+    timer->update_count++;
 }
 
 zest_bool zest_TimerDoUpdate(zest_timer timer) {
@@ -11547,7 +11554,7 @@ zest_bool zest_TimerDoUpdate(zest_timer timer) {
 }
 
 double zest_TimerLerp(zest_timer timer) {
-    return timer->lerp;
+    return timer->update_count > 1 ? 1.f : timer->lerp;
 }
 
 void zest_TimerSet(zest_timer timer) {
@@ -11563,6 +11570,10 @@ void zest_TimerSetUpdateFrequency(zest_timer timer, double frequency) {
 
 double zest_TimerUpdateFrequency(zest_timer timer) {
     return timer->update_frequency;
+}
+
+zest_bool zest_TimerUpdateWasRun(zest_timer timer) {
+    return timer->update_count > 0;
 }
 //-- End Timer Functions
 
