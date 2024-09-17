@@ -9572,16 +9572,31 @@ void zest_EndInstanceInstructions(zest_layer layer) {
     if (layer->current_instruction.total_instances) {
         layer->last_draw_mode = zest_draw_mode_none;
         zest_vec_push(layer->draw_instructions[layer->fif], layer->current_instruction);
-
         layer->memory_refs[layer->fif].write_to_buffer->memory_in_use += layer->current_instruction.total_instances * layer->instance_struct_size;
         layer->current_instruction.total_instances = 0;
         layer->current_instruction.start_index = 0;
     }
     else if (layer->current_instruction.draw_mode == zest_draw_mode_viewport) {
         zest_vec_push(layer->draw_instructions[layer->fif], layer->current_instruction);
-
         layer->last_draw_mode = zest_draw_mode_none;
     }
+}
+
+zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer) {
+    if (layer->draw_routine->last_fif == layer->fif) return 0;
+    layer->draw_routine->last_fif = layer->fif;
+    if (layer->current_instruction.total_instances) {
+        layer->last_draw_mode = zest_draw_mode_none;
+        zest_vec_push(layer->draw_instructions[layer->fif], layer->current_instruction);
+        layer->memory_refs[layer->fif].write_to_buffer->memory_in_use += layer->current_instruction.total_instances * layer->instance_struct_size;
+        layer->current_instruction.total_instances = 0;
+        layer->current_instruction.start_index = 0;
+    }
+    else if (layer->current_instruction.draw_mode == zest_draw_mode_viewport) {
+        zest_vec_push(layer->draw_instructions[layer->fif], layer->current_instruction);
+        layer->last_draw_mode = zest_draw_mode_none;
+    }
+    return 1;
 }
 
 void zest__end_mesh_instructions(zest_layer layer) {
@@ -9603,8 +9618,7 @@ void zest__end_mesh_instructions(zest_layer layer) {
 
 void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
-    if (draw_routine->last_fif == layer->fif) return;
-    zest_EndInstanceInstructions(layer);
+    if(!zest_MaybeEndInstanceInstructions(layer)) return;
 
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
         if (!zest_vec_empty(layer->draw_instructions[layer->fif])) {

@@ -3957,6 +3957,10 @@ ZEST_API void zest_SetLayerToManualFIF(zest_layer layer);
 ZEST_API void zest_UpdateInstanceLayerDescriptorInfo(zest_layer layer);
 //End a set of draw instructs for a standard zest_layer
 ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
+//For layers that are manually flipping the frame in flight, we can use this to only end the instructions if the last know fif for the layer
+//is not equal to the current one. Returns true if the instructions were ended false if not. If true then you can assume that the staging
+//buffer for the layer can then be uploaded to the gpu. This should be called in an upload buffer callback in any custom draw routine/layer.
+ZEST_API zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer);
 //Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
 ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
 //Send all the draw commands for an instance layer to the GPU. This is generally called from the draw routine callback function: zest_DrawInstanceLayerCallback
