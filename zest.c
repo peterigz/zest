@@ -11557,6 +11557,10 @@ double zest_TimerAccumulate(zest_timer timer) {
     return frame_time;
 }
 
+int zest_TimerPendingTicks(zest_timer timer) {
+    return (int)(timer->accumulator / timer->update_tick_length);
+}
+
 void zest_TimerUnAccumulate(zest_timer timer) {
     timer->accumulator -= timer->update_tick_length;
     timer->accumulator_delta = timer->accumulator_delta - timer->accumulator;

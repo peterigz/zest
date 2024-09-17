@@ -4329,6 +4329,7 @@ ZEST_API void zest_TimerTick(zest_timer timer);                                 
 ZEST_API double zest_TimerUpdateTime(zest_timer timer);                                         //Gets the update time (1.f / update_frequency)
 ZEST_API double zest_TimerFrameLength(zest_timer timer);                                        //Gets the update_tick_length (1000.f / update_frequency)
 ZEST_API double zest_TimerAccumulate(zest_timer timer);                                         //Accumulate the amount of time that has passed since the last render
+ZEST_API int zest_TimerPendingTicks(zest_timer timer);                                          //Returns the number of times the update loop will run this frame.
 ZEST_API void zest_TimerUnAccumulate(zest_timer timer);                                         //Unaccumulate 1 tick length from the accumulator. While the accumulator is more then the tick length an update should be done
 ZEST_API zest_bool zest_TimerDoUpdate(zest_timer timer);                                        //Return true if accumulator is more or equal to the update_tick_length
 ZEST_API double zest_TimerLerp(zest_timer timer);                                               //Return the current tween/lerp value
