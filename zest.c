@@ -4158,6 +4158,17 @@ void zest_BindPipeline(zest_pipeline pipeline, VkDescriptorSet *descriptor_set, 
     vkCmdBindDescriptorSets(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, set_count, descriptor_set, 0, 0);
 }
 
+void zest_BindPipelineShaderResource(zest_pipeline pipeline, zest_shader_resources shader_resources, zest_uint manual_fif) {
+	ZEST_ASSERT(shader_resources); //Not a valid shader resource
+	zest_vec_foreach(set_index, shader_resources->sets) {
+		zest_descriptor_set set = shader_resources->sets[set_index];
+		zest_vec_push(shader_resources->binding_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : manual_fif]);
+	}
+    vkCmdBindPipeline(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
+    vkCmdBindDescriptorSets(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, zest_vec_size(shader_resources->binding_sets), shader_resources->binding_sets, 0, 0);
+    zest_vec_clear(shader_resources->binding_sets);
+}
+
 void zest_BindComputePipeline(zest_compute compute, zest_index shader_index) {
     //If you get an error here, then check if you're manually running the compute shader in a compute_command_buffer_callback, in which case you should
     //call zest_BingComputePipelineCB where you can specify the command buffer to use (ie, the one passed into the callback).

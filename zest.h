@@ -2057,6 +2057,7 @@ typedef struct zest_descriptor_set_t {
 
 typedef struct zest_shader_resources_t {
     zest_descriptor_set *sets;
+    VkDescriptorSet *binding_sets;
 } zest_shader_resources_t;
 
 typedef struct zest_descriptor_set_builder_t {
@@ -3163,6 +3164,10 @@ ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
 //whatever is defined in ZestRenderer->current_command_buffer which will be set when the command queue is recorded. If you need to specify
 //a command buffer then call zest_BindPipelineCB instead.
 ZEST_API void zest_BindPipeline(zest_pipeline pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
+//Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
+//you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
+//resource that is marked as static.
+ZEST_API void zest_BindPipelineShaderResource(zest_pipeline pipeline, zest_shader_resources shader_resources, zest_uint manual_fif);
 //Does the same thing as zest_BindPipeline but you can also pass in a command buffer if you need to specify one.
 ZEST_API void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_t* pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
 //Retrieve a pipeline from the renderer storage. Just pass in the name of the pipeline you want to retrieve and the handle to the pipeline
