@@ -3504,73 +3504,67 @@ zest_uniform_buffer zest__add_uniform_buffer(const char* name, zest_uniform_buff
     return buffer;
 }
 
-void zest__create_descriptor_pools(zest_map_descriptor_pool_sizes pool_sizes, zest_uint max_sets) {
-    VkDescriptorPoolSize pool_size;
+void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes, zest_uint max_sets) {
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_SAMPLER)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLER;
-        pool_size.descriptorCount = 100;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_SAMPLER].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_SAMPLER].type = VK_DESCRIPTOR_TYPE_SAMPLER;
+        pool_sizes[VK_DESCRIPTOR_TYPE_SAMPLER].descriptorCount = 100;
     }
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        pool_size.descriptorCount = 100;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        pool_sizes[VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER].descriptorCount = 100;
     }
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        pool_size.descriptorCount = 100;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        pool_sizes[VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE].descriptorCount = 100;
     }
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        pool_size.descriptorCount = 100;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        pool_sizes[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER].descriptorCount = 100;
     }
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        pool_size.descriptorCount = 10;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_IMAGE].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_IMAGE].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_IMAGE].descriptorCount = 10;
     }
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-        pool_size.descriptorCount = 10;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+        pool_sizes[VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER].descriptorCount = 10;
     }
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        pool_size.descriptorCount = 10;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER].descriptorCount = 10;
     }
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-        pool_size.descriptorCount = 10;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_BUFFER].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_BUFFER].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_BUFFER].descriptorCount = 10;
     }
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
-        pool_size.descriptorCount = 10;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        pool_sizes[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC].descriptorCount = 10;
     }
 
-    if (!zest_map_valid_key(pool_sizes, VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT)) {
-        pool_size.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
-        pool_size.descriptorCount = 10;
-        zest_map_insert_key(pool_sizes, pool_size.type, pool_size);
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC].descriptorCount = 10;
+    }
+
+    if (!pool_sizes[VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT].descriptorCount) {
+        pool_sizes[VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT].type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+        pool_sizes[VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT].descriptorCount = 10;
     }
 
     VkDescriptorPoolCreateInfo pool_info = { 0 };
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.poolSizeCount = (zest_uint)(zest_map_size(pool_sizes));
-    pool_info.pPoolSizes = pool_sizes.data;
+    pool_info.poolSizeCount = 11;
+    pool_info.pPoolSizes = pool_sizes;
     pool_info.maxSets = max_sets;
     pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
@@ -6045,7 +6039,8 @@ zest_create_info_t zest_CreateInfo() {
         .poll_events_callback = zest__os_poll_events,
         .add_platform_extensions_callback = zest__os_add_platform_extensions,
         .create_window_callback = zest__os_create_window,
-        .create_window_surface_callback = zest__os_create_window_surface
+        .create_window_surface_callback = zest__os_create_window_surface,
+        .pool_counts = { 0 }
     };
     return create_info;
 }
@@ -6054,7 +6049,9 @@ void zest_SetDescriptorPoolCount(zest_create_info_t* info, VkDescriptorType desc
     VkDescriptorPoolSize pool_size;
     pool_size.type = descriptor_type;
     pool_size.descriptorCount = count;
-    zest_map_insert_key(info->pool_counts, descriptor_type, pool_size);
+    if (descriptor_type < 20) {
+        info->pool_counts[descriptor_type].descriptorCount = count;
+    }
 }
 
 char* zest_ReadEntireFile(const char* file_name, zest_bool terminate) {

@@ -1947,7 +1947,7 @@ typedef struct zest_create_info_t {
     int screen_x, screen_y;                             //Default position of the window
     int virtual_width, virtual_height;                  //The virtial width/height of the viewport
     VkFormat color_format;                              //Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
-    zest_map_descriptor_pool_sizes pool_counts;         //You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
+    VkDescriptorPoolSize pool_counts[11];               //You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
     zest_uint max_descriptor_pool_sets;                 //The maximum number of descriptor pool sets for the descriptor pool. 100 is default but set to more depending on your needs.
     zest_init_flags flags;                              //Set flags to apply different initialisation options
 
@@ -2795,7 +2795,7 @@ ZEST_PRIVATE zest_buffer_t *zest__create_depth_resources(void);
 ZEST_PRIVATE void zest__create_swap_chain_frame_buffers(zest_bool depth_buffer);
 ZEST_PRIVATE void zest__create_sync_objects(void);
 ZEST_PRIVATE zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buffer buffer);
-ZEST_PRIVATE void zest__create_descriptor_pools(zest_map_descriptor_pool_sizes pool_sizes, zest_uint max_sets);
+ZEST_PRIVATE void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes, zest_uint max_sets);
 ZEST_PRIVATE void zest__make_standard_descriptor_layouts(void);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__format_shader_code(zest_text_t *code);
