@@ -3537,7 +3537,7 @@ void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes, zest_uint m
     }
 
     if (!pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER].descriptorCount) {
-        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER].type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
         pool_sizes[VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER].descriptorCount = 10;
     }
 
@@ -6049,7 +6049,7 @@ void zest_SetDescriptorPoolCount(zest_create_info_t* info, VkDescriptorType desc
     VkDescriptorPoolSize pool_size;
     pool_size.type = descriptor_type;
     pool_size.descriptorCount = count;
-    if (descriptor_type < 20) {
+    if (descriptor_type > 0 && descriptor_type < 20) {
         info->pool_counts[descriptor_type].descriptorCount = count;
     }
 }
