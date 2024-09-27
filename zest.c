@@ -6046,11 +6046,9 @@ zest_create_info_t zest_CreateInfo() {
 }
 
 void zest_SetDescriptorPoolCount(zest_create_info_t* info, VkDescriptorType descriptor_type, zest_uint count) {
-    VkDescriptorPoolSize pool_size;
-    pool_size.type = descriptor_type;
-    pool_size.descriptorCount = count;
     if (descriptor_type > 0 && descriptor_type < 20) {
         info->pool_counts[descriptor_type].descriptorCount = count;
+        info->pool_counts[descriptor_type].type = descriptor_type;
     }
 }
 
