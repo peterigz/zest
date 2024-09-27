@@ -2963,7 +2963,7 @@ ZEST_API zest_create_info_t zest_CreateInfo(void);
 //Set the pool count for a descriptor type in a zest_create_info_t. Do this for any pools that you want to be different to the default. You only
 //need to call this if you're running out of descriptor pool space for a specific VkDescriptorType which you maybe doing if you have a lot of custom
 //draw routines
-ZEST_API void SetDescriptorPoolCount(zest_create_info_t *info, VkDescriptorType descriptor_type, zest_uint count);
+ZEST_API void zest_SetDescriptorPoolCount(zest_create_info_t *info, VkDescriptorType descriptor_type, zest_uint count);
 //Initialise Zest. You must call this in order to use Zest. Use zest_CreateInfo() to set up some default values to initialise the renderer.
 ZEST_API void zest_Initialise(zest_create_info_t *info);
 //Set the custom user data which will get passed through to the user update function each frame.

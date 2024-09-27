@@ -6050,7 +6050,7 @@ zest_create_info_t zest_CreateInfo() {
     return create_info;
 }
 
-void SetDescriptorPoolCount(zest_create_info_t* info, VkDescriptorType descriptor_type, zest_uint count) {
+void zest_SetDescriptorPoolCount(zest_create_info_t* info, VkDescriptorType descriptor_type, zest_uint count) {
     VkDescriptorPoolSize pool_size;
     pool_size.type = descriptor_type;
     pool_size.descriptorCount = count;
