@@ -9811,9 +9811,6 @@ void zest_DrawInstanceBulk(zest_layer layer, void *src, zest_uint amount) {
             return;
         }
     }
-    else {
-        layer->memory_refs[layer->fif].instance_count += amount;
-    }
     memcpy(instance_ptr, src, size_in_bytes_to_copy);
     layer->memory_refs[layer->fif].instance_count += amount;
     layer->current_instruction.total_instances += amount;
