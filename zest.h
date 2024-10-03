@@ -4056,6 +4056,9 @@ ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources sh
 //there is not enough room.
 //Note that the struct size of the data you're copying MUST be the same size as the layer->struct_size.
 ZEST_API zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zest_uint amount);
+//In situations where you write directly to a staging buffer you can use this function to simply tell the draw instruction
+//how many instances should be drawn. You will still need to call zest_SetInstanceDrawing
+ZEST_API void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount);
 
 //-----------------------------------------------
 //        Draw_billboard_layers

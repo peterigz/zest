@@ -9820,6 +9820,13 @@ zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zes
     layer->memory_refs[layer->fif].instance_ptr = instance_ptr;
     return result;
 }
+
+void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
+    layer->memory_refs[layer->fif].instance_count += amount;
+    layer->current_instruction.total_instances += amount;
+    zest_size size_in_bytes_to_draw = amount * layer->instance_struct_size;
+    (zest_byte*)layer->memory_refs[layer->fif].instance_ptr += size_in_bytes_to_draw;
+}
 // End general instance layer functionality -----
 
 //Start internal mesh layer functionality -----
