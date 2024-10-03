@@ -9793,8 +9793,9 @@ void zest_NextInstance(zest_layer layer) {
     layer->memory_refs[layer->fif].instance_ptr = instance_ptr;
 }
 
-void zest_DrawInstanceBulk(zest_layer layer, void *src, zest_uint amount) {
-    if (!amount) return;
+zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zest_uint amount) {
+    if (!amount) return 0;
+    zest_draw_buffer_result result = zest_draw_buffer_result_ok;
     zest_size size_in_bytes_to_copy = amount * layer->instance_struct_size;
     zest_byte *instance_ptr = (zest_byte *)layer->memory_refs[layer->fif].instance_ptr;
     int fif = layer->fif;
@@ -9804,11 +9805,10 @@ void zest_DrawInstanceBulk(zest_layer layer, void *src, zest_uint amount) {
             instance_ptr = (zest_byte *)layer->memory_refs[layer->fif].write_to_buffer->data;
             instance_ptr += layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
             diff = (zest_byte *)layer->memory_refs[layer->fif].write_to_buffer->end - instance_ptr;
-            int d = 0;
+            result = zest_draw_buffer_result_buffer_grew;
         }
         else {
-            ZEST_ASSERT(0); //Unable to grow the instance buffer in the layer.
-            return;
+            return zest_draw_buffer_result_failed_to_grow;
         }
     }
     memcpy(instance_ptr, src, size_in_bytes_to_copy);
@@ -9816,6 +9816,7 @@ void zest_DrawInstanceBulk(zest_layer layer, void *src, zest_uint amount) {
     layer->current_instruction.total_instances += amount;
     instance_ptr += size_in_bytes_to_copy;
     layer->memory_refs[layer->fif].instance_ptr = instance_ptr;
+    return result;
 }
 // End general instance layer functionality -----
 

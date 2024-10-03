@@ -1430,6 +1430,12 @@ typedef enum zest_command_queue_type {
     zest_command_queue_type_secondary                     = VK_COMMAND_BUFFER_LEVEL_SECONDARY           //For vulkan secondary command buffers
 } zest_command_queue_type;
 
+typedef enum zest_draw_buffer_result {
+    zest_draw_buffer_result_ok,
+    zest_draw_buffer_result_buffer_grew,
+    zest_draw_buffer_result_failed_to_grow
+} zest_draw_buffer_result;
+
 typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
 typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
 
@@ -4049,7 +4055,7 @@ ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources sh
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
 //there is not enough room.
 //Note that the struct size of the data you're copying MUST be the same size as the layer->struct_size.
-ZEST_API void zest_DrawInstanceBulk(zest_layer layer, void *src, zest_uint amount);
+ZEST_API zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zest_uint amount);
 
 //-----------------------------------------------
 //        Draw_billboard_layers
