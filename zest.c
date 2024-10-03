@@ -9782,6 +9782,7 @@ void zest_NextInstance(zest_layer layer) {
             layer->memory_refs[layer->fif].instance_count++;
             instance_ptr = (zest_byte*)layer->memory_refs[layer->fif].write_to_buffer->data;
             instance_ptr += layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
+            zest_UpdateInstanceLayerDescriptorInfo(layer);
         }
         else {
             instance_ptr = instance_ptr - layer->instance_struct_size;
