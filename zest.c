@@ -9805,6 +9805,7 @@ zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zes
             instance_ptr = (zest_byte *)layer->memory_refs[layer->fif].write_to_buffer->data;
             instance_ptr += layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
             diff = (zest_byte *)layer->memory_refs[layer->fif].write_to_buffer->end - instance_ptr;
+            zest_UpdateInstanceLayerDescriptorInfo(layer);
             result = zest_draw_buffer_result_buffer_grew;
         }
         else {
