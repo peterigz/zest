@@ -2998,7 +2998,7 @@ ZEST_API zest_descriptor_set_layout_builder_t zest_CreateDescriptorSetLayoutBuil
 //Add a descriptor set layout binding to a layout builder. You can use zest_CreateDescriptorSetLayout commands below to create bindings to add
 ZEST_API void zest_AddLayoutBuilderBinding(zest_descriptor_set_layout_builder_t *builder, VkDescriptorSetLayoutBinding binding);
 //Build the descriptor set layout and add it to the render. The layout is also returned from the function.
-ZEST_API VkDescriptorSetLayout zest_BuildDescriptorSetLayout(zest_descriptor_set_layout_builder_t *builder, const char *name);
+ZEST_API zest_descriptor_set_layout zest_BuildDescriptorSetLayout(zest_descriptor_set_layout_builder_t *builder, const char *name);
 //Add a Vulkan descriptor layout which you can use to setup shaders. Zest adds a few builtin layouts for sprite and billboard drawing.
 //Just pass in a name for the layout and the VkDescriptorSetLayout vulkan struct
 //You can combine this with zest_CreateDescriptorSetLayout or just pass in your own VkDescriptorLayout struct

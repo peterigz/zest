@@ -3590,12 +3590,11 @@ void zest_AddLayoutBuilderBinding(zest_descriptor_set_layout_builder_t *builder,
     zest_vec_push(builder->bindings, binding);
 }
 
-VkDescriptorSetLayout zest_BuildDescriptorSetLayout(zest_descriptor_set_layout_builder_t *builder, const char *name) {
+zest_descriptor_set_layout zest_BuildDescriptorSetLayout(zest_descriptor_set_layout_builder_t *builder, const char *name) {
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->descriptor_layouts, name));
     VkDescriptorSetLayout layout = zest_CreateDescriptorSetLayoutWithBindings(zest_vec_size(builder->bindings), builder->bindings);
-    zest_AddDescriptorLayout(name, layout);
     zest_vec_free(builder->bindings);
-    return layout;
+    return zest_AddDescriptorLayout(name, layout);;
 }
 
 zest_descriptor_set_layout zest_AddDescriptorLayout(const char* name, VkDescriptorSetLayout layout) {
