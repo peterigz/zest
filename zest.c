@@ -2803,6 +2803,12 @@ VkDeviceSize zest_GetDescriptorBufferOffset(zest_descriptor_buffer buffer) {
     return buffer->buffer[0]->memory_offset;
 }
 
+VkDeviceSize zest_GetDescriptorBufferSize(zest_descriptor_buffer buffer) {
+    if (buffer->all_frames_in_flight) {
+        return buffer->buffer[ZEST_FIF]->size;
+    }
+    return buffer->buffer[0]->size;
+}
 
 void zest_AddCopyCommand(zest_buffer_uploader_t* uploader, zest_buffer_t* source_buffer, zest_buffer_t* target_buffer, VkDeviceSize target_offset) {
     if (uploader->flags & zest_buffer_upload_flag_initialised)
