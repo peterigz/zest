@@ -3247,6 +3247,7 @@ ZEST_API zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffe
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
+ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfoWithSrcFlag(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeIndexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateIndexBufferInfo(zest_bool cpu_visible);
@@ -3259,6 +3260,7 @@ ZEST_API zest_buffer_info_t zest_CreateStagingBufferInfo(void);
 //then you can pass ZEST_FALSE or 0 for all_frames_in_flight to just create a single buffer.
 ZEST_API zest_descriptor_buffer zest_CreateDescriptorBuffer(zest_buffer_info_t *buffer_info, zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
+ZEST_API zest_descriptor_buffer zest_CreateStorageDescriptorBufferWithSrcFlag (zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateCPUVisibleStorageDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight, zest_bool cpu_visible);
 ZEST_API zest_descriptor_buffer zest_CreateIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight, zest_bool cpu_visible);
