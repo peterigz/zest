@@ -1316,7 +1316,7 @@ void zest_Initialise(zest_create_info_t* info) {
     ZestRenderer->shader_compiler = shaderc_compiler_initialize();
     ZEST_ASSERT(ZestRenderer->shader_compiler); //Unable to create the shader compiler
     zest__initialise_app(info);
-    zest__initialise_device();
+    zest__initialise_device(info);
     zest__initialise_renderer(info);
     zest__create_empty_command_queue(&ZestRenderer->empty_queue);
     if (info->flags & zest_init_flag_initialise_with_command_queue) {
@@ -1337,11 +1337,11 @@ void zest_Start() {
     zest__destroy();
 }
 
-void zest__initialise_device() {
+void zest__initialise_device(zest_create_info_t *create_info) {
     zest__create_instance();
     zest__setup_validation();
     zest__pick_physical_device();
-    zest__create_logical_device();
+    zest__create_logical_device(create_info);
     zest__set_limit_data();
     zest__set_default_pool_sizes();
 }
@@ -1760,7 +1760,7 @@ VkSampleCountFlagBits zest__get_max_useable_sample_count(void) {
     return VK_SAMPLE_COUNT_1_BIT;
 }
 
-void zest__create_logical_device(void) {
+void zest__create_logical_device(zest_create_info_t *init_info) {
     zest_queue_family_indices indices = { 0 };
 
     zest_uint queue_family_count = 0;
@@ -1829,6 +1829,7 @@ void zest__create_logical_device(void) {
     //device_features.wideLines = VK_TRUE;
     //device_features.dualSrcBlend = VK_TRUE;
     //device_features.vertexPipelineStoresAndAtomics = VK_TRUE;
+    if (ZEST__FLAGGED(init_info->flags, zest_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
     VkPhysicalDeviceVulkan12Features device_features_12 = { 0 };
     device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     device_features_12.bufferDeviceAddress = VK_TRUE;

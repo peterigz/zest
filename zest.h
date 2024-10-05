@@ -1294,6 +1294,7 @@ typedef enum zest_init_flag_bits {
     zest_init_flag_maximised                                      = 1 << 2,
     zest_init_flag_cache_shaders                                  = 1 << 3,
     zest_init_flag_enable_vsync                                   = 1 << 6,
+    zest_init_flag_enable_fragment_stores_and_atomics             = 1 << 7,
 } zest_init_flag_bits;
 
 typedef zest_uint zest_init_flags;
@@ -2938,7 +2939,7 @@ ZEST_PRIVATE zest_queue_family_indices zest__find_queue_families(VkPhysicalDevic
 ZEST_PRIVATE zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_swapchain_support_details_t zest__query_swapchain_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE VkSampleCountFlagBits zest__get_max_useable_sample_count(void);
-ZEST_PRIVATE void zest__create_logical_device(void);
+ZEST_PRIVATE void zest__create_logical_device(zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__set_limit_data(void);
 ZEST_PRIVATE zest_bool zest__check_validation_layer_support(void);
 ZEST_PRIVATE void zest__get_required_extensions(void);
@@ -2953,7 +2954,7 @@ ZEST_PRIVATE void zest_vk_free_callback(void* pUserData, void *memory);
 //App initialise/run functions
 ZEST_PRIVATE void zest__do_scheduled_tasks(void);
 ZEST_PRIVATE void zest__initialise_app(zest_create_info_t *create_info);
-ZEST_PRIVATE void zest__initialise_device(void);
+ZEST_PRIVATE void zest__initialise_device(zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__destroy(void);
 ZEST_PRIVATE void zest__main_loop(void);
 ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
