@@ -5489,11 +5489,15 @@ void zest__draw_renderer_frame() {
     if (!ZestRenderer->active_command_queue) {
         //if there's no render queues at all, then we can draw this blank one to prevent errors when presenting the frame
         ZestRenderer->semaphores[ZEST_FIF].incoming = zest_GetCommandQueuePresentSemaphore(&ZestRenderer->empty_queue);
+        zest_StartCommandQueue(&ZestRenderer->empty_queue, ZEST_FIF);
         zest_RecordCommandQueue(&ZestRenderer->empty_queue, ZEST_FIF);
+        zest_EndCommandQueue(&ZestRenderer->empty_queue, ZEST_FIF);
         zest_SubmitCommandQueue(&ZestRenderer->empty_queue, ZestRenderer->fif_fence[ZEST_FIF]);
     }
     else {
+        zest_StartCommandQueue(ZestRenderer->active_command_queue, ZEST_FIF);
         zest_RecordCommandQueue(ZestRenderer->active_command_queue, ZEST_FIF);
+        zest_EndCommandQueue(ZestRenderer->active_command_queue, ZEST_FIF);
         zest_SubmitCommandQueue(ZestRenderer->active_command_queue, ZestRenderer->fif_fence[ZEST_FIF]);
     }
 
@@ -6742,13 +6746,15 @@ zest_compute zest_NextComputeRoutine(zest_command_queue_compute compute_queue) {
     }
 }
 
-void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
+void zest_StartCommandQueue(zest_command_queue command_queue, zest_index fif) {
     VkCommandBufferBeginInfo begin_info = { 0 };
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkResetCommandBuffer(command_queue->command_buffer[fif], 0);
     ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(command_queue->command_buffer[fif], &begin_info));
-
     ZestRenderer->current_command_buffer = command_queue->command_buffer[fif];
+}
+
+void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
     for (zest_foreach_i(command_queue->compute_commands)) {
         zest_command_queue_compute compute_commands = command_queue->compute_commands[i];
         ZEST_ASSERT(compute_commands->compute_function);        //Compute item must have its compute function callback set
@@ -6762,9 +6768,10 @@ void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
         ZestRenderer->current_draw_commands = draw_commands;
         draw_commands->render_pass_function(draw_commands, command_queue->command_buffer[fif], draw_commands->render_pass, draw_commands->get_frame_buffer(draw_commands));
     }
+}
 
+void zest_EndCommandQueue(zest_command_queue command_queue, zest_index fif) {
     ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(command_queue->command_buffer[fif]));
-
     ZestRenderer->current_command_buffer = ZEST_NULL;
     ZestRenderer->current_compute_routine = ZEST_NULL;
     ZestRenderer->current_draw_commands = ZEST_NULL;

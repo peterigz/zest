@@ -3486,6 +3486,11 @@ ZEST_API zest_compute zest_NextComputeRoutine(zest_command_queue_compute compute
 //queues (see zest_NewFloatingCommandQueue) you can record and submite a command queue using these functions. Pass the command_queue and the frame in flight
 //index to record.
 ZEST_API void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif);
+//Where zest_RecordCommandQueue records and then ends the command queue ready for submitting, this will just start the recording
+//allowing you to insert your own vkCmds between calling AddCommandQueue and then EndCommandQueue
+ZEST_API void zest_StartCommandQueue(zest_command_queue command_queue, zest_index fif);
+//End a command queue ready for submitting
+ZEST_API void zest_EndCommandQueue(zest_command_queue command_queue, zest_index fif);
 //Submit a command queue to be executed on the GPU. Utilise the fence commands to know when the queue has finished executing: zest_CreateFence, zest_CheckFence,
 //zest_WaitForFence and zest_DestoryFence. Pass in a fence which will be signalled once the execution is done.
 ZEST_API void zest_SubmitCommandQueue(zest_command_queue command_queue, VkFence fence);
