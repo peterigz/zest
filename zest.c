@@ -2789,6 +2789,21 @@ VkBuffer* zest_GetBufferDeviceBuffer(zest_buffer buffer) {
     return &buffer->memory_pool->buffer;
 }
 
+VkBuffer zest_GetDescriptorBufferVK(zest_descriptor_buffer buffer) {
+    if (buffer->all_frames_in_flight) {
+        return buffer->buffer[ZEST_FIF]->memory_pool->buffer;
+    }
+    return buffer->buffer[0]->memory_pool->buffer;
+}
+
+VkDeviceSize zest_GetDescriptorBufferOffset(zest_descriptor_buffer buffer) {
+    if (buffer->all_frames_in_flight) {
+        return buffer->buffer[ZEST_FIF]->memory_offset;
+    }
+    return buffer->buffer[0]->memory_offset;
+}
+
+
 void zest_AddCopyCommand(zest_buffer_uploader_t* uploader, zest_buffer_t* source_buffer, zest_buffer_t* target_buffer, VkDeviceSize target_offset) {
     if (uploader->flags & zest_buffer_upload_flag_initialised)
         ZEST_ASSERT(uploader->source_buffer == source_buffer && uploader->target_buffer == target_buffer);    //Buffer uploads must be to the same source and target ids with each copy. Use a separate BufferUpload for each combination of source and target buffers

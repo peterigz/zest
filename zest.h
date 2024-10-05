@@ -3287,6 +3287,11 @@ ZEST_API void zest_FreeDescriptorBuffer(zest_descriptor_buffer buffer);
 ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer buffer);
 //Get the VkBuffer from a zest_buffer. This is needed for some Vulkan Commands
 ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer buffer);
+//Get the VkBuffer from a zest_descriptor_buffer. 
+ZEST_API VkBuffer zest_GetDescriptorBufferVK(zest_descriptor_buffer buffer);
+//Get the offset of a zest_descriptor_buffer. 
+ZEST_API VkDeviceSize zest_GetDescriptorBufferOffset(zest_descriptor_buffer buffer);
+//Get the offset of a zest_descriptor_buffer. 
 //When creating your own draw routines you will probably need to upload data from a staging buffer to a GPU buffer like a vertex buffer. You can
 //use this command with zest_UploadBuffer to upload the buffers that you need. You can call zest_AddCopyCommand multiple times depending on
 //how many buffers you need to upload data for and then call zest_UploadBuffer passing the zest_buffer_uploader_t to copy all the buffers in
