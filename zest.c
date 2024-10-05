@@ -3838,10 +3838,12 @@ void zest_UpdateShaderResources(zest_shader_resources resources, zest_descriptor
 }
 
 void zest_ClearShaderResources(zest_shader_resources shader_resources) {
+    if (!shader_resources) return;
     zest_vec_clear(shader_resources->sets);
 }
 
 void zest_FreeShaderResources(zest_shader_resources shader_resources) {
+    if (!shader_resources) return;
     zest_vec_free(shader_resources->sets);
 }
 
