@@ -2050,6 +2050,10 @@ typedef struct zest_render_pass_t {
     const char *name;
 } zest_render_pass_t;
 
+typedef struct zest_descriptor_set_layout_builder_t {
+    VkDescriptorSetLayoutBinding *bindings;
+} zest_descriptor_set_layout_builder_t;
+
 typedef struct zest_descriptor_set_layout_t {
     VkDescriptorSetLayout vk_layout;
     zest_text_t name;
@@ -2988,6 +2992,13 @@ ZEST_API void zest_AddInstanceExtension(char *extension);
 //Allocate space in memory for a zest_window_t which contains data about the window. If you're using your own method for creating a window then you can use
 //this and then assign your window handle to zest_window_t.window_handle. Returns a pointer to the zest_window_t
 ZEST_API zest_window zest_AllocateWindow(void);
+//Create a descriptor layout builder object that you can use with the AddBuildLayout commands to put together more complex/fine tuned descriptor
+//set layouts
+ZEST_API zest_descriptor_set_layout_builder_t zest_CreateDescriptorSetLayoutBuilder(void);
+//Add a descriptor set layout binding to a layout builder. You can use zest_CreateDescriptorSetLayout commands below to create bindings to add
+ZEST_API void zest_AddLayoutBuilderBinding(zest_descriptor_set_layout_builder_t *builder, VkDescriptorSetLayoutBinding binding);
+//Build the descriptor set layout and add it to the render. The layout is also returned from the function.
+ZEST_API VkDescriptorSetLayout zest_BuildDescriptorSetLayout(zest_descriptor_set_layout_builder_t *builder, const char *name);
 //Add a Vulkan descriptor layout which you can use to setup shaders. Zest adds a few builtin layouts for sprite and billboard drawing.
 //Just pass in a name for the layout and the VkDescriptorSetLayout vulkan struct
 //You can combine this with zest_CreateDescriptorSetLayout or just pass in your own VkDescriptorLayout struct

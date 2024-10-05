@@ -3581,6 +3581,23 @@ void zest__make_standard_descriptor_layouts() {
     zest_AddDescriptorLayout("Ribbon 2d layout", zest_CreateDescriptorSetLayout(1, 0, 1));
 }
 
+zest_descriptor_set_layout_builder_t zest_CreateDescriptorSetLayoutBuilder(void) {
+    zest_descriptor_set_layout_builder_t builder = { 0 };
+    return builder;
+}
+
+void zest_AddLayoutBuilderBinding(zest_descriptor_set_layout_builder_t *builder, VkDescriptorSetLayoutBinding binding) {
+    zest_vec_push(builder->bindings, binding);
+}
+
+VkDescriptorSetLayout zest_BuildDescriptorSetLayout(zest_descriptor_set_layout_builder_t *builder, const char *name) {
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->descriptor_layouts, name));
+    VkDescriptorSetLayout layout = zest_CreateDescriptorSetLayoutWithBindings(zest_vec_size(builder->bindings), builder->bindings);
+    zest_AddDescriptorLayout(name, layout);
+    zest_vec_free(builder->bindings);
+    return layout;
+}
+
 zest_descriptor_set_layout zest_AddDescriptorLayout(const char* name, VkDescriptorSetLayout layout) {
     zest_descriptor_set_layout descriptor_layout = ZEST__NEW(zest_descriptor_set_layout);
     descriptor_layout->name.str = 0;
@@ -3608,6 +3625,7 @@ VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_ui
     VkDescriptorSetLayout layout = zest_CreateDescriptorSetLayoutWithBindings(zest_vec_size(bindings), bindings);
     zest_vec_free(bindings);
     return layout;
+
 }
 
 VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(zest_uint count, VkDescriptorSetLayoutBinding* bindings) {
