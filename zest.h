@@ -2683,8 +2683,6 @@ typedef struct zest_renderer_t {
     zest_command_queue_draw_commands current_draw_commands;
     zest_command_queue_compute current_compute_routine;
 
-    shaderc_compiler_t shader_compiler;
-
     //General Storage
     zest_map_command_queues command_queues;
     zest_map_render_passes render_passes;
@@ -3073,13 +3071,13 @@ ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offse
 //Create a new shader handle
 ZEST_API zest_shader zest_NewShader(shaderc_shader_kind type);
 //Validate a shader from a string and add it to the library of shaders in the renderer
-ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name);
+ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name, shaderc_compiler_t compiler);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching);
+ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching, shaderc_compiler_t compiler);
 //Creates a shader from a file containing the shader glsl code
-ZEST_API zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching);
+ZEST_API zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_bool zest_CompileShader(zest_shader shader);
+ZEST_API zest_bool zest_CompileShader(zest_shader shader, shaderc_compiler_t compiler);
 //Update an existing shader with a new version
 ZEST_API void zest_UpdateShaderSPV(zest_shader shader, shaderc_compilation_result_t result);
 //Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 

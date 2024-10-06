@@ -1313,8 +1313,6 @@ void zest_Initialise(zest_create_info_t* info) {
     ZestRenderer->add_platform_extensions_callback = info->add_platform_extensions_callback;
     ZestRenderer->create_window_callback = info->create_window_callback;
     ZestRenderer->create_window_surface_callback = info->create_window_surface_callback;
-    ZestRenderer->shader_compiler = shaderc_compiler_initialize();
-    ZEST_ASSERT(ZestRenderer->shader_compiler); //Unable to create the shader compiler
     zest__initialise_app(info);
     zest__initialise_device(info);
     zest__initialise_renderer(info);
@@ -4351,8 +4349,7 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
     if (zest_map_valid_name(ZestRenderer->shaders, pipeline->pipeline_template.vertShaderFile.str)) {
         zest_shader vert_shader = *zest_map_at(ZestRenderer->shaders, pipeline->pipeline_template.vertShaderFile.str);
         if (!vert_shader->spv) {
-			zest_bool status = zest_CompileShader(vert_shader);
-			ZEST_ASSERT(status);    //Failed to compile shader, check the log file for the error.
+			ZEST_ASSERT(0);    //Shader must have been compiled first before building the pipeline
         }
 		vert_shader_module = zest__create_shader_module(vert_shader->spv);
 		pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
@@ -4367,8 +4364,7 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
     if (zest_map_valid_name(ZestRenderer->shaders, pipeline->pipeline_template.fragShaderFile.str)) {
         zest_shader frag_shader = *zest_map_at(ZestRenderer->shaders, pipeline->pipeline_template.fragShaderFile.str);
         if (!frag_shader->spv) {
-			zest_bool status = zest_CompileShader(frag_shader);
-			ZEST_ASSERT(status);    //Failed to compile shader, check the log file for the error.
+			ZEST_ASSERT(0);    //Shader must have been compiled first before building the pipeline
         }
 		frag_shader_module = zest__create_shader_module(frag_shader->spv);
 		pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
@@ -4528,13 +4524,13 @@ zest_shader zest_NewShader(shaderc_shader_kind type) {
     return shader;
 }
 
-shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name) {
-    shaderc_compilation_result_t result = shaderc_compile_into_spv(ZestRenderer->shader_compiler, shader_code, strlen(shader_code), type, name, "main", NULL);
+shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name, shaderc_compiler_t compiler) {
+    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader_code, strlen(shader_code), type, name, "main", NULL);
     return result;
 }
 
-zest_bool zest_CompileShader(zest_shader shader) {
-    shaderc_compilation_result_t result = shaderc_compile_into_spv(ZestRenderer->shader_compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", NULL);
+zest_bool zest_CompileShader(zest_shader shader, shaderc_compiler_t compiler) {
+    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", NULL);
     if (shaderc_result_get_compilation_status(result) == shaderc_compilation_status_success) {
 		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Successfully compiled shader: %s.", shader->name.str);
         zest_UpdateShaderSPV(shader, result);
@@ -4545,13 +4541,13 @@ zest_bool zest_CompileShader(zest_shader shader) {
     return 0;
 }
 
-zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching) {
+zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler) {
     char *shader_code = zest_ReadEntireFile(file, ZEST_TRUE);
     ZEST_ASSERT(shader_code);   //Unable to load the shader code, check the path is valid
-    return zest_CreateShader(shader_code, type, name, ZEST_FALSE, disable_caching);
+    return zest_CreateShader(shader_code, type, name, ZEST_FALSE, disable_caching, compiler);
 }
 
-zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching) {
+zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching, shaderc_compiler_t compiler) {
     ZEST_ASSERT(name);     //You must give the shader a name
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, name));     //Shader already exitst, use zest_UpdateShader to update an existing shader
     zest_shader shader = zest_NewShader(type);
@@ -4579,7 +4575,7 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
 	if (format_code != 0) {
 		zest__format_shader_code(&shader->shader_code);
 	}
-    shaderc_compilation_result_t result = shaderc_compile_into_spv( ZestRenderer->shader_compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", NULL );
+    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", NULL );
 
     if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
 		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Shader compilation failed: %s, %s" ZEST_NL, name, shaderc_result_get_error_message(result));
@@ -5090,22 +5086,25 @@ void zest__format_shader_code(zest_text_t *code) {
 }
 
 void zest__compile_builtin_shaders(void) {
-    zest_CreateShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert.spv", 1, 0);
-    zest_CreateShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag.spv", 1, 0);
-    zest_CreateShader(zest_shader_billboard_vert, shaderc_vertex_shader, "billboard_vert.spv", 1, 0);
-    zest_CreateShader(zest_shader_sprite_frag, shaderc_fragment_shader, "image_frag.spv", 1, 0);
-    zest_CreateShader(zest_shader_sprite_alpha_frag, shaderc_fragment_shader, "sprite_alpha_frag.spv", 1, 0);
-    zest_CreateShader(zest_shader_sprite_vert, shaderc_vertex_shader, "sprite_vert.spv", 1, 0);
-    zest_CreateShader(zest_shader_shape_vert, shaderc_vertex_shader, "shape_vert.spv", 1, 0);
-    zest_CreateShader(zest_shader_shape_frag, shaderc_fragment_shader, "shape_frag.spv", 1, 0);
-    zest_CreateShader(zest_shader_3d_lines_vert, shaderc_vertex_shader, "3d_lines_vert.spv", 1, 0);
-    zest_CreateShader(zest_shader_3d_lines_frag, shaderc_fragment_shader, "3d_lines_frag.spv", 1, 0);
-    zest_CreateShader(zest_shader_font_frag, shaderc_fragment_shader, "font_frag.spv", 1, 0);
-    zest_CreateShader(zest_shader_mesh_vert, shaderc_vertex_shader, "mesh_vert.spv", 1, 0);
-    zest_CreateShader(zest_shader_mesh_instance_vert, shaderc_vertex_shader, "mesh_instance_vert.spv", 1, 0);
-    zest_CreateShader(zest_shader_mesh_instance_frag, shaderc_fragment_shader, "mesh_instance_frag.spv", 1, 0);
-    zest_CreateShader(zest_shader_swap_vert, shaderc_vertex_shader, "swap_vert.spv", 1, 0);
-    zest_CreateShader(zest_shader_swap_frag, shaderc_fragment_shader, "swap_frag.spv", 1, 0);
+    shaderc_compiler_t compiler = shaderc_compiler_initialize();
+    ZEST_ASSERT(compiler); //unable to create compiler
+    zest_CreateShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_billboard_vert, shaderc_vertex_shader, "billboard_vert.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_sprite_frag, shaderc_fragment_shader, "image_frag.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_sprite_alpha_frag, shaderc_fragment_shader, "sprite_alpha_frag.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_sprite_vert, shaderc_vertex_shader, "sprite_vert.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_shape_vert, shaderc_vertex_shader, "shape_vert.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_shape_frag, shaderc_fragment_shader, "shape_frag.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_3d_lines_vert, shaderc_vertex_shader, "3d_lines_vert.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_3d_lines_frag, shaderc_fragment_shader, "3d_lines_frag.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_font_frag, shaderc_fragment_shader, "font_frag.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_mesh_vert, shaderc_vertex_shader, "mesh_vert.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_mesh_instance_vert, shaderc_vertex_shader, "mesh_instance_vert.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_mesh_instance_frag, shaderc_fragment_shader, "mesh_instance_frag.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_swap_vert, shaderc_vertex_shader, "swap_vert.spv", 1, 0, compiler);
+    zest_CreateShader(zest_shader_swap_frag, shaderc_fragment_shader, "swap_frag.spv", 1, 0, compiler);
+    shaderc_compiler_release(compiler);
 }
 
 void zest__prepare_standard_pipelines() {
@@ -11282,8 +11281,7 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
         if (zest_map_valid_name(ZestRenderer->shaders, filename.str)) {
             zest_shader shader = *zest_map_at(ZestRenderer->shaders, filename.str);
             if (!shader->spv) {
-                zest_bool status = zest_CompileShader(shader);
-                ZEST_ASSERT(status);    //Failed to compile shader, check the log file for the error.
+                ZEST_ASSERT(0);    //Compile the shader first before making the compute pipeline
             }
             shader_module = zest__create_shader_module(shader->spv);
         }
