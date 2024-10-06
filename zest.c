@@ -2954,7 +2954,7 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create pipeline cache" ZEST_NL);
     zest__create_pipeline_cache();
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compile shaders" ZEST_NL);
-    zest__compile_builtin_shaders();
+    zest__compile_builtin_shaders(ZEST__FLAGGED(create_info->flags, zest_init_flag_disable_shaderc));
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create standard pipelines" ZEST_NL);
     zest__prepare_standard_pipelines();
 
@@ -5085,9 +5085,12 @@ void zest__format_shader_code(zest_text_t *code) {
     *code = formatted_code;
 }
 
-void zest__compile_builtin_shaders(void) {
-    shaderc_compiler_t compiler = shaderc_compiler_initialize();
-    ZEST_ASSERT(compiler); //unable to create compiler
+void zest__compile_builtin_shaders(zest_bool compile_shaders) {
+    shaderc_compiler_t compiler = { 0 }; 
+    if (!compile_shaders) {
+        compiler = shaderc_compiler_initialize();
+		ZEST_ASSERT(compiler); //unable to create compiler
+    }
     zest_CreateShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert.spv", 1, 0, compiler);
     zest_CreateShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag.spv", 1, 0, compiler);
     zest_CreateShader(zest_shader_billboard_vert, shaderc_vertex_shader, "billboard_vert.spv", 1, 0, compiler);
@@ -5104,7 +5107,9 @@ void zest__compile_builtin_shaders(void) {
     zest_CreateShader(zest_shader_mesh_instance_frag, shaderc_fragment_shader, "mesh_instance_frag.spv", 1, 0, compiler);
     zest_CreateShader(zest_shader_swap_vert, shaderc_vertex_shader, "swap_vert.spv", 1, 0, compiler);
     zest_CreateShader(zest_shader_swap_frag, shaderc_fragment_shader, "swap_frag.spv", 1, 0, compiler);
-    shaderc_compiler_release(compiler);
+    if (compiler) {
+        shaderc_compiler_release(compiler);
+    }
 }
 
 void zest__prepare_standard_pipelines() {

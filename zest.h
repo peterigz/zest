@@ -1295,6 +1295,7 @@ typedef enum zest_init_flag_bits {
     zest_init_flag_cache_shaders                                  = 1 << 3,
     zest_init_flag_enable_vsync                                   = 1 << 6,
     zest_init_flag_enable_fragment_stores_and_atomics             = 1 << 7,
+    zest_init_flag_disable_shaderc                                = 1 << 8,
 } zest_init_flag_bits;
 
 typedef zest_uint zest_init_flags;
@@ -2808,7 +2809,7 @@ ZEST_PRIVATE void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes
 ZEST_PRIVATE void zest__make_standard_descriptor_layouts(void);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__format_shader_code(zest_text_t *code);
-ZEST_PRIVATE void zest__compile_builtin_shaders(void);
+ZEST_PRIVATE void zest__compile_builtin_shaders(zest_bool compile_shaders);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__create_empty_command_queue(zest_command_queue command_queue);
 ZEST_PRIVATE void zest__render_blank(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
