@@ -54,6 +54,8 @@ struct TimelineFXExample {
 	tfx_random_t random;
 	tfx_vector_t<tfx_pool_stats_t> memory_stats;
 
+	float test_depth = 1.f;
+
 	void Init();
 };
 
@@ -66,7 +68,7 @@ void UpdateUniform3d(TimelineFXExample *game) {
 	buffer_3d->screen_size.x = zest_ScreenWidthf();
 	buffer_3d->screen_size.y = zest_ScreenHeightf();
 	buffer_3d->millisecs = 0;
-	buffer_3d->parameters1.x = zest_TimerLerp(game->timer);
+	buffer_3d->parameters1.x = (float)zest_TimerLerp(game->timer);
 }
 
 //Before you load an effects file, you will need to define a ShapeLoader function and a GetUV function to update all the shapes in 
@@ -201,16 +203,6 @@ void TimelineFXExample::Init() {
 
 	UpdateUniform3d(this);
 
-	/*
-	Initialise a particle manager. This manages effects, emitters and the particles that they spawn. First call CreateParticleManagerInfo and pass in a setup mode to create an info object with the config we need.
-	If you need to you can tweak this further before passing into InitializingParticleManager.
-
-	In this example we'll setup a particle manager for 3d effects and group the sprites by each effect.
-	*/
-	tfx_particle_manager_info_t pm_info = CreateParticleManagerInfo(tfxParticleManagerSetup_3d_group_sprites_by_effect);
-	InitializeParticleManager(&pm, &library, pm_info);
-	SetPMCamera(&pm, &camera.front.x, &camera.position.x);
-
 	//Set up the draw layers we need in the renderer
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);
 
@@ -229,8 +221,9 @@ void TimelineFXExample::Init() {
 	zest_TimerReset(timer);
 
 	//We want to be able to manually change the current frame in flight in the layer that we use to draw all the billboards.
-	//This means that we can only change the current frame in flight if we actually updated the particle manager in the current
-	//frame
+	//This means that we are able to only change the current frame in flight if we actually updated the particle manager in the current
+	//frame allowing us to dictate when to upload the instance buffer to the gpu as there's no need to do it every frame, only when 
+	//the particle manager is actually updated.
 	zest_SetLayerToManualFIF(timelinefx_layer);
 
 	//Create a buffer to store the image data on the gpu. Note that we don't need this buffer to have multiple frames in flight
@@ -251,11 +244,20 @@ void TimelineFXExample::Init() {
 	timelinefx_descriptor_set = zest_BuildDescriptorSet(&set_builder, timelinefx_descriptor_layout, zest_descriptor_type_static);
 
 	//Finally, set up a shader resource to be used when sending the draw calls to the gpu in our render function
+	//This will have the uniform buffer in set 0 and the texures and storage buffers in set 1
 	timelinefx_shader_resource = zest_CreateShaderResources();
 	zest_AddDescriptorSetToResources(timelinefx_shader_resource, uniform_buffer_descriptor_set);
 	zest_AddDescriptorSetToResources(timelinefx_shader_resource, &timelinefx_descriptor_set);
-
 	//End of render specific code
+
+	/*
+	Initialise a particle manager. This manages effects, emitters and the particles that they spawn. First call CreateParticleManagerInfo and pass in a setup mode to create an info object with the config we need.
+	If you need to you can tweak this further before passing into InitializingParticleManager.
+	In this example we'll setup a particle manager for 3d effects and group the sprites by each effect.
+	*/
+	tfx_particle_manager_info_t pm_info = CreateParticleManagerInfo(tfxParticleManagerSetup_3d_group_sprites_by_effect);
+	InitializeParticleManager(&pm, &library, pm_info);
+	SetPMCamera(&pm, &camera.front.x, &camera.position.x);
 
 	/*
 	Prepare a tfx_effect_template_t that you can use to customise effects in the library in various ways before adding them into a particle manager for updating and rendering. Using a template like this
@@ -271,7 +273,6 @@ void TimelineFXExample::Init() {
 
 	random = NewRandom(zest_Millisecs());
 
-	/*
 	for (int i = 0; i != 10; ++i) {
 		tfxEffectID effect_id;
 		if (AddEffectToParticleManager(&pm, &cube_ordered, &effect_id)) {
@@ -280,8 +281,9 @@ void TimelineFXExample::Init() {
 			test_effects.push_back(effect_id);
 		}
 	}
-	*/
+	test_depth++;
 
+	/*
 	memory_stats.reserve(100);
 	tfx__lock_thread_access(tfxMemoryAllocator);
 	for (int i = 0; i != GetGlobals()->memory_pool_count; ++i) {
@@ -289,6 +291,7 @@ void TimelineFXExample::Init() {
 		memory_stats.push_back(stats);
 	}
 	tfx__unlock_thread_access(tfxMemoryAllocator)
+	*/
 }
 
 //Draw a Dear ImGui window to output some basic stats
@@ -301,11 +304,18 @@ void BuildUI(TimelineFXExample *game) {
 	ImGui::Text("Effects: %i", EffectCount(&game->pm));
 	ImGui::Text("Emitters: %i", EmitterCount(&game->pm));
 	ImGui::Text("Free Emitters: %i", game->pm.free_emitters.size());
+	/*
+	int i = 0;
+	for (tfx_effect_index_t effect_index : game->pm.effects_in_use[0][game->pm.current_ebuff]) {
+		ImGui::Text("%i) Effect Index %i", i, effect_index.index);
+		i++;
+	}
 	for (tfx_pool_stats_t& stats : game->memory_stats) {
 		ImGui::Text("Free Blocks: %i, Used Blocks: %i", stats.free_blocks, stats.used_blocks);
 		ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024);
 		ImGui::Text("Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 	}
+	*/
 	ImGui::End();
 
 	ImGui::Render();
@@ -314,7 +324,7 @@ void BuildUI(TimelineFXExample *game) {
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
-void RenderParticles3d(tfx_particle_manager_t& pm, float tween, TimelineFXExample* game) {
+void RenderParticles3d(tfx_particle_manager_t& pm, TimelineFXExample* game) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_SetInstanceDrawing(game->timelinefx_layer, game->timelinefx_shader_resource, game->timelinefx_pipeline);
 
@@ -323,12 +333,28 @@ void RenderParticles3d(tfx_particle_manager_t& pm, float tween, TimelineFXExampl
 }
 
 //A simple example to render the particles. This is for when the particle manager groups all it's sprites by effect so that you can draw the effects in different orders if you need
-void RenderParticles3dGroupedByEffect(tfx_particle_manager_t& pm, float tween, TimelineFXExample* game) {
+void RenderParticles3dByEffect(tfx_particle_manager_t& pm, TimelineFXExample* game) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_SetInstanceDrawing(game->timelinefx_layer, game->timelinefx_shader_resource, game->timelinefx_pipeline);
 
-	tfx_billboard_instance_t *billboards = GetBillboardBuffer(&pm);
-	zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->timelinefx_layer, billboards, pm.instance_buffer.current_size);
+	tfx_billboard_instance_t *billboards = nullptr;
+	tfx_effect_instance_data_t *instance_data;
+	tfxU32 instance_count = 0;
+	bool halt = false;
+	while (GetNextBillboardBuffer(&pm, &billboards, &instance_data, &instance_count)) {
+		//tfxPrint("Offset: %i", instance_data->instance_start_index);
+		zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->timelinefx_layer, billboards, instance_count);
+		/*
+		if (pm.effects_in_use[0][pm.current_ebuff].current_size > 1) {
+			for (int i = 0; i != instance_count; ++i) {
+				tfxPrint("Range: %i - %i, count: %i -- %u", instance_data->instance_start_index, instance_data->instance_start_index + instance_count - 1, instance_count, billboards[i].captured_index & 0x0FFFFFFF);
+			}
+			if (pm.effect_index_position > 1 && instance_count > 200) halt = true;
+		}
+		*/
+	}
+	//tfxPrint("-------------------------");
+	ResetInstanceBufferLoopIndex(&pm);
 }
 
 //Application specific, this just sets the function to call each render update
@@ -368,7 +394,6 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 			}
 		}
 
-		/*
 		for (tfxEffectID &effect_id : game->test_effects) {
 			float chance = GenerateRandom(&game->random);
 			if (chance < 0.01f) {
@@ -377,6 +402,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 					tfx_vec3_t position = {RandomRange(&game->random, 5.f), RandomRange(&game->random, -2.f, 2.f), RandomRange(&game->random, -4.f, 4.f)};
 					SetEffectPosition(&game->pm, effect_id, position);
 				}
+				game->test_depth++;
+				/*
 				tfx__lock_thread_access(tfxMemoryAllocator);
 				game->memory_stats.clear();
 				for (int i = 0; i != GetGlobals()->memory_pool_count; ++i) {
@@ -384,16 +411,16 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 					game->memory_stats.push_back(stats);
 				}
 				tfx__unlock_thread_access(tfxMemoryAllocator)
+				*/
 			}
 		}
-		*/
 
 		//Update the particle manager but only if pending ticks is > 0. This means that if we're trying to catch up this frame
 		//then rather then run the update particle manager multiple times, simple run it once but multiply the frame length
 		//instead. This is important in order to keep the billboard buffer on the gpu in sync for interpolating the particles
 		//with the previous frame. It's also just more efficient to do this.
 		if (pending_ticks > 0) {
-			UpdateParticleManager(&game->pm, FrameLength * pending_ticks);
+			UpdateParticleManager(&game->pm, FrameLength);
 			pending_ticks = 0;
 		}
 
@@ -409,14 +436,14 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//have to upload the latest billboards to the gpu.
 	if (zest_TimerUpdateWasRun(game->timer)) {
 		zest_ResetInstanceLayer(game->timelinefx_layer);
-		RenderParticles3d(game->pm, (float)game->timer->lerp, game);
+		RenderParticles3dByEffect(game->pm, game);
 	}
 }
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
 	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_uint packed = zest_Pack8bitx3(&v);
 	zest_create_info_t create_info = zest_CreateInfo();
@@ -427,6 +454,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	TimelineFXExample game;
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated it's own thread.
 	InitialiseTimelineFX(std::thread::hardware_concurrency(), tfxMegabyte(128));
+	//InitialiseTimelineFX(0, tfxMegabyte(128));
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&game);
