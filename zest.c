@@ -7327,6 +7327,8 @@ zest_image zest_AddTextureImageFile(zest_texture texture, const char* filename) 
 
     image->width = bitmap->width;
     image->height = bitmap->height;
+	ZEST_ASSERT(image->width <= texture->texture_layer_size && image->height <= texture->texture_layer_size);   //This image will not pack into the texture because it's bigger then the texture layer size.
+                                                                                                                //Use zest_SetTextureLayerSize to set a bigger layer size after creating the texture.
     image->texture = texture;
     if (texture->flags & zest_texture_flag_get_max_radius) {
         image->max_radius = zest_FindBitmapRadius(bitmap);
@@ -8204,6 +8206,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
     for (zest_foreach_i(texture->images)) {
         zest_image image = texture->images[i];
         stbrp_rect rect;
+        ZEST_ASSERT(image->width <= texture->texture_layer_size && image->height <= texture->texture_layer_size);   //Image being packed is bigger then the texture layer size
         rect.w = image->width + texture->packed_border_size * 2;
         rect.h = image->height + texture->packed_border_size * 2;
         rect.x = 0;
