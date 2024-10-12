@@ -67,6 +67,7 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
                         zest_BindPipeline(layer_info->pipeline, &last_descriptor_set, 1);
                         last_pipeline = layer_info->pipeline;
                     }
+                    push_constants->parameters2.x = (float)current_image->layer;
                     break;
                 case zest_struct_type_imgui_image:
                 {
@@ -79,17 +80,16 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
                     last_descriptor_set = VK_NULL_HANDLE;
                     last_pipeline = imgui_image->pipeline;
                     push_constants = &imgui_image->push_constants;
+                    push_constants->parameters2.x = (float)imgui_image->image->layer;
                 }
-                    break;
+                break;
                 default:
                     //Invalid image
                     ZEST_PRINT_WARNING("%s", "Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
                     continue;
                 }
 
-                push_constants->parameters2.x = (float)current_image->layer;
-
-                vkCmdPushConstants(ZestRenderer->current_command_buffer, layer_info->pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), &imgui_layer->push_constants);
+                vkCmdPushConstants(ZestRenderer->current_command_buffer, layer_info->pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), push_constants);
 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
