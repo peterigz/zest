@@ -58,6 +58,8 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
                     current_image = zest_GetRenderTargetImage(render_target);
                 }
 
+                zest_push_constants_t *push_constants = &imgui_layer->push_constants;
+
                 switch (current_image->struct_type) {
                 case zest_struct_type_image:
                     if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_GetTextureDescriptorSetVK(current_image->texture)) {
@@ -71,11 +73,12 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
                     zest_imgui_image_t *imgui_image = (zest_imgui_image_t *)pcmd->TextureId;
                     //The imgui image must have its image, pipeline and shader resources defined
                     ZEST_ASSERT(imgui_image->image);
-                    zest_ClearLayerDrawSets(layer_info->mesh_layer);
-                    zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &layer_info->mesh_layer->draw_sets, layer_info->mesh_layer->fif);
-                    zest_BindPipeline(imgui_image->pipeline, layer_info->mesh_layer->draw_sets, set_count);
+                    zest_ClearLayerDrawSets(imgui_layer);
+                    zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &imgui_layer->draw_sets, imgui_layer->fif);
+                    zest_BindPipeline(imgui_image->pipeline, imgui_layer->draw_sets, set_count);
                     last_descriptor_set = VK_NULL_HANDLE;
                     last_pipeline = imgui_image->pipeline;
+                    push_constants = &imgui_image->push_constants;
                 }
                     break;
                 default:
@@ -84,9 +87,9 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
                     continue;
                 }
 
-                imgui_layer->push_constants.parameters2.x = (float)current_image->layer;
+                push_constants->parameters2.x = (float)current_image->layer;
 
-                vkCmdPushConstants(ZestRenderer->current_command_buffer, layer_info->pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(zest_push_constants_t), &imgui_layer->push_constants);
+                vkCmdPushConstants(ZestRenderer->current_command_buffer, layer_info->pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), &imgui_layer->push_constants);
 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);

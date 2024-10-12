@@ -5266,7 +5266,7 @@ void zest__prepare_standard_pipelines() {
     VkPushConstantRange imgui_pushconstant_range;
     imgui_pushconstant_range.size = sizeof(zest_push_constants_t);
     imgui_pushconstant_range.offset = 0;
-    imgui_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    imgui_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     zest_vec_push(imgui_pipeline_template.pushConstantRange, imgui_pushconstant_range);
     zest_AddVertexInputBindingDescription(&imgui_pipeline_template, 0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
     VkVertexInputAttributeDescription* imgui_vertex_input_attributes = 0;

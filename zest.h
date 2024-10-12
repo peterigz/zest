@@ -343,6 +343,16 @@ layout(location = 1) in vec3 in_uv;
 layout(location = 0) out vec4 out_color;
 layout(set = 0, binding = 0) uniform sampler2DArray tex_sampler;
 
+//Not used by default by can be used in custom imgui image shaders
+layout(push_constant) uniform quad_index
+{
+	mat4 model;
+	vec4 transform;
+	vec4 parameters;
+	vec4 parameters3;
+	vec4 camera;
+} pc;
+
 void main()
 {
 	out_color = in_color * texture(tex_sampler, in_uv);
@@ -2545,6 +2555,7 @@ typedef struct zest_imgui_image_t {
     zest_image image;
     zest_pipeline pipeline;
     zest_shader_resources shader_resources;
+    zest_push_constants_t push_constants;
 } zest_imgui_image_t;
 
 typedef struct zest_framebuffer_attachment_t {
