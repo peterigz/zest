@@ -52,6 +52,7 @@ function(buildExample EXAMPLE_NAME)
 	endif()
 	
 	file(GLOB IMPLEMENTATIONS_SOURCE
+		${IMPLEMENTATIONS}impl_imgui.cpp
 		${IMPLEMENTATIONS}impl_glfw.cpp
 		${IMPLEMENTATIONS}impl_imgui_glfw.cpp
 	)

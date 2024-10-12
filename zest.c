@@ -4698,11 +4698,16 @@ void zest_FreeShader(zest_shader shader) {
     ZEST__FREE(shader);
 }
 
-void zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resources, VkDescriptorSet **draw_sets, zest_uint static_index) {
+zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resources, VkDescriptorSet **draw_sets, zest_uint static_index) {
     zest_vec_foreach(set_index, shader_resources->sets) {
         zest_descriptor_set set = shader_resources->sets[set_index];
         zest_vec_push(*draw_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : static_index]);
     }
+    return zest_vec_size(*draw_sets);
+}
+
+void zest_ClearLayerDrawSets(zest_layer layer) {
+    zest_vec_clear(layer->draw_sets);
 }
 
 void zest_ClearShaderResourceDescriptorSets(VkDescriptorSet *draw_sets) {
@@ -6876,6 +6881,12 @@ zest_image_t zest_NewImage(void) {
     zest_image_t image = { 0 };
     image.struct_type = zest_struct_type_image;
     return image;
+}
+
+zest_imgui_image_t zest_NewImGuiImage(void) {
+    zest_imgui_image_t imgui_image = { 0 };
+    imgui_image.struct_type = zest_struct_type_imgui_image;
+    return imgui_image;
 }
 
 zest_image zest_CreateImage() {

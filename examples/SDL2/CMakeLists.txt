@@ -35,6 +35,7 @@ function(buildExample EXAMPLE_NAME)
 	)
 	
 	file(GLOB IMPLEMENTATIONS_SOURCE
+		${IMPLEMENTATIONS}impl_imgui.cpp
 		${IMPLEMENTATIONS}impl_sdl2.cpp
 		${IMPLEMENTATIONS}impl_imgui_sdl2.cpp
 	)

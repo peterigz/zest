@@ -5,7 +5,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&app->imgui_layer_info);
 	//Implement a dark style
-	DarkStyle2();
+	zest_imgui_DarkStyle();
 	
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO& io = ImGui::GetIO();
@@ -69,6 +69,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			app->sync_refresh = true;
 		}
 	}
+	ImGui::Image(app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
 	//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 	ImGui::End();
 	ImGui::Render();

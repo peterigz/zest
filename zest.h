@@ -1203,6 +1203,7 @@ typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, ze
 typedef enum zest_struct_type {
     zest_struct_type_texture = VK_STRUCTURE_TYPE_MAX_ENUM - 1,
     zest_struct_type_image = VK_STRUCTURE_TYPE_MAX_ENUM - 2,
+    zest_struct_type_imgui_image = VK_STRUCTURE_TYPE_MAX_ENUM - 3,
 } zest_struct_type;
 
 typedef enum zest_app_flag_bits {
@@ -2393,6 +2394,13 @@ typedef struct zest_layer_t {
     VkDescriptorSet *draw_sets;
 } zest_layer_t ZEST_ALIGN_AFFIX(16);
 
+//This struct must be filled and attached to the draw routine that implements imgui as user data
+typedef struct zest_imgui_layer_info_t {
+	zest_texture font_texture;
+	zest_layer mesh_layer;
+	zest_pipeline pipeline;
+} zest_imgui_layer_info_t;
+
 typedef struct zest_font_character_t {
     char character[4];
     float width;
@@ -2531,6 +2539,13 @@ typedef struct zest_image_t {
     float max_radius;            //You can load images and calculate the max radius of the image which is the furthest pixel from the center.
     zest_texture texture;        //Pointer to the texture that this image belongs to
 } zest_image_t;
+
+typedef struct zest_imgui_image_t {
+    zest_struct_type struct_type;
+    zest_image image;
+    zest_pipeline pipeline;
+    zest_shader_resources shader_resources;
+} zest_imgui_image_t;
 
 typedef struct zest_framebuffer_attachment_t {
     VkImage image;
@@ -3098,7 +3113,7 @@ ZEST_API void zest_FreeShader(zest_shader shader);
 //pass in an empty array of VkDescriptorSets. Set this array up as simple an 0 pointer and the function will allocate the space for the
 //descriptor sets. This means that it's a good idea to not use a local variable. Call zest_ClearShaderResourceDescriptorSets after you've
 //bound the pipeline.
-ZEST_API void zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resources, VkDescriptorSet **draw_sets, zest_uint static_index);
+ZEST_API zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resources, VkDescriptorSet **draw_sets, zest_uint static_index);
 ZEST_API void zest_ClearShaderResourceDescriptorSets(VkDescriptorSet *draw_sets);
 ZEST_API zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets);
 
@@ -3721,6 +3736,7 @@ ZEST_API void zest_SetTextureCleanupCallback(zest_texture texture, void(*callbac
 ZEST_API void zest_SetTextureUserData(zest_texture texture, void *user_data);
 //Create a blank zest_image. This is more for internal usage, prefer the zest_AddTextureImage functions. Will leave these in the API for now though
 ZEST_API zest_image_t zest_NewImage(void);
+ZEST_API zest_imgui_image_t zest_NewImGuiImage(void);
 ZEST_API zest_image zest_CreateImage(void);
 ZEST_API zest_image zest_CreateAnimation(zest_uint frames);
 //Load a bitmap from a file. Set color_channels to 0 to auto detect the number of channels
@@ -4035,6 +4051,9 @@ ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
 //Set the global values of a push constant. This gives you 4 values that you can set for all draw calls in a layer that will immediately 
 //apply to the next frame render.
 ZEST_API void zest_SetLayerGlobalPushConstants(zest_layer layer, float x, float y, float z, float w);
+//Clear the draw sets in a layer. Draw sets are all the descriptor sets used when binding a pipeline. You would generally use zest_GetDescriptorSetsForBinding
+//before binding a pipeline for draw calls and then after you can call this to reset the draw sets list again.
+ZEST_API void zest_ClearLayerDrawSets(zest_layer layer);
 //-- End Draw Layers
 
 //-----------------------------------------------
