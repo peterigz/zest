@@ -57,6 +57,7 @@ extern "C" {
 #include <math.h>
 #include <float.h>
 #include <string.h>
+#include <errno.h>
 
 //Macro_Defines
 #if defined(__x86_64__) || defined(__i386__) || defined(_M_X64)
@@ -254,6 +255,7 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 #if defined (_WIN32)
 #include <windows.h>
 #include "vulkan/vulkan_win32.h"
+#include <direct.h>
 #define zest_snprintf(buffer, bufferSize, format, ...) sprintf_s(buffer, bufferSize, format, __VA_ARGS__)
 #define zest_strcat(left, size, right) strcat_s(left, size, right)
 #define zest_strcpy(left, size, right) strcpy_s(left, size, right)
@@ -269,11 +271,14 @@ ZEST_PRIVATE HINSTANCE zest_window_instance;
 #define ZEST_WINDOW_INSTANCE HINSTANCE
 LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 //--
+#define ZEST_CREATE_DIR(path) _mkdir(path)
 
 #elif defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && (defined(__i386__) || defined(__x86_64__)) || defined(__clang__)
 #include <time.h>
 //We'll just use glfw on mac for now. Can maybe add basic cocoa windows later
 #include <GLFW/glfw3.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #define ZEST_ALIGN_PREFIX(v)
 #define ZEST_ALIGN_AFFIX(v)  __attribute__((aligned(16)))
 #define ZEST_PROTOTYPE void
@@ -283,6 +288,7 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_thread_access* target, zest_thread_access value, zest_thread_access original) {
     return __sync_val_compare_and_swap(target, original, value);
 }
+#define ZEST_CREATE_DIR(path) mkdir(path, 0777)
 
 //Window creation
 //--
@@ -2788,6 +2794,7 @@ ZEST_PRIVATE void zest__os_create_window_surface(zest_window window);
 ZEST_PRIVATE void zest__os_poll_events(ZEST_PROTOTYPE);
 ZEST_PRIVATE void zest__os_add_platform_extensions(ZEST_PROTOTYPE);
 ZEST_PRIVATE void zest__os_set_window_title(const char *title);
+ZEST_PRIVATE bool zest__create_folder(const char *path);
 //-- End Platform dependent functions
 
 //Only available outsie lib for some implementations like SDL2

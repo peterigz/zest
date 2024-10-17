@@ -328,6 +328,21 @@ const char* zest__vulkan_error(VkResult errorCode)
     }
 }
 
+bool zest__create_folder(const char *path) {
+    int result = ZEST_CREATE_DIR(path);
+    if (result == 0) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Folder created successfully: %s\n", path);
+        return true;
+    } else {
+        if (result == EEXIST) {
+            return true;
+        } else {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Error creating folder: %s (Error: %s)\n", path, strerror(result));
+            return false;
+        }
+    }
+}
+
 // --Math
 zest_matrix4 zest_M4(float v) {
     zest_matrix4 matrix = { 0 };
@@ -1623,7 +1638,7 @@ void zest__pick_physical_device(void) {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Max Memory Allocation Count: %i" ZEST_NL, ZestDevice->properties.limits.maxMemoryAllocationCount);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory available in GPU:" ZEST_NL);
     for (int i = 0; i != ZestDevice->memory_properties.memoryHeapCount; ++i) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "    Heap flags: %i, Size: %zi" ZEST_NL, ZestDevice->memory_properties.memoryHeaps[i].flags, ZestDevice->memory_properties.memoryHeaps[i].size);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "    Heap flags: %i, Size: %llu" ZEST_NL, ZestDevice->memory_properties.memoryHeaps[i].flags, ZestDevice->memory_properties.memoryHeaps[i].size);
     }
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory types mapping in GPU:" ZEST_NL);
@@ -2283,7 +2298,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
     if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
         alloc_info.pNext = &flags;
     }
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating buffer memory pool, size: %zi type: %i, alignment: %zi, type bits: %i" ZEST_NL, alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i" ZEST_NL, alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 
     if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
@@ -2330,7 +2345,7 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, V
     buffer->property_flags = property_flags;
     buffer->usage_flags = 0;
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating image memory pool, size: %zi type: %i, alignment: %zi, type bits: %i" ZEST_NL, alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i" ZEST_NL, alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 }
 
@@ -4552,6 +4567,7 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, name));     //Shader already exitst, use zest_UpdateShader to update an existing shader
     zest_shader shader = zest_NewShader(type);
     if (zest_TextSize(&ZestRenderer->shader_path_prefix)) {
+        zest__create_folder(ZestRenderer->shader_path_prefix.str);
         zest_SetTextf(&shader->name, "%s%s", ZestRenderer->shader_path_prefix, name);
     }
     else {
@@ -9914,7 +9930,9 @@ void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
     layer->memory_refs[layer->fif].instance_count += amount;
     layer->current_instruction.total_instances += amount;
     zest_size size_in_bytes_to_draw = amount * layer->instance_struct_size;
-    (zest_byte*)layer->memory_refs[layer->fif].instance_ptr += size_in_bytes_to_draw;
+    zest_byte* instance_ptr = layer->memory_refs[layer->fif].instance_ptr;
+    instance_ptr += size_in_bytes_to_draw;
+    layer->memory_refs[layer->fif].instance_ptr = instance_ptr;
 }
 // End general instance layer functionality -----
 
