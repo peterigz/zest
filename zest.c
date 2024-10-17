@@ -3874,7 +3874,7 @@ void zest_AddBuilderDescriptorWriteImages(zest_descriptor_set_builder_t* builder
 }
 
 zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t* builder, zest_descriptor_set_layout layout, zest_descriptor_type type) {
-    ZEST_ASSERT(zest_vec_size(builder->writes));        //Nothing to build.  Call AddBuilder functions to add descriptor writes first.
+    ZEST_ASSERT(zest_vec_size(builder->writes[0]));        //Nothing to build.  Call AddBuilder functions to add descriptor writes first.
     //Note that calling this function will free the builder descriptor so you will need to add to the builder again
     zest_descriptor_set_t set = { 0 };
     set.type = type;
