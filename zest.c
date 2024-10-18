@@ -3936,6 +3936,7 @@ void zest_AllocateDescriptorSets(VkDescriptorPool descriptor_pool, VkDescriptorS
     alloc_info.descriptorSetCount = set_count;
     alloc_info.pSetLayouts = descriptor_layouts;
 
+    ZEST_ASSERT(*descriptor_set == VK_NULL_HANDLE); //Make sure you free the descriptor sets first before allocating again
     ZEST_VK_CHECK_RESULT(vkAllocateDescriptorSets(ZestDevice->logical_device, &alloc_info, descriptor_set));
 }
 
@@ -7788,7 +7789,7 @@ zest_descriptor_set zest_CreateTextureSamplerDescriptorSet(zest_texture texture)
     zest_descriptor_set set = ZEST__NEW(zest_descriptor_set);
     *set = blank_set;
     for (ZEST_EACH_FIF_i) {
-        zest_AllocateDescriptorSets(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("1 sampler"), 0, &set->descriptor_set[i]);
+        zest_AllocateDescriptorSets(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("1 sampler"), 1, &set->descriptor_set[i]);
         zest_vec_push(set->descriptor_writes[i], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[i], zest_GetTextureDescriptorImageInfo(texture), 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
     }
     for (ZEST_EACH_FIF_i) {
