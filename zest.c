@@ -7830,9 +7830,6 @@ void zest_RefreshTextureDescriptors(zest_texture texture) {
 void zest_ScheduleTextureReprocess(zest_texture texture, void(*callback)(zest_texture texture, void *user_data)) {
     texture->reprocess_callback = callback;
     zest_vec_push(ZestRenderer->texture_reprocess_queue, texture);
-#if defined(ZEST_ATOMICS)
-    atomic_store(&ZestRenderer->lock_texture_reprocess_queue, 1);
-#endif
 }
 
 void zest_ScheduleTextureCleanOldBuffers(zest_texture texture) {
