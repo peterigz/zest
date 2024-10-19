@@ -4587,6 +4587,11 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
             return shader;
         }
     }
+    
+    if(!compiler) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Was unable to load the shader from the cached shaders location and compiler is disabled, so cannot go any further with shader %s" ZEST_NL, name);
+        return shader;
+    }
 
 	zest_SetText(&shader->shader_code, shader_code);
 	if (format_code != 0) {
