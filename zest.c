@@ -4358,6 +4358,7 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
     ZEST_VK_CHECK_RESULT(vkCreatePipelineLayout(ZestDevice->logical_device, &pipeline->pipeline_template.pipelineLayoutInfo, &ZestDevice->allocation_callbacks, &pipeline->pipeline_layout));
 
     if (!pipeline->pipeline_template.vertShaderFile.str || !pipeline->pipeline_template.fragShaderFile.str) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "No vertex or fragment shader specified when building pipeline %s", pipeline->name.str);
         ZEST_ASSERT(0);        //You must specify a vertex and frag shader file to load
     }
 
@@ -4429,6 +4430,7 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
     }
 
     ZEST_VK_CHECK_RESULT(vkCreateGraphicsPipelines(ZestDevice->logical_device, ZestRenderer->pipeline_cache, 1, &pipeline_info, &ZestDevice->allocation_callbacks, &pipeline->pipeline));
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Built pipeline %s", pipeline->name.str);
 
     vkDestroyShaderModule(ZestDevice->logical_device, frag_shader_module, &ZestDevice->allocation_callbacks);
     vkDestroyShaderModule(ZestDevice->logical_device, vert_shader_module, &ZestDevice->allocation_callbacks);
@@ -4751,6 +4753,7 @@ zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets) {
 
 zest_pipeline zest_AddPipeline(const char* name) {
     zest_pipeline pipeline = zest__create_pipeline();
+    zest_SetText(&pipeline->name, name);
     zest_map_insert(ZestRenderer->pipelines, name, pipeline);
     return pipeline;
 }
@@ -6733,6 +6736,7 @@ zest_draw_routine zest_CreateDrawRoutine(const char* name) {
     draw_routine->last_fif = -1;
 
     draw_routine->name = name;
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Created %s draw routine", name);
     zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
     return draw_routine;
 }
@@ -6756,6 +6760,7 @@ zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size ins
     draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
 
     draw_routine->name = name;
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Created %s instanced draw routine", name);
     zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
     return draw_routine;
 }

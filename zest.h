@@ -90,7 +90,7 @@ typedef volatile unsigned int zest_atomic_int;
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
 //I had to add this because some dell laptops have their own drivers that are basically broken. Even though the gpu signals that
@@ -2177,7 +2177,7 @@ typedef struct zest_pipeline_t {
     zest_uint uniforms;                                                          //Number of uniform buffers in the pipeline, usually 1 or 0
     zest_uint push_constant_size;                                                //Size of the push constant struct if it uses one
     zest_uint *textures;                                                         //A reference to the textures used by the pipeline - only used by final render, not even sure if it's needed.
-    const char *name;                                                            //Name for the pipeline just for labelling it when listing all the renderer objects in debug
+    zest_text_t name;                                                            //Name for the pipeline just for labelling it when listing all the renderer objects in debug
     void(*rebuild_pipeline_function)(void*);                                     //Override the function to rebuild the pipeline when the swap chain is recreated
     zest_pipeline_set_flags flags;                                               //Flag bits
 } zest_pipeline_t;
