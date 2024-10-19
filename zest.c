@@ -2980,6 +2980,7 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
         ZEST_VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_info, &ZestDevice->allocation_callbacks, &ZestRenderer->fif_fence[i]));
         zest_Update2dUniformBufferFIF(i);
     }
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Finished zest initialisation" ZEST_NL);
 }
 
 void zest__create_swapchain() {
@@ -4365,31 +4366,37 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
     if (zest_map_valid_name(ZestRenderer->shaders, pipeline->pipeline_template.vertShaderFile.str)) {
         zest_shader vert_shader = *zest_map_at(ZestRenderer->shaders, pipeline->pipeline_template.vertShaderFile.str);
         if (!vert_shader->spv) {
-			ZEST_ASSERT(0);    //Shader must have been compiled first before building the pipeline
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to find any spv data at %s", pipeline->pipeline_template.vertShaderFile.str);
+            ZEST_ASSERT(0);    //Shader must have been compiled first before building the pipeline
         }
-		vert_shader_module = zest__create_shader_module(vert_shader->spv);
-		pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
+        vert_shader_module = zest__create_shader_module(vert_shader->spv);
+        pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
     }
     else {
-		zest_shader vert_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.vertShaderFile.str, shaderc_vertex_shader);
-		ZEST_ASSERT(vert_shader);        //Failed to load the shader file, make sure it exists at the location
-		vert_shader_module = zest__create_shader_module(vert_shader->spv);
-		pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
+        zest_shader vert_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.vertShaderFile.str, shaderc_vertex_shader);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to find any shader at %s. Trying to load spv instead.", pipeline->pipeline_template.vertShaderFile.str);
+        ZEST_ASSERT(vert_shader);        //Failed to load the shader file, make sure it exists at the location
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "No spv file was found at %s", pipeline->pipeline_template.vertShaderFile.str);
+        vert_shader_module = zest__create_shader_module(vert_shader->spv);
+        pipeline->pipeline_template.vertShaderStageInfo.module = vert_shader_module;
     }
 
     if (zest_map_valid_name(ZestRenderer->shaders, pipeline->pipeline_template.fragShaderFile.str)) {
         zest_shader frag_shader = *zest_map_at(ZestRenderer->shaders, pipeline->pipeline_template.fragShaderFile.str);
         if (!frag_shader->spv) {
-			ZEST_ASSERT(0);    //Shader must have been compiled first before building the pipeline
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to find any spv data at %s.", pipeline->pipeline_template.fragShaderFile.str);
+            ZEST_ASSERT(0);    //Shader must have been compiled first before building the pipeline
         }
-		frag_shader_module = zest__create_shader_module(frag_shader->spv);
-		pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
+        frag_shader_module = zest__create_shader_module(frag_shader->spv);
+        pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
     }
     else {
-		zest_shader frag_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.fragShaderFile.str, shaderc_fragment_shader);
-		ZEST_ASSERT(frag_shader);        //Failed to load the shader file, make sure it exists at the location
-		frag_shader_module = zest__create_shader_module(frag_shader->spv);
-		pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
+        zest_shader frag_shader = zest_AddShaderFromSPVFile(pipeline->pipeline_template.fragShaderFile.str, shaderc_fragment_shader);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to find any shader at %s. Trying to load spv instead.", pipeline->pipeline_template.fragShaderFile.str);
+        ZEST_ASSERT(frag_shader);        //Failed to load the shader file, make sure it exists at the location
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "No spv file was found at %s", pipeline->pipeline_template.fragShaderFile.str);
+        frag_shader_module = zest__create_shader_module(frag_shader->spv);
+        pipeline->pipeline_template.fragShaderStageInfo.module = frag_shader_module;
     }
 
     pipeline->pipeline_template.vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
