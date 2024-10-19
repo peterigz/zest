@@ -331,13 +331,13 @@ const char* zest__vulkan_error(VkResult errorCode)
 bool zest__create_folder(const char *path) {
     int result = ZEST_CREATE_DIR(path);
     if (result == 0) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Folder created successfully: %s\n", path);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Folder created successfully: %s", path);
         return true;
     } else {
         if (result == EEXIST) {
             return true;
         } else {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Error creating folder: %s (Error: %s)\n", path, strerror(result));
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Error creating folder: %s (Error: %s)", path, strerror(result));
             return false;
         }
     }
@@ -1397,7 +1397,7 @@ Functions that create a vulkan device
 void zest__create_instance(void) {
     if (ZEST_ENABLE_VALIDATION_LAYER) {
         zest_bool validation_support = zest__check_validation_layer_support();
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Checking for validation support" ZEST_NL);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Checking for validation support");
         ZEST_ASSERT(validation_support);
     }
 
@@ -1414,7 +1414,7 @@ void zest__create_instance(void) {
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     create_info.pApplicationInfo = &app_info;
 #ifdef ZEST_PORTABILITY_ENUMERATION
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Flagging for enumerate portability on MACOS\n");
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Flagging for enumerate portability on MACOS");
     create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
 
@@ -1450,7 +1450,7 @@ void zest__create_instance(void) {
 
     VkResult result = vkCreateInstance(&create_info, &ZestDevice->allocation_callbacks, &ZestDevice->instance);
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validating Vulkan Instance" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validating Vulkan Instance");
     ZEST_VK_CHECK_RESULT(result);
 
     ZEST__FREE(available_extensions);
@@ -1460,7 +1460,7 @@ void zest__create_instance(void) {
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
     if (ZestDevice->log_path.str) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validation Layer: %s\n", pCallbackData->pMessage);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validation Layer: %s", pCallbackData->pMessage);
     }
     else {
         ZEST_PRINT("Validation Layer: %s", pCallbackData->pMessage);
@@ -1523,7 +1523,7 @@ void zest__get_required_extensions() {
     }
     //zest_AddInstanceExtension(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
 #ifdef ZEST_PORTABILITY_ENUMERATION
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Adding enumerate portability extension\n");
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Adding enumerate portability extension");
     zest_AddInstanceExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     zest_AddInstanceExtension("VK_KHR_get_physical_device_properties2");
 #endif
@@ -1579,7 +1579,7 @@ void zest__pick_physical_device(void) {
     ZEST__ARRAY(devices, VkPhysicalDevice, device_count);
     vkEnumeratePhysicalDevices(ZestDevice->instance, &device_count, devices);
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found %i devices" ZEST_NL, device_count);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found %i devices", device_count);
     for (int i = 0; i != device_count; ++i) {
         zest__log_device_name(devices[i]);
     }
@@ -1588,10 +1588,10 @@ void zest__pick_physical_device(void) {
     //Prioritise discrete GPUs when picking physical device
     if (device_count == 1 && zest__is_device_suitable(devices[0])) {
         if (zest__device_is_discrete_gpu(devices[0])) {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable and is a discrete GPU" ZEST_NL);
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable and is a discrete GPU");
         }
         else {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable" ZEST_NL);
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable");
         }
         ZestDevice->physical_device = devices[0];
     }
@@ -1611,7 +1611,7 @@ void zest__pick_physical_device(void) {
         else {
             for (int i = 0; i != device_count; ++i) {
                 if (zest__is_device_suitable(devices[i])) {
-                    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device:" ZEST_NL);
+                    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device:");
                     zest__log_device_name(devices[i]);
                     ZestDevice->physical_device = devices[i];
                     break;
@@ -1621,7 +1621,7 @@ void zest__pick_physical_device(void) {
     }
 
     if (ZestDevice->physical_device == VK_NULL_HANDLE) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Could not find a suitable device!" ZEST_NL);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Could not find a suitable device!");
     }
     ZEST_ASSERT(ZestDevice->physical_device != VK_NULL_HANDLE);    //Unable to find suitable GPU
     ZestDevice->msaa_samples = zest__get_max_useable_sample_count();
@@ -1635,15 +1635,15 @@ void zest__pick_physical_device(void) {
     vkGetPhysicalDeviceMemoryProperties(ZestDevice->physical_device, &ZestDevice->memory_properties);
 
     //Print out the memory available
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Max Memory Allocation Count: %i" ZEST_NL, ZestDevice->properties.limits.maxMemoryAllocationCount);
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory available in GPU:" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Max Memory Allocation Count: %i", ZestDevice->properties.limits.maxMemoryAllocationCount);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory available in GPU:");
     for (int i = 0; i != ZestDevice->memory_properties.memoryHeapCount; ++i) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "    Heap flags: %i, Size: %llu" ZEST_NL, ZestDevice->memory_properties.memoryHeaps[i].flags, ZestDevice->memory_properties.memoryHeaps[i].size);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "    Heap flags: %i, Size: %llu", ZestDevice->memory_properties.memoryHeaps[i].flags, ZestDevice->memory_properties.memoryHeaps[i].size);
     }
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory types mapping in GPU:" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory types mapping in GPU:");
     for (int i = 0; i != ZestDevice->memory_properties.memoryTypeCount; ++i) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "    %i) Heap Index: %i, Property Flags: %i" ZEST_NL, i, ZestDevice->memory_properties.memoryTypes[i].heapIndex, ZestDevice->memory_properties.memoryTypes[i].propertyFlags);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "    %i) Heap Index: %i, Property Flags: %i", i, ZestDevice->memory_properties.memoryTypes[i].heapIndex, ZestDevice->memory_properties.memoryTypes[i].propertyFlags);
     }
 
     ZEST__FREE(devices);
@@ -1667,7 +1667,7 @@ zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device) {
 void zest__log_device_name(VkPhysicalDevice physical_device) {
     VkPhysicalDeviceProperties properties;
     vkGetPhysicalDeviceProperties(physical_device, &properties);
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "\t%s" ZEST_NL, properties.deviceName);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "\t%s", properties.deviceName);
 }
 
 zest_bool zest__device_is_discrete_gpu(VkPhysicalDevice physical_device) {
@@ -1710,7 +1710,7 @@ zest_index zest__get_queue_family_index(VkQueueFlags queue_flags, VkQueueFamilyP
         }
     }
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "ERROR: Failed to find any queue index for Flag: %i" ZEST_NL, queue_flags);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "ERROR: Failed to find any queue index for Flag: %i", queue_flags);
     return 0;
 }
 
@@ -1798,7 +1798,7 @@ void zest__create_logical_device(zest_create_info_t *init_info) {
         queue_info.pQueuePriorities = &queue_priority;
         queue_create_infos[0] = queue_info;
         queue_create_count++;
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Graphics queue index set to: %i" ZEST_NL, indices.graphics_family);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Graphics queue index set to: %i", indices.graphics_family);
     }
 
     // Dedicated compute queue
@@ -1815,7 +1815,7 @@ void zest__create_logical_device(zest_create_info_t *init_info) {
             queue_create_infos[1] = queue_info;
             queue_create_count++;
         }
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compute queue index set to: %i" ZEST_NL, indices.compute_family);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compute queue index set to: %i", indices.compute_family);
     }
 
     // Dedicated transfer queue - Note that currently we're not actually doing anything with dedicated transfer queues yet.
@@ -1832,7 +1832,7 @@ void zest__create_logical_device(zest_create_info_t *init_info) {
             queue_create_infos[2] = queue_info;
             queue_create_count++;
         }
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Transfer queue index set to: %i" ZEST_NL, indices.transfer_index);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Transfer queue index set to: %i", indices.transfer_index);
     }
 
     zest_vec_free(queue_families);
@@ -1875,7 +1875,7 @@ void zest__create_logical_device(zest_create_info_t *init_info) {
         create_info.enabledLayerCount = 0;
     }
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating logical device" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating logical device");
     ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->logical_device));
 
     vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family, 0, &ZestDevice->graphics_queue);
@@ -1893,7 +1893,7 @@ void zest__create_logical_device(zest_create_info_t *init_info) {
     cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     cmd_info_pool.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
     cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating command queues" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating command queues");
     ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->command_pool));
     ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->one_time_command_pool));
 }
@@ -2000,7 +2000,7 @@ void zest__set_default_pool_sizes() {
     usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     zest_SetDeviceBufferPoolSize("Index Buffers", usage.usage_flags, usage.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Set device pool sizes" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Set device pool sizes");
 }
 
 
@@ -2044,7 +2044,7 @@ void zest__initialise_app(zest_create_info_t* create_info) {
     ZestApp->render_time = 0;
     ZestApp->frame_timer = 0;
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create window with dimensions: %i, %i" ZEST_NL, create_info->screen_width, create_info->screen_height);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create window with dimensions: %i, %i", create_info->screen_width, create_info->screen_height);
     ZestApp->window = ZestRenderer->create_window_callback(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, ZEST__FLAGGED(create_info->flags, zest_init_flag_maximised), "Zest");
 }
 
@@ -2298,7 +2298,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
     if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
         alloc_info.pNext = &flags;
     }
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i" ZEST_NL, alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 
     if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
@@ -2345,7 +2345,7 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, V
     buffer->property_flags = property_flags;
     buffer->usage_flags = 0;
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i" ZEST_NL, alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 }
 
@@ -2934,43 +2934,43 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     ZestRenderer->lock_texture_reprocess_queue = 0;
 #endif
     zest_SetText(&ZestRenderer->shader_path_prefix, create_info->shader_path_prefix);
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain");
     zest__create_swapchain();
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain image views" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain image views");
     zest__create_swapchain_image_views();
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create standard render passes" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create standard render passes");
     zest__make_standard_render_passes();
 
     if (ZEST__FLAGGED(create_info->flags, zest_init_flag_use_depth_buffer)) {
         ZestRenderer->final_render_pass = *zest_map_at(ZestRenderer->render_passes, "Render pass present");
         ZestRenderer->flags |= zest_renderer_flag_has_depth_buffer;
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create depth passes" ZEST_NL);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create depth passes");
         ZestRenderer->depth_resource_buffer = zest__create_depth_resources();
     }
     else {
         ZestRenderer->final_render_pass = *zest_map_at(ZestRenderer->render_passes, "Render pass present no depth");
     }
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain frame buffers" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain frame buffers");
     zest__create_swap_chain_frame_buffers(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer));
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create sync objects" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create sync objects");
     zest__create_sync_objects();
     ZestRenderer->push_constants.screen_resolution.x = 1.f / ZestRenderer->swapchain_extent.width;
     ZestRenderer->push_constants.screen_resolution.y = 1.f / ZestRenderer->swapchain_extent.height;
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor pools" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor pools");
     zest__create_descriptor_pools(create_info->pool_counts, create_info->max_descriptor_pool_sets);
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
     zest__make_standard_descriptor_layouts();
 
     ZestRenderer->standard_uniform_buffer = zest_CreateUniformBuffer("Standard 2d Uniform Buffer", sizeof(zest_uniform_buffer_data_t));
     ZestRenderer->uniform_descriptor_set = zest_CreateUniformDescriptorSet(ZestRenderer->standard_uniform_buffer);
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create pipeline cache" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create pipeline cache");
     zest__create_pipeline_cache();
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compile shaders" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compile shaders");
     zest__compile_builtin_shaders(ZEST__FLAGGED(create_info->flags, zest_init_flag_disable_shaderc));
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create standard pipelines" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create standard pipelines");
     zest__prepare_standard_pipelines();
 
     VkFenceCreateInfo fence_info = { 0 };
@@ -2980,7 +2980,7 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
         ZEST_VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_info, &ZestDevice->allocation_callbacks, &ZestRenderer->fif_fence[i]));
         zest_Update2dUniformBufferFIF(i);
     }
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Finished zest initialisation" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Finished zest initialisation");
 }
 
 void zest__create_swapchain() {
@@ -4592,13 +4592,13 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
                 zest__format_shader_code(&shader->shader_code);
             }
 			zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
-			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Loaded shader %s from cache and added to renderer shaders." ZEST_NL, name);
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Loaded shader %s from cache and added to renderer shaders.", name);
             return shader;
         }
     }
     
     if(!compiler) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Was unable to load the shader from the cached shaders location and compiler is disabled, so cannot go any further with shader %s" ZEST_NL, name);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Was unable to load the shader from the cached shaders location and compiler is disabled, so cannot go any further with shader %s", name);
         return shader;
     }
 
@@ -4609,7 +4609,7 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
     shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", NULL );
 
     if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
-		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Shader compilation failed: %s, %s" ZEST_NL, name, shaderc_result_get_error_message(result));
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
         shaderc_result_release(result);
         zest_FreeShader(shader);
         ZEST_ASSERT(0); //There's a bug in this shader that needs fixing. You can check the log file for the error message
@@ -4620,16 +4620,16 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
     zest_vec_resize(shader->spv, spv_size);
     memcpy(shader->spv, spv_binary, spv_size);
     zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
-	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compiled shader %s and added to renderer shaders." ZEST_NL, name);
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compiled shader %s and added to renderer shaders.", name);
     shaderc_result_release(result);
     if (!disable_caching && ZestApp->create_info.flags & zest_init_flag_cache_shaders) {
         FILE *shader_file = zest__open_file(shader->name.str, "wb");
         if (shader_file == NULL) {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to open file for writing: %s" ZEST_NL, shader->name.str);
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to open file for writing: %s", shader->name.str);
         }
         size_t written = fwrite(shader->spv, 1, spv_size, shader_file);
         if (written != spv_size) {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to write entire shader to file: %s" ZEST_NL, shader->name.str);
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to write entire shader to file: %s", shader->name.str);
             fclose(shader_file);
         }
         fclose(shader_file);
@@ -4652,7 +4652,7 @@ zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind 
     if (shader->spv) {
         zest_SetText(&shader->name, filename);
         zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Loaded shader %s and added to renderer shaders." ZEST_NL, filename);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Loaded shader %s and added to renderer shaders.", filename);
         return shader;
     }
     zest_FreeShader(shader);
@@ -4674,7 +4674,7 @@ zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, ze
 		zest_vec_resize(shader->spv, size);
 		memcpy(shader->spv, buffer, size);
         zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Read shader %s from memory and added to renderer shaders." ZEST_NL, name);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Read shader %s from memory and added to renderer shaders.", name);
         return shader;
     }
     return 0;
@@ -5183,7 +5183,7 @@ void zest__prepare_standard_pipelines() {
     sprite_instance_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
     sprite_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     sprite_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites pipeline");
     zest_BuildPipeline(sprite_instance_pipeline);
 
     instance_create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
@@ -5194,7 +5194,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(sprite_instance_pipeline_alpha, render_pass, &instance_create_info);
     sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     sprite_instance_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites alpha pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites alpha pipeline");
     zest_BuildPipeline(sprite_instance_pipeline_alpha);
 
     //SDF lines 2d
@@ -5217,7 +5217,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(line_instance_pipeline, render_pass, &instance_create_info);
     line_instance_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
     line_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF Lines pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF Lines pipeline");
     zest_BuildPipeline(line_instance_pipeline);
     zest_MakePipelineDescriptorWrites(line_instance_pipeline);
 
@@ -5239,7 +5239,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(line3d_instance_pipeline, render_pass, &instance_create_info);
     line3d_instance_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
     line3d_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF 3D Lines pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF 3D Lines pipeline");
     zest_BuildPipeline(line3d_instance_pipeline);
     zest_MakePipelineDescriptorWrites(line3d_instance_pipeline);
 
@@ -5264,7 +5264,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(billboard_instance_pipeline, render_pass, &instance_create_info);
     billboard_instance_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     billboard_instance_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard pipeline");
     zest_BuildPipeline(billboard_instance_pipeline);
 
     instance_create_info = zest_CopyTemplateFromPipeline("pipeline_billboard");
@@ -5274,7 +5274,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(billboard_pipeline_alpha, render_pass, &instance_create_info);
     billboard_pipeline_alpha->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     billboard_pipeline_alpha->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard alpha pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard alpha pipeline");
     zest_BuildPipeline(billboard_pipeline_alpha);
 
     //Font Texture
@@ -5288,7 +5288,7 @@ void zest__prepare_standard_pipelines() {
     zest_MakePipelineTemplate(font_pipeline, render_pass, &instance_create_info);
     font_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
     font_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Font pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Font pipeline");
     zest_BuildPipeline(font_pipeline);
 
     //ImGuiPipeline
@@ -5326,7 +5326,7 @@ void zest__prepare_standard_pipelines() {
     imgui_pipeline->pipeline_template.colorBlendAttachment = zest_ImGuiBlendState();
     imgui_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_FALSE;
     imgui_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
     zest_BuildPipeline(imgui_pipeline);
 
     //General mesh drawing
@@ -5360,7 +5360,7 @@ void zest__prepare_standard_pipelines() {
     mesh_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
     mesh_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
     mesh_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_TRUE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Mesh pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Mesh pipeline");
     zest_BuildPipeline(mesh_pipeline);
 
     //Instanced mesh drawing for drawing primatives
@@ -5405,7 +5405,7 @@ void zest__prepare_standard_pipelines() {
     imesh_pipeline->pipeline_template.colorBlendAttachment = zest_AlphaBlendState();
     imesh_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
     imesh_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_TRUE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Instance Mesh pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Instance Mesh pipeline");
     zest_BuildPipeline(imesh_pipeline);
     zest_MakePipelineDescriptorWrites(imesh_pipeline);
 
@@ -5434,7 +5434,7 @@ void zest__prepare_standard_pipelines() {
 
     final_render->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendStateForSwap();
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Final render pipeline" ZEST_NL);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Final render pipeline");
     zest_BuildPipeline(final_render);
 }
 
@@ -9152,7 +9152,7 @@ void zest__initialise_font_layer(zest_layer layer, zest_uint instance_pool_size)
 
     zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
     if (zest_GPUHasDeviceLocalHostVisible(sizeof(zest_sprite_instance_t) * instance_pool_size)) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for font layer" ZEST_NL);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for font layer");
         ZEST__FLAG(layer->flags, zest_layer_flag_device_local_direct);
         device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
     }
@@ -10053,7 +10053,7 @@ void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_ui
 
     zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfoWithStorage(0);
     if (zest_GPUHasDeviceLocalHostVisible(type_size * instance_pool_size)) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for sprite layer" ZEST_NL);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for sprite layer");
         ZEST__FLAG(layer->flags, zest_layer_flag_device_local_direct);
         device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
     }
@@ -10517,7 +10517,7 @@ void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_
     zest_buffer_info_t device_vertex_buffer_info = zest_CreateVertexBufferInfo(0);
     zest_buffer_info_t device_index_buffer_info = zest_CreateIndexBufferInfo(0);
     if (zest_GPUHasDeviceLocalHostVisible(initial_vertex_capacity)) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for mesh layer" ZEST_NL);
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for mesh layer");
         ZEST__FLAG(mesh_layer->flags, zest_layer_flag_device_local_direct);
         device_vertex_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
         device_index_buffer_info = zest_CreateIndexBufferInfo(ZEST_TRUE);

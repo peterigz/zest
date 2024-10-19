@@ -161,7 +161,7 @@ typedef volatile unsigned int zest_atomic_int;
 #define ZEST_NL u8"\n"
 #define ZEST_TAB u8"\t"
 #define ZEST_LOG(log_file, message, ...) if(log_file) fprintf(log_file, message, ##__VA_ARGS__)
-#define ZEST_APPEND_LOG(log_path, message, ...) if(log_path) { FILE *log_file = zest__open_file(log_path, "a"); fprintf(log_file, message, ##__VA_ARGS__); fclose(log_file); }
+#define ZEST_APPEND_LOG(log_path, message, ...) if(log_path) { FILE *log_file = zest__open_file(log_path, "a"); fprintf(log_file, message ZEST_NL, ##__VA_ARGS__); fclose(log_file); }
 
 #define ZEST__ARRAY(name, type, count) type *name = ZEST__REALLOCATE(0, sizeof(type) * count)
 //FIF = Frame in Flight
@@ -187,7 +187,7 @@ typedef volatile unsigned int zest_atomic_int;
         if (res != VK_SUCCESS)                                                                                      \
         {                                                                                                           \
             printf("Fatal : VkResult is \" %s \" in %s at line %i\n", zest__vulkan_error(res), __FILE__, __LINE__); \
-			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Fatal : VkResult is \" %s \" in %s at line %i" ZEST_NL, zest__vulkan_error(res), __FILE__, __LINE__);     \
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Fatal : VkResult is \" %s \" in %s at line %i", zest__vulkan_error(res), __FILE__, __LINE__);     \
             ZEST_ASSERT(res == VK_SUCCESS);                                                                         \
         }                                                                                                           \
     }
