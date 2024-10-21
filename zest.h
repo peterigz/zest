@@ -1768,10 +1768,7 @@ typedef struct zest_bounding_box_t {
 //Not sure why though. We need the align as on Mac otherwise metal complains about the alignment
 //in the shaders
 typedef struct zest_vec4 {
-    union {
-        struct { float x, y, z, w; };
-        struct { float c0, c1, c2, c3; };
-    };
+    float x, y, z, w;
 } zest_vec4 ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_matrix4 {
@@ -2087,7 +2084,7 @@ typedef struct zest_descriptor_set_t {
 typedef struct zest_shader_resources_t {
     zest_descriptor_set *sets;
     VkDescriptorSet *binding_sets;
-} zest_shader_resources_t;
+} zest_shader_resources_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_descriptor_set_builder_t {
     VkWriteDescriptorSet *writes[ZEST_MAX_FIF];
@@ -2352,6 +2349,8 @@ typedef struct zest_push_constants_t {             //128 bytes seems to be the l
 } zest_push_constants_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_layer_instruction_t {
+    zest_push_constants_t push_constants;         //Each draw instruction can have different values in the push constants push_constants
+    VkRect2D scissor;                             //The drawinstruction can also clip whats drawn
     zest_index start_index;                        //The starting index
     union {
         zest_uint total_instances;                //The total number of instances to be drawn in the draw instruction
@@ -2360,12 +2359,10 @@ typedef struct zest_layer_instruction_t {
     zest_index last_instance;                     //The last instance that was drawn in the previous instance instruction
     zest_pipeline pipeline;                       //The pipeline index to draw the instances.
     zest_shader_resources shader_resources;       //The descriptor set shader_resources used to draw with
-    zest_push_constants_t push_constants;         //Each draw instruction can have different values in the push constants push_constants
-    VkRect2D scissor;                             //The drawinstruction can also clip whats drawn
     VkViewport viewport;                          //The viewport size of the draw call
-    zest_draw_mode draw_mode;
     void *asset;                                  //Optional pointer to either texture, font etc
-} zest_layer_instruction_t;
+    zest_draw_mode draw_mode;
+} zest_layer_instruction_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_layer_t {
 

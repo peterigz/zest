@@ -6872,8 +6872,9 @@ zest_map_textures* zest_GetTextures() {
 
 zest_texture zest_NewTexture() {
     zest_texture_t blank = { 0 };
-    zest_texture texture = ZEST__NEW(zest_texture);
+    zest_texture texture = ZEST__NEW_ALIGNED(zest_texture, 16);
     *texture = blank;
+    texture->name.str = 0;
     texture->struct_type = zest_struct_type_texture;
     texture->flags = zest_texture_flag_use_filtering;
     texture->storage_type = zest_texture_storage_type_single;
@@ -9789,7 +9790,12 @@ void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer command_buffer) {
 
         zest_BindPipelineCB(command_buffer, current->pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
-        current->push_constants.global = layer->global_push_values;
+        //The only reason I do this is because of some strange alignment issues on intel macs only. I haven't fully gotten to the bottom of it
+        //but this seems to work for now
+        current->push_constants.global.x = layer->global_push_values.x;
+        current->push_constants.global.y = layer->global_push_values.y;
+        current->push_constants.global.z = layer->global_push_values.z;
+        current->push_constants.global.w = layer->global_push_values.w;
 
 		vkCmdPushConstants(
 			command_buffer,
@@ -9822,7 +9828,10 @@ void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer) {
 
         zest_BindPipelineCB(command_buffer, current->pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
-        current->push_constants.global = layer->global_push_values;
+        current->push_constants.global.x = layer->global_push_values.x;
+        current->push_constants.global.y = layer->global_push_values.y;
+        current->push_constants.global.z = layer->global_push_values.z;
+        current->push_constants.global.w = layer->global_push_values.w;
 
         vkCmdPushConstants(
             command_buffer,
@@ -9858,7 +9867,10 @@ void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer
 
         zest_BindPipelineCB(command_buffer, current->pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
-        current->push_constants.global = layer->global_push_values;
+        current->push_constants.global.x = layer->global_push_values.x;
+        current->push_constants.global.y = layer->global_push_values.y;
+        current->push_constants.global.z = layer->global_push_values.z;
+        current->push_constants.global.w = layer->global_push_values.w;
 
         vkCmdPushConstants(
             command_buffer,
