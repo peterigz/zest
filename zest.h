@@ -1315,6 +1315,7 @@ typedef enum zest_init_flag_bits {
     zest_init_flag_enable_vsync                                   = 1 << 6,
     zest_init_flag_enable_fragment_stores_and_atomics             = 1 << 7,
     zest_init_flag_disable_shaderc                                = 1 << 8,
+    zest_init_flag_log_validation_errors_to_console               = 1 << 9,
 } zest_init_flag_bits;
 
 typedef zest_uint zest_init_flags;

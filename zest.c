@@ -1467,7 +1467,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSev
     if (ZestDevice->log_path.str) {
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validation Layer: %s", pCallbackData->pMessage);
     }
-    else {
+    if(ZEST__FLAGGED(ZestApp->create_info.flags, zest_init_flag_log_validation_errors_to_console)) {
         ZEST_PRINT("Validation Layer: %s", pCallbackData->pMessage);
         ZEST_PRINT("-------------------------------------------------------");
     }
