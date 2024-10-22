@@ -4581,7 +4581,6 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->shaders, name));     //Shader already exitst, use zest_UpdateShader to update an existing shader
     zest_shader shader = zest_NewShader(type);
     if (zest_TextSize(&ZestRenderer->shader_path_prefix)) {
-        zest__create_folder(ZestRenderer->shader_path_prefix.str);
         zest_SetTextf(&shader->name, "%s%s", ZestRenderer->shader_path_prefix, name);
     }
     else {
@@ -4627,6 +4626,7 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compiled shader %s and added to renderer shaders.", name);
     shaderc_result_release(result);
     if (!disable_caching && ZestApp->create_info.flags & zest_init_flag_cache_shaders) {
+        zest__create_folder(ZestRenderer->shader_path_prefix.str);
         FILE *shader_file = zest__open_file(shader->name.str, "wb");
         if (shader_file == NULL) {
             ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to open file for writing: %s", shader->name.str);
@@ -7969,7 +7969,6 @@ void zest__create_texture_sampler(zest_texture texture, VkSamplerCreateInfo samp
 
     sampler_info.maxLod = (float)mip_levels;
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating texture sampler for %s", texture->name.str);
     ZEST_VK_CHECK_RESULT(vkCreateSampler(ZestDevice->logical_device, &sampler_info, &ZestDevice->allocation_callbacks, &texture->sampler[texture->current_index]));
 }
 
@@ -8458,7 +8457,6 @@ zest_texture zest_CreateTexture(const char* name, zest_texture_storage_type stor
     if (reserve_images) {
         zest_vec_reserve(texture->images, reserve_images);
     }        
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating texture %s", name);
     zest_map_insert(ZestRenderer->textures, name, texture);
     return texture;
 }
