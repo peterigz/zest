@@ -259,6 +259,7 @@ ZEST_API zest_microsecs zest_Microsecs(void);
 #define zest_snprintf(buffer, bufferSize, format, ...) sprintf_s(buffer, bufferSize, format, __VA_ARGS__)
 #define zest_strcat(left, size, right) strcat_s(left, size, right)
 #define zest_strcpy(left, size, right) strcpy_s(left, size, right)
+#define zest_strerror(buffer, size, error) strerror_s(buffer, size, error)
 #define ZEST_ALIGN_PREFIX(v) __declspec(align(v))
 #define ZEST_ALIGN_AFFIX(v)
 #define ZEST_PROTOTYPE
@@ -285,6 +286,7 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 #define zest_snprintf(buffer, bufferSize, format, ...) snprintf(buffer, bufferSize, format, __VA_ARGS__)
 #define zest_strcat(left, size, right) strcat(left, right)
 #define zest_strcpy(left, size, right) strcpy(left, right)
+#define zest_strerror(buffer, size, error) strerror_r(buffer, size, error)
 ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_thread_access* target, zest_thread_access value, zest_thread_access original) {
     return __sync_val_compare_and_swap(target, original, value);
 }
@@ -1723,6 +1725,7 @@ ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) {
 #define zest_map_free(hash_map) if(hash_map.map) ZEST__FREE(zest__vec_header(hash_map.map)); if(hash_map.data) ZEST__FREE(zest__vec_header(hash_map.data)); if(hash_map.free_slots) ZEST__FREE(zest__vec_header(hash_map.free_slots)); hash_map.data = 0; hash_map.map = 0; hash_map.free_slots = 0
 //Use inside a for loop to iterate over the map. The loop index should be be the index into the map array, to get the index into the data array.
 #define zest_map_index(hash_map, i) (hash_map.map[i].index)
+#define zest_map_foreach(index, hash_map) zest_vec_foreach(index, hash_map.map)
 #define zest_map_foreach_i(hash_map) zest_foreach_i(hash_map.map)
 #define zest_map_foreach_j(hash_map) zest_foreach_j(hash_map.map)
 // --End pocket hash map
@@ -2741,7 +2744,7 @@ typedef struct zest_renderer_t {
     zest_render_target *render_target_recreate_queue[ZEST_MAX_FIF];
     zest_render_target *rt_sampler_refresh_queue[ZEST_MAX_FIF];
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
-    zest_texture *texture_reprocess_queue;
+    zest_map_textures texture_reprocess_queue;
     zest_texture *texture_cleanup_queue;
     zest_texture *texture_delete_queue;
     zest_pipeline *pipeline_recreate_queue;

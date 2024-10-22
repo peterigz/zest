@@ -337,7 +337,12 @@ bool zest__create_folder(const char *path) {
         if (result == EEXIST) {
             return true;
         } else {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Error creating folder: %s (Error: %s)", path, strerror(result));
+            char buffer[100];
+            if (zest_strerror(buffer, sizeof(buffer), result) != 0) {
+				ZEST_APPEND_LOG(ZestDevice->log_path.str, "Error creating folder: %s (Error: Unknown)", path);
+            } else {
+				ZEST_APPEND_LOG(ZestDevice->log_path.str, "Error creating folder: %s (Error: %s)", path, buffer);
+            }
             return false;
         }
     }
@@ -2088,9 +2093,9 @@ void zest__do_scheduled_tasks(void) {
         }
     }
 
-    if (zest_vec_size(ZestRenderer->texture_reprocess_queue)) {
-        for (zest_foreach_i(ZestRenderer->texture_reprocess_queue)) {
-            zest_texture texture = ZestRenderer->texture_reprocess_queue[i];
+    if (zest_map_size(ZestRenderer->texture_reprocess_queue)) {
+        zest_map_foreach(i, ZestRenderer->texture_reprocess_queue) {
+            zest_texture texture = *zest_map_at_index(ZestRenderer->texture_reprocess_queue, i);
             zest_ProcessTextureImages(texture);
             if (texture->reprocess_callback) {
                 texture->reprocess_callback(texture, texture->user_data);
@@ -2098,7 +2103,7 @@ void zest__do_scheduled_tasks(void) {
             }
             zest_vec_push(ZestRenderer->texture_cleanup_queue, texture);
         }
-        zest_vec_clear(ZestRenderer->texture_reprocess_queue);
+        zest_map_clear(ZestRenderer->texture_reprocess_queue);
     }
 
     if (zest_vec_size(ZestRenderer->pipeline_destroy_queue)) {
@@ -7848,7 +7853,7 @@ void zest_RefreshTextureDescriptors(zest_texture texture) {
 
 void zest_ScheduleTextureReprocess(zest_texture texture, void(*callback)(zest_texture texture, void *user_data)) {
     texture->reprocess_callback = callback;
-    zest_vec_push(ZestRenderer->texture_reprocess_queue, texture);
+    zest_map_insert(ZestRenderer->texture_reprocess_queue, texture->name.str, texture);
 }
 
 void zest_ScheduleTextureCleanOldBuffers(zest_texture texture) {
@@ -7865,7 +7870,7 @@ void zest_WaitUntilTexturesReprocessed() {
         // Spin until lock is acquired
     }
 #else
-    while (ZestRenderer->texture_reprocess_queue && zest_vec_size(ZestRenderer->texture_reprocess_queue)) {
+    while (zest_map_size(ZestRenderer->texture_reprocess_queue)) {
         //Spin. This should be run from a separate thread so the scheduler can actually do it's thing
     }
 #endif
