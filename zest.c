@@ -2101,7 +2101,6 @@ void zest__do_scheduled_tasks(void) {
                 texture->reprocess_callback(texture, texture->user_data);
                 texture->reprocess_callback = 0;
             }
-            zest_vec_push(ZestRenderer->texture_cleanup_queue, texture);
         }
         zest_map_clear(ZestRenderer->texture_reprocess_queue);
     }
