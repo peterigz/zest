@@ -9792,7 +9792,7 @@ void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer command_buffer) {
 
         //The only reason I do this is because of some strange alignment issues on intel macs only. I haven't fully gotten to the bottom of it
         //but this seems to work for now
-        memcpy(&current->push_constants.global.x, &temp.x, sizeof(zest_vec4));
+        memcpy(&current->push_constants.global.x, &layer->global_push_values.x, sizeof(zest_vec4));
 
 		vkCmdPushConstants(
 			command_buffer,
@@ -9825,7 +9825,7 @@ void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer) {
 
         zest_BindPipelineCB(command_buffer, current->pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
-        memcpy(&current->push_constants.global.x, &temp.x, sizeof(zest_vec4));
+        memcpy(&current->push_constants.global.x, &layer->global_push_values.x, sizeof(zest_vec4));
 
         vkCmdPushConstants(
             command_buffer,
@@ -9861,7 +9861,7 @@ void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer
 
         zest_BindPipelineCB(command_buffer, current->pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
-        memcpy(&current->push_constants.global.x, &temp.x, sizeof(zest_vec4));
+        memcpy(&current->push_constants.global.x, &layer->global_push_values.x, sizeof(zest_vec4));
 
         vkCmdPushConstants(
             command_buffer,
