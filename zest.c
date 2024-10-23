@@ -7891,7 +7891,6 @@ void zest__create_texture_image(zest_texture texture, zest_uint mip_levels, VkIm
     int channels = texture->color_channels;
     VkDeviceSize image_size = zest_GetTextureSingleBitmap(texture)->width * zest_GetTextureSingleBitmap(texture)->height * channels;
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating texture image for texture %s", texture->name.str);
     zest_buffer_t* staging_buffer = 0;
     if (copy_bitmap) {
         zest_buffer_info_t buffer_info = zest_CreateStagingBufferInfo();
@@ -7916,8 +7915,6 @@ void zest__create_texture_image(zest_texture texture, zest_uint mip_levels, VkIm
 void zest__create_texture_image_array(zest_texture texture, zest_uint mip_levels) {
     VkDeviceSize image_size = texture->bitmap_array.total_mem_size;
     
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating texture image array for texture %s", texture->name.str);
-
     zest_buffer_info_t buffer_info = zest_CreateStagingBufferInfo();
     zest_buffer_t* staging_buffer = zest_CreateBuffer(image_size, &buffer_info, ZEST_NULL);
 
@@ -7939,7 +7936,6 @@ void zest__create_texture_image_array(zest_texture texture, zest_uint mip_levels
 void zest__create_texture_stream(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap) {
     int channels = texture->color_channels;
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating texture image stream for texture %s", texture->name.str);
     VkDeviceSize image_size = zest_GetTextureSingleBitmap(texture)->width * zest_GetTextureSingleBitmap(texture)->height * channels;
 
     if (copy_bitmap) {
