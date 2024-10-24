@@ -90,7 +90,7 @@ typedef volatile unsigned int zest_atomic_int;
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 //I had to add this because some dell laptops have their own drivers that are basically broken. Even though the gpu signals that
@@ -2088,6 +2088,7 @@ typedef struct zest_descriptor_set_t {
 typedef struct zest_shader_resources_t {
     zest_descriptor_set *sets;
     VkDescriptorSet *binding_sets;
+    VkCommandBuffer *command_buffers;
 } zest_shader_resources_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_descriptor_set_builder_t {
@@ -2234,6 +2235,7 @@ typedef struct zest_command_queue_draw_commands_t {
     zest_render_pass render_pass;
     zest_vec4 cls_color;
     zest_render_target render_target;
+    VkCommandBuffer command_buffer[ZEST_MAX_FIF];
     const char *name;
 } zest_command_queue_draw_commands_t;
 
@@ -2409,6 +2411,8 @@ typedef struct zest_layer_t {
     zest_builtin_layer_type layer_type;
     void *user_data;
     VkDescriptorSet *draw_sets;
+    VkCommandBuffer dynamic_command_buffer[ZEST_MAX_FIF];   //Can change every frame according to draw instructions
+    VkCommandBuffer static_command_buffer[ZEST_MAX_FIF];    //Only record when layer buffers change
 } zest_layer_t ZEST_ALIGN_AFFIX(16);
 
 //This struct must be filled and attached to the draw routine that implements imgui as user data
@@ -2874,8 +2878,10 @@ ZEST_PRIVATE void zest__end_mesh_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
 ZEST_PRIVATE void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__record_mesh_layer(zest_layer layer, zest_uint fif);
 ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
 ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
+ZEST_API VkCommandBuffer zest__begin_layer_secondary_command_buffer(zest_layer layer, zest_uint fif);
 
 // --Texture internal functions
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
@@ -4021,6 +4027,8 @@ ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
 ZEST_API void zest_ResetLayer(zest_layer layer);
 //Same as ResetLayer but specifically for an instance layer
 ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
+//Record the secondary buffers of an instance layer
+ZEST_API void zest_RecordInstanceLayer(zest_layer layer, zest_uint fif);
 //Flags a layer to manual frame in flight so you can determine when the buffers should be uploaded to the GPU
 ZEST_API void zest_SetLayerToManualFIF(zest_layer layer);
 //Upate the descriptor info for the layer. Call this if the buffer is resized, will be done automatically when NextInstance is called
@@ -4233,8 +4241,8 @@ ZEST_API float zest_TextWidth(zest_font font, const char *text, float font_size,
 //You don't really need to call this manually as it's a callback that's assigned in the draw routine when you call zest_CreateBuiltinMeshLayer or zest_NewMeshLayer.
 ZEST_API void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 //These are helper functions you can use to bind the vertex and index buffers in your custom mesh draw routine callback
-ZEST_API void zest_BindMeshVertexBuffer(zest_layer layer);
-ZEST_API void zest_BindMeshIndexBuffer(zest_layer layer);
+ZEST_API void zest_BindMeshVertexBuffer(VkCommandBuffer command_buffer, zest_layer layer);
+ZEST_API void zest_BindMeshIndexBuffer(VkCommandBuffer command_buffer, zest_layer layer);
 //Get the vertex staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
 ZEST_API zest_buffer zest_GetVertexWriteBuffer(zest_layer layer);
 //Get the index staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
@@ -4270,6 +4278,7 @@ ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
 ZEST_API void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer);
+ZEST_API void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif);
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline pipeline);
 //These are helper functions you can use to bind the vertex and index buffers in your custom mesh draw routine callback
 ZEST_API void zest_BindInstanceMeshVertexBuffer(zest_layer layer);

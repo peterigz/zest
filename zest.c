@@ -1898,7 +1898,7 @@ void zest__create_logical_device(zest_create_info_t *init_info) {
     cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     cmd_info_pool.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
     cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating command queues");
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating command pools");
     ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->command_pool));
     ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->one_time_command_pool));
 }
@@ -5622,12 +5622,14 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCo
         }
     }
 
-    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
+    /*
     VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
     VkRect2D scissor = zest_CreateRect2D(item->viewport.extent.width, item->viewport.extent.height, 0, 0);
     vkCmdSetViewport(command_buffer, 0, 1, &view);
     vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+    */
 
     for (zest_foreach_i(item->draw_routines)) {
         zest_draw_routine draw_routine = item->draw_routines[i];
@@ -6582,6 +6584,7 @@ zest_layer zest_NewBuiltinLayerSetup(const char* name, zest_builtin_layer_type b
     ZestRenderer->setup_context.layer = layer;
     layer->name = name;
     layer->layer_type = builtin_layer;
+    layer->draw_commands = draw_commands;
     zest_SetLayerSize(layer, (float)draw_commands->viewport.extent.width, (float)draw_commands->viewport.extent.height);
     zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
     ZestRenderer->setup_context.type = zest_setup_context_type_layer;
@@ -6615,7 +6618,7 @@ void zest_AddLayer(zest_layer layer) {
             draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
             draw_routine->draw_callback = zest__draw_mesh_layer_callback;
         }
-        else if (layer->layer_type == zest_builtin_layer_mesh) {
+        else if (layer->layer_type == zest_builtin_layer_mesh_instance) {
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
             draw_routine->draw_callback = zest__draw_instance_mesh_layer_callback;
@@ -9769,16 +9772,44 @@ void zest__update_instance_layer_resolution(zest_layer layer) {
     layer->scissor.extent.height = (zest_uint)layer->viewport.height;
 }
 
-void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer command_buffer) {
-    VkDeviceSize instance_data_offsets[] = { layer->memory_refs[layer->fif].device_instance_data->memory_offset };
+VkCommandBuffer zest__begin_layer_secondary_command_buffer(zest_layer layer, zest_uint fif) {
+    ZEST_ASSERT(layer->draw_commands);  //Command must be called after being used in a command queue
+    VkCommandBuffer command_buffer = layer->dynamic_command_buffer[fif];
 
+    VkCommandBufferInheritanceInfo inheritance_info = { 0 };
+    inheritance_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+    inheritance_info.renderPass = layer->draw_commands->render_pass->render_pass;  
+    inheritance_info.subpass = 0;                      
+    inheritance_info.framebuffer = VK_NULL_HANDLE;     
+    inheritance_info.occlusionQueryEnable = VK_FALSE;   
+    inheritance_info.queryFlags = 0;                    
+    inheritance_info.pipelineStatistics = 0;            
+
+    VkCommandBufferBeginInfo begin_info = { 0 };
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;  
+    begin_info.pInheritanceInfo = &inheritance_info;
+
+	vkBeginCommandBuffer(command_buffer, &begin_info);
+    return command_buffer;
+}
+
+void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer command_buffer) {
+    if (zest_vec_size(layer->draw_instructions[layer->fif])) {
+        //Bind the vertex buffers from a prerecorded command buffer
+        vkCmdExecuteCommands(command_buffer, 1, &layer->dynamic_command_buffer[layer->fif]);
+    }
+}
+
+void zest_RecordInstanceLayer(zest_layer layer, zest_uint fif) {
+    VkCommandBuffer command_buffer = zest__begin_layer_secondary_command_buffer(layer, fif);
+	VkDeviceSize instance_data_offsets[] = { layer->memory_refs[fif].device_instance_data->memory_offset };
+	vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[fif].device_instance_data), instance_data_offsets);
     for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
 
         vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
         vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
-
-        vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[layer->fif].device_instance_data), instance_data_offsets);
 
         ZEST_ASSERT(current->shader_resources); //Shader resources must be set in the instruction
         zest_vec_foreach(set_index, current->shader_resources->sets) {
@@ -9804,11 +9835,14 @@ void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer command_buffer) {
 
         zest_vec_clear(layer->draw_sets);
     }
+	vkEndCommandBuffer(command_buffer);
 }
 
-void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer) {
-    zest_BindMeshIndexBuffer(layer);
-    zest_BindMeshVertexBuffer(layer);
+void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
+    VkCommandBuffer command_buffer = zest__begin_layer_secondary_command_buffer(layer, fif);
+
+    zest_BindMeshIndexBuffer(command_buffer, layer);
+    zest_BindMeshVertexBuffer(command_buffer, layer);
 
     for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
@@ -9837,15 +9871,26 @@ void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer) {
 
         zest_vec_clear(layer->draw_sets);
     }
+	vkEndCommandBuffer(command_buffer);
 }
 
-void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer) {
+void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer) {
+    if (zest_vec_size(layer->draw_instructions[layer->fif])) {
+        //Bind the vertex buffers from a prerecorded command buffer
+        vkCmdExecuteCommands(command_buffer, 1, &layer->dynamic_command_buffer[layer->fif]);
+    }
+}
+
+void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
+    VkCommandBuffer command_buffer = zest__begin_layer_secondary_command_buffer(layer, fif);
     VkDeviceSize instance_data_offsets[] = { layer->memory_refs[layer->fif].device_instance_data->memory_offset };
-	zest_BindMeshVertexBuffer(layer);
-	zest_BindMeshIndexBuffer(layer);
+    zest_BindMeshVertexBuffer(command_buffer, layer);
+    zest_BindMeshIndexBuffer(command_buffer, layer);
+
+	vkCmdBindVertexBuffers(command_buffer, 1, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[layer->fif].device_instance_data), instance_data_offsets);
 
     for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
-        zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
+        zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
 
         vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
         vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
@@ -9854,8 +9899,6 @@ void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer
             zest_descriptor_set set = current->shader_resources->sets[set_index];
             zest_vec_push(layer->draw_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : layer->fif]);
         }
-
-        vkCmdBindVertexBuffers(command_buffer, 1, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[layer->fif].device_instance_data), instance_data_offsets);
 
         zest_BindPipelineCB(command_buffer, current->pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
@@ -9872,6 +9915,14 @@ void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer
         vkCmdDrawIndexed(command_buffer, layer->index_count, current->total_instances, 0, 0, current->start_index);
 
         zest_vec_clear(layer->draw_sets);
+    }
+    vkEndCommandBuffer(command_buffer);
+}
+
+void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer) {
+    if (zest_vec_size(layer->draw_instructions[layer->fif])) {
+        //Bind the vertex buffers from a prerecorded command buffer
+        vkCmdExecuteCommands(command_buffer, 1, &layer->dynamic_command_buffer[layer->fif]);
     }
 }
 
@@ -9892,6 +9943,7 @@ zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest
 //Start general instance layer functionality -----
 void zest_DrawInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
+    zest_RecordInstanceLayer(layer, layer->fif);
     zest_DrawInstanceLayer(layer, command_buffer);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest_ResetInstanceLayerDrawing(layer);
@@ -9961,6 +10013,7 @@ void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
 //Start internal mesh layer functionality -----
 void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
+    zest__record_mesh_layer(layer, layer->fif);
     zest__draw_mesh_layer(layer, command_buffer);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest__reset_mesh_layer_drawing(layer);
@@ -9971,6 +10024,7 @@ void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuf
 
 void zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
+    zest_RecordInstanceMeshLayer(layer, layer->fif);
     zest_DrawInstanceMeshLayer(layer, command_buffer);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest_ResetInstanceLayerDrawing(layer);
@@ -10042,7 +10096,7 @@ void zest_SetLayerGlobalPushConstants(zest_layer layer, float x, float y, float 
 }
 //-- End Draw Layers
 
-//-- Start Sprite Drawing API
+//-- Start Instance Drawing API
 void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size) {
     layer->current_color.r = 255;
     layer->current_color.g = 255;
@@ -10084,6 +10138,14 @@ void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_ui
     }
 
     zest_SetLayerViewPort(layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
+
+    VkCommandBufferAllocateInfo alloc_info = { 0 };
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+    alloc_info.commandBufferCount = ZEST_MAX_FIF;
+    alloc_info.commandPool = ZestDevice->command_pool;
+    ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, layer->static_command_buffer));
+    ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, layer->dynamic_command_buffer));
 
     zest_ResetInstanceLayerDrawing(layer);
 }
@@ -10558,17 +10620,25 @@ void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_
     zest_SetLayerViewPort(mesh_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
     zest__reset_mesh_layer_drawing(mesh_layer);
 
+    VkCommandBufferAllocateInfo alloc_info = { 0 };
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+    alloc_info.commandBufferCount = ZEST_MAX_FIF;
+    alloc_info.commandPool = ZestDevice->command_pool;
+    ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, mesh_layer->static_command_buffer));
+    ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, mesh_layer->dynamic_command_buffer));
+
 }
 
-void zest_BindMeshVertexBuffer(zest_layer layer) {
+void zest_BindMeshVertexBuffer(VkCommandBuffer command_buffer, zest_layer layer) {
     zest_buffer_t* buffer = layer->memory_refs[layer->fif].device_vertex_data;
     VkDeviceSize offsets[] = { buffer->memory_offset };
-    vkCmdBindVertexBuffers(ZestRenderer->current_command_buffer, 0, 1, zest_GetBufferDeviceBuffer(buffer), offsets);
+    vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(buffer), offsets);
 }
 
-void zest_BindMeshIndexBuffer(zest_layer layer) {
+void zest_BindMeshIndexBuffer(VkCommandBuffer command_buffer, zest_layer layer) {
     zest_buffer_t* buffer = layer->memory_refs[layer->fif].device_index_data;
-    vkCmdBindIndexBuffer(ZestRenderer->current_command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
 }
 
 zest_buffer zest_GetVertexWriteBuffer(zest_layer layer) {

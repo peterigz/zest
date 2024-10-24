@@ -81,13 +81,14 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
     create_info.log_path = ".";
+	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
 
