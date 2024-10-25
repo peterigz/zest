@@ -30,8 +30,10 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
-	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_frag.spv", true, true);
-	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_vert.spv", true, true);
+	shaderc_compiler_t compiler = shaderc_compiler_initialize();
+	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_frag.spv", true, true, compiler);
+	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_vert.spv", true, true, compiler);
+	shaderc_compiler_release(compiler);
 
 	zest_pipeline_template_create_info_t custom_pipeline_template = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
 	app->custom_pipeline = zest_AddPipeline("pipeline_custom_shader");
@@ -180,7 +182,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::SliderFloat("Mix", &app->mix_value, 0.f, 1.f);
 	if (ImGui::Button("Compile")) {
 		shaderc_result_release(app->validation_result);
-		app->validation_result = zest_ValidateShader(app->custom_frag_shader->shader_code.str, shaderc_fragment_shader, app->custom_frag_shader->name.str);
+		shaderc_compiler_t compiler = shaderc_compiler_initialize();
+		app->validation_result = zest_ValidateShader(app->custom_frag_shader->shader_code.str, shaderc_fragment_shader, app->custom_frag_shader->name.str, compiler);
+		shaderc_compiler_release(compiler);
 	}
 	if (app->validation_result) {
 		if (shaderc_result_get_compilation_status(app->validation_result) != shaderc_compilation_status_success) {
@@ -205,7 +209,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::End();
 	ImGui::Render();
 	//Let the layer know that it needs to reupload the imgui mesh data to the GPU
-	zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
+	zest_ResetLayer(app->imgui_layer_info.mesh_layer);
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 

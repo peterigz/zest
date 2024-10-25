@@ -31,5 +31,7 @@ struct RenderTargetExample {
 };
 
 void InitExample(RenderTargetExample * example);
+void RecordHorizontalBlur(zest_render_target_t *target, void *data, zest_uint fif);
+void RecordVerticalBlur(zest_render_target_t *target, void *data, zest_uint fif);
 void AddHorizontalBlur(zest_render_target_t *target, void *data);
-void AddVerticalBlur(zest_render_target_t *target, void *data);
+void AddRecordVerticalBlur(zest_render_target_t *target, void *data);

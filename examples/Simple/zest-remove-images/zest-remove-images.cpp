@@ -79,6 +79,7 @@ int main(void)
 {
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
 	App app = { 0 };
 

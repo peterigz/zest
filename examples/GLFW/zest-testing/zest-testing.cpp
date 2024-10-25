@@ -950,7 +950,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui::End();
 		ImGui::Render();
 		//Let the layer know that it needs to reupload the imgui mesh data to the GPU
-		zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
+		zest_ResetLayer(app->imgui_layer_info.mesh_layer);
 
 		float speed = 5.f * (float)app->timer->update_time;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
@@ -1211,8 +1211,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main(void) {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);

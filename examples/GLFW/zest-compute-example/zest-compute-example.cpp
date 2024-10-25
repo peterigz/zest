@@ -145,21 +145,38 @@ void InitImGuiApp(ImGuiApp *app) {
 		}
 	}
 
+	//The command buffer won't change so we can just record it once here and then simply execute the pre-recorded commands
+	//each frame in the DrawComputeSprites callback.
+	for (ZEST_EACH_FIF_i) {
+		RecordComputeSprites(app->draw_routine, i);
+	}
+}
+
+void RecordComputeSprites(zest_draw_routine draw_routine, zest_uint fif) {
+    VkCommandBuffer command_buffer = zest_BeginRecording(draw_routine->recorder, draw_routine->draw_commands->render_pass, fif);
+	ImGuiApp *app = (ImGuiApp*)draw_routine->user_data;
+	//We can make use of helper functions to easily bind the pipeline/vertex buffer and make the draw call
+	//to draw the sprites
+	zest_GetDescriptorSetsForBinding(app->shader_resources, &app->draw_sets, ZEST_FIF);
+	zest_BindPipeline(command_buffer, app->particle_pipeline, app->draw_sets, 1);
+	zest_vec2 screen_size = zest_Vec2Set(zest_ScreenWidthf(), zest_ScreenHeightf());
+	zest_SendPushConstants(command_buffer, app->particle_pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_vec2), &screen_size);
+    VkViewport view = zest_CreateViewport(0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 1.f);
+    VkRect2D scissor = zest_CreateRect2D(zest_ScreenWidth(), zest_ScreenHeight(), 0, 0);
+    vkCmdSetViewport(command_buffer, 0, 1, &view);
+    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+	zest_BindVertexBuffer(command_buffer, app->particle_buffer->buffer[0]);
+	zest_Draw(command_buffer, PARTICLE_COUNT, 1, 0, 0);
+	zest_ClearShaderResourceDescriptorSets(app->draw_sets);
+
+	zest_EndRecording(draw_routine->recorder, fif);
 }
 
 void DrawComputeSprites(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
 	//Our custom draw routine. This is automatically called as part of the main loop because
 	//we added it to the command queue above (zest_AddDrawRoutine(app->draw_routine);)
-	ImGuiApp *app = (ImGuiApp*)draw_routine->user_data;
-	//We can make use of helper functions to easily bind the pipeline/vertex buffer and make the draw call
-	//to draw the sprites
-	zest_GetDescriptorSetsForBinding(app->shader_resources, &app->draw_sets, ZEST_FIF);
-	zest_BindPipeline(app->particle_pipeline, app->draw_sets, 1);
-	zest_vec2 screen_size = zest_Vec2Set(zest_ScreenWidthf(), zest_ScreenHeightf());
-	zest_SendPushConstants(app->particle_pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_vec2), &screen_size);
-	zest_BindVertexBuffer(app->particle_buffer->buffer[0]);
-	zest_Draw(PARTICLE_COUNT, 1, 0, 0);
-	zest_ClearShaderResourceDescriptorSets(app->draw_sets);
+	//We only need to excute the draw commands that we recorded in the InitImGuiApp function (RecordComputeSprites)
+	zest_ExecuteDrawRoutine(command_buffer, draw_routine, ZEST_FIF);
 }
 
 void UpdateComputeCommands(zest_command_queue_compute compute_commands) {
@@ -223,17 +240,18 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::End();
 	ImGui::Render();
 	//We must mark the layer as dirty or nothing will be uploaded to the GPU
-	zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
+	zest_ResetLayer(app->imgui_layer_info.mesh_layer);
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 }
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Disable vsync so we can see how fast it runs
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = ".";
 	//We're using GLFW for this example so use the following function to set that up for us. You must include
 	//impl_glfw.h for this

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zest.h>
+#include "implementations/impl_imgui.h"
 #include "implementations/impl_glfw.h"
 #include "implementations/impl_imgui_glfw.h"
 #include "imgui/imgui.h"
@@ -23,7 +24,7 @@ struct ComputeUniformBuffer {					// Compute shader uniform block object
 } ubo;
 
 struct ImGuiApp {
-	zest_imgui_layer_info imgui_layer_info;
+	zest_imgui_layer_info_t imgui_layer_info;
 	zest_index imgui_draw_routine_index;
 
 	zest_texture particle_texture;
@@ -54,3 +55,4 @@ void InitImGuiApp(ImGuiApp *app);
 void UpdateComputeUniformBuffers(ImGuiApp *app);
 void UpdateComputeCommands(zest_command_queue_compute compute_commands);
 void DrawComputeSprites(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+void RecordComputeSprites(zest_draw_routine draw_routine, zest_uint fif);

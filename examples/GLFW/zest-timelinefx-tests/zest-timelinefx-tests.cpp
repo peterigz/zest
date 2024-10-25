@@ -1,5 +1,6 @@
 #include <zest.h>
 #include "imgui.h"
+#include "impl_imgui.h"
 #include "impl_glfw.h"
 #include "impl_imgui_glfw.h"
 #include "timelinefx.h"
@@ -50,7 +51,7 @@ struct TimelineFXExample {
 
 	tfx_vector_t<tfxEffectID> test_effects;
 
-	zest_imgui_layer_info imgui_layer_info;
+	zest_imgui_layer_info_t imgui_layer_info;
 	tfx_random_t random;
 	tfx_vector_t<tfx_pool_stats_t> memory_stats;
 
@@ -214,7 +215,7 @@ void TimelineFXExample::Init() {
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			timelinefx_layer = zest_AddInstanceDrawRoutine(timelinefx_draw_routine);
-			zest_imgui_CreateLayer(&imgui_layer_info);
+			//zest_imgui_CreateLayer(&imgui_layer_info);
 		}
 		zest_FinishQueueSetup();
 	}
@@ -368,7 +369,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	int pending_ticks = zest_TimerPendingTicks(game->timer);
 
 	while (zest_TimerDoUpdate(game->timer)) {
-		BuildUI(game);
+		//BuildUI(game);
 
 		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 			//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
@@ -449,6 +450,7 @@ int main() {
 	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = "./";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	zest_implglfw_SetCallbacks(&create_info);
 
 	TimelineFXExample game;

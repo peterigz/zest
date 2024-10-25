@@ -16,8 +16,10 @@ void InitExample(RenderTargetExample *example) {
 	zest_AddPipelineTemplatePushConstantRange(&create_info, image_pushconstant_range);
 	//Set the vert and frag shaders for the blur effect
 
-	example->blur_frag_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.frag", "blur_frag.spv", shaderc_fragment_shader, 1);
-	example->blur_vert_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.vert", "blur_vert.spv", shaderc_vertex_shader, 1);
+	shaderc_compiler_t compiler = shaderc_compiler_initialize();
+	example->blur_frag_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.frag", "blur_frag.spv", shaderc_fragment_shader, 1, compiler);
+	example->blur_vert_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.vert", "blur_vert.spv", shaderc_vertex_shader, 1, compiler);
+	shaderc_compiler_release(compiler);
 	
 	zest_SetPipelineTemplateVertShader(&create_info, "blur_vert.spv", 0);
 	zest_SetPipelineTemplateFragShader(&create_info, "blur_frag.spv", 0);
@@ -51,10 +53,10 @@ void InitExample(RenderTargetExample *example) {
 	//In order to reduce flicker we can blur once at a smaller size, then reduce the size again and do the blur again.
 	//Note that the ratio is based on the input source, so we don't want to reduce the size on the horizontal blur - we already did that
 	//with the vertical blur whose input source was the base render target
-	zest_render_target vertical_blur1 = zest_AddPostProcessRenderTarget("Vertical blur render target", 0.25, 0.25, example->base_target, example, AddVerticalBlur);
-	zest_render_target horizontal_blur1 = zest_AddPostProcessRenderTarget("Horizontal blur render target", 1.f, 1.f, vertical_blur1, example, AddHorizontalBlur);
-	zest_render_target vertical_blur2 = zest_AddPostProcessRenderTarget("Vertical blur 2 render target", 0.5, 0.5, horizontal_blur1, example, AddVerticalBlur);
-	example->final_blur = zest_AddPostProcessRenderTarget("Final blur render target", 1.f, 1.f, vertical_blur2, example, AddHorizontalBlur);
+	zest_render_target vertical_blur1 = zest_AddPostProcessRenderTarget("Vertical blur render target", 0.25, 0.25, example->base_target, example, RecordVerticalBlur);
+	zest_render_target horizontal_blur1 = zest_AddPostProcessRenderTarget("Horizontal blur render target", 1.f, 1.f, vertical_blur1, example, RecordHorizontalBlur);
+	zest_render_target vertical_blur2 = zest_AddPostProcessRenderTarget("Vertical blur 2 render target", 0.5, 0.5, horizontal_blur1, example, RecordVerticalBlur);
+	example->final_blur = zest_AddPostProcessRenderTarget("Final blur render target", 1.f, 1.f, vertical_blur2, example, RecordHorizontalBlur);
 
 	//Create the render queue
 	//For blur effect we need to draw the scene to a base render target first, then have 2 render passes that draw to a smaller texture with horizontal and then vertical blur effects
@@ -143,11 +145,18 @@ void InitExample(RenderTargetExample *example) {
 	example->wabbit_pos.vy = 200.f;
 }
 
-void AddHorizontalBlur(zest_render_target_t *target, void *data) {
+void RecordHorizontalBlur(zest_render_target_t *target, void *data, zest_uint fif) {
+	VkCommandBuffer command_buffer = zest_BeginRecording(target->recorder, target->render_pass, fif);
+
+	VkViewport view = zest_CreateViewport(0.f, 0.f, (float)target->viewport.extent.width, (float)target->viewport.extent.height, 0.f, 1.f);
+	VkRect2D scissor = zest_CreateRect2D(target->viewport.extent.width, target->viewport.extent.height, 0, 0);
+	vkCmdSetViewport(command_buffer, 0, 1, &view);
+	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
 	//Grab the example struct from the user data set in the call to zest_AddPostProcessRenderTarget
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(data);
 	//Bind our custom blur pipeline that we created
-	zest_BindPipeline(example->blur_pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
+	zest_BindPipeline(command_buffer, example->blur_pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
 	//Set the pusch constant to tell the shader to blur horizontally
 	example->push_constants.blur.x = 1.f;
 	example->push_constants.blur.y = 1.f;
@@ -156,16 +165,24 @@ void AddHorizontalBlur(zest_render_target_t *target, void *data) {
 	example->push_constants.texture_size.x = (float)target->render_width;
 	example->push_constants.texture_size.y = (float)target->render_height;
 	//Send the push constants
-	zest_SendPushConstants(example->blur_pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, example->blur_pipeline->push_constant_size, &example->push_constants);
+	zest_SendPushConstants(command_buffer, example->blur_pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, example->blur_pipeline->push_constant_size, &example->push_constants);
 	//Send a draw command. We just need to send 3 vertices to draw a triangle that covers the render target
-	zest_Draw(3, 1, 0, 0);
+	zest_Draw(command_buffer, 3, 1, 0, 0);
+	zest_EndRecording(target->recorder, fif);
 }
 
-void AddVerticalBlur(zest_render_target_t *target, void *data) {
+void RecordVerticalBlur(zest_render_target_t *target, void *data, zest_uint fif) {
+	VkCommandBuffer command_buffer = zest_BeginRecording(target->recorder, target->render_pass, fif);
+
+	VkViewport view = zest_CreateViewport(0.f, 0.f, (float)target->viewport.extent.width, (float)target->viewport.extent.height, 0.f, 1.f);
+	VkRect2D scissor = zest_CreateRect2D(target->viewport.extent.width, target->viewport.extent.height, 0, 0);
+	vkCmdSetViewport(command_buffer, 0, 1, &view);
+	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
 	//Grab the example struct from the user data set in the call to zest_AddPostProcessRenderTarget
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(data);
 	//Bind our custom blur pipeline that we created
-	zest_BindPipeline(example->blur_pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
+	zest_BindPipeline(command_buffer, example->blur_pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
 	//Set the pusch constant to tell the shader to blur vertically
 	example->push_constants.blur.x = 1.f;
 	example->push_constants.blur.y = 1.f;
@@ -174,9 +191,10 @@ void AddVerticalBlur(zest_render_target_t *target, void *data) {
 	example->push_constants.texture_size.x = (float)target->render_width;
 	example->push_constants.texture_size.y = (float)target->render_height;
 	//Send the push constants
-	zest_SendPushConstants(example->blur_pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, example->blur_pipeline->push_constant_size, &example->push_constants);
+	zest_SendPushConstants(command_buffer, example->blur_pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, example->blur_pipeline->push_constant_size, &example->push_constants);
 	//Send a draw command. We just need to send 3 vertices to draw a triangle that covers the render target
-	zest_Draw(3, 1, 0, 0);
+	zest_Draw(command_buffer, 3, 1, 0, 0);
+	zest_EndRecording(target->recorder, fif);
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {

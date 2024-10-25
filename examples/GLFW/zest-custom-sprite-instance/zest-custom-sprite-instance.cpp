@@ -54,8 +54,10 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->mix_value = 0.f;
 
 	//Create and compile the shaders for our custom sprite pipeline
-	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_sprite_frag.spv", true, 1);
-	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_sprite_vert.spv", true, 1);
+	shaderc_compiler_t compiler = shaderc_compiler_initialize();
+	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_sprite_frag.spv", true, true, compiler);
+	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_sprite_vert.spv", true, true, compiler);
+	shaderc_compiler_release(compiler);
 
 	//We need to make a custom descriptor set and layout that can sample from 2 different textures (the image and the color ramps)
     app->custom_descriptor_set_layout = zest_AddDescriptorLayout("2 samplers", zest_CreateDescriptorSetLayout(0, 0, 2));
@@ -170,8 +172,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main(void) {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate

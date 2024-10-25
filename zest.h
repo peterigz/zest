@@ -1328,6 +1328,15 @@ typedef enum zest_buffer_upload_flag_bits {
 
 typedef zest_uint zest_buffer_upload_flags;
 
+typedef enum zest_command_buffer_flag_bits {
+    zest_command_buffer_flag_none                               = 0,
+    zest_command_buffer_flag_outdated                           = 1 << 0,
+    zest_command_buffer_flag_primary                            = 1 << 1,
+    zest_command_buffer_flag_secondary                          = 1 << 2,
+} zest_command_buffer_flag_bits;
+
+typedef zest_uint zest_command_buffer_flags;
+
 //Be more careful about changing these numbers as they correlate to shaders. See zest_shape_type.
 typedef enum {
     zest_draw_mode_none = 0,            //Default no drawmode set when no drawing has been done yet
@@ -1486,7 +1495,9 @@ typedef struct zest_device_memory_pool_t zest_device_memory_pool_t;
 typedef struct zest_timer_t zest_timer_t;
 typedef struct zest_window_t zest_window_t;
 typedef struct zest_shader_t zest_shader_t;
+typedef struct zest_recorder_t zest_recorder_t;
 
+//Generate handles for the struct types. These are all pointers to memory where the type is stored.
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image)
 ZEST__MAKE_HANDLE(zest_draw_routine)
@@ -1509,6 +1520,7 @@ ZEST__MAKE_HANDLE(zest_device_memory_pool)
 ZEST__MAKE_HANDLE(zest_timer)
 ZEST__MAKE_HANDLE(zest_window)
 ZEST__MAKE_HANDLE(zest_shader)
+ZEST__MAKE_HANDLE(zest_recorder)
 
 typedef zest_descriptor_buffer zest_uniform_buffer;
 
@@ -2056,13 +2068,13 @@ typedef struct zest_semaphore_connector_t {
 typedef struct zest_command_queue_t {
     zest_semaphore_connector_t semaphores[ZEST_MAX_FIF];
     const char *name;
-    VkCommandPool command_pool;                                        //The command pool for command buffers
-    VkCommandBuffer command_buffer[ZEST_MAX_FIF];                    //A vulkan command buffer for each frame in flight
+    VkCommandPool command_pool;                                      //The command pool for command buffers
+    zest_recorder recorder;                                          //Primary command buffer for recording the whole queue
     VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
-    zest_command_queue_draw_commands *draw_commands;                //A list of draw command handles - mostly these will be draw_commands that are recorded to the command buffer
+    zest_command_queue_draw_commands *draw_commands;                 //A list of draw command handles - mostly these will be draw_commands that are recorded to the command buffer
     zest_command_queue_compute *compute_commands;                    //Compute items to be recorded to the command buffer
     zest_index present_semaphore_index[ZEST_MAX_FIF];                //An index to the semaphore representing the swap chain if required. (command queues don't necessarily have to wait for the swap chain)
-    zest_command_queue_flags flags;                                    //Can be either dependent on the swap chain to present or another command queue
+    zest_command_queue_flags flags;                                  //Can be either dependent on the swap chain to present or another command queue
 } zest_command_queue_t;
 
 typedef struct zest_render_pass_t {
@@ -2215,6 +2227,8 @@ struct zest_draw_routine_t {
     void *draw_data;                                                             //The user index of the draw routine. Use this to index the routine in your own lists. For Zest layers, this is used to hold the index of the layer in the renderer
     zest_index *command_queues;                                                  //A list of the render queues that this draw routine belongs to
     void *user_data;                                                             //Pointer to some user data
+    zest_recorder recorder;                                                      //For recording to a command buffer (this is a secondary command buffer)
+    zest_command_queue_draw_commands draw_commands;                              //
     void(*update_buffers_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);            //The callback used to update and upload the buffers before rendering
     void(*draw_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);                      //draw callback called by the render target when rendering
     void(*update_resolution_callback)(zest_draw_routine draw_routine);            //Callback used when the window size changes
@@ -2227,6 +2241,7 @@ struct zest_draw_routine_t {
 typedef struct zest_command_queue_draw_commands_t {
     VkFramebuffer(*get_frame_buffer)(zest_command_queue_draw_commands_t *item);
     void(*render_pass_function)(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
+    void(*record_base_draw_commands)(zest_command_queue_draw_commands item);
     zest_draw_routine *draw_routines;
     zest_render_target *render_targets;
     VkRect2D viewport;
@@ -2235,7 +2250,7 @@ typedef struct zest_command_queue_draw_commands_t {
     zest_render_pass render_pass;
     zest_vec4 cls_color;
     zest_render_target render_target;
-    VkCommandBuffer command_buffer[ZEST_MAX_FIF];
+    zest_recorder recorder;                       //secondary recording for recording any commands at the head of the render pass
     const char *name;
 } zest_command_queue_draw_commands_t;
 
@@ -2378,7 +2393,6 @@ typedef struct zest_layer_t {
     zest_layer_buffers_t memory_refs[ZEST_MAX_FIF];
     zest_bool dirty[ZEST_MAX_FIF];
     zest_uint initial_instance_pool_size;
-    zest_command_queue_draw_commands draw_commands;
     zest_buffer_uploader_t vertex_upload;
     zest_buffer_uploader_t index_upload;
 
@@ -2411,8 +2425,6 @@ typedef struct zest_layer_t {
     zest_builtin_layer_type layer_type;
     void *user_data;
     VkDescriptorSet *draw_sets;
-    VkCommandBuffer dynamic_command_buffer[ZEST_MAX_FIF];   //Can change every frame according to draw instructions
-    VkCommandBuffer static_command_buffer[ZEST_MAX_FIF];    //Only record when layer buffers change
 } zest_layer_t ZEST_ALIGN_AFFIX(16);
 
 //This struct must be filled and attached to the draw routine that implements imgui as user data
@@ -2639,13 +2651,20 @@ typedef struct zest_render_target_create_info_t {
     zest_render_target input_source;
 } zest_render_target_create_info_t;
 
+typedef struct zest_recorder_t {
+    VkCommandBuffer command_buffer[ZEST_MAX_FIF];
+    zest_uint outdated[ZEST_MAX_FIF];
+    zest_draw_routine draw_routine;
+    zest_command_buffer_flags flags;
+} zest_recorder_t;
+
 typedef struct zest_render_target_t {
     const char *name;
 
     zest_final_render_push_constants_t push_constants;
     zest_render_target_create_info_t create_info;
 
-    void(*post_process_callback)(zest_render_target_t *target, void *user_data);
+    void(*post_process_record_callback)(zest_render_target_t *target, void *user_data, zest_uint fif);
     void *post_process_user_data;
 
     zest_frame_buffer_t framebuffers[ZEST_MAX_FIF];
@@ -2666,7 +2685,7 @@ typedef struct zest_render_target_t {
     zest_pipeline final_render;
 
     zest_texture sampler_textures[ZEST_MAX_FIF];
-    VkCommandBuffer *layer_command_buffers;
+    zest_recorder recorder;     //for post processing
     zest_thread_access lock;
 } zest_render_target_t;
 
@@ -2718,6 +2737,10 @@ typedef struct zest_renderer_t {
 
     //Context data
     VkCommandBuffer current_command_buffer;
+    //These 2 variables are used for error checking so that we can check that recording
+    //was properly ended before submitting the command queue
+    VkCommandBuffer current_secondary_command_buffer;
+    VkCommandBuffer current_primary_command_buffer;
     zest_command_queue_draw_commands current_draw_commands;
     zest_command_queue_compute current_compute_routine;
 
@@ -2877,11 +2900,10 @@ ZEST_PRIVATE void zest__start_mesh_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__end_mesh_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
-ZEST_PRIVATE void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer primary_command_buffer);
 ZEST_PRIVATE void zest__record_mesh_layer(zest_layer layer, zest_uint fif);
 ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
 ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
-ZEST_API VkCommandBuffer zest__begin_layer_secondary_command_buffer(zest_layer layer, zest_uint fif);
 
 // --Texture internal functions
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
@@ -2907,6 +2929,7 @@ ZEST_PRIVATE void zest__create_texture_sampler_descriptor_set(zest_texture textu
 ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
 ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target);
 ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target, zest_index fif);
+ZEST_PRIVATE void zest__record_render_target_commands(zest_render_target render_target, zest_index fif);
 
 ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);
 
@@ -3141,6 +3164,18 @@ ZEST_API void zest_FreeShader(zest_shader shader);
 ZEST_API zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resources, VkDescriptorSet **draw_sets, zest_uint static_index);
 ZEST_API void zest_ClearShaderResourceDescriptorSets(VkDescriptorSet *draw_sets);
 ZEST_API zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets);
+//Create command buffers which you can record to for draw command queues
+ZEST_API zest_recorder zest_CreatePrimaryRecorder();
+ZEST_API zest_recorder zest_CreateSecondaryRecorder();
+//Free a zest recorder's command buffer back into the command buffer pool
+ZEST_API void zest_FreeCommandBuffers(zest_recorder recorder);
+//Free the recorder from memory and release the command buffers back into the pool
+ZEST_API void zest_FreeRecorder(zest_recorder recorder);
+//Execute all the commands in a draw routine that were previously recorded
+ZEST_API void zest_ExecuteDrawRoutine(VkCommandBuffer primary_command_buffer, zest_draw_routine draw_routine, zest_uint fif);
+ZEST_API void zest_ExecuteRecorderCommands(VkCommandBuffer primary_command_buffer, zest_recorder recorder, zest_uint fif);
+ZEST_API VkCommandBuffer zest_BeginRecording(zest_recorder recorder, zest_render_pass render_pass, zest_uint fif);
+ZEST_API void zest_EndRecording(zest_recorder recorder, zest_uint fif);
 
 //-----------------------------------------------
 //        Pipeline_related_vulkan_helpers
@@ -3220,13 +3255,11 @@ ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
 //descriptor sets in the shader_resources must be compatible with the layout that is being using in the pipeline. The command buffer used in the binding will be
 //whatever is defined in ZestRenderer->current_command_buffer which will be set when the command queue is recorded. If you need to specify
 //a command buffer then call zest_BindPipelineCB instead.
-ZEST_API void zest_BindPipeline(zest_pipeline pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
+ZEST_API void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_t* pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
 //Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
 //you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
 //resource that is marked as static.
 ZEST_API void zest_BindPipelineShaderResource(zest_pipeline pipeline, zest_shader_resources shader_resources, zest_uint manual_fif);
-//Does the same thing as zest_BindPipeline but you can also pass in a command buffer if you need to specify one.
-ZEST_API void zest_BindPipelineCB(VkCommandBuffer command_buffer, zest_pipeline_t* pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
 //Retrieve a pipeline from the renderer storage. Just pass in the name of the pipeline you want to retrieve and the handle to the pipeline
 //will be returned.
 ZEST_API zest_pipeline zest_Pipeline(const char *name);
@@ -3375,9 +3408,9 @@ ZEST_API zest_descriptor_buffer zest_GetUniformBuffer(const char *name);
 //Returns true if a uniform buffer exists
 ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 //Bind a vertex buffer. For use inside a draw routine callback function.
-ZEST_API void zest_BindVertexBuffer(zest_buffer buffer);
+ZEST_API void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
 //Bind an index buffer. For use inside a draw routine callback function.
-ZEST_API void zest_BindIndexBuffer(zest_buffer buffer);
+ZEST_API void zest_BindIndexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
 //--End Buffer related
 
 //-----------------------------------------------
@@ -3484,6 +3517,7 @@ ZEST_API zest_command_queue_draw_commands zest_GetDrawCommands(const char *name)
 ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
+ZEST_API void zest_RecordBaseDrawCommands(zest_command_queue_draw_commands item, zest_uint fif);
 //Add an existing zest_draw_routine to a zest_command_queue_draw_commands. This just lets you add draw routines to a queue separately outside of a command queue
 //setup context
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
@@ -3955,9 +3989,9 @@ ZEST_API void zest_RecreateRenderTargetResources(zest_render_target render_targe
 //Pass in a ratio_width and ratio_height. This will size the render target based on the size of the input source render target that you pass into the function. You can also pass
 //in some user data that you might need, this gets forwarded on to a callback function that you specify. This callback function is where you can do your post processing in
 //the command queue. Again see the zest-render-targets example.
-ZEST_API zest_render_target zest_AddPostProcessRenderTarget(const char *name, float ratio_width, float ratio_height, zest_render_target input_source, void *user_data, void(*render_callback)(zest_render_target target, void *user_data));
+ZEST_API zest_render_target zest_AddPostProcessRenderTarget(const char *name, float ratio_width, float ratio_height, zest_render_target input_source, void *user_data, void(*render_callback)(zest_render_target target, void *user_data, zest_uint fif));
 //Set the post process callback in the render target. This is the same call back specified in the zest_AddPostProcessRenderTarget function.
-ZEST_API void zest_SetRenderTargetPostProcessCallback(zest_render_target render_target, void(*render_callback)(zest_render_target target, void *user_data));
+ZEST_API void zest_SetRenderTargetPostProcessCallback(zest_render_target render_target, void(*render_callback)(zest_render_target target, void *user_data, zest_uint fif));
 //Set the user data you want to associate with the render target. This is pass through to the post process callback function.
 ZEST_API void zest_SetRenderTargetPostProcessUserData(zest_render_target render_target, void *user_data);
 //Get render target by name
@@ -4382,8 +4416,6 @@ ZEST_API void zest_BindComputePipeline(zest_compute compute, zest_index shader_i
 ZEST_API void zest_BindComputePipelineCB(VkCommandBuffer command_buffer, zest_compute compute, zest_index shader_index);
 //Send the push constants defined in a compute shader. Use inside a compute update command buffer callback function
 ZEST_API void zest_SendComputePushConstants(zest_compute compute);
-//Send the push constants defined in a compute shader. This variation of the function allows you to specify the command buffer.
-ZEST_API void zest_SendComputePushConstantsCB(VkCommandBuffer command_buffer, zest_compute compute);
 //Add a barrier to ensure that the compute shader finishes before the vertex input stage. You can use this if the compute shader is writing to a buffer for consumption by the
 //vertex shader.
 ZEST_API void zest_ComputeToVertexBarrier();
@@ -4488,15 +4520,15 @@ ZEST_API void zest_WaitForIdleDevice(void);
 ZEST_API void zest_MaybeQuit(zest_bool condition);
 //Send push constants. For use inside a draw routine callback function. pass in the pipeline_layout, shader stage flags (that were set in the pipeline), the
 //size of the push constant struct and a pointer to the data containing the push constants
-ZEST_API void zest_SendPushConstants(zest_pipeline pipeline_layout, VkShaderStageFlags shader_flags, zest_uint size, void *data);
+ZEST_API void zest_SendPushConstants(VkCommandBuffer command_buffer, zest_pipeline pipeline_layout, VkShaderStageFlags shader_flags, zest_uint size, void *data);
 //Helper function to send the standard zest_push_constants_t push constants struct.
-ZEST_API void zest_SendStandardPushConstants(zest_pipeline_t *pipeline_layout, void *data);
+ZEST_API void zest_SendStandardPushConstants(VkCommandBuffer command_buffer, zest_pipeline_t *pipeline_layout, void *data);
 //Helper function to record the vulkan command vkCmdDraw. Will record with the current command buffer being used in the active command queue. For use inside
 //a draw routine callback function
-ZEST_API void zest_Draw(zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
+ZEST_API void zest_Draw(VkCommandBuffer command_buffer, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
 //Helper function to record the vulkan command vkCmdDrawIndexed. Will record with the current command buffer being used in the active command queue. For use inside
 //a draw routine callback function
-ZEST_API void zest_DrawIndexed(zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+ZEST_API void zest_DrawIndexed(VkCommandBuffer command_buffer, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 //Enable vsync so that the frame rate is limited to the current monitor refresh rate. Will cause the swap chain to be rebuilt.
 ZEST_API void zest_EnableVSync(void);
 //Disable vsync so that the frame rate is not limited to the current monitor refresh rate, frames will render as fast as they can. Will cause the swap chain to be rebuilt.

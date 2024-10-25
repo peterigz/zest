@@ -22,18 +22,20 @@ void zest_imgui_CreateLayer(zest_imgui_layer_info_t *imgui_layer_info) {
     zest_SetLayerToManualFIF(imgui_layer_info->mesh_layer);
 }
 
-void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer) {
+void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) {
+    zest_layer_t *imgui_layer = layer_info->mesh_layer;
+
+    VkCommandBuffer command_buffer = zest_BeginRecording(imgui_layer->draw_routine->recorder, imgui_layer->draw_routine->draw_commands->render_pass, fif);
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+
+    zest_BindMeshVertexBuffer(command_buffer, imgui_layer);
+    zest_BindMeshIndexBuffer(command_buffer, imgui_layer);
+
     zest_pipeline last_pipeline = ZEST_NULL;
     VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
 
-    zest_imgui_layer_info_t *layer_info = (zest_imgui_layer_info_t *)draw_routine->user_data;
-    assert(layer_info);	//Must set user data as layer info is referenced later
-
-    zest_layer_t *imgui_layer = layer_info->mesh_layer;
-
-    zest_BindMeshVertexBuffer(imgui_layer);
-    zest_BindMeshIndexBuffer(imgui_layer);
+    VkViewport view = zest_CreateViewport(0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 1.f);
+    vkCmdSetViewport(command_buffer, 0, 1, &view);
 
     if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
 
@@ -64,7 +66,7 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
                 case zest_struct_type_image:
                     if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_GetTextureDescriptorSetVK(current_image->texture)) {
                         last_descriptor_set = zest_GetTextureDescriptorSetVK(current_image->texture);
-                        zest_BindPipeline(layer_info->pipeline, &last_descriptor_set, 1);
+                        zest_BindPipeline(command_buffer, layer_info->pipeline, &last_descriptor_set, 1);
                         last_pipeline = layer_info->pipeline;
                     }
                     push_constants->parameters2.x = (float)current_image->layer;
@@ -76,7 +78,7 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
                     ZEST_ASSERT(imgui_image->image);
                     zest_ClearLayerDrawSets(imgui_layer);
                     zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &imgui_layer->draw_sets, imgui_layer->fif);
-                    zest_BindPipeline(imgui_image->pipeline, imgui_layer->draw_sets, set_count);
+                    zest_BindPipeline(command_buffer, imgui_image->pipeline, imgui_layer->draw_sets, set_count);
                     last_descriptor_set = VK_NULL_HANDLE;
                     last_pipeline = imgui_image->pipeline;
                     push_constants = &imgui_image->push_constants;
@@ -89,7 +91,7 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
                     continue;
                 }
 
-                vkCmdPushConstants(ZestRenderer->current_command_buffer, layer_info->pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), push_constants);
+                vkCmdPushConstants(command_buffer, layer_info->pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), push_constants);
 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
@@ -112,6 +114,21 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer com
             index_offset += cmd_list->IdxBuffer.Size;
             vertex_offset += cmd_list->VtxBuffer.Size;
         }
+    }
+    zest_EndRecording(imgui_layer->draw_routine->recorder, fif);
+}
+
+void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer primary_command_buffer) {
+    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+
+    zest_imgui_layer_info_t *layer_info = (zest_imgui_layer_info_t *)draw_routine->user_data;
+    assert(layer_info);	//Must set user data as layer info is referenced later
+   
+    if (draw_routine->recorder->outdated[layer_info->mesh_layer->fif] != 0) {
+        zest_imgui_RecordLayer(layer_info, layer_info->mesh_layer->fif);
+    }
+    if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
+        zest_ExecuteDrawRoutine(primary_command_buffer, layer_info->mesh_layer->draw_routine, layer_info->mesh_layer->fif);
     }
 }
 
