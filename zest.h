@@ -3174,6 +3174,7 @@ ZEST_API void zest_FreeRecorder(zest_recorder recorder);
 ZEST_API void zest_ExecuteRecorderCommands(VkCommandBuffer primary_command_buffer, zest_recorder recorder, zest_uint fif);
 ZEST_API VkCommandBuffer zest_BeginRecording(zest_recorder recorder, zest_render_pass render_pass, zest_uint fif);
 ZEST_API void zest_EndRecording(zest_recorder recorder, zest_uint fif);
+ZEST_API void zest_MarkOutdated(zest_recorder recorder);
 
 //-----------------------------------------------
 //        Pipeline_related_vulkan_helpers

@@ -1,5 +1,6 @@
 #include <zest.h>
 #include "imgui.h"
+#include "impl_imgui.h"
 #include "impl_glfw.h"
 #include "impl_imgui_glfw.h"
 #include "timelinefx.h"
@@ -38,7 +39,7 @@ struct TimelineFXExample {
 	zest_descriptor_set uniform_descriptor;
 	zest_pipeline billboard_pipeline;
 
-	zest_imgui_layer_info imgui_layer_info;
+	zest_imgui_layer_info_t imgui_layer_info;
 
 	void Init();
 };
@@ -195,52 +196,9 @@ void RenderParticles3d(tfx_particle_manager_t& pm, float tween, TimelineFXExampl
 	//There is also a macro :tfxEachLayer which you could use like so:
 	//for(tfxEachLayer) {
 	//and that will output exactly the same code as the below line
-	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
-		tfx_sprite_instance_t *sprites = tfxCastBufferRef(tfx_sprite_instance_t, pm.instance_buffer[pm.current_sprite_buffer][layer]);
-		zest_DrawInstanceBulk(game->billboard_layer, sprites, pm.instance_buffer[pm.current_sprite_buffer][layer].current_size);
-	}
+	tfx_sprite_instance_t *sprites = GetSpriteBuffer(tfx_sprite_instance_t, pm.instance_buffer[pm.current_sprite_buffer][layer]);
+	zest_DrawInstanceBulk(game->billboard_layer, sprites, pm.instance_buffer[pm.current_sprite_buffer][layer].current_size);
 }
-
-/*
-//A simple example to render the particles. This is for when the particle manager groups all it's sprites by effect so that you can draw the effects in different orders if you need
-void RenderParticles3dGroupedByEffect(tfx_particle_manager_t& pm, float tween, TimelineFXExample* game) {
-	//Let our renderer know that we want to draw to the billboard layer.
-	zest_SetInstanceDrawing(game->billboard_layer, game->particle_texture, game->particle_descriptor, game->billboard_pipeline);
-	//Cycle through each layer
-	//There is also a macro :tfxEachLayer which you could use like so:
-	//for(tfxEachLayer) {
-	//and that will output exactly the same code as the below line
-	for (unsigned int layer = 0; layer != tfxLAYERS; ++layer) {
-		//Cycle through all the active effects in the particle manager and retrieve the buffers containing everything we need to render the sprites
-		tfx_sprite_soa_t* sprites = nullptr;
-		tfx_effect_sprites_t* effect_sprites = nullptr;
-		tfxU32 sprite_count = 0;
-		while (GetNextSpriteBuffer(&pm, layer, &sprites, &effect_sprites, &sprite_count)) {
-			for (int i = 0; i != sprite_count; ++i) {
-				//Set the color to draw the sprite using the sprite color. Note that bacuase this is a struct of arrays we access each sprite element
-				//using an array lookup
-				zest_SetLayerColor(game->billboard_layer, sprites->color[i].r, sprites->color[i].g, sprites->color[i].b, sprites->color[i].a);
-				//Set the instensity of the sprite.
-				zest_SetLayerIntensity(game->billboard_layer, sprites->intensity[i]);
-				//Grab the image pointer from the emitter properties in the library
-				zest_image image = (zest_image)GetSpriteImagePointer(&pm, sprites->property_indexes[i]);
-				//Grab the sprite handle which is used to offset the position of the sprite
-				tfx_vec2_t handle = GetSpriteHandle(&pm, sprites->property_indexes[i]);
-				//Render specific functino to draw a billboard to the screen using the values in the sprite data
-				zest_DrawBillboard(game->billboard_layer, image + ((sprites->property_indexes[i] & 0x00FF0000) >> 16),
-					&sprites->transform_3d[i].position.x,
-					sprites->alignment[i],
-					&sprites->transform_3d[i].rotations.x,
-					&handle.x,
-					sprites->stretch[i],
-					(sprites->property_indexes[i] & 0xFF000000) >> 24,
-					sprites->transform_3d[i].scale.x, sprites->transform_3d[i].scale.y);
-			}
-		}
-	}
-	ResetSpriteBufferLoopIndex(&pm);
-}
-*/
 
 //Application specific, this just sets the function to call each render update
 void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
