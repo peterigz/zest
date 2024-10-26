@@ -9715,13 +9715,17 @@ void zest_StartInstanceInstructions(zest_layer layer) {
 void zest_ResetLayer(zest_layer layer) {
     layer->draw_routine->last_fif = layer->fif;
     layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
-    layer->draw_routine->recorder->outdated[layer->fif] = 1;
+    for (ZEST_EACH_FIF_i) {
+        layer->draw_routine->recorder->outdated[i] = 1;
+    }
 }
 
 void zest_ResetInstanceLayer(zest_layer layer) {
     layer->draw_routine->last_fif = layer->fif;
     layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
-    layer->draw_routine->recorder->outdated[layer->fif] = 1;
+    for (ZEST_EACH_FIF_i) {
+        layer->draw_routine->recorder->outdated[i] = 1;
+    }
     zest_ResetInstanceLayerDrawing(layer);
 }
 
@@ -9846,14 +9850,14 @@ void zest_EndRecording(zest_recorder recorder, zest_uint fif) {
 void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer primary_command_buffer) {
     if (zest_vec_size(layer->draw_instructions[layer->fif])) {
         //Bind the vertex buffers from a prerecorded command buffer
-        zest_ExecuteDrawRoutine(primary_command_buffer, layer->draw_routine, layer->fif);
+        zest_ExecuteDrawRoutine(primary_command_buffer, layer->draw_routine, ZEST_FIF);
     }
 }
 
 void zest_RecordInstanceLayer(zest_layer layer, zest_uint fif) {
-    VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, fif);
-	VkDeviceSize instance_data_offsets[] = { layer->memory_refs[fif].device_instance_data->memory_offset };
-	vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[fif].device_instance_data), instance_data_offsets);
+    VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
+	VkDeviceSize instance_data_offsets[] = { layer->memory_refs[layer->fif].device_instance_data->memory_offset };
+	vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[layer->fif].device_instance_data), instance_data_offsets);
     for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
 
@@ -9884,11 +9888,11 @@ void zest_RecordInstanceLayer(zest_layer layer, zest_uint fif) {
 
         zest_vec_clear(layer->draw_sets);
     }
-    zest_EndRecording(layer->draw_routine->recorder, fif);
+    zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
 }
 
 void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
-    VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, fif);
+    VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
 
     zest_BindMeshIndexBuffer(command_buffer, layer);
     zest_BindMeshVertexBuffer(command_buffer, layer);
@@ -9920,18 +9924,17 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
 
         zest_vec_clear(layer->draw_sets);
     }
-    zest_EndRecording(layer->draw_routine->recorder, fif);
+    zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
 }
 
 void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer primary_command_buffer) {
     if (zest_vec_size(layer->draw_instructions[layer->fif])) {
-        //Bind the vertex buffers from a prerecorded command buffer
-        zest_ExecuteDrawRoutine(primary_command_buffer, layer->draw_routine, layer->fif);
+        zest_ExecuteDrawRoutine(primary_command_buffer, layer->draw_routine, ZEST_FIF);
     }
 }
 
 void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
-    VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, fif);
+    VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
     VkDeviceSize instance_data_offsets[] = { layer->memory_refs[layer->fif].device_instance_data->memory_offset };
     zest_BindMeshVertexBuffer(command_buffer, layer);
     zest_BindMeshIndexBuffer(command_buffer, layer);
@@ -9965,13 +9968,13 @@ void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
 
         zest_vec_clear(layer->draw_sets);
     }
-    zest_EndRecording(layer->draw_routine->recorder, fif);
+    zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
 }
 
 void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer primary_command_buffer) {
     if (zest_vec_size(layer->draw_instructions[layer->fif])) {
         //Bind the vertex buffers from a prerecorded command buffer
-        zest_ExecuteDrawRoutine(primary_command_buffer, layer->draw_routine, layer->fif);
+        zest_ExecuteDrawRoutine(primary_command_buffer, layer->draw_routine, ZEST_FIF);
     }
 }
 
@@ -9992,8 +9995,8 @@ zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest
 //Start general instance layer functionality -----
 void zest_DrawInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
-    if (draw_routine->recorder->outdated[layer->fif] != 0) {
-        zest_RecordInstanceLayer(layer, layer->fif);
+    if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
+        zest_RecordInstanceLayer(layer, ZEST_FIF);
     }
     zest_DrawInstanceLayer(layer, command_buffer);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
@@ -10064,7 +10067,9 @@ void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
 //Start internal mesh layer functionality -----
 void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
-    zest__record_mesh_layer(layer, layer->fif);
+    if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
+        zest__record_mesh_layer(layer, ZEST_FIF);
+    }
     zest__draw_mesh_layer(layer, command_buffer);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest__reset_mesh_layer_drawing(layer);
@@ -10075,7 +10080,9 @@ void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuf
 
 void zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
-    zest_RecordInstanceMeshLayer(layer, layer->fif);
+    if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
+        zest_RecordInstanceMeshLayer(layer, ZEST_FIF);
+    }
     zest_DrawInstanceMeshLayer(layer, command_buffer);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest_ResetInstanceLayerDrawing(layer);

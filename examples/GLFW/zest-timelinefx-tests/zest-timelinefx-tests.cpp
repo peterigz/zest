@@ -215,7 +215,7 @@ void TimelineFXExample::Init() {
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			timelinefx_layer = zest_AddInstanceDrawRoutine(timelinefx_draw_routine);
-			//zest_imgui_CreateLayer(&imgui_layer_info);
+			zest_imgui_CreateLayer(&imgui_layer_info);
 		}
 		zest_FinishQueueSetup();
 	}
@@ -369,7 +369,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	int pending_ticks = zest_TimerPendingTicks(game->timer);
 
 	while (zest_TimerDoUpdate(game->timer)) {
-		//BuildUI(game);
+		BuildUI(game);
 
 		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 			//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated

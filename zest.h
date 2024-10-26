@@ -90,7 +90,7 @@ typedef volatile unsigned int zest_atomic_int;
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 1
+#define ZEST_ENABLE_VALIDATION_LAYER 0
 #endif
 
 //I had to add this because some dell laptops have their own drivers that are basically broken. Even though the gpu signals that

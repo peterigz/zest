@@ -25,7 +25,7 @@ void zest_imgui_CreateLayer(zest_imgui_layer_info_t *imgui_layer_info) {
 void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) {
     zest_layer_t *imgui_layer = layer_info->mesh_layer;
 
-    VkCommandBuffer command_buffer = zest_BeginRecording(imgui_layer->draw_routine->recorder, imgui_layer->draw_routine->draw_commands->render_pass, fif);
+    VkCommandBuffer command_buffer = zest_BeginRecording(imgui_layer->draw_routine->recorder, imgui_layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
     zest_BindMeshVertexBuffer(command_buffer, imgui_layer);
@@ -99,8 +99,9 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
                 // Clamp to viewport as vkCmdSetScissor() won't accept values that are off bounds
                 if (clip_max.x > zest_SwapChainWidth()) { clip_max.x = zest_SwapChainWidthf(); }
                 if (clip_max.y > zest_SwapChainHeight()) { clip_max.y = zest_SwapChainHeightf(); }
-                if (clip_max.x <= clip_min.x || clip_max.y <= clip_min.y)
+                if (clip_max.x <= clip_min.x || clip_max.y <= clip_min.y) {
                     continue;
+                }
 
                 VkRect2D scissor_rect;
                 scissor_rect.offset.x = ZEST__MAX((int32_t)(clip_min.x), 0);
@@ -115,7 +116,7 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
             vertex_offset += cmd_list->VtxBuffer.Size;
         }
     }
-    zest_EndRecording(imgui_layer->draw_routine->recorder, fif);
+    zest_EndRecording(imgui_layer->draw_routine->recorder, ZEST_FIF);
 }
 
 void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer primary_command_buffer) {
@@ -124,11 +125,11 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer pri
     zest_imgui_layer_info_t *layer_info = (zest_imgui_layer_info_t *)draw_routine->user_data;
     assert(layer_info);	//Must set user data as layer info is referenced later
    
-    if (draw_routine->recorder->outdated[layer_info->mesh_layer->fif] != 0) {
-        zest_imgui_RecordLayer(layer_info, layer_info->mesh_layer->fif);
+    if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
+        zest_imgui_RecordLayer(layer_info, ZEST_FIF);
     }
     if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
-        zest_ExecuteDrawRoutine(primary_command_buffer, layer_info->mesh_layer->draw_routine, layer_info->mesh_layer->fif);
+        zest_ExecuteDrawRoutine(primary_command_buffer, layer_info->mesh_layer->draw_routine, ZEST_FIF);
     }
 }
 
