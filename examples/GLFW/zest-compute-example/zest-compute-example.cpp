@@ -172,11 +172,10 @@ void RecordComputeSprites(zest_draw_routine draw_routine, zest_uint fif) {
 	zest_EndRecording(draw_routine->recorder, fif);
 }
 
-void DrawComputeSprites(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
-	//Our custom draw routine. This is automatically called as part of the main loop because
-	//we added it to the command queue above (zest_AddDrawRoutine(app->draw_routine);)
-	//We only need to excute the draw commands that we recorded in the InitImGuiApp function (RecordComputeSprites)
-	zest_ExecuteDrawRoutine(command_buffer, draw_routine, ZEST_FIF);
+int DrawComputeSprites(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
+	//this function only needs to return 1 to tell the render to execute the draw commands that we recorded earlier in 
+	//the init function.
+	return 1;
 }
 
 void UpdateComputeCommands(zest_command_queue_compute compute_commands) {

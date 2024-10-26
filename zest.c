@@ -4753,6 +4753,9 @@ zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets) {
 zest_recorder zest_CreatePrimaryRecorder() {
     zest_recorder recorder = ZEST__NEW(zest_recorder);
     recorder->flags = zest_command_buffer_flag_primary;
+    for (ZEST_EACH_FIF_i) {
+        recorder->outdated[i] = 1;
+    }
     VkCommandBufferAllocateInfo alloc_info = { 0 };
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -4765,6 +4768,9 @@ zest_recorder zest_CreatePrimaryRecorder() {
 zest_recorder zest_CreateSecondaryRecorder() {
     zest_recorder recorder = ZEST__NEW(zest_recorder);
     recorder->flags = zest_command_buffer_flag_secondary;
+    for (ZEST_EACH_FIF_i) {
+        recorder->outdated[i] = 1;
+    }
     VkCommandBufferAllocateInfo alloc_info = { 0 };
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
