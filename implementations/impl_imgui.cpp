@@ -17,7 +17,7 @@ void zest_imgui_RebuildFontTexture(zest_imgui_layer_info_t *imgui_layer_info, ze
 void zest_imgui_CreateLayer(zest_imgui_layer_info_t *imgui_layer_info) {
     imgui_layer_info->mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
     imgui_layer_info->pipeline = zest_Pipeline("pipeline_imgui");
-    zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
+    zest_ContextDrawRoutine()->record_callback = zest_imgui_DrawLayer;
     zest_ContextDrawRoutine()->user_data = imgui_layer_info;
     zest_SetLayerToManualFIF(imgui_layer_info->mesh_layer);
 }
@@ -119,7 +119,7 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
     zest_EndRecording(imgui_layer->draw_routine->recorder, ZEST_FIF);
 }
 
-void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer primary_command_buffer) {
+int zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer primary_command_buffer) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
     zest_imgui_layer_info_t *layer_info = (zest_imgui_layer_info_t *)draw_routine->user_data;
@@ -129,8 +129,9 @@ void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer pri
         zest_imgui_RecordLayer(layer_info, ZEST_FIF);
     }
     if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
-        zest_ExecuteDrawRoutine(primary_command_buffer, layer_info->mesh_layer->draw_routine, ZEST_FIF);
+        return 1;
     }
+    return 0;
 }
 
 void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {

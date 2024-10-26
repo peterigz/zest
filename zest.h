@@ -90,7 +90,7 @@ typedef volatile unsigned int zest_atomic_int;
 #endif
 
 #ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 0
+#define ZEST_ENABLE_VALIDATION_LAYER 1
 #endif
 
 //I had to add this because some dell laptops have their own drivers that are basically broken. Even though the gpu signals that
@@ -2230,7 +2230,7 @@ struct zest_draw_routine_t {
     zest_recorder recorder;                                                      //For recording to a command buffer (this is a secondary command buffer)
     zest_command_queue_draw_commands draw_commands;                              //
     void(*update_buffers_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);            //The callback used to update and upload the buffers before rendering
-    void(*draw_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);                      //draw callback called by the render target when rendering
+    int(*record_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);                      //draw callback called by the render target when rendering
     void(*update_resolution_callback)(zest_draw_routine draw_routine);            //Callback used when the window size changes
     void(*clean_up_callback)(zest_draw_routine draw_routine);                     //Clean up function call back called when the draw routine is deleted
 };
@@ -2250,7 +2250,7 @@ typedef struct zest_command_queue_draw_commands_t {
     zest_render_pass render_pass;
     zest_vec4 cls_color;
     zest_render_target render_target;
-    zest_recorder recorder;                       //secondary recording for recording any commands at the head of the render pass
+    VkCommandBuffer *secondary_command_buffers;
     const char *name;
 } zest_command_queue_draw_commands_t;
 
@@ -2900,7 +2900,6 @@ ZEST_PRIVATE void zest__start_mesh_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__end_mesh_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
-ZEST_PRIVATE void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer primary_command_buffer);
 ZEST_PRIVATE void zest__record_mesh_layer(zest_layer layer, zest_uint fif);
 ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
 ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
@@ -2939,9 +2938,9 @@ ZEST_PRIVATE zest_font zest__add_font(zest_font font);
 ZEST_PRIVATE void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_size);
 
 // --Mesh layer internal functions
-ZEST_PRIVATE void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_PRIVATE int zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
-ZEST_PRIVATE void zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_PRIVATE int zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 
 // --General Helper Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
@@ -3172,7 +3171,6 @@ ZEST_API void zest_FreeCommandBuffers(zest_recorder recorder);
 //Free the recorder from memory and release the command buffers back into the pool
 ZEST_API void zest_FreeRecorder(zest_recorder recorder);
 //Execute all the commands in a draw routine that were previously recorded
-ZEST_API void zest_ExecuteDrawRoutine(VkCommandBuffer primary_command_buffer, zest_draw_routine draw_routine, zest_uint fif);
 ZEST_API void zest_ExecuteRecorderCommands(VkCommandBuffer primary_command_buffer, zest_recorder recorder, zest_uint fif);
 ZEST_API VkCommandBuffer zest_BeginRecording(zest_recorder recorder, zest_render_pass render_pass, zest_uint fif);
 ZEST_API void zest_EndRecording(zest_recorder recorder, zest_uint fif);
@@ -3517,7 +3515,6 @@ ZEST_API zest_command_queue_draw_commands zest_GetDrawCommands(const char *name)
 ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer);
-ZEST_API void zest_RecordBaseDrawCommands(zest_command_queue_draw_commands item, zest_uint fif);
 //Add an existing zest_draw_routine to a zest_command_queue_draw_commands. This just lets you add draw routines to a queue separately outside of a command queue
 //setup context
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
@@ -4052,7 +4049,7 @@ ZEST_API zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest
 ZEST_API void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
 //A standar callback function you can use to draw all instances in your layer each frame. When creating your own custom layers you can override this callback
 //if needed but you should find that this one covers most uses of instance drawing.
-ZEST_API void zest_DrawInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_API int zest_RecordInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 //Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
 //instance layers more easily
 ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
@@ -4075,8 +4072,6 @@ ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
 ZEST_API zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer);
 //Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
 ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
-//Send all the draw commands for an instance layer to the GPU. This is generally called from the draw routine callback function: zest_DrawInstanceLayerCallback
-ZEST_API void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer command_buffer);
 //Get the pointer to the current instance in the layer if it's an instanced based layer (meaning you're drawing instances of sprites, billboards meshes etc.)
 //This will return a void* so you can cast it to whatever struct you're using for the instance data
 #define zest_GetLayerInstance(type, layer) (type*)layer->memory_refs[ZEST_FIF].instance_ptr
@@ -4311,7 +4306,6 @@ ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
-ZEST_API void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer command_buffer);
 ZEST_API void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif);
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline pipeline);
 //These are helper functions you can use to bind the vertex and index buffers in your custom mesh draw routine callback

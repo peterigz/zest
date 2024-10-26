@@ -307,7 +307,7 @@ void InitExample(ComputeExample *example) {
 
 	//Create a custom draw routine for drawing the sprites that are written by the effect playback compute shader
 	example->draw_routine = zest_CreateDrawRoutine("Sprite drawing");
-	example->draw_routine->draw_callback = DrawComputeSprites;
+	example->draw_routine->record_callback = DrawComputeSprites;
 	example->draw_routine->user_data = example;
 	UpdateSpriteResolution(example->draw_routine);
 

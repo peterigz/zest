@@ -127,7 +127,7 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	//Set up our own draw routine
 	app->draw_routine = zest_CreateDrawRoutine("compute draw");
-	app->draw_routine->draw_callback = DrawComputeSprites;
+	app->draw_routine->record_callback = DrawComputeSprites;
 	app->draw_routine->user_data = app;
 
 	//Modify the existing builtin command queue so we can add our new compute shader and draw routine
@@ -140,7 +140,7 @@ void InitImGuiApp(ImGuiApp *app) {
 			zest_AddDrawRoutine(app->draw_routine);
 			//Also add a layer for dear imgui interface
 			app->imgui_layer_info.mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
-			zest_ContextDrawRoutine()->draw_callback = zest_imgui_DrawLayer;
+			zest_ContextDrawRoutine()->record_callback = zest_imgui_DrawLayer;
 			zest_ContextDrawRoutine()->user_data = &app->imgui_layer_info;
 		}
 	}

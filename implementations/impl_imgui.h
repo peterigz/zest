@@ -6,7 +6,7 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 
 void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif);
-void zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer);
+int zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer);
 void zest_imgui_UpdateBuffers(zest_layer imgui_layer);
 void zest_imgui_DrawImage(zest_image image, float width, float height);
 void zest_imgui_DrawImage2(zest_image image, float width, float height);

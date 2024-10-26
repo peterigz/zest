@@ -5518,7 +5518,6 @@ void zest__create_empty_command_queue(zest_command_queue command_queue) {
     draw_commands->viewport.offset.x = draw_commands->viewport.offset.y = 0;
     draw_commands->viewport_scale.x = 1.f;
     draw_commands->viewport_scale.y = 1.f;
-    draw_commands->recorder = zest_CreateSecondaryRecorder();
     zest_ConnectCommandQueueToPresent(command_queue);
     zest_map_insert(ZestRenderer->command_queue_draw_commands, "Blank Screen", draw_commands);
     zest_vec_push(command_queue->draw_commands, draw_commands);
@@ -5618,16 +5617,6 @@ void zest__present_frame() {
 
 }
 
-void zest_RecordBaseDrawCommands(zest_command_queue_draw_commands item, zest_uint fif) {
-    zest_BeginRecording(item->recorder, item->render_pass, fif);
-    VkCommandBuffer command_buffer = item->recorder->command_buffer[fif];
-    VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
-    VkRect2D scissor = zest_CreateRect2D(item->viewport.extent.width, item->viewport.extent.height, 0, 0);
-    vkCmdSetViewport(command_buffer, 0, 1, &view);
-    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-    zest_EndRecording(item->recorder, fif);
-}
-
 void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, zest_render_pass render_pass, VkFramebuffer framebuffer) {
     VkRenderPassBeginInfo render_pass_info = { 0 };
     render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -5655,9 +5644,17 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCo
 
     for (zest_foreach_i(item->draw_routines)) {
         zest_draw_routine draw_routine = item->draw_routines[i];
-        if (draw_routine->draw_callback) {
-            draw_routine->draw_callback(draw_routine, command_buffer);
+        if (draw_routine->record_callback) {
+            if (draw_routine->record_callback(draw_routine, command_buffer) == 1) {
+				zest_vec_push(item->secondary_command_buffers, draw_routine->recorder->command_buffer[ZEST_FIF]);
+            }
         }
+    }
+
+    zest_uint command_buffer_count = zest_vec_size(item->secondary_command_buffers);
+    if (command_buffer_count > 0) {
+        vkCmdExecuteCommands(command_buffer, command_buffer_count, item->secondary_command_buffers);
+		zest_vec_clear(item->secondary_command_buffers);
     }
 
     vkCmdEndRenderPass(command_buffer);
@@ -6490,7 +6487,6 @@ zest_command_queue_draw_commands zest__create_command_queue_draw_commands(const 
     draw_commands->viewport_scale.y = 1.f;
     draw_commands->render_target = ZEST_NULL;
     draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-    draw_commands->recorder = zest_CreateSecondaryRecorder();
 
     //draw_commands.command_queue_index = command_queue.index_in_renderer;
     zest_map_insert(ZestRenderer->command_queue_draw_commands, name, draw_commands);
@@ -6613,27 +6609,27 @@ void zest_AddLayer(zest_layer layer) {
         draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
 		draw_routine->recorder = zest_CreateSecondaryRecorder();
         if (layer->layer_type == zest_builtin_layer_sprites) {
-            draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
+            draw_routine->record_callback = zest_RecordInstanceLayerCallback;
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
         }
         else if (layer->layer_type == zest_builtin_layer_billboards) {
-            draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
+            draw_routine->record_callback = zest_RecordInstanceLayerCallback;
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
         }
         else if (layer->layer_type == zest_builtin_layer_mesh) {
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
-            draw_routine->draw_callback = zest__draw_mesh_layer_callback;
+            draw_routine->record_callback = zest__draw_mesh_layer_callback;
         }
         else if (layer->layer_type == zest_builtin_layer_mesh_instance) {
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-            draw_routine->draw_callback = zest__draw_instance_mesh_layer_callback;
+            draw_routine->record_callback = zest__draw_instance_mesh_layer_callback;
         }
         else if (layer->layer_type == zest_builtin_layer_fonts) {
-            draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
+            draw_routine->record_callback = zest_RecordInstanceLayerCallback;
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
         }
@@ -6682,25 +6678,25 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char* name,
     zest_layer layer = 0;
     if (builtin_layer == zest_builtin_layer_sprites) {
         layer = zest_CreateBuiltinSpriteLayer(name);
-        draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
+        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
     else if (builtin_layer == zest_builtin_layer_lines) {
         layer = zest_CreateBuiltin2dLineLayer(name);
-        draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
+        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
     else if (builtin_layer == zest_builtin_layer_3dlines) {
         layer = zest_CreateBuiltin3dLineLayer(name);
-        draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
+        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
     else if (builtin_layer == zest_builtin_layer_billboards) {
         layer = zest_CreateBuiltinBillboardLayer(name);
-        draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
+        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
@@ -6708,17 +6704,17 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char* name,
         layer = zest_CreateBuiltinMeshLayer(name);
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
-        draw_routine->draw_callback = zest__draw_mesh_layer_callback;
+        draw_routine->record_callback = zest__draw_mesh_layer_callback;
     }
     else if (builtin_layer == zest_builtin_layer_mesh_instance) {
         layer = zest_CreateBuiltinInstanceMeshLayer(name);
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-        draw_routine->draw_callback = zest__draw_instance_mesh_layer_callback;
+        draw_routine->record_callback = zest__draw_instance_mesh_layer_callback;
     }
     else if (builtin_layer == zest_builtin_layer_fonts) {
         layer = zest_CreateBuiltinFontLayer(name);
-        draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
+        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
@@ -6773,7 +6769,7 @@ zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size ins
     layer->draw_routine = draw_routine;
     zest_InitialiseInstanceLayer(layer, instance_size, reserve_amount);
     zest_map_insert(ZestRenderer->layers, name, layer);
-    draw_routine->draw_callback = zest_DrawInstanceLayerCallback;
+    draw_routine->record_callback = zest_RecordInstanceLayerCallback;
     draw_routine->draw_data = layer;
     draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     draw_routine->recorder = zest_CreateSecondaryRecorder();
@@ -6813,10 +6809,6 @@ zest_layer zest_AddInstanceDrawRoutine(zest_draw_routine draw_routine) {
 
 void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine) {
     zest_vec_push(draw_commands->draw_routines, draw_routine);
-}
-
-void zest_ExecuteDrawRoutine(VkCommandBuffer primary_command_buffer, zest_draw_routine draw_routine, zest_uint fif) {
-	vkCmdExecuteCommands(primary_command_buffer, 1, &draw_routine->recorder->command_buffer[fif]);
 }
 
 void zest_ExecuteRecorderCommands(VkCommandBuffer primary_command_buffer, zest_recorder recorder, zest_uint fif) {
@@ -9847,13 +9839,6 @@ void zest_EndRecording(zest_recorder recorder, zest_uint fif) {
     vkEndCommandBuffer(command_buffer);
 }
 
-void zest_DrawInstanceLayer(zest_layer layer, VkCommandBuffer primary_command_buffer) {
-    if (zest_vec_size(layer->draw_instructions[layer->fif])) {
-        //Bind the vertex buffers from a prerecorded command buffer
-        zest_ExecuteDrawRoutine(primary_command_buffer, layer->draw_routine, ZEST_FIF);
-    }
-}
-
 void zest_RecordInstanceLayer(zest_layer layer, zest_uint fif) {
     VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
 	VkDeviceSize instance_data_offsets[] = { layer->memory_refs[layer->fif].device_instance_data->memory_offset };
@@ -9927,12 +9912,6 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
     zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
 }
 
-void zest__draw_mesh_layer(zest_layer layer, VkCommandBuffer primary_command_buffer) {
-    if (zest_vec_size(layer->draw_instructions[layer->fif])) {
-        zest_ExecuteDrawRoutine(primary_command_buffer, layer->draw_routine, ZEST_FIF);
-    }
-}
-
 void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
     VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
     VkDeviceSize instance_data_offsets[] = { layer->memory_refs[layer->fif].device_instance_data->memory_offset };
@@ -9971,13 +9950,6 @@ void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
     zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
 }
 
-void zest_DrawInstanceMeshLayer(zest_layer layer, VkCommandBuffer primary_command_buffer) {
-    if (zest_vec_size(layer->draw_instructions[layer->fif])) {
-        //Bind the vertex buffers from a prerecorded command buffer
-        zest_ExecuteDrawRoutine(primary_command_buffer, layer->draw_routine, ZEST_FIF);
-    }
-}
-
 zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size) {
     zest_bool grown = 0;
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
@@ -9993,17 +9965,18 @@ zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest
 }
 
 //Start general instance layer functionality -----
-void zest_DrawInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
+int zest_RecordInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
+    int recorded = zest_vec_size(layer->draw_instructions[layer->fif]) ? 1 : 0;
     if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
         zest_RecordInstanceLayer(layer, ZEST_FIF);
     }
-    zest_DrawInstanceLayer(layer, command_buffer);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest_ResetInstanceLayerDrawing(layer);
         layer->draw_routine->last_fif = layer->fif;
 		layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
     }
+    return recorded;
 }
 
 void zest_NextInstance(zest_layer layer) {
@@ -10065,30 +10038,32 @@ void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
 // End general instance layer functionality -----
 
 //Start internal mesh layer functionality -----
-void zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
+int zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
+    int recorded = zest_vec_size(layer->draw_instructions[layer->fif]) ? 1 : 0;
     if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
         zest__record_mesh_layer(layer, ZEST_FIF);
     }
-    zest__draw_mesh_layer(layer, command_buffer);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest__reset_mesh_layer_drawing(layer);
         layer->draw_routine->last_fif = layer->fif;
         layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
     }
+    return recorded;
 }
 
-void zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
+int zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
     zest_layer layer = (zest_layer)draw_routine->draw_data;
+    int recorded = zest_vec_size(layer->draw_instructions[layer->fif]) ? 1 : 0;
     if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
         zest_RecordInstanceMeshLayer(layer, ZEST_FIF);
     }
-    zest_DrawInstanceMeshLayer(layer, command_buffer);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest_ResetInstanceLayerDrawing(layer);
         layer->draw_routine->last_fif = layer->fif;
         layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
     }
+    return recorded;
 }
 // End internal mesh layer functionality -----
 
