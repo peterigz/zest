@@ -4,6 +4,8 @@
 #define tfxReverseAnimationFlag 32768
 const float one_div_511 = 1.0 / 511.0;
 const float pow_2_22 = 1.0 / pow(2.0, 22);
+const float size_max_value = 8192.0 / 32767.0;
+const float handle_max_value = 128.0 / 32767.0;
 
 //We add an epsilon to avoid nans with the cross product
 //const vec3 up = {0, 1, 0.00001};
@@ -16,32 +18,16 @@ const vec3 left = {-1, 0, 0};
 
 #define group_size 128
 
-//Sprite struct that gets passed to the vertex shader. This is the only struct that gets written to.
-struct Sprite {
-	vec3 position;				//The position of the sprite
-	uint uv_xy;					//The UV coords of the image in the texture. We pack using 16bit floats to save space
-	vec3 rotations;				//Pitch yaw and roll of the sprite
-	uint uv_zw;					//You could use a texture array as well to save more space and have 0,1 for all uv coords to save another 8 bytes
-	vec2 scale;					//Scale of the sprite
-	vec2 handle;				//The handle of the billboard
-	float stretch;				//Amount to stretch the billboard along it's alignment vector
-	uint blend_texture_array;	//reference for the texture array (8bits) and blend factor (24bits)
-	uint color;					//The color tint of the sprite
-	uint alignment;				//normalised alignment vector 3 floats packed into 10bits each with 2 bits left over
-};
-
 //Contains all of the pre-recorded sprites for all effects
 struct SpriteData {				//48 bytes
-	vec2 position;
-	vec2 scale;
-	float rotation;
-	uint property_indexes;
-	uint captured_index;
-	uint alignment;		
-	uint color;		
-	float lerp_offset;
-	float stretch;
-	float intensity;
+	vec4 position_stretch_rotation;				//The position of the sprite, rotation in w, stretch in z
+	uvec2 size_handle;							//Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
+	uint alignment;								//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
+	uint intensity_life;						//Multiplier for the color and life of particle
+	uint curved_alpha;							//Sharpness and dissolve amount value for fading the image 2 16bit floats packed
+	uint indexes;								//[color ramp y index, color ramp texture array index, capture flag, image data index (1 bit << 15), billboard alignment (2 bits << 13), image data index max 8191 images]
+	uint captured_index;						//Index to the sprite in the buffer from the previous frame for interpolation
+	uint property_index_lerp_offset;			//UNorm lerp offset in FFFF and the property index in FFFF0000
 };
 
 //Contains each animation instance with data that the compute shader uses to position the sprites and figure out which is the current frame that's playing.
@@ -115,26 +101,19 @@ mat3 RotationMatrix(vec3 axis, float angle)
                 oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c);
 }
 
+vec2 Unpack16bit2SScale(uint packed, float max_value) {
+    int x_scaled = int(packed & 0xFFFF);
+    int y_scaled = int((packed >> 16) & 0xFFFF);
+    vec2 unpacked;
+    unpacked.x = (x_scaled >= 32768 ? x_scaled - 65536 : x_scaled) * max_value;
+    unpacked.y = (y_scaled >= 32768 ? y_scaled - 65536 : y_scaled) * max_value;
+    return unpacked;
+}
+
 //Shared arrays that we load the sprite data into for each thread group. We load in once at the start of the algorithm 
 //and then reduce down these arrays until index 0 contains the final min/max values
 shared vec3 local_min[group_size];
 shared vec3 local_max[group_size];
-
-//Packing functions to pack a vec3 into an snorm 10bit uint
-//Replit came in very useful for these functions (for the packing function, and the sign preserving right shift)
-//Unfortunately glsl/gpus don't have a way to preserve the sign when right shifting hence the extra code required
-//inside the float conversion
-//Note: profiling required here to test if saving the space is actually worth it
-vec3 UnPack10bit(in uint packed) {
-	vec3 result;
-	int x = int(packed << 2);
-	int y = int(packed << 12);
-	int z = int(packed << 22);
-	result.x = float(sign(x) * floor(abs(x) * pow_2_22)) * one_div_511;
-	result.y = float(sign(y) * floor(abs(y) * pow_2_22)) * one_div_511;
-	result.z = float(sign(z) * floor(abs(z) * pow_2_22)) * one_div_511;
-	return result;
-}
 
 //Once we reduce down to the final 32 elements in the group, we can perform the final reduction
 //without the need for barriers because 1 wave is 32 wide and therefore synchronous across all threads
@@ -155,11 +134,10 @@ void warp_reduce(uint tid) {
 
 //This function basically does what the vertex shader does so we can find out where the vertices are for each sprite
 void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uint sprite_data_index) {
-	uint property_index = sprite_data[sprite_data_index].property_indexes & 0x00007FFF;
 	vec2 alignment = unpackSnorm2x16(sprite_data[sprite_data_index].alignment);
-	vec2 alignment_normal = normalize(vec2(alignment.x, alignment.y + 0.000001)) * sprite_data[sprite_data_index].stretch;
-	vec2 handle = emitter_properties[property_index].handle;
-	vec2 size = sprite_data[sprite_data_index].scale;
+	vec2 alignment_normal = normalize(vec2(alignment.x, alignment.y + 0.000001)) * sprite_data[sprite_data_index].position_stretch_rotation.z;
+	vec2 size = Unpack16bit2SScale(sprite_data[sprite_data_index].size_handle.x, size_max_value);
+    vec2 handle = Unpack16bit2SScale(sprite_data[sprite_data_index].size_handle.y, handle_max_value);
 
 	vec2 bounds[4];
 	bounds[0].x = size.x * (0 - handle.x);
@@ -171,8 +149,8 @@ void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uin
 	bounds[2].x = bounds[0].x;
 	bounds[2].y = bounds[3].y;
 
-	float rotation = sprite_data[sprite_data_index].rotation;
-	vec2 position = sprite_data[sprite_data_index].position;
+	float rotation = sprite_data[sprite_data_index].position_stretch_rotation.w;
+	vec2 position = sprite_data[sprite_data_index].position_stretch_rotation.xy;
 
 	for(int i = 0; i != 4; ++i) {
 		vec2 vertex_position = bounds[i];

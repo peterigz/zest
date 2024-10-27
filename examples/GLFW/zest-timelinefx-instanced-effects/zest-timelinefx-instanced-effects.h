@@ -1,6 +1,7 @@
 #pragma once
 
 #include <zest.h>
+#include "implementations/impl_imgui.h"
 #include "implementations/impl_glfw.h"
 #include "implementations/impl_imgui_glfw.h"
 #include "imgui/imgui.h"
@@ -14,6 +15,23 @@ struct AnimationComputeConstants {
 	tfxU32 total_sprites;
 	tfxU32 total_animation_instances;
 	tfxU32 flags;
+};
+
+struct tfx_render_resources_t {
+	zest_texture particle_texture;
+	zest_texture color_ramps_texture;
+	zest_draw_routine draw_routine;
+	zest_layer layer;
+	zest_descriptor_buffer uniform_buffer_3d;
+	zest_descriptor_set uniform_buffer_descriptor_set;
+	zest_descriptor_buffer image_data;
+	zest_descriptor_set particle_descriptor;
+	zest_pipeline pipeline;
+	zest_shader_resources shader_resource;
+	zest_descriptor_set_layout descriptor_layout;
+	zest_descriptor_set_t descriptor_set;
+	zest_shader fragment_shader;
+	zest_shader vertex_shader;
 };
 
 struct ComputeExample {
@@ -53,18 +71,19 @@ struct ComputeExample {
 	zest_buffer animation_instances_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer offsets_staging_buffer[ZEST_MAX_FIF];
 
-	zest_imgui_layer_info imgui_layer_info;
+	tfx_render_resources_t tfx_rendering;
+
+	zest_imgui_layer_info_t imgui_layer_info;
 	tfx_gpu_shapes_t gpu_image_data;
 	zest_push_constants_t push_contants;
 	zest_timer timer;
 	zest_camera_t camera;
 
-	zest_texture particle_texture;
-	zest_draw_routine draw_routine;
 	zest_layer mesh_layer;			//To draw the floor plain
 	zest_pipeline mesh_pipeline;
 	zest_image floor_image;
 	zest_texture floor_texture;
+	zest_shader_resources floor_resources;
 
 	//Indexes for the compute shader pipelines
 	zest_index compute_pipeline_3d;
@@ -85,7 +104,7 @@ struct ComputeExample {
 void SpriteComputeFunction(zest_command_queue_compute compute_routine);
 void BoundingBoxComputeFunction(zest_compute compute, VkCommandBuffer command_buffer);
 void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *animation_manager, tfx_effect_emitter_t *effect);
-void DrawComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffer);
+int RecordComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffer);
 void UpdateSpriteResolution(zest_draw_routine routine);
 void InitExample(ComputeExample *example);
 void PrepareComputeForEffectPlayback(ComputeExample *example);

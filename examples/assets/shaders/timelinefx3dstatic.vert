@@ -24,18 +24,6 @@ struct ImageData {
 	float max_radius;
 };
 
-struct BillboardInstance {					//56 bytes + padding to 64
-	vec4 position;							//The position of the sprite, x, y - world, z, w = captured for interpolating
-	vec3 rotations;				            //Rotations of the sprite
-	uint alignment;	    					//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
-	ivec2 size_handle;						//Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
-	uint intensity_life;					//Multiplier for the color and life of particle
-	uint curved_alpha;						//Sharpness and dissolve amount value for fading the image 2 16bit floats packed
-	uint indexes;							//[color ramp y index, color ramp texture array index, capture flag, image data index (1 bit << 15), billboard alignment (2 bits << 13), image data index max 8191 images]
-	uint captured_index;					//Index to the sprite in the buffer from the previous frame for interpolation
-    ivec2 padding;
-};
-
 layout(set = 0, binding = 0) uniform UboView
 {
     mat4 view;
@@ -50,17 +38,13 @@ layout(set = 1, binding = 0) readonly buffer InImageData {
 	ImageData image_data[];
 };
 
-layout(set = 1, binding = 1) readonly buffer InSpriteInstances {
-	BillboardInstance prev_billboards[];
-};
-
-layout(push_constant) uniform push_constants
+layout(push_constant) uniform quad_index
 {
     mat4 model;
     vec4 parameters1;
     vec4 parameters2;
     vec4 parameters3;
-    vec4 global;
+    vec4 camera;
 } pc;
 
 //Vertex
@@ -95,15 +79,6 @@ void main() {
     vec2 size = size_handle.xy * size_max_value;
     vec2 handle = size_handle.zw * handle_max_value;
 
-	uint prev_index = (captured_index & 0x0FFFFFFF) + uint(pc.parameters1.x);  //Add on an offset if the are multiple draw instructions
-	float first_frame = float((texture_indexes & 0x00008000) >> 15);
-
-	uint prev_size_packed = prev_billboards[prev_index].size_handle.x;
-	vec2 lerped_size = vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value);
-	lerped_size = mix(lerped_size, size, ub.lerp.x) * first_frame;
-	vec3 lerped_position = mix(prev_billboards[prev_index].position.xyz, position.xyz, ub.lerp.x);
-	vec3 lerped_rotation = mix(prev_billboards[prev_index].rotations, rotations, ub.lerp.x);
-
     //Info about how to align the billboard is stored in bits 22 and 23 of intensity_texture_array
 
     //Billboarding determines whether the quad will align to the camera or not. 0 means that it will 
@@ -118,7 +93,7 @@ void main() {
     //vector_align is set to 1 when we want the billboard to align to the camera and the vector
     //stored in alignment.xyz. billboarding and align_type will always be 0 if this is the case. the second
     //bit is the only bit set if this is the case: 10
-    float vector_align = float((texture_indexes & uint(0x6000)) == 0x2000);
+    float vector_align = float((texture_indexes & uint(0x6000)) == 0x4000);
 
     //vec3 alignment_up_cross = dot(alignment.xyz, up) == 0 ? vec3(0, 1, 0) : normalize(cross(alignment.xyz, up));
     vec3 alignment_up_cross = normalize(cross(alignment, up));
@@ -134,34 +109,34 @@ void main() {
     vec3 camera_relative_aligment = alignment * inverse(mat3(ub.view));
     float dp_up = dot(camera_relative_aligment.xy, -up.xy);
     float det = camera_relative_aligment.x * -up.y;
-    float dp_angle = vector_align * atan(-det, -dp_up) + lerped_rotation.z;
+    float dp_angle = vector_align * atan(-det, -dp_up) + rotations.z;
 
     const vec3 identity_bounds[4] = vec3[4](
-        vec3( lerped_size.x * (0 - handle.x), -lerped_size.y * (0 - handle.y), 0),
-        vec3( lerped_size.x * (1 - handle.x), -lerped_size.y * (0 - handle.y), 0),
-        vec3( lerped_size.x * (0 - handle.x), -lerped_size.y * (1 - handle.y), 0),
-        vec3( lerped_size.x * (1 - handle.x), -lerped_size.y * (1 - handle.y), 0)
+        vec3( size.x * (0 - handle.x), -size.y * (0 - handle.y), 0),
+        vec3( size.x * (1 - handle.x), -size.y * (0 - handle.y), 0),
+        vec3( size.x * (0 - handle.x), -size.y * (1 - handle.y), 0),
+        vec3( size.x * (1 - handle.x), -size.y * (1 - handle.y), 0)
     );
 
     vec3 bounds[4];
-    bounds[0] = align_type == 1 ? ((-lerped_size.y * alignment * (0 - handle.y)) + (lerped_size.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
-    bounds[1] = align_type == 1 ? ((-lerped_size.y * alignment * (0 - handle.y)) + (lerped_size.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
-    bounds[2] = align_type == 1 ? ((-lerped_size.y * alignment * (1 - handle.y)) + (lerped_size.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
-    bounds[3] = align_type == 1 ? ((-lerped_size.y * alignment * (1 - handle.y)) + (lerped_size.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
+    bounds[0] = align_type == 1 ? ((-size.y * alignment * (0 - handle.y)) + (size.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
+    bounds[1] = align_type == 1 ? ((-size.y * alignment * (0 - handle.y)) + (size.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
+    bounds[2] = align_type == 1 ? ((-size.y * alignment * (1 - handle.y)) + (size.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
+    bounds[3] = align_type == 1 ? ((-size.y * alignment * (1 - handle.y)) + (size.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
 
     int index = indexes[gl_VertexIndex];
 
     vec3 vertex_position = bounds[index];
 
     vec3 surface_normal = cross(bounds[1] - bounds[0], bounds[2] - bounds[0]);
-    mat3 matrix_roll = RotationMatrix(align_type * alignment + front * (1 - align_type), align_type * lerped_rotation.z + dp_angle * (1 - align_type));
-    mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * (1 - align_type), lerped_rotation.x * billboarding);
-    mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * (1 - align_type), lerped_rotation.y * billboarding);
+    mat3 matrix_roll = RotationMatrix(align_type * alignment + front * (1 - align_type), align_type * rotations.z + dp_angle * (1 - align_type));
+    mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * (1 - align_type), rotations.x * billboarding);
+    mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * (1 - align_type), rotations.y * billboarding);
 
     mat4 model = mat4(1.0);
-    model[3][0] = lerped_position.x;
-    model[3][1] = lerped_position.y;
-    model[3][2] = lerped_position.z;
+    model[3][0] = position.x + pc.parameters1.x;
+    model[3][1] = position.y + pc.parameters1.y;
+    model[3][2] = position.z + pc.parameters1.z;
 
     mat3 rot_mat = matrix_pitch * matrix_yaw * matrix_roll;
 

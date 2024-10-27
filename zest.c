@@ -4229,14 +4229,14 @@ VkPipelineColorBlendAttachmentState zest_ImGuiBlendState() {
     return color_blend_attachment;
 }
 
-void zest_BindPipelineShaderResource(zest_pipeline pipeline, zest_shader_resources shader_resources, zest_uint manual_fif) {
+void zest_BindPipelineShaderResource(VkCommandBuffer command_buffer, zest_pipeline pipeline, zest_shader_resources shader_resources, zest_uint manual_fif) {
 	ZEST_ASSERT(shader_resources); //Not a valid shader resource
 	zest_vec_foreach(set_index, shader_resources->sets) {
 		zest_descriptor_set set = shader_resources->sets[set_index];
 		zest_vec_push(shader_resources->binding_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : manual_fif]);
 	}
-    vkCmdBindPipeline(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
-    vkCmdBindDescriptorSets(ZestRenderer->current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, zest_vec_size(shader_resources->binding_sets), shader_resources->binding_sets, 0, 0);
+    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
+    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, zest_vec_size(shader_resources->binding_sets), shader_resources->binding_sets, 0, 0);
     zest_vec_clear(shader_resources->binding_sets);
 }
 
@@ -4888,8 +4888,8 @@ void zest_SendPushConstants(VkCommandBuffer command_buffer, zest_pipeline pipeli
     vkCmdPushConstants(command_buffer, pipeline->pipeline_layout, shader_flags, 0, size, data);
 }
 
-void zest_SendComputePushConstants(zest_compute compute) {
-    vkCmdPushConstants(ZestRenderer->current_command_buffer, compute->pipeline_layout, compute->pushConstantRange.stageFlags, 0, compute->pushConstantRange.size, &compute->push_constants);
+void zest_SendComputePushConstants(VkCommandBuffer command_buffer, zest_compute compute) {
+    vkCmdPushConstants(command_buffer, compute->pipeline_layout, compute->pushConstantRange.stageFlags, 0, compute->pushConstantRange.size, &compute->push_constants);
 }
 
 void zest_SendStandardPushConstants(VkCommandBuffer command_buffer, zest_pipeline_t* pipeline, void* data) {
@@ -9694,6 +9694,10 @@ void zest_ResetInstanceLayerDrawing(zest_layer layer) {
     layer->memory_refs[layer->fif].instance_ptr = layer->memory_refs[layer->fif].write_to_buffer->data;
 }
 
+zest_uint zest_GetInstanceLayerCount(zest_layer layer) {
+    return layer->memory_refs[layer->fif].instance_count;
+}
+
 void zest__reset_mesh_layer_drawing(zest_layer layer) {
     zest_vec_clear(layer->draw_instructions[layer->fif]);
     layer->memory_refs[layer->fif].write_to_buffer->memory_in_use = 0;
@@ -9849,6 +9853,13 @@ void zest_MarkOutdated(zest_recorder recorder) {
     for (ZEST_EACH_FIF_i) {
         recorder->outdated[i] = 1;
     }
+}
+
+void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine draw_routine) {
+    VkViewport view = zest_CreateViewport(0.f, 0.f, (float)draw_routine->draw_commands->viewport.extent.width, (float)draw_routine->draw_commands->viewport.extent.height, 0.f, 1.f);
+    VkRect2D scissor = zest_CreateRect2D(draw_routine->draw_commands->viewport.extent.width, draw_routine->draw_commands->viewport.extent.height, 0, 0);
+    vkCmdSetViewport(command_buffer, 0, 1, &view);
+    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 }
 
 void zest_RecordInstanceLayer(zest_layer layer, zest_uint fif) {
@@ -10464,7 +10475,7 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_reso
     zest_EndInstanceInstructions(layer);
     zest_StartInstanceInstructions(layer);
     layer->current_instruction.pipeline = pipeline;
-	ZEST_ASSERT(shader_resources);   //You must specifiy a descriptor set bundle to draw with
+	ZEST_ASSERT(shader_resources);   //You must specifiy the shader resources to draw with
 	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_instance;
     layer->current_instruction.scissor = layer->scissor;

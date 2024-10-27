@@ -3175,6 +3175,7 @@ ZEST_API void zest_ExecuteRecorderCommands(VkCommandBuffer primary_command_buffe
 ZEST_API VkCommandBuffer zest_BeginRecording(zest_recorder recorder, zest_render_pass render_pass, zest_uint fif);
 ZEST_API void zest_EndRecording(zest_recorder recorder, zest_uint fif);
 ZEST_API void zest_MarkOutdated(zest_recorder recorder);
+ZEST_API void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine draw_routine);
 
 //-----------------------------------------------
 //        Pipeline_related_vulkan_helpers
@@ -3258,7 +3259,7 @@ ZEST_API void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_t*
 //Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
 //you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
 //resource that is marked as static.
-ZEST_API void zest_BindPipelineShaderResource(zest_pipeline pipeline, zest_shader_resources shader_resources, zest_uint manual_fif);
+ZEST_API void zest_BindPipelineShaderResource(VkCommandBuffer command_buffer, zest_pipeline pipeline, zest_shader_resources shader_resources, zest_uint manual_fif);
 //Retrieve a pipeline from the renderer storage. Just pass in the name of the pipeline you want to retrieve and the handle to the pipeline
 //will be returned.
 ZEST_API zest_pipeline zest_Pipeline(const char *name);
@@ -4073,6 +4074,8 @@ ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
 ZEST_API zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer);
 //Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
 ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
+//Get the current amount of instances being drawn in the layer
+ZEST_API zest_uint zest_GetInstanceLayerCount(zest_layer layer);
 //Get the pointer to the current instance in the layer if it's an instanced based layer (meaning you're drawing instances of sprites, billboards meshes etc.)
 //This will return a void* so you can cast it to whatever struct you're using for the instance data
 #define zest_GetLayerInstance(type, layer) (type*)layer->memory_refs[ZEST_FIF].instance_ptr
@@ -4410,7 +4413,7 @@ ZEST_API void zest_BindComputePipeline(zest_compute compute, zest_index shader_i
 //Same command as zest_BindComputePipeline but you can specify a VkCommandBuffer to record to.
 ZEST_API void zest_BindComputePipelineCB(VkCommandBuffer command_buffer, zest_compute compute, zest_index shader_index);
 //Send the push constants defined in a compute shader. Use inside a compute update command buffer callback function
-ZEST_API void zest_SendComputePushConstants(zest_compute compute);
+ZEST_API void zest_SendComputePushConstants(VkCommandBuffer command_buffer, zest_compute compute);
 //Add a barrier to ensure that the compute shader finishes before the vertex input stage. You can use this if the compute shader is writing to a buffer for consumption by the
 //vertex shader.
 ZEST_API void zest_ComputeToVertexBarrier();

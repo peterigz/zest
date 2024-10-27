@@ -2,30 +2,41 @@
 
 #define tfxINVALID 4294967295
 #define tfxReverseAnimationFlag 8192
+
+#define M_PI  3.1415926535897932384626433832795
+#define M_TAU 6.2831853071795864769252867665590
+#define M_TPI 9.4247779607693797153879301498385
+
 const float one_div_511 = 1.0 / 511.0;
+const float unorm_multiplier = 1.0 / 65535.0;
 const float pow_2_22 = 1.0 / pow(2.0, 22);
+const float size_max_value = 8192.0 / 32767.0;
+const float size_max_divisor = 32767.0 / 8192.0;
+const float handle_max_value = 128.0 / 32767.0;
+const float intensity_max_value = 128.0 / 32767.0;
+const float intensity_max_divisor = 32767.0 / 128.0;
 
 struct Sprite { 
-    vec4 uv;                                  //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
-    vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
-    uvec2 size_handle;                        //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
-    uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
-    uint color;                               //The color tint of the sprite
-    uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
+	vec4 position_stretch_rotation;				//The position of the sprite, rotation in w, stretch in z
+	uvec2 size_handle;							//Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
+	uint alignment;								//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
+	uint intensity_life;						//Multiplier for the color and life of particle
+	uint curved_alpha;							//Sharpness and dissolve amount value for fading the image 2 16bit floats packed
+	uint indexes;								//[color ramp y index, color ramp texture array index, capture flag, image data index (1 bit << 15), billboard alignment (2 bits << 13), image data index max 8191 images]
+	uint captured_index;						//Index to the sprite in the buffer from the previous frame for interpolation
+	uint padding;
 };
 
 //Contains all of the pre-recorded sprites for all effects
 struct SpriteData {				//48 bytes
-	vec2 position;
-	vec2 scale;
-	float rotation;
-	uint property_indexes;
-	uint captured_index;
-	uint alignment;		
-	uint color;		
-	float lerp_offset;
-	float stretch;
-	float intensity;
+	vec4 position_stretch_rotation;				//The position of the sprite, rotation in w, stretch in z
+	uvec2 size_handle;							//Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
+	uint alignment;								//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
+	uint intensity_life;						//Multiplier for the color and life of particle
+	uint curved_alpha;							//Sharpness and dissolve amount value for fading the image 2 16bit floats packed
+	uint indexes;								//[color ramp y index, color ramp texture array index, capture flag, image data index (1 bit << 15), billboard alignment (2 bits << 13), image data index max 8191 images]
+	uint captured_index;						//Index to the sprite in the buffer from the previous frame for interpolation
+	uint property_index_lerp_offset;			//UNorm lerp offset in FFFF and the property index in FFFF0000
 };
 
 //Contains each animation instance with data that the compute shader uses to position the sprites and figure out which is the current frame that's playing.
@@ -49,39 +60,39 @@ struct ComputeImageData {
 	vec2 image_size;
 	uint texture_array_index;
 	float animation_frames;
+	float max_radius;
 };
 
-//Emitter properties, currently only need the handle of the sprite
 struct EmitterProperties {
 	vec2 handle;
 	uint handle_packed;
 	uint flags;
 	uint start_frame_index;
 	float animation_frames;
-	float unused_here[2];
+	float padding[2];
 };
 
 //The size of each local group, ie., how many sprites are processed by each compute thread
 layout (local_size_x = 128) in;
 
 //Bindings for all the buffers being used
-layout (std430, binding = 0) buffer InSpriteData {
+layout (std430, binding = 0) readonly buffer InSpriteData {
    SpriteData sprite_data[ ];
 };
 
-layout (std430, binding = 1) buffer InOffsets {
+layout (std430, binding = 1) readonly buffer InOffsets {
    uint offsets[ ];
 };
 
-layout (std430, binding = 2) buffer InAnimationInstances {
+layout (std430, binding = 2) readonly buffer InAnimationInstances {
    AnimationInstance instances[ ];
 };
 
-layout (std430, binding = 3) buffer InImageData {
+layout (std430, binding = 3) readonly buffer InImageData {
    ComputeImageData image_data[ ];
 };
 
-layout (std430, binding = 4) buffer InEmitterProperties {
+layout (std430, binding = 4) readonly buffer InEmitterProperties {
    EmitterProperties emitter_properties[ ];
 };
 
@@ -95,12 +106,14 @@ layout(push_constant) uniform compute_push
 	vec4 parameters;		//Total number of sprites to process in z. Total animation instances in x. y is 1 if any animation instance uses animated shapes
 } pc;
 
-//Interpolation functions
-uint LerpColor(in float lerp, in uint current, in uint captured) {
-	vec4 color = vec4( float((current & 0xFF000000) >> 24), float((current & 0x00FF0000) >> 16), float((current & 0x0000FF00) >> 8), float(current & 0x000000FF));
-	vec4 captured_color = vec4(	float((captured & 0xFF000000) >> 24), float((captured & 0x00FF0000) >> 16), float((captured & 0x0000FF00) >> 8), float(captured & 0x000000FF));
-	vec4 lerped_color = color * lerp + captured_color * (1.0 - lerp);
-	return (uint(lerped_color.r) << 24) + (uint(lerped_color.g) << 16) + (uint(lerped_color.b) << 8) + uint(lerped_color.a);
+//Unpacking/packing functions
+vec2 Unpack16bit2SScale(uint packed, float max_value) {
+	int x_scaled = int(packed & 0xFFFF);
+	int y_scaled = int((packed >> 16) & 0xFFFF);
+	vec2 unpacked;
+	unpacked.x = float(x_scaled * max_value);
+	unpacked.y = float(y_scaled * max_value);
+	return unpacked;
 }
 //-----------------
 
@@ -140,49 +153,56 @@ void main()
 	//We set the scale of the sprite to 0 if it hasn't actually spawned yet. The lerp_offset in the sprite data determines how far into the frame
 	//before the sprite actually spawns. We also set it to 0 if the captured_index equals the sprite index. lerp_offset will always be 1 if the particle Sprite
 	//has been spawned for 1 or more frames.
-	float spawn_scale = ((sprite_data[captured_index].lerp_offset >= (1 - lerp)) && (captured_index != sprite_data_index)) ? 1 : 0;
+	float lerp_offset = float(sprite_data[captured_index].property_index_lerp_offset & 0x0000FFFF) * unorm_multiplier;
+	float spawn_scale = ((lerp_offset >= (1 - lerp)) && (captured_index != sprite_data_index)) ? 1 : 0;
 
 	//Do all of the interpolation for transfrom, intensity etc.
 	//If you feel that you can get away with not interpolating some of the data then you could optimise some of these out but it will largely
 	//depend on how much you compress the frames
-	uint property_index =		sprite_data[sprite_data_index].property_indexes & 0x00007FFF;
-	uint lerped_color =			LerpColor(lerp, sprite_data[sprite_data_index].color, sprite_data[captured_index].color);
-	vec2 lerped_position =		mix(sprite_data[captured_index].position, sprite_data[sprite_data_index].position, lerp) * instances[instance_index].scale;
-	float lerped_rotation =		mix(sprite_data[captured_index].rotation, sprite_data[sprite_data_index].rotation, lerp);
-	vec2 lerped_scale =			mix(sprite_data[captured_index].scale, sprite_data[sprite_data_index].scale, lerp) * spawn_scale * instances[instance_index].scale;
+	vec2 lerped_position =		mix(sprite_data[captured_index].position_stretch_rotation.xy, sprite_data[sprite_data_index].position_stretch_rotation.xy, lerp) * instances[instance_index].scale;
+	float lerped_rotation =		mix(sprite_data[captured_index].position_stretch_rotation.w, sprite_data[sprite_data_index].position_stretch_rotation.w, lerp);
+	vec2 scale =				Unpack16bit2SScale(sprite_data[sprite_data_index].size_handle.x, size_max_value);
+	vec2 captured_scale =		Unpack16bit2SScale(sprite_data[captured_index].size_handle.x, size_max_value);
+	vec2 lerped_scale =			mix(captured_scale, scale, lerp) * spawn_scale * instances[instance_index].scale;
 	vec2 alignment =			unpackSnorm2x16(sprite_data[sprite_data_index].alignment);
 	vec2 captured_alignment =	unpackSnorm2x16(sprite_data[captured_index].alignment);
-	vec2 lerped_alignment =		mix(captured_alignment, alignment, lerp);
-	float lerped_stretch =		mix(sprite_data[captured_index].stretch, sprite_data[sprite_data_index].stretch, lerp);
-	uint lerped_frame = 0;
+	vec2 lerped_alignment =		mix( captured_alignment, alignment, lerp );
+	float lerped_stretch =		mix(sprite_data[captured_index].position_stretch_rotation.z, sprite_data[sprite_data_index].position_stretch_rotation.z, lerp);
+	uint property_index = (sprite_data[sprite_data_index].property_index_lerp_offset & 0xFFFF0000) >> 16;
+	uint lerped_frame = emitter_properties[property_index].start_frame_index;
 	if(pc.parameters.y != 0) {		//no branching as it will be the same for all groups in shader. 
-		lerped_frame =			emitter_properties[property_index].start_frame_index;
 		//With the if statement here we can only run this if any animation instance uses animated shapes as denoted by the push constant parameter
 		//If you're not using any animated shapes then you can optimise this out. This interpolates frames in the shape and has to 
 		//take into account the frame wrapping around at the end so there's a bit of extra work involved. 
 		float reverse_direction = float((emitter_properties[property_index].flags & tfxReverseAnimationFlag) > 1);
-		float current_frame = float((sprite_data[sprite_data_index].property_indexes & 0x00FF0000) >> 16);
-		float prev_frame = float((sprite_data[captured_index].property_indexes & 0x00FF0000) >> 16);
-		float frames = image_data[uint(current_frame)].animation_frames;
+		float current_frame = float(sprite_data[sprite_data_index].indexes & 0x00001FFF);
+		float prev_frame = float(sprite_data[captured_index].indexes & 0x00001FFF);
+		float frames = emitter_properties[property_index].animation_frames;
 		float wrap = (1 - reverse_direction) * float(current_frame < prev_frame);
 		float reverse_wrap = reverse_direction * float(prev_frame < current_frame);
 		lerped_frame += uint(mod(mix(prev_frame + frames * reverse_wrap, current_frame + frames * wrap, lerp), frames));
+		sprites[index].indexes = sprite_data[sprite_data_index].indexes & 0xFFFF0000;
+		sprites[index].indexes |= lerped_frame;
 	} else {
-		lerped_frame =			emitter_properties[property_index].start_frame_index;
-		lerped_frame +=			(sprite_data[sprite_data_index].property_indexes & 0x00FF0000) >> 16;
+		sprites[index].indexes = sprite_data[sprite_data_index].indexes + lerped_frame;
 	}
-	//Note that intensity is packed into a uint
-	float lerped_intensity = mix(sprite_data[captured_index].intensity, sprite_data[sprite_data_index].intensity, lerp) * 0.125 * 4194303;
+	vec2 intensity_life = Unpack16bit2SScale(sprite_data[sprite_data_index].intensity_life, intensity_max_value);
+	vec2 captured_intensity_life = Unpack16bit2SScale(sprite_data[captured_index].intensity_life, intensity_max_value);
+	float lerped_intensity = mix(captured_intensity_life.x, intensity_life.x, lerp);
+	float lerped_life = mix(captured_intensity_life.y, intensity_life.y, lerp);
+	vec2 curved_alpha = unpackSnorm2x16(sprite_data[sprite_data_index].curved_alpha);
+	vec2 captured_curved_alpha = unpackSnorm2x16(sprite_data[captured_index].curved_alpha);
+	vec2 lerped_curved_alpha = mix(captured_curved_alpha, curved_alpha, lerp);
 
 	//Offset the position by the current animation instance position
 	lerped_position += instances[instance_index].position.xy;
 
 	//Now load the data into the sprite buffer ready for the vertex buffer
-	sprites[index].position_rotation = vec4(lerped_position.x, lerped_position.y, lerped_stretch, lerped_rotation);
-	sprites[index].uv = image_data[lerped_frame].uv;
-	sprites[index].size_handle.x = (uint(lerped_scale.y * 7.999755859) << 16) + uint(lerped_scale.x * 7.999755859);
-	sprites[index].size_handle.y = emitter_properties[property_index].handle_packed;
+	sprites[index].position_stretch_rotation = vec4(lerped_position.x, lerped_position.y, lerped_stretch, lerped_rotation);
+	sprites[index].size_handle.x = (uint(lerped_scale.y * size_max_divisor) << 16) + uint(lerped_scale.x * size_max_divisor);
+	sprites[index].size_handle.y = sprite_data[sprite_data_index].size_handle.y;
+	sprites[index].intensity_life = (uint(lerped_life * intensity_max_divisor) << 16) + uint(lerped_intensity * intensity_max_divisor);
 	sprites[index].alignment = packSnorm2x16(lerped_alignment);
-	sprites[index].color = lerped_color;
-	sprites[index].intensity_texture_array = (image_data[lerped_frame].texture_array_index << 24) + uint(lerped_intensity);
+	sprites[index].curved_alpha = packSnorm2x16(lerped_curved_alpha);
+	sprites[index].captured_index = index;
 }

@@ -8,6 +8,8 @@ This compute shader uses parallel reduction to find the min/max bounding box of 
 #define tfxReverseAnimationFlag 32768
 const float one_div_511 = 1.0 / 511.0;
 const float pow_2_22 = 1.0 / pow(2.0, 22);
+const float size_max_value = 256.0 / 32767.0;
+const float handle_max_value = 128.0 / 32767.0;
 
 //We add an epsilon to avoid nans with the cross product
 //const vec3 up = {0, 1, 0.00001};
@@ -20,34 +22,18 @@ const vec3 left = {-1, 0, 0};
 
 #define group_size 128
 
-//Sprite struct that gets passed to the vertex shader. This is the only struct that gets written to.
-struct Sprite {
-	vec3 position;				//The position of the sprite
-	uint uv_xy;					//The UV coords of the image in the texture. We pack using 16bit floats to save space
-	vec3 rotations;				//Pitch yaw and roll of the sprite
-	uint uv_zw;					//You could use a texture array as well to save more space and have 0,1 for all uv coords to save another 8 bytes
-	vec2 scale;					//Scale of the sprite
-	vec2 handle;				//The handle of the billboard
-	float stretch;				//Amount to stretch the billboard along it's alignment vector
-	uint blend_texture_array;	//reference for the texture array (8bits) and blend factor (24bits)
-	uint color;					//The color tint of the sprite
-	uint alignment;				//normalised alignment vector 3 floats packed into 10bits each with 2 bits left over
-};
-
 //Contains all of the pre-recorded sprites for all effects
-struct SpriteData {				//64 bytes
-	vec3 position;				
-	float lerp_offset;
-	vec3 rotations;				
-	float stretch;
-	vec2 scale;
-	uint property_indexes;		//Index to Emitter Properties in 0x00007FFF, image frame in 0x00FF0000, billboard option in 0xFF000000
-	uint captured_index;
-	uint alignment;		
-	uint color;		
-	float intensity;
-	float padding;
-	//4 bytes free here if needed
+struct SpriteData {		//60 bytes + padding to 64
+	vec4 position;						//The position of the billboard
+	vec3 rotations;				        //Rotations of the billboard with stretch in w
+	uint alignment;						//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
+	uvec2 size_handle;					//Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
+	uint intensity_life;				//Multiplier for the color and life of particle
+	uint curved_alpha;					//Sharpness and dissolve amount value for fading the image 2 16bit floats packed
+	uint indexes;						//[color ramp y index, color ramp texture array index, capture flag, image data index (1 bit << 15), billboard alignment (2 bits << 13), image data index max 8191 images]
+	uint captured_index;				//Index to the sprite in the buffer from the previous frame for interpolationP
+	uint property_index_lerp_offset;	//UNorm lerp offset in FFFF and the property index in FFFF0000
+	uint padding;
 };
 
 //Contains each animation instance with data that the compute shader uses to position the sprites and figure out which is the current frame that's playing.
@@ -121,6 +107,15 @@ mat3 RotationMatrix(vec3 axis, float angle)
                 oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c);
 }
 
+vec2 Unpack16bit2SScale(uint packed, float max_value) {
+	int x_scaled = int(packed & 0xFFFF);
+	int y_scaled = int((packed >> 16) & 0xFFFF);
+	vec2 unpacked;
+	unpacked.x = float(x_scaled * max_value);
+	unpacked.y = float(y_scaled * max_value);
+	return unpacked;
+}
+
 //Shared arrays that we load the sprite data into for each thread group. We load in once at the start of the algorithm 
 //and then reduce down these arrays until index 0 contains the final min/max values
 shared vec3 local_min[group_size];
@@ -145,21 +140,18 @@ void warp_reduce(uint tid) {
 
 //This function basically does what the vertex shader does so we can find out where the vertices are for each sprite
 void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uint sprite_data_index) {
-	uint current_frame = (sprite_data[sprite_data_index].property_indexes & 0x00FF0000) >> 16;
-	uint property_index = sprite_data[sprite_data_index].property_indexes & 0x00007FFF;
-	uint billboard_option = (sprite_data[sprite_data_index].property_indexes & 0xFF000000) >> 24;
+	uint billboard_option = (sprite_data[sprite_data_index].indexes & 0x6000) >> 13;
 
-	Sprite s;
-	s.scale =  sprite_data[sprite_data_index].scale;
-	s.position = sprite_data[sprite_data_index].position;
-	s.rotations = sprite_data[sprite_data_index].rotations;
-	s.alignment = sprite_data[sprite_data_index].alignment;
-	s.handle = emitter_properties[property_index].handle;
-	s.stretch = sprite_data[sprite_data_index].stretch;
+	vec2 scale = Unpack16bit2SScale(sprite_data[sprite_data_index].size_handle.x, size_max_value);
+    vec2 handle = Unpack16bit2SScale(sprite_data[sprite_data_index].size_handle.y, handle_max_value);
+	vec3 position = sprite_data[sprite_data_index].position.xyz;
+	vec3 rotations = sprite_data[sprite_data_index].rotations;
+	uint alignment_packed = sprite_data[sprite_data_index].alignment;
+	float stretch = sprite_data[sprite_data_index].position.w;
 
 	//Billboarding determines whether the quad will align to the camera or not. 0 means that it will 
 	//align to the camera. This value is determined by the first bit: 01
-	float billboarding = float(billboard_option & uint(0x00000001));
+	float billboarding = float(billboard_option & 1);
 
 	//align_type is set to 1 when we want the quad to align to the vector stored in alignment.xyz with
 	//no billboarding. Billboarding will always be set to 1 in this case, so in other words both bits
@@ -173,17 +165,15 @@ void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uin
 
 	//vec3 alignment_up_cross = dot(alignment.xyz, up) == 0 ? vec3(0, 1, 0) : normalize(cross(alignment.xyz, up));
 
-	vec2 scale = s.scale;
-
 	const vec3 identity_bounds[4] = 
 	{
-		{ scale.x * (0 - s.handle.x), -scale.y * (0 - s.handle.y), 0},
-		{ scale.x * (1 - s.handle.x), -scale.y * (0 - s.handle.y), 0},
-		{ scale.x * (0 - s.handle.x), -scale.y * (1 - s.handle.y), 0},
-		{ scale.x * (1 - s.handle.x), -scale.y * (1 - s.handle.y), 0},
+		{ scale.x * (0 - handle.x), -scale.y * (0 - handle.y), 0},
+		{ scale.x * (1 - handle.x), -scale.y * (0 - handle.y), 0},
+		{ scale.x * (0 - handle.x), -scale.y * (1 - handle.y), 0},
+		{ scale.x * (1 - handle.x), -scale.y * (1 - handle.y), 0},
 	};
 
-	vec3 alignment = unpackSnorm4x8(s.alignment).xyz;
+	vec3 alignment = unpackSnorm4x8(alignment_packed).xyz;
 	//vec3 alignment = vec3(0, 0, 1);
 	vec3 alignment_normal = normalize(alignment);
 	vec3 alignment_up_cross = normalize(cross(alignment, up));
@@ -191,15 +181,15 @@ void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uin
 	float apply_align_type = 1 - align_type;
 
 	vec3 bounds[4];
-	bounds[0] =	align_type == 1 ? ((-scale.y * alignment_normal * (0 - s.handle.y)) + (scale.x * alignment_up_cross * (0 - s.handle.x))) : identity_bounds[0];
-	bounds[1] =	align_type == 1 ? ((-scale.y * alignment_normal * (0 - s.handle.y)) + (scale.x * alignment_up_cross * (1 - s.handle.x))) : identity_bounds[1];
-	bounds[2] =	align_type == 1 ? ((-scale.y * alignment_normal * (1 - s.handle.y)) + (scale.x * alignment_up_cross * (0 - s.handle.x))) : identity_bounds[2];
-	bounds[3] = align_type == 1 ? ((-scale.y * alignment_normal * (1 - s.handle.y)) + (scale.x * alignment_up_cross * (1 - s.handle.x))) : identity_bounds[3];
+	bounds[0] =	align_type == 1 ? ((-scale.y * alignment_normal * (0 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
+	bounds[1] =	align_type == 1 ? ((-scale.y * alignment_normal * (0 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
+	bounds[2] =	align_type == 1 ? ((-scale.y * alignment_normal * (1 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
+	bounds[3] = align_type == 1 ? ((-scale.y * alignment_normal * (1 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
 
 	vec3 surface_normal = cross(bounds[1] - bounds[0], bounds[3] - bounds[0]); 
-	mat3 matrix_roll = RotationMatrix(align_type * alignment_normal + front * apply_align_type, s.rotations.z);
-	mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * apply_align_type, s.rotations.x * billboarding);
-	mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * apply_align_type, s.rotations.y * billboarding);
+	mat3 matrix_roll = RotationMatrix(align_type * alignment_normal + front * apply_align_type, rotations.z);
+	mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * apply_align_type, rotations.x * billboarding);
+	mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * apply_align_type, rotations.y * billboarding);
 
 	//Unlike the billboard.vert shader, we have to multiply the matrices in a different order to make the bounding box line up
 	//mat3 rot_mat = matrix_roll * matrix_yaw * matrix_pitch;
@@ -208,8 +198,8 @@ void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uin
 	//For billboards that are not aligned to the camera, calculate the min/max values for each vertex.
 	for(int i = 0; i != 4; ++i) {
 		vec3 v = rot_mat * bounds[i];
-		v += alignment_normal * dot(v, alignment_normal) * s.stretch * billboarding;
-		v += s.position;
+		v += alignment_normal * dot(v, alignment_normal) * stretch * billboarding;
+		v += position;
 		min_vertex = min(min_vertex, v);
 		max_vertex = max(max_vertex, v);
 	}
@@ -218,15 +208,15 @@ void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uin
 	//how different camera angles will effect the bounds of the billboard. This could definitely be improved as currently it tends
 	//to result in larger than necessary bounding boxes when the handle of the sprite is not centered
 	float radius = length(bounds[0] - bounds[3]) * .5;
-	float handle_radius = length((vec2(0.5) - s.handle) * scale);
+	float handle_radius = length((vec2(0.5) - handle) * scale);
 	float apply_billboarding = 1 - billboarding;
 	radius += apply_billboarding * handle_radius;
-	radius += radius * s.stretch;
+	radius += radius * stretch;
 	vec3 center = (bounds[0] + bounds[3]) / 2;
 	center *= rot_mat;
 	vec3 half_extents = vec3(radius, radius, radius);
-	vec3 corner_min = (min_vertex * billboarding) + ((s.position + (center * billboarding)) - half_extents) * apply_billboarding;
-	vec3 corner_max = (max_vertex * billboarding) + ((s.position + (center * billboarding)) + half_extents) * apply_billboarding;
+	vec3 corner_min = (min_vertex * billboarding) + ((position + (center * billboarding)) - half_extents) * apply_billboarding;
+	vec3 corner_max = (max_vertex * billboarding) + ((position + (center * billboarding)) + half_extents) * apply_billboarding;
 	//vec3 corner_min =  (s.position + (center * billboarding)) - half_extents;
 	//vec3 corner_max =  (s.position + (center * billboarding)) + half_extents;
 
