@@ -142,8 +142,8 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 
 	//Compile the shaders we will use to render the particles
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	render_resources.fragment_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", shaderc_fragment_shader, false, compiler);
-	render_resources.vertex_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx3d.vert", "tfx_vertex3d.spv", shaderc_vertex_shader, false, compiler);
+	render_resources.fragment_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", shaderc_fragment_shader, true, compiler);
+	render_resources.vertex_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx3d.vert", "tfx_vertex3d.spv", shaderc_vertex_shader, true, compiler);
 	shaderc_compiler_release(compiler);
 
 	//To render the particles we setup a pipeline with the vertex attributes and shaders to render the particles.
@@ -351,18 +351,8 @@ void RenderParticles3dByEffect(tfx_particle_manager_t& pm, TimelineFXExample* ga
 	tfxU32 instance_count = 0;
 	bool halt = false;
 	while (GetNextBillboardBuffer(&pm, &billboards, &instance_data, &instance_count)) {
-		//tfxPrint("Offset: %i", instance_data->instance_start_index);
 		zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, instance_count);
-		/*
-		if (pm.effects_in_use[0][pm.current_ebuff].current_size > 1) {
-			for (int i = 0; i != instance_count; ++i) {
-				tfxPrint("Range: %i - %i, count: %i -- %u", instance_data->instance_start_index, instance_data->instance_start_index + instance_count - 1, instance_count, billboards[i].captured_index & 0x0FFFFFFF);
-			}
-			if (pm.effect_index_position > 1 && instance_count > 200) halt = true;
-		}
-		*/
 	}
-	//tfxPrint("-------------------------");
 	ResetInstanceBufferLoopIndex(&pm);
 }
 

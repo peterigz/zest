@@ -6,8 +6,9 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 
 void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif);
-int zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer command_buffer);
+void zest_imgui_DrawLayer(struct zest_work_queue_t *queue, void *data);
 void zest_imgui_UpdateBuffers(zest_layer imgui_layer);
+int zest_imgui_RecordCondition(zest_draw_routine draw_routine);
 void zest_imgui_DrawImage(zest_image image, float width, float height);
 void zest_imgui_DrawImage2(zest_image image, float width, float height);
 void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);

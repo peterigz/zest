@@ -16,6 +16,7 @@
     [Pocket_Hasher]                     XXHash code for use in hash map
     [Pocket_hash_map]                   Simple hash map
     [Pocket_text_buffer]                Very simple struct and functions for storing strings
+    [Threading]                         Simple worker queue mainly used for recording secondary command buffers
     [Structs]                           All the structs are defined here.
     [Internal_functions]                Private functions only, no API access
 
@@ -274,6 +275,9 @@ LRESULT CALLBACK zest__window_proc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lP
 //--
 #define ZEST_CREATE_DIR(path) _mkdir(path)
 
+#define zest__writebarrier _WriteBarrier();
+#define zest__readbarrier _ReadBarrier();
+
 #elif defined(__GNUC__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && (defined(__i386__) || defined(__x86_64__)) || defined(__clang__)
 #include <time.h>
 //We'll just use glfw on mac for now. Can maybe add basic cocoa windows later
@@ -291,6 +295,8 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
     return __sync_val_compare_and_swap(target, original, value);
 }
 #define ZEST_CREATE_DIR(path) mkdir(path, 0777)
+#define zest__writebarrier __asm__ __volatile__ ("" : : : "memory");
+#define zest__readbarrier __asm__ __volatile__ ("" : : : "memory");
 
 //Window creation
 //--
@@ -1333,6 +1339,7 @@ typedef enum zest_command_buffer_flag_bits {
     zest_command_buffer_flag_outdated                           = 1 << 0,
     zest_command_buffer_flag_primary                            = 1 << 1,
     zest_command_buffer_flag_secondary                          = 1 << 2,
+    zest_command_buffer_flag_recording                          = 1 << 3,
 } zest_command_buffer_flag_bits;
 
 typedef zest_uint zest_command_buffer_flags;
@@ -1757,6 +1764,354 @@ ZEST_API zest_uint zest_TextSize(zest_text_t *buffer);      //Will include a nul
 ZEST_API zest_uint zest_TextLength(zest_text_t *buffer);    //Uses strlen to get the length
 // --End pocket text buffer
 
+//Threading
+
+#ifdef _WIN32
+#include <windows.h>
+#include <process.h>
+#else
+#include <pthread.h>
+#endif
+
+#ifndef ZEST_MAX_QUEUES
+#define ZEST_MAX_QUEUES 64
+#endif
+
+#ifndef ZEST_MAX_QUEUE_ENTRIES
+#define ZEST_MAX_QUEUE_ENTRIES 512
+#endif
+
+#ifndef ZEST_MAX_THREADS
+#define ZEST_MAX_THREADS 64
+#endif
+
+// Forward declaration
+struct zest_work_queue_t;
+
+// Callback function type
+typedef void (*zest_work_queue_callback)(struct zest_work_queue_t *queue, void *data);
+
+typedef struct zest_work_queue_entry_t {
+    zest_work_queue_callback call_back;
+    void *data;
+} zest_work_queue_entry_t;
+
+typedef struct zest_work_queue_t {
+    volatile zest_uint entry_completion_goal;
+    volatile zest_uint entry_completion_count;
+    volatile int next_read_entry;
+    volatile int next_write_entry;
+    zest_work_queue_entry_t entries[ZEST_MAX_QUEUE_ENTRIES];
+} zest_work_queue_t;
+
+// Platform-specific synchronization wrapper
+typedef struct zest_sync_t {
+#ifdef _WIN32
+    CRITICAL_SECTION mutex;
+    CONDITION_VARIABLE empty_condition;
+    CONDITION_VARIABLE full_condition;
+#else
+    pthread_mutex_t mutex;
+    pthread_cond_t empty_condition;
+    pthread_cond_t full_condition;
+#endif
+} zest_sync_t;
+
+typedef struct zest_queue_processor_t {
+    zest_sync_t sync;
+    zest_uint count;
+    volatile zest_bool end_all_threads;
+    zest_work_queue_t *queues[ZEST_MAX_QUEUES];
+} zest_queue_processor_t;
+
+typedef struct zest_storage_t {
+    zest_queue_processor_t thread_queues;
+#ifdef _WIN32
+    HANDLE threads[ZEST_MAX_THREADS];
+#else
+    pthread_t threads[ZEST_MAX_THREADS];
+#endif
+    zest_uint thread_count;
+} zest_storage_t;
+
+// Global variables (extern declarations)
+extern zest_storage_t *zest__globals;
+
+// Platform-specific atomic operations
+ZEST_PRIVATE inline zest_uint zest__atomic_increment(volatile zest_uint *value) {
+#ifdef _WIN32
+    return InterlockedIncrement((LONG *)value);
+#else
+    return __sync_fetch_and_add(value, 1) + 1;
+#endif
+}
+
+ZEST_PRIVATE inline bool zest__atomic_compare_exchange(volatile int *dest, int exchange, int comparand) {
+#ifdef _WIN32
+    return InterlockedCompareExchange((LONG *)dest, exchange, comparand) == comparand;
+#else
+    return __sync_bool_compare_and_swap(dest, comparand, exchange);
+#endif
+}
+
+ZEST_PRIVATE inline void zest__memory_barrier(void) {
+#ifdef _WIN32
+    MemoryBarrier();
+#else
+    __sync_synchronize();
+#endif
+}
+
+// Initialize synchronization primitives
+ZEST_PRIVATE inline void zest__sync_init(zest_sync_t *sync) {
+#ifdef _WIN32
+    InitializeCriticalSection(&sync->mutex);
+    InitializeConditionVariable(&sync->empty_condition);
+    InitializeConditionVariable(&sync->full_condition);
+#else
+    pthread_mutex_init(&sync->mutex, NULL);
+    pthread_cond_init(&sync->empty_condition, NULL);
+    pthread_cond_init(&sync->full_condition, NULL);
+#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_cleanup(zest_sync_t *sync) {
+#ifdef _WIN32
+    DeleteCriticalSection(&sync->mutex);
+#else
+    pthread_mutex_destroy(&sync->mutex);
+    pthread_cond_destroy(&sync->empty_condition);
+    pthread_cond_destroy(&sync->full_condition);
+#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_lock(zest_sync_t *sync) {
+#ifdef _WIN32
+    EnterCriticalSection(&sync->mutex);
+#else
+    pthread_mutex_lock(&sync->mutex);
+#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_unlock(zest_sync_t *sync) {
+#ifdef _WIN32
+    LeaveCriticalSection(&sync->mutex);
+#else
+    pthread_mutex_unlock(&sync->mutex);
+#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_wait_empty(zest_sync_t *sync) {
+#ifdef _WIN32
+    SleepConditionVariableCS(&sync->empty_condition, &sync->mutex, INFINITE);
+#else
+    pthread_cond_wait(&sync->empty_condition, &sync->mutex);
+#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_wait_full(zest_sync_t *sync) {
+#ifdef _WIN32
+    SleepConditionVariableCS(&sync->full_condition, &sync->mutex, INFINITE);
+#else
+    pthread_cond_wait(&sync->full_condition, &sync->mutex);
+#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_signal_empty(zest_sync_t *sync) {
+#ifdef _WIN32
+    WakeConditionVariable(&sync->empty_condition);
+#else
+    pthread_cond_signal(&sync->empty_condition);
+#endif
+}
+
+ZEST_PRIVATE inline void zest__sync_signal_full(zest_sync_t *sync) {
+#ifdef _WIN32
+    WakeConditionVariable(&sync->full_condition);
+#else
+    pthread_cond_signal(&sync->full_condition);
+#endif
+}
+
+// Initialize queue processor
+ZEST_PRIVATE inline void zest__initialise_thread_queues(zest_queue_processor_t *queues) {
+    queues->count = 0;
+    memset(queues->queues, 0, ZEST_MAX_QUEUES * sizeof(void *));
+    zest__sync_init(&queues->sync);
+    queues->end_all_threads = false;
+}
+
+ZEST_PRIVATE inline void zest__cleanup_thread_queues(zest_queue_processor_t *queues) {
+    zest__sync_cleanup(&queues->sync);
+}
+
+ZEST_PRIVATE inline zest_work_queue_t *zest__get_queue_with_work(zest_queue_processor_t *thread_processor) {
+    zest__sync_lock(&thread_processor->sync);
+
+    while (thread_processor->count == 0 && !thread_processor->end_all_threads) {
+        zest__sync_wait_full(&thread_processor->sync);
+    }
+
+    zest_work_queue_t *queue = NULL;
+    if (thread_processor->count > 0) {
+        queue = thread_processor->queues[--thread_processor->count];
+        zest__sync_signal_empty(&thread_processor->sync);
+    }
+
+    zest__sync_unlock(&thread_processor->sync);
+    return queue;
+}
+
+ZEST_PRIVATE inline void zest__push_queue_work(zest_queue_processor_t *thread_processor, zest_work_queue_t *queue) {
+    zest__sync_lock(&thread_processor->sync);
+
+    while (thread_processor->count >= ZEST_MAX_QUEUES) {
+        zest__sync_wait_empty(&thread_processor->sync);
+    }
+
+    thread_processor->queues[thread_processor->count++] = queue;
+    zest__sync_signal_full(&thread_processor->sync);
+
+    zest__sync_unlock(&thread_processor->sync);
+}
+
+ZEST_PRIVATE inline zest_bool zest__do_next_work_queue(zest_queue_processor_t *queue_processor) {
+    zest_work_queue_t *queue = zest__get_queue_with_work(queue_processor);
+
+    if (queue) {
+        zest_uint original_read_entry = queue->next_read_entry;
+        zest_uint new_original_read_entry = (original_read_entry + 1) % ZEST_MAX_QUEUE_ENTRIES;
+
+        if (original_read_entry != queue->next_write_entry) {
+            if (zest__atomic_compare_exchange(&queue->next_read_entry, new_original_read_entry, original_read_entry)) {
+                zest_work_queue_entry_t entry = queue->entries[original_read_entry];
+                entry.call_back(queue, entry.data);
+                zest__atomic_increment(&queue->entry_completion_count);
+            }
+        }
+    }
+    return queue_processor->end_all_threads;
+}
+
+ZEST_PRIVATE inline void zest__do_next_work_queue_entry(zest_work_queue_t *queue) {
+    zest_uint original_read_entry = queue->next_read_entry;
+    zest_uint new_original_read_entry = (original_read_entry + 1) % ZEST_MAX_QUEUE_ENTRIES;
+
+    if (original_read_entry != queue->next_write_entry) {
+        if (zest__atomic_compare_exchange(&queue->next_read_entry, new_original_read_entry, original_read_entry)) {
+            zest_work_queue_entry_t entry = queue->entries[original_read_entry];
+            entry.call_back(queue, entry.data);
+            zest__atomic_increment(&queue->entry_completion_count);
+        }
+    }
+}
+
+ZEST_PRIVATE inline void zest__add_work_queue_entry(zest_work_queue_t *queue, void *data, zest_work_queue_callback call_back) {
+    if (!zest__globals->thread_count) {
+        call_back(queue, data);
+        return;
+    }
+
+    zest_uint new_entry_to_write = (queue->next_write_entry + 1) % ZEST_MAX_QUEUE_ENTRIES;
+    while (new_entry_to_write == queue->next_read_entry) {        //Not enough room in work queue
+        //We can do this because we're single producer
+        zest__do_next_work_queue_entry(queue);
+    }
+    queue->entries[queue->next_write_entry].data = data;
+    queue->entries[queue->next_write_entry].call_back = call_back;
+    zest__atomic_increment(&queue->entry_completion_goal);
+
+    zest__writebarrier;
+
+    zest__push_queue_work(&zest__globals->thread_queues, queue);
+    queue->next_write_entry = new_entry_to_write;
+
+}
+
+ZEST_PRIVATE inline void zest__complete_all_work(zest_work_queue_t *queue) {
+    zest_work_queue_entry_t entry = { 0 };
+    while (queue->entry_completion_goal != queue->entry_completion_count) {
+        zest__do_next_work_queue_entry(queue);
+    }
+    queue->entry_completion_count = 0;
+    queue->entry_completion_goal = 0;
+}
+
+#ifdef _WIN32
+ZEST_PRIVATE inline unsigned WINAPI zest__thread_worker(void *arg) {
+#else
+inline void *zest__thread_worker(void *arg) {
+#endif
+    zest_queue_processor_t *queue_processor = (zest_queue_processor_t *)arg;
+    while (!zest__do_next_work_queue(queue_processor)) {
+        // Continue processing
+    }
+    return 0;
+}
+
+// Thread creation helper function
+ZEST_PRIVATE inline bool zest__create_worker_thread(zest_storage_t * storage, int thread_index) {
+#ifdef _WIN32
+    storage->threads[thread_index] = (HANDLE)_beginthreadex(
+        NULL,
+        0,
+        zest__thread_worker,
+        &storage->thread_queues,
+        0,
+        NULL
+    );
+    return storage->threads[thread_index] != NULL;
+#else
+    return pthread_create(
+        &storage->threads[thread_index],
+        NULL,
+        zest__thread_worker,
+        &storage->thread_queues
+    ) == 0;
+#endif
+}
+
+// Thread cleanup helper function
+ZEST_PRIVATE inline void zest__cleanup_thread(zest_storage_t * storage, int thread_index) {
+#ifdef _WIN32
+    if (storage->threads[thread_index]) {
+        WaitForSingleObject(storage->threads[thread_index], INFINITE);
+        CloseHandle(storage->threads[thread_index]);
+        storage->threads[thread_index] = NULL;
+    }
+#else
+    pthread_join(storage->threads[thread_index], NULL);
+#endif
+}
+
+ZEST_API inline unsigned int zest_HardwareConcurrency(void) {
+#ifdef _WIN32
+    SYSTEM_INFO sysinfo;
+    GetSystemInfo(&sysinfo);
+    return sysinfo.dwNumberOfProcessors;
+#else
+#ifdef _SC_NPROCESSORS_ONLN
+    long count = sysconf(_SC_NPROCESSORS_ONLN);
+    return (count > 0) ? (unsigned int)count : 0;
+#else
+    return 0;
+#endif
+#endif
+}
+
+// Safe version that always returns at least 1
+ZEST_API inline unsigned int zest_HardwareConcurrencySafe(void) {
+    unsigned int count = zest_HardwareConcurrency();
+    return count > 0 ? count : 1;
+}
+
+// Helper function to get a good default thread count for thread pools
+// Usually hardware threads - 1 to leave a core for the OS/main thread
+ZEST_API inline unsigned int zest_GetDefaultThreadCount(void) {
+    unsigned int count = zest_HardwareConcurrency();
+    return count > 1 ? count - 1 : 1;
+}
+
 // --Structs
 // --Matrix and vector structs
 typedef struct zest_vec2 {
@@ -1984,6 +2339,7 @@ typedef struct zest_create_info_t {
     int screen_width, screen_height;                    //Default width and height of the window that you open
     int screen_x, screen_y;                             //Default position of the window
     int virtual_width, virtual_height;                  //The virtial width/height of the viewport
+    int thread_count;                                   //The number of threads to use if multithreading. 0 if not.
     VkFormat color_format;                              //Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
     VkDescriptorPoolSize pool_counts[11];               //You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
     zest_uint max_descriptor_pool_sets;                 //The maximum number of descriptor pool sets for the descriptor pool. 100 is default but set to more depending on your needs.
@@ -2230,9 +2586,10 @@ struct zest_draw_routine_t {
     zest_recorder recorder;                                                      //For recording to a command buffer (this is a secondary command buffer)
     zest_command_queue_draw_commands draw_commands;                              //
     void(*update_buffers_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);            //The callback used to update and upload the buffers before rendering
-    int(*record_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);                      //draw callback called by the render target when rendering
-    void(*update_resolution_callback)(zest_draw_routine draw_routine);            //Callback used when the window size changes
-    void(*clean_up_callback)(zest_draw_routine draw_routine);                     //Clean up function call back called when the draw routine is deleted
+    int(*condition_callback)(zest_draw_routine draw_routine);                    //The callback used to determine whether there's anything to record for the draw routine
+    void(*record_callback)(zest_work_queue_t *queue, void *data);                //draw callback called by the render target when rendering
+    void(*update_resolution_callback)(zest_draw_routine draw_routine);           //Callback used when the window size changes
+    void(*clean_up_callback)(zest_draw_routine draw_routine);                    //Clean up function call back called when the draw routine is deleted
 };
 
 //Every command queue will have either one or more render passes (unless it's purely for compute shading). Render pass contains various data for drawing things during the render pass.
@@ -2652,6 +3009,7 @@ typedef struct zest_render_target_create_info_t {
 } zest_render_target_create_info_t;
 
 typedef struct zest_recorder_t {
+    VkCommandPool command_pool;
     VkCommandBuffer command_buffer[ZEST_MAX_FIF];
     zest_uint outdated[ZEST_MAX_FIF];
     zest_draw_routine draw_routine;
@@ -2737,10 +3095,6 @@ typedef struct zest_renderer_t {
 
     //Context data
     VkCommandBuffer current_command_buffer;
-    //These 2 variables are used for error checking so that we can check that recording
-    //was properly ended before submitting the command queue
-    VkCommandBuffer current_secondary_command_buffer;
-    VkCommandBuffer current_primary_command_buffer;
     zest_command_queue_draw_commands current_draw_commands;
     zest_command_queue_compute current_compute_routine;
 
@@ -2780,6 +3134,9 @@ typedef struct zest_renderer_t {
     zest_atomic_int lock_texture_reprocess_queue;
     zest_uint current_frame;
 
+    //Threading
+    zest_work_queue_t work_queue;
+
     //Flags
     zest_renderer_flags flags;
     
@@ -2810,7 +3167,6 @@ ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_
     "VK_KHR_portability_subset"
 #endif
 };
-
 
 //--Internal_functions
 
@@ -2855,6 +3211,7 @@ ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *fb_width,
 ZEST_PRIVATE void zest__destroy_window_callback(void *user_data);
 ZEST_PRIVATE void zest__cleanup_swapchain(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
+ZEST_PRIVATE void zest__cleanup_draw_routines(void);
 ZEST_PRIVATE void zest__clean_up_compute(zest_compute compute);
 ZEST_PRIVATE void zest__recreate_swapchain(void);
 ZEST_PRIVATE void zest__add_push_constant(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange push_constant);
@@ -2903,6 +3260,7 @@ ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
 ZEST_PRIVATE void zest__record_mesh_layer(zest_layer layer, zest_uint fif);
 ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
 ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
+ZEST_PRIVATE int zest__layer_has_instructions_callback(zest_draw_routine draw_routine);
 
 // --Texture internal functions
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
@@ -2938,9 +3296,9 @@ ZEST_PRIVATE zest_font zest__add_font(zest_font font);
 ZEST_PRIVATE void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_size);
 
 // --Mesh layer internal functions
-ZEST_PRIVATE int zest__draw_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__draw_mesh_layer_callback(struct zest_work_queue_t *queue, void *data);
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
-ZEST_PRIVATE int zest__draw_instance_mesh_layer_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__draw_instance_mesh_layer_callback(struct zest_work_queue_t *queue, void *data);
 
 // --General Helper Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
@@ -4051,7 +4409,7 @@ ZEST_API zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest
 ZEST_API void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
 //A standar callback function you can use to draw all instances in your layer each frame. When creating your own custom layers you can override this callback
 //if needed but you should find that this one covers most uses of instance drawing.
-ZEST_API int zest_RecordInstanceLayerCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+ZEST_API void zest_RecordInstanceLayerCallback(struct zest_work_queue_t *queue, void *data);
 //Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
 //instance layers more easily
 ZEST_API void zest_StartInstanceInstructions(zest_layer layer);

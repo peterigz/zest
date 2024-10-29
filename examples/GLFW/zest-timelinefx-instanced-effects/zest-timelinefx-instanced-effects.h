@@ -104,7 +104,7 @@ struct ComputeExample {
 void SpriteComputeFunction(zest_command_queue_compute compute_routine);
 void BoundingBoxComputeFunction(zest_compute compute, VkCommandBuffer command_buffer);
 void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *animation_manager, tfx_effect_emitter_t *effect);
-int RecordComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffer);
+void RecordComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffer);
 void UpdateSpriteResolution(zest_draw_routine routine);
 void InitExample(ComputeExample *example);
 void PrepareComputeForEffectPlayback(ComputeExample *example);

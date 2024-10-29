@@ -18,6 +18,7 @@ void zest_imgui_CreateLayer(zest_imgui_layer_info_t *imgui_layer_info) {
     imgui_layer_info->mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
     imgui_layer_info->pipeline = zest_Pipeline("pipeline_imgui");
     zest_ContextDrawRoutine()->record_callback = zest_imgui_DrawLayer;
+    zest_ContextDrawRoutine()->condition_callback = zest_imgui_RecordCondition;
     zest_ContextDrawRoutine()->user_data = imgui_layer_info;
     zest_SetLayerToManualFIF(imgui_layer_info->mesh_layer);
 }
@@ -119,7 +120,8 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
     zest_EndRecording(imgui_layer->draw_routine->recorder, ZEST_FIF);
 }
 
-int zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer primary_command_buffer) {
+void zest_imgui_DrawLayer(struct zest_work_queue_t *queue, void *data) {
+    zest_draw_routine draw_routine = (zest_draw_routine)data;
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
     zest_imgui_layer_info_t *layer_info = (zest_imgui_layer_info_t *)draw_routine->user_data;
@@ -128,10 +130,6 @@ int zest_imgui_DrawLayer(zest_draw_routine_t *draw_routine, VkCommandBuffer prim
     if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
         zest_imgui_RecordLayer(layer_info, ZEST_FIF);
     }
-    if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
-        return 1;
-    }
-    return 0;
 }
 
 void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
@@ -174,6 +172,14 @@ void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
             idxDst += cmd_list->IdxBuffer.Size;
         }
     }
+}
+
+int zest_imgui_RecordCondition(zest_draw_routine draw_routine) {
+    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+    if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
+        return 1;
+    }
+    return 0;
 }
 
 void zest_imgui_DrawImage(zest_image image, float width, float height) {

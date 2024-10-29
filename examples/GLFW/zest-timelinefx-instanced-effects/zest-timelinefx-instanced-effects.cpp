@@ -90,11 +90,12 @@ void UpdateUniform3d(ComputeExample *example) {
 }
 
 //Send the command to the GPU to draw all of the sprites for all of the animation instances that are currently in play
-int RecordComputeSprites(zest_draw_routine routine, VkCommandBuffer unused) {
-	ComputeExample &example = *static_cast<ComputeExample*>(routine->user_data);
-	VkCommandBuffer command_buffer = zest_BeginRecording(routine->recorder, routine->draw_commands->render_pass, ZEST_FIF);
+void RecordComputeSprites(struct zest_work_queue_t *queue, void *data) {
+	zest_draw_routine draw_routine = (zest_draw_routine)data;
+	ComputeExample &example = *static_cast<ComputeExample*>(draw_routine->user_data);
+	VkCommandBuffer command_buffer = zest_BeginRecording(draw_routine->recorder, draw_routine->draw_commands->render_pass, ZEST_FIF);
 
-	zest_SetViewport(command_buffer, routine);
+	zest_SetViewport(command_buffer, draw_routine);
 
 	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
 	zest_BindVertexBuffer(command_buffer, example.sprite_buffer->buffer[0]);
@@ -104,13 +105,13 @@ int RecordComputeSprites(zest_draw_routine routine, VkCommandBuffer unused) {
 	zest_SendPushConstants(command_buffer, example.tfx_rendering.pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_push_constants_t), &example.push_contants);
 	zest_Draw(command_buffer, 6, GetTotalSpritesThatNeedDrawing(&example.animation_manager_3d), 0, 0);
 	
-	zest_EndRecording(routine->recorder, ZEST_FIF);
-	return 1;
+	zest_EndRecording(draw_routine->recorder, ZEST_FIF);
+	draw_routine->record_pending = 0;
 }
 
 //A callback for when the window size is changed so we can update the layer push constants that contain the current screen size
-void UpdateSpriteResolution(zest_draw_routine routine) {
-	ComputeExample &example = *static_cast<ComputeExample*>(routine->user_data);
+void UpdateSpriteResolution(zest_draw_routine draw_routine) {
+	ComputeExample &example = *static_cast<ComputeExample*>(draw_routine->user_data);
 	example.push_contants.parameters1 = zest_Vec4Set(2.0f / (float)zest_GetSwapChainExtent().width, 2.0f / (float)zest_GetSwapChainExtent().height, -1.f, -1.f);
 	example.push_contants.model = zest_M4(1.f);
 }
@@ -811,6 +812,7 @@ void Update(zest_microsecs elapsed, void *data) {
 		tfx_sprite_data_metrics_t &metrics = example->animation_manager_3d.effect_animation_info.data[instance.info_index];
 	}
 	UpdateAnimationManager(&example->animation_manager_3d, elapsed / 1000.f);
+	zest_SetDrawRoutinePendingRecord(example->tfx_rendering.draw_routine);
 
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->floor_resources, example->mesh_pipeline);
