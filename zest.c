@@ -3197,6 +3197,7 @@ void zest__cleanup_renderer() {
         for (zest_index fif = 0; fif != render_target->frames_in_flight; ++fif) {
             zest_CleanUpRenderTarget(render_target, fif);
         }
+        zest_FreeRecorder(render_target->recorder);
     }
     zest_map_clear(ZestRenderer->render_targets);
 
