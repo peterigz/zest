@@ -127,7 +127,8 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	//Set up our own draw routine
 	app->draw_routine = zest_CreateDrawRoutine("compute draw");
-	app->draw_routine->record_callback = DrawComputeSprites;
+	app->draw_routine->record_callback = RecordComputeSprites;
+	app->draw_routine->condition_callback = DrawComputeSpritesCondition;
 	app->draw_routine->user_data = app;
 
 	//Modify the existing builtin command queue so we can add our new compute shader and draw routine
@@ -139,21 +140,17 @@ void InitImGuiApp(ImGuiApp *app) {
 			//Add our custom draw routine that will draw all the point sprites on the screen
 			zest_AddDrawRoutine(app->draw_routine);
 			//Also add a layer for dear imgui interface
-			app->imgui_layer_info.mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
-			zest_ContextDrawRoutine()->record_callback = zest_imgui_DrawLayer;
-			zest_ContextDrawRoutine()->user_data = &app->imgui_layer_info;
+			zest_imgui_CreateLayer(&app->imgui_layer_info);
 		}
-	}
-
-	//The command buffer won't change so we can just record it once here and then simply execute the pre-recorded commands
-	//each frame in the DrawComputeSprites callback.
-	for (ZEST_EACH_FIF_i) {
-		RecordComputeSprites(app->draw_routine, i);
 	}
 }
 
-void RecordComputeSprites(zest_draw_routine draw_routine, zest_uint fif) {
-    VkCommandBuffer command_buffer = zest_BeginRecording(draw_routine->recorder, draw_routine->draw_commands->render_pass, fif);
+void RecordComputeSprites(zest_work_queue_t *queue, void *data) {
+	zest_draw_routine draw_routine = (zest_draw_routine)data;
+	if (!draw_routine->recorder->outdated) {
+		return;
+	}
+    VkCommandBuffer command_buffer = zest_BeginRecording(draw_routine->recorder, draw_routine->draw_commands->render_pass, ZEST_FIF);
 	ImGuiApp *app = (ImGuiApp*)draw_routine->user_data;
 	//We can make use of helper functions to easily bind the pipeline/vertex buffer and make the draw call
 	//to draw the sprites
@@ -169,12 +166,11 @@ void RecordComputeSprites(zest_draw_routine draw_routine, zest_uint fif) {
 	zest_Draw(command_buffer, PARTICLE_COUNT, 1, 0, 0);
 	zest_ClearShaderResourceDescriptorSets(app->draw_sets);
 
-	zest_EndRecording(draw_routine->recorder, fif);
+	zest_EndRecording(draw_routine->recorder, ZEST_FIF);
 }
 
-int DrawComputeSprites(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
-	//this function only needs to return 1 to tell the render to execute the draw commands that we recorded earlier in 
-	//the init function.
+int DrawComputeSpritesCondition(zest_draw_routine draw_routine) {
+	//We can just always excute the draw commands to draw the particles
 	return 1;
 }
 

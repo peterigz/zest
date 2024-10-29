@@ -3307,8 +3307,12 @@ void zest__recreate_swapchain() {
             zest_layer layer = (zest_layer)draw_routine->draw_data;
             zest__update_instance_layer_resolution(layer);
         }
-        else if (draw_routine->update_resolution_callback)
+        else if (draw_routine->update_resolution_callback) {
             draw_routine->update_resolution_callback(draw_routine);
+        }
+        for (ZEST_EACH_FIF_i) {
+            draw_routine->recorder->outdated[i] = 1;
+        }
     }
 
     for (zest_map_foreach_j(ZestRenderer->command_queues)) {
@@ -5712,14 +5716,14 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCo
 
     for (zest_foreach_i(item->draw_routines)) {
         zest_draw_routine draw_routine = item->draw_routines[i];
-        if (draw_routine->record_callback) {
-            ZEST_ASSERT(draw_routine->condition_callback);  //You must set the condition callback for the draw routine
-                                                            //to determine if there's anything to record
-            if(draw_routine->condition_callback(draw_routine)) {
+		ZEST_ASSERT(draw_routine->condition_callback);  //You must set the condition callback for the draw routine
+														//to determine if there's anything to record
+		if(draw_routine->condition_callback(draw_routine)) {
+			if (draw_routine->record_callback) {
 				zest__add_work_queue_entry(&ZestRenderer->work_queue, draw_routine, draw_routine->record_callback);
-				zest_vec_push(item->secondary_command_buffers, draw_routine->recorder->command_buffer[ZEST_FIF]);
-            }
-        }
+			}
+			zest_vec_push(item->secondary_command_buffers, draw_routine->recorder->command_buffer[ZEST_FIF]);
+		}
     }
 
     zest__complete_all_work(&ZestRenderer->work_queue);
@@ -6684,13 +6688,13 @@ void zest_AddLayer(zest_layer layer) {
 		draw_routine->recorder = zest_CreateSecondaryRecorder();
         if (layer->layer_type == zest_builtin_layer_sprites) {
             draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-            draw_routine->condition_callback = zest__layer_has_instructions_callback;
+            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
         }
         else if (layer->layer_type == zest_builtin_layer_billboards) {
             draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-            draw_routine->condition_callback = zest__layer_has_instructions_callback;
+            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
         }
@@ -6698,17 +6702,17 @@ void zest_AddLayer(zest_layer layer) {
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
             draw_routine->record_callback = zest__draw_mesh_layer_callback;
-            draw_routine->condition_callback = zest__layer_has_instructions_callback;
+            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
         }
         else if (layer->layer_type == zest_builtin_layer_mesh_instance) {
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
             draw_routine->record_callback = zest__draw_instance_mesh_layer_callback;
-            draw_routine->condition_callback = zest__layer_has_instructions_callback;
+            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
         }
         else if (layer->layer_type == zest_builtin_layer_fonts) {
             draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-            draw_routine->condition_callback = zest__layer_has_instructions_callback;
+            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
             draw_routine->draw_data = layer;
             draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
         }
@@ -6758,28 +6762,28 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char* name,
     if (builtin_layer == zest_builtin_layer_sprites) {
         layer = zest_CreateBuiltinSpriteLayer(name);
         draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest__layer_has_instructions_callback;;
+        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
     else if (builtin_layer == zest_builtin_layer_lines) {
         layer = zest_CreateBuiltin2dLineLayer(name);
         draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest__layer_has_instructions_callback;;
+        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
     else if (builtin_layer == zest_builtin_layer_3dlines) {
         layer = zest_CreateBuiltin3dLineLayer(name);
         draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest__layer_has_instructions_callback;;
+        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
     else if (builtin_layer == zest_builtin_layer_billboards) {
         layer = zest_CreateBuiltinBillboardLayer(name);
         draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest__layer_has_instructions_callback;;
+        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
@@ -6788,19 +6792,19 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char* name,
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
         draw_routine->record_callback = zest__draw_mesh_layer_callback;
-        draw_routine->condition_callback = zest__layer_has_instructions_callback;;
+        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;;
     }
     else if (builtin_layer == zest_builtin_layer_mesh_instance) {
         layer = zest_CreateBuiltinInstanceMeshLayer(name);
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
         draw_routine->record_callback = zest__draw_instance_mesh_layer_callback;
-        draw_routine->condition_callback = zest__layer_has_instructions_callback;;
+        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;;
     }
     else if (builtin_layer == zest_builtin_layer_fonts) {
         layer = zest_CreateBuiltinFontLayer(name);
         draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest__layer_has_instructions_callback;;
+        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;;
         draw_routine->draw_data = layer;
         draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     }
@@ -6856,7 +6860,7 @@ zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size ins
     zest_InitialiseInstanceLayer(layer, instance_size, reserve_amount);
     zest_map_insert(ZestRenderer->layers, name, layer);
     draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-    draw_routine->condition_callback = zest__layer_has_instructions_callback;
+    draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
     draw_routine->draw_data = layer;
     draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
     draw_routine->recorder = zest_CreateSecondaryRecorder();
@@ -9785,10 +9789,14 @@ void zest__reset_mesh_layer_drawing(zest_layer layer) {
     layer->memory_refs[layer->fif].index_ptr = layer->memory_refs[layer->fif].write_to_index_buffer->data;
 }
 
-int zest__layer_has_instructions_callback(zest_draw_routine draw_routine) {
+int zest_LayerHasInstructionsCallback(zest_draw_routine draw_routine) {
     ZEST_ASSERT(draw_routine->draw_data);
     zest_layer layer = (zest_layer)draw_routine->draw_data;
     return zest_vec_size(layer->draw_instructions[layer->fif]) > 0;
+}
+
+int zest_AlwaysRecordCallback(zest_draw_routine draw_routine) {
+    return 1;
 }
 
 void zest_StartInstanceInstructions(zest_layer layer) {

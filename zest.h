@@ -3260,7 +3260,6 @@ ZEST_PRIVATE void zest__update_instance_layer_resolution(zest_layer layer);
 ZEST_PRIVATE void zest__record_mesh_layer(zest_layer layer, zest_uint fif);
 ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
 ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
-ZEST_PRIVATE int zest__layer_has_instructions_callback(zest_draw_routine draw_routine);
 
 // --Texture internal functions
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
@@ -4398,6 +4397,8 @@ ZEST_API void zest_SetActiveCommandQueue(zest_command_queue command_queue);
 //Create a new draw routine which you can use to set up your own custom drawing
 ZEST_API zest_draw_routine zest_CreateDrawRoutine(const char *name);
 ZEST_API zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size instance_size, zest_uint reserve_amount);
+ZEST_API int zest_LayerHasInstructionsCallback(zest_draw_routine draw_routine);
+ZEST_API int zest_AlwaysRecordCallback(zest_draw_routine draw_routine);
 //-- End Draw Routines
 
 //-----------------------------------------------

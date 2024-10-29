@@ -106,7 +106,6 @@ void RecordComputeSprites(struct zest_work_queue_t *queue, void *data) {
 	zest_Draw(command_buffer, 6, GetTotalSpritesThatNeedDrawing(&example.animation_manager_3d), 0, 0);
 	
 	zest_EndRecording(draw_routine->recorder, ZEST_FIF);
-	draw_routine->record_pending = 0;
 }
 
 //A callback for when the window size is changed so we can update the layer push constants that contain the current screen size
@@ -512,6 +511,7 @@ void InitExample(ComputeExample *example) {
 	//Create a custom draw routine for drawing the sprites that are written by the effect playback compute shader
 	example->tfx_rendering.draw_routine = zest_CreateDrawRoutine("timelinefx draw routine");
 	example->tfx_rendering.draw_routine->record_callback = RecordComputeSprites;
+	example->tfx_rendering.draw_routine->condition_callback = zest_AlwaysRecordCallback;
 	example->tfx_rendering.draw_routine->user_data = example;
 	UpdateSpriteResolution(example->tfx_rendering.draw_routine);
 
@@ -812,7 +812,6 @@ void Update(zest_microsecs elapsed, void *data) {
 		tfx_sprite_data_metrics_t &metrics = example->animation_manager_3d.effect_animation_info.data[instance.info_index];
 	}
 	UpdateAnimationManager(&example->animation_manager_3d, elapsed / 1000.f);
-	zest_SetDrawRoutinePendingRecord(example->tfx_rendering.draw_routine);
 
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->floor_resources, example->mesh_pipeline);
