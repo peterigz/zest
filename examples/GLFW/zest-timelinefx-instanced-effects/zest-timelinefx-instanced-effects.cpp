@@ -406,6 +406,8 @@ void InitExample(ComputeExample *example) {
 
 	//Get some effects from the library which we will record as a pre-baked particle animation. The settings for each effect
 	//such as how much compression to use is saved in the TimelineFX editor.
+	//tfx_effect_emitter_t *effect1 = GetLibraryEffect(&example->library, "Test 1");
+	//tfx_effect_emitter_t *effect2 = GetLibraryEffect(&example->library, "Test 2");
 	tfx_effect_emitter_t *effect1 = GetLibraryEffect(&example->library, "Big Explosion");
 	tfx_effect_emitter_t *effect2 = GetLibraryEffect(&example->library, "Star Burst Flash");
 	tfx_effect_emitter_t *effect3 = GetLibraryEffect(&example->library, "EmissionSingleShot");
@@ -448,8 +450,9 @@ void InitExample(ComputeExample *example) {
 	BuildGPUShapeData(GetParticleShapes(&example->library), &example->gpu_image_data, GetUV);
 	//Add all the sprite data of the pre-recorded effect that we made when we called RecordSpriteData3d earlier. You must call RecordSpriteData3d
 	//for each effect animation that you want to add to the animation manager.
-	tfx::AddSpriteData(&example->animation_manager_3d, effect1, &example->pm, camera_position_for_recording);
+	tfx_sprite_data_settings_t &anim = example->library.sprite_data_settings[GetEffectInfo(effect2)->sprite_data_settings_index];
 	tfx::AddSpriteData(&example->animation_manager_3d, effect2, &example->pm, camera_position_for_recording);
+	tfx::AddSpriteData(&example->animation_manager_3d, effect1, &example->pm, camera_position_for_recording);
 	tfx::AddSpriteData(&example->animation_manager_3d, effect3, &example->pm, camera_position_for_recording);
 	tfx::AddSpriteData(&example->animation_manager_3d, effect4, &example->pm, camera_position_for_recording);
 
@@ -701,6 +704,7 @@ void Update(zest_microsecs elapsed, void *data) {
 		}
 		if (anim_id != tfxINVALID) {
 			//As long as we get a valie anim id, set it's position and random scale.
+			tfx_vec3_t position = tfx_vec3_t(RandomRange(&example->pm.random, -10.f, 10.f), RandomRange(&example->pm.random, 8.f, 15.f), RandomRange(&example->pm.random, -10.f, 10.f));
 			SetAnimationPosition(&example->animation_manager_3d, anim_id, &position.x);
 			SetAnimationScale(&example->animation_manager_3d, anim_id, RandomRange(&example->pm.random, 0.5f, 1.5f));
 		}
@@ -715,13 +719,13 @@ void Update(zest_microsecs elapsed, void *data) {
 	if (example->trigger_effect >= ZEST_MILLISECONDS_IN_MICROSECONDS(25)) {
 		tfxAnimationID anim_id = tfxINVALID;
 		if (r == 0) {
-			//anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion", 0);
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Big Explosion", 0);
 		} else if (r == 1) {
-			//anim_id = AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash", 0);
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash", 0);
 		} else if (r == 2) {
 			anim_id = AddAnimationInstance(&example->animation_manager_3d, "EmissionSingleShot", 0);
 		} else if (r == 3) {
-			//anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework", 0);
+			anim_id = AddAnimationInstance(&example->animation_manager_3d, "Firework", 0);
 		}
 		if (anim_id != tfxINVALID) {
 			tfx_vec3_t position = tfx_vec3_t(RandomRange(&example->pm.random, -10.f, 10.f), RandomRange(&example->pm.random, 8.f, 15.f), RandomRange(&example->pm.random, -10.f, 10.f));
@@ -802,8 +806,12 @@ void Update(zest_microsecs elapsed, void *data) {
 	//Update the animation manager each frame. This will advance the time of each animation instance that's currently playing
 	//Pass the amount of time that has elapsed since the last time the function was called
 	//This could also be placed in the fixed rate update loop with an elapsed time of the update frequency
+	for (auto i : example->animation_manager_3d.instances_in_use[example->animation_manager_3d.current_in_use_buffer]) {
+		tfx_animation_instance_t &instance = example->animation_manager_3d.instances[i];
+		tfx_sprite_data_metrics_t &metrics = example->animation_manager_3d.effect_animation_info.data[instance.info_index];
+	}
 	UpdateAnimationManager(&example->animation_manager_3d, elapsed / 1000.f);
-	
+
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->floor_resources, example->mesh_pipeline);
 	zest_DrawTexturedPlane(example->mesh_layer, example->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
@@ -831,6 +839,7 @@ int main() {
 
 	//Initialise TimelineFX. Must be run before using any timeline fx functionality.
 	InitialiseTimelineFX(std::thread::hardware_concurrency(), tfxMegabyte(128));
+	//InitialiseTimelineFX(0, tfxMegabyte(128));
 
 	ComputeExample example;
 
