@@ -1,12 +1,13 @@
 #pragma once
 
 #include <zest.h>
+#include "implementations/impl_imgui.h"
 #include "implementations/impl_glfw.h"
 #include "implementations/impl_imgui_glfw.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
-#include "../../timelinefxlib/timelinefx.h"
+#include "../../TimelineFXLib/timelinefx.h"
 
 using namespace tfx;
 
@@ -16,8 +17,26 @@ struct AnimationComputeConstants {
 	tfxU32 flags;
 };
 
+struct tfx_render_resources_t {
+	zest_texture particle_texture;
+	zest_texture color_ramps_texture;
+	zest_draw_routine draw_routine;
+	zest_layer layer;
+	zest_descriptor_buffer uniform_buffer_3d;
+	zest_descriptor_set uniform_buffer_descriptor_set;
+	zest_descriptor_buffer image_data;
+	zest_descriptor_set particle_descriptor;
+	zest_pipeline pipeline;
+	zest_shader_resources shader_resource;
+	zest_descriptor_set_layout descriptor_layout;
+	zest_descriptor_set_t descriptor_set;
+	zest_shader fragment_shader;
+	zest_shader vertex_shader;
+};
+
 struct ComputeExample {
 	zest_compute compute;
+	zest_compute bounding_box_compute;
 	bool left_mouse_clicked;
 	bool right_mouse_clicked;
 
@@ -40,6 +59,11 @@ struct ComputeExample {
 	//We also need to store some additional emitter property data such as the sprite handle which is looked up by the 
 	//compute shader each frame
 	zest_descriptor_buffer emitter_properties_buffer;
+	//This example we are building pre-recording the effects from an effects library as apposed to just loading in a
+	//sprite data file that has all the effects and sprite data pre-built. Therefore if we want bounding boxed for the 
+	//effects we will need to calculate those after recording the effects (this is optional). With the bounding boxes
+	//we can cull effects that are outside the viewing frustum.
+	zest_descriptor_buffer bounding_boxes;
 
 	//For GPU drivers that don't have the capability to write directly to the GPU buffer you will need
 	//staging buffers to write to first before uploading those to the GPU device buffers. We only need to upload
@@ -47,21 +71,24 @@ struct ComputeExample {
 	zest_buffer animation_instances_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer offsets_staging_buffer[ZEST_MAX_FIF];
 
-	zest_imgui_layer_info imgui_layer_info;
+	tfx_render_resources_t tfx_rendering;
+
+	zest_imgui_layer_info_t imgui_layer_info;
 	tfx_gpu_shapes_t gpu_image_data;
 	zest_push_constants_t push_contants;
 	zest_timer timer;
 	zest_camera_t camera;
 
-	zest_texture particle_texture;
-	zest_draw_routine draw_routine;
 	zest_layer mesh_layer;			//To draw the floor plain
 	zest_pipeline mesh_pipeline;
 	zest_image floor_image;
 	zest_texture floor_texture;
+	zest_shader_resources floor_resources;
+	tfx_random_t random;
 
 	//Indexes for the compute shader pipelines
 	zest_index compute_pipeline_3d;
+	zest_index bb_compute_pipeline_3d;
 
 	tfx_animation_manager_t animation_manager_3d;
 	AnimationComputeConstants animation_manager_push_constants;
@@ -69,16 +96,18 @@ struct ComputeExample {
 	zest_millisecs record_time;
 	bool effect_is_3d;
 	zest_vec4 planes[6];
-	tfx_random_t random;
 
 	zest_microsecs trigger_effect;
 };
 
 void SpriteComputeFunction(zest_command_queue_compute compute_routine);
-void DrawComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffer);
+void BoundingBoxComputeFunction(zest_compute compute, VkCommandBuffer command_buffer);
+void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *animation_manager, tfx_effect_emitter_t *effect);
+void RecordComputeSprites(zest_draw_routine routine, VkCommandBuffer command_buffer);
 void UpdateSpriteResolution(zest_draw_routine routine);
 void InitExample(ComputeExample *example);
 void PrepareComputeForEffectPlayback(ComputeExample *example);
+void PrepareComputeForBoundingBoxCalculation(ComputeExample *example);
 void UploadBuffers(ComputeExample *example);
 void UpdateUniform3d(ComputeExample *game);
 void Update(zest_microsecs elapsed, void *data);

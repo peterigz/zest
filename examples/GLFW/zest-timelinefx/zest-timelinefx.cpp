@@ -260,7 +260,7 @@ void TimelineFXExample::Init() {
 	InitializeParticleManager(&pm, &library, pm_info);
 
 	//Renderer specific that sets up some draw layers
-	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);
+	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.1f, 0.1f, .1f, 1.f);
 
 	zest_imgui_Initialise(&imgui_layer_info);
 
@@ -284,8 +284,8 @@ void TimelineFXExample::Init() {
 	* @param effect_template			The empty tfx_effect_template_t object that you want the effect loading into
 	//Returns true on success.
 	*/
-	PrepareEffectTemplate(&library, "Star Burst Flash", &effect_template1);
-	PrepareEffectTemplate(&library, "Star Burst Flash.1", &effect_template2);
+	PrepareEffectTemplate(&library, "Player Bullet", &effect_template1);
+	PrepareEffectTemplate(&library, "Vader Explosion", &effect_template2);
 }
 
 //Draw a Dear ImGui window to output some basic stats
@@ -344,7 +344,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Add the effect template to the particle manager
 		if(AddEffectToParticleManager(&game->pm, &game->effect_template2, &effect_id)) {
 			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d);
+			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 2.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d);
 			//Set the effect position
 			SetEffectPosition(&game->pm, effect_id, position);
 		}

@@ -388,22 +388,6 @@ void InitExample(ComputeExample *example) {
 	//Process the texture with all the particle shapes that we just added to
 	zest_ProcessTextureImages(example->tfx_rendering.particle_texture);
 
-	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
-	//simply copied to a bitmap for uploading to the texture
-	for (tfx_bitmap_t &bitmap : example->library.color_ramp_bitmaps) {
-		zest_bitmap_t temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap.data, (int)bitmap.size, bitmap.width, bitmap.height, bitmap.channels);
-		zest_AddTextureImageBitmap(example->tfx_rendering.color_ramps_texture, &temp_bitmap);
-	}
-	//Process the color ramp texture to upload it all to the gpu
-	zest_ProcessTextureImages(example->tfx_rendering.color_ramps_texture);
-	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
-	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
-	UpdateLibraryGPUImageData(&example->library);
-
-	//Now upload the image data to the GPU and set up the shader resources ready for rendering
-	UpdateTimelineFXImageData(example->tfx_rendering, example->library);
-	CreateTimelineFXShaderResources(example->tfx_rendering);
-
 	//Get some effects from the library which we will record as a pre-baked particle animation. The settings for each effect
 	//such as how much compression to use is saved in the TimelineFX editor.
 	//tfx_effect_emitter_t *effect1 = GetLibraryEffect(&example->library, "Test 1");
@@ -455,6 +439,21 @@ void InitExample(ComputeExample *example) {
 	tfx::AddSpriteData(&example->animation_manager_3d, effect1, &example->pm, camera_position_for_recording);
 	tfx::AddSpriteData(&example->animation_manager_3d, effect3, &example->pm, camera_position_for_recording);
 	tfx::AddSpriteData(&example->animation_manager_3d, effect4, &example->pm, camera_position_for_recording);
+
+	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
+	//simply copied to a bitmap for uploading to the texture
+	for (tfx_bitmap_t &bitmap : example->animation_manager_3d.color_ramps.color_ramp_bitmaps) {
+		zest_bitmap_t temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap.data, (int)bitmap.size, bitmap.width, bitmap.height, bitmap.channels);
+		zest_AddTextureImageBitmap(example->tfx_rendering.color_ramps_texture, &temp_bitmap);
+	}
+	//Process the color ramp texture to upload it all to the gpu
+	zest_ProcessTextureImages(example->tfx_rendering.color_ramps_texture);
+	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
+	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
+	UpdateLibraryGPUImageData(&example->library);
+	//Now upload the image data to the GPU and set up the shader resources ready for rendering
+	UpdateTimelineFXImageData(example->tfx_rendering, example->library);
+	CreateTimelineFXShaderResources(example->tfx_rendering);
 
 	//Render Specific - Create the 6 buffers needed for the compute shader. Create these after you've added all the effect animations you want to use
 	//to the animation manager.
