@@ -8242,7 +8242,7 @@ void zest__make_image_bank(zest_texture texture, zest_uint size) {
         //array_texture[id] = gli::texture2d(format, gli::texture2d::extent_type(size, size), 1);
 
         //memcpy(array_texture[id][0].data(), tmp_image.data, array_texture[id][0].size());
-        memcpy(zest_BitmapArrayLookUp(&texture->bitmap_array, id), tmp_image.data, texture->bitmap_array.size_of_each_image);
+        zloc_SafeCopy(zest_BitmapArrayLookUp(&texture->bitmap_array, id), tmp_image.data, texture->bitmap_array.size_of_each_image);
         zest_FreeBitmap(&tmp_image);
 
         id++;
@@ -8477,7 +8477,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
             }
         }
 
-        memcpy(zest_BitmapArrayLookUp(&texture->bitmap_array, current_layer), tmp_image.data, texture->bitmap_array.size_of_each_image);
+        zloc_SafeCopy(zest_BitmapArrayLookUp(&texture->bitmap_array, current_layer), tmp_image.data, texture->bitmap_array.size_of_each_image);
 
         zest_vec_push(texture->layers, tmp_image);
         current_layer++;
@@ -9141,7 +9141,7 @@ void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t* image, int 
     // Map image memory so we can start copying from it
     void* data = 0;
     vkMapMemory(ZestDevice->logical_device, temp_memory, 0, VK_WHOLE_SIZE, 0, &data);
-    memcpy(image->data, data, image->size);
+    zloc_SafeCopy(image->data, data, image->size);
 
     if (color_swizzle) {
         zest_ConvertBGRAToRGBA(image);
@@ -9170,23 +9170,23 @@ zest_font zest_LoadMSDFFont(const char* filename) {
 
     zest_uint position = 0;
     char magic_number[6];
-    memcpy(magic_number, font_data + position, 6);
+    zloc_SafeCopy(magic_number, font_data + position, 6);
     position += 6;
     ZEST_ASSERT(strcmp((const char*)magic_number, "!TSEZ") == 0);        //Not a valid ztf file
 
-    memcpy(&character_count, font_data + position, sizeof(zest_uint));
+    zloc_SafeCopy(&character_count, font_data + position, sizeof(zest_uint));
     position += sizeof(zest_uint);
-    memcpy(&file_version, font_data + position, sizeof(zest_uint));
+    zloc_SafeCopy(&file_version, font_data + position, sizeof(zest_uint));
     position += sizeof(zest_uint);
-    memcpy(&font->pixel_range, font_data + position, sizeof(float));
+    zloc_SafeCopy(&font->pixel_range, font_data + position, sizeof(float));
     position += sizeof(float);
-    memcpy(&font->miter_limit, font_data + position, sizeof(float));
+    zloc_SafeCopy(&font->miter_limit, font_data + position, sizeof(float));
     position += sizeof(float);
-    memcpy(&font->padding, font_data + position, sizeof(float));
+    zloc_SafeCopy(&font->padding, font_data + position, sizeof(float));
     position += sizeof(float);
 
     for (zest_uint i = 0; i != character_count; ++i) {
-        memcpy(&c, font_data + position, sizeof(zest_font_character_t));
+        zloc_SafeCopy(&c, font_data + position, sizeof(zest_font_character_t));
         position += sizeof(zest_font_character_t);
 
         font->max_yoffset = ZEST__MAX(fabsf(c.yoffset), font->max_yoffset);
@@ -9196,19 +9196,19 @@ zest_font zest_LoadMSDFFont(const char* filename) {
         font->characters[key] = c;
     }
 
-    memcpy(&font->font_size, font_data + position, sizeof(float));
+    zloc_SafeCopy(&font->font_size, font_data + position, sizeof(float));
     position += sizeof(float);
 
     zest_uint image_size;
 
-    memcpy(&image_size, font_data + position, sizeof(zest_uint));
+    zloc_SafeCopy(&image_size, font_data + position, sizeof(zest_uint));
     position += sizeof(zest_uint);
     zest_byte* image_data = 0;
     zest_vec_resize(image_data, image_size);
     size_t buffer_size;
-    memcpy(&buffer_size, font_data + position, sizeof(size_t));
+    zloc_SafeCopy(&buffer_size, font_data + position, sizeof(size_t));
     position += sizeof(size_t);
-    memcpy(image_data, font_data + position, buffer_size);
+    zloc_SafeCopy(image_data, font_data + position, buffer_size);
 
     font->texture = zest_CreateTextureSingle(filename, zest_texture_format_rgba);
 

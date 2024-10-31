@@ -1114,6 +1114,20 @@ int zloc_Free(zloc_allocator *allocator, void* allocation) {
 	return 1;
 }
 
+int zloc_SafeCopy(void *dst, void *src, zloc_size size) {
+    zloc_header *block = zloc__block_from_allocation(dst);
+    if (size > block->size) {
+        return 0;
+    }
+    zloc_header *next_physical_block = zloc__next_physical_block(block);
+    ptrdiff_t diff_check = (ptrdiff_t)((char *)dst + size) - (ptrdiff_t)next_physical_block;
+    if (diff_check > 0) {
+        return 0;
+    }
+    memcpy(dst, src, size);
+    return 1;
+}
+
 #if defined(ZLOC_ENABLE_REMOTE_MEMORY)
 /*
 	Standard callbacks, you can copy paste these to replace with your own as needed to add any extra functionality
