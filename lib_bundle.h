@@ -1117,11 +1117,25 @@ int zloc_Free(zloc_allocator *allocator, void* allocation) {
 int zloc_SafeCopy(void *dst, void *src, zloc_size size) {
     zloc_header *block = zloc__block_from_allocation(dst);
     if (size > block->size) {
+        assert(0);  //Trying to copy outside of the memory block
         return 0;
     }
     zloc_header *next_physical_block = zloc__next_physical_block(block);
     ptrdiff_t diff_check = (ptrdiff_t)((char *)dst + size) - (ptrdiff_t)next_physical_block;
     if (diff_check > 0) {
+        assert(0);  //Trying to copy outside of the memory block
+        return 0;
+    }
+    memcpy(dst, src, size);
+    return 1;
+}
+
+int zloc_SafeCopyBlock(void *dst_block_start, void *dst, void *src, zloc_size size) {
+    zloc_header *block = zloc__block_from_allocation(dst_block_start);
+    zloc_header *next_physical_block = zloc__next_physical_block(block);
+    ptrdiff_t diff_check = (ptrdiff_t)((char *)dst + size) - (ptrdiff_t)next_physical_block;
+    if (diff_check > 0) {
+        assert(0);  //Trying to copy outside of the memory block
         return 0;
     }
     memcpy(dst, src, size);
