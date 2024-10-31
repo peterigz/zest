@@ -7479,7 +7479,7 @@ zest_image zest_AddTextureImageFile(zest_texture texture, const char* filename) 
     image->index = texture->image_index;
     if (texture->storage_type == zest_texture_storage_type_single) {
         if (zest_vec_size(texture->image_bitmaps)) {
-            ZEST_LOG(ZestDevice->log_path.str, "INFO: Added image to single texture %s but this texture already has an image bitmap. This bitmap gets replaced with the new image (%s) you just added.", texture->name.str, filename);
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "INFO: Added image to single texture %s but this texture already has an image bitmap. This bitmap gets replaced with the new image (%s) you just added.", texture->name.str, filename);
 			zest_FreeTextureBitmaps(texture);
         }
     }
@@ -7511,7 +7511,7 @@ zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t* bitma
     zest_CopyWholeBitmap(bitmap_to_load, &image_copy);
     if (texture->storage_type == zest_texture_storage_type_single) {
         if (zest_vec_size(texture->image_bitmaps)) {
-            ZEST_LOG(ZestDevice->log_path.str, "INFO: Added image to single texture %s but this texture already has an image bitmap. This bitmap gets replaced with the new image (%s) you just added.", texture->name.str, bitmap_to_load->name.str ? bitmap_to_load : "has no name");
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "INFO: Added image to single texture %s but this texture already has an image bitmap. This bitmap gets replaced with the new image (%s) you just added.", texture->name.str, bitmap_to_load->name.str ? bitmap_to_load->name.str : "has no name");
 			zest_FreeTextureBitmaps(texture);
         }
     }
@@ -7540,7 +7540,7 @@ zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, co
     image->index = texture->image_index;
     if (texture->storage_type == zest_texture_storage_type_single) {
         if (zest_vec_size(texture->image_bitmaps)) {
-            ZEST_LOG(ZestDevice->log_path.str, "INFO: Added image to single texture %s but this texture already has an image bitmap. This bitmap gets replaced with the new image (%s) you just added.", texture->name.str, name ? name : "has no name");
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "INFO: Added image to single texture %s but this texture already has an image bitmap. This bitmap gets replaced with the new image (%s) you just added.", texture->name.str, name ? name : "has no name");
 			zest_FreeTextureBitmaps(texture);
         }
     }
