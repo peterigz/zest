@@ -8222,26 +8222,19 @@ void zest__make_image_bank(zest_texture texture, zest_uint size) {
         image->texture = texture;
 
         zest_bitmap_t tmp_image = zest_NewBitmap();
-        zest_AllocateBitmap(&tmp_image, image->width, image->height, texture->color_channels, zest_ColorSet1(0));
+        zest_AllocateBitmap(&tmp_image, size, size, texture->color_channels, zest_ColorSet1(0));
 
         if (image->width != size || image->height != size) {
-            zest_bitmap_t* image_bitmap = &texture->image_bitmaps[image->index];
-            zest_CopyBitmap(image_bitmap, 0, 0, image->width, image->height, &tmp_image, 0, 0);
-            stbir_resize_uint8(tmp_image.data, tmp_image.width, tmp_image.height, tmp_image.stride, tmp_image.data, size, size, size * 4, 4);
-        }
-        else {
-            zest_bitmap_t* image_bitmap = &texture->image_bitmaps[image->index];
+            zest_bitmap_t *image_bitmap = &texture->image_bitmaps[image->index];
+            stbir_resize_uint8(image_bitmap->data, image_bitmap->width, image_bitmap->height, image_bitmap->stride, tmp_image.data, size, size, tmp_image.stride, 4);
+        } else {
+            zest_bitmap_t *image_bitmap = &texture->image_bitmaps[image->index];
             zest_CopyBitmap(image_bitmap, 0, 0, size, size, &tmp_image, 0, 0);
         }
 
         tmp_image.width = size;
         tmp_image.height = size;
 
-        //auto format = gli::FORMAT_RGBA8_UNORM_PACK8;
-
-        //array_texture[id] = gli::texture2d(format, gli::texture2d::extent_type(size, size), 1);
-
-        //memcpy(array_texture[id][0].data(), tmp_image.data, array_texture[id][0].size());
         zloc_SafeCopyBlock(texture->bitmap_array.data, zest_BitmapArrayLookUp(&texture->bitmap_array, id), tmp_image.data, texture->bitmap_array.size_of_each_image);
         zest_FreeBitmap(&tmp_image);
 
