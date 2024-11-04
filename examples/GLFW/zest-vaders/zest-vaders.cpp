@@ -223,6 +223,19 @@ void GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
 	image_data->uv_packed = image->uv_packed;
 }
 
+float LengthVec3NoSqr(tfx_vec3_t const *v) {
+	return v->x * v->x + v->y * v->y + v->z * v->z;
+}
+
+float LengthVec3(tfx_vec3_t const *v) {
+	return sqrtf(LengthVec3NoSqr(v));
+}
+
+tfx_vec3_t NormalizeVec3(tfx_vec3_t const *v) {
+	float length = LengthVec3(v);
+	return length > 0.f ? tfx_vec3_t(v->x / length, v->y / length, v->z / length) : *v;
+}
+
 //Function to project 2d screen coordinates into 3d space
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_descriptor_buffer buffer) {
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
@@ -740,7 +753,7 @@ void UpdateVaders(VadersGame *game) {
 				vader.flags &= ~VaderFlags_firing_laser;
 			}
 			else {
-				tfx_vec3_t laser_normal = tfx_NormalizeVec3(&laser_offset);
+				tfx_vec3_t laser_normal = NormalizeVec3(&laser_offset);
 				//Check to see if the laser is colliding with the player
 				if (game->state != GameState_game_over && IsLineCircleCollision(vader.position + laser_offset, vader.position + laser_offset + (laser_normal * 20.f), game->player.position, .3f)) {
 					//Destroy the player. Add the player explosion to the particle manager and position/scale it.
@@ -765,7 +778,8 @@ void UpdatePowerUps(VadersGame *game) {
 	int next_buffer = !game->current_buffer;
 	game->power_ups[next_buffer].clear();
 	for (auto &power_up : game->power_ups[game->current_buffer]) {
-		tfx_vec3_t position = tfx_GetEffectPositionVec3(&game->game_pm, power_up);
+		tfx_vec3_t position;
+		tfx_GetEffectPositionVec3(&game->game_pm, power_up, &position.x);
 		if (tfx_GetDistance(position.z, position.y, game->player.position.z, game->player.position.y) < 0.3f) {
 			tfx_HardExpireEffect(&game->game_pm, power_up);
 			tfxEffectID effect_index;
@@ -1006,15 +1020,19 @@ void DrawPlayer(VadersGame *game) {
 	zest_DrawBillboardSimple(game->billboard_layer, game->player_image, &game->player.position.x, 0.f, 1.f, 1.f);
 }
 
+tfx_vec3_t InterpolateVec3(float tween, tfx_vec3_t from, tfx_vec3_t to) {
+	return to * tween + from * (1.f - tween);
+}
+
 void DrawVaders(VadersGame *game, float lerp) {
 	zest_SetLayerColor(game->billboard_layer, 255, 255, 255, 255);
 	zest_SetLayerIntensity(game->billboard_layer, 1.f);
 	for (auto &vader : game->vaders[game->current_buffer]) {
-		tfx_vec3_t tween = tfx_InterpolateVec3(lerp, vader.captured, vader.position);
+		tfx_vec3_t tween = InterpolateVec3(lerp, vader.captured, vader.position);
 		zest_DrawBillboardSimple(game->billboard_layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 0.5f, 0.5f);
 	}
 	for (auto &vader : game->big_vaders[game->current_buffer]) {
-		tfx_vec3_t tween = tfx_InterpolateVec3(lerp, vader.captured, vader.position);
+		tfx_vec3_t tween = InterpolateVec3(lerp, vader.captured, vader.position);
 		zest_DrawBillboardSimple(game->billboard_layer, vader.image, &tween.x, tfx_DegreesToRadians(vader.angle), 1.f, 1.f);
 	}
 }
@@ -1022,7 +1040,7 @@ void DrawVaders(VadersGame *game, float lerp) {
 void DrawVaderBullets(VadersGame *game, float lerp) {
 	for (auto &bullet : game->vader_bullets[game->current_buffer]) {
 		int frame_offset = (int)bullet.frame % 64;
-		tfx_vec3_t tween = tfx_InterpolateVec3(lerp, bullet.captured, bullet.position);
+		tfx_vec3_t tween = InterpolateVec3(lerp, bullet.captured, bullet.position);
 		zest_SetLayerColor(game->billboard_layer, 255, 255, 255, 0);
 		zest_SetLayerIntensity(game->billboard_layer, 1.2f);
 		zest_DrawBillboardSimple(game->billboard_layer, game->vader_bullet_image + frame_offset, &tween.x, 0.f, 0.25f, 0.25f);
@@ -1234,8 +1252,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
 	zest_uint packed = zest_Pack8bitx3(&v);
 	zest_create_info_t create_info = zest_CreateInfo();

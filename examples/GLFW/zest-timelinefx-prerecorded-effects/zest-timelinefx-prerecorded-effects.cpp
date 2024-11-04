@@ -215,40 +215,6 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 	//zest_ComputeToVertexBarrier();
 }
 
-//This function is the callback function that will be used when we call zest_RunCompute. This is used when we want to run a compute
-//shader just the once to calculate something, in this case the bounding box calculation for every frame of animation in each effect
-//that we're using.
-void BoundingBoxComputeFunction(zest_compute compute, VkCommandBuffer command_buffer) {
-	//The compute queue item can contain more then one compute shader to be dispatched
-	//There's only one in this editor though which we created in the PrepareCompute function
-	ComputeExample *example = static_cast<ComputeExample *>(compute->user_data);
-
-	//Bind the pipeline and specify the command buffer because this will be a one off call of the compute shader, rather than
-	//a compute shader that is run every frame in a rendering pipeline
-	zest_BindComputePipelineCB(command_buffer, compute, example->bb_compute_pipeline_3d);
-
-	//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
-	auto metrics = tfx_GetAnimationBufferMetrics(&example->animation_manager_3d);
-
-	//Update the push constants with some metrics. These are referenced in the compute shader.
-	//The total number of animation instances that need to be drawn
-	compute->push_constants.parameters.x = (float)metrics.instances_size;
-	//If any animation instance contains animated shapes then set to 1. the compute shader can use this to avoid some unecessary
-	//computation if all particle shapes are not animated
-	compute->push_constants.parameters.y = float(example->animation_manager_3d.flags & tfxAnimationManagerFlags_has_animated_shapes);
-	//Set the total number of sprites that need to be processed by the shader
-	compute->push_constants.parameters.z = (float)metrics.total_sprites_to_draw;
-
-	//Send the push constants in the compute object to the shader
-	zest_SendComputePushConstants(command_buffer, compute);
-
-	//Note that the compute shader group size is 128, but because of the parallel reduction that we're doing in the compute shader we
-	//actually make the group count half what it would normally be because we perform the first comparison on the first and second 128
-	//sprites. So effectively each group will actually be working on 256 sprites each. Look in the compute shader for more info on this.
-	tfxU32 frame_group_count = (metrics.total_sprites_to_draw / 256) + 1;
-	zest_DispatchComputeCB(command_buffer, compute, frame_group_count, 1, 1);
-}
-
 void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, const char *library_path) {
 	render_resources.uniform_buffer_3d = zest_CreateUniformBuffer("3d uniform", sizeof(zest_uniform_buffer_data_t));
 	render_resources.uniform_buffer_descriptor_set = zest_CreateUniformDescriptorSet(render_resources.uniform_buffer_3d);
@@ -386,7 +352,7 @@ void InitExample(ComputeExample *example) {
 	CreateTimelineFXShaderResources(example->tfx_rendering);
 
 	//Build the gpu image data. Pass the GetUV function which you will have to create based on your renderer.
-	tfx_BuildGPUShapeData(tfx_GetParticleShapes(&example->animation_manager_3d), &example->gpu_image_data, GetUV);
+	tfx_BuildGPUShapeData(tfx_GetParticleShapesAnimationManager(&example->animation_manager_3d), &example->gpu_image_data, GetUV);
 	//Update the image data to the gpu
 	UpdateTimelineFXImageData(example->tfx_rendering, example->gpu_image_data);
 
@@ -666,8 +632,8 @@ void Update(zest_microsecs elapsed, void *data) {
 }
 
 #if defined(_WIN32)
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest

@@ -431,7 +431,7 @@ void InitExample(ComputeExample *example) {
 	example->record_time = zest_Millisecs();		//See how long it takes to record.
 
 	//You MUST build the compute shape data before Adding sprite data. Pass the GetUV function which you will have to create based on your renderer.
-	tfx_BuildGPUShapeData(tfx_GetParticleShapes(&example->library), &example->gpu_image_data, GetUV);
+	tfx_BuildGPUShapeData(tfx_GetParticleShapesLibrary(&example->library), &example->gpu_image_data, GetUV);
 	//Add all the sprite data of the pre-recorded effect that we made when we called RecordSpriteData3d earlier. You must call RecordSpriteData3d
 	//for each effect animation that you want to add to the animation manager.
 	tfx_AddSpriteData(&example->animation_manager_3d, effect2, &example->pm, camera_position_for_recording);
@@ -823,8 +823,8 @@ void Update(zest_microsecs elapsed, void *data) {
 }
 
 #if defined(_WIN32)
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
