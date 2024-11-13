@@ -1,3 +1,4 @@
+#include "timelinefx-test.h"
 #include <zest.h>
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
@@ -13,6 +14,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	create_info.log_path = "./";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
+	//tfx_InitialiseTimelineFX(0, 128 * 1024 * 1024);
+
 	//Initialise Zest with the configuration
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);
@@ -21,6 +24,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 
 	//Start the Zest main loop
 	zest_Start();
+
+	//tfx_EndTimelineFX();
 
 	return 0;
 }
