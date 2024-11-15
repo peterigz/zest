@@ -5,8 +5,6 @@
 #include "impl_imgui_glfw.h"
 #include "timelinefx.h"
 
-using namespace tfx;
-
 #define x_distance 0.078f
 #define y_distance 0.158f
 #define x_spacing 0.040f
@@ -391,7 +389,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 
 	TimelineFXExample game;
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
-	tfx_InitialiseTimelineFX(std::thread::hardware_concurrency(), tfxMegabyte(128));
+	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
 
 	zest_Initialise(&create_info);
 	zest_SetUserData(&game);
@@ -399,6 +397,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	game.Init();
 
 	zest_Start();
+
+	tfx_EndTimelineFX();
 
 	return 0;
 }
