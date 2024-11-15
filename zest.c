@@ -128,6 +128,16 @@ void zest__os_poll_events() {
     ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
     ZestApp->mouse_button = 0;
 
+    if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {  // Left button
+        ZestApp->mouse_button |= 1;
+    }
+    if (GetAsyncKeyState(VK_RBUTTON) & 0x8000) {  // Right button
+        ZestApp->mouse_button |= 2;
+    }
+    if (GetAsyncKeyState(VK_MBUTTON) & 0x8000) {  // Middle button
+        ZestApp->mouse_button |= 4;
+    }
+
     for (;;) {
         BOOL result = 0;
         DWORD SkipMessages[] = { 0x738, 0xFFFFFFFF };
@@ -150,7 +160,6 @@ void zest__os_poll_events() {
             break;
         }
     }
-
 }
 
 zest_window zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
@@ -2181,7 +2190,12 @@ void zest__main_loop(void) {
 
         zest__do_scheduled_tasks();
 
+        ZestApp->mouse_hit = 0;
+        zest_mouse_button button_state = ZestApp->mouse_button;
+
         ZestRenderer->poll_events_callback();
+
+        ZestApp->mouse_hit = button_state & (~ZestApp->mouse_button);
 
         zest__set_elapsed_time();
 
@@ -4908,6 +4922,8 @@ float zest_ScreenWidthf() { return (float)ZestApp->window->window_width; }
 float zest_ScreenHeightf() { return (float)ZestApp->window->window_height; }
 float zest_MouseXf() { return (float)ZestApp->mouse_x; }
 float zest_MouseYf() { return (float)ZestApp->mouse_y; }
+bool zest_MouseDown(zest_mouse_button button) { return (button & ZestApp->mouse_button) > 0; }
+bool zest_MouseHit(zest_mouse_button button) { return (button & ZestApp->mouse_hit) > 0; }
 float zest_DPIScale(void) { return ZestRenderer->dpi_scale; }
 void zest_SetDPIScale(float scale) { ZestRenderer->dpi_scale = scale; }
 zest_uint zest_FPS() { return ZestApp->last_fps; }

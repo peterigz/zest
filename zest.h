@@ -1262,6 +1262,14 @@ typedef enum {
 typedef zest_uint zest_buffer_flags;
 
 typedef enum {
+    zest_left_mouse =       1,
+    zest_right_mouse =       1 << 1,
+    zest_middle_mouse =     1 << 2
+} zest_mouse_button_e;
+
+typedef zest_uint zest_mouse_button;
+
+typedef enum {
     zest_render_viewport_type_scale_with_window,
     zest_render_viewport_type_fixed
 } zest_render_viewport_type;
@@ -2372,7 +2380,8 @@ typedef struct zest_app_t {
     double mouse_y;
     double mouse_delta_x;
     double mouse_delta_y;
-    int mouse_button;
+    zest_mouse_button mouse_button;
+    zest_mouse_button mouse_hit;
 
     zest_uint frame_count;
     zest_uint last_fps;
@@ -4860,6 +4869,10 @@ ZEST_API float zest_ScreenHeightf(void);
 ZEST_API float zest_MouseXf();
 //Get the current mouse y screen coordinate as a float
 ZEST_API float zest_MouseYf();
+//Returns true if the mouse button is held down
+ZEST_API bool zest_MouseDown(zest_mouse_button button);
+//Returns true if the mouse button has been pressed and then released since the last frame
+ZEST_API bool zest_MouseHit(zest_mouse_button button);
 //For retina screens this will return the current screen DPI
 ZEST_API float zest_DPIScale(void);
 //Set the DPI scale
