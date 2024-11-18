@@ -37,11 +37,11 @@ typedef struct TimelineFXExample_s {
 	zest_texture imgui_font_texture;
 	tfx_render_resources_t tfx_rendering;
 
-	tfx_library_t library;
-	tfx_particle_manager_t pm;
+	tfx_library library;
+	tfx_particle_manager pm;
 
-	tfx_effect_template_t effect_template1;
-	tfx_effect_template_t effect_template2;
+	tfx_effect_template effect_template1;
+	tfx_effect_template effect_template2;
 
 	tfxEffectID effect_id;
 	zest_imgui_layer_info_t imgui_layer_info;
@@ -188,11 +188,12 @@ void InitTimelineFXRenderResources(tfx_render_resources_t *render_resources, con
 	//End of render specific code
 }
 
-void UpdateTimelineFXImageData(tfx_render_resources_t *tfx_rendering, tfx_library_t *library) {
+void UpdateTimelineFXImageData(tfx_render_resources_t *tfx_rendering, tfx_library library) {
 	//Upload the timelinefx image data to the image data buffer created
 	zest_buffer image_data_buffer = zest_GetBufferFromDescriptorBuffer(tfx_rendering->image_data);
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(library), tfx_GetGPUShapesPointer(library));
-	zest_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(tfx_rendering->image_data), tfx_GetGPUShapesSizeInBytes(library));
+	tfx_gpu_shapes shapes = tfx_GetLibraryGPUShapes(library);
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
+	zest_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(tfx_rendering->image_data), tfx_GetGPUShapesSizeInBytes(shapes));
 	zest_FreeBuffer(staging_buffer);
 }
 
@@ -217,16 +218,16 @@ void Init(TimelineFXExample *example) {
 	float max_radius = 0;
 
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
-	tfx_LoadEffectLibrary("examples/assets/effects.tfx", &example->library, ShapeLoader, GetUV, example);
+	example->library = tfx_LoadEffectLibrary("examples/assets/effects.tfx", ShapeLoader, GetUV, example);
 	//Renderer specific
 	//Process the texture with all the particle shapes that we just added to
 	zest_ProcessTextureImages(example->tfx_rendering.particle_texture);
 
 	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
 	//simply copied to a bitmap for uploading to the texture
-	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(&example->library);
+	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(example->library);
 	for (int i = 0; i != bitmap_count; ++i) {
-		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(&example->library, i);
+		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(example->library, i);
 		zest_bitmap_t temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap->data, (int)bitmap->size, bitmap->width, bitmap->height, bitmap->channels);
 		zest_AddTextureImageBitmap(example->tfx_rendering.color_ramps_texture, &temp_bitmap);
 	}
@@ -234,10 +235,10 @@ void Init(TimelineFXExample *example) {
 	zest_ProcessTextureImages(example->tfx_rendering.color_ramps_texture);
 	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
 	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
-	tfx_UpdateLibraryGPUImageData(&example->library);
+	tfx_UpdateLibraryGPUImageData(example->library);
 
 	//Now upload the image data to the GPU and set up the shader resources ready for rendering
-	UpdateTimelineFXImageData(&example->tfx_rendering, &example->library);
+	UpdateTimelineFXImageData(&example->tfx_rendering, example->library);
 	CreateTimelineFXShaderResources(&example->tfx_rendering);
 
 	//Application specific, set up a timer for the update loop
@@ -255,7 +256,7 @@ void Init(TimelineFXExample *example) {
 	In this example we'll setup a particle manager for 3d effects and group the sprites by each effect.
 	*/
 	tfx_particle_manager_info_t pm_info = tfx_CreateParticleManagerInfo(tfxParticleManagerSetup_3d_group_sprites_by_effect);
-	tfx_InitializeParticleManager(&example->pm, &example->library, pm_info);
+	example->pm = tfx_CreateParticleManager(pm_info);
 
 	//Renderer specific that sets up some draw layers
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.1f, 0.1f, .1f, 1.f);
@@ -272,8 +273,8 @@ void Init(TimelineFXExample *example) {
 	* @param effect_template			The empty tfx_effect_template_t object that you want the effect loading into
 	//Returns true on success.
 	*/
-	tfx_PrepareEffectTemplate(&example->library, "Star Burst Flash", &example->effect_template1);
-	tfx_PrepareEffectTemplate(&example->library, "Star Burst Flash.1", &example->effect_template2);
+	example->effect_template1 = tfx_CreateEffectTemplate(example->library, "Star Burst Flash");
+	example->effect_template2 = tfx_CreateEffectTemplate(example->library, "Star Burst Flash.1");
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
@@ -282,7 +283,7 @@ void RenderParticles3d(tfx_particle_manager_t *pm, TimelineFXExample *game) {
 	zest_SetInstanceDrawing(game->tfx_rendering.layer, game->tfx_rendering.shader_resource, game->tfx_rendering.pipeline);
 
 	tfx_3d_instance_t *billboards = tfx_Get3dInstanceBuffer(pm);
-	zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, tfx_GetInstanceCount(&game->pm));
+	zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, tfx_GetInstanceCount(game->pm));
 }
 
 //Application specific, this just sets the function to call each render update
@@ -299,11 +300,11 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 		tfxEffectID effect_id;
 		//Add the effect template to the particle manager
-		if (tfx_AddEffectTemplateToParticleManager(&game->pm, &game->effect_template1, &effect_id)) {
+		if (tfx_AddEffectTemplateToParticleManager(game->pm, game->effect_template1, &effect_id)) {
 			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
 			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, &game->camera.position, game->tfx_rendering.uniform_buffer_3d);
 			//Set the effect position
-			tfx_SetEffectPositionVec3(&game->pm, effect_id, position);
+			tfx_SetEffectPositionVec3(game->pm, effect_id, position);
 		}
 	}
 
@@ -311,11 +312,11 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 		tfxEffectID effect_id;
 		//Add the effect template to the particle manager
-		if (tfx_AddEffectTemplateToParticleManager(&game->pm, &game->effect_template2, &effect_id)) {
+		if (tfx_AddEffectTemplateToParticleManager(game->pm, game->effect_template2, &effect_id)) {
 			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
 			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, &game->camera.position, game->tfx_rendering.uniform_buffer_3d);
 			//Set the effect position
-			tfx_SetEffectPositionVec3(&game->pm, effect_id, position);
+			tfx_SetEffectPositionVec3(game->pm, effect_id, position);
 		}
 	}
 
@@ -328,7 +329,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//instead. This is important in order to keep the billboard buffer on the gpu in sync for interpolating the particles
 		//with the previous frame. It's also just more efficient to do this.
 		if (pending_ticks > 0) {
-			tfx_UpdateParticleManager(&game->pm, FrameLength);
+			tfx_UpdateParticleManager(game->pm, FrameLength);
 			pending_ticks = 0;
 		}
 
@@ -342,7 +343,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//have to upload the latest billboards to the gpu.
 	if (zest_TimerUpdateWasRun(game->timer)) {
 		zest_ResetInstanceLayer(game->tfx_rendering.layer);
-		RenderParticles3d(&game->pm, game);
+		RenderParticles3d(game->pm, game);
 	}
 }
 
@@ -357,7 +358,7 @@ int main(void)
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
-	tfx_InitialiseTimelineFX(0, 128 * 1024 * 1024);
+	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), 128 * 1024 * 1024);
 
 	//Initialise Zest with the configuration
 	zest_Initialise(&create_info);
