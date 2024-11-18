@@ -1,11 +1,6 @@
 #include "zest-timelinefx-instanced-effects.h"
 
 /*
-
-*/
-
-using namespace tfx;
-/*
 Step 1:	Register a Computer with RegisterComputer.
 Step 2: Create any buffers that we need for the compute shader.
 Step 3:	Use ComputeBuilder to set up all the things we need for a compute shader:
@@ -103,7 +98,7 @@ void RecordComputeSprites(struct zest_work_queue_t *queue, void *data) {
 	//Draw all the sprites in the buffer that is built by the compute shader
 	zest_BindPipelineShaderResource(command_buffer, example.tfx_rendering.pipeline, example.tfx_rendering.shader_resource, ZEST_FIF);
 	zest_SendPushConstants(command_buffer, example.tfx_rendering.pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_push_constants_t), &example.push_contants);
-	zest_Draw(command_buffer, 6, tfx_GetTotalSpritesThatNeedDrawing(&example.animation_manager_3d), 0, 0);
+	zest_Draw(command_buffer, 6, tfx_GetTotalSpritesThatNeedDrawing(example.animation_manager_3d), 0, 0);
 	
 	zest_EndRecording(draw_routine->recorder, ZEST_FIF);
 }
@@ -119,8 +114,7 @@ void UpdateSpriteResolution(zest_draw_routine draw_routine) {
 //only need to be uploaded once once you've added all the sprite data for all the animations that you want to use.
 void UploadBuffers(ComputeExample *example) {
 
-	tfx_animation_manager_t *animation_manager = nullptr;
-	animation_manager = &example->animation_manager_3d;
+	tfx_animation_manager_t *animation_manager = example->animation_manager_3d;
 
 	//Upload the sprite data. This contains all pre-recorded sprites for all animations that you might want to play.
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetSpriteDataSizeInBytes(animation_manager), tfx_GetSpriteDataBufferPointer(animation_manager));
@@ -135,8 +129,8 @@ void UploadBuffers(ComputeExample *example) {
 
 	//Upload the image data containing all the UV coords and texture array index that the compute shader will use to build the sprite
 	//buffer each frame
-	staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(&example->gpu_image_data), tfx_GetGPUShapesPointer(&example->gpu_image_data));
-	zest_CopyBuffer(staging_buffer, example->image_data_buffer->buffer[0], tfx_GetGPUShapesSizeInBytes(&example->gpu_image_data));
+	staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(example->gpu_image_data), tfx_GetGPUShapesArray(example->gpu_image_data));
+	zest_CopyBuffer(staging_buffer, example->image_data_buffer->buffer[0], tfx_GetGPUShapesSizeInBytes(example->gpu_image_data));
 	zest_FreeBuffer(staging_buffer);
 }
 
@@ -219,7 +213,7 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 		ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
 
 		//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
-		auto metrics = tfx_GetAnimationBufferMetrics(&example->animation_manager_3d);
+		auto metrics = tfx_GetAnimationBufferMetrics(example->animation_manager_3d);
 		if (metrics.total_sprites_to_draw == 0) {
 			continue;
 		}
@@ -228,19 +222,19 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 		zest_BindComputePipeline(compute, example->compute_pipeline_3d);
 		//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
 		//from there we copy to the GPU.
-		zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], tfx_GetOffsetsSizeInBytes(&example->animation_manager_3d), 1);
-		zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], tfx_GetAnimationInstancesSizeInBytes(&example->animation_manager_3d), 1);
+		zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], tfx_GetOffsetsSizeInBytes(example->animation_manager_3d), 1);
+		zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d), 1);
 
 		//Update the push constants with some metrics. These are referenced in the compute shader.
 		//The total number of animation instances that need to be drawn
 		compute->push_constants.parameters.x = (float)metrics.instances_size;
 		//If any animation instance contains animated shapes then set to 1. The compute shader can use this to avoid some unecessary
 		//computation if all particle shapes are not animated
-		compute->push_constants.parameters.y = float(example->animation_manager_3d.flags & tfxAnimationManagerFlags_has_animated_shapes);
+		compute->push_constants.parameters.y = float(example->animation_manager_3d->flags & tfxAnimationManagerFlags_has_animated_shapes);
 		//Set the total number of sprites that need to be processed by the shader
 		compute->push_constants.parameters.z = (float)metrics.total_sprites_to_draw;
 		//Set the offset into the sprite data that the sprites start at
-		compute->push_constants.parameters.w = (float)example->animation_manager_3d.render_queue[0].offset_into_sprite_data;
+		compute->push_constants.parameters.w = (float)example->animation_manager_3d->render_queue[0].offset_into_sprite_data;
 
 		//Send the push constants in the compute object to the shader
 		zest_SendComputePushConstants(ZestRenderer->current_command_buffer, compute);
@@ -267,14 +261,14 @@ void BoundingBoxComputeFunction(zest_compute compute, VkCommandBuffer command_bu
 	zest_BindComputePipelineCB(command_buffer, compute, example->bb_compute_pipeline_3d);
 
 	//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
-	auto metrics = tfx_GetAnimationBufferMetrics(&example->animation_manager_3d);
+	auto metrics = tfx_GetAnimationBufferMetrics(example->animation_manager_3d);
 
 	//Update the push constants with some metrics. These are referenced in the compute shader.
 	//The total number of animation instances that need to be drawn
 	compute->push_constants.parameters.x = (float)metrics.instances_size;
 	//If any animation instance contains animated shapes then set to 1. the compute shader can use this to avoid some unecessary
 	//computation if all particle shapes are not animated
-	compute->push_constants.parameters.y = float(example->animation_manager_3d.flags & tfxAnimationManagerFlags_has_animated_shapes);
+	compute->push_constants.parameters.y = float(example->animation_manager_3d->flags & tfxAnimationManagerFlags_has_animated_shapes);
 	//Set the total number of sprites that need to be processed by the shader
 	compute->push_constants.parameters.z = (float)metrics.total_sprites_to_draw;
 
@@ -342,11 +336,11 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	//End of render specific code
 }
 
-void UpdateTimelineFXImageData(tfx_render_resources_t &tfx_rendering, tfx_library_t &library) {
+void UpdateTimelineFXImageData(tfx_render_resources_t &tfx_rendering, tfx_library library) {
 	//Upload the timelinefx image data to the image data buffer created
 	zest_buffer image_data_buffer = zest_GetBufferFromDescriptorBuffer(tfx_rendering.image_data);
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(&library.gpu_shapes), tfx_GetGPUShapesPointer(&library.gpu_shapes));
-	zest_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(tfx_rendering.image_data), tfx_GetGPUShapesSizeInBytes(&library.gpu_shapes));
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(library->gpu_shapes), tfx_GetGPUShapesArray(library->gpu_shapes));
+	zest_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(tfx_rendering.image_data), tfx_GetGPUShapesSizeInBytes(library->gpu_shapes));
 	zest_FreeBuffer(staging_buffer);
 }
 
@@ -382,20 +376,20 @@ void InitExample(ComputeExample *example) {
 	example->floor_resources = zest_CombineUniformAndTextureSampler(example->tfx_rendering.uniform_buffer_descriptor_set, example->floor_texture);
 
 	//Load the effects library and pass our shape loader callback function which loads the particle shape images into our texture
-	auto result = tfx_LoadEffectLibrary("examples/assets/instanced_effects.tfx", &example->library, ShapeLoader, GetUV, example);
-	assert(result == tfxErrorCode_success);		//Unable to load the effects library!
+	example->library = tfx_LoadEffectLibrary("examples/assets/instanced_effects.tfx", ShapeLoader, GetUV, example);
+	assert(example->library->error_flags == tfxErrorCode_success);		//Unable to load the effects library!
 
 	//Process the texture with all the particle shapes that we just added to
 	zest_ProcessTextureImages(example->tfx_rendering.particle_texture);
 
 	//Get some effects from the library which we will record as a pre-baked particle animation. The settings for each effect
 	//such as how much compression to use is saved in the TimelineFX editor.
-	//tfx_effect_emitter_t *effect1 = GetLibraryEffect(&example->library, "Test 1");
-	//tfx_effect_emitter_t *effect2 = GetLibraryEffect(&example->library, "Test 2");
-	tfx_effect_emitter_t *effect1 = tfx_GetLibraryEffectPath(&example->library, "Big Explosion");
-	tfx_effect_emitter_t *effect2 = tfx_GetLibraryEffectPath(&example->library, "Star Burst Flash");
-	tfx_effect_emitter_t *effect3 = tfx_GetLibraryEffectPath(&example->library, "EmissionSingleShot");
-	tfx_effect_emitter_t *effect4 = tfx_GetLibraryEffectPath(&example->library, "Firework");
+	//tfx_effect_emitter_t *effect1 = GetLibraryEffect(example->library, "Test 1");
+	//tfx_effect_emitter_t *effect2 = GetLibraryEffect(example->library, "Test 2");
+	tfx_effect_emitter_t *effect1 = tfx_GetLibraryEffectPath(example->library, "Big Explosion");
+	tfx_effect_emitter_t *effect2 = tfx_GetLibraryEffectPath(example->library, "Star Burst Flash");
+	tfx_effect_emitter_t *effect3 = tfx_GetLibraryEffectPath(example->library, "EmissionSingleShot");
+	tfx_effect_emitter_t *effect4 = tfx_GetLibraryEffectPath(example->library, "Firework");
 
 	//Render specific - set up a camera
 	example->camera = zest_CreateCamera();
@@ -413,35 +407,38 @@ void InitExample(ComputeExample *example) {
 	//Note: when we call RecordSpriteData3d the particle manager is reconfigured based on the effect we're using, meaning: reconfigure
 	//for ordereded/unordered, 3d etc.
 	tfx_particle_manager_info_t pm_info = tfx_CreateParticleManagerInfo(tfxParticleManagerSetup_3d_unordered);
-	tfx_InitializeParticleManager(&example->pm, &example->library, pm_info);
+	example->pm = tfx_CreateParticleManager(pm_info);
 	//Set up the camera in the particle manager
-	tfx_SetPMCamera(&example->pm, &example->camera.front.x, &example->camera.position.x);
+	tfx_SetPMCamera(example->pm, &example->camera.front.x, &example->camera.position.x);
 
 	//Initialise an animation manager. An animation manager maintains our animation instances for us and provides all the necessary metrics we'll
 	//need to upload the buffers we need to both to initialise the compute shader and when we upload the offsets and instances buffer each frame.
 	//Specify the maximum number of animation instances that you might want to play each frame
-	tfx_InitialiseAnimationManagerFor3d(&example->animation_manager_3d, MAX_INSTANCES, MAX_SPRITES);
+	example->animation_manager_3d = tfx_CreateAnimationManagerFor3d(MAX_INSTANCES, MAX_SPRITES);
 	//Here we set the callback that will be used to decide if an animation should be drawn or not. We use the bounding box to check if it's inside
 	//the view frustum and cull it if it's not.
-	example->animation_manager_3d.maybe_render_instance_callback = CullAnimationInstancesCallback;
+	example->animation_manager_3d->maybe_render_instance_callback = CullAnimationInstancesCallback;
 	//Set the user data to the ComputeExample which we can use in the callback function
-	tfx_SetAnimationManagerUserData(&example->animation_manager_3d, example);
+	tfx_SetAnimationManagerUserData(example->animation_manager_3d, example);
+
+	//Create the handle where we will store gpu shapes for uploading to the gpu
+	example->gpu_image_data = tfx_CreateGPUShapesList();
 
 	//Record the effects we want and calculate the bounding boxes
 	example->record_time = zest_Millisecs();		//See how long it takes to record.
 
 	//You MUST build the compute shape data before Adding sprite data. Pass the GetUV function which you will have to create based on your renderer.
-	tfx_BuildGPUShapeData(tfx_GetParticleShapesLibrary(&example->library), &example->gpu_image_data, GetUV);
+	tfx_BuildLibraryGPUShapeData(example->library, example->gpu_image_data, GetUV);
 	//Add all the sprite data of the pre-recorded effect that we made when we called RecordSpriteData3d earlier. You must call RecordSpriteData3d
 	//for each effect animation that you want to add to the animation manager.
-	tfx_AddSpriteData(&example->animation_manager_3d, effect2, &example->pm, camera_position_for_recording);
-	tfx_AddSpriteData(&example->animation_manager_3d, effect1, &example->pm, camera_position_for_recording);
-	tfx_AddSpriteData(&example->animation_manager_3d, effect3, &example->pm, camera_position_for_recording);
-	tfx_AddSpriteData(&example->animation_manager_3d, effect4, &example->pm, camera_position_for_recording);
+	tfx_AddSpriteData(example->animation_manager_3d, effect2, example->pm, camera_position_for_recording);
+	tfx_AddSpriteData(example->animation_manager_3d, effect1, example->pm, camera_position_for_recording);
+	tfx_AddSpriteData(example->animation_manager_3d, effect3, example->pm, camera_position_for_recording);
+	tfx_AddSpriteData(example->animation_manager_3d, effect4, example->pm, camera_position_for_recording);
 
 	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
 	//simply copied to a bitmap for uploading to the texture
-	for (tfx_bitmap_t &bitmap : example->animation_manager_3d.color_ramps.color_ramp_bitmaps) {
+	for (tfx_bitmap_t &bitmap : example->animation_manager_3d->color_ramps.color_ramp_bitmaps) {
 		zest_bitmap_t temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap.data, (int)bitmap.size, bitmap.width, bitmap.height, bitmap.channels);
 		zest_AddTextureImageBitmap(example->tfx_rendering.color_ramps_texture, &temp_bitmap);
 	}
@@ -449,7 +446,7 @@ void InitExample(ComputeExample *example) {
 	zest_ProcessTextureImages(example->tfx_rendering.color_ramps_texture);
 	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
 	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
-	tfx_UpdateLibraryGPUImageData(&example->library);
+	tfx_UpdateLibraryGPUImageData(example->library);
 	//Now upload the image data to the GPU and set up the shader resources ready for rendering
 	UpdateTimelineFXImageData(example->tfx_rendering, example->library);
 	CreateTimelineFXShaderResources(example->tfx_rendering);
@@ -461,7 +458,7 @@ void InitExample(ComputeExample *example) {
 		metrics you need to create the buffer. Note that we've already recorded the sprite data so we know the size of the buffer we need, otherwise
 		you might have to resize the buffer later and update the descriptor sets
 	*/
-	example->sprite_data_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfx_sprite_data3d_t) * tfx_GetTotalSpriteDataCount(&example->animation_manager_3d), false);
+	example->sprite_data_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfx_sprite_data3d_t) * tfx_GetTotalSpriteDataCount(example->animation_manager_3d), false);
 	/*
 	2)	Vertex buffer to contain all of the sprite instances that will be drawn each frame. This is the only buffer that the compute shader writes to
 		each frame. Note that it needs to be accessible to both the compute shader and the vertex shader
@@ -470,7 +467,7 @@ void InitExample(ComputeExample *example) {
 
 	/*
 	3)	Create the 2 buffers that need writing to from the CPU, this is the offset's buffer containing the index offset for each instance into the sprite data and
-		the actually instances data containing position, scale and so on.
+		the actual effect instances data containing position, scale and so on.
 	*/
 	//If there's no direct to GPU writing then create staging buffers as well to copy to and then upload to the GPU buffers.
 	example->offsets_buffer = zest_CreateStorageDescriptorBuffer(sizeof(tfxU32) * MAX_INSTANCES, true);
@@ -518,10 +515,10 @@ void InitExample(ComputeExample *example) {
 	UploadBuffers(example);
 
 	//Calculate the bounding boxes for each effect so that we can do frustum culling
-	CalculateBoundingBoxes(example, &example->animation_manager_3d, effect1);
-	CalculateBoundingBoxes(example, &example->animation_manager_3d, effect2);
-	CalculateBoundingBoxes(example, &example->animation_manager_3d, effect3);
-	CalculateBoundingBoxes(example, &example->animation_manager_3d, effect4);
+	CalculateBoundingBoxes(example, example->animation_manager_3d, effect1);
+	CalculateBoundingBoxes(example, example->animation_manager_3d, effect2);
+	CalculateBoundingBoxes(example, example->animation_manager_3d, effect3);
+	CalculateBoundingBoxes(example, example->animation_manager_3d, effect4);
 
 	example->record_time = zest_Millisecs() - example->record_time;	//note how long the above took
 
@@ -557,13 +554,13 @@ void InitExample(ComputeExample *example) {
 }
 
 //Function to calculate the bouding boxes for an effect by running the compute shader
-void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager_t *animation_manager, tfx_effect_emitter_t *effect) {
+void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager animation_manager, tfx_effect_emitter_t *effect) {
 	//Force the current frame in flight to 0
 	zest_SetFrameInFlight(0);
 
 	//Manually set up an animation instance
 	tfx_animation_instance_t instance;
-	tfx_sprite_data_settings_t &anim = *tfx_GetEffectSpriteDataSettings(&example->library, effect);
+	tfx_sprite_data_settings_t &anim = *tfx_GetEffectSpriteDataSettings(example->library, effect);
 	instance.info_index = animation_manager->effect_animation_info.GetIndex(effect->path_hash);
 	instance.current_time = 0.f;
 	instance.position = { 0.f, 0.f, 0.f };
@@ -652,11 +649,11 @@ void BuildUI(ComputeExample *example) {
 	ImGui::Begin("Instanced Effects");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
 	ImGui::Text("Record Time: %zims", example->record_time);
-	ImGui::Text("Culled Instances: %i", tfx_GetTotalInstancesBeingUpdated(&example->animation_manager_3d) - example->animation_manager_3d.render_queue.size());
-	ImGui::Text("Instances In View: %i", example->animation_manager_3d.render_queue.size());
-	ImGui::Text("Sprites Drawn: %i", example->animation_manager_3d.buffer_metrics.total_sprites_to_draw);
-	ImGui::Text("Total Memory For Drawn Sprites: %ikb", (example->animation_manager_3d.buffer_metrics.total_sprites_to_draw * 64) / (1024));
-	ImGui::Text("Total Memory For Sprite Data: %ikb", example->animation_manager_3d.sprite_data_3d.size_in_bytes() / (1024));
+	ImGui::Text("Culled Instances: %i", tfx_GetTotalInstancesBeingUpdated(example->animation_manager_3d) - example->animation_manager_3d->render_queue.size());
+	ImGui::Text("Instances In View: %i", example->animation_manager_3d->render_queue.size());
+	ImGui::Text("Sprites Drawn: %i", example->animation_manager_3d->buffer_metrics.total_sprites_to_draw);
+	ImGui::Text("Total Memory For Drawn Sprites: %ikb", (example->animation_manager_3d->buffer_metrics.total_sprites_to_draw * 64) / (1024));
+	ImGui::Text("Total Memory For Sprite Data: %ikb", example->animation_manager_3d->sprite_data_3d.size_in_bytes() / (1024));
 	ImGui::End();
 	ImGui::Render();
 	//Let the layer know that it needs to reupload the imgui mesh data to the GPU
@@ -666,7 +663,7 @@ void BuildUI(ComputeExample *example) {
 }
 
 //The callback function called for each instance that is being updated.
-bool CullAnimationInstancesCallback(tfx_animation_manager_t *animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data) {
+bool CullAnimationInstancesCallback(tfx_animation_manager animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data) {
 	//Grab the ComputeExample struct from the user data.
 	ComputeExample *example = static_cast<ComputeExample*>(user_data);
 	//The the uniform buffer containing the view and projection matrices so that we can get the view frustum
@@ -684,28 +681,28 @@ void Update(zest_microsecs elapsed, void *data) {
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 	UpdateUniform3d(example);
 
-	int r = tfx_RandomRangeFromToInt(&example->pm.random, 0, 3);
+	int r = tfx_RandomRangeFromToInt(&example->pm->random, 0, 3);
 	if (!example->left_mouse_clicked && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 		//If the left mouse is clicked then spawn a random firework and raycasting it into the scene.
 		tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, example->camera.position);
 		tfxAnimationID anim_id = tfxINVALID;
 		if (r == 0) {
-			anim_id = tfx_AddAnimationInstance(&example->animation_manager_3d, "Big Explosion", 0);
+			anim_id = tfx_AddAnimationInstance(example->animation_manager_3d, "Big Explosion", 0);
 		}
 		else if (r == 1) {
-			anim_id = tfx_AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash", 0);
+			anim_id = tfx_AddAnimationInstance(example->animation_manager_3d, "Star Burst Flash", 0);
 		}
 		else if (r == 2) {
-			anim_id = tfx_AddAnimationInstance(&example->animation_manager_3d, "EmissionSingleShot", 0);
+			anim_id = tfx_AddAnimationInstance(example->animation_manager_3d, "EmissionSingleShot", 0);
 		}
 		else if (r == 3) {
-			anim_id = tfx_AddAnimationInstance(&example->animation_manager_3d, "Firework", 0);
+			anim_id = tfx_AddAnimationInstance(example->animation_manager_3d, "Firework", 0);
 		}
 		if (anim_id != tfxINVALID) {
 			//As long as we get a valie anim id, set it's position and random scale.
-			tfx_vec3_t position = tfx_vec3_t(tfx_RandomRangeFromTo(&example->pm.random, -10.f, 10.f), tfx_RandomRangeFromTo(&example->pm.random, 8.f, 15.f), tfx_RandomRangeFromTo(&example->pm.random, -10.f, 10.f));
-			tfx_SetAnimationPosition3d(&example->animation_manager_3d, anim_id, &position.x);
-			tfx_SetAnimationScale(&example->animation_manager_3d, anim_id, tfx_RandomRangeFromTo(&example->pm.random, 0.5f, 1.5f));
+			tfx_vec3_t position = tfx_vec3_t(tfx_RandomRangeFromTo(&example->pm->random, -10.f, 10.f), tfx_RandomRangeFromTo(&example->pm->random, 8.f, 15.f), tfx_RandomRangeFromTo(&example->pm->random, -10.f, 10.f));
+			tfx_SetAnimationPosition3d(example->animation_manager_3d, anim_id, &position.x);
+			tfx_SetAnimationScale(example->animation_manager_3d, anim_id, tfx_RandomRangeFromTo(&example->pm->random, 0.5f, 1.5f));
 		}
 		example->left_mouse_clicked = true;
 	}
@@ -718,24 +715,24 @@ void Update(zest_microsecs elapsed, void *data) {
 	if (example->trigger_effect >= ZEST_MILLISECONDS_IN_MICROSECONDS(25)) {
 		tfxAnimationID anim_id = tfxINVALID;
 		if (r == 0) {
-			anim_id = tfx_AddAnimationInstance(&example->animation_manager_3d, "Big Explosion", 0);
+			anim_id = tfx_AddAnimationInstance(example->animation_manager_3d, "Big Explosion", 0);
 		} else if (r == 1) {
-			anim_id = tfx_AddAnimationInstance(&example->animation_manager_3d, "Star Burst Flash", 0);
+			anim_id = tfx_AddAnimationInstance(example->animation_manager_3d, "Star Burst Flash", 0);
 		} else if (r == 2) {
-			anim_id = tfx_AddAnimationInstance(&example->animation_manager_3d, "EmissionSingleShot", 0);
+			anim_id = tfx_AddAnimationInstance(example->animation_manager_3d, "EmissionSingleShot", 0);
 		} else if (r == 3) {
-			anim_id = tfx_AddAnimationInstance(&example->animation_manager_3d, "Firework", 0);
+			anim_id = tfx_AddAnimationInstance(example->animation_manager_3d, "Firework", 0);
 		}
 		if (anim_id != tfxINVALID) {
-			tfx_vec3_t position = tfx_vec3_t(tfx_RandomRangeFromTo(&example->pm.random, -10.f, 10.f), tfx_RandomRangeFromTo(&example->pm.random, 8.f, 15.f), tfx_RandomRangeFromTo(&example->pm.random, -10.f, 10.f));
-			tfx_SetAnimationPosition3d(&example->animation_manager_3d, anim_id, &position.x);
-			tfx_SetAnimationScale(&example->animation_manager_3d, anim_id, tfx_RandomRangeFromTo(&example->pm.random, 0.75f, 1.5f));
+			tfx_vec3_t position = tfx_vec3_t(tfx_RandomRangeFromTo(&example->pm->random, -10.f, 10.f), tfx_RandomRangeFromTo(&example->pm->random, 8.f, 15.f), tfx_RandomRangeFromTo(&example->pm->random, -10.f, 10.f));
+			tfx_SetAnimationPosition3d(example->animation_manager_3d, anim_id, &position.x);
+			tfx_SetAnimationScale(example->animation_manager_3d, anim_id, tfx_RandomRangeFromTo(&example->pm->random, 0.75f, 1.5f));
 		}
 		example->trigger_effect = 0;
 	}
 
 	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
-		tfx_ClearAllAnimationInstances(&example->animation_manager_3d);
+		tfx_ClearAllAnimationInstances(example->animation_manager_3d);
 	}
  
 	//First control the camera with the mosue if the right mouse is clicked
@@ -764,7 +761,7 @@ void Update(zest_microsecs elapsed, void *data) {
 	//An example fixed rate update loop
 	zest_TimerAccumulate(example->timer);
 	while (zest_TimerDoUpdate(example->timer)) {
-		//example->pm.Update();
+		//example->pm->Update();
 		BuildUI(example);
 
 		float speed  = 5.f * (float)example->timer->update_time;
@@ -805,19 +802,19 @@ void Update(zest_microsecs elapsed, void *data) {
 	//Update the animation manager each frame. This will advance the time of each animation instance that's currently playing
 	//Pass the amount of time that has elapsed since the last time the function was called
 	//This could also be placed in the fixed rate update loop with an elapsed time of the update frequency
-	for (auto i : example->animation_manager_3d.instances_in_use[example->animation_manager_3d.current_in_use_buffer]) {
-		tfx_animation_instance_t &instance = example->animation_manager_3d.instances[i];
-		tfx_sprite_data_metrics_t &metrics = example->animation_manager_3d.effect_animation_info.data[instance.info_index];
+	for (auto i : example->animation_manager_3d->instances_in_use[example->animation_manager_3d->current_in_use_buffer]) {
+		tfx_animation_instance_t &instance = example->animation_manager_3d->instances[i];
+		tfx_sprite_data_metrics_t &metrics = example->animation_manager_3d->effect_animation_info.data[instance.info_index];
 	}
-	tfx_UpdateAnimationManager(&example->animation_manager_3d, elapsed / 1000.f);
+	tfx_UpdateAnimationManager(example->animation_manager_3d, elapsed / 1000.f);
 
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->floor_resources, example->mesh_pipeline);
 	zest_DrawTexturedPlane(example->mesh_layer, example->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 
 	//Copy the offsets and animation instances either to the staging buffers. The staging buffers will then be uploaded in the render pipeline.
-	memcpy(example->offsets_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.offsets.data, tfx_GetOffsetsSizeInBytes(&example->animation_manager_3d));
-	memcpy(example->animation_instances_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d.render_queue.data, tfx_GetAnimationInstancesSizeInBytes(&example->animation_manager_3d));
+	memcpy(example->offsets_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d->offsets.data, tfx_GetOffsetsSizeInBytes(example->animation_manager_3d));
+	memcpy(example->animation_instances_staging_buffer[ZEST_FIF]->data, example->animation_manager_3d->render_queue.data, tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d));
 
 	zest_TimerSet(example->timer);
 }
@@ -837,8 +834,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	zest_implglfw_SetCallbacks(&create_info);
 
 	//Initialise TimelineFX. Must be run before using any timeline fx functionality.
-	tfx_InitialiseTimelineFX(std::thread::hardware_concurrency(), tfxMegabyte(128));
-	//InitialiseTimelineFX(0, tfxMegabyte(128));
+	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
 
 	ComputeExample example;
 
@@ -853,6 +849,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 
 	//Start the main loop
 	zest_Start();
+
+	tfx_EndTimelineFX();
 
 	return EXIT_SUCCESS;
 }
