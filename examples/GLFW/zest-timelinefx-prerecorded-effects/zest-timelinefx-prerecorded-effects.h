@@ -9,8 +9,6 @@
 #include <imgui/backends/imgui_impl_glfw.h>
 #include "../../TimelineFXLib/timelinefx.h"
 
-using namespace tfx;
-
 struct AnimationComputeConstants {
 	tfxU32 total_sprites;
 	tfxU32 total_animation_instances;
@@ -74,7 +72,7 @@ struct ComputeExample {
 	tfx_render_resources_t tfx_rendering;
 
 	zest_imgui_layer_info_t imgui_layer_info;
-	tfx_gpu_shapes_t gpu_image_data;
+	tfx_gpu_shapes gpu_image_data;
 	zest_push_constants_t push_contants;
 	zest_timer timer;
 	zest_camera_t camera;
@@ -90,7 +88,7 @@ struct ComputeExample {
 	zest_index compute_pipeline_3d;
 	zest_index bb_compute_pipeline_3d;
 
-	tfx_animation_manager_t animation_manager_3d;
+	tfx_animation_manager animation_manager_3d;
 	AnimationComputeConstants animation_manager_push_constants;
 	tfx_sprite_data_settings_t anim_test;
 	zest_millisecs record_time;
@@ -109,6 +107,6 @@ void UploadBuffers(ComputeExample *example);
 void UpdateUniform3d(ComputeExample *game);
 void Update(zest_microsecs elapsed, void *data);
 void BuildUI(ComputeExample *example);
-bool CullAnimationInstancesCallback(tfx_animation_manager_t *animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data);
+bool CullAnimationInstancesCallback(tfx_animation_manager animation_manager, tfx_animation_instance_t *instance, tfx_frame_meta_t *frame_meta, void *user_data);
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position);
 
