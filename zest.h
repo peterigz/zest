@@ -3135,6 +3135,7 @@ typedef struct zest_renderer_t {
     zest_render_target *render_target_recreate_queue[ZEST_MAX_FIF];
     zest_render_target *rt_sampler_refresh_queue[ZEST_MAX_FIF];
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
+    zest_buffer *staging_buffers;
     zest_map_textures texture_reprocess_queue;
     zest_texture *texture_cleanup_queue;
     zest_texture *texture_delete_queue;
