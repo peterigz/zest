@@ -241,8 +241,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main(void) {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	//Disable vsync so we can see how fast it runs
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);

@@ -25,12 +25,18 @@ void InitialiseApp(App *app) {
 	app->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites");
 	//Process the texture to pack all the images into the texture
 	zest_ProcessTextureImages(app->texture);
+	zest_SetTextureUserData(app->texture, app);
 	app->shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, app->texture);
 	//Create a timer and reset it
 	app->timer = zest_CreateTimer(60);
 	zest_TimerReset(app->timer);
 	//Set the period to 3 seconds
 	app->period = ZEST_SECONDS_IN_MICROSECONDS(3);
+}
+
+void UpdateShaderResourcesCallback(zest_texture texture, void *user_data) {
+	App *app = static_cast<App*>(user_data);
+	zest_UpdateShaderResources(app->shader_resources, &app->texture->descriptor_sets[app->texture->current_index], 1);
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
@@ -49,8 +55,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Null out the image handle
 		app->image1 = 0;
 		//Schedule the texture for reprocessing when we know the texture won't be in use
-		zest_ProcessTextureImages(app->texture);
-		zest_UpdateShaderResources(app->shader_resources, &app->texture->descriptor_sets[app->texture->current_index], 1);
+		zest_ScheduleTextureReprocess(app->texture, UpdateShaderResourcesCallback);
 	}
 	else if(app->image1) {
 		//Draw the sprite if it still exists
@@ -61,8 +66,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Remove the animation if it still exists and the time is up.
 		zest_RemoveTextureAnimation(app->texture, app->animation);
 		//Schedule the texture for reprocessing when we know the texture won't be in use
-		zest_ProcessTextureImages(app->texture);
-		zest_UpdateShaderResources(app->shader_resources, &app->texture->descriptor_sets[app->texture->current_index], 1);
+		zest_ScheduleTextureReprocess(app->texture, UpdateShaderResourcesCallback);
 		//Null out the animation handle
 		app->animation = 0;
 	}
