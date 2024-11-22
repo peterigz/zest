@@ -5940,6 +5940,9 @@ void zest__copy_buffer_regions_to_image(VkBufferImageCopy* regions, VkBuffer buf
 }
 
 void zest__generate_mipmaps(VkImage image, VkFormat image_format, int32_t texture_width, int32_t texture_height, zest_uint mip_levels, zest_uint layer_count, VkImageLayout image_layout, VkCommandBuffer cb) {
+    if (mip_levels <= 1) {
+        return 0;
+    }
     VkFormatProperties format_properties;
     vkGetPhysicalDeviceFormatProperties(ZestDevice->physical_device, image_format, &format_properties);
 
