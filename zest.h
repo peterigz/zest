@@ -2038,38 +2038,13 @@ ZEST_PRIVATE inline void zest__complete_all_work(zest_work_queue_t *queue) {
 }
 
 #ifdef _WIN32
-ZEST_PRIVATE inline unsigned WINAPI zest__thread_worker(void *arg) {
+ZEST_PRIVATE unsigned WINAPI zest__thread_worker(void *arg);
 #else
-ZEST_PRIVATE inline void *zest__thread_worker(void *arg) {
+ZEST_PRIVATE void *zest__thread_worker(void *arg);
 #endif
-    zest_queue_processor_t *queue_processor = (zest_queue_processor_t *)arg;
-    while (!zest__do_next_work_queue(queue_processor)) {
-        // Continue processing
-    }
-    return 0;
-}
 
 // Thread creation helper function
-ZEST_PRIVATE inline bool zest__create_worker_thread(zest_storage_t * storage, int thread_index) {
-#ifdef _WIN32
-    storage->threads[thread_index] = (HANDLE)_beginthreadex(
-        NULL,
-        0,
-        zest__thread_worker,
-        &storage->thread_queues,
-        0,
-        NULL
-    );
-    return storage->threads[thread_index] != NULL;
-#else
-    return pthread_create(
-        &storage->threads[thread_index],
-        NULL,
-        zest__thread_worker,
-        &storage->thread_queues
-    ) == 0;
-#endif
-}
+ZEST_PRIVATE bool zest__create_worker_thread(zest_storage_t * storage, int thread_index);
 
 // Thread cleanup helper function
 ZEST_PRIVATE inline void zest__cleanup_thread(zest_storage_t * storage, int thread_index) {
@@ -2100,11 +2075,11 @@ ZEST_PRIVATE inline unsigned int zest_HardwareConcurrency(void) {
 }
 
 // Safe version that always returns at least 1
-ZEST_API inline unsigned int zest_HardwareConcurrencySafe(void);
+ZEST_API unsigned int zest_HardwareConcurrencySafe(void);
 
 // Helper function to get a good default thread count for thread pools
 // Usually hardware threads - 1 to leave a core for the OS/main thread
-ZEST_API inline unsigned int zest_GetDefaultThreadCount(void);
+ZEST_API unsigned int zest_GetDefaultThreadCount(void);
 
 // --Structs
 // --Matrix and vector structs

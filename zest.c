@@ -284,6 +284,21 @@ void zest__os_poll_events(void) {
     ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
     ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
     ZestApp->flags |= glfwWindowShouldClose(ZestApp->window->window_handle) ? zest_app_flag_quit_application : 0;
+    ZestApp->mouse_button = 0;
+    int left = glfwGetMouseButton(ZestApp->window->window_handle, GLFW_MOUSE_BUTTON_LEFT);
+    if (left == GLFW_PRESS) {
+        ZestApp->mouse_button |= 1;
+    }
+
+    int right = glfwGetMouseButton(ZestApp->window->window_handle, GLFW_MOUSE_BUTTON_RIGHT);
+    if (right == GLFW_PRESS) {
+        ZestApp->mouse_button |= 2;
+    }
+
+    int middle = glfwGetMouseButton(ZestApp->window->window_handle, GLFW_MOUSE_BUTTON_MIDDLE);
+    if (middle == GLFW_PRESS) {
+        ZestApp->mouse_button |= 4;
+    }
 }
 
 void zest__os_add_platform_extensions(void) {
@@ -344,7 +359,7 @@ bool zest__create_folder(const char *path) {
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Folder created successfully: %s", path);
         return true;
     } else {
-        if (result == EEXIST) {
+        if (result == -1) {
             return true;
         } else {
             char buffer[100];
@@ -2226,6 +2241,45 @@ unsigned int zest_HardwareConcurrencySafe(void) {
 unsigned int zest_GetDefaultThreadCount(void) {
     unsigned int count = zest_HardwareConcurrency();
     return count > 1 ? count - 1 : 1;
+}
+
+#ifdef _WIN32
+ZEST_PRIVATE unsigned WINAPI zest__thread_worker(void *arg) {
+    zest_queue_processor_t *queue_processor = (zest_queue_processor_t *)arg;
+    while (!zest__do_next_work_queue(queue_processor)) {
+        // Continue processing
+    }
+    return 0;
+}
+#else
+void *zest__thread_worker(void *arg) {
+    zest_queue_processor_t *queue_processor = (zest_queue_processor_t *)arg;
+    while (!zest__do_next_work_queue(queue_processor)) {
+        // Continue processing
+    }
+    return 0;
+}
+#endif
+
+bool zest__create_worker_thread(zest_storage_t * storage, int thread_index) {
+#ifdef _WIN32
+    storage->threads[thread_index] = (HANDLE)_beginthreadex(
+        NULL,
+        0,
+        zest__thread_worker,
+        &storage->thread_queues,
+        0,
+        NULL
+    );
+    return storage->threads[thread_index] != NULL;
+#else
+    return pthread_create(
+        &storage->threads[thread_index],
+        NULL,
+        zest__thread_worker,
+        &storage->thread_queues
+    ) == 0;
+#endif
 }
 
 // --Buffer & Memory Management

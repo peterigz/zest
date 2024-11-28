@@ -4,6 +4,8 @@
 //draw the effect with one draw call. Otherwise if your effect only uses one or the other you can optimise by
 //using the shaders that only handle whatever you need for the effect.
 
+#define LOW_UPDATE_RATE
+
 //Quad indexes
 const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
 
@@ -17,11 +19,11 @@ const float intensity_max_value = 128.0 / 32767.0;
 
 struct ImageData {
 	vec4 uv;
-	uvec2 uv_packed;
+    vec2 padding;
 	vec2 image_size;
 	uint texture_array_index;
 	float animation_frames;
-	float max_radius;
+    float max_radius;
 };
 
 struct BillboardInstance {					//56 bytes + padding to 64
@@ -29,8 +31,8 @@ struct BillboardInstance {					//56 bytes + padding to 64
 	vec3 rotations;				            //Rotations of the sprite
 	uint alignment;	    					//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
 	ivec2 size_handle;						//Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
-	uint intensity_life;					//Multiplier for the color and life of particle
-	uint curved_alpha;						//Sharpness and dissolve amount value for fading the image 2 16bit floats packed
+	uint intensity_gradient_map;			//Multiplier for the color and the gradient map value packed into 16bit scaled floats
+	uint curved_alpha_life;					//Sharpness and dissolve amount value for fading the image plus the life of the partile packed into 3 unorms
 	uint indexes;							//[color ramp y index, color ramp texture array index, capture flag, image data index (1 bit << 15), billboard alignment (2 bits << 13), image data index max 8191 images]
 	uint captured_index;					//Index to the sprite in the buffer from the previous frame for interpolation
     ivec2 padding;
@@ -54,13 +56,13 @@ layout(set = 1, binding = 1) readonly buffer InSpriteInstances {
 	BillboardInstance prev_billboards[];
 };
 
-layout(push_constant) uniform push_constants
+layout(push_constant) uniform quad_index
 {
     mat4 model;
     vec4 parameters1;
     vec4 parameters2;
     vec4 parameters3;
-    vec4 global;
+    vec4 camera;
 } pc;
 
 //Vertex
@@ -71,14 +73,14 @@ layout(location = 0) in vec4 position;
 layout(location = 1) in vec3 rotations;
 layout(location = 2) in vec3 alignment;
 layout(location = 3) in vec4 size_handle;
-layout(location = 4) in vec2 intensity_life;
-layout(location = 5) in vec2 curved_alpha;
+layout(location = 4) in vec2 intensity_gradient_map;
+layout(location = 5) in vec3 curved_alpha_life;
 layout(location = 6) in uint texture_indexes;
 layout(location = 7) in uint captured_index;
 
 layout(location = 0) out vec3 out_tex_coord;
 layout(location = 1) out ivec3 out_texture_indexes;
-layout(location = 2) out vec3 out_intensity_curved_alpha;
+layout(location = 2) out vec4 out_intensity_curved_alpha_map;
 
 mat3 RotationMatrix(vec3 axis, float angle)
 {
@@ -95,14 +97,25 @@ void main() {
     vec2 size = size_handle.xy * size_max_value;
     vec2 handle = size_handle.zw * handle_max_value;
 
-	uint prev_index = (captured_index & 0x0FFFFFFF) + uint(pc.parameters1.x);  //Add on an offset if the are multiple draw instructions
+	uint prev_index = captured_index & 0x0FFFFFFF;
 	float first_frame = float((texture_indexes & 0x00008000) >> 15);
 
 	uint prev_size_packed = prev_billboards[prev_index].size_handle.x;
+
+    #ifdef LOW_UPDATE_RATE
+    //For updating particles at 30 fps or less you can improve the first frame of particles by doing the following ternary operations to effectively cancel the interpolation:
+	vec2 lerped_size = first_frame == 1 ? vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value) : size;
+	lerped_size = mix(lerped_size, size, ub.lerp.x);
+	vec3 lerped_position = first_frame == 1 ? mix(prev_billboards[prev_index].position.xyz, position.xyz, ub.lerp.x) : position.xyz;
+	vec3 lerped_rotation = first_frame == 1 ? mix(prev_billboards[prev_index].rotations, rotations, ub.lerp.x) : rotations;
+    #else
+    //Otherwise just hide the first frame of the particle which is a little more efficient:
 	vec2 lerped_size = vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value);
 	lerped_size = mix(lerped_size, size, ub.lerp.x) * first_frame;
 	vec3 lerped_position = mix(prev_billboards[prev_index].position.xyz, position.xyz, ub.lerp.x);
 	vec3 lerped_rotation = mix(prev_billboards[prev_index].rotations, rotations, ub.lerp.x);
+    #endif
+    //----
 
     //Info about how to align the billboard is stored in bits 22 and 23 of intensity_texture_array
 
@@ -118,7 +131,7 @@ void main() {
     //vector_align is set to 1 when we want the billboard to align to the camera and the vector
     //stored in alignment.xyz. billboarding and align_type will always be 0 if this is the case. the second
     //bit is the only bit set if this is the case: 10
-    float vector_align = float((texture_indexes & uint(0x6000)) == 0x2000);
+    float vector_align = float((texture_indexes & uint(0x6000)) == 0x4000);
 
     //vec3 alignment_up_cross = dot(alignment.xyz, up) == 0 ? vec3(0, 1, 0) : normalize(cross(alignment.xyz, up));
     vec3 alignment_up_cross = normalize(cross(alignment, up));
@@ -187,8 +200,8 @@ void main() {
     gl_Position = ub.proj * p;
 
     //----------------
-	int life = int(intensity_life.y * intensity_max_value * 255);
+	int life = int(curved_alpha_life.z * 255);
 	out_texture_indexes = ivec3((texture_indexes & 0xFF000000) >> 24, (texture_indexes & 0x00FF0000) >> 16, life);
 	out_tex_coord = vec3(uvs[index], image_data[image_index].texture_array_index);
-	out_intensity_curved_alpha = vec3(intensity_life.x * intensity_max_value, curved_alpha.x, curved_alpha.y);
+	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * intensity_max_value, curved_alpha_life.x, curved_alpha_life.y, intensity_gradient_map.y * intensity_max_value);
 }
