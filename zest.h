@@ -69,14 +69,6 @@ extern "C" {
 #define ZEST_ARM
 #endif
 
-#if defined(__APPLE__) || defined(__linux__)
-#include <stdatomic.h>
-typedef _Atomic(int) zest_atomic_int;
-#define ZEST_ATOMICS
-#else
-typedef volatile unsigned int zest_atomic_int;
-#endif
-
 #ifndef ZEST_MAX_FIF
 //The maximum number of frames in flight. If you're very tight on memory then 1 will use less resources.
 #define ZEST_MAX_FIF 2
@@ -2048,7 +2040,7 @@ ZEST_PRIVATE inline void zest__complete_all_work(zest_work_queue_t *queue) {
 #ifdef _WIN32
 ZEST_PRIVATE inline unsigned WINAPI zest__thread_worker(void *arg) {
 #else
-inline void *zest__thread_worker(void *arg) {
+ZEST_PRIVATE inline void *zest__thread_worker(void *arg) {
 #endif
     zest_queue_processor_t *queue_processor = (zest_queue_processor_t *)arg;
     while (!zest__do_next_work_queue(queue_processor)) {
@@ -2092,7 +2084,7 @@ ZEST_PRIVATE inline void zest__cleanup_thread(zest_storage_t * storage, int thre
 #endif
 }
 
-ZEST_API inline unsigned int zest_HardwareConcurrency(void) {
+ZEST_PRIVATE inline unsigned int zest_HardwareConcurrency(void) {
 #ifdef _WIN32
     SYSTEM_INFO sysinfo;
     GetSystemInfo(&sysinfo);
@@ -2108,17 +2100,11 @@ ZEST_API inline unsigned int zest_HardwareConcurrency(void) {
 }
 
 // Safe version that always returns at least 1
-ZEST_API inline unsigned int zest_HardwareConcurrencySafe(void) {
-    unsigned int count = zest_HardwareConcurrency();
-    return count > 0 ? count : 1;
-}
+ZEST_API inline unsigned int zest_HardwareConcurrencySafe(void);
 
 // Helper function to get a good default thread count for thread pools
 // Usually hardware threads - 1 to leave a core for the OS/main thread
-ZEST_API inline unsigned int zest_GetDefaultThreadCount(void) {
-    unsigned int count = zest_HardwareConcurrency();
-    return count > 1 ? count - 1 : 1;
-}
+ZEST_API inline unsigned int zest_GetDefaultThreadCount(void);
 
 // --Structs
 // --Matrix and vector structs
@@ -3141,7 +3127,6 @@ typedef struct zest_renderer_t {
     zest_texture *texture_delete_queue;
     zest_pipeline *pipeline_recreate_queue;
     zest_pipeline_handles_t *pipeline_destroy_queue;
-    zest_atomic_int lock_texture_reprocess_queue;
     zest_uint current_frame;
 
     //Threading
@@ -4308,8 +4293,6 @@ ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture, void(*callback
 //in use. So you can call zest_ProcessTexture to reprocess and add any new images which will do so in the unused buffer index,
 //then you can call this function to schedule the cleanup of the old buffers when it's safe to do so.
 ZEST_API void zest_ScheduleTextureCleanOldBuffers(zest_texture texture);
-//Call this from a separate thread that's waiting for a texture to be reprocessed.
-ZEST_API void zest_WaitUntilTexturesReprocessed();
 //Schedule a pipeline to be recreated. 
 ZEST_API void zest_SchedulePipelineRecreate(zest_pipeline pipeline);
 //Copies an area of a frame buffer such as from a render target, to a zest_texture.

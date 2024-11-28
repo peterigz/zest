@@ -2217,6 +2217,17 @@ void zest__update_window_size(zest_window window, zest_uint width, zest_uint hei
     window->window_height = height;
 }
 
+// --Threading related funcitons
+unsigned int zest_HardwareConcurrencySafe(void) {
+    unsigned int count = zest_HardwareConcurrency();
+    return count > 0 ? count : 1;
+}
+
+unsigned int zest_GetDefaultThreadCount(void) {
+    unsigned int count = zest_HardwareConcurrency();
+    return count > 1 ? count - 1 : 1;
+}
+
 // --Buffer & Memory Management
 void zest__add_host_memory_pool(zest_size size) {
     ZEST_ASSERT(ZestDevice->memory_pool_count < 32);    //Reached the max number of memory pools
@@ -2966,11 +2977,6 @@ void zest_SetDeviceImagePoolSize(const char* name, VkImageUsageFlags image_flags
 // --Renderer and related functions
 void zest__initialise_renderer(zest_create_info_t* create_info) {
     ZestRenderer->flags |= create_info->flags & zest_init_flag_enable_vsync;
-#if defined(ZEST_ATOMICS)
-    ZestRenderer->lock_texture_reprocess_queue = ATOMIC_VAR_INIT(0);
-#else
-    ZestRenderer->lock_texture_reprocess_queue = 0;
-#endif
     zest_SetText(&ZestRenderer->shader_path_prefix, create_info->shader_path_prefix);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain");
     zest__create_swapchain();
@@ -8018,18 +8024,6 @@ void zest_ScheduleTextureCleanOldBuffers(zest_texture texture) {
 
 void zest_SchedulePipelineRecreate(zest_pipeline pipeline) {
     zest_vec_push(ZestRenderer->pipeline_recreate_queue, pipeline);
-}
-
-void zest_WaitUntilTexturesReprocessed() {
-#if defined(ZEST_ATOMICS)
-    while (atomic_load(&ZestRenderer->lock_texture_reprocess_queue)) {
-        // Spin until lock is acquired
-    }
-#else
-    while (zest_map_size(ZestRenderer->texture_reprocess_queue)) {
-        //Spin. This should be run from a separate thread so the scheduler can actually do it's thing
-    }
-#endif
 }
 
 zest_bitmap_t* zest_GetTextureSingleBitmap(zest_texture texture) {
