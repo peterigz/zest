@@ -5783,7 +5783,7 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCo
     }
 
     vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-
+    
     for (zest_foreach_i(item->draw_routines)) {
         zest_draw_routine draw_routine = item->draw_routines[i];
 		ZEST_ASSERT(draw_routine->condition_callback);  //You must set the condition callback for the draw routine

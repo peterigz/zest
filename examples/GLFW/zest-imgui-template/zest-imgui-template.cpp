@@ -46,8 +46,6 @@ void InitImGuiApp(ImGuiApp *app) {
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
-	//Don't forget to update the uniform buffer!
-	zest_Update2dUniformBuffer();
 	//Set the active command queue to the default one that was created when Zest was initialised
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 	ImGuiApp* app = (ImGuiApp*)user_data;

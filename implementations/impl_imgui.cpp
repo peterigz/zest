@@ -35,7 +35,7 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
     zest_pipeline last_pipeline = ZEST_NULL;
     VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
 
-    VkViewport view = zest_CreateViewport(0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 1.f);
+    VkViewport view = zest_CreateViewport(0.f, 0.f, zest_SwapChainWidth(), zest_SwapChainHeight(), 0.f, 1.f);
     vkCmdSetViewport(command_buffer, 0, 1, &view);
 
     if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
@@ -117,6 +117,8 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
             vertex_offset += cmd_list->VtxBuffer.Size;
         }
     }
+    VkRect2D scissor = { { 0, 0 }, { zest_SwapChainWidth(), zest_SwapChainHeight() } };
+    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
     zest_EndRecording(imgui_layer->draw_routine->recorder, ZEST_FIF);
 }
 
