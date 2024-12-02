@@ -97,7 +97,7 @@ void main() {
     vec2 size = size_handle.xy * size_max_value;
     vec2 handle = size_handle.zw * handle_max_value;
 
-	uint prev_index = captured_index & 0x0FFFFFFF;
+	uint prev_index = (captured_index & 0x0FFFFFFF) + uint(pc.parameters1.x);  //Add on an offset if the are multiple draw instructions
 	float first_frame = float((texture_indexes & 0x00008000) >> 15);
 
 	uint prev_size_packed = prev_billboards[prev_index].size_handle.x;
