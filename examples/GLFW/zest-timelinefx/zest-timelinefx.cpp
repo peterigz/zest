@@ -305,6 +305,7 @@ void BuildUI(TimelineFXExample *game) {
 	//This will let the layer know that the mesh buffer containing all of the imgui vertex data needs to be
 	//uploaded to the GPU.
 	zest_ResetLayer(game->imgui_layer_info.mesh_layer);
+	zest_imgui_UpdateBuffers(game->imgui_layer_info.mesh_layer);
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
@@ -326,35 +327,34 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	UpdateUniform3d(game);
 	zest_Update2dUniformBuffer();
 
-	BuildUI(game);
-
-	if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-		//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-		tfxEffectID effect_id;
-		//Add the effect template to the particle manager
-		if(tfx_AddEffectTemplateToParticleManager(game->pm, game->effect_template1, &effect_id)) {
-			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d);
-			//Set the effect position
-			tfx_SetEffectPositionVec3(game->pm, effect_id, position);
-		}
-	}
-
-	if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-		//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-		tfxEffectID effect_id;
-		//Add the effect template to the particle manager
-		if(tfx_AddEffectTemplateToParticleManager(game->pm, game->effect_template2, &effect_id)) {
-			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d);
-			//Set the effect position
-			tfx_SetEffectPositionVec3(game->pm, effect_id, position);
-		}
-	}
-
 	zest_TimerAccumulate(game->timer);
 	int pending_ticks = zest_TimerPendingTicks(game->timer);
 	while (zest_TimerDoUpdate(game->timer)) {
+		BuildUI(game);
+
+		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+			//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
+			tfxEffectID effect_id;
+			//Add the effect template to the particle manager
+			if (tfx_AddEffectTemplateToParticleManager(game->pm, game->effect_template1, &effect_id)) {
+				//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
+				tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d);
+				//Set the effect position
+				tfx_SetEffectPositionVec3(game->pm, effect_id, position);
+			}
+		}
+
+		if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+			//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
+			tfxEffectID effect_id;
+			//Add the effect template to the particle manager
+			if (tfx_AddEffectTemplateToParticleManager(game->pm, game->effect_template2, &effect_id)) {
+				//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
+				tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d);
+				//Set the effect position
+				tfx_SetEffectPositionVec3(game->pm, effect_id, position);
+			}
+		}
 
 		//Update the particle manager but only if pending ticks is > 0. This means that if we're trying to catch up this frame
 		//then rather then run the update particle manager multiple times, simply run it once but multiply the frame length
@@ -377,13 +377,12 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_ResetInstanceLayer(game->tfx_rendering.layer);
 		RenderParticles3d(game->pm, game);
 	}
-	zest_imgui_UpdateBuffers(game->imgui_layer_info.mesh_layer);
 }
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

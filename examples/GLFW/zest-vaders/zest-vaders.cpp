@@ -1012,6 +1012,7 @@ void BuildUI(VadersGame *game) {
 	//This will let the layer know that the mesh buffer containing all of the imgui vertex data needs to be
 	//uploaded to the GPU.
 	zest_ResetLayer(game->imgui_layer_info.mesh_layer);
+	zest_imgui_UpdateBuffers(game->imgui_layer_info.mesh_layer);
 }
 
 //Draw all the billboards for the game
@@ -1244,7 +1245,6 @@ void VadersGame::Update(float ellapsed) {
 		DrawVaderBullets(this, (float)timer->lerp);
 		zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 60.f, 0.f);
 	}
-	zest_imgui_UpdateBuffers(imgui_layer_info.mesh_layer);
 }
 
 //Update callback called from Zest
