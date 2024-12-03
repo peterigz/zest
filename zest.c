@@ -4225,6 +4225,14 @@ void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template_create_info
     zest_vec_clear(create_info->bindingDescriptions);
 }
 
+void zest_ClearPipelinePushConstantRanges(zest_pipeline_template_create_info_t *create_info) {
+    zest_vec_clear(create_info->pushConstantRange);
+}
+
+void zest_AddPipelinePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range) {
+    zest_vec_push(create_info->pushConstantRange, range);
+}
+
 VkVertexInputAttributeDescription zest_CreateVertexInputDescription(zest_uint binding, zest_uint location, VkFormat format, zest_uint offset) {
     VkVertexInputAttributeDescription input_attribute_description = { 0 };
     input_attribute_description.location = location;
@@ -4677,7 +4685,20 @@ zest_bool zest_CompileShader(zest_shader shader, shaderc_compiler_t compiler) {
 zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler) {
     char *shader_code = zest_ReadEntireFile(file, ZEST_TRUE);
     ZEST_ASSERT(shader_code);   //Unable to load the shader code, check the path is valid
-    return zest_CreateShader(shader_code, type, name, ZEST_FALSE, disable_caching, compiler);
+    zest_shader shader = zest_CreateShader(shader_code, type, name, ZEST_FALSE, disable_caching, compiler);
+    zest_SetText(&shader->file_path, file);
+    zest_vec_free(shader_code);
+    return shader;
+}
+
+zest_bool zest_ReloadShader(zest_shader shader) {
+    ZEST_ASSERT(zest_TextLength(&shader->file_path));    //The shader must have a file path set.
+    char *shader_code = zest_ReadEntireFile(shader->file_path.str, ZEST_TRUE);
+    if (!shader_code) {
+        return 0;
+    }
+    zest_SetText(&shader->shader_code, shader_code);
+    return 1;
 }
 
 zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching, shaderc_compiler_t compiler) {

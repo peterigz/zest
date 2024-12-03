@@ -2961,6 +2961,7 @@ typedef struct zest_texture_t {
 
 typedef struct zest_shader_t {
     char *spv;
+    zest_text_t file_path;
     zest_text_t shader_code;
     zest_text_t name;
     shaderc_shader_kind type;
@@ -3468,6 +3469,11 @@ ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_cod
 ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching, shaderc_compiler_t compiler);
 //Creates a shader from a file containing the shader glsl code
 ZEST_API zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler);
+//Reload a shader. Use this if you edited a shader file and you want to refresh it/hot reload it
+//The shader must have been created from a file with zest_CreateShaderFromFile. Once the shader is reloaded you can call
+//zest_CompileShader or zest_ValidateShader to recompile it. You'll then have to call zest_SchedulePipelineRecreate to recreate
+//the pipeline that uses the shader. Returns true if the shader was successfully loaded.
+ZEST_API zest_bool zest_ReloadShader(zest_shader shader);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
 ZEST_API zest_bool zest_CompileShader(zest_shader shader, shaderc_compiler_t compiler);
 //Update an existing shader with a new version
@@ -3530,6 +3536,10 @@ ZEST_API void zest_SetPipelineTemplateShader(zest_pipeline_template_create_info_
 ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template_create_info_t *create_info, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
 //Clear the input binding descriptions from the zest_pipeline_template_create_info_t bindingDescriptions array.
 ZEST_API void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template_create_info_t *create_info);
+//Clear the push constant ranges in a pipeline. You can use this after copying a pipeline to set up your own push constants instead
+//if your pipeline will use a different push constant range.
+ZEST_API void zest_ClearPipelinePushConstantRanges(zest_pipeline_template_create_info_t *create_info);
+ZEST_API void zest_AddPipelinePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range);
 //Make a new array of vertex input descriptors for use with zest_AddVertexInputDescription. input descriptions are used
 //to define the vertex input types such as position, color, uv coords etc., depending on what you need.
 ZEST_API zest_vertex_input_descriptions zest_NewVertexInputDescriptions();
@@ -3565,9 +3575,9 @@ ZEST_API void zest_BuildPipeline(zest_pipeline pipeline);
 ZEST_API zest_pipeline_template_t *zest_PipelineTemplate(zest_pipeline pipeline);
 //Get the shader stage flags for a specific push constant range in the pipeline
 ZEST_API VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_uint index);
-//Get the size of a push constant range for a specif index in the pipeline
+//Get the size of a push constant range for a specific index in the pipeline
 ZEST_API zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_uint index);
-//Get the offset of a push constant range for a specif index in the pipeline
+//Get the offset of a push constant range for a specific index in the pipeline
 ZEST_API zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint index);
 //The following are helper functions to set color blend attachment states for various blending setups
 //Just take a look inside the functions for the values being used
