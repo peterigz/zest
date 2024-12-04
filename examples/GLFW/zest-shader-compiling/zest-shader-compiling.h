@@ -8,6 +8,11 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
+typedef struct {
+	char filepath[256];
+	time_t last_modified;
+} FileMonitor;
+
 struct ImGuiApp {
 	zest_imgui_layer_info_t imgui_layer_info;
 	zest_index imgui_draw_routine_index;
@@ -20,15 +25,18 @@ struct ImGuiApp {
 	zest_shader custom_vert_shader;
 	zest_shader_resources shader_resources;
 	zest_layer custom_layer;
+	shaderc_compiler_t compiler;
 	shaderc_compilation_result_t validation_result;
 	float mix_value;
+	float num_cells;
+	zest_millisecs start_time;
+	FileMonitor shader_file;
 };
 
 void InitImGuiApp(ImGuiApp *app);
 int EditShaderCode(ImGuiInputTextCallbackData *data);
-void FormatShaderCode(zest_text_t *code);
-zest_uint ReadNextChunk(zest_text_t *text, zest_uint offset, char chunk[64]);
-void AddLine(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
+void init_file_monitor(FileMonitor *monitor, const char *filepath);
+bool check_file_changed(FileMonitor *monitor);
 
 static const char *custom_frag_shader = ZEST_GLSL(450 core,
 layout(location = 0) in vec4 in_frag_color;

@@ -2,6 +2,27 @@
 #include "imgui_internal.h"
 #include <string>
 
+void init_file_monitor(FileMonitor *monitor, const char *filepath) {
+	strncpy(monitor->filepath, filepath, sizeof(monitor->filepath) - 1);
+	struct stat file_stat;
+	if (stat(filepath, &file_stat) == 0) {
+		monitor->last_modified = file_stat.st_mtime;
+	}
+}
+
+bool check_file_changed(FileMonitor *monitor) {
+	struct stat file_stat;
+	if (stat(monitor->filepath, &file_stat) != 0) {
+		return false;  // Handle error case
+	}
+
+	if (file_stat.st_mtime > monitor->last_modified) {
+		monitor->last_modified = file_stat.st_mtime;
+		return true;
+	}
+	return false;
+}
+
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&app->imgui_layer_info);
@@ -30,12 +51,17 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
-	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	app->custom_frag_shader = zest_CreateShader(custom_frag_shader, shaderc_fragment_shader, "custom_frag.spv", true, true, compiler);
-	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_vert.spv", true, true, compiler);
-	shaderc_compiler_release(compiler);
+	app->compiler = shaderc_compiler_initialize();
+	app->custom_frag_shader = zest_CreateShaderFromFile("examples/assets/shaders/ig_sdf.frag", "custom_frag.spv", shaderc_fragment_shader, true, app->compiler);
+	app->custom_vert_shader = zest_CreateShader(custom_vert_shader, shaderc_vertex_shader, "custom_vert.spv", true, true, app->compiler);
 
 	zest_pipeline_template_create_info_t custom_pipeline_template = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
+	zest_ClearPipelinePushConstantRanges(&custom_pipeline_template);
+	VkPushConstantRange image_pushconstant_range;
+	image_pushconstant_range.size = sizeof(zest_push_constants_t);
+	image_pushconstant_range.offset = 0;
+	image_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	zest_AddPipelinePushConstantRange(&custom_pipeline_template, image_pushconstant_range);
 	app->custom_pipeline = zest_AddPipeline("pipeline_custom_shader");
 	zest_SetPipelineTemplateVertShader(&custom_pipeline_template, "custom_vert.spv", 0);
 	zest_SetPipelineTemplateFragShader(&custom_pipeline_template, "custom_frag.spv", 0);
@@ -60,91 +86,12 @@ void InitImGuiApp(ImGuiApp *app) {
 		zest_FinishQueueSetup();
 	}
 
-}
+	init_file_monitor(&app->shader_file, app->custom_frag_shader->file_path.str);
 
-zest_uint ReadNextChunk(zest_text_t *text, zest_uint offset, char chunk[64]) {
-	if (offset < zest_TextSize(text)) {
-		zest_uint max_length = zest_TextSize(text) - offset;
-		memcpy(chunk, text->str, ZEST__MIN(64, max_length));
-		return max_length;
-	}
-	else {
-		chunk[0] = '\0';
-	}
-	return 0;
-}
-
-void AddLine(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs) {
-	ZEST_ASSERT(*position < zest_TextSize(text));
-	text->str[(*position)++] = current_char;
-	ZEST_ASSERT(*position < zest_TextSize(text));
-	text->str[(*position)++] = '\n';
-	for (int t = 0; t != tabs; ++t) {
-		text->str[(*position)++] = '\t';
-	}
-}
-
-void FormatShaderCode(zest_text_t *code) {
-	zest_uint length = zest_TextSize(code);
-	zest_uint pos = 0;
-	zest_text_t formatted_code = {};
-	//First pass to calculate the new formatted buffer size
-	zest_uint extra_size = 0;
-	int tabs = 0;
-	for (zest_uint i = 0; i != length; ++i) {
-		if (code->str[i] == ';') {
-			extra_size++;
-			extra_size += tabs;
-		}
-		else if (code->str[i] == '{') {
-			extra_size++;
-			extra_size += tabs;
-			tabs++;
-		}
-		else if (code->str[i] == '}') {
-			extra_size++;
-			extra_size += tabs;
-			tabs--;
-		}
-	}
-	pos = 0;
-	zest_ResizeText(&formatted_code, length + extra_size);
-	zest_uint new_length = zest_TextSize(&formatted_code);
-	zest_uint f_pos = 0;
-	bool new_line_added = false;
-	for (zest_uint i = 0; i != length; ++i) {
-		if (new_line_added) {
-			if (code->str[i] == ' ') {
-				continue;
-			}
-			else {
-				new_line_added = false;
-			}
-		}
-		if (code->str[i] == ';') {
-			AddLine(&formatted_code, code->str[i], &f_pos, tabs);
-			new_line_added = true;
-		}
-		else if (code->str[i] == '{') {
-			tabs++;
-			AddLine(&formatted_code, code->str[i], &f_pos, tabs);
-			new_line_added = true;
-		}
-		else if (code->str[i] == '}') {
-			if (tabs > 0) {
-				f_pos--;
-				tabs--;
-			}
-			AddLine(&formatted_code, code->str[i], &f_pos, tabs);
-			new_line_added = true;
-		}
-		else {
-			ZEST_ASSERT(f_pos < new_length);
-			formatted_code.str[f_pos++] = code->str[i];
-		}
-	}
-	zest_FreeText(code);
-	*code = formatted_code;
+	app->num_cells = 32;
+	app->start_time = 0;
+	app->custom_layer->push_constants.parameters1.x = 400;
+	app->custom_layer->push_constants.parameters1.y = 400;
 }
 
 int EditShaderCode(ImGuiInputTextCallbackData *data) {
@@ -166,6 +113,23 @@ int EditShaderCode(ImGuiInputTextCallbackData *data) {
 	return 0;
 }
 
+void recompile_shader(ImGuiApp *app) {
+	zest_ReloadShader(app->custom_frag_shader);
+	shaderc_result_release(app->validation_result);
+	app->validation_result = zest_ValidateShader(app->custom_frag_shader->shader_code.str, shaderc_fragment_shader, app->custom_frag_shader->name.str, app->compiler);
+	if (app->validation_result) {
+		if (shaderc_result_get_compilation_status(app->validation_result) == shaderc_compilation_status_success) {
+			ImGui::SameLine();
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(.1f, 1.f, .1f, 1.f));
+			ImGui::Text("OK!");
+			ImGui::PopStyleColor();
+			zest_UpdateShaderSPV(app->custom_frag_shader, app->validation_result);
+			shaderc_result_release(app->validation_result);
+			app->validation_result = nullptr;
+			zest_SchedulePipelineRecreate(app->custom_pipeline);
+		}
+	}
+}
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Don't forget to update the uniform buffer!
@@ -179,32 +143,17 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Draw our imgui stuff
 	ImGui::NewFrame();
 	ImGui::Begin("Test Window");
-	ImGui::SliderFloat("Mix", &app->mix_value, 0.f, 1.f);
-	if (ImGui::Button("Compile")) {
-		shaderc_result_release(app->validation_result);
-		shaderc_compiler_t compiler = shaderc_compiler_initialize();
-		app->validation_result = zest_ValidateShader(app->custom_frag_shader->shader_code.str, shaderc_fragment_shader, app->custom_frag_shader->name.str, compiler);
-		shaderc_compiler_release(compiler);
+	ImGui::DragFloat2("Size", &app->custom_layer->push_constants.parameters1.x, 1.f, 32.f, 1024.f, "%.0f");
+	ImGui::SliderFloat("Cells", &app->num_cells, 0.f, 32.f);
+	if (check_file_changed(&app->shader_file)) {
+		recompile_shader(app);
 	}
 	if (app->validation_result) {
 		if (shaderc_result_get_compilation_status(app->validation_result) != shaderc_compilation_status_success) {
 			const char *error_message = shaderc_result_get_error_message(app->validation_result);
 			ImGui::TextWrapped("%s", error_message);
 		}
-		else {
-			ImGui::SameLine();
-			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(.1f, 1.f, .1f, 1.f));
-			ImGui::Text("OK!");
-			ImGui::PopStyleColor();
-			zest_UpdateShaderSPV(app->custom_frag_shader, app->validation_result);
-			shaderc_result_release(app->validation_result);
-			app->validation_result = nullptr;
-			zest_SchedulePipelineRecreate(app->custom_pipeline);
-		}
 	}
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 1.00f, 1.00f, .75f));
-	ImGui::InputTextMultiline("##Shader Code", app->custom_frag_shader->shader_code.str, zest_vec_size(app->custom_frag_shader->shader_code.str), ImVec2(-1.f, -1.f), ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_CallbackResize, EditShaderCode, &app->custom_frag_shader->shader_code);
-	ImGui::PopStyleColor();;
 	//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 	ImGui::End();
 	ImGui::Render();
@@ -214,10 +163,13 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 
 	zest_SetInstanceDrawing(app->custom_layer, app->shader_resources, app->custom_pipeline);
-	app->custom_layer->push_constants.parameters1.x = app->mix_value;
+	app->custom_layer->push_constants.parameters2.x = float((int)app->num_cells);
+	app->custom_layer->push_constants.parameters2.y += float(elapsed) / 1000000.f;
 	zest_SetLayerIntensity(app->custom_layer, 3.f);
 	zest_SetLayerColor(app->custom_layer, 255, 128, 64, 0);
-	zest_DrawSprite(app->custom_layer, app->test_image, 1000.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f);
+	float width = app->custom_layer->push_constants.parameters1.x;
+	float height = app->custom_layer->push_constants.parameters1.y;
+	zest_DrawSprite(app->custom_layer, app->test_image, 1000.f, 400.f, 0.f, width, height, .5f, .5f, 0, 0.f);
 }
 
 #if defined(_WIN32)
@@ -246,6 +198,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	//Start the main loop
 	zest_Start();
 
+	shaderc_compiler_release(imgui_app.compiler);
 	return 0;
 }
 #else
