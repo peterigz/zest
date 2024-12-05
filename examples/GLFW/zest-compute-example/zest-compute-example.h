@@ -43,6 +43,8 @@ struct ImGuiApp {
 	zest_command_queue command_queue;
     VkDescriptorSet *draw_sets;
 
+	zest_timer loop_timer;
+
 	float frame_timer;
 	float anim_start;
 	float timer;
