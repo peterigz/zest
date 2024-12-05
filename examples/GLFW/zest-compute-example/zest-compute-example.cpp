@@ -121,7 +121,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
 	//Declare the actual shader to use
-	zest_AddComputeShader(&builder, "particle_comp.spv", "examples/assets/spv/");
+	zest_shader compute_shader = zest_AddShaderFromSPVFile("examples/assets/spv/particle_comp.spv", shaderc_compute_shader);
+	zest_AddComputeShader(&builder, compute_shader);
 	//Finally, make the compute shader using the builder
 	zest_MakeCompute(&builder, app->compute);
 
@@ -143,6 +144,9 @@ void InitImGuiApp(ImGuiApp *app) {
 			zest_imgui_CreateLayer(&app->imgui_layer_info);
 		}
 	}
+
+	//Create a timer for a fixed update loop
+	app->loop_timer = zest_CreateTimer(60.0);
 }
 
 void RecordComputeSprites(zest_work_queue_t *queue, void *data) {
@@ -225,18 +229,22 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 	}
 
-	//Draw Imgui
-	ImGui_ImplGlfw_NewFrame();
-	ImGui::NewFrame();
-	ImGui::Begin("Test Window");
-	ImGui::Text("FPS %u", ZestApp->last_fps);
-	ImGui::Text("Particle Count: %u", PARTICLE_COUNT);
-	ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
-	ImGui::End();
-	ImGui::Render();
-	//We must mark the layer as dirty or nothing will be uploaded to the GPU
-	zest_ResetLayer(app->imgui_layer_info.mesh_layer);
-	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
+
+	zest_StartTimerLoop(app->loop_timer) {
+		//Draw Imgui
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+		ImGui::Begin("Test Window");
+		ImGui::Text("FPS %u", ZestApp->last_fps);
+		ImGui::Text("Particle Count: %u", PARTICLE_COUNT);
+		ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
+		ImGui::End();
+		ImGui::Render();
+		//We must mark the layer as dirty or nothing will be uploaded to the GPU
+		zest_ResetLayer(app->imgui_layer_info.mesh_layer);
+		zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
+	} zest_EndTimerLoop(app->loop_timer)
+
 }
 
 #if defined(_WIN32)
