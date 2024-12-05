@@ -11539,16 +11539,10 @@ void zest_AddComputeImageForBinding(zest_compute_builder_t* builder, zest_textur
     zest_vec_push(builder->descriptor_infos, info);
 }
 
-zest_index zest_AddComputeShader(zest_compute_builder_t* builder, const char* path, const char* prefix) {
+zest_index zest_AddComputeShader(zest_compute_builder_t* builder, zest_shader shader) {
     zest_text_t path_text = { 0 };
-    if (!prefix) {
-        zest_SetText(&path_text, path);
-    }
-    else {
-        zest_SetTextf(&path_text, "%s%s", prefix, path);
-    }
-    zest_vec_push(builder->shader_names, path_text);
-    return zest_vec_last_index(builder->shader_names);
+    zest_vec_push(builder->shaders, shader);
+    return zest_vec_last_index(builder->shaders);
 }
 
 void zest_SetComputePushConstantSize(zest_compute_builder_t* builder, zest_uint size) {
@@ -11646,24 +11640,14 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
     compute_pipeline_create_info.flags = 0;
 
     // One pipeline for each effect
-    compute->shader_names = builder->shader_names;
+    ZEST_ASSERT(zest_vec_size(builder->shaders));
+    compute->shaders = builder->shaders;
     VkShaderModule shader_module = { 0 };
-    for (zest_foreach_i(compute->shader_names)) {
-        zest_text_t filename = compute->shader_names[i];
-        char* code = zest_ReadEntireFile(filename.str, ZEST_FALSE);
+    for (zest_foreach_i(compute->shaders)) {
+        zest_shader shader = compute->shaders[i];
 
-        if (zest_map_valid_name(ZestRenderer->shaders, filename.str)) {
-            zest_shader shader = *zest_map_at(ZestRenderer->shaders, filename.str);
-            if (!shader->spv) {
-                ZEST_ASSERT(0);    //Compile the shader first before making the compute pipeline
-            }
-            shader_module = zest__create_shader_module(shader->spv);
-        }
-        else {
-            zest_shader vert_shader = zest_AddShaderFromSPVFile(filename.str, shaderc_compute_shader);
-            ZEST_ASSERT(vert_shader);        //Failed to load the shader file, make sure it exists at the location
-            shader_module = zest__create_shader_module(vert_shader->spv);
-        }
+        ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
+		shader_module = zest__create_shader_module(shader->spv);
 
         VkPipelineShaderStageCreateInfo compute_shader_stage_info = { 0 };
         compute_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -11676,7 +11660,6 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
         ZEST_VK_CHECK_RESULT(vkCreateComputePipelines(ZestDevice->logical_device, VK_NULL_HANDLE, 1, &compute_pipeline_create_info, &ZestDevice->allocation_callbacks, &pipeline));
         zest_vec_push(compute->pipelines, pipeline);
         vkDestroyShaderModule(ZestDevice->logical_device, shader_module, &ZestDevice->allocation_callbacks);
-        zest_vec_free(code);
     }
 
     // Separate command pool as queue family for compute may be different than graphics

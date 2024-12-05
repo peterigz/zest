@@ -2809,7 +2809,7 @@ struct zest_compute_t {
     VkDescriptorSet descriptor_set[ZEST_MAX_FIF];             // Compute shader bindings
     VkPipelineLayout pipeline_layout;                         // Layout of the compute pipeline
     VkDescriptorSetLayoutBinding *set_layout_bindings;
-    zest_text_t *shader_names;                                // Names of the shader files to use
+    zest_shader *shaders;                                     // List of compute shaders to use
     VkPipeline *pipelines;                                    // Compute pipelines, one for each shader
     zest_descriptor_infos_for_binding_t *descriptor_infos;    // All the buffers/images that are bound to the compute shader
     int32_t pipeline_index;                                   // Current image filtering compute pipeline index
@@ -2837,7 +2837,7 @@ typedef struct zest_compute_builder_t {
     zest_map_descriptor_pool_sizes descriptor_pool_sizes;
     VkDescriptorSetLayoutBinding *layout_bindings;
     zest_descriptor_infos_for_binding_t *descriptor_infos;
-    zest_text_t *shader_names;
+    zest_shader *shaders;
     VkPipelineLayoutCreateInfo layout_create_info;
     zest_uint push_constant_size;
     zest_compute_flags flags;
@@ -4715,7 +4715,7 @@ ZEST_API void zest_AddComputeBufferForBinding(zest_compute_builder_t *builder, z
 //Use this command to add an image binding. This is the same command as zest_AddComputeBufferForBinding but specifically for images
 ZEST_API void zest_AddComputeImageForBinding(zest_compute_builder_t *builder, zest_texture texture);
 //Add a shader to the compute builder. This will be the shader that is executed on the GPU. Pass a file path where to find the shader.
-ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, const char *path, const char *prefix);
+ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, zest_shader shader);
 //If you're using a push constant then you can set it's size in the builder here.
 ZEST_API void zest_SetComputePushConstantSize(zest_compute_builder_t *builder, zest_uint size);
 //If you need a specific way to update the descriptors in the compute shader then you can set that here. By default zest_StandardComputeDescriptorUpdate is used
@@ -4790,6 +4790,13 @@ ZEST_API double zest_TimerLerp(zest_timer timer);                               
 ZEST_API void zest_TimerSet(zest_timer timer);                                                  //Set the current tween value
 ZEST_API double zest_TimerUpdateFrequency(zest_timer timer);                                    //Get the update frequency set in the timer
 ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer timer);                                    //Returns true if an update loop was run
+//Help macros for starting/ending an update loop if you prefer.
+#define zest_StartTimerLoop(timer) 	zest_TimerAccumulate(timer);   \
+		int pending_ticks = zest_TimerPendingTicks(timer);	\
+		while (zest_TimerDoUpdate(timer)) {
+#define zest_EndTimerLoop(timer) zest_TimerUnAccumulate(timer); \
+	} \
+	zest_TimerSet(timer);
 //--End Timer Functions
 
 //-----------------------------------------------
