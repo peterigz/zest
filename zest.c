@@ -6357,7 +6357,7 @@ zest_index zest__next_fif() {
     return (ZestDevice->current_fif + 1) % ZEST_MAX_FIF;
 }
 
-zest_create_info_t zest_CreateInfo(zest_bool enable_validation_layers) {
+zest_create_info_t zest_CreateInfo() {
     zest_create_info_t create_info = {
         .memory_pool_size = zloc__MEGABYTE(64),
         .shader_path_prefix = "spv/",
@@ -6380,7 +6380,12 @@ zest_create_info_t zest_CreateInfo(zest_bool enable_validation_layers) {
         .create_window_surface_callback = zest__os_create_window_surface,
         .pool_counts = { 0 }
     };
-    ZEST__MAYBE_FLAG(create_info.flags, zest_init_flag_enable_validation_layers, enable_validation_layers);
+    return create_info;
+}
+
+zest_create_info_t zest_CreateInfoWithValidationLayers() {
+    zest_create_info_t create_info = zest_CreateInfo();
+    ZEST__FLAG(create_info.flags, zest_init_flag_enable_validation_layers);
     return create_info;
 }
 
