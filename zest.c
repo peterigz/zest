@@ -1362,6 +1362,7 @@ void zest_Initialise(zest_create_info_t* info) {
     ZestDevice->allocation_callbacks.pfnAllocation = zest_vk_allocate_callback;
     ZestDevice->allocation_callbacks.pfnReallocation = zest_vk_reallocate_callback;
     ZestDevice->allocation_callbacks.pfnFree = zest_vk_free_callback;
+    ZestDevice->setup_info = *info;
     if (info->log_path) {
         zest_SetErrorLogPath(info->log_path);
     }
@@ -1393,11 +1394,13 @@ void zest_Start() {
     zest__destroy();
 }
 
-void zest__initialise_device(zest_create_info_t *create_info) {
+void zest__initialise_device() {
     zest__create_instance();
-    zest__setup_validation();
+    if (zest__validation_layers_are_enabled()) {
+        zest__setup_validation();
+    }
     zest__pick_physical_device();
-    zest__create_logical_device(create_info);
+    zest__create_logical_device();
     zest__set_limit_data();
     zest__set_default_pool_sizes();
 }
@@ -1437,8 +1440,8 @@ void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(
 /*
 Functions that create a vulkan device
 */
-void zest__create_instance(void) {
-    if (ZEST_ENABLE_VALIDATION_LAYER) {
+void zest__create_instance() {
+    if (zest__validation_layers_are_enabled()) {
         zest_bool validation_support = zest__check_validation_layer_support();
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Checking for validation support");
         ZEST_ASSERT(validation_support);
@@ -1467,7 +1470,7 @@ void zest__create_instance(void) {
     create_info.ppEnabledExtensionNames = (const char**)ZestDevice->extensions;
 
     VkDebugUtilsMessengerCreateInfoEXT debug_create_info = { 0 };
-    if (ZEST_ENABLE_VALIDATION_LAYER) {
+    if (zest__validation_layers_are_enabled()) {
         create_info.enabledLayerCount = (zest_uint)zest__validation_layer_count;
         create_info.ppEnabledLayerNames = zest_validation_layers;
         debug_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -1535,7 +1538,6 @@ void zest_destroy_debug_messenger(void) {
 }
 
 void zest__setup_validation(void) {
-    if (!ZEST_ENABLE_VALIDATION_LAYER) return;
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Enabling validation layers\n");
 
     VkDebugUtilsMessengerCreateInfoEXT create_info = { 0 };
@@ -1561,7 +1563,7 @@ void zest__get_required_extensions() {
     //Check "Disable Library Validation" under Signing and Capabilities
     ZEST_ASSERT(ZestDevice->extensions); //Vulkan not available
 
-    if (ZEST_ENABLE_VALIDATION_LAYER) {
+    if (zest__validation_layers_are_enabled()) {
         zest_AddInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
     //zest_AddInstanceExtension(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME);
@@ -1816,7 +1818,7 @@ VkSampleCountFlagBits zest__get_max_useable_sample_count(void) {
     return VK_SAMPLE_COUNT_1_BIT;
 }
 
-void zest__create_logical_device(zest_create_info_t *init_info) {
+void zest__create_logical_device() {
     zest_queue_family_indices indices = { 0 };
 
     zest_uint queue_family_count = 0;
@@ -1885,7 +1887,7 @@ void zest__create_logical_device(zest_create_info_t *init_info) {
     //device_features.wideLines = VK_TRUE;
     //device_features.dualSrcBlend = VK_TRUE;
     //device_features.vertexPipelineStoresAndAtomics = VK_TRUE;
-    if (ZEST__FLAGGED(init_info->flags, zest_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
+    if (ZEST__FLAGGED(ZestDevice->setup_info.flags, zest_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
     VkPhysicalDeviceVulkan12Features device_features_12 = { 0 };
     device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     device_features_12.bufferDeviceAddress = VK_TRUE;
@@ -1910,7 +1912,7 @@ void zest__create_logical_device(zest_create_info_t *init_info) {
         create_info.pNext = &device_features_12;
     }
 
-    if (ZEST_ENABLE_VALIDATION_LAYER) {
+    if (ZEST__FLAGGED(ZestDevice->setup_info.flags, zest_init_flag_enable_validation_layers)) {
         create_info.enabledLayerCount = zest__validation_layer_count;
         create_info.ppEnabledLayerNames = zest_validation_layers;
     }
@@ -2125,6 +2127,10 @@ zest_microsecs zest__set_elapsed_time(void) {
     ZestApp->current_elapsed_time = zest_Microsecs();
 
     return ZestApp->current_elapsed;
+}
+
+zest_bool zest__validation_layers_are_enabled(void) {
+    return ZEST__FLAGGED(ZestDevice->setup_info.flags, zest_init_flag_enable_validation_layers);
 }
 
 void zest__do_scheduled_tasks(void) {
@@ -2400,13 +2406,13 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
     alloc_info.allocationSize = memory_requirements.size;
     alloc_info.memoryTypeIndex = zest_find_memory_type(memory_requirements.memoryTypeBits, property_flags);
     ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
-    if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
+    if (zest__validation_layers_are_enabled() && ZestDevice->api_version == VK_API_VERSION_1_2) {
         alloc_info.pNext = &flags;
     }
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 
-    if (ZEST_ENABLE_VALIDATION_LAYER && ZestDevice->api_version == VK_API_VERSION_1_2) {
+    if (zest__validation_layers_are_enabled() && ZestDevice->api_version == VK_API_VERSION_1_2) {
         ZestDevice->use_labels_address_bit = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
         const VkDebugUtilsObjectNameInfoEXT buffer_name_info =
         {
@@ -10158,7 +10164,6 @@ void zest_MarkOutdated(zest_recorder recorder) {
 }
 
 void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine draw_routine) {
-    ZEST_CHECK_HANDLE(command_buffer);	//Not a valid handle!
     ZEST_CHECK_HANDLE(draw_routine);	//Not a valid handle!
     VkViewport view = zest_CreateViewport(0.f, 0.f, (float)draw_routine->draw_commands->viewport.extent.width, (float)draw_routine->draw_commands->viewport.extent.height, 0.f, 1.f);
     VkRect2D scissor = zest_CreateRect2D(draw_routine->draw_commands->viewport.extent.width, draw_routine->draw_commands->viewport.extent.height, 0, 0);

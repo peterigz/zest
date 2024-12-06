@@ -82,10 +82,6 @@ extern "C" {
 #define ZEST_API
 #endif
 
-#ifndef ZEST_ENABLE_VALIDATION_LAYER
-#define ZEST_ENABLE_VALIDATION_LAYER 1
-#endif
-
 //I had to add this because some dell laptops have their own drivers that are basically broken. Even though the gpu signals that
 //it can write direct it actually doesn't and just crashes. Maybe there's another way to detect or do a pre-test?
 #define ZEST_DISABLE_GPU_DIRECT_WRITE 1
@@ -1313,15 +1309,16 @@ typedef enum zest_pipeline_set_flag_bits {
 typedef zest_uint zest_pipeline_set_flags;
 
 typedef enum zest_init_flag_bits {
-    zest_init_flag_none                                           = 0,
-    zest_init_flag_initialise_with_command_queue                  = 1 << 0,
-    zest_init_flag_use_depth_buffer                               = 1 << 1,
-    zest_init_flag_maximised                                      = 1 << 2,
-    zest_init_flag_cache_shaders                                  = 1 << 3,
-    zest_init_flag_enable_vsync                                   = 1 << 6,
-    zest_init_flag_enable_fragment_stores_and_atomics             = 1 << 7,
-    zest_init_flag_disable_shaderc                                = 1 << 8,
-    zest_init_flag_log_validation_errors_to_console               = 1 << 9,
+    zest_init_flag_none                                         = 0,
+    zest_init_flag_initialise_with_command_queue                = 1 << 0,
+    zest_init_flag_use_depth_buffer                             = 1 << 1,
+    zest_init_flag_maximised                                    = 1 << 2,
+    zest_init_flag_cache_shaders                                = 1 << 3,
+    zest_init_flag_enable_vsync                                 = 1 << 6,
+    zest_init_flag_enable_fragment_stores_and_atomics           = 1 << 7,
+    zest_init_flag_disable_shaderc                              = 1 << 8,
+    zest_init_flag_enable_validation_layers                     = 1 << 9,
+    zest_init_flag_log_validation_errors_to_console             = 1 << 10,
 } zest_init_flag_bits;
 
 typedef zest_uint zest_init_flags;
@@ -2270,6 +2267,31 @@ typedef struct zest_window_t {
     zest_bool framebuffer_resized;
 } zest_window_t;
 
+zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
+
+typedef struct zest_create_info_t {
+    const char *title;                                  //Title that shows in the window
+    const char *shader_path_prefix;                     //Prefix prepending to the shader path when loading default shaders
+    const char* log_path;                               //path to the log to store log and validation messages
+    zest_size memory_pool_size;                         //The size of each memory pool. More pools are added if needed
+    int screen_width, screen_height;                    //Default width and height of the window that you open
+    int screen_x, screen_y;                             //Default position of the window
+    int virtual_width, virtual_height;                  //The virtial width/height of the viewport
+    int thread_count;                                   //The number of threads to use if multithreading. 0 if not.
+    VkFormat color_format;                              //Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
+    VkDescriptorPoolSize pool_counts[11];               //You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
+    zest_uint max_descriptor_pool_sets;                 //The maximum number of descriptor pool sets for the descriptor pool. 100 is default but set to more depending on your needs.
+    zest_init_flags flags;                              //Set flags to apply different initialisation options
+
+    //Callbacks: use these to implement your own preferred window creation functionality
+    void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
+    void(*destroy_window_callback)(void *user_data);
+    void(*poll_events_callback)(ZEST_PROTOTYPE);
+    void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
+    zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
+    void(*create_window_surface_callback)(zest_window window);
+} zest_create_info_t;
+
 typedef struct zest_device_t {
     zest_uint api_version;
     zest_uint use_labels_address_bit;
@@ -2307,32 +2329,8 @@ typedef struct zest_device_t {
     void *allocator_start;
     void *allocator_end;
     zest_text_t log_path;
+    zest_create_info_t setup_info;
 } zest_device_t;
-
-zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
-
-typedef struct zest_create_info_t {
-    const char *title;                                  //Title that shows in the window
-    const char *shader_path_prefix;                     //Prefix prepending to the shader path when loading default shaders
-    const char* log_path;                               //path to the log to store log and validation messages
-    zest_size memory_pool_size;                         //The size of each memory pool. More pools are added if needed
-    int screen_width, screen_height;                    //Default width and height of the window that you open
-    int screen_x, screen_y;                             //Default position of the window
-    int virtual_width, virtual_height;                  //The virtial width/height of the viewport
-    int thread_count;                                   //The number of threads to use if multithreading. 0 if not.
-    VkFormat color_format;                              //Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
-    VkDescriptorPoolSize pool_counts[11];               //You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
-    zest_uint max_descriptor_pool_sets;                 //The maximum number of descriptor pool sets for the descriptor pool. 100 is default but set to more depending on your needs.
-    zest_init_flags flags;                              //Set flags to apply different initialisation options
-
-    //Callbacks use these to implement your own preferred window creation functionality
-    void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
-    void(*destroy_window_callback)(void *user_data);
-    void(*poll_events_callback)(ZEST_PROTOTYPE);
-    void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
-    zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
-    void(*create_window_surface_callback)(zest_window window);
-} zest_create_info_t;
 
 typedef struct zest_app_t {
     zest_create_info_t create_info;
@@ -3346,7 +3344,7 @@ ZEST_PRIVATE void zest__reindex_texture_images(zest_texture texture);
 // --End Maintenance functions
 
 //Device set up
-ZEST_PRIVATE void zest__create_instance(void);
+ZEST_PRIVATE void zest__create_instance();
 ZEST_PRIVATE void zest__setup_validation(void);
 ZEST_PRIVATE VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
 ZEST_PRIVATE VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
@@ -3359,10 +3357,10 @@ ZEST_PRIVATE zest_queue_family_indices zest__find_queue_families(VkPhysicalDevic
 ZEST_PRIVATE zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_swapchain_support_details_t zest__query_swapchain_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE VkSampleCountFlagBits zest__get_max_useable_sample_count(void);
-ZEST_PRIVATE void zest__create_logical_device(zest_create_info_t *create_info);
+ZEST_PRIVATE void zest__create_logical_device();
 ZEST_PRIVATE void zest__set_limit_data(void);
 ZEST_PRIVATE zest_bool zest__check_validation_layer_support(void);
-ZEST_PRIVATE void zest__get_required_extensions(void);
+ZEST_PRIVATE void zest__get_required_extensions();
 ZEST_PRIVATE zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
 ZEST_PRIVATE zest_buffer_type_t zest__get_buffer_memory_type(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_size size);
 ZEST_PRIVATE void zest__set_default_pool_sizes(void);
@@ -3374,10 +3372,11 @@ ZEST_PRIVATE void zest_vk_free_callback(void* pUserData, void *memory);
 //App initialise/run functions
 ZEST_PRIVATE void zest__do_scheduled_tasks(void);
 ZEST_PRIVATE void zest__initialise_app(zest_create_info_t *create_info);
-ZEST_PRIVATE void zest__initialise_device(zest_create_info_t *create_info);
+ZEST_PRIVATE void zest__initialise_device();
 ZEST_PRIVATE void zest__destroy(void);
 ZEST_PRIVATE void zest__main_loop(void);
 ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
+ZEST_PRIVATE zest_bool zest__validation_layers_are_enabled(void);
 //-- end of internal functions
 
 //-- Window related functions
