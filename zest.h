@@ -3390,6 +3390,8 @@ ZEST_PRIVATE void zest__update_window_size(zest_window window, zest_uint width, 
 //-----------------------------------------------
 //Create a new zest_create_info_t struct with default values for initialising Zest
 ZEST_API zest_create_info_t zest_CreateInfo();
+//Create a new zest_create_info_t struct with default values for initialising Zest but also enable validation layers as well
+ZEST_API zest_create_info_t zest_CreateInfoWithValidationLayers();
 //Set the pool count for a descriptor type in a zest_create_info_t. Do this for any pools that you want to be different to the default. You only
 //need to call this if you're running out of descriptor pool space for a specific VkDescriptorType which you maybe doing if you have a lot of custom
 //draw routines
