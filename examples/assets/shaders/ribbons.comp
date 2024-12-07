@@ -1,307 +1,71 @@
 #version 450
-
-/*
-This compute shader uses parallel reduction to find the min/max bounding box of all the sprite vertices in an effect
-*/
-
-#define tfxINVALID 0xFFFFFFFF
-#define tfxReverseAnimationFlag 32768
-const float one_div_511 = 1.0 / 511.0;
-const float pow_2_22 = 1.0 / pow(2.0, 22);
-const float size_max_value = 256.0 / 32767.0;
-const float handle_max_value = 128.0 / 32767.0;
-
-//We add an epsilon to avoid nans with the cross product
-//const vec3 up = {0, 1, 0.00001};
-//const vec3 front = {0, 0, 1};
-//const vec3 left = {1, 0, 0};
-
-const vec3 up = {0, 1, 0.00001};
-const vec3 front = {0, 0, -1};
-const vec3 left = {-1, 0, 0};
-
 #define group_size 128
 
-//Contains all of the pre-recorded sprites for all effects
-struct SpriteData {		//60 bytes + padding to 64
-	vec4 position;						//The position of the billboard
-	vec3 rotations;				        //Rotations of the billboard with stretch in w
-	uint alignment;						//normalised alignment vector 2 floats packed into 16bits or 3 8bit floats for 3d
-	uvec2 size_handle;					//Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
-	uint intensity_life;				//Multiplier for the color and life of particle
-	uint curved_alpha;					//Sharpness and dissolve amount value for fading the image 2 16bit floats packed
-	uint indexes;						//[color ramp y index, color ramp texture array index, capture flag, image data index (1 bit << 15), billboard alignment (2 bits << 13), image data index max 8191 images]
-	uint captured_index;				//Index to the sprite in the buffer from the previous frame for interpolationP
-	uint property_index_lerp_offset;	//UNorm lerp offset in FFFF and the property index in FFFF0000
-	uint padding;
+struct ribbon_segments {
+    vec4 position_and_width;  // xyz = position, w = width                
+    vec4 parameters;
 };
 
-//Contains each animation instance with data that the compute shader uses to position the sprites and figure out which is the current frame that's playing.
-struct AnimationInstance {
-	vec3 position;					//position that the instance should be played at
-	float scale;					//Overal scale of the effect
-	uint sprite_count;				//The number of sprites to be drawn
-	uint frame_count;				//The number of frames in the animation
-	uint offset_into_sprite_data;	//The starting ofset in the buffer that contains all the sprite data
-	uint info_index;				//Index into the effect_animation_info storage map to get at the frame meta
-	float current_time;				//Current point of time in the animation
-	float animation_time;			//Total time that the animation lasts for
-	float tween;					//The point time within the frame (0..1)
-	uint flags;						//Flags associated with the instance
+struct vertex {
+    vec4 position;                    
+    vec4 uv;
 };
 
-//Emitter properties, currently only need the handle of the sprite
-struct EmitterProperties {
-	vec2 handle;
-	uint flags;
-	uint start_frame_index;
-	float animation_frames;
-	float unused_here[2];
-};
+layout(push_constant) uniform camera_push
+{
+    vec4 position;
+    float uv_scale;
+    float uv_offset;
+    float width_scale_multiplier;
+    uint segment_count;
+} camera;
 
-struct BoundingBox {
-	vec3 min_corner;
-	float max_stretch;
-	vec3 max_corner;
-	float padding;
-};
-
-//The size of each local group, ie., how many sprites are processed by each compute thread
 layout (local_size_x = group_size) in;
 
-//Bindings for all the buffers being used
-layout (std430, binding = 0) buffer InSpriteData {
-   SpriteData sprite_data[ ];
+layout (std430, binding = 0) readonly buffer InRibbons {
+    ribbon_segments ribbon_data[];
 };
 
-layout (std430, binding = 1) buffer InOffsets {
-   uint offsets[ ];
+layout (std430, binding = 1) buffer OutVertices {
+    vertex vertex_data[];
 };
 
-layout (std430, binding = 2) buffer InAnimationInstances {
-   AnimationInstance instances[ ];
-};
-
-layout (std430, binding = 3) buffer InEmitterProperties {
-   EmitterProperties emitter_properties[ ];
-};
-
-layout (std430, binding = 4) buffer InBoundingBox {
-   BoundingBox bounding_box[ ];
-};
-
-//Push constants
-layout(push_constant) uniform compute_push
-{
-	vec4 parameters;		//Total number of sprites to process in z. Total animation instances in x. y is 1 if any animation instance uses animated shapes
-} pc;
-
-mat3 RotationMatrix(vec3 axis, float angle)
-{
-    axis = normalize(axis);
-    float s = sin(angle);
-    float c = cos(angle);
-    float oc = 1.0 - c;
-    return mat3(oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,
-                oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,
-                oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c);
-}
-
-vec2 Unpack16bit2SScale(uint packed, float max_value) {
-	int x_scaled = int(packed & 0xFFFF);
-	int y_scaled = int((packed >> 16) & 0xFFFF);
-	vec2 unpacked;
-	unpacked.x = float(x_scaled * max_value);
-	unpacked.y = float(y_scaled * max_value);
-	return unpacked;
-}
-
-//Shared arrays that we load the sprite data into for each thread group. We load in once at the start of the algorithm 
-//and then reduce down these arrays until index 0 contains the final min/max values
-shared vec3 local_min[group_size];
-shared vec3 local_max[group_size];
-
-//Once we reduce down to the final 32 elements in the group, we can perform the final reduction
-//without the need for barriers because 1 wave is 32 wide and therefore synchronous across all threads
-void warp_reduce(uint tid) {
-	local_min[tid] = min(local_min[tid], local_min[tid + 32]);
-	local_min[tid] = min(local_min[tid], local_min[tid + 16]);
-	local_min[tid] = min(local_min[tid], local_min[tid + 8]);
-	local_min[tid] = min(local_min[tid], local_min[tid + 4]);
-	local_min[tid] = min(local_min[tid], local_min[tid + 2]);
-	local_min[tid] = min(local_min[tid], local_min[tid + 1]);
-	local_max[tid] = max(local_max[tid], local_max[tid + 32]);
-	local_max[tid] = max(local_max[tid], local_max[tid + 16]);
-	local_max[tid] = max(local_max[tid], local_max[tid + 8]);
-	local_max[tid] = max(local_max[tid], local_max[tid + 4]);
-	local_max[tid] = max(local_max[tid], local_max[tid + 2]);
-	local_max[tid] = max(local_max[tid], local_max[tid + 1]);
-}
-
-//This function basically does what the vertex shader does so we can find out where the vertices are for each sprite
-void calculate_vertex_position(inout vec3 min_vertex, inout vec3 max_vertex, uint sprite_data_index) {
-	uint billboard_option = (sprite_data[sprite_data_index].indexes & 0x6000) >> 13;
-
-	vec2 scale = Unpack16bit2SScale(sprite_data[sprite_data_index].size_handle.x, size_max_value);
-    vec2 handle = Unpack16bit2SScale(sprite_data[sprite_data_index].size_handle.y, handle_max_value);
-	vec3 position = sprite_data[sprite_data_index].position.xyz;
-	vec3 rotations = sprite_data[sprite_data_index].rotations;
-	uint alignment_packed = sprite_data[sprite_data_index].alignment;
-	float stretch = sprite_data[sprite_data_index].position.w;
-
-	//Billboarding determines whether the quad will align to the camera or not. 0 means that it will 
-	//align to the camera. This value is determined by the first bit: 01
-	float billboarding = float(billboard_option & 1);
-
-	//align_type is set to 1 when we want the quad to align to the vector stored in alignment.xyz with
-	//no billboarding. Billboarding will always be set to 1 in this case, so in other words both bits
-	//will be set: 11.
-	float align_type = float(billboard_option == 3);
-
-	//vector_align is set to 1 when we want the billboard to align to the camera and the vector
-	//stored in alignment.xyz. billboarding and align_type will always be 0 if this is the case. the second
-	//bit is the only bit set if this is the case: 10
-	float vector_align = float(billboard_option == 2);
-
-	//vec3 alignment_up_cross = dot(alignment.xyz, up) == 0 ? vec3(0, 1, 0) : normalize(cross(alignment.xyz, up));
-
-	const vec3 identity_bounds[4] = 
-	{
-		{ scale.x * (0 - handle.x), -scale.y * (0 - handle.y), 0},
-		{ scale.x * (1 - handle.x), -scale.y * (0 - handle.y), 0},
-		{ scale.x * (0 - handle.x), -scale.y * (1 - handle.y), 0},
-		{ scale.x * (1 - handle.x), -scale.y * (1 - handle.y), 0},
-	};
-
-	vec3 alignment = unpackSnorm4x8(alignment_packed).xyz;
-	//vec3 alignment = vec3(0, 0, 1);
-	vec3 alignment_normal = normalize(alignment);
-	vec3 alignment_up_cross = normalize(cross(alignment, up));
-
-	float apply_align_type = 1 - align_type;
-
-	vec3 bounds[4];
-	bounds[0] =	align_type == 1 ? ((-scale.y * alignment_normal * (0 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[0];
-	bounds[1] =	align_type == 1 ? ((-scale.y * alignment_normal * (0 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[1];
-	bounds[2] =	align_type == 1 ? ((-scale.y * alignment_normal * (1 - handle.y)) + (scale.x * alignment_up_cross * (0 - handle.x))) : identity_bounds[2];
-	bounds[3] = align_type == 1 ? ((-scale.y * alignment_normal * (1 - handle.y)) + (scale.x * alignment_up_cross * (1 - handle.x))) : identity_bounds[3];
-
-	vec3 surface_normal = cross(bounds[1] - bounds[0], bounds[3] - bounds[0]); 
-	mat3 matrix_roll = RotationMatrix(align_type * alignment_normal + front * apply_align_type, rotations.z);
-	mat3 matrix_pitch = RotationMatrix(align_type * alignment_up_cross + left * apply_align_type, rotations.x * billboarding);
-	mat3 matrix_yaw = RotationMatrix(align_type * surface_normal + up * apply_align_type, rotations.y * billboarding);
-
-	//Unlike the billboard.vert shader, we have to multiply the matrices in a different order to make the bounding box line up
-	//mat3 rot_mat = matrix_roll * matrix_yaw * matrix_pitch;
-	mat3 rot_mat = matrix_pitch * matrix_yaw * matrix_roll;
-
-	//For billboards that are not aligned to the camera, calculate the min/max values for each vertex.
-	for(int i = 0; i != 4; ++i) {
-		vec3 v = rot_mat * bounds[i];
-		v += alignment_normal * dot(v, alignment_normal) * stretch * billboarding;
-		v += position;
-		min_vertex = min(min_vertex, v);
-		max_vertex = max(max_vertex, v);
-	}
-
-	//For billboards that face the camera calculate the radius of the billboard and base the min max on that to take into account
-	//how different camera angles will effect the bounds of the billboard. This could definitely be improved as currently it tends
-	//to result in larger than necessary bounding boxes when the handle of the sprite is not centered
-	float radius = length(bounds[0] - bounds[3]) * .5;
-	float handle_radius = length((vec2(0.5) - handle) * scale);
-	float apply_billboarding = 1 - billboarding;
-	radius += apply_billboarding * handle_radius;
-	radius += radius * stretch;
-	vec3 center = (bounds[0] + bounds[3]) / 2;
-	center *= rot_mat;
-	vec3 half_extents = vec3(radius, radius, radius);
-	vec3 corner_min = (min_vertex * billboarding) + ((position + (center * billboarding)) - half_extents) * apply_billboarding;
-	vec3 corner_max = (max_vertex * billboarding) + ((position + (center * billboarding)) + half_extents) * apply_billboarding;
-	//vec3 corner_min =  (s.position + (center * billboarding)) - half_extents;
-	//vec3 corner_max =  (s.position + (center * billboarding)) + half_extents;
-
-	min_vertex = min(min_vertex, corner_min);
-	max_vertex = max(max_vertex, corner_max);
-}
-
-void main()
-{	
+void main() {    
     uint global_index = gl_GlobalInvocationID.x;
-    uint local_index = gl_LocalInvocationID.x;
-    uint group_index = gl_WorkGroupID.x;
-
-	//Load with min/max data first to handle where we might index into the array where no sprite exists because
-	//we're at the end of the data. So we just want to guarantee that a real sprite position values will be taken as
-	//the min or max values and not some random unitialised values.
-	local_min[local_index] = vec3(99999999, 9999999, 9999999);
-	local_max[local_index] = vec3(-99999999, -9999999, -9999999);
-
-	//wait here until all threads in the group have set the shared values
-	barrier();
-
-	// Don't try to write beyond position count. Note that we don't try and exit early as it can 
-	// cause a timeout when the shader hits the barrier. I think it depends on the platform, Mac had issues with this
-	// for example.
-    global_index = min(global_index, int(pc.parameters.z - 1));
-
-	//Calculate the current sprite index that we should read from
-	//We are loading every second group and doing the first comparison on the first load, therefore the number of groups is half what it would normally be.
-	//So you'd normally calculate the group size by: (sprite_count / group_size) + 1, but instead we are doing (sprite_count / (group_size * 2)) + 1;
-	//This means that the shared local_min/max data array can be loaded with the first 128 values compared with the next 128 values, so 0-128 compared with 128-256
-	//Then the next group would do 256-384 compared with 384-512 and so on. 
-	uint sprite_data_index = global_index + instances[0].offset_into_sprite_data + (group_index * gl_WorkGroupSize.x * 2);
-
-	vec3 min_vertex = vec3( 99999999);
-	vec3 max_vertex = vec3(-99999999);
-
-	//Load in group size worth of position data into shared data and do the first reduction as well. Note that when the compute shader
-	//is dispatched we make the group size double what the actual group size in the shader is and we load in the second half of the data below to save work (as
-	//explained above.
-	//Calculate the next_index to compare min/max values with but make sure it doesn't go beyond the sprites in the frame
-	uint next_sprite_index = min(sprite_data_index + gl_WorkGroupSize.x, (uint(pc.parameters.z) + instances[0].offset_into_sprite_data) - 1);
+    if (global_index >= camera.segment_count) return;
     
-	calculate_vertex_position(min_vertex, max_vertex, sprite_data_index);
-	calculate_vertex_position(min_vertex, max_vertex, next_sprite_index);
-
-	local_min[local_index] = min_vertex;
-	local_max[local_index] = max_vertex;
+    vec3 current_pos = ribbon_data[global_index].position_and_width.xyz;
+    float width = ribbon_data[global_index].position_and_width.w;
     
-	//Wait here until all threads (0 - 128) have completed the above work
-	barrier();
+    vec3 to_camera = normalize(camera.position.xyz - current_pos.xyz);
+    
+    vec3 forward = (global_index < camera.segment_count - 1) 
+        ? normalize(ribbon_data[global_index + 1].position_and_width.xyz - current_pos)
+        : normalize(current_pos - ribbon_data[global_index - 1].position_and_width.xyz);
 
-	/*
-	Reduce down to the min/max values using sequential addressing. This starts at stride group_size/2 and then stride is divided by 2 until 32 for each iteration.
-	We only do this down to stride 32 because 32 is the size of a wave at which point we can perform all the comparisons without a barrier because we know that
-	instructions are SIMD synchronous within a warp.
+	float view_alignment = abs(dot(forward, to_camera));
+	float threshold = camera.width_scale_multiplier; // Adjust threshold as needed
 
-	//Rather then use the following loop we can just unroll it based on the group size
-	for(uint stride = gl_WorkGroupSize.x / 2; stride > 32; stride >>= 1) {
-        if(local_index < stride)
-        {
-            local_min[local_index] = min(local_min[local_index], local_min[local_index + stride]);
-            local_max[local_index] = max(local_max[local_index], local_max[local_index + stride]);
-        }
-        barrier();
-    }
-	*/
-
-	//I'm making the assumption that because the group size is fixed the conditions will be optimised out. Everything over 128 needs a barrier after each comparison to keep all threads in sync.
-	if(group_size >= 512) {local_min[local_index] = min(local_min[local_index], local_min[local_index + 256]); local_max[local_index] = max(local_max[local_index], local_max[local_index + 256]);	barrier();}
-	if(group_size >= 256) {local_min[local_index] = min(local_min[local_index], local_min[local_index + 128]); local_max[local_index] = max(local_max[local_index], local_max[local_index + 128]);	barrier();}
-	if(group_size >= 128) {local_min[local_index] = min(local_min[local_index], local_min[local_index + 64 ]); local_max[local_index] = max(local_max[local_index], local_max[local_index + 64 ]);	barrier();}
-
-	//Reduce the remainder for the last warp in one go, no need for barriers
-	warp_reduce(local_index);
-
-	//Store the result of the reduction in the bounding box array buffer
-	//Only the first thread will store the data as that's where everything got reduced down to
-	//Because the bounding box array is quite small (it will be the size of however many thread groups there are in the shader)
-	//we can just do the final reduction of the result of each group on the cpu. Otherwise you could create a new compute shader
-	//to reduce down this array as well but I think you'd need >million sprites per frame to bother about that.
-	if(local_index == 0) {
-		bounding_box[group_index].min_corner = local_min[local_index];
-		bounding_box[group_index].max_stretch = 0;
-		bounding_box[group_index].max_corner = local_max[local_index];
-		bounding_box[group_index].padding = 0;
+	// Only blend when we exceed the threshold
+    float blended = 2.0;
+    vec3 right;
+	if (view_alignment > threshold) {
+		vec3 perpendicular = normalize(cross(forward, vec3(0, -1, 0)));
+		float blend = (view_alignment - threshold) / (threshold);
+		to_camera = normalize(mix(to_camera, perpendicular, blend));
+		right = normalize(cross(forward, to_camera));
+    } else {
+		right = normalize(cross(-forward, -to_camera));
 	}
+    
+    
+    float v = float(global_index) / float(camera.segment_count);
+    float u_scaled = v * camera.uv_scale;
+    
+    uint vertex_index = global_index * 2;
+    vertex_data[vertex_index].position = vec4(current_pos - right * (width * 0.5), 1.0);
+    vertex_data[vertex_index].uv.xyz = vec3(0.0, u_scaled + camera.uv_offset, 0);
+    
+    vertex_data[vertex_index + 1].position = vec4(current_pos + right * (width * 0.5), 1.0);
+    vertex_data[vertex_index + 1].uv = vec4(1.0, u_scaled + camera.uv_offset, 0., float(global_index) / float(camera.segment_count) * blended);
 }

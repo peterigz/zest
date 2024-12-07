@@ -35,7 +35,7 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
     zest_pipeline last_pipeline = ZEST_NULL;
     VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
 
-    VkViewport view = zest_CreateViewport(0.f, 0.f, zest_SwapChainWidth(), zest_SwapChainHeight(), 0.f, 1.f);
+    VkViewport view = zest_CreateViewport(0.f, 0.f, zest_SwapChainWidthf(), zest_SwapChainHeightf(), 0.f, 1.f);
     vkCmdSetViewport(command_buffer, 0, 1, &view);
 
     if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {

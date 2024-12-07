@@ -127,7 +127,9 @@ set(EXAMPLES
 	zest-mesh-instances
 	zest-timelinefx-tests
 	zest-shader-compiling
+	zest-stability-ai
 	zest-custom-sprite-instance
+	zest-ribbons
 )
 
 buildExamples()

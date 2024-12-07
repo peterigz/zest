@@ -10,7 +10,23 @@
 
 struct ribbon_segment {
 	zest_vec4 position_and_width;
+	zest_vec4 parameters;
 };
+
+struct ribbon_vertex {
+	zest_vec4 position;
+	zest_vec4 uv;
+};
+
+struct camera_push_constant {
+    zest_vec4 position;
+	float uv_scale;
+	float uv_offset;
+	float width_scale_multiplier;
+	zest_uint segment_count;
+};
+
+#define SEGMENT_COUNT 256 
 
 struct Ribbons {
 	zest_imgui_layer_info_t imgui_layer_info;
@@ -22,21 +38,35 @@ struct Ribbons {
 	zest_camera_t camera;
 
 	zest_pipeline ribbon_pipeline;
+	zest_index compute_pipeline_index;
 	zest_shader ribbon_vert_shader;
 	zest_shader ribbon_frag_shader;
+	zest_shader_resources ribbon_shader_resources;
 	zest_shader ribbon_comp_shader;
 	zest_compute ribbon_compute;
 	zest_draw_routine ribbon_draw_routine;
 	zest_layer ribbon_layer;
 	zest_descriptor_buffer ribbon_buffer;
+	zest_descriptor_buffer ribbon_vertex_buffer;
+	zest_buffer ribbon_staging_buffer[ZEST_MAX_FIF];
+	camera_push_constant camera_push;
+	zest_descriptor_set_layout ribbon_descriptor_layout;
+	zest_texture ribbon_texture;
+	zest_image ribbon_image;
 
 	zest_layer line_layer;
 	zest_pipeline line_pipeline;
 
-	ribbon_segment ribbon[100];
+	ribbon_segment ribbon[SEGMENT_COUNT];
+	int current_ribbon_length;
 	int ribbon_index;
+	zest_uint ribbon_built;
 };
 
 void InitImGuiApp(Ribbons *app);
 void BuildUI(Ribbons *app);
 void UpdateUniform3d(Ribbons *app);
+void RecordComputeRibbons(zest_work_queue_t *queue, void *data);
+int DrawComputeRibbonsCondition(zest_draw_routine draw_routine);
+void UploadBuffers(Ribbons *app);
+void RibbonComputeFunction(zest_command_queue_compute compute_routine);

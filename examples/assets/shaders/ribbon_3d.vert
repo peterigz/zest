@@ -1,0 +1,22 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout (binding = 0) uniform ubo_view 
+{
+	mat4 view;
+	mat4 proj;
+	vec4 parameters1;
+	vec4 parameters2;
+	vec2 res;
+	uint millisecs;
+} uboView;
+
+layout(location = 0) in vec4 vertex_position;
+layout(location = 1) in vec4 uv;
+
+layout(location = 0) out vec4 out_uv;
+
+void main() {
+	gl_Position = (uboView.proj * uboView.view * vec4(vertex_position.xyz, 1.0));
+	out_uv = uv;
+}
