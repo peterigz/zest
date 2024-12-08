@@ -14,10 +14,12 @@ struct vertex {
 layout(push_constant) uniform camera_push
 {
     vec4 position;
+    mat4 view;
     float uv_scale;
     float uv_offset;
     float width_scale_multiplier;
     uint segment_count;
+    uint tessellation;  // Added tessellation factor
 } camera;
 
 layout (local_size_x = group_size) in;
@@ -35,37 +37,42 @@ void main() {
     if (global_index >= camera.segment_count) return;
     
     vec3 current_pos = ribbon_data[global_index].position_and_width.xyz;
-    float width = ribbon_data[global_index].position_and_width.w;
+    float width = ribbon_data[global_index].position_and_width.w * camera.width_scale_multiplier;
     
     vec3 to_camera = normalize(camera.position.xyz - current_pos.xyz);
     
     vec3 forward = (global_index < camera.segment_count - 1) 
         ? normalize(ribbon_data[global_index + 1].position_and_width.xyz - current_pos)
         : normalize(current_pos - ribbon_data[global_index - 1].position_and_width.xyz);
-
-	float view_alignment = abs(dot(forward, to_camera));
-	float threshold = camera.width_scale_multiplier; // Adjust threshold as needed
-
-	// Only blend when we exceed the threshold
-    float blended = 2.0;
-    vec3 right;
-	if (view_alignment > threshold) {
-		vec3 perpendicular = normalize(cross(forward, vec3(0, -1, 0)));
-		float blend = (view_alignment - threshold) / (threshold);
-		to_camera = normalize(mix(to_camera, perpendicular, blend));
-		right = normalize(cross(forward, to_camera));
-    } else {
-		right = normalize(cross(-forward, -to_camera));
-	}
-    
+    vec3 bisector = normalize(normalize(to_camera) + forward);
+    vec3 right = normalize(cross(forward, bisector));
     
     float v = float(global_index) / float(camera.segment_count);
     float u_scaled = v * camera.uv_scale;
     
-    uint vertex_index = global_index * 2;
-    vertex_data[vertex_index].position = vec4(current_pos - right * (width * 0.5), 1.0);
-    vertex_data[vertex_index].uv.xyz = vec3(0.0, u_scaled + camera.uv_offset, 0);
-    
-    vertex_data[vertex_index + 1].position = vec4(current_pos + right * (width * 0.5), 1.0);
-    vertex_data[vertex_index + 1].uv = vec4(1.0, u_scaled + camera.uv_offset, 0., float(global_index) / float(camera.segment_count) * blended);
+	uint vertices_per_segment = (camera.tessellation + 1) * 2;
+	uint vertex_base_index = global_index * vertices_per_segment;
+    if(camera.tessellation > 0) {
+		// Calculate vertices per segment based on tessellation
+		for (uint i = 0; i <= camera.tessellation; i++) {
+			float t = float(i) / float(camera.tessellation);  // Interpolation factor
+			float width_factor = mix(.5, 0, t);         // Interpolate from outer to inner
+			
+			uint vertex_index = vertex_base_index + i;
+			vertex_data[vertex_index].position = vec4(current_pos + right * width * width_factor, 1.0);
+			vertex_data[vertex_index].uv = vec4(t * 0.5, u_scaled + camera.uv_offset, 0., v * 3.);
+
+			width_factor = mix(0, -0.5, t);           // Interpolate from inner to outer
+			
+			vertex_index = vertex_base_index + (camera.tessellation + 1) + i;
+			vertex_data[vertex_index].position = vec4(current_pos + right * width * width_factor, 1.0);
+			vertex_data[vertex_index].uv = vec4(0.5 + t * 0.5, u_scaled + camera.uv_offset, 1.0, v * 3.);
+		}
+    } else {
+		vertex_data[vertex_base_index].position = vec4(current_pos + right * (width * 0.5), 1.0);
+		vertex_data[vertex_base_index].uv = vec4(0.0, u_scaled + camera.uv_offset, 0., v * 3.);
+
+		vertex_data[vertex_base_index + 1].position = vec4(current_pos - right * (width * 0.5), 1.0);
+		vertex_data[vertex_base_index + 1].uv = vec4(1.0, u_scaled + camera.uv_offset, 1., v * 3.);
+    }
 }

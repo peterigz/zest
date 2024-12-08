@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include <zest.h>
 #include "implementations/impl_imgui.h"
 #include "implementations/impl_glfw.h"
@@ -18,12 +19,22 @@ struct ribbon_vertex {
 	zest_vec4 uv;
 };
 
+struct RibbonBufferInfo {
+	uint32_t verticesPerSegment;      // Number of vertices per segment (4 * tessellation)
+	uint32_t trianglesPerSegment;     // Number of triangles per segment
+	uint32_t indicesPerSegment;       // Number of indices per segment
+	uint32_t totalIndices;            // Total number of indices in the buffer
+	uint32_t vertexStrideMultiplier;  // How many vertices to advance per segment
+};
+
 struct camera_push_constant {
     zest_vec4 position;
+	zest_matrix4 view;
 	float uv_scale;
 	float uv_offset;
 	float width_scale_multiplier;
 	zest_uint segment_count;
+	zest_uint tessellation;  // Added tessellation factor
 };
 
 #define SEGMENT_COUNT 256 
@@ -48,6 +59,7 @@ struct Ribbons {
 	zest_layer ribbon_layer;
 	zest_descriptor_buffer ribbon_buffer;
 	zest_descriptor_buffer ribbon_vertex_buffer;
+	zest_descriptor_buffer ribbon_index_buffer;
 	zest_buffer ribbon_staging_buffer[ZEST_MAX_FIF];
 	camera_push_constant camera_push;
 	zest_descriptor_set_layout ribbon_descriptor_layout;
@@ -58,11 +70,14 @@ struct Ribbons {
 	zest_pipeline line_pipeline;
 
 	ribbon_segment ribbon[SEGMENT_COUNT];
+	std::vector<uint32_t> ribbon_indices;
+	RibbonBufferInfo ribbon_buffer_info;
 	int current_ribbon_length;
 	int ribbon_index;
 	zest_uint ribbon_built;
 };
 
+RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint32_t maxSegments);
 void InitImGuiApp(Ribbons *app);
 void BuildUI(Ribbons *app);
 void UpdateUniform3d(Ribbons *app);
