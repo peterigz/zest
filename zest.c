@@ -1884,6 +1884,7 @@ void zest__create_logical_device() {
 
     VkPhysicalDeviceFeatures device_features = { 0 };
     device_features.samplerAnisotropy = VK_TRUE;
+    device_features.multiDrawIndirect = VK_TRUE;
     //device_features.wideLines = VK_TRUE;
     //device_features.dualSrcBlend = VK_TRUE;
     //device_features.vertexPipelineStoresAndAtomics = VK_TRUE;
@@ -2000,6 +2001,18 @@ void zest__set_default_pool_sizes() {
     usage.usage_flags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     usage.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     zest_SetDeviceBufferPoolSize("Uniform Buffers", usage.usage_flags, usage.property_flags, 64, zloc__MEGABYTE(1));
+
+    //Indirect draw buffers that are host visible
+    usage.image_flags = 0;
+    usage.usage_flags = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    usage.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    zest_SetDeviceBufferPoolSize("Host Indirect Draw Buffers", usage.usage_flags, usage.property_flags, 64, zloc__MEGABYTE(1));
+
+    //Indirect draw buffers
+    usage.image_flags = 0;
+    usage.usage_flags = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    usage.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    zest_SetDeviceBufferPoolSize("Host Indirect Draw Buffers", usage.usage_flags, usage.property_flags, 64, zloc__MEGABYTE(1));
 
     //Staging buffer
     usage.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -2894,6 +2907,17 @@ zest_buffer_info_t zest_CreateStagingBufferInfo() {
     return buffer_info;
 }
 
+zest_buffer_info_t zest_CreateDrawCommandsBufferInfo(zest_bool host_visible) {
+    zest_buffer_info_t buffer_info = { 0 };
+    buffer_info.usage_flags = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    if (host_visible) {
+        buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    } else {
+		buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
+    return buffer_info;
+}
+
 void zest_FreeBuffer(zest_buffer buffer) {
     if (!buffer) return;    //Nothing to free
     zloc_FreeRemote(buffer->buffer_allocator->allocator, buffer);
@@ -3685,6 +3709,38 @@ zest_descriptor_buffer zest_CreateComputeIndexDescriptorBuffer(zest_size size, z
     }
     descriptor_buffer->all_frames_in_flight = all_frames_in_flight;
     return descriptor_buffer;
+}
+
+zest_draw_commands_buffer zest_CreateDrawCommandsBuffer(zest_uint max_commands, zest_uint stride, zest_bool host_visible, zest_bool all_frames_in_flight) {
+    zest_buffer_info_t buffer_info = zest_CreateDrawCommandsBufferInfo(host_visible);
+    zest_draw_commands_buffer_t blank_buffer = { 0 };
+    zest_draw_commands_buffer buffer = ZEST__NEW(zest_draw_commands_buffer);
+    *buffer = blank_buffer;
+    buffer->magic = zest_INIT_MAGIC;
+    buffer->all_frames_in_flight = all_frames_in_flight;
+    buffer->stride = stride;
+    buffer->host_visible = host_visible;
+    for (int i = 0; i != (all_frames_in_flight ? ZEST_MAX_FIF : 1); ++i) {
+        buffer->buffer[i] = zest_CreateBuffer(max_commands * stride, &buffer_info, ZEST_NULL);
+    }
+    buffer->all_frames_in_flight = all_frames_in_flight;
+    return buffer;
+}
+
+void zest_ClearDrawCommandBuffer(zest_draw_commands_buffer buffer) {
+    ZEST_CHECK_HANDLE(buffer);  //Not a valid handle
+    buffer->command_count[ZEST_FIF] = 0;
+}
+
+void zest_AddIndirectDrawCommands(zest_draw_commands_buffer buffer, void *data, zest_uint count) {
+    ZEST_CHECK_HANDLE(buffer);  //Not a valid handle
+    zest_uint fif = buffer->all_frames_in_flight ? ZEST_FIF : 0;
+    if (data) {
+        ZEST_ASSERT(buffer->host_visible);  //Buffer must be host visible
+		ZEST_ASSERT(buffer->stride * count <= buffer->buffer[fif]->size);
+		memcpy(buffer->buffer[fif]->data, data, count * buffer->stride);
+    }
+    buffer->command_count[fif] += count;
 }
 
 zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer descriptor_buffer) {
@@ -5090,6 +5146,12 @@ void zest_Draw(VkCommandBuffer command_buffer, zest_uint vertex_count, zest_uint
 
 void zest_DrawIndexed(VkCommandBuffer command_buffer, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
     vkCmdDrawIndexed(command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void zest_DrawIndexedIndirect(VkCommandBuffer command_buffer, zest_draw_commands_buffer commands) {
+    ZEST_CHECK_HANDLE(commands);
+    zest_uint fif = commands->all_frames_in_flight ? ZEST_FIF : 0;
+    vkCmdDrawIndexedIndirect(command_buffer, commands->buffer[fif]->memory_pool->buffer, commands->buffer[fif]->memory_offset, commands->command_count[fif], commands->stride);
 }
 
 void zest_ComputeToVertexBarrier() {

@@ -1498,6 +1498,7 @@ typedef struct zest_descriptor_set_layout_t zest_descriptor_set_layout_t;
 typedef struct zest_descriptor_set_t zest_descriptor_set_t;
 typedef struct zest_shader_resources_t zest_shader_resources_t;
 typedef struct zest_descriptor_buffer_t zest_descriptor_buffer_t;
+typedef struct zest_draw_commands_buffer_t zest_draw_commands_buffer_t;
 typedef struct zest_render_target_t zest_render_target_t;
 typedef struct zest_buffer_allocator_t zest_buffer_allocator_t;
 typedef struct zest_compute_t zest_compute_t;
@@ -1523,6 +1524,7 @@ ZEST__MAKE_HANDLE(zest_descriptor_set_layout)
 ZEST__MAKE_HANDLE(zest_descriptor_set)
 ZEST__MAKE_HANDLE(zest_shader_resources)
 ZEST__MAKE_HANDLE(zest_descriptor_buffer)
+ZEST__MAKE_HANDLE(zest_draw_commands_buffer)
 ZEST__MAKE_HANDLE(zest_render_target)
 ZEST__MAKE_HANDLE(zest_buffer_allocator)
 ZEST__MAKE_HANDLE(zest_compute)
@@ -2244,10 +2246,19 @@ typedef struct zest_buffer_t {
 //Simple stuct for uploading buffers from the staging buffer to the device local buffers
 typedef struct zest_buffer_uploader_t {
     zest_buffer_upload_flags flags;
-    zest_buffer_t *source_buffer;            //The source memory allocation (cpu visible staging buffer)
-    zest_buffer_t *target_buffer;            //The target memory allocation that we're uploading to (device local buffer)
-    VkBufferCopy *buffer_copies;        //List of vulkan copy info commands to upload staging buffers to the gpu each frame
+    zest_buffer_t *source_buffer;           //The source memory allocation (cpu visible staging buffer)
+    zest_buffer_t *target_buffer;           //The target memory allocation that we're uploading to (device local buffer)
+    VkBufferCopy *buffer_copies;            //List of vulkan copy info commands to upload staging buffers to the gpu each frame
 } zest_buffer_uploader_t;
+
+typedef struct zest_draw_commands_buffer_t {
+    int magic;
+    zest_buffer buffer[ZEST_MAX_FIF];
+    zest_uint command_count[ZEST_MAX_FIF];
+    zest_uint stride;
+    zest_bool all_frames_in_flight;
+    zest_bool host_visible;
+} zest_draw_commands_buffer_t;
 // --End Vulkan Buffer Management
 
 typedef struct zest_swapchain_support_details_t {
@@ -3693,6 +3704,7 @@ ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeIndexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateIndexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateStagingBufferInfo(void);
+ZEST_API zest_buffer_info_t zest_CreateDrawCommandsBufferInfo(zest_bool host_visible);
 //Create descriptor buffers with the following functions. Descriptor buffers can be used when you want to bind them in a descriptor set
 //for use in a shader. When you create a descriptor buffer it also creates the descriptor info which is necessary when creating the
 //descriptor set. Note that to create a uniform buffer which needs a descriptor info you can just call zest_CreateUniformBuffer.
@@ -3707,6 +3719,10 @@ ZEST_API zest_descriptor_buffer zest_CreateVertexDescriptorBuffer(zest_size size
 ZEST_API zest_descriptor_buffer zest_CreateIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight, zest_bool cpu_visible);
 ZEST_API zest_descriptor_buffer zest_CreateComputeVertexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
 ZEST_API zest_descriptor_buffer zest_CreateComputeIndexDescriptorBuffer(zest_size size, zest_bool all_frames_in_flight);
+//This creates a buffer for indirect draw calls. You can use sizeof(VkDrawIndexedIndirectCommand) for the stride unless you're using
+//your own custom struct. Use host visible if you're setting the commands cpu side, otherwise set to false for filling the buffer on the gpu
+//in a compute shader.
+ZEST_API zest_draw_commands_buffer zest_CreateDrawCommandsBuffer(zest_uint max_commands, zest_uint stride, zest_bool host_visible, zest_bool all_frames_in_flight);
 //Use this function to get the zest_buffer from the zest_descriptor_buffer handle. If the buffer uses multiple frames in flight then it
 //will retrieve the current frame in flight buffer which will be safe to write to.
 ZEST_API zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer descriptor_buffer);
@@ -3780,6 +3796,13 @@ ZEST_API zest_bool zest_UniformBufferExists(const char *name);
 ZEST_API void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
 //Bind an index buffer. For use inside a draw routine callback function.
 ZEST_API void zest_BindIndexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
+//Clear all the commands a draw command buffer. If the buffer uses all frames in flight then the current
+//frame in flight buffer will be the one that is cleared.
+ZEST_API void zest_ClearDrawCommandBuffer(zest_draw_commands_buffer buffer);
+//Add draw commands to a zest_draw_commands_buffer. Set data to 0 if you're managing the commands on the gpu. If you're copying
+//commands to a host visible buffer then you must make sure that the size of each commands in data matches the stride when 
+//creating the buffer. Set count to 1 or more if data is an array of commands.
+ZEST_API void zest_AddIndirectDrawCommands(zest_draw_commands_buffer buffer, void *data, zest_uint count);
 //--End Buffer related
 
 //-----------------------------------------------
@@ -4910,6 +4933,8 @@ ZEST_API void zest_Draw(VkCommandBuffer command_buffer, zest_uint vertex_count, 
 //Helper function to record the vulkan command vkCmdDrawIndexed. Will record with the current command buffer being used in the active command queue. For use inside
 //a draw routine callback function
 ZEST_API void zest_DrawIndexed(VkCommandBuffer command_buffer, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+//Draw indexed indirect allowing you to pass in an array of VkDrawIndexedIndirectCommand and batch draw calls
+ZEST_API void zest_DrawIndexedIndirect(VkCommandBuffer command_buffer, zest_draw_commands_buffer commands);
 //Enable vsync so that the frame rate is limited to the current monitor refresh rate. Will cause the swap chain to be rebuilt.
 ZEST_API void zest_EnableVSync(void);
 //Disable vsync so that the frame rate is not limited to the current monitor refresh rate, frames will render as fast as they can. Will cause the swap chain to be rebuilt.
