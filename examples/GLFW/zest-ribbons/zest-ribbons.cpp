@@ -28,19 +28,21 @@ void InitImGuiApp(Ribbons *app) {
 	//Set up the compute shader
 	//Create a new empty compute shader in the renderer
 	app->ribbon_compute = zest_CreateCompute("ribbons");
-	app->ribbon_buffer = zest_CreateComputeVertexDescriptorBuffer(SEGMENT_COUNT * sizeof(ribbon_segment), true);
+	app->ribbon_buffer = zest_CreateComputeVertexDescriptorBuffer(SEGMENT_COUNT * sizeof(ribbon_segment) * 10, true);
 	app->ribbon_vertex_buffer = zest_CreateComputeVertexDescriptorBuffer(SEGMENT_COUNT * sizeof(ribbon_vertex) * 100, false);
-	app->ribbon_index_buffer = zest_CreateIndexDescriptorBuffer(SEGMENT_COUNT * sizeof(zest_uint) * 360, false, false);
-	app->ribbon_staging_buffer[0] = zest_CreateStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_segment), 0);
-	app->ribbon_staging_buffer[1] = zest_CreateStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_segment), 0);
+	app->ribbon_index_buffer = zest_CreateComputeIndexDescriptorBuffer(SEGMENT_COUNT * sizeof(zest_uint) * 360, false);
+	app->ribbon_staging_buffer[0] = zest_CreateStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_segment) * 10, 0);
+	app->ribbon_staging_buffer[1] = zest_CreateStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_segment) * 10, 0);
 	//A builder is used to simplify the compute shader setup process
 	zest_compute_builder_t builder = zest_NewComputeBuilder();
 	//Declare the bindings we want in the shader
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0);
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1);
+	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2);
 	//The add the buffers for binding in the same order as the layout bindings
 	zest_AddComputeBufferForBinding(&builder, app->ribbon_buffer);
 	zest_AddComputeBufferForBinding(&builder, app->ribbon_vertex_buffer);
+	zest_AddComputeBufferForBinding(&builder, app->ribbon_index_buffer);
 	zest_SetComputePushConstantSize(&builder, sizeof(camera_push_constant));
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
@@ -74,7 +76,7 @@ void InitImGuiApp(Ribbons *app) {
 	app->ribbon_pipeline->pipeline_template.depthStencil.depthTestEnable = VK_TRUE;
 	app->ribbon_pipeline->pipeline_template.inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	//app->ribbon_pipeline->pipeline_template.rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
-	app->ribbon_pipeline->pipeline_template.rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+	//app->ribbon_pipeline->pipeline_template.rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
 	zest_BuildPipeline(app->ribbon_pipeline);
 
 	app->ribbon_texture = zest_CreateTextureBank("ribbon texture", zest_texture_format_rgba);
@@ -114,21 +116,23 @@ void InitImGuiApp(Ribbons *app) {
 	app->timer = zest_CreateTimer(60);
 
 	int tessellation = 1;
-	app->ribbon_buffer_info = GenerateRibbonIndices(app, tessellation, SEGMENT_COUNT);
+	app->ribbon_buffer_info = GenerateRibbonIndices(app, tessellation, SEGMENT_COUNT * 10, 10);
 
 	app->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&app->camera, 60.f);
 	app->camera_push.uv_scale = 1.f;
 	app->camera_push.uv_offset = 0.f;
-	app->camera_push.width_scale_multiplier = .5f;
+	app->camera_push.width_scale_multiplier = 1.5f;
 	app->camera_push.tessellation = tessellation;
+
+	app->ribbon_count = 10;
 
 	UpdateUniform3d(app);
 }
 
 // tessellation: number of divisions across the width of the ribbon
 // maxSegments: maximum number of segments the ribbon can have
-RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint32_t maxSegments) {
+RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons) {
 	RibbonBufferInfo info{};
 
 	// Calculate buffer properties
@@ -138,6 +142,7 @@ RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint
 	info.totalIndices = info.indicesPerSegment * (maxSegments - 1);
 	info.vertexStrideMultiplier = info.verticesPerSegment;
 
+	/*
 	// Generate indices for each segment
 	if (tessellation > 0) {
 		// Reserve space for all indices
@@ -150,34 +155,34 @@ RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint
 			// Generate indices for each tessellation step
 			for (uint32_t t = 0; t < tessellation; ++t) {
 				// Calculate vertex indices for current tessellation step
-				uint32_t current = baseVertex + t;
-				uint32_t next = baseVertex + t + 1;
-				uint32_t currentNext = nextBaseVertex + t;
-				uint32_t nextNext = nextBaseVertex + t + 1;
+				uint32_t v0 = baseVertex + t;
+				uint32_t v1 = baseVertex + t + 1;
+				uint32_t v2 = nextBaseVertex + t;
+				uint32_t v3 = nextBaseVertex + t + 1;
 
 				// Left strip triangles
-				app->ribbon_indices.push_back(current);
-				app->ribbon_indices.push_back(next);
-				app->ribbon_indices.push_back(currentNext);
+				app->ribbon_indices.push_back(v0);
+				app->ribbon_indices.push_back(v1);
+				app->ribbon_indices.push_back(v2);
 
-				app->ribbon_indices.push_back(currentNext);
-				app->ribbon_indices.push_back(next);
-				app->ribbon_indices.push_back(nextNext);
+				app->ribbon_indices.push_back(v2);
+				app->ribbon_indices.push_back(v1);
+				app->ribbon_indices.push_back(v3);
 
 				// Right strip triangles
 				// Offset by tessellation + 1 to get to the right side vertices
-				current += (tessellation + 1);
-				next += (tessellation + 1);
-				currentNext += (tessellation + 1);
-				nextNext += (tessellation + 1);
+				v0 += (tessellation + 1);
+				v1 += (tessellation + 1);
+				v2 += (tessellation + 1);
+				v3 += (tessellation + 1);
 
-				app->ribbon_indices.push_back(current);
-				app->ribbon_indices.push_back(next);
-				app->ribbon_indices.push_back(currentNext);
+				app->ribbon_indices.push_back(v0);
+				app->ribbon_indices.push_back(v1);
+				app->ribbon_indices.push_back(v2);
 
-				app->ribbon_indices.push_back(currentNext);
-				app->ribbon_indices.push_back(next);
-				app->ribbon_indices.push_back(nextNext);
+				app->ribbon_indices.push_back(v2);
+				app->ribbon_indices.push_back(v1);
+				app->ribbon_indices.push_back(v3);
 			}
 		}
 	} else {
@@ -194,24 +199,28 @@ RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint
 
 		// Generate indices for each segment
 		for (uint32_t segment = 0; segment < maxSegments - 1; ++segment) {
-			uint32_t baseVertex = segment * 2;
-			uint32_t nextBaseVertex = baseVertex + 2;
+			uint32_t v0 = segment * 2;
+			uint32_t v1 = v0 + 2;
 
 			// First triangle
-			app->ribbon_indices.push_back(baseVertex);
-			app->ribbon_indices.push_back(baseVertex + 1);
-			app->ribbon_indices.push_back(nextBaseVertex);
+			app->ribbon_indices.push_back(v0);
+			app->ribbon_indices.push_back(v0 + 1);
+			app->ribbon_indices.push_back(v1);
 
 			// Second triangle
-			app->ribbon_indices.push_back(nextBaseVertex);
-			app->ribbon_indices.push_back(baseVertex + 1);
-			app->ribbon_indices.push_back(nextBaseVertex + 1);
+			app->ribbon_indices.push_back(v1);
+			app->ribbon_indices.push_back(v0 + 1);
+			app->ribbon_indices.push_back(v1 + 1);
+		}
+		for (int i = 0; i != max_ribbons; ++i) {
+			app->ribbon_indices.push_back(0xFFFFFFFF);
 		}
 	}
 
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(info.totalIndices * sizeof(zest_uint), app->ribbon_indices.data());
 	zest_CopyBuffer(staging_buffer, app->ribbon_index_buffer->buffer[0], info.totalIndices * sizeof(zest_uint));
 	zest_FreeBuffer(staging_buffer);
+	*/
 
 	return info;
 }
@@ -219,9 +228,9 @@ RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint
 void RecordComputeRibbons(zest_work_queue_t *queue, void *data) {
 	zest_draw_routine draw_routine = (zest_draw_routine)data;
 	Ribbons &app = *static_cast<Ribbons *>(draw_routine->user_data);
-	if (app.current_ribbon_length == 0) return;
+	if (app.ribbons[0].length == 0) return;
 	VkCommandBuffer command_buffer = zest_BeginRecording(draw_routine->recorder, draw_routine->draw_commands->render_pass, ZEST_FIF);
-
+			
 	zest_SetViewport(command_buffer, draw_routine);
 
 	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
@@ -232,7 +241,8 @@ void RecordComputeRibbons(zest_work_queue_t *queue, void *data) {
 	zest_BindPipelineShaderResource(command_buffer, app.ribbon_pipeline, app.ribbon_shader_resources, ZEST_FIF);
 	//zest_SendPushConstants(command_buffer, app.ribbon_pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_push_constants_t), &app.push_constants);
 
-	zest_DrawIndexed(command_buffer, app.ribbon_buffer_info.indicesPerSegment * (app.current_ribbon_length - 1), 1, 0, 0, 0);
+	//zest_DrawIndexedIndirect(command_buffer, app.ribbon_draw_commands);
+	zest_DrawIndexed(command_buffer, app.index_count, 1, 0, 0, 0);
 
 	zest_EndRecording(draw_routine->recorder, ZEST_FIF);
 }
@@ -243,7 +253,7 @@ int DrawComputeRibbonsCondition(zest_draw_routine draw_routine) {
 }
 
 void UploadBuffers(Ribbons *app) {
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_segment), app->ribbon);
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_segment), app->ribbons[0].ribbon_segments);
 	zest_CopyBuffer(staging_buffer, app->ribbon_buffer->buffer[0], staging_buffer->size);
 	zest_FreeBuffer(staging_buffer);
 }
@@ -252,25 +262,28 @@ void UploadBuffers(Ribbons *app) {
 //need to be added to the command buffer
 void RibbonComputeFunction(zest_command_queue_compute compute_routine) {
 
-	//The compute queue item can contain more then one compute shader to be dispatched but in this case there's only
-	//one which is the effect playback compute shader
+	//The compute queue item can contain more then one compute shader to be dispatched but in this case there's only one
 	zest_compute compute;
 	while (compute = zest_NextComputeRoutine(compute_routine)) {
 		//Grab our ComputeExample struct out of the user data
 		Ribbons *app = static_cast<Ribbons *>(compute->user_data);
 
+		zest_uint total_segments = CountSegments(app);
+		if (!total_segments) continue;
+
 		//Bind the compute shader pipeline
 		zest_BindComputePipeline(compute, app->compute_pipeline_index);
+
 		//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
 		//from there we copy to the GPU.
-		zest_CopyBufferCB(zest_CurrentCommandBuffer(), app->ribbon_staging_buffer[ZEST_FIF], app->ribbon_buffer->buffer[ZEST_FIF], sizeof(ribbon_segment) * SEGMENT_COUNT, 1);
+		zest_CopyBufferCB(zest_CurrentCommandBuffer(), app->ribbon_staging_buffer[ZEST_FIF], app->ribbon_buffer->buffer[ZEST_FIF], sizeof(ribbon_segment) * total_segments, 1);
 
 		//Send the push constants in the compute object to the shader
 		zest_SendCustomComputePushConstants(ZestRenderer->current_command_buffer, compute, &app->camera_push);
 
 		//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
 		//For example if there are 1024 sprites, if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
-		zest_DispatchCompute(compute, (app->current_ribbon_length / 128) + 1, 1, 1);
+		zest_DispatchCompute(compute, (total_segments / 128) + 1, 1, 1);
 	}
 
 	//We want the compute shader to finish before the vertex shader is run so we put a barrier here.
@@ -336,6 +349,14 @@ void BuildUI(Ribbons *app) {
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 }
 
+zest_uint CountSegments(Ribbons *app) {
+	int count = 0;
+	for (int i = 0; i != app->ribbon_count; ++i) {
+		count += app->ribbons[i].length;
+	}
+	return count;
+}
+
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Set the active command queue to the default one that was created when Zest was initialised
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
@@ -372,68 +393,104 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_StartTimerLoop(app->timer) {
 		BuildUI(app);
 
-		if (!app->ribbon_built) {
-			float time = (zest_Millisecs() % 100000) * 0.001f;
-			float radius = 2.0f;                       // Adjust radius of the circle
-			float height_scale = 1.0f;                 // Adjust vertical movement
-			float speed = 2.0f;                        // Adjust overall speed
+		for (int r = 0; r != 10; ++r) {
+			float time = ((zest_Millisecs() + r * 500) % 1000000) * 0.001f;
+			float radius;
+			zest_vec3 position;
 
-			// Create circular motion with optional vertical oscillation
-			zest_vec3 position = {
-				radius * cosf(time * speed),
-				height_scale * sinf(time * speed * 0.5f),    // Slower vertical movement
-				radius * sinf(time * speed)
-			};
-			//zest_vec3 position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 6.f, app->camera.position, ZestRenderer->standard_uniform_buffer);
-			int current_index = app->ribbon_index;
-			app->current_ribbon_length = ZEST__MIN(app->current_ribbon_length + 1, SEGMENT_COUNT);
-			app->ribbon[current_index].position_and_width = { position.x, position.y, position.z, .1f };
-			app->ribbon[current_index].parameters = { (float(current_index) / app->current_ribbon_length) * 2.f, 0.f, 0.f, 0.f};
+			// Different patterns for each ribbon
+			switch (r) {
+			case 0: // Circular motion with varying radius
+				radius = 2.0f + sinf(time * 0.5f);
+				position = {
+					radius * cosf(time * 2.0f),
+					sinf(time),
+					radius * sinf(time * 2.0f)
+				};
+				break;
 
-			app->ribbon_index = (current_index + 1) % SEGMENT_COUNT;
-			//if (app->current_ribbon_length == SEGMENT_COUNT) app->ribbon_built = true;
-		}
+			case 1: // Figure-8 pattern
+				position = {
+					2.0f * sinf(time * 2.0f),
+					cosf(time * 4.0f),
+					2.0f * sinf(time * 4.0f) * cosf(time * 2.0f)
+				};
+				break;
 
-		zest_ResetInstanceLayer(app->line_layer);
-		zest_Set3DLineDrawing(app->line_layer, app->line_pipeline->shader_resources, app->line_pipeline);
-		zest_SetLayerColor(app->line_layer, 255, 255, 255, 0);
-		for (int i = 0; i != app->current_ribbon_length; ++i) {
-			zest_vec3 current_pos = { app->ribbon[i].position_and_width.x,
-									 app->ribbon[i].position_and_width.y,
-									 app->ribbon[i].position_and_width.z
-			};
-			float width = app->ribbon[i].position_and_width.w;
+			case 2: // Spiral motion
+				radius = time * 0.1f;
+				position = {
+					radius * cosf(time * 3.0f),
+					time * 0.2f,
+					radius * sinf(time * 3.0f)
+				};
+				break;
 
-			zest_vec3 to_camera = zest_NormalizeVec3(zest_SubVec3(app->camera.position, current_pos));
+			case 3: // Bouncing motion
+				position = {
+					2.0f * cosf(time),
+					fabsf(sinf(time * 2.0f)) * 3.0f,
+					2.0f * sinf(time)
+				};
+				break;
 
-			zest_vec3 forward = (i < app->current_ribbon_length - 1)
-				? zest_NormalizeVec3(zest_SubVec3(zest_Vec4ToVec3(app->ribbon[i + 1].position_and_width), current_pos))
-				: zest_NormalizeVec3(zest_SubVec3(current_pos, zest_Vec4ToVec3(app->ribbon[i - 1].position_and_width)));
+			case 4: // Lissajous curve
+				position = {
+					2.0f * sinf(time * 2.0f),
+					2.0f * sinf(time * 3.0f),
+					2.0f * sinf(time * 4.0f)
+				};
+				break;
 
-			float view_alignment = fabsf(zest_DotProduct3(forward, to_camera));
-			float threshold = app->camera_push.width_scale_multiplier; // Adjust threshold as needed
+			case 5: // Helical motion
+				position = {
+					2.0f * cosf(time * 3.0f),
+					sinf(time * 2.0f),
+					2.0f * sinf(time * 3.0f)
+				};
+				break;
 
-			// Only blend when we exceed the threshold
-			zest_vec3 right;
-			/*
-			if (view_alignment > threshold) {
-				zest_vec3 perpendicular = zest_NormalizeVec3(zest_CrossProduct(forward, {0, -1, 0}));
-				float blend = (view_alignment - threshold) / (threshold);
-				to_camera = zest_NormalizeVec3(mix(to_camera, perpendicular, blend));
+			case 6: // Expanding/contracting circle
+				radius = 1.0f + sinf(time);
+				position = {
+					radius * cosf(time * 2.5f),
+					cosf(time * 1.5f),
+					radius * sinf(time * 2.5f)
+				};
+				break;
+
+			case 7: // Wave motion
+				position = {
+					2.0f * sinf(time * 2.0f),
+					sinf(time * 4.0f + sinf(time)),
+					2.0f * cosf(time * 1.5f)
+				};
+				break;
+
+			case 8: // Flower pattern
+				radius = 2.0f * (1.0f + 0.3f * cosf(5.0f * time));
+				position = {
+					radius * cosf(time),
+					sinf(time * 3.0f),
+					radius * sinf(time)
+				};
+				break;
+
+			case 9: // Random-looking but deterministic motion
+				position = {
+					2.0f * sinf(time * 2.3f) * cosf(time * 1.1f),
+					1.5f * sinf(time * 1.7f) * cosf(time * 2.1f),
+					2.0f * sinf(time * 1.3f) * cosf(time * 1.9f)
+				};
+				break;
 			}
-			*/
 
-			right = zest_NormalizeVec3(zest_CrossProduct(forward, to_camera));
+			int current_index = app->ribbons[r].ribbon_index;
+			app->ribbons[r].length = ZEST__MIN(app->ribbons[r].length + 1, SEGMENT_COUNT);
+			app->ribbons[r].ribbon_segments[current_index].position_and_width = { position.x, position.y, position.z, .1f };
+			app->ribbons[r].ribbon_segments[current_index].parameters = { (float(current_index) / app->ribbons[r].length) * 2.f, 0.f, 0.f, 0.f};
 
-			float v = float(i) / float(app->current_ribbon_length);
-			float u_scaled = v * app->camera_push.uv_scale;
-
-			zest_uint vertex_index = i * 2;
-			zest_vec3 start = zest_SubVec3(current_pos, zest_ScaleVec3(right, (width * 0.5f)));
-			zest_vec3 end = zest_AddVec3(current_pos, zest_ScaleVec3(right, (width * 0.5f)));
-			//zest_matrix4 projview = zest_MatrixTransform(&buffer_3d->proj, &buffer_3d->view);
-			//zest_vec4 start_transformed = zest_MatrixTransformVector(&projview, (vertex_position.xyz, 1.0));
-			zest_Draw3DLine(app->line_layer, &start.x, &end.x, 3.f);
+			app->ribbons[r].ribbon_index = (current_index + 1) % SEGMENT_COUNT;
 		}
 
 		float speed = 5.f * (float)app->timer->update_time;
@@ -470,15 +527,21 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	} zest_EndTimerLoop(app->timer);
 
 	app->camera_push.position = { app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f };
-	app->camera_push.segment_count = app->current_ribbon_length;
-	app->camera_push.view = buffer_3d->view;
-	if (app->current_ribbon_length < SEGMENT_COUNT) {
-		memcpy(app->ribbon_staging_buffer[ZEST_FIF]->data, app->ribbon, app->current_ribbon_length * sizeof(ribbon_segment));
-	} else if(app->ribbon_index == 0) {
-		memcpy(app->ribbon_staging_buffer[ZEST_FIF]->data, app->ribbon, app->current_ribbon_length * sizeof(ribbon_segment));
-	} else {
-		memcpy(app->ribbon_staging_buffer[ZEST_FIF]->data, app->ribbon + app->ribbon_index, (app->current_ribbon_length - app->ribbon_index) * sizeof(ribbon_segment));
-		memcpy((ribbon_segment*)app->ribbon_staging_buffer[ZEST_FIF]->data + (app->current_ribbon_length - app->ribbon_index), app->ribbon, app->ribbon_index * sizeof(ribbon_segment));
+	app->camera_push.segment_count = CountSegments(app);
+	app->camera_push.index_offset = 0;
+	app->camera_push.ribbon_count = app->ribbon_count;
+	zest_uint running_segment_offset = 0;
+	zest_uint running_index_offset = 0;
+	app->index_count = 0;
+	for (zest_uint i = 0; i != app->ribbon_count; ++i) {
+		if (app->ribbons[i].ribbon_index == 0) {
+			memcpy((ribbon_segment *)app->ribbon_staging_buffer[ZEST_FIF]->data + running_segment_offset, app->ribbons[i].ribbon_segments, app->ribbons[i].length * sizeof(ribbon_segment));
+		} else {
+			memcpy((ribbon_segment *)app->ribbon_staging_buffer[ZEST_FIF]->data + running_segment_offset, app->ribbons[i].ribbon_segments + app->ribbons[i].ribbon_index, (app->ribbons[i].length - app->ribbons[i].ribbon_index) * sizeof(ribbon_segment));
+			memcpy((ribbon_segment *)app->ribbon_staging_buffer[ZEST_FIF]->data + (app->ribbons[i].length - app->ribbons[i].ribbon_index) + running_segment_offset, app->ribbons[i].ribbon_segments, app->ribbons[i].ribbon_index * sizeof(ribbon_segment));
+		}
+		app->index_count += (app->ribbons[i].length - 1) * app->ribbon_buffer_info.indicesPerSegment;
+		running_segment_offset += app->ribbons[i].length;
 	}
 }
 

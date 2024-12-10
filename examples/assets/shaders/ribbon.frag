@@ -11,5 +11,5 @@ void main() {
 	texel.rgb *= vec3(1., .8, .3);
 	out_color.rgb = texel.rgb * uv.w * texel.a;
 	out_color.a = 0;
-	//out_color = vec4(1, 1, 1, 0);
+//	out_color = vec4(1, 1, 1, 0);
 }

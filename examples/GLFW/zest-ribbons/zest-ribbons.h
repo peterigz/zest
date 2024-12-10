@@ -9,9 +9,17 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
+#define SEGMENT_COUNT 64 
+
 struct ribbon_segment {
 	zest_vec4 position_and_width;
 	zest_vec4 parameters;
+};
+
+struct ribbon {
+	ribbon_segment ribbon_segments[SEGMENT_COUNT];
+	zest_uint length;
+	zest_uint ribbon_index;
 };
 
 struct ribbon_vertex {
@@ -29,15 +37,14 @@ struct RibbonBufferInfo {
 
 struct camera_push_constant {
     zest_vec4 position;
-	zest_matrix4 view;
 	float uv_scale;
 	float uv_offset;
 	float width_scale_multiplier;
 	zest_uint segment_count;
 	zest_uint tessellation;  // Added tessellation factor
+	zest_uint index_offset;
+	zest_uint ribbon_count;
 };
-
-#define SEGMENT_COUNT 256 
 
 struct Ribbons {
 	zest_imgui_layer_info_t imgui_layer_info;
@@ -65,19 +72,19 @@ struct Ribbons {
 	zest_descriptor_set_layout ribbon_descriptor_layout;
 	zest_texture ribbon_texture;
 	zest_image ribbon_image;
+	zest_uint index_count;
 
 	zest_layer line_layer;
 	zest_pipeline line_pipeline;
 
-	ribbon_segment ribbon[SEGMENT_COUNT];
+	ribbon ribbons[10];
+	int ribbon_count;
 	std::vector<uint32_t> ribbon_indices;
 	RibbonBufferInfo ribbon_buffer_info;
-	int current_ribbon_length;
-	int ribbon_index;
 	zest_uint ribbon_built;
 };
 
-RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint32_t maxSegments);
+RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons);
 void InitImGuiApp(Ribbons *app);
 void BuildUI(Ribbons *app);
 void UpdateUniform3d(Ribbons *app);
@@ -85,3 +92,4 @@ void RecordComputeRibbons(zest_work_queue_t *queue, void *data);
 int DrawComputeRibbonsCondition(zest_draw_routine draw_routine);
 void UploadBuffers(Ribbons *app);
 void RibbonComputeFunction(zest_command_queue_compute compute_routine);
+zest_uint CountSegments(Ribbons *app);

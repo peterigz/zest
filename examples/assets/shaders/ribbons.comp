@@ -14,12 +14,13 @@ struct vertex {
 layout(push_constant) uniform camera_push
 {
     vec4 position;
-    mat4 view;
     float uv_scale;
     float uv_offset;
     float width_scale_multiplier;
     uint segment_count;
     uint tessellation;  // Added tessellation factor
+    uint index_offset;
+    uint ribbon_count;  // Number of ribbons
 } camera;
 
 layout (local_size_x = group_size) in;
@@ -32,47 +33,119 @@ layout (std430, binding = 1) buffer OutVertices {
     vertex vertex_data[];
 };
 
+layout (std430, binding = 2) buffer OutIndices {  // Changed binding to 2
+    uint index_data[];
+};
+
 void main() {    
     uint global_index = gl_GlobalInvocationID.x;
+    uint segment_count_per_ribbon = camera.segment_count / camera.ribbon_count;
     if (global_index >= camera.segment_count) return;
+
+    uint segment_index = global_index % segment_count_per_ribbon;
+    uint ribbon_index = global_index / segment_count_per_ribbon;
     
     vec3 current_pos = ribbon_data[global_index].position_and_width.xyz;
     float width = ribbon_data[global_index].position_and_width.w * camera.width_scale_multiplier;
     
     vec3 to_camera = normalize(camera.position.xyz - current_pos.xyz);
     
-    vec3 forward = (global_index < camera.segment_count - 1) 
+    vec3 forward = (segment_index < segment_count_per_ribbon - 1) 
         ? normalize(ribbon_data[global_index + 1].position_and_width.xyz - current_pos)
         : normalize(current_pos - ribbon_data[global_index - 1].position_and_width.xyz);
     vec3 bisector = normalize(normalize(to_camera) + forward);
     vec3 right = normalize(cross(forward, bisector));
     
-    float v = float(global_index) / float(camera.segment_count);
+    float v = float(segment_index) / float(segment_count_per_ribbon);
     float u_scaled = v * camera.uv_scale;
     
-	uint vertices_per_segment = (camera.tessellation + 1) * 2;
-	uint vertex_base_index = global_index * vertices_per_segment;
+    uint vertices_per_segment = (camera.tessellation + 1) * 2;
+    uint vertices_per_ribbon = segment_count_per_ribbon * vertices_per_segment;
+    uint vertex_base_index = (ribbon_index * vertices_per_ribbon) + (segment_index * vertices_per_segment);
+
+    // Vertex generation
     if(camera.tessellation > 0) {
-		// Calculate vertices per segment based on tessellation
-		for (uint i = 0; i <= camera.tessellation; i++) {
-			float t = float(i) / float(camera.tessellation);  // Interpolation factor
-			float width_factor = mix(.5, 0, t);         // Interpolate from outer to inner
-			
-			uint vertex_index = vertex_base_index + i;
-			vertex_data[vertex_index].position = vec4(current_pos + right * width * width_factor, 1.0);
-			vertex_data[vertex_index].uv = vec4(t * 0.5, u_scaled + camera.uv_offset, 0., v * 3.);
+        // Calculate vertices per segment based on tessellation
+        for (uint i = 0; i <= camera.tessellation; i++) {
+            float t = float(i) / float(camera.tessellation);  // Interpolation factor
+            float width_factor = mix(.5, 0, t);         // Interpolate from outer to inner
+            
+            uint vertex_index = vertex_base_index + i;
+            vertex_data[vertex_index].position = vec4(current_pos + right * width * width_factor, 1.0);
+            vertex_data[vertex_index].uv = vec4(t * 0.5, u_scaled + camera.uv_offset, 0., v * 3.);
 
-			width_factor = mix(0, -0.5, t);           // Interpolate from inner to outer
-			
-			vertex_index = vertex_base_index + (camera.tessellation + 1) + i;
-			vertex_data[vertex_index].position = vec4(current_pos + right * width * width_factor, 1.0);
-			vertex_data[vertex_index].uv = vec4(0.5 + t * 0.5, u_scaled + camera.uv_offset, 1.0, v * 3.);
-		}
+            width_factor = mix(0, -0.5, t);           // Interpolate from inner to outer
+            vertex_index = vertex_base_index + (camera.tessellation + 1) + i;
+            vertex_data[vertex_index].position = vec4(current_pos + right * width * width_factor, 1.0);
+            vertex_data[vertex_index].uv = vec4(0.5 + t * 0.5, u_scaled + camera.uv_offset, 1.0, v * 3.);
+        }
+
+        // Generate indices for tessellated segments
+        if (segment_index < segment_count_per_ribbon - 1) {
+            uint indices_per_segment = camera.tessellation * 12; 
+            uint indices_per_ribbon = segment_count_per_ribbon * indices_per_segment - indices_per_segment;
+            uint index_base = camera.index_offset + (ribbon_index * indices_per_ribbon) + (segment_index * indices_per_segment);
+			uint next_base_vertex = vertex_base_index + vertices_per_segment;
+            
+            for (uint t = 0; t < camera.tessellation; t++) {
+                uint current_quad_index = index_base + (t * 12);
+
+                uint v0 = vertex_base_index + t;
+                uint v1 = vertex_base_index + t + 1;
+                uint v2 = next_base_vertex + t;
+                uint v3 = next_base_vertex + t + 1;
+                
+                // First triangle
+                index_data[current_quad_index + 0] = v0;
+                index_data[current_quad_index + 1] = v1;
+                index_data[current_quad_index + 2] = v2;
+                
+                // Second triangle
+                index_data[current_quad_index + 3] = v2;
+                index_data[current_quad_index + 4] = v1;
+                index_data[current_quad_index + 5] = v3;
+
+                uint next_t = camera.tessellation + 1;
+				v0 += next_t;
+                v1 += next_t;
+                v2 += next_t;
+                v3 += next_t;
+
+                // First triangle
+                index_data[current_quad_index + 6] = v0;
+                index_data[current_quad_index + 7] = v1;
+                index_data[current_quad_index + 8] = v2;
+                
+                // Second triangle
+                index_data[current_quad_index + 9] = v2;
+                index_data[current_quad_index + 10] = v1;
+                index_data[current_quad_index + 11] = v3;
+            }
+        }
     } else {
-		vertex_data[vertex_base_index].position = vec4(current_pos + right * (width * 0.5), 1.0);
-		vertex_data[vertex_base_index].uv = vec4(0.0, u_scaled + camera.uv_offset, 0., v * 3.);
+        // Non-tessellated version
+        vertex_data[vertex_base_index].position = vec4(current_pos + right * (width * 0.5), 1.0);
+        vertex_data[vertex_base_index].uv = vec4(0.0, u_scaled + camera.uv_offset, 0., v * 3.);
+        vertex_data[vertex_base_index + 1].position = vec4(current_pos - right * (width * 0.5), 1.0);
+        vertex_data[vertex_base_index + 1].uv = vec4(1.0, u_scaled + camera.uv_offset, 1., v * 3.);
 
-		vertex_data[vertex_base_index + 1].position = vec4(current_pos - right * (width * 0.5), 1.0);
-		vertex_data[vertex_base_index + 1].uv = vec4(1.0, u_scaled + camera.uv_offset, 1., v * 3.);
+        // Generate indices for non-tessellated segments
+        if (segment_index < segment_count_per_ribbon - 1) {
+            uint index_base = camera.index_offset + (global_index * 6);
+            uint v0 = vertex_base_index;
+            uint v1 = vertex_base_index + 2;  // Next segment's first vertex
+            uint v2 = vertex_base_index + 1;
+            uint v3 = vertex_base_index + 3;  // Next segment's second vertex
+            
+            // First triangle
+            index_data[index_base + 0] = v0;
+            index_data[index_base + 1] = v1;
+            index_data[index_base + 2] = v2;
+            
+            // Second triangle
+            index_data[index_base + 3] = v2;
+            index_data[index_base + 4] = v1;
+            index_data[index_base + 5] = v3;
+        }
     }
 }
