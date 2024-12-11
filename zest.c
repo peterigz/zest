@@ -5907,11 +5907,19 @@ void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCo
 			if (draw_routine->record_callback) {
 				zest__add_work_queue_entry(&ZestRenderer->work_queue, draw_routine, draw_routine->record_callback);
 			}
-			zest_vec_push(item->secondary_command_buffers, draw_routine->recorder->command_buffer[ZEST_FIF]);
 		}
     }
 
     zest__complete_all_work(&ZestRenderer->work_queue);
+    
+    for (zest_foreach_i(item->draw_routines)) {
+        zest_draw_routine draw_routine = item->draw_routines[i];
+        //Only push the commands to the queue if they were actually recorded. The option is there in the callback to return
+        //early and not record anything if there's nothing to record. This avoids a validation error.
+		if(draw_routine->recorder->flags & zest_command_buffer_flag_recorded) {
+			zest_vec_push(item->secondary_command_buffers, draw_routine->recorder->command_buffer[ZEST_FIF]);
+		}
+    }
 
     zest_uint command_buffer_count = zest_vec_size(item->secondary_command_buffers);
     if (command_buffer_count > 0) {
@@ -10220,6 +10228,7 @@ void zest_EndRecording(zest_recorder recorder, zest_uint fif) {
     VkCommandBuffer command_buffer = recorder->command_buffer[fif];
     ZEST_ASSERT(ZEST__FLAGGED(recorder->flags, zest_command_buffer_flag_recording));    //Must be in a recording state! Did you call zest_BeingRecording?
     ZEST__UNFLAG(recorder->flags, zest_command_buffer_flag_recording);
+    ZEST__FLAG(recorder->flags, zest_command_buffer_flag_recorded);
     recorder->outdated[fif] = 0;
     vkEndCommandBuffer(command_buffer);
 }
@@ -10229,6 +10238,7 @@ void zest_MarkOutdated(zest_recorder recorder) {
     for (ZEST_EACH_FIF_i) {
         recorder->outdated[i] = 1;
     }
+    ZEST__UNFLAG(recorder->flags, zest_command_buffer_flag_recorded);
 }
 
 void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine draw_routine) {

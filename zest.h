@@ -1337,6 +1337,7 @@ typedef enum zest_command_buffer_flag_bits {
     zest_command_buffer_flag_primary                            = 1 << 1,
     zest_command_buffer_flag_secondary                          = 1 << 2,
     zest_command_buffer_flag_recording                          = 1 << 3,
+    zest_command_buffer_flag_recorded                           = 1 << 4,
 } zest_command_buffer_flag_bits;
 
 typedef zest_uint zest_command_buffer_flags;
@@ -2149,6 +2150,10 @@ typedef struct zest_rgba8 {
     };
 } zest_rgba8;
 typedef zest_rgba8 zest_color;
+
+typedef struct zest_rgba32 {
+    float r, g, b, a;
+} zest_rgba32;
 
 typedef struct zest_timer_t {
     int magic;
@@ -3548,8 +3553,13 @@ ZEST_API void zest_FreeCommandBuffers(zest_recorder recorder);
 ZEST_API void zest_FreeRecorder(zest_recorder recorder);
 //Execute all the commands in a draw routine that were previously recorded
 ZEST_API void zest_ExecuteRecorderCommands(VkCommandBuffer primary_command_buffer, zest_recorder recorder, zest_uint fif);
+//When setting up you're own draw routine you will need to record the command buffer where you send instructions to the GPU.
+//You must use this command to begin the recording. It will return a VkCommandBuffer that you can use in your vkCmd functions
+//or other zest helper functions.
 ZEST_API VkCommandBuffer zest_BeginRecording(zest_recorder recorder, zest_render_pass render_pass, zest_uint fif);
+//After a call to zest_BeginRecording you must call this function after you're done recording all the commands you want.
 ZEST_API void zest_EndRecording(zest_recorder recorder, zest_uint fif);
+//Mark a recorder as outdated. This will force the draw routine to recall te callback to re-record the command buffer.
 ZEST_API void zest_MarkOutdated(zest_recorder recorder);
 ZEST_API void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine draw_routine);
 
