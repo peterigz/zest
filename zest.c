@@ -12282,6 +12282,8 @@ void zest_TimerUnAccumulate(zest_timer timer) {
     timer->accumulator -= timer->update_tick_length;
     timer->accumulator_delta = timer->accumulator_delta - timer->accumulator;
     timer->update_count++;
+    timer->time_passed += timer->update_time;
+    timer->seconds_passed += timer->update_time * 1000.f;
 }
 
 zest_bool zest_TimerDoUpdate(zest_timer timer) {

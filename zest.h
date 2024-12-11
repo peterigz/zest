@@ -158,6 +158,7 @@ extern "C" {
 #define ZEST_MICROSECS_SECOND 1000000ULL
 #define ZEST_MICROSECS_MILLISECOND 1000
 #define ZEST_MILLISECONDS_IN_MICROSECONDS(millisecs) millisecs * ZEST_MICROSECS_MILLISECOND
+#define ZEST_MICROSECONDS_TO_MILLISECONDS(microseconds) double(microseconds) / 1000.0
 #define ZEST_SECONDS_IN_MICROSECONDS(seconds) seconds * ZEST_MICROSECS_SECOND
 #define ZEST_SECONDS_IN_MILLISECONDS(seconds) seconds * 1000
 #define ZEST_PI 3.14159265359f
@@ -2167,6 +2168,8 @@ typedef struct zest_timer_t {
     double accumulator_delta;
     double current_time;
     double lerp;
+    double time_passed;
+    double seconds_passed;
     int update_count;
 } zest_timer_t;
 
