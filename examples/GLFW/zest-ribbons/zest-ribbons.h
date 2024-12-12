@@ -9,22 +9,35 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
-#define SEGMENT_COUNT 64 
+#define SEGMENT_COUNT 128 
+#define RIBBON_COUNT 10
 
 struct ribbon_segment {
 	zest_vec4 position_and_width;
-	zest_vec4 parameters;
+	zest_uint index;
+	zest_color color;
+	zest_uint padding[2];
 };
 
 struct ribbon {
 	ribbon_segment ribbon_segments[SEGMENT_COUNT];
 	zest_uint length;
 	zest_uint ribbon_index;
+	zest_uint start_index;
+};
+
+struct ribbon_instance {
+	zest_uint length;
+	float width_scale;
+	zest_uint start_index;
+	zest_uint padding;
 };
 
 struct ribbon_vertex {
 	zest_vec4 position;
 	zest_vec4 uv;
+	zest_color color;
+	zest_uint padding[3];
 };
 
 struct RibbonBufferInfo {
@@ -64,32 +77,37 @@ struct Ribbons {
 	zest_compute ribbon_compute;
 	zest_draw_routine ribbon_draw_routine;
 	zest_layer ribbon_layer;
-	zest_descriptor_buffer ribbon_buffer;
+	zest_descriptor_buffer ribbon_segment_buffer;
+	zest_descriptor_buffer ribbon_instance_buffer;
 	zest_descriptor_buffer ribbon_vertex_buffer;
 	zest_descriptor_buffer ribbon_index_buffer;
 	zest_buffer ribbon_staging_buffer[ZEST_MAX_FIF];
+	zest_buffer ribbon_instance_staging_buffer[ZEST_MAX_FIF];
 	camera_push_constant camera_push;
 	zest_descriptor_set_layout ribbon_descriptor_layout;
 	zest_texture ribbon_texture;
 	zest_image ribbon_image;
 	zest_uint index_count;
+	float seconds_passed;
 
 	zest_layer line_layer;
 	zest_pipeline line_pipeline;
 
-	ribbon ribbons[10];
+	ribbon ribbons[RIBBON_COUNT];
+	ribbon_instance ribbon_instances[RIBBON_COUNT];
 	int ribbon_count;
 	std::vector<uint32_t> ribbon_indices;
 	RibbonBufferInfo ribbon_buffer_info;
 	zest_uint ribbon_built;
 };
 
-RibbonBufferInfo GenerateRibbonIndices(Ribbons *app, uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons);
+RibbonBufferInfo GenerateRibbonInfo(Ribbons *app, uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons);
 void InitImGuiApp(Ribbons *app);
 void BuildUI(Ribbons *app);
 void UpdateUniform3d(Ribbons *app);
-void RecordComputeRibbons(zest_work_queue_t *queue, void *data);
+void RecordRibbonDrawRoutine(zest_work_queue_t *queue, void *data);
 int DrawComputeRibbonsCondition(zest_draw_routine draw_routine);
 void UploadBuffers(Ribbons *app);
 void RibbonComputeFunction(zest_command_queue_compute compute_routine);
 zest_uint CountSegments(Ribbons *app);
+void UpdateRibbons(Ribbons *app);
