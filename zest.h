@@ -170,6 +170,7 @@ extern "C" {
 #define ZEST_NULL 0
 //For each frame in flight macro
 #define ZEST_EACH_FIF_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
+#define zest_ForEachFrameInFlight(index) for(unsigned int index = 0; index != ZEST_MAX_FIF; ++index)
 
 //For error checking vulkan commands
 #define ZEST_VK_CHECK_RESULT(res)                                                                                   \
@@ -3699,6 +3700,8 @@ ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 ZEST_API zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image);
 //Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
 ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data);
+//Memset a host visible buffer to 0.
+ZEST_API zest_buffer zest_ClearBufferToZero(zest_buffer buffer);
 //Create an index buffer.
 ZEST_API zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 ZEST_API zest_buffer zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);

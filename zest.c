@@ -2696,6 +2696,11 @@ zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void* data) {
     return buffer;
 }
 
+zest_buffer zest_ClearBufferToZero(zest_buffer buffer) {
+    ZEST_ASSERT(buffer->data);  //Must be a host visible buffer and the data is mapped
+    memset(buffer->data, 0, buffer->size);
+}
+
 zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
     zest_buffer_info_t buffer_info = zest_CreateIndexBufferInfo(0);
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
