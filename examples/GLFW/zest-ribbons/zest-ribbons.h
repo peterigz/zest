@@ -14,23 +14,19 @@
 
 struct ribbon_segment {
 	zest_vec4 position_and_width;
-	zest_uint index;
 	zest_color color;
-	zest_uint padding[2];
+	zest_uint padding[3];
 };
 
 struct ribbon {
-	ribbon_segment ribbon_segments[SEGMENT_COUNT];
 	zest_uint length;
 	zest_uint ribbon_index;
 	zest_uint start_index;
 };
 
 struct ribbon_instance {
-	zest_uint length;
 	float width_scale;
 	zest_uint start_index;
-	zest_uint padding;
 };
 
 struct ribbon_vertex {
@@ -95,6 +91,7 @@ struct Ribbons {
 
 	ribbon ribbons[RIBBON_COUNT];
 	ribbon_instance ribbon_instances[RIBBON_COUNT];
+	ribbon_segment ribbon_segments[SEGMENT_COUNT * RIBBON_COUNT];
 	int ribbon_count;
 	std::vector<uint32_t> ribbon_indices;
 	RibbonBufferInfo ribbon_buffer_info;
@@ -107,7 +104,6 @@ void BuildUI(Ribbons *app);
 void UpdateUniform3d(Ribbons *app);
 void RecordRibbonDrawRoutine(zest_work_queue_t *queue, void *data);
 int DrawComputeRibbonsCondition(zest_draw_routine draw_routine);
-void UploadBuffers(Ribbons *app);
 void RibbonComputeFunction(zest_command_queue_compute compute_routine);
 zest_uint CountSegments(Ribbons *app);
 void UpdateRibbons(Ribbons *app);

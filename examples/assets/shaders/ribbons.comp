@@ -3,21 +3,19 @@
 
 /*
 This compute shader takes in a buffer of ribbon segments and builds a vertex and index buffer for consumption by the vertex
-shader. The push constant contains data such as the number of individual ribbons and the segment count of each ribbon.
+shader. The push constant contains data such as the number of individual ribbons and the segment count of each ribbon. All 
+ribbons are the same length passed into the push constant as segment_count
 */
 
 struct ribbon_segments {
-    vec4 position_and_width;  // xyz = position, w = width                
-    uint index;
-    uint color;
-    uint padding[2];
+    vec4 position_and_width;    // xyz = position, w = width                
+    uint color;                 //The color tint of the segment
+    uint padding[3];            
 };
 
-struct ribbon_instance {
-    uint ribbon_length;
-    float width_scale;
-    uint start_index;
-    uint padding;
+struct ribbon {
+    float global_width;         //All segment widths in the ribbon are multipied by this value
+    uint start_index;           //The ribbon segment data are ring buffers so this is used to find the correct index into the buffer
 };
 
 struct vertex {
@@ -27,17 +25,18 @@ struct vertex {
     uint padding[3];
 };
 
-layout(push_constant) uniform camera_push
+//The push constant struct for storing 
+layout(push_constant) uniform push_constants
 {
-    vec4 position;
-    float uv_scale;
-    float uv_offset;
-    float width_scale_multiplier;
-    uint segment_count;
-    uint tessellation;  // Added tessellation factor
-    uint index_offset;
-    uint ribbon_count;  // Number of ribbons
-} camera;
+    vec4 camera_position;           
+    float texture_y_scale;          
+    float texture_y_offset;        
+    float width_scale_multiplier;   
+    uint segment_count;             
+    uint tessellation;              
+    uint index_offset;              
+    uint ribbon_count;              
+} pc;
 
 layout (local_size_x = group_size) in;
 
@@ -46,7 +45,7 @@ layout (std430, binding = 0) readonly buffer InRibbonSegments {
 };
 
 layout (std430, binding = 1) readonly buffer InRibbonInstances {
-    ribbon_instance ribbon_instances[];
+    ribbon ribbons[];
 };
 
 layout (std430, binding = 2) buffer OutVertices {
@@ -59,64 +58,80 @@ layout (std430, binding = 3) buffer OutIndices {  // Changed binding to 2
 
 void main() {    
     uint global_index = gl_GlobalInvocationID.x;
-    if (global_index >= camera.segment_count * camera.ribbon_count) return;
+    if (global_index >= pc.segment_count * pc.ribbon_count) return;
 
-    uint ribbon_index = global_index / camera.segment_count;
-    uint global_offset = ribbon_index * camera.segment_count;
-    uint current_segment_count = ribbon_instances[ribbon_index].ribbon_length;
-	uint local_segment_index = global_index % camera.segment_count;
-	uint global_segment_index = global_offset + (local_segment_index + ribbon_instances[ribbon_index].start_index) % camera.segment_count;
+    uint ribbon_index = global_index / pc.segment_count;
+    //All ribbon segments are in a single array of segments, so we need the offset to the location in the buffer
+    //for the current ribbon using the ribbon index
+    uint global_offset = ribbon_index * pc.segment_count;
+    //Each set of ribbon segments are stored in a ring buffer so we need to find the correct index in to the buffer first by
+    //finding the local segment index. Then we use that to find the global segment index using the start index of the
+    //segment ring buffer plus the local segment modular with the segment count. finally add on the global index offset
+    //to get the correct index we need.
+	uint local_segment_index = global_index % pc.segment_count;
+	uint global_segment_index = global_offset + (local_segment_index + ribbons[ribbon_index].start_index) % pc.segment_count;
     
+    //Now we have the global segment index, we can index into the ribbon_data to get the segment position, width and color
     vec3 current_pos = ribbon_data[global_segment_index].position_and_width.xyz;
     uint current_color = ribbon_data[global_segment_index].color;
-    float width = ribbon_data[global_segment_index].position_and_width.w * camera.width_scale_multiplier * ribbon_instances[ribbon_index].width_scale;
+    float width = ribbon_data[global_segment_index].position_and_width.w * pc.width_scale_multiplier * ribbons[ribbon_index].global_width;
     
-    vec3 to_camera = normalize(camera.position.xyz - current_pos.xyz);
+    //Get a normalized vector to the camera so that the vertices can be made to face the camera.
+    vec3 to_camera = normalize(pc.camera_position.xyz - current_pos.xyz);
 
-    uint next_segment_index = global_offset + ((local_segment_index + 1 + ribbon_instances[ribbon_index].start_index) % camera.segment_count);
-	uint prev_segment_index = global_offset + ((local_segment_index - 1 + ribbon_instances[ribbon_index].start_index) % camera.segment_count);
+    //Get the ribbon direction vector. Becuase the ribbon segment data are all ring buffers the next and previous indexes need to be properly
+    //calculated. If there is a next ribbon segment then use that to get the forward vector, otherwise if we're at the end of the ribbon_count
+    //the use the previous ribbon segment.
+    uint next_segment_index = global_offset + ((local_segment_index + 1 + ribbons[ribbon_index].start_index) % pc.segment_count);
+	uint prev_segment_index = global_offset + ((local_segment_index - 1 + ribbons[ribbon_index].start_index) % pc.segment_count);
 
-	vec3 forward = (local_segment_index < camera.segment_count - 1) 
+	vec3 forward = (local_segment_index < pc.segment_count - 1) 
 		? normalize(ribbon_data[next_segment_index].position_and_width.xyz - current_pos)
 		: normalize(current_pos - ribbon_data[prev_segment_index].position_and_width.xyz);
     
+    //calculate the bisector and use it to get a perpendicular vector from the segment direction and the camera position.
     vec3 bisector = normalize(normalize(to_camera) + forward);
     vec3 right = normalize(cross(forward, bisector));
     
-    float v = float(local_segment_index) / float(camera.segment_count - 1);
-    float u_scaled = v * camera.uv_scale;
+    float ribbon_lerp = float(local_segment_index) / float(pc.segment_count - 1);
+    float u_scaled = ribbon_lerp * pc.texture_y_scale;
     
-    uint vertices_per_segment = (camera.tessellation + 1) * 2;
-    uint vertices_per_ribbon = camera.segment_count * vertices_per_segment;
+    //Calculate the number of vertices per segment and ribbon. We could optimise this out and put it in the push constants instead. They will
+    //be the same across the whole shader.
+    uint vertices_per_segment = (pc.tessellation + 1) * 2;
+    uint vertices_per_ribbon = pc.segment_count * vertices_per_segment;
+    //Calculate the current base offset in to the vertex buffer we're writing to.
     uint vertex_base_index = (ribbon_index * vertices_per_ribbon) + (local_segment_index * vertices_per_segment);
 
     // Vertex generation
-    if(camera.tessellation > 0) {
+    //We have to do a separate calculation if there are 0 tessellations. No branching here, tessellation will always be the same
+    //across the shader. Do separate dispatches for ribbons that have different configurations.
+    if(pc.tessellation > 0) {
         // Calculate vertices per segment based on tessellation
-        for (uint i = 0; i <= camera.tessellation; i++) {
-            float t = float(i) / float(camera.tessellation);        // Interpolation factor
+        for (uint i = 0; i <= pc.tessellation; i++) {
+            float t = float(i) / float(pc.tessellation);            // Interpolation factor
             float width_factor = mix(.5, 0, t);                     // Interpolate from outer to inner
             
             uint vertex_index = vertex_base_index + i;
             vertex_data[vertex_index].position = vec4(current_pos + right * width * width_factor, 1.0);
-            vertex_data[vertex_index].uv = vec4(t * 0.5, u_scaled + camera.uv_offset, 0., v * 3);
+            vertex_data[vertex_index].uv = vec4(t * 0.5, u_scaled + pc.texture_y_offset, 0.0, ribbon_lerp * 3);
             vertex_data[vertex_index].color = current_color;
 
-            width_factor = mix(0, -0.5, t);           // Interpolate from inner to outer
-            vertex_index = vertex_base_index + (camera.tessellation + 1) + i;
+            width_factor = mix(0, -0.5, t);                         // Interpolate from inner to outer
+            vertex_index = vertex_base_index + (pc.tessellation + 1) + i;
             vertex_data[vertex_index].position = vec4(current_pos + right * width * width_factor, 1.0);
-            vertex_data[vertex_index].uv = vec4(0.5 + t * 0.5, u_scaled + camera.uv_offset, 1.0, v * 3);
+            vertex_data[vertex_index].uv = vec4(0.5 + t * 0.5, u_scaled + pc.texture_y_offset, 1.0, ribbon_lerp * 3);
             vertex_data[vertex_index].color = current_color;
         }
 
         // Generate indices for tessellated segments
-        if (local_segment_index < camera.segment_count - 1) {
-            uint indices_per_segment = camera.tessellation * 12; 
-            uint indices_per_ribbon = camera.segment_count * indices_per_segment - indices_per_segment;
-            uint index_base = camera.index_offset + (ribbon_index * indices_per_ribbon) + (local_segment_index * indices_per_segment);
+        if (local_segment_index < pc.segment_count - 1) {
+            uint indices_per_segment = pc.tessellation * 12; 
+            uint indices_per_ribbon = pc.segment_count * indices_per_segment - indices_per_segment;
+            uint index_base = pc.index_offset + (ribbon_index * indices_per_ribbon) + (local_segment_index * indices_per_segment);
 			uint next_base_vertex = vertex_base_index + vertices_per_segment;
             
-            for (uint t = 0; t < camera.tessellation; t++) {
+            for (uint t = 0; t < pc.tessellation; t++) {
                 uint current_quad_index = index_base + (t * 12);
 
                 uint v0 = vertex_base_index + t;
@@ -134,7 +149,7 @@ void main() {
                 index_data[current_quad_index + 4] = v1;
                 index_data[current_quad_index + 5] = v3;
 
-                uint next_t = camera.tessellation + 1;
+                uint next_t = pc.tessellation + 1;
 				v0 += next_t;
                 v1 += next_t;
                 v2 += next_t;
@@ -155,15 +170,15 @@ void main() {
         // Non-tessellated version
         float width_factor = width * 0.5;
         vertex_data[vertex_base_index].position = vec4(current_pos + right * width_factor, 1.0);
-        vertex_data[vertex_base_index].uv = vec4(0.0, u_scaled + camera.uv_offset, 0., v * 3.);
+        vertex_data[vertex_base_index].uv = vec4(0.0, u_scaled + pc.texture_y_offset, 0., ribbon_lerp * 3.);
 		vertex_data[vertex_base_index].color = current_color;
         vertex_data[vertex_base_index + 1].position = vec4(current_pos - right * width_factor, 1.0);
-        vertex_data[vertex_base_index + 1].uv = vec4(1.0, u_scaled + camera.uv_offset, 1., v * 3.);
+        vertex_data[vertex_base_index + 1].uv = vec4(1.0, u_scaled + pc.texture_y_offset, 1., ribbon_lerp * 3.);
 		vertex_data[vertex_base_index + 1].color = current_color;
 
         // Generate indices for non-tessellated segments
-        if (local_segment_index < camera.segment_count - 1) {
-            uint index_base = camera.index_offset + (global_segment_index * 6);
+        if (local_segment_index < pc.segment_count - 1) {
+            uint index_base = pc.index_offset + (global_segment_index * 6);
             uint v0 = vertex_base_index;
             uint v1 = vertex_base_index + 2;  // Next segment's first vertex
             uint v2 = vertex_base_index + 1;

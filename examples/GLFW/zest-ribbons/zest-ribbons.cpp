@@ -25,7 +25,7 @@ void InitImGuiApp(Ribbons *app) {
 
 	app->sync_refresh = true;
 
-	int tessellation = 2;
+	int tessellation = 1;
 	app->ribbon_buffer_info = GenerateRibbonInfo(app, tessellation, SEGMENT_COUNT * 10, 10);
 	app->ribbon_count = RIBBON_COUNT;
 
@@ -129,8 +129,8 @@ void InitImGuiApp(Ribbons *app) {
 
 	app->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&app->camera, 60.f);
-	app->camera_push.uv_scale = 1.f;
-	app->camera_push.uv_offset = 0.f;
+	app->camera_push.uv_scale = .1f;
+	app->camera_push.uv_offset = 0.5f;
 	app->camera_push.width_scale_multiplier = 1.5f;
 	app->camera_push.tessellation = tessellation;
 	app->camera.position.x = -5.f;
@@ -187,12 +187,6 @@ int DrawComputeRibbonsCondition(zest_draw_routine draw_routine) {
 	//Only draw the ribbons if they have any length
 	Ribbons &app = *static_cast<Ribbons *>(draw_routine->user_data);
 	return app.ribbons[0].length > 0;
-}
-
-void UploadBuffers(Ribbons *app) {
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_segment), app->ribbons[0].ribbon_segments);
-	zest_CopyBuffer(staging_buffer, app->ribbon_segment_buffer->buffer[0], staging_buffer->size);
-	zest_FreeBuffer(staging_buffer);
 }
 
 //Every frame the compute shader needs to be dispatched which means that all the commands for the compute shader
@@ -403,16 +397,16 @@ void UpdateRibbons(Ribbons *app) {
 		}
 
 		int current_index = app->ribbons[r].ribbon_index;
+		int segment_offset = r * SEGMENT_COUNT;	
 		app->ribbons[r].length = ZEST__MIN(app->ribbons[r].length + 1, SEGMENT_COUNT);
-		app->ribbons[r].ribbon_segments[current_index].position_and_width = { position.x, position.y, position.z, .1f };
-		app->ribbons[r].ribbon_segments[current_index].color = color;
+		app->ribbon_segments[segment_offset + current_index].position_and_width = { position.x, position.y, position.z, .1f };
+		app->ribbon_segments[segment_offset + current_index].color = color;
 
 		app->ribbon_instances[r].width_scale = 1.f + float(r) * .15f;
-		app->ribbon_instances[r].length = ZEST__MIN(app->ribbon_instances[r].length + 1, app->ribbons[r].length);
 		app->ribbon_instances[r].start_index = app->ribbons[r].start_index;
 
 		app->ribbons[r].ribbon_index = (current_index + 1) % app->ribbons[r].length;
-		if (app->ribbon_instances[r].length == app->ribbons[r].length) {
+		if (app->ribbons[r].length == SEGMENT_COUNT) {
 			app->ribbons[r].start_index++;
 			app->ribbons[r].start_index %= app->ribbons[r].length;
 		}
@@ -497,19 +491,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	app->camera_push.index_offset = 0;
 	app->camera_push.ribbon_count = app->ribbon_count;
 	zest_uint total_segments = SEGMENT_COUNT * app->ribbon_count;
-	zest_uint running_segment_offset = 0;
-	zest_uint running_index_offset = 0;
 	app->index_count = 0;
-	for (zest_uint i = 0; i != app->ribbon_count; ++i) {
-		//if (app->ribbons[i].start_index == 0) {
-			memcpy((ribbon_segment *)app->ribbon_staging_buffer[ZEST_FIF]->data + running_segment_offset, app->ribbons[i].ribbon_segments, app->ribbons[i].length * sizeof(ribbon_segment));
-		//} else {
-			//memcpy((ribbon_segment *)app->ribbon_staging_buffer[ZEST_FIF]->data + running_segment_offset, app->ribbons[i].ribbon_segments + app->ribbons[i].start_index, (app->ribbons[i].length - app->ribbons[i].start_index) * sizeof(ribbon_segment));
-			//memcpy((ribbon_segment *)app->ribbon_staging_buffer[ZEST_FIF]->data + (app->ribbons[i].length - app->ribbons[i].start_index) + running_segment_offset, app->ribbons[i].ribbon_segments, app->ribbons[i].start_index * sizeof(ribbon_segment));
-		//}
-		app->index_count += (SEGMENT_COUNT) * app->ribbon_buffer_info.indicesPerSegment;
-		running_segment_offset += SEGMENT_COUNT;
-	}
+	memcpy((ribbon_segment *)app->ribbon_staging_buffer[ZEST_FIF]->data, app->ribbon_segments, SEGMENT_COUNT * RIBBON_COUNT * sizeof(ribbon_segment));
+	app->index_count += (SEGMENT_COUNT * RIBBON_COUNT) * app->ribbon_buffer_info.indicesPerSegment;
 	memcpy(app->ribbon_instance_staging_buffer[ZEST_FIF]->data, app->ribbon_instances, app->ribbon_count * sizeof(ribbon_instance));
 }
 
