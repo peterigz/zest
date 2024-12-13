@@ -1339,7 +1339,6 @@ typedef enum zest_command_buffer_flag_bits {
     zest_command_buffer_flag_primary                            = 1 << 1,
     zest_command_buffer_flag_secondary                          = 1 << 2,
     zest_command_buffer_flag_recording                          = 1 << 3,
-    zest_command_buffer_flag_recorded                           = 1 << 4,
 } zest_command_buffer_flag_bits;
 
 typedef zest_uint zest_command_buffer_flags;
