@@ -25,7 +25,7 @@ void InitImGuiApp(Ribbons *app) {
 
 	app->sync_refresh = true;
 
-	int tessellation = 1;
+	int tessellation = 2;
 	app->ribbon_buffer_info = GenerateRibbonInfo(app, tessellation, SEGMENT_COUNT * 10, 10);
 	app->ribbon_count = RIBBON_COUNT;
 
