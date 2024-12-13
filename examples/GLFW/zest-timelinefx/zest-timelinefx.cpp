@@ -153,8 +153,8 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	zest_SetPipelineTemplateVertShader(&instance_create_info, "tfx_vertex3d.spv", 0);
 	zest_SetPipelineTemplateFragShader(&instance_create_info, "tfx_frag.spv", 0);
 	zest_SetPipelineTemplatePushConstant(&instance_create_info, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
-	//zest_AddPipelineTemplateDescriptorLayout(&instance_create_info, render_resources.descriptor_layout->vk_layout);
-	render_resources.pipeline = zest_AddPipeline("ribbons");
+	zest_AddPipelineTemplateDescriptorLayout(&instance_create_info, render_resources.descriptor_layout->vk_layout);
+	render_resources.pipeline = zest_AddPipeline("tfx_billboard_pipeline");
 	zest_MakePipelineTemplate(render_resources.pipeline, zest_GetStandardRenderPass(), &instance_create_info);
 	render_resources.pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
 	render_resources.pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
@@ -383,7 +383,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 // Windows entry point
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 //int main() {
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	zest_implglfw_SetCallbacks(&create_info);

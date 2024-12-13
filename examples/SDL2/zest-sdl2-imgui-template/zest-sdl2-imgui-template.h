@@ -14,6 +14,7 @@ struct ImGuiApp {
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;
 	zest_image test_image;
+	zest_timer timer;
 };
 
 void InitImGuiApp(ImGuiApp *app);

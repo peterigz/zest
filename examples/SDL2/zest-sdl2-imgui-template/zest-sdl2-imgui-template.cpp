@@ -41,6 +41,7 @@ void InitImGuiApp(ImGuiApp *app) {
 		zest_FinishQueueSetup();
 	}
 
+	app->timer = zest_CreateTimer(60.0);
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
@@ -56,20 +57,26 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 	ImGuiApp *app = (ImGuiApp*)user_data;
 
-	//Must call the imgui GLFW implementation function
-	ImGui_ImplSDL2_NewFrame();
-	//Draw our imgui stuff
-	ImGui::NewFrame();
-	ImGui::ShowDemoWindow();
-	ImGui::Begin("Test Window");
-	ImGui::Text("FPS %i", ZestApp->last_fps);
-	zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
-	ImGui::End();
-	ImGui::Render();
-	//Let the layer know that it needs to reupload the imgui mesh data to the GPU
-	zest_ResetLayer(app->imgui_layer_info.mesh_layer);
-	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
+	//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
+	//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
+	//less frequently.
+	zest_StartTimerLoop(app->timer) {
+		//Must call the imgui GLFW implementation function
+		ImGui_ImplSDL2_NewFrame();
+		//Draw our imgui stuff
+		ImGui::NewFrame();
+		ImGui::ShowDemoWindow();
+		ImGui::Begin("Test Window");
+		ImGui::Text("FPS %i", ZestApp->last_fps);
+		zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
+		ImGui::End();
+		ImGui::Render();
+		//Let the layer know that it needs to reupload the imgui mesh data to the GPU
+		zest_ResetLayer(app->imgui_layer_info.mesh_layer);
+		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
+		zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
+	} zest_EndTimerLoop(app->timer);
+
 }
 
 #if defined(_WIN32)

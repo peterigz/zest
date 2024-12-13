@@ -1,6 +1,10 @@
 #include "zest-stability-ai.h"
 #include "imgui_internal.h"
 
+/*
+Placeholder project for when I get around to playing with the StabilityAI api
+*/
+
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise(&app->imgui_layer_info);
@@ -54,7 +58,6 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	ImGui_ImplGlfw_NewFrame();
 	//Draw our imgui stuff
 	ImGui::NewFrame();
-	ImGui::ShowDemoWindow();
 	ImGui::Begin("Test Window");
 	ImGui::Text("FPS %i", ZestApp->last_fps);
 	if (ImGui::Button("Toggle Refresh Rate Sync")) {

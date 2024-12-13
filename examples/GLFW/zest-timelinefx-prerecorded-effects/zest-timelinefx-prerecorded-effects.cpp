@@ -137,6 +137,7 @@ void UploadBuffers(ComputeExample *example) {
 void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	//Register a new compute shader
 	example->compute = zest_CreateCompute("Sprite data compute");
+	example->playback_shader = zest_AddShaderFromSPVFile("examples/assets/spv/sprite_data_playback.comp.spv", shaderc_compute_shader);
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier
 	zest_compute_builder_t builder = zest_NewComputeBuilder();
@@ -155,7 +156,7 @@ void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	zest_AddComputeBufferForBinding(&builder, example->emitter_properties_buffer);			//Binding 4
 	zest_AddComputeBufferForBinding(&builder, example->sprite_buffer);						//Binding 5
 	//Specify the shader that we want to use for the compute shader
-	example->compute_pipeline_3d = zest_AddComputeShader(&builder, "sprite_data_playback.comp.spv", "examples/assets/spv/");
+	example->compute_pipeline_3d = zest_AddComputeShader(&builder, example->playback_shader);
 	//Specify the size of the push constant struct if we're using it
 	zest_SetComputePushConstantSize(&builder, sizeof(zest_compute_push_constant_t));
 	//Set the user data that can be passed to the callbacks

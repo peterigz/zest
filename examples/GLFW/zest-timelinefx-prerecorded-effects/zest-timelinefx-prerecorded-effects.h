@@ -68,6 +68,8 @@ struct ComputeExample {
 	//the instances of each animation and the offsets array which are very small so not much overhead at all.
 	zest_buffer animation_instances_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer offsets_staging_buffer[ZEST_MAX_FIF];
+	//The compute shader that interpolates all the sprite data
+	zest_shader playback_shader;
 
 	tfx_render_resources_t tfx_rendering;
 
