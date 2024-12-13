@@ -1478,7 +1478,7 @@ typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
 
-const int zest_INIT_MAGIC = 0x4E57;
+static const int zest_INIT_MAGIC = 0x4E57;
 
 #define ZEST_ASSERT_INIT(magic) ZEST_ASSERT(magic == zest_INIT_MAGIC)
 #define ZEST_ASSERT_UNINIT(magic) ZEST_ASSERT(magic != zest_INIT_MAGIC)

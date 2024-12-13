@@ -7253,6 +7253,7 @@ zest_texture zest_NewTexture() {
 
 zest_image_t zest_NewImage(void) {
     zest_image_t image = { 0 };
+    image.magic = zest_INIT_MAGIC;
     image.struct_type = zest_struct_type_image;
     return image;
 }
@@ -7281,6 +7282,7 @@ zest_image zest_CreateImage() {
 
 zest_image zest_CreateAnimation(zest_uint frames) {
     zest_image image = (zest_image)ZEST__ALLOCATE_ALIGNED(sizeof(zest_image_t) * frames, 16);
+    ZEST_ASSERT(image); //Couldn't allocate the image. Out of memory?
     image->frames = frames;
     return image;
 }
@@ -7877,6 +7879,7 @@ float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t* spriteshe
     zest_uint frame_count = 0;
     float max_radius = 0;
     zest_image_t blank_image = zest_NewImage();
+    blank_image.magic = zest_INIT_MAGIC;
     zest_image frame = zest_CreateAnimation(frames);
 
     for (zest_uint r = 0; r != (row_by_row ? rows : cols); ++r) {
