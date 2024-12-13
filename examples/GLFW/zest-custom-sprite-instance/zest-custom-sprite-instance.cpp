@@ -161,7 +161,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	ImGui::End();
 	ImGui::Render();
 	//Let the layer know that it needs to reupload the imgui mesh data to the GPU
-	zest_SetLayerDirty(app->imgui_layer_info.mesh_layer);
+	zest_ResetLayer(app->imgui_layer_info.mesh_layer);
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
 
@@ -175,7 +175,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 //int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	create_info.log_path = "./";
