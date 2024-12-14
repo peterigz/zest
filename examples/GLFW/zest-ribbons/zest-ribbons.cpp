@@ -155,8 +155,6 @@ RibbonBufferInfo GenerateRibbonInfo(Ribbons *app, uint32_t tessellation, uint32_
 	info.verticesPerSegment = (tessellation + 1) * 2; // vertices across the ribbon width * 2 for both sides
 	info.trianglesPerSegment = tessellation * 4;      // 2 triangles per quad * 2 strips * tessellation
 	info.indicesPerSegment = info.trianglesPerSegment * 3;
-	info.totalIndices = info.indicesPerSegment * (maxSegments - 1);
-	info.vertexStrideMultiplier = info.verticesPerSegment;
 
 	return info;
 }
@@ -449,9 +447,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_StartTimerLoop(app->timer) {
 		BuildUI(app);
 
-		//if (ImGui::IsKeyDown(ImGuiKey_Space) || ImGui::IsKeyReleased(ImGuiKey_N)) {
+		if (ImGui::IsKeyDown(ImGuiKey_Space) || ImGui::IsKeyReleased(ImGuiKey_N)) {
 			UpdateRibbons(app);
-		//}
+		}
 
 		float speed = 5.f * (float)app->timer->update_time;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {

@@ -40,8 +40,6 @@ struct RibbonBufferInfo {
 	uint32_t verticesPerSegment;      // Number of vertices per segment (4 * tessellation)
 	uint32_t trianglesPerSegment;     // Number of triangles per segment
 	uint32_t indicesPerSegment;       // Number of indices per segment
-	uint32_t totalIndices;            // Total number of indices in the buffer
-	uint32_t vertexStrideMultiplier;  // How many vertices to advance per segment
 };
 
 struct camera_push_constant {
