@@ -78,7 +78,6 @@ struct Ribbons {
 	zest_buffer ribbon_staging_buffer[ZEST_MAX_FIF];
 	zest_buffer ribbon_instance_staging_buffer[ZEST_MAX_FIF];
 	camera_push_constant camera_push;
-	zest_descriptor_set_layout ribbon_descriptor_layout;
 	zest_texture ribbon_texture;
 	zest_image ribbon_image;
 	zest_uint index_count;
@@ -96,7 +95,7 @@ struct Ribbons {
 	zest_uint ribbon_built;
 };
 
-RibbonBufferInfo GenerateRibbonInfo(Ribbons *app, uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons);
+RibbonBufferInfo GenerateRibbonInfo(uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons);
 void InitImGuiApp(Ribbons *app);
 void BuildUI(Ribbons *app);
 void UpdateUniform3d(Ribbons *app);

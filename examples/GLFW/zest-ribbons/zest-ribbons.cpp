@@ -26,7 +26,7 @@ void InitImGuiApp(Ribbons *app) {
 	app->sync_refresh = true;
 
 	int tessellation = 2;
-	app->ribbon_buffer_info = GenerateRibbonInfo(app, tessellation, SEGMENT_COUNT * 10, 10);
+	app->ribbon_buffer_info = GenerateRibbonInfo(tessellation, SEGMENT_COUNT * 10, 10);
 	app->ribbon_count = RIBBON_COUNT;
 
 	//Set up the compute shader
@@ -148,7 +148,7 @@ void InitImGuiApp(Ribbons *app) {
 
 // tessellation: number of divisions across the width of the ribbon
 // maxSegments: maximum number of segments the ribbon can have
-RibbonBufferInfo GenerateRibbonInfo(Ribbons *app, uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons) {
+RibbonBufferInfo GenerateRibbonInfo(uint32_t tessellation, uint32_t maxSegments, uint32_t max_ribbons) {
 	RibbonBufferInfo info{};
 
 	// Calculate buffer properties
