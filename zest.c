@@ -10243,6 +10243,13 @@ void zest_MarkOutdated(zest_recorder recorder) {
     }
 }
 
+void zest_ResetDrawRoutine(zest_draw_routine draw_routine) {
+    ZEST_CHECK_HANDLE(draw_routine);	//Not a valid handle!
+    for (ZEST_EACH_FIF_i) {
+        draw_routine->recorder->outdated[i] = 1;
+    }
+}
+
 void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine draw_routine) {
     ZEST_CHECK_HANDLE(draw_routine);	//Not a valid handle!
     VkViewport view = zest_CreateViewport(0.f, 0.f, (float)draw_routine->draw_commands->viewport.extent.width, (float)draw_routine->draw_commands->viewport.extent.height, 0.f, 1.f);

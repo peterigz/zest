@@ -3564,6 +3564,7 @@ ZEST_API VkCommandBuffer zest_BeginRecording(zest_recorder recorder, zest_render
 ZEST_API void zest_EndRecording(zest_recorder recorder, zest_uint fif);
 //Mark a recorder as outdated. This will force the draw routine to recall te callback to re-record the command buffer.
 ZEST_API void zest_MarkOutdated(zest_recorder recorder);
+ZEST_API void zest_ResetDrawRoutine(zest_draw_routine draw_routine);
 ZEST_API void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine draw_routine);
 
 //-----------------------------------------------
