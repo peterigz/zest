@@ -3746,6 +3746,10 @@ ZEST_API zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer d
 ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
 //Grow a descriptor buffer if the minium_bytes is more then the current buffer size.
 ZEST_API zest_bool zest_GrowDescriptorBuffer(zest_descriptor_buffer buffer, zest_size unit_size, zest_size minimum_bytes);
+//Resize a buffer if the new size if more than the current size of the buffer. Returns true if the buffer was resized successfully.
+ZEST_API zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size);
+//Resize a descriptor buffer if the new size if more than the current size of the buffer. Returns true if the buffer was resized successfully.
+ZEST_API zest_bool zest_ResizeDescriptorBuffer(zest_descriptor_buffer buffer, zest_size new_size);
 //Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
 //the size as well that you want to copy
 ZEST_API void zest_CopyBuffer(zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);

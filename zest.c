@@ -2815,6 +2815,35 @@ zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size mi
     return new_buffer ? ZEST_TRUE : ZEST_FALSE;
 }
 
+zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
+    ZEST_ASSERT(new_size);
+    if ((*buffer)->size > new_size) {
+        return ZEST_FALSE;
+    }
+    zest_buffer_allocator_t* buffer_allocator = (*buffer)->buffer_allocator;
+    zest_size memory_in_use = (*buffer)->memory_in_use;
+    zest_buffer new_buffer = zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
+    if (new_buffer) {
+        new_buffer->buffer_allocator = (*buffer)->buffer_allocator;
+        *buffer = new_buffer;
+        zest__set_buffer_details(buffer_allocator, *buffer, buffer_allocator->buffer_info.property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+        new_buffer->memory_in_use = memory_in_use;
+    }
+    else {
+        //Create a new memory pool and try again
+        zest_device_memory_pool buffer_pool = zest__create_vk_memory_pool(&buffer_allocator->buffer_info, ZEST_NULL, 0, new_size);
+        ZEST_ASSERT(buffer_pool->alignment == buffer_allocator->alignment);    //The new pool should have the same alignment as the alignment set in the allocator, this
+        //would have been set when the first pool was created
+        zest__add_remote_range_pool(buffer_allocator, buffer_pool);
+        new_buffer = zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
+        ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
+        *buffer = new_buffer;
+        zest__set_buffer_details(buffer_allocator, *buffer, buffer_allocator->buffer_info.property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+        new_buffer->memory_in_use = memory_in_use;
+    }
+    return new_buffer ? ZEST_TRUE : ZEST_FALSE;
+}
+
 zest_bool zest_GrowDescriptorBuffer(zest_descriptor_buffer buffer, zest_size unit_size, zest_size minimum_bytes) {
     zest_bool grow_result = zest_GrowBuffer(&buffer->buffer[buffer->all_frames_in_flight ? ZEST_FIF : 0], unit_size, minimum_bytes);
     if (grow_result) {
@@ -2832,6 +2861,25 @@ zest_bool zest_GrowDescriptorBuffer(zest_descriptor_buffer buffer, zest_size uni
         }
     }
     return grow_result;
+}
+
+zest_bool zest_ResizeDescriptorBuffer(zest_descriptor_buffer buffer, zest_size new_size) {
+    zest_bool resize_result = zest_ResizeBuffer(&buffer->buffer[buffer->all_frames_in_flight ? ZEST_FIF : 0], new_size);
+    if (resize_result) {
+        for (ZEST_EACH_FIF_i) {
+            if (buffer->all_frames_in_flight) {
+                buffer->descriptor_info[i].buffer = buffer->buffer[i]->memory_pool->buffer;
+                buffer->descriptor_info[i].offset = buffer->buffer[i]->memory_offset;
+                buffer->descriptor_info[i].range = buffer->buffer[i]->size;
+            }
+            else {
+                buffer->descriptor_info[i].buffer = buffer->buffer[0]->memory_pool->buffer;
+                buffer->descriptor_info[i].offset = buffer->buffer[0]->memory_offset;
+                buffer->descriptor_info[i].range = buffer->buffer[0]->size;
+            }
+        }
+    }
+    return resize_result;
 }
 
 zest_buffer_info_t zest_CreateIndexBufferInfo(zest_bool cpu_visible) {
