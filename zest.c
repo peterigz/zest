@@ -7308,6 +7308,7 @@ zest_image_t zest_NewImage(void) {
 
 zest_imgui_image_t zest_NewImGuiImage(void) {
     zest_imgui_image_t imgui_image = { 0 };
+    imgui_image.magic = zest_INIT_MAGIC;
     imgui_image.struct_type = zest_struct_type_imgui_image;
     return imgui_image;
 }

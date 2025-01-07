@@ -2943,6 +2943,7 @@ typedef struct zest_image_t {
 } zest_image_t;
 
 typedef struct zest_imgui_image_t {
+    int magic;
     zest_struct_type struct_type;
     zest_image image;
     zest_pipeline pipeline;
