@@ -303,7 +303,7 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	//First create a descriptor set layout, we need 2 samplers, one to sample the particle texture and another to sample the color ramps
 	//We also need 2 storage buffers, one to access the image data in the vertex shader and the other to access the previous frame particles
 	//so that they can be interpolated in between updates
-	render_resources.descriptor_layout = zest_AddDescriptorLayout("2 samplers 1 storage", zest_CreateDescriptorSetLayout(0, 1, 2));
+	render_resources.descriptor_layout = zest_AddDescriptorLayout("2 samplers 1 storage", 0, 1, 2, 0);
 
 	zest_pipeline_template_create_info_t instance_create_info = zest_CreatePipelineTemplateCreateInfo();
 	instance_create_info.viewport.extent = zest_GetSwapChainExtent();

@@ -60,7 +60,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	shaderc_compiler_release(compiler);
 
 	//We need to make a custom descriptor set and layout that can sample from 2 different textures (the image and the color ramps)
-    app->custom_descriptor_set_layout = zest_AddDescriptorLayout("2 samplers", zest_CreateDescriptorSetLayout(0, 0, 2));
+    app->custom_descriptor_set_layout = zest_AddDescriptorLayout("2 samplers", 0, 0, 2, 0);
 	zest_descriptor_set_builder_t sampler_set_builder = zest_NewDescriptorSetBuilder();
 	zest_AddBuilderDescriptorWriteImage(&sampler_set_builder, zest_GetTextureDescriptorImageInfo(app->test_texture), 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 	zest_AddBuilderDescriptorWriteImage(&sampler_set_builder, zest_GetTextureDescriptorImageInfo(app->color_ramps_texture), 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);

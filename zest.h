@@ -2442,10 +2442,18 @@ typedef struct zest_descriptor_set_layout_builder_t {
     VkDescriptorSetLayoutBinding *bindings;
 } zest_descriptor_set_layout_builder_t;
 
+typedef struct zest_layout_type_counts_t {
+    zest_uint sampler_count;
+    zest_uint uniform_buffer_count;
+    zest_uint storage_buffer_count;
+    zest_uint combined_image_sampler_count;
+} zest_layout_type_counts_t;
+
 typedef struct zest_descriptor_set_layout_t {
     int magic;
     VkDescriptorSetLayout vk_layout;
     zest_text_t name;
+    zest_layout_type_counts_t counts;
 } zest_descriptor_set_layout_t;
 
 typedef struct zest_descriptor_set_t {
@@ -2464,6 +2472,7 @@ typedef struct zest_shader_resources_t {
 
 typedef struct zest_descriptor_set_builder_t {
     VkWriteDescriptorSet *writes[ZEST_MAX_FIF];
+    zest_descriptor_set_layout layout;
 } zest_descriptor_set_builder_t;
 
 typedef struct zest_descriptor_buffer_t {
@@ -3363,6 +3372,11 @@ ZEST_PRIVATE void zest__free_all_texture_images(zest_texture texture);
 ZEST_PRIVATE void zest__reindex_texture_images(zest_texture texture);
 // --End Maintenance functions
 
+// --Descriptor set functions
+ZEST_PRIVATE zest_descriptor_set_layout zest__add_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout);
+ZEST_PRIVATE bool zest__validate_descriptor_set_layout(zest_layout_type_counts_t counts, zest_descriptor_set_layout layout);
+// --End Descriptor set functions
+
 //Device set up
 ZEST_PRIVATE void zest__create_instance();
 ZEST_PRIVATE void zest__setup_validation(void);
@@ -3444,7 +3458,7 @@ ZEST_API zest_descriptor_set_layout zest_BuildDescriptorSetLayout(zest_descripto
 //Add a Vulkan descriptor layout which you can use to setup shaders. Zest adds a few builtin layouts for sprite and billboard drawing.
 //Just pass in a name for the layout and the VkDescriptorSetLayout vulkan struct
 //You can combine this with zest_CreateDescriptorSetLayout or just pass in your own VkDescriptorLayout struct
-ZEST_API zest_descriptor_set_layout zest_AddDescriptorLayout(const char *name, VkDescriptorSetLayout layout);
+ZEST_API zest_descriptor_set_layout zest_AddDescriptorLayout(const char *name, zest_uint uniforms, zest_uint storage_buffers, zest_uint combined_samplers, zest_uint samplers);
 //Create a vulkan descriptor set layout for use in shaders. This is a helper function, just pass in the number of uniforms, texture samplers and storage buffers
 //that you want the layout to have and it returns a VkDescriptorSetLayout struct setup with those values and appropriate bindings.
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayout(zest_uint uniforms, zest_uint storage_buffers, zest_uint samplers);
