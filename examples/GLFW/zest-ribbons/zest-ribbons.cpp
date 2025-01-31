@@ -60,9 +60,9 @@ void InitImGuiApp(Ribbons *app) {
 
 	//Compile the shaders we will use for the ribbons
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	app->ribbon_comp_shader = zest_CreateShaderFromFile("examples/assets/shaders/ribbons.comp", "ribbon_comp.spv", shaderc_compute_shader, true, compiler);
-	app->ribbon_vert_shader = zest_CreateShaderFromFile("examples/assets/shaders/ribbon_3d.vert", "ribbon_3d_vert.spv", shaderc_vertex_shader, true, compiler);
-	app->ribbon_frag_shader = zest_CreateShaderFromFile("examples/assets/shaders/ribbon.frag", "ribbon_frag.spv", shaderc_fragment_shader, true, compiler);
+	app->ribbon_comp_shader = zest_CreateShaderFromFile("examples/assets/shaders/ribbons.comp", "ribbon_comp.spv", shaderc_compute_shader, true, compiler, 0);
+	app->ribbon_vert_shader = zest_CreateShaderFromFile("examples/assets/shaders/ribbon_3d.vert", "ribbon_3d_vert.spv", shaderc_vertex_shader, true, compiler, 0);
+	app->ribbon_frag_shader = zest_CreateShaderFromFile("examples/assets/shaders/ribbon.frag", "ribbon_frag.spv", shaderc_fragment_shader, true, compiler, 0);
 	shaderc_compiler_release(compiler);
 
 	//Declare the actual shader to use

@@ -11927,7 +11927,7 @@ void zest_SetComputePushConstantSize(zest_compute_builder_t* builder, zest_uint 
     builder->push_constant_size = size;
 }
 
-void zest_SetComputeDescriptorUpdateCallback(zest_compute_builder_t* builder, void(*descriptor_update_callback)(zest_compute compute)) {
+void zest_SetComputeDescriptorUpdateCallback(zest_compute_builder_t* builder, void(*descriptor_update_callback)(zest_compute compute, zest_uint fif)) {
     builder->descriptor_update_callback = descriptor_update_callback;
 }
 
@@ -12132,9 +12132,9 @@ void zest_ComputeAttachRenderTarget(zest_compute compute, zest_render_target ren
     ZEST__FLAG(compute->flags, zest_compute_flag_has_render_target);
 }
 
-void zest_UpdateComputeDescriptors(zest_compute compute) {
+void zest_UpdateComputeDescriptors(zest_compute compute, zest_uint fif) {
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
-    compute->descriptor_update_callback(compute);
+    compute->descriptor_update_callback(compute, fif);
 }
 
 void zest_UpdateComputeDescriptorInfos(zest_compute compute) {
@@ -12153,36 +12153,24 @@ void zest_UpdateComputeDescriptorInfos(zest_compute compute) {
     }
 }
 
-void zest_StandardComputeDescriptorUpdate(zest_compute compute) {
+void zest_StandardComputeDescriptorUpdate(zest_compute compute, zest_uint fif) {
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
     VkWriteDescriptorSet* compute_write_descriptor_sets = 0;
 
     zest_UpdateComputeDescriptorInfos(compute);
 
-    for (ZEST_EACH_FIF_i) {
-        int binding_index = 0;
-        for (zest_foreach_j(compute->descriptor_infos)) {
-            zest_descriptor_infos_for_binding_t* descriptor_info = &compute->descriptor_infos[j];
-            if (descriptor_info->all_frames_in_flight) {
-                if (descriptor_info->descriptor_buffer_info[i].buffer) {
-                    zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info->descriptor_buffer_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
-                }
-                else if (descriptor_info->descriptor_image_info[i].sampler) {
-                    zest_vec_push(compute_write_descriptor_sets, zest_CreateImageDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info->descriptor_image_info[i], binding_index++, compute->set_layout_bindings[j].descriptorType));
-                }
-            }
-            else {
-                if (descriptor_info->descriptor_buffer_info[0].buffer) {
-                    zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info->descriptor_buffer_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
-                }
-                else if (descriptor_info->descriptor_image_info[0].sampler) {
-                    zest_vec_push(compute_write_descriptor_sets, zest_CreateImageDescriptorWriteWithType(compute->descriptor_set[i], &descriptor_info->descriptor_image_info[0], binding_index++, compute->set_layout_bindings[j].descriptorType));
-                }
-            }
-        }
-        zest_UpdateDescriptorSet(compute_write_descriptor_sets);
-        zest_vec_clear(compute_write_descriptor_sets);
-    }
+	int binding_index = 0;
+	for (zest_foreach_j(compute->descriptor_infos)) {
+		zest_descriptor_infos_for_binding_t* descriptor_info = &compute->descriptor_infos[j];
+		if (descriptor_info->descriptor_buffer_info[fif].buffer) {
+			zest_vec_push(compute_write_descriptor_sets, zest_CreateBufferDescriptorWriteWithType(compute->descriptor_set[fif], &descriptor_info->descriptor_buffer_info[fif], binding_index++, compute->set_layout_bindings[j].descriptorType));
+		}
+		else if (descriptor_info->descriptor_image_info[fif].sampler) {
+			zest_vec_push(compute_write_descriptor_sets, zest_CreateImageDescriptorWriteWithType(compute->descriptor_set[fif], &descriptor_info->descriptor_image_info[fif], binding_index++, compute->set_layout_bindings[j].descriptorType));
+		}
+	}
+	zest_UpdateDescriptorSet(compute_write_descriptor_sets);
+	zest_vec_clear(compute_write_descriptor_sets);
     zest_vec_free(compute_write_descriptor_sets);
 }
 

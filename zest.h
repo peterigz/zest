@@ -2875,7 +2875,7 @@ struct zest_compute_t {
     zest_compute_flags flags;
 
     // Over ride the descriptor udpate function with a customised one
-    void(*descriptor_update_callback)(zest_compute compute);
+    void(*descriptor_update_callback)(zest_compute compute, zest_uint fif);
     // Over ride the command buffer update function with a customised one
     void(*command_buffer_update_callback)(zest_compute compute, VkCommandBuffer command_buffer);
     // Additional cleanup function callback for the extra compute_data you're using
@@ -2892,7 +2892,7 @@ typedef struct zest_compute_builder_t {
     zest_compute_flags flags;
     void *user_data;
 
-    void(*descriptor_update_callback)(zest_compute compute);
+    void(*descriptor_update_callback)(zest_compute compute, zest_uint fif);
     void(*command_buffer_update_callback)(zest_compute compute, VkCommandBuffer command_buffer);
     void(*extra_cleanup_callback)(zest_compute compute);
 } zest_compute_builder_t;
@@ -4808,7 +4808,7 @@ ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, zest_
 ZEST_API void zest_SetComputePushConstantSize(zest_compute_builder_t *builder, zest_uint size);
 //If you need a specific way to update the descriptors in the compute shader then you can set that here. By default zest_StandardComputeDescriptorUpdate is used
 //which should handle most cases. Descriptors need to be updated if the buffers are changed in any any (like resized).
-ZEST_API void zest_SetComputeDescriptorUpdateCallback(zest_compute_builder_t *builder, void(*descriptor_update_callback)(zest_compute compute));
+ZEST_API void zest_SetComputeDescriptorUpdateCallback(zest_compute_builder_t *builder, void(*descriptor_update_callback)(zest_compute compute, zest_uint fif));
 //You must set a command buffer update callback. This is called when the command queue tries to execute the compute shader. Here you can bind buffers and upload
 //data to the gpu for use by the compute shader and then dispatch the shader. See zest-compute-example.
 ZEST_API void zest_SetComputeCommandBufferUpdateCallback(zest_compute_builder_t *builder, void(*command_buffer_update_callback)(zest_compute compute, VkCommandBuffer command_buffer));
@@ -4831,9 +4831,9 @@ ZEST_API void zest_WaitForCompute(zest_compute compute);
 ZEST_API void zest_UpdateComputeDescriptorInfos(zest_compute compute);
 //If at anytime you resize buffers used in a compute shader then you will need to update it's descriptor infos so that the compute shader connects to the new
 //resized buffer. You can call this function which will just call the callback function you specified when creating the compute shader.
-ZEST_API void zest_UpdateComputeDescriptors(zest_compute compute);
+ZEST_API void zest_UpdateComputeDescriptors(zest_compute compute, zest_uint fif);
 //A standard builtin compute descriptor update callback function.
-ZEST_API void zest_StandardComputeDescriptorUpdate(zest_compute compute);
+ZEST_API void zest_StandardComputeDescriptorUpdate(zest_compute compute, zest_uint fif);
 //Bind a compute pipeline. You must call this before calling dispatch in your command buffer update callback function. The shader index that you have to specify is
 //index of the shader that you added with zest_AddComputeShader when you built the compute shader.
 ZEST_API void zest_BindComputePipeline(zest_compute compute, zest_index shader_index);
