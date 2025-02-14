@@ -185,10 +185,10 @@ int ComputeCondition(zest_compute compute_commands) {
 void RecordComputeCommands(zest_compute compute) {
 	//The compute queue item can contain more then one compute shader to be dispatched
 	//There's only one in this example though
-	zest_BeginComputeRecording(compute->recorder, ZEST_FIF);
+	VkCommandBuffer command_buffer = zest_BeginComputeRecording(compute->recorder, ZEST_FIF);
 	//Bind the compute pipeline
-	zest_BindComputePipeline(compute, 0);
-	zest_DispatchCompute(compute, PARTICLE_COUNT / 256, 1, 1);
+	zest_BindComputePipelineCB(command_buffer, compute, 0);
+	zest_DispatchComputeCB(command_buffer, compute, PARTICLE_COUNT / 256, 1, 1);
 	zest_EndRecording(compute->recorder, ZEST_FIF);
 }
 
