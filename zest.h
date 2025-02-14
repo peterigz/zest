@@ -4822,6 +4822,8 @@ ZEST_API void zest_SetComputeCommandBufferUpdateCallback(zest_compute_builder_t 
 ZEST_API void zest_SetComputeExtraCleanUpCallback(zest_compute_builder_t *builder, void(*extra_cleanup_callback)(zest_compute compute));
 //Set any pointer to custom user data here. You will be able to access this in the callback functions.
 ZEST_API void zest_SetComputeUserData(zest_compute_builder_t *builder, void *data);
+//Sets the compute shader to manually record so you have to specify when the compute shader should be recorded
+ZEST_API void zest_SetComputeManualRecord(zest_compute_builder_t *builder);
 //Once you have finished calling the builder commands you will need to call this to actually build the compute shader. Pass a pointer to the builder and the zest_compute
 //handle that you got from calling zest_CreateCompute. You can then use this handle to add the compute shader to a command queue with zest_NewComputeSetup in a
 //command queue context (see the section on Command queue setup and creation)

@@ -12004,6 +12004,10 @@ void zest_SetComputeUserData(zest_compute_builder_t* builder, void* data) {
     builder->user_data = data;
 }
 
+void zest_SetComputeManualRecord(zest_compute_builder_t *builder) {
+    ZEST__FLAG(builder->flags, zest_compute_flag_manual_fif);
+}
+
 void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
     compute->user_data = builder->user_data;
@@ -12118,6 +12122,7 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
     compute->group_count_y = 1;
     ZEST__FLAG(compute->flags, zest_compute_flag_sync_required);
     ZEST__FLAG(compute->flags, zest_compute_flag_rewrite_command_buffer);
+    ZEST__MAYBE_FLAG(compute->flags, zest_compute_flag_manual_fif, builder->flags & zest_compute_flag_manual_fif);
 
     VkSemaphoreCreateInfo semaphore_info = { 0 };
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
