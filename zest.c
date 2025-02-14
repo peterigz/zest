@@ -12104,7 +12104,7 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
         vkDestroyShaderModule(ZestDevice->logical_device, shader_module, &ZestDevice->allocation_callbacks);
     }
 
-    compute->recorder = zest_CreatePrimaryRecorder();
+    compute->recorder = zest_CreateSecondaryRecorder();
 
     // Fence for compute CB sync
     VkFenceCreateInfo fence_create_info = { 0 };
