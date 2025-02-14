@@ -1453,6 +1453,7 @@ typedef enum zest_compute_flag_bits {
     zest_compute_flag_rewrite_command_buffer              = 1 << 1,    // Command buffer for this compute shader should be rewritten
     zest_compute_flag_sync_required                       = 1 << 2,    // Compute shader requires syncing with the render target
     zest_compute_flag_is_active                           = 1 << 3,    // Compute shader is active then it will be updated when the swap chain is recreated
+    zest_compute_flag_manual_fif                          = 1 << 4,    // You decide when the compute shader should be re-recorded
 } zest_compute_flag_bits;
 
 typedef enum zest_layer_flag_bits {
@@ -2430,6 +2431,7 @@ typedef struct zest_command_queue_t {
     zest_command_queue_compute *compute_commands;                    //Compute items to be recorded to the command buffer
     zest_index present_semaphore_index[ZEST_MAX_FIF];                //An index to the semaphore representing the swap chain if required. (command queues don't necessarily have to wait for the swap chain)
     zest_command_queue_flags flags;                                  //Can be either dependent on the swap chain to present or another command queue
+    VkCommandBuffer *secondary_compute_command_buffers;              //All recorded secondary compute buffers each frame
 } zest_command_queue_t;
 
 typedef struct zest_render_pass_t {
@@ -2847,8 +2849,9 @@ typedef struct zest_compute_t zest_compute_t;
 struct zest_compute_t {
     int magic;
     VkQueue queue;                                            // Separate queue for compute commands (queue family may differ from the one used for graphics)
-    VkCommandPool command_pool;                               // Use a separate command pool (queue family may differ from the one used for graphics)
-    VkCommandBuffer command_buffer[ZEST_MAX_FIF];             // Command buffer storing the dispatch commands and barriers
+    zest_recorder recorder;
+    //VkCommandPool command_pool;                             // Use a separate command pool (queue family may differ from the one used for graphics)
+    //VkCommandBuffer command_buffer[ZEST_MAX_FIF];           // Command buffer storing the dispatch commands and barriers
     VkFence fence[ZEST_MAX_FIF];                              // Synchronization fence to avoid rewriting compute CB if still in use
     VkSemaphore fif_outgoing_semaphore[ZEST_MAX_FIF];         // Signal semaphores
     VkSemaphore fif_incoming_semaphore[ZEST_MAX_FIF];         // Wait semaphores. The compute shader will not be executed on the GPU until these are signalled
@@ -2862,17 +2865,19 @@ struct zest_compute_t {
     VkPipeline *pipelines;                                    // Compute pipelines, one for each shader
     zest_descriptor_infos_for_binding_t *descriptor_infos;    // All the buffers/images that are bound to the compute shader
     int32_t pipeline_index;                                   // Current image filtering compute pipeline index
-    uint32_t queue_family_index;                              // Family index of the graphics queue, used for barriers
+    //uint32_t queue_family_index;                            // Family index of the graphics queue, used for barriers
     zest_uint group_count_x;
     zest_uint group_count_y;
     zest_uint group_count_z;
     zest_compute_push_constant_t push_constants;
     VkPushConstantRange pushConstantRange;
+    zest_command_queue_compute compute_commands;
 
     void *compute_data;                                       // Connect this to any custom data that is required to get what you need out of the compute process.
     zest_render_target render_target;                         // The render target that this compute shader works with
     void *user_data;                                          // Custom user data
     zest_compute_flags flags;
+    zest_uint fif;                                            // Used for manual frame in flight compute
 
     // Over ride the descriptor udpate function with a customised one
     void(*descriptor_update_callback)(zest_compute compute, zest_uint fif);
@@ -2901,9 +2906,11 @@ typedef struct zest_compute_builder_t {
 typedef struct zest_command_queue_compute_t zest_command_queue_compute_t;
 struct zest_command_queue_compute_t {
     int magic;
-    void(*compute_function)(zest_command_queue_compute item);                //Call back function which will have the vkcommands the dispatch the compute shader task
-    zest_compute *compute_shaders;                                           //List of zest_compute indexes so multiple compute shaders can be run in the same compute item
+    void(*compute_function)(zest_compute compute);             //Call back function which will have the vkcommands to dispatch the compute shader
+    int(*condition_function)(zest_compute compute);           //Call back function where you can return true/false as to whether the compute shader should be run each frame
+    zest_compute compute;                                      //Handle to the compute object containing the shaders and pipelines etc.
     zest_index shader_index;
+    zest_uint last_fif;
     const char *name;
 };
 
@@ -3575,8 +3582,14 @@ ZEST_API void zest_ExecuteRecorderCommands(VkCommandBuffer primary_command_buffe
 //You must use this command to begin the recording. It will return a VkCommandBuffer that you can use in your vkCmd functions
 //or other zest helper functions.
 ZEST_API VkCommandBuffer zest_BeginRecording(zest_recorder recorder, zest_render_pass render_pass, zest_uint fif);
+//This begin record function is specifically for recording compute command buffers. You must call this if you want
+//to record a compute command buffer so that the render pass and frame buffers are set to null when preparing the
+//command buffer.
+ZEST_API VkCommandBuffer zest_BeginComputeRecording(zest_recorder recorder, zest_uint fif);
 //After a call to zest_BeginRecording you must call this function after you're done recording all the commands you want.
+//You can call this for both render pass and compute command buffers.
 ZEST_API void zest_EndRecording(zest_recorder recorder, zest_uint fif);
+ZEST_API void zest_ComputeEndRecording(zest_recorder recorder, zest_uint fif);
 //Mark a recorder as outdated. This will force the draw routine to recall te callback to re-record the command buffer.
 ZEST_API void zest_MarkOutdated(zest_recorder recorder);
 ZEST_API void zest_ResetDrawRoutine(zest_draw_routine draw_routine);
@@ -3890,7 +3903,7 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
     //Create new compute shader to run within a command queue. See the compute shader section for all the commands relating to setting up a compute shader.
     //Also see the compute shader example
     //Context:    Must be called after zest_NewCommandQueue or zest_NewFloatingCommandQueue.
-    ZEST_API zest_command_queue_compute zest_NewComputeSetup(const char *name, zest_compute compute_shader, void(*compute_function)(zest_command_queue_compute item));
+    ZEST_API zest_command_queue_compute zest_NewComputeSetup(const char *name, zest_compute compute_shader, void(*compute_function)(zest_compute compute), int(*condition_function)(zest_compute compute));
     //Create draw commands that draw render targets to the swap chain. This is useful if you are drawing to render targets elsewhere
     //in the command queue and want to draw some or all of those to the swap chain.
     //Context:    Must be called after zest_NewCommandQueue or zest_NewFloatingCommandQueue. This will add the draw commands to the current command
@@ -3973,16 +3986,6 @@ ZEST_API void zest_ConnectQueueTo(zest_command_queue receiver, VkPipelineStageFl
 //the compute routines in a compute shader and dispatch each one starting from 0. But if you're only doing that once each frame (which you probably are) then you won't
 //need to call this.
 ZEST_API void zest_ResetComputeRoutinesIndex(zest_command_queue_compute compute_queue);
-//Get the next compute shader in a command queue's list of compute shaders. You can use this in a while loop like:
-/*
-    zest_compute compute = 0;
-    while (compute = zest_NextComputeRoutine(compute_commands)) {
-        zest_BindComputePipeline(compute, 0);
-        zest_DispatchCompute(compute, PARTICLE_COUNT / 256, 1, 1);
-    }
-*/
-//You can use this inside a compute_function callback which you set when calling zest_NewComputeSetup
-ZEST_API zest_compute zest_NextComputeRoutine(zest_command_queue_compute compute_queue);
 //Record a zest_command_queue. If you call zest_SetActiveCommandQueue then these functions are called automatically each frame but for floating command
 //queues (see zest_NewFloatingCommandQueue) you can record and submite a command queue using these functions. Pass the command_queue and the frame in flight
 //index to record.
@@ -4854,6 +4857,11 @@ ZEST_API void zest_ComputeToVertexBarrier();
 ZEST_API void zest_DispatchCompute(zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 //Helper function to dispatch a compute shader so you can call this instead of vkCmdDispatch. Specify a command buffer for use in one off dispataches
 ZEST_API void zest_DispatchComputeCB(VkCommandBuffer command_buffer, zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
+//Reset compute when manual_fif is being used. This means that you can chose when you want a compute command buffer
+//to be recorded again. 
+ZEST_API void zest_ResetCompute(zest_compute compute);
+//Default always true condition for recording compute command buffers
+ZEST_API int zest_ComputeConditionAlwaysTrue(zest_compute compute);
 //--End Compute shaders
 
 //-----------------------------------------------

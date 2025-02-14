@@ -5284,6 +5284,19 @@ void zest_DispatchComputeCB(VkCommandBuffer command_buffer, zest_compute compute
     vkCmdDispatch(command_buffer, group_count_x, group_count_y, group_count_z);
 }
 
+void zest_ResetCompute(zest_compute compute) {
+    ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
+    compute->compute_commands->last_fif = compute->fif;
+    compute->fif = (compute->fif + 1) % ZEST_MAX_FIF;
+    for (ZEST_EACH_FIF_i) {
+        compute->recorder->outdated[i] = 1;
+    }
+}
+
+int zest_ComputeConditionAlwaysTrue(zest_compute layer) {
+    return 1;
+}
+
 void zest_EnableVSync() {
     ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_vsync_enabled);
     ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
@@ -7053,7 +7066,7 @@ zest_command_queue_compute zest_CreateComputeItem(const char* name, zest_command
     return compute_commands;
 }
 
-zest_command_queue_compute zest_NewComputeSetup(const char* name, zest_compute compute_shader, void(*compute_function)(zest_command_queue_compute item)) {
+zest_command_queue_compute zest_NewComputeSetup(const char* name, zest_compute compute_shader, void(*compute_function)(zest_compute compute), int(*condition_function)(zest_compute compute)) {
     ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_command_queue);                //Current setup context must be command_queue. Add your compute shaders first before
     //adding any other draw routines. Also make sure that you call zest_FinishQueueSetup everytime
     //everytime you create or modify a queue
@@ -7061,8 +7074,10 @@ zest_command_queue_compute zest_NewComputeSetup(const char* name, zest_compute c
 
     zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
     zest_command_queue_compute compute_commands = zest_CreateComputeItem(name, command_queue);
-    zest_vec_push(compute_commands->compute_shaders, compute_shader);
     compute_commands->compute_function = compute_function;
+    compute_commands->condition_function = condition_function ? condition_function : zest_ComputeConditionAlwaysTrue;
+    compute_shader->compute_commands = compute_commands;
+    compute_commands->compute = compute_shader;
     return compute_commands;
 }
 
@@ -7237,15 +7252,6 @@ void zest_ResetComputeRoutinesIndex(zest_command_queue_compute compute_queue) {
     compute_queue->shader_index = 0;
 }
 
-zest_compute zest_NextComputeRoutine(zest_command_queue_compute compute_queue) {
-    if (compute_queue->shader_index < (zest_index)zest_vec_size(compute_queue->compute_shaders)) {
-        return compute_queue->compute_shaders[compute_queue->shader_index++];
-    }
-    else {
-        return 0;
-    }
-}
-
 void zest_StartCommandQueue(zest_command_queue command_queue, zest_index fif) {
     VkCommandBufferBeginInfo begin_info = { 0 };
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -7257,9 +7263,30 @@ void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
     for (zest_foreach_i(command_queue->compute_commands)) {
         zest_command_queue_compute compute_commands = command_queue->compute_commands[i];
         ZEST_ASSERT(compute_commands->compute_function);        //Compute item must have its compute function callback set
+        ZEST_ASSERT(compute_commands->condition_function);      //Compute item must have its condition function callback set. 
         compute_commands->shader_index = 0;
         ZestRenderer->current_compute_routine = compute_commands;
-        compute_commands->compute_function(compute_commands);
+        zest_compute compute = compute_commands->compute;
+        ZEST_CHECK_HANDLE(compute); //Not a valid compute handle, was the compute shader for this item setup?
+        if (compute_commands->condition_function(compute)) {
+            if (compute->recorder->outdated[ZEST_FIF] != 0) {
+                compute_commands->compute_function(compute);
+            }
+            if (ZEST__NOT_FLAGGED(compute->flags, zest_compute_flag_manual_fif)) {
+                zest_MarkOutdated(compute->recorder);
+                compute_commands->last_fif = compute->fif;
+                compute->fif = (compute->fif + 1) % ZEST_MAX_FIF;
+            }
+            zest_vec_push(command_queue->secondary_compute_command_buffers, compute->recorder->command_buffer[ZEST_FIF]);
+        }
+    }
+
+    zest_uint command_buffer_count = zest_vec_size(command_queue->secondary_compute_command_buffers);
+    if (command_buffer_count > 0) {
+        //Note: If you get a validation error here about an empty command queue being executed then make sure that
+        //the condition callback for the compute routine is returning the correct value when there's nothing to record.
+        vkCmdExecuteCommands(ZestRenderer->current_command_buffer, command_buffer_count, command_queue->secondary_compute_command_buffers);
+		zest_vec_clear(command_queue->secondary_compute_command_buffers);
     }
 
     //Insert any texture reprocessing in to the command queue
@@ -10337,6 +10364,30 @@ VkCommandBuffer zest_BeginRecording(zest_recorder recorder, zest_render_pass ren
     return command_buffer;
 }
 
+VkCommandBuffer zest_BeginComputeRecording(zest_recorder recorder, zest_uint fif) {
+    ZEST_CHECK_HANDLE(recorder);	//Not a valid handle!
+    VkCommandBuffer command_buffer = recorder->command_buffer[fif];
+    ZEST_ASSERT(ZEST__NOT_FLAGGED(recorder->flags, zest_command_buffer_flag_recording));    //Must not be in a recording state. Did you call end recording?
+    ZEST__FLAG(recorder->flags, zest_command_buffer_flag_recording);
+
+    VkCommandBufferInheritanceInfo inheritance_info = { 0 };
+    inheritance_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+    inheritance_info.renderPass = VK_NULL_HANDLE;  
+    inheritance_info.subpass = 0;                      
+    inheritance_info.framebuffer = VK_NULL_HANDLE;     
+    inheritance_info.occlusionQueryEnable = VK_FALSE;   
+    inheritance_info.queryFlags = 0;                    
+    inheritance_info.pipelineStatistics = 0;            
+
+    VkCommandBufferBeginInfo begin_info = { 0 };
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+    begin_info.pInheritanceInfo = &inheritance_info;
+
+	vkBeginCommandBuffer(command_buffer, &begin_info);
+    return command_buffer;
+}
+
 void zest_EndRecording(zest_recorder recorder, zest_uint fif) {
     ZEST_CHECK_HANDLE(recorder);	//Not a valid handle!
     VkCommandBuffer command_buffer = recorder->command_buffer[fif];
@@ -10500,7 +10551,6 @@ zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest
 void zest_RecordInstanceLayerCallback(struct zest_work_queue_t *queue, void *data) {
     zest_draw_routine draw_routine = (zest_draw_routine)data;
     zest_layer layer = (zest_layer)draw_routine->draw_data;
-    int recorded = zest_vec_size(layer->draw_instructions[layer->fif]) ? 1 : 0;
     if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
         zest_RecordInstanceLayer(layer, ZEST_FIF);
     }
@@ -12054,24 +12104,7 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
         vkDestroyShaderModule(ZestDevice->logical_device, shader_module, &ZestDevice->allocation_callbacks);
     }
 
-    // Separate command pool as queue family for compute may be different than graphics
-    compute->queue_family_index = ZestDevice->compute_queue_family_index;
-    VkCommandPoolCreateInfo command_pool_info = { 0 };
-    command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    command_pool_info.queueFamilyIndex = compute->queue_family_index;
-    command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &command_pool_info, &ZestDevice->allocation_callbacks, &compute->command_pool));
-
-    // Create a command buffer for compute operations
-    VkCommandBufferAllocateInfo command_buffer_allocate_info = { 0 };
-    command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    command_buffer_allocate_info.commandPool = compute->command_pool;
-    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    command_buffer_allocate_info.commandBufferCount = 1;
-
-    for (ZEST_EACH_FIF_i) {
-        ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &command_buffer_allocate_info, &compute->command_buffer[i]));
-    }
+    compute->recorder = zest_CreatePrimaryRecorder();
 
     // Fence for compute CB sync
     VkFenceCreateInfo fence_create_info = { 0 };
@@ -12114,18 +12147,18 @@ void zest_RunCompute(zest_compute compute) {
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-        ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(compute->command_buffer[ZEST_FIF], &begin_info));
+        ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(compute->recorder->command_buffer[ZEST_FIF], &begin_info));
         ZEST_ASSERT(compute->command_buffer_update_callback);        //You must set a call back for command_buffer_update_callback so that you can build the command buffer for the compute shader
         //if you're going to run the compute shader via this function. See zest_SetComputeCommandBufferUpdateCallback when building your
         //compute shader
-        compute->command_buffer_update_callback(compute, compute->command_buffer[ZEST_FIF]);
-        vkEndCommandBuffer(compute->command_buffer[ZEST_FIF]);
+        compute->command_buffer_update_callback(compute, compute->recorder->command_buffer[ZEST_FIF]);
+        vkEndCommandBuffer(compute->recorder->command_buffer[ZEST_FIF]);
     }
 
     VkSubmitInfo compute_submit_info = { 0 };
     compute_submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     compute_submit_info.commandBufferCount = 1;
-    compute_submit_info.pCommandBuffers = &compute->command_buffer[ZEST_FIF];
+    compute_submit_info.pCommandBuffers = &compute->recorder->command_buffer[ZEST_FIF];
 
     //Make sure you're ending the command buffer at the end of your command_buffer_update_callback before calling this. Use vkEndCommandBuffer
     ZEST_VK_CHECK_RESULT(vkQueueSubmit(compute->queue, 1, &compute_submit_info, compute->fence[ZEST_FIF]));
@@ -12202,7 +12235,7 @@ void zest__clean_up_compute(zest_compute compute) {
     }
     vkDestroyPipelineLayout(ZestDevice->logical_device, compute->pipeline_layout, &ZestDevice->allocation_callbacks);
     vkDestroyDescriptorPool(ZestDevice->logical_device, compute->descriptor_pool, &ZestDevice->allocation_callbacks);
-    vkDestroyCommandPool(ZestDevice->logical_device, compute->command_pool, &ZestDevice->allocation_callbacks);
+    vkDestroyCommandPool(ZestDevice->logical_device, compute->recorder->command_pool, &ZestDevice->allocation_callbacks);
     if (ZEST__FLAGGED(compute->flags, zest_compute_flag_sync_required)) {
         for (ZEST_EACH_FIF_i) {
             if (compute->fif_outgoing_semaphore[i])

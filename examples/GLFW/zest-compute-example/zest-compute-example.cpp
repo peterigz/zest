@@ -135,7 +135,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Modify the existing builtin command queue so we can add our new compute shader and draw routine
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);
 	{
-		app->compute_commands = zest_NewComputeSetup("particles compute", app->compute, UpdateComputeCommands);
+		app->compute_commands = zest_NewComputeSetup("particles compute", app->compute, RecordComputeCommands, 0);
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			//Add our custom draw routine that will draw all the point sprites on the screen
@@ -178,15 +178,18 @@ int DrawComputeSpritesCondition(zest_draw_routine draw_routine) {
 	return 1;
 }
 
-void UpdateComputeCommands(zest_command_queue_compute compute_commands) {
+int ComputeCondition(zest_compute compute_commands) {
+	return 1;
+}
+
+void RecordComputeCommands(zest_compute compute) {
 	//The compute queue item can contain more then one compute shader to be dispatched
 	//There's only one in this example though
-	zest_compute compute = 0;
-	while (compute = zest_NextComputeRoutine(compute_commands)) {
-		//Bind the compute pipeline
-		zest_BindComputePipeline(compute, 0);
-		zest_DispatchCompute(compute, PARTICLE_COUNT / 256, 1, 1);
-	}
+	zest_BeginComputeRecording(compute->recorder, ZEST_FIF);
+	//Bind the compute pipeline
+	zest_BindComputePipeline(compute, 0);
+	zest_DispatchCompute(compute, PARTICLE_COUNT / 256, 1, 1);
+	zest_EndRecording(compute->recorder, ZEST_FIF);
 }
 
 void UpdateComputeUniformBuffers(ImGuiApp *app) {
@@ -251,7 +254,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 // Windows entry point
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 //int main(void) {
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	//Disable vsync so we can see how fast it runs
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
