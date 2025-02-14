@@ -11959,7 +11959,7 @@ void zest_AddComputeBufferForBinding(zest_compute_builder_t* builder, zest_descr
 void zest_AddComputeBufferForBindingLerp(zest_compute_builder_t* builder, zest_descriptor_buffer buffer) {
     zest_descriptor_infos_for_binding_t info = { 0 };
     for (ZEST_EACH_FIF_i) {
-        zest_uint fif = i == 0 ? i = ZEST_MAX_FIF - 1 : i - 1;
+        zest_uint fif = i == 0 ? ZEST_MAX_FIF - 1 : i - 1;
         info.descriptor_buffer_info[fif] = buffer->descriptor_info[fif];
     }
     info.buffer = buffer;
