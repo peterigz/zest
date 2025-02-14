@@ -4800,6 +4800,9 @@ ZEST_API void zest_AddComputeLayoutBinding(zest_compute_builder_t *builder, VkDe
 //Once you've added the layout bindings you can then add each buffer you need to bind in the shader. You must add them in the same order that you added the
 //layout bindings. Use this command to add storage buffers only.
 ZEST_API void zest_AddComputeBufferForBinding(zest_compute_builder_t *builder, zest_descriptor_buffer buffer);
+//This will add the buffer for binding but will bind the previous buffer so that it can be used for interpolation
+//purposes
+ZEST_API void zest_AddComputeBufferForBindingLerp(zest_compute_builder_t *builder, zest_descriptor_buffer buffer);
 //Use this command to add an image binding. This is the same command as zest_AddComputeBufferForBinding but specifically for images
 ZEST_API void zest_AddComputeImageForBinding(zest_compute_builder_t *builder, zest_texture texture);
 //Add a shader to the compute builder. This will be the shader that is executed on the GPU. Pass a file path where to find the shader.
