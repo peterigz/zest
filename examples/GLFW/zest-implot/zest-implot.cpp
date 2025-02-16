@@ -59,24 +59,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui_ImplGlfw_NewFrame();
 		//Draw our imgui stuff
 		ImGui::NewFrame();
-		ImGui::ShowDemoWindow();
-		ImPlot::CreateContext();
 		ImPlot::ShowDemoWindow();
-		ImPlot::DestroyContext();
-		ImGui::Begin("Test Window");
-		ImGui::Text("FPS %i", ZestApp->last_fps);
-		if (ImGui::Button("Toggle Refresh Rate Sync")) {
-			if (app->sync_refresh) {
-				zest_DisableVSync();
-				app->sync_refresh = false;
-			} else {
-				zest_EnableVSync();
-				app->sync_refresh = true;
-			}
-		}
-		ImGui::Image(app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
-		//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
-		ImGui::End();
 		ImGui::Render();
 		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
 		zest_ResetLayer(app->imgui_layer_info.mesh_layer);
@@ -109,8 +92,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	//Initialise our example
 	InitImGuiApp(&imgui_app);
 
+	ImPlot::CreateContext();
 	//Start the main loop
 	zest_Start();
+	ImPlot::DestroyContext();
 
 	return 0;
 }
