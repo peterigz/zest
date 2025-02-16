@@ -11,7 +11,7 @@ void zest_imgui_RebuildFontTexture(zest_imgui_layer_info_t *imgui_layer_info, ze
     zest_ProcessTextureImages(imgui_layer_info->font_texture);
     zest_RefreshTextureDescriptors(imgui_layer_info->font_texture);
     ImGuiIO &io = ImGui::GetIO();
-    io.Fonts->SetTexID(font_image);
+    io.Fonts->SetTexID((ImTextureID)font_image);
 }
 
 void zest_imgui_CreateLayer(zest_imgui_layer_info_t *imgui_layer_info) {
@@ -195,11 +195,11 @@ void zest_imgui_DrawImage(zest_image image, float width, float height) {
     ImGuiWindow *window = GetCurrentWindow();
     const ImRect image_bb(window->DC.CursorPos + image_offset, window->DC.CursorPos + image_offset + image_size);
     ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
-    window->DrawList->AddImage(image, image_bb.Min, image_bb.Max, ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w), GetColorU32(tint_col));
+    window->DrawList->AddImage((ImTextureID)image, image_bb.Min, image_bb.Max, ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w), GetColorU32(tint_col));
 }
 
 void zest_imgui_DrawImage2(zest_image image, float width, float height) {
-    ImGui::Image(image, ImVec2(width, height), ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w));
+    ImGui::Image((ImTextureID)image, ImVec2(width, height), ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w));
 }
 
 void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y) {
@@ -223,7 +223,7 @@ void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bo
         }
     }
 
-    ImGui::Image(&image, ImVec2(width, height), ImVec2(uv.x, uv.y), zw);
+    ImGui::Image((ImTextureID)image, ImVec2(width, height), ImVec2(uv.x, uv.y), zw);
 }
 
 void zest_imgui_DrawTexturedRectRT(zest_render_target render_target, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y) {
@@ -247,7 +247,7 @@ void zest_imgui_DrawTexturedRectRT(zest_render_target render_target, float width
     if (window->SkipItems)
         return;
 
-    window->DrawList->PushTextureID(nullptr);
+    window->DrawList->PushTextureID(0);
     ImRect bb(window->DC.CursorPos, window->DC.CursorPos + ImVec2(width, height));
     ImGui::ItemSize(bb);
     if (!ImGui::ItemAdd(bb, 0))
@@ -301,11 +301,11 @@ bool zest_imgui_DrawButton(zest_image image, const char *user_texture_id, float 
 
     // Render
     const ImU32 col = GetColorU32((held && hovered) ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
-    RenderNavHighlight(bb, id);
+    RenderNavCursor(bb, id);
     RenderFrame(bb.Min, bb.Max, col, true, ImClamp((float)ImMin(padding.x, padding.y), 0.0f, style.FrameRounding));
     if (bg_col.w > 0.0f)
         window->DrawList->AddRectFilled(image_bb.Min, image_bb.Max, GetColorU32(bg_col));
-    window->DrawList->AddImage(image, image_bb.Min, image_bb.Max, uv0, uv1, GetColorU32(tint_col));
+    window->DrawList->AddImage((ImTextureID)image, image_bb.Min, image_bb.Max, uv0, uv1, GetColorU32(tint_col));
 
     return pressed;
 }
@@ -365,7 +365,7 @@ void zest_imgui_DarkStyle() {
     colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.00f, 0.00f, 0.00f, 0.11f);
     colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
     colors[ImGuiCol_DragDropTarget] = ImVec4(0.86f, 0.31f, 0.02f, 1.00f);
-    colors[ImGuiCol_NavHighlight] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+    colors[ImGuiCol_NavCursor] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
     colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
     colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
     colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
@@ -397,7 +397,7 @@ void zest_imgui_DarkStyle() {
     style.ScrollbarSize = 14.f;
     style.ScrollbarRounding = 1.f;
     style.GrabMinSize = 10.f;
-    style.TabMinWidthForCloseButton = 0.f;
+    //style.TabMinWidthForCloseButton = 0.f;
     style.DisplayWindowPadding.x = 19.f;
     style.DisplayWindowPadding.y = 19.f;
     style.DisplaySafeAreaPadding.x = 3.f;

@@ -15,7 +15,7 @@ void zest_imgui_Initialise(zest_imgui_layer_info_t *imgui_layer_info) {
 	imgui_layer_info->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba, 10);
 	zest_image font_image = zest_AddTextureImageBitmap(imgui_layer_info->font_texture, &font_bitmap);
 	zest_ProcessTextureImages(imgui_layer_info->font_texture);
-	io.Fonts->SetTexID(font_image);
+	io.Fonts->SetTexID((ImTextureID)font_image);
 	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->window->window_handle, true);
 }
 
