@@ -65,6 +65,17 @@ function(buildExample EXAMPLE_NAME)
 		SET(IMGUI_FILE_DIALOG_SOURCE "")
 	endif()
 
+	if(${EXAMPLE_NAME} STREQUAL "zest-implot")
+		file(GLOB IMPLOT_SOURCE
+			${EXAMPLE_FOLDER}/implot.cpp
+			${EXAMPLE_FOLDER}/implot_internal.cpp
+			${EXAMPLE_FOLDER}/implot_items.cpp
+			${EXAMPLE_FOLDER}/implot_demo.cpp
+		)
+	else()
+		SET(IMPLOT_SOURCE "")
+	endif()
+
 	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR 
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR 
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR 
@@ -90,7 +101,7 @@ function(buildExample EXAMPLE_NAME)
 	add_compile_definitions(IMGUI_USER_CONFIG="zest_imconfig.h")
 
 	if(WIN32)
-		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${IMGUI_TEST_ENGINE_SOURCE} ${IMGUI_TEST_SUITE_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
+		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${IMGUI_TEST_ENGINE_SOURCE} ${IMGUI_TEST_SUITE_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE} ${IMPLOT_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY} ${WINLIBS})
 	else(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_TEST_ENGINE_SOURCE} ${IMGUI_TEST_SUITE_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
@@ -130,6 +141,7 @@ set(EXAMPLES
 	zest-stability-ai
 	zest-custom-sprite-instance
 	zest-ribbons
+	zest-implot
 )
 
 buildExamples()
