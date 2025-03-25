@@ -198,28 +198,36 @@ void PrepareComputeForBoundingBoxCalculation(ComputeExample *example) {
 	zest_SetComputeUserData(&builder, example);
 	zest_SetComputeDescriptorUpdateCallback(&builder, zest_StandardComputeDescriptorUpdate);
 	zest_SetComputeCommandBufferUpdateCallback(&builder, BoundingBoxComputeFunction);
+	zest_SetComputePrimaryRecorder(&builder);
 	//Finalise the compute set up by calling MakeCompute which creates all the boiler plate code to create the
 	//compute pipeline in Vulkan
 	zest_MakeCompute(&builder, example->bounding_box_compute);
 }
 
+int SpriteComputeCondition(zest_compute compute) {
+	ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
+
+	//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
+	tfx_animation_buffer_metrics_t metrics = tfx_GetAnimationBufferMetrics(example->animation_manager_3d);
+	if (metrics.total_sprites_to_draw == 0) {
+		return 0;
+	}
+
+	return 1;
+}
+
+
 //Every frame the compute shader needs to be dispatched which means that all the commands for the compute shader
 //need to be added to the command buffer
-void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
+void SpriteComputeFunction(zest_compute compute) {
 
 	//The compute queue item can contain more then one compute shader to be dispatched but in this case there's only
 	//one which is the effect playback compute shader
-	zest_compute compute;
-	while (compute = zest_NextComputeRoutine(compute_routine)) {
+	VkCommandBuffer command_buffer = zest_BeginComputeRecording(compute->recorder, ZEST_FIF);
 		//Grab our ComputeExample struct out of the user data
 		ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
 
-		//We'll need the animation metrics to tell the compute shader how many animation instances we're rendering this frame
-		auto metrics = tfx_GetAnimationBufferMetrics(example->animation_manager_3d);
-		if (metrics.total_sprites_to_draw == 0) {
-			continue;
-		}
-
+		tfx_animation_buffer_metrics_t metrics = tfx_GetAnimationBufferMetrics(example->animation_manager_3d);
 		//Bind the compute shader pipeline
 		zest_BindComputePipeline(compute, example->compute_pipeline_3d);
 		//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
@@ -244,10 +252,10 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 		//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
 		//For example if there are 1024 sprites, if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
 		zest_DispatchCompute(compute, (metrics.total_sprites_to_draw / 128) + 1, 1, 1);
-	}
 
 	//We want the compute shader to finish before the vertex shader is run so we put a barrier here.
 	//zest_ComputeToVertexBarrier();
+	zest_EndRecording(compute->recorder, ZEST_FIF);
 }
 
 //This function is the callback function that will be used when we call zest_RunCompute. This is used when we want to run a compute
@@ -295,8 +303,8 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 
 	//Compile the shaders we will use to render the particles
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	render_resources.fragment_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefxstatic.frag", "tfx_frag.spv", shaderc_fragment_shader, false, compiler);
-	render_resources.vertex_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx3dstatic.vert", "tfx_vertex3d.spv", shaderc_vertex_shader, false, compiler);
+	render_resources.fragment_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefxstatic.frag", "tfx_frag.spv", shaderc_fragment_shader, false, compiler, 0);
+	render_resources.vertex_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx3dstatic.vert", "tfx_vertex3d.spv", shaderc_vertex_shader, false, compiler, 0);
 	shaderc_compiler_release(compiler);
 
 	//To render the particles we setup a pipeline with the vertex attributes and shaders to render the particles.
@@ -533,7 +541,7 @@ void InitExample(ComputeExample *example) {
 	{
 		//Set up the compute shader in the command queue and specify the callback function that will be called each frame to build
 		//the command buffer for the compute shader
-		zest_NewComputeSetup("Compute sprites", example->compute, SpriteComputeFunction);
+		zest_NewComputeSetup("Compute sprites", example->compute, SpriteComputeFunction, SpriteComputeCondition);
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
 			//Create a new mesh layer in the command queue to draw the floor plane
@@ -599,7 +607,7 @@ void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager anima
 		tfxU32 frame_group_count = instance.sprite_count / 256 + 1;
 		//Maybe grow the bounding box buffer if it's too small
 		zest_GrowDescriptorBuffer(example->bounding_boxes, sizeof(tfx_bounding_box_t), sizeof(tfx_bounding_box_t) * frame_group_count);
-		zest_UpdateComputeDescriptors(example->bounding_box_compute);
+		zest_UpdateComputeDescriptors(example->bounding_box_compute, ZEST_FIF);
 		//Update the offset and instance buffers either.
 		memcpy(example->offsets_staging_buffer[ZEST_FIF]->data, animation_manager->offsets.data, tfx_GetOffsetsSizeInBytes(animation_manager));
 		memcpy(example->animation_instances_staging_buffer[ZEST_FIF]->data, animation_manager->render_queue.data, tfx_GetAnimationInstancesSizeInBytes(animation_manager));
@@ -822,12 +830,12 @@ void Update(zest_microsecs elapsed, void *data) {
 }
 
 #if defined(_WIN32)
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
 	//Render specific
 	//When initialising a qulkan app, you can pass a QulkanCreateInfo which you can use to configure some of the base settings of the app
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	//Don't enable vsync so we can see how much FPS we get
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

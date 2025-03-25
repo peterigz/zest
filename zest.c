@@ -5075,10 +5075,34 @@ zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets) {
     return draw_sets ? zest_vec_size(draw_sets) : 0;
 }
 
+zest_recorder zest_CreatePrimaryRecorderWithPool(int queue_family_index) {
+    zest_recorder recorder = ZEST__NEW(zest_recorder);
+    recorder->magic = zest_INIT_MAGIC;
+    recorder->flags = zest_command_buffer_flag_primary;
+    for (ZEST_EACH_FIF_i) {
+        recorder->outdated[i] = 1;
+    }
+
+	VkCommandPoolCreateInfo cmd_info_pool = { 0 };
+	cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	cmd_info_pool.queueFamilyIndex = queue_family_index;
+	cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &recorder->command_pool));
+
+    VkCommandBufferAllocateInfo alloc_info = { 0 };
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandBufferCount = ZEST_MAX_FIF;
+    alloc_info.commandPool = recorder->command_pool;
+    ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, recorder->command_buffer));
+    return recorder;
+}
+
 zest_recorder zest_CreatePrimaryRecorder() {
     zest_recorder recorder = ZEST__NEW(zest_recorder);
     recorder->magic = zest_INIT_MAGIC;
     recorder->flags = zest_command_buffer_flag_primary;
+    recorder->command_pool = 0;
     for (ZEST_EACH_FIF_i) {
         recorder->outdated[i] = 1;
     }
@@ -5093,6 +5117,7 @@ zest_recorder zest_CreatePrimaryRecorder() {
 
 zest_recorder zest_CreateSecondaryRecorder() {
     zest_recorder recorder = ZEST__NEW(zest_recorder);
+    recorder->command_pool = 0;
     recorder->magic = zest_INIT_MAGIC;
     recorder->flags = zest_command_buffer_flag_secondary;
     for (ZEST_EACH_FIF_i) {
@@ -7268,6 +7293,7 @@ void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
         ZestRenderer->current_compute_routine = compute_commands;
         zest_compute compute = compute_commands->compute;
         ZEST_CHECK_HANDLE(compute); //Not a valid compute handle, was the compute shader for this item setup?
+        ZEST_ASSERT(ZEST__NOT_FLAGGED(compute->flags, zest_compute_flag_primary_recorder));
         if (compute_commands->condition_function(compute)) {
             if (compute->recorder->outdated[ZEST_FIF] != 0) {
                 compute_commands->compute_function(compute);
@@ -12008,9 +12034,14 @@ void zest_SetComputeManualRecord(zest_compute_builder_t *builder) {
     ZEST__FLAG(builder->flags, zest_compute_flag_manual_fif);
 }
 
+void zest_SetComputePrimaryRecorder(zest_compute_builder_t *builder) {
+    ZEST__FLAG(builder->flags, zest_compute_flag_primary_recorder);
+}
+
 void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
     compute->user_data = builder->user_data;
+    compute->flags = builder->flags;
 
     VkDescriptorPoolCreateInfo pool_info = { 0 };
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -12108,7 +12139,11 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
         vkDestroyShaderModule(ZestDevice->logical_device, shader_module, &ZestDevice->allocation_callbacks);
     }
 
-    compute->recorder = zest_CreateSecondaryRecorder();
+    if (ZEST__FLAGGED(compute->flags, zest_compute_flag_primary_recorder)) {
+        compute->recorder = zest_CreatePrimaryRecorderWithPool(ZestDevice->compute_queue_family_index);
+    } else {
+        compute->recorder = zest_CreateSecondaryRecorder();
+    }
 
     // Fence for compute CB sync
     VkFenceCreateInfo fence_create_info = { 0 };
@@ -12144,6 +12179,7 @@ void zest_MakeCompute(zest_compute_builder_t* builder, zest_compute compute) {
 
 void zest_RunCompute(zest_compute compute) {
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
+    ZEST_ASSERT(ZEST__FLAGGED(compute->flags, zest_compute_flag_primary_recorder)); //Compute must have been initialised with zest_SetComputePrimaryRecorder
     vkWaitForFences(ZestDevice->logical_device, 1, &compute->fence[ZEST_FIF], VK_TRUE, UINT64_MAX);
     vkResetFences(ZestDevice->logical_device, 1, &compute->fence[ZEST_FIF]);
 

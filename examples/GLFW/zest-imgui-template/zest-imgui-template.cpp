@@ -71,7 +71,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 				app->sync_refresh = true;
 			}
 		}
-		ImGui::Image(app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
+		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
 		//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 		ImGui::End();
 		ImGui::Render();

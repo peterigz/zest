@@ -103,7 +103,8 @@ struct ComputeExample {
 	zest_microsecs trigger_effect;
 };
 
-void SpriteComputeFunction(zest_command_queue_compute compute_routine);
+int SpriteComputeCondition(zest_compute compute);
+void SpriteComputeFunction(zest_compute compute);
 void BoundingBoxComputeFunction(zest_compute compute, VkCommandBuffer command_buffer);
 void RecordComputeSprites(struct zest_work_queue_t *queue, void *data);
 void UpdateSpriteResolution(zest_draw_routine routine);

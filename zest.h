@@ -1454,6 +1454,7 @@ typedef enum zest_compute_flag_bits {
     zest_compute_flag_sync_required                       = 1 << 2,    // Compute shader requires syncing with the render target
     zest_compute_flag_is_active                           = 1 << 3,    // Compute shader is active then it will be updated when the swap chain is recreated
     zest_compute_flag_manual_fif                          = 1 << 4,    // You decide when the compute shader should be re-recorded
+    zest_compute_flag_primary_recorder                    = 1 << 5,    // For using with zest_RunCompute only. You will not be able to use this compute as part of a frame render
 } zest_compute_flag_bits;
 
 typedef enum zest_layer_flag_bits {
@@ -3571,6 +3572,7 @@ ZEST_API void zest_ClearShaderResourceDescriptorSets(VkDescriptorSet *draw_sets)
 ZEST_API zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets);
 //Create command buffers which you can record to for draw command queues
 ZEST_API zest_recorder zest_CreatePrimaryRecorder();
+ZEST_API zest_recorder zest_CreatePrimaryRecorderWithPool(int queue_family_index);
 ZEST_API zest_recorder zest_CreateSecondaryRecorder();
 //Free a zest recorder's command buffer back into the command buffer pool
 ZEST_API void zest_FreeCommandBuffers(zest_recorder recorder);
@@ -4824,6 +4826,9 @@ ZEST_API void zest_SetComputeExtraCleanUpCallback(zest_compute_builder_t *builde
 ZEST_API void zest_SetComputeUserData(zest_compute_builder_t *builder, void *data);
 //Sets the compute shader to manually record so you have to specify when the compute shader should be recorded
 ZEST_API void zest_SetComputeManualRecord(zest_compute_builder_t *builder);
+//Sets the compute shader to use a primary command buffer recorder so that you can use it with the zest_RunCompute command.
+//This means that you will not be able to use this compute shader in a frame loop alongside other render routines.
+ZEST_API void zest_SetComputePrimaryRecorder(zest_compute_builder_t *builder);
 //Once you have finished calling the builder commands you will need to call this to actually build the compute shader. Pass a pointer to the builder and the zest_compute
 //handle that you got from calling zest_CreateCompute. You can then use this handle to add the compute shader to a command queue with zest_NewComputeSetup in a
 //command queue context (see the section on Command queue setup and creation)
