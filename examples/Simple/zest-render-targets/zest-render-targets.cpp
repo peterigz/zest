@@ -199,6 +199,14 @@ void RecordVerticalBlur(zest_render_target_t *target, void *data, zest_uint fif)
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(user_data);
+
+	if (zest_SwapchainWasRecreated()) {
+		//If the window was resized then we need to update the final blur shader resources
+		zest_UpdateShaderResources(
+			example->rt_shader_resources, 
+			zest_GetRenderTargetSamplerDescriptorSet(example->final_blur), 1);
+	}
+
 	//Set the active command queue to our custom command queue that we created
 	zest_SetActiveCommandQueue(example->command_queue);
 	//Update the standard 2d uniform buffer
@@ -248,6 +256,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_SetLayerColor(example->font_layer, 200, 200, 200, 255);
 	//Draw the text
 	zest_DrawMSDFText(example->font_layer, "Mouse x = intensity level, Mouse y = additive/alpha blend", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .05f, .5f, .5f, 40.f, 0.f);
+
+	if (zest_MouseHit(zest_left_mouse)) {
+		//zest_SetRenderTargetSamplerToClamp(example->final_blur);
+	}
 }
 
 #if defined(_WIN32)
@@ -259,8 +271,8 @@ int main()
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = "./";
+	create_info.thread_count = 0;
 	zest_Initialise(&create_info);
-	zest_LogFPSToConsole(1);
 
 	RenderTargetExample example;
 	InitExample(&example);

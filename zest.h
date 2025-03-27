@@ -3075,11 +3075,8 @@ typedef struct zest_render_target_t {
     zest_pipeline_template_create_info_t im_gui_rt_pipeline_template;
     zest_pipeline final_render;
 
-    //Double buffered frame buffer so if changes are needed then they are made to the 
-    //buffer not in use and then flipped
-    int current_sampler_index;
     int frames_in_flight;
-    zest_texture sampler_textures[2][ZEST_MAX_FIF];
+    zest_texture sampler_texture[ZEST_MAX_FIF];
     zest_frame_buffer_t framebuffers[ZEST_MAX_FIF];
 
     zest_recorder recorder;     //for post processing
@@ -3324,8 +3321,8 @@ ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBu
 
 // --Render target internal functions
 ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
-ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target);
-ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target);
+ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target, zest_index fif);
+ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target, zest_index fif);
 ZEST_PRIVATE void zest__record_render_target_commands(zest_render_target render_target, zest_index fif);
 
 ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);
@@ -4430,7 +4427,9 @@ ZEST_API void zest_SetRenderTargetPostProcessUserData(zest_render_target render_
 //Get render target by name
 ZEST_API zest_render_target zest_GetRenderTarget(const char *name);
 //Get a pointer to the render target descriptor set. You might need this when binding a pipeline to draw the render target.
-ZEST_API VkDescriptorSet *zest_GetRenderTargetSamplerDescriptorSet(zest_render_target render_target);
+ZEST_API VkDescriptorSet *zest_GetRenderTargetSamplerDescriptorSetVK(zest_render_target render_target);
+//Get a pointer to the ZEST render target descriptor set. You might need this when updating a shader resource after the window is resized
+ZEST_API zest_descriptor_set zest_GetRenderTargetSamplerDescriptorSet(zest_render_target render_target);
 //Get a pointer the render target's source render target descriptor set. You might need this when binding the source render target in the post processing callback function
 ZEST_API VkDescriptorSet *zest_GetRenderTargetSourceDescriptorSet(zest_render_target render_target);
 //Get the texture from a zest_render_target

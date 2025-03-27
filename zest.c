@@ -2198,7 +2198,10 @@ void zest__do_scheduled_tasks(void) {
     if (zest_vec_size(ZestRenderer->rt_sampler_refresh_queue)) {
         for (zest_foreach_i(ZestRenderer->rt_sampler_refresh_queue)) {
             zest_render_target render_target = ZestRenderer->rt_sampler_refresh_queue[i];
-            zest__refresh_render_target_sampler(render_target);
+            zest_ForEachFrameInFlight(fif) {
+				render_target->recorder->outdated[fif] = 1;
+                zest__refresh_render_target_sampler(render_target, fif);
+            }
         }
         zest_vec_clear(ZestRenderer->rt_sampler_refresh_queue);
     }
@@ -8150,6 +8153,7 @@ void zest__reindex_texture_images(zest_texture texture) {
     }
     texture->image_index = index;
 }
+
 void zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer) {
     texture->current_index = texture->current_index ^ 1;
     zest__cleanup_unused_texture_buffers(texture, texture->current_index);
@@ -9744,13 +9748,10 @@ void zest__initialise_render_target(zest_render_target render_target, zest_rende
     }
 
     render_target->create_info = *info;
-    render_target->current_sampler_index = 0;
 
-    int si = render_target->current_sampler_index;
     for (zest_index i = 0; i != render_target->frames_in_flight; ++i) {
         zest_frame_buffer_t frame_buffer = { 0 };
         render_target->framebuffers[i] = frame_buffer;
-        render_target->sampler_textures[si][i] = 0;
     }
 
     render_target->render_format = info->render_format;
@@ -9764,15 +9765,13 @@ void zest__initialise_render_target(zest_render_target render_target, zest_rende
         render_target->framebuffers[i] = zest_CreateFrameBuffer(render_target->render_pass->render_pass,
             render_target->render_width, render_target->render_height, info->render_format,
             ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer), ZEST__FLAGGED(info->flags, zest_render_target_flag_is_src));
+		render_target->sampler_texture[i] = VK_NULL_HANDLE;
     }
 
-    for (int si = 0; si != 2; ++si) {
-        for (zest_index i = 0; i != render_target->frames_in_flight; ++i) {
-            render_target->sampler_textures[si][i] = VK_NULL_HANDLE;
-        }
-    }
 
-    zest__create_render_target_sampler_image(render_target);
+    for (zest_index i = 0; i != render_target->frames_in_flight; ++i) {
+        zest__create_render_target_sampler_image(render_target, i);
+    }
     render_target->final_render = zest_Pipeline("pipeline_final_render");
 
     render_target->recorder = zest_CreateSecondaryRecorder();
@@ -9786,7 +9785,7 @@ void zest__initialise_render_target(zest_render_target render_target, zest_rende
     ZEST__FLAG(render_target->flags, zest_render_target_flag_initialised);
 }
 
-void zest__create_render_target_sampler_image(zest_render_target render_target) {
+void zest__create_render_target_sampler_image(zest_render_target render_target, zest_index fif) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
     if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_sampler_size_match_texture)) {
         render_target->sampler_image.width = render_target->create_info.viewport.extent.width;
@@ -9796,38 +9795,29 @@ void zest__create_render_target_sampler_image(zest_render_target render_target) 
         render_target->sampler_image.width = zest_GetSwapChainExtent().width;
         render_target->sampler_image.height = zest_GetSwapChainExtent().height;
     }
-    int si = render_target->current_sampler_index;
-    for (zest_index i = 0; i != render_target->frames_in_flight; ++i) {
-        char* texture_name = 0;
-        zest_vec_resize(texture_name, (zest_uint)strlen(render_target->name) + 1);
-        zest_size size = zest_vec_size(texture_name);
-        zest_strcpy(texture_name, size, render_target->name);
-        zest_vec_pop(texture_name);
-        zest_vec_push(texture_name, '_');
-        char temp = 48 + i;
-        zest_vec_push(texture_name, temp);
-        zest_vec_push(texture_name, '\0');
-        render_target->sampler_textures[si][i] = zest_CreateTexture(texture_name, zest_texture_storage_type_render_target, 0, render_target->render_format, 0);
 
-        zest_texture texture = render_target->sampler_textures[si][i];
-        texture->imgui_blend_type = render_target->create_info.imgui_blend_type;
-        zest__update_texture_single_image_meta(texture, render_target->sampler_image.width, render_target->sampler_image.height);
+	zest_text_t texture_name = { 0 };
+	zest_SetTextf(&texture_name, "%s_%i", render_target->name, fif);
+	ZEST_PRINT("%s", texture_name.str);
+	render_target->sampler_texture[fif] = zest_CreateTexture(texture_name.str, zest_texture_storage_type_render_target, 0, render_target->render_format, 0);
+	zest_FreeText(&texture_name);
 
-        texture->sampler_info.addressModeU = render_target->create_info.sampler_address_mode_u;
-        texture->sampler_info.addressModeV = render_target->create_info.sampler_address_mode_v;
-        texture->sampler_info.addressModeW = render_target->create_info.sampler_address_mode_w;
-        zest__create_texture_sampler(texture, texture->sampler_info, 1);
+	zest_texture texture = render_target->sampler_texture[fif];
+	texture->imgui_blend_type = render_target->create_info.imgui_blend_type;
+	zest__update_texture_single_image_meta(texture, render_target->sampler_image.width, render_target->sampler_image.height);
 
-        VkDescriptorImageInfo image_info = { 0 };
-        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        image_info.imageView = render_target->framebuffers[i].color_buffer.view;
-        image_info.sampler = texture->sampler[texture->current_index];
-        texture->descriptor_image_info[texture->current_index] = image_info;
-        zest__create_texture_sampler_descriptor_set(texture);
-        ZEST__FLAG(texture->flags, zest_texture_flag_ready);
+	texture->sampler_info.addressModeU = render_target->create_info.sampler_address_mode_u;
+	texture->sampler_info.addressModeV = render_target->create_info.sampler_address_mode_v;
+	texture->sampler_info.addressModeW = render_target->create_info.sampler_address_mode_w;
+	zest__create_texture_sampler(texture, texture->sampler_info, 1);
 
-        zest_vec_free(texture_name);
-    }
+	VkDescriptorImageInfo image_info = { 0 };
+	image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	image_info.imageView = render_target->framebuffers[fif].color_buffer.view;
+	image_info.sampler = texture->sampler[texture->current_index];
+	texture->descriptor_image_info[texture->current_index] = image_info;
+	zest__create_texture_sampler_descriptor_set(texture);
+	ZEST__FLAG(texture->flags, zest_texture_flag_ready);
 }
 
 zest_render_target zest_NewRenderTarget() {
@@ -9906,7 +9896,6 @@ zest_render_target zest_AddPostProcessRenderTarget(const char* name, float width
     create_info.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     ZEST__UNFLAG(create_info.flags, zest_render_target_flag_sampler_size_match_texture);
     zest_render_target target = zest_CreateRenderTargetWithInfo(name, create_info);
-    target->recorder = zest_CreateSecondaryRecorder();
     zest_SetRenderTargetPostProcessCallback(target, render_callback);
     zest_SetRenderTargetPostProcessUserData(target, user_data);
     if (!render_callback) {
@@ -9931,25 +9920,31 @@ void zest_SetRenderTargetPostProcessUserData(zest_render_target render_target, v
     render_target->post_process_user_data = user_data;
 }
 
-VkDescriptorSet* zest_GetRenderTargetSamplerDescriptorSet(zest_render_target render_target) {
+VkDescriptorSet* zest_GetRenderTargetSamplerDescriptorSetVK(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    zest_texture texture = render_target->sampler_textures[render_target->current_sampler_index][ZEST_FIF];
-    return &texture->descriptor_sets[0].descriptor_set[ZEST_FIF];
+    zest_texture texture = render_target->sampler_texture[ZEST_FIF];
+    return &texture->descriptor_sets[texture->current_index].descriptor_set[ZEST_FIF];
+}
+
+zest_descriptor_set zest_GetRenderTargetSamplerDescriptorSet(zest_render_target render_target) {
+    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
+    zest_texture texture = render_target->sampler_texture[ZEST_FIF];
+    return &texture->descriptor_sets[texture->current_index];
 }
 
 VkDescriptorSet* zest_GetRenderTargetSourceDescriptorSet(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return zest_GetRenderTargetSamplerDescriptorSet(render_target->input_source);
+    return zest_GetRenderTargetSamplerDescriptorSetVK(render_target->input_source);
 }
 
 zest_texture zest_GetRenderTargetTexture(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return render_target->sampler_textures[render_target->current_sampler_index][ZEST_FIF];
+    return render_target->sampler_texture[ZEST_FIF];
 }
 
 zest_image zest_GetRenderTargetImage(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    zest_texture texture = render_target->sampler_textures[render_target->current_sampler_index][ZEST_FIF];
+    zest_texture texture = render_target->sampler_texture[ZEST_FIF];
     return zest_GetImageFromTexture(texture, 0);
 }
 
@@ -10002,6 +9997,7 @@ void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_i
     render_target->render_height = height;
     render_target->create_info.viewport.extent.width = width;
     render_target->create_info.viewport.extent.height = height;
+    render_target->recorder->outdated[fif] = 1;
 
     zest_CleanUpRenderTarget(render_target, fif);
 
@@ -10026,29 +10022,25 @@ void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_i
         render_target->sampler_image.height = zest_GetSwapChainExtent().height;
     }
 
-    zest__refresh_render_target_sampler(render_target);
-
+    zest__refresh_render_target_sampler(render_target, fif);
 }
 
-void zest__refresh_render_target_sampler(zest_render_target render_target) {
+void zest__refresh_render_target_sampler(zest_render_target render_target, zest_index fif) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    int si = render_target->current_sampler_index;
-    for (int fif = 0; fif != render_target->frames_in_flight; ++fif) {
-        if (render_target->sampler_textures[si][fif]->sampler != VK_NULL_HANDLE) {
-            vkDestroySampler(ZestDevice->logical_device, render_target->sampler_textures[si][fif]->sampler[render_target->sampler_textures[si][fif]->current_index], &ZestDevice->allocation_callbacks);
-        }
-        zest_texture texture = render_target->sampler_textures[render_target->current_sampler_index][fif];
-        zest__update_texture_single_image_meta(texture, render_target->sampler_image.width, render_target->sampler_image.height);
+    render_target->sampler_texture[fif]->current_index ^= 1;
+	zest__cleanup_unused_texture_buffers(render_target->sampler_texture[fif], render_target->sampler_texture[fif]->current_index);
+	zest_texture texture = render_target->sampler_texture[fif];
+    ZEST_ASSERT(texture);   //Must be a texture created at this point or something went wrong when initialising the render target
+	zest__update_texture_single_image_meta(texture, render_target->sampler_image.width, render_target->sampler_image.height);
 
-        zest__create_texture_sampler(texture, texture->sampler_info, 1);
+	zest__create_texture_sampler(texture, texture->sampler_info, 1);
 
-        VkDescriptorImageInfo image_info = { 0 };
-        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        image_info.imageView = render_target->framebuffers[fif].color_buffer.view;
-        image_info.sampler = texture->sampler[texture->current_index];
-        texture->descriptor_image_info[texture->current_index] = image_info;
-        zest_RefreshTextureDescriptors(texture);
-    }
+	VkDescriptorImageInfo image_info = { 0 };
+	image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	image_info.imageView = render_target->framebuffers[fif].color_buffer.view;
+	image_info.sampler = texture->sampler[texture->current_index];
+	texture->descriptor_image_info[texture->current_index] = image_info;
+    zest__create_texture_sampler_descriptor_set(texture);
 }
 
 void zest__record_render_target_commands(zest_render_target render_target, zest_index fif) {
@@ -10059,7 +10051,7 @@ void zest__record_render_target_commands(zest_render_target render_target, zest_
     vkCmdSetViewport(command_buffer, 0, 1, &view);
     vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, render_target->final_render->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSet(render_target), 0, NULL);
+	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, render_target->final_render->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSetVK(render_target), 0, NULL);
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, render_target->final_render->pipeline);
 
 	vkCmdPushConstants(
@@ -10123,6 +10115,8 @@ void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, Vk
 
 		if (target->post_process_record_callback && target->recorder->outdated[ZEST_FIF] != 0) {
             target->post_process_record_callback(target, target->post_process_user_data, ZEST_FIF);
+        } else if(target->recorder->outdated[ZEST_FIF] != 0) {
+            zest__record_render_target_commands(target, ZEST_FIF);
         }
 
 		zest_ExecuteRecorderCommands(command_buffer, target->recorder, ZEST_FIF);
@@ -10134,12 +10128,6 @@ void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, Vk
 void zest_CleanUpRenderTarget(zest_render_target render_target, zest_index fif) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
     zest__cleanup_framebuffer(&render_target->framebuffers[fif]);
-    for (int si = 0; si != 2; ++si) {
-        if (render_target->sampler_textures[si][fif] && render_target->sampler_textures[si][fif]->sampler != VK_NULL_HANDLE) {
-            vkDestroySampler(ZestDevice->logical_device, render_target->sampler_textures[si][fif]->sampler[render_target->sampler_textures[si][fif]->current_index], &ZestDevice->allocation_callbacks);
-            render_target->sampler_textures[si][fif]->sampler[render_target->sampler_textures[si][fif]->current_index] = VK_NULL_HANDLE;
-        }
-    }
 }
 
 void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno) {
@@ -10172,20 +10160,18 @@ void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, 
 
 void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    render_target->current_sampler_index = render_target->current_sampler_index ^ 1;
     for (ZEST_EACH_FIF_i) {
-        zest_SetTextureWrappingClamp(render_target->sampler_textures[render_target->current_sampler_index][i]);
-        zest_vec_push(ZestRenderer->rt_sampler_refresh_queue, render_target);
+        zest_SetTextureWrappingClamp(render_target->sampler_texture[i]);
     }
+	zest_vec_push(ZestRenderer->rt_sampler_refresh_queue, render_target);
 }
 
 void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    render_target->current_sampler_index = render_target->current_sampler_index ^ 1;
     for (ZEST_EACH_FIF_i) {
-        zest_SetTextureWrappingRepeat(render_target->sampler_textures[render_target->current_sampler_index][i]);
-        zest_vec_push(ZestRenderer->rt_sampler_refresh_queue, render_target);
+        zest_SetTextureWrappingRepeat(render_target->sampler_texture[i]);
     }
+	zest_vec_push(ZestRenderer->rt_sampler_refresh_queue, render_target);
 }
 
 void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif) {
