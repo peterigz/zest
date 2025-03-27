@@ -3076,7 +3076,8 @@ typedef struct zest_render_target_t {
     zest_pipeline final_render;
 
     int frames_in_flight;
-    zest_texture sampler_texture[ZEST_MAX_FIF];
+    zest_texture sampler_texture;
+    VkDescriptorImageInfo image_info[ZEST_MAX_FIF];
     zest_frame_buffer_t framebuffers[ZEST_MAX_FIF];
 
     zest_recorder recorder;     //for post processing
@@ -3321,8 +3322,8 @@ ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBu
 
 // --Render target internal functions
 ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
-ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target, zest_index fif);
-ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target, zest_index fif);
+ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target);
+ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target);
 ZEST_PRIVATE void zest__record_render_target_commands(zest_render_target render_target, zest_index fif);
 
 ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);
