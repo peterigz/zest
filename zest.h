@@ -1417,7 +1417,7 @@ typedef enum zest_render_target_flag_bits {
     zest_render_target_flag_is_src                        = 1 << 1,    //True if the render target is the source of another render target - adds transfer src and dst bits
     zest_render_target_flag_use_msaa                      = 1 << 2,      //True if the render target should render with MSAA enabled
     zest_render_target_flag_sampler_size_match_texture    = 1 << 3,
-    zest_render_target_flag_single_frame_buffer_only      = 1 << 4,
+	zest_render_target_flag_single_frame_buffer_only      = 1 << 4,
     zest_render_target_flag_use_depth_buffer              = 1 << 5,
     zest_render_target_flag_render_to_swap_chain          = 1 << 6,
     zest_render_target_flag_initialised                   = 1 << 7,
@@ -3060,12 +3060,10 @@ typedef struct zest_render_target_t {
     void(*post_process_record_callback)(zest_render_target_t *target, void *user_data, zest_uint fif);
     void *post_process_user_data;
 
-    zest_frame_buffer_t framebuffers[ZEST_MAX_FIF];
     zest_render_pass render_pass;
     VkRect2D viewport;
     zest_vec4 cls_color;
     VkRect2D render_viewport;
-    zest_index frames_in_flight;
     zest_render_target input_source;
     int render_width, render_height;
     VkFormat render_format;
@@ -3077,7 +3075,13 @@ typedef struct zest_render_target_t {
     zest_pipeline_template_create_info_t im_gui_rt_pipeline_template;
     zest_pipeline final_render;
 
-    zest_texture sampler_textures[ZEST_MAX_FIF];
+    //Double buffered frame buffer so if changes are needed then they are made to the 
+    //buffer not in use and then flipped
+    int current_sampler_index;
+    int frames_in_flight;
+    zest_texture sampler_textures[2][ZEST_MAX_FIF];
+    zest_frame_buffer_t framebuffers[ZEST_MAX_FIF];
+
     zest_recorder recorder;     //for post processing
     zest_thread_access lock;
 } zest_render_target_t;
@@ -3159,7 +3163,7 @@ typedef struct zest_renderer_t {
 
     //For scheduled tasks
     zest_render_target *render_target_recreate_queue[ZEST_MAX_FIF];
-    zest_render_target *rt_sampler_refresh_queue[ZEST_MAX_FIF];
+    zest_render_target *rt_sampler_refresh_queue;
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
     zest_buffer *staging_buffers;
     zest_map_textures texture_reprocess_queue;
@@ -3321,7 +3325,7 @@ ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBu
 // --Render target internal functions
 ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
 ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target);
-ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target, zest_index fif);
+ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target);
 ZEST_PRIVATE void zest__record_render_target_commands(zest_render_target render_target, zest_index fif);
 
 ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);

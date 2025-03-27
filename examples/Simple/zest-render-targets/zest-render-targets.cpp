@@ -17,8 +17,8 @@ void InitExample(RenderTargetExample *example) {
 	//Set the vert and frag shaders for the blur effect
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	example->blur_frag_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.frag", "blur_frag.spv", shaderc_fragment_shader, 1, compiler);
-	example->blur_vert_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.vert", "blur_vert.spv", shaderc_vertex_shader, 1, compiler);
+	example->blur_frag_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.frag", "blur_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
+	example->blur_vert_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.vert", "blur_vert.spv", shaderc_vertex_shader, 1, compiler, 0);
 	shaderc_compiler_release(compiler);
 	
 	zest_SetPipelineTemplateVertShader(&create_info, "blur_vert.spv", 0);
@@ -252,11 +252,12 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-//int main()
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+int main()
 {
-	zest_create_info_t create_info = zest_CreateInfo();
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = "./";
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);
