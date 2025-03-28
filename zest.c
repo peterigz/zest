@@ -2186,10 +2186,10 @@ void zest__do_scheduled_tasks(void) {
         zest_vec_clear(ZestRenderer->pipeline_recreate_queue);
     }
 
-    if (zest_vec_size(ZestRenderer->render_target_recreate_queue)) {
+    if (zest_map_size(ZestRenderer->render_target_recreate_queue)) {
         bool complete = true;
-        for (zest_foreach_i(ZestRenderer->render_target_recreate_queue)) {
-            zest_render_target render_target = ZestRenderer->render_target_recreate_queue[i];
+        for (zest_map_foreach_i(ZestRenderer->render_target_recreate_queue)) {
+            zest_render_target render_target = ZestRenderer->render_target_recreate_queue.data[i];
             if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_single_frame_buffer_only)) {
                 if (render_target->frame_buffer_dirty[0]) {
                     zest_RecreateRenderTargetResources(render_target, 0);
@@ -2210,19 +2210,19 @@ void zest__do_scheduled_tasks(void) {
         }
 		zest__update_command_queue_viewports();
         if (complete) {
-            zest_vec_clear(ZestRenderer->render_target_recreate_queue);
+            zest_map_clear(ZestRenderer->render_target_recreate_queue);
         }
     }
 
-    if (zest_vec_size(ZestRenderer->rt_sampler_refresh_queue)) {
-        for (zest_foreach_i(ZestRenderer->rt_sampler_refresh_queue)) {
-            zest_render_target render_target = ZestRenderer->rt_sampler_refresh_queue[i];
+    if (zest_map_size(ZestRenderer->rt_sampler_refresh_queue)) {
+        for (zest_map_foreach_i(ZestRenderer->rt_sampler_refresh_queue)) {
+            zest_render_target render_target = ZestRenderer->rt_sampler_refresh_queue.data[i];
             zest_ForEachFrameInFlight(fif) {
 				render_target->recorder->outdated[fif] = 1;
             }
 			zest__refresh_render_target_sampler(render_target);
         }
-        zest_vec_clear(ZestRenderer->rt_sampler_refresh_queue);
+        zest_map_clear(ZestRenderer->rt_sampler_refresh_queue);
     }
 
     zest_vec_foreach(i, ZestRenderer->staging_buffers) {
@@ -10201,7 +10201,7 @@ void zest_ScheduleRenderTargetRefresh(zest_render_target render_target) {
     zest_ForEachFrameInFlight(fif) {
         render_target->frame_buffer_dirty[fif] = 1;
     }
-	zest_vec_push(ZestRenderer->render_target_recreate_queue, render_target);
+	zest_map_insert(ZestRenderer->render_target_recreate_queue, render_target->name, render_target);
 }
 
 void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target) {
@@ -10209,7 +10209,7 @@ void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target) {
     for (ZEST_EACH_FIF_i) {
         zest_SetTextureWrappingClamp(render_target->sampler_texture);
     }
-	zest_vec_push(ZestRenderer->rt_sampler_refresh_queue, render_target);
+	zest_map_insert(ZestRenderer->rt_sampler_refresh_queue, render_target->name, render_target);
 }
 
 void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target) {
@@ -10217,7 +10217,7 @@ void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target) {
     for (ZEST_EACH_FIF_i) {
         zest_SetTextureWrappingRepeat(render_target->sampler_texture);
     }
-	zest_vec_push(ZestRenderer->rt_sampler_refresh_queue, render_target);
+	zest_map_insert(ZestRenderer->rt_sampler_refresh_queue, render_target->name, render_target);
 }
 
 void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif) {

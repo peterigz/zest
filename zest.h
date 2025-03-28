@@ -3101,6 +3101,8 @@ zest_hash_map(zest_render_target) zest_map_render_targets;
 zest_hash_map(zest_font) zest_map_fonts;
 zest_hash_map(zest_compute) zest_map_computes;
 zest_hash_map(zest_shader) zest_map_shaders;
+zest_hash_map(zest_render_target) zest_map_rt_refresh_queue;
+zest_hash_map(zest_render_target) zest_map_rt_recreate_queue;
 
 typedef struct zest_renderer_t {
     zest_semaphores_t semaphores[ZEST_MAX_FIF];
@@ -3162,8 +3164,8 @@ typedef struct zest_renderer_t {
     zest_render_target root_render_target;
 
     //For scheduled tasks
-    zest_render_target *render_target_recreate_queue;
-    zest_render_target *rt_sampler_refresh_queue;
+    zest_map_rt_refresh_queue render_target_recreate_queue;
+    zest_map_rt_recreate_queue rt_sampler_refresh_queue;
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
     zest_buffer *staging_buffers;
     zest_map_textures texture_reprocess_queue;
