@@ -1422,6 +1422,7 @@ typedef enum zest_render_target_flag_bits {
     zest_render_target_flag_render_to_swap_chain          = 1 << 6,
     zest_render_target_flag_initialised                   = 1 << 7,
     zest_render_target_flag_has_imgui_pipeline            = 1 << 8,
+    zest_render_target_flag_was_changed                   = 1 << 9,
 } zest_render_target_flag_bits;
 
 typedef zest_uint zest_render_target_flags;
@@ -3076,6 +3077,7 @@ typedef struct zest_render_target_t {
     zest_pipeline final_render;
 
     int frames_in_flight;
+    int frame_buffer_dirty[ZEST_MAX_FIF];
     zest_texture sampler_texture;
     VkDescriptorImageInfo image_info[ZEST_MAX_FIF];
     zest_frame_buffer_t framebuffers[ZEST_MAX_FIF];
@@ -3160,7 +3162,7 @@ typedef struct zest_renderer_t {
     zest_render_target root_render_target;
 
     //For scheduled tasks
-    zest_render_target *render_target_recreate_queue[ZEST_MAX_FIF];
+    zest_render_target *render_target_recreate_queue;
     zest_render_target *rt_sampler_refresh_queue;
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
     zest_buffer *staging_buffers;
@@ -3325,6 +3327,7 @@ ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_targe
 ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target);
 ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target);
 ZEST_PRIVATE void zest__record_render_target_commands(zest_render_target render_target, zest_index fif);
+ZEST_PRIVATE void zest__render_target_maintennance();
 
 ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);
 
@@ -4449,12 +4452,17 @@ ZEST_API VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queu
 ZEST_API void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno);
 //Resize the render target. Applies to fixed sized render targets only
 ZEST_API void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, zest_uint height);
+//Resize the render target. Applies to fixed sized render targets only
+ZEST_API void zest_ScheduleRenderTargetRefresh(zest_render_target render_target);
 //Change the render target sampler texture wrapping option to clamped. The render target will be refresh next frame.
 ZEST_API void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target);
 //Change the render target sampler texture wrapping option to repeat. The render target will be refresh next frame.
 ZEST_API void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target);
 //Clear a specific frame in flight of the render target.
 ZEST_API void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif);
+//You can use this function to check if a render target was changed last frame so that you can update any
+//shader resources that depending on it.
+ZEST_API int zest_RenderTargetWasChanged(zest_render_target render_target);
 //-- End Render targets
 
 //-----------------------------------------------

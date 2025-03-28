@@ -200,8 +200,7 @@ void RecordVerticalBlur(zest_render_target_t *target, void *data, zest_uint fif)
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(user_data);
 
-	if (zest_SwapchainWasRecreated()) {
-		//If the window was resized then we need to update the final blur shader resources
+	if (zest_RenderTargetWasChanged(example->final_blur)) {
 		zest_UpdateShaderResources(
 			example->rt_shader_resources, 
 			zest_GetRenderTargetSamplerDescriptorSet(example->final_blur), 1);
@@ -258,7 +257,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawMSDFText(example->font_layer, "Mouse x = intensity level, Mouse y = additive/alpha blend", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .05f, .5f, .5f, 40.f, 0.f);
 
 	if (zest_MouseHit(zest_left_mouse)) {
-		//zest_SetRenderTargetSamplerToClamp(example->final_blur);
+		zest_ScheduleRenderTargetRefresh(example->final_blur);
 	}
 }
 

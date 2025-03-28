@@ -2186,13 +2186,32 @@ void zest__do_scheduled_tasks(void) {
         zest_vec_clear(ZestRenderer->pipeline_recreate_queue);
     }
 
-    if (zest_vec_size(ZestRenderer->render_target_recreate_queue[ZEST_FIF])) {
-        for (zest_foreach_i(ZestRenderer->render_target_recreate_queue[ZEST_FIF])) {
-            zest_render_target render_target = ZestRenderer->render_target_recreate_queue[ZEST_FIF][i];
-            zest_RecreateRenderTargetResources(render_target, ZEST_FIF);
+    if (zest_vec_size(ZestRenderer->render_target_recreate_queue)) {
+        bool complete = true;
+        for (zest_foreach_i(ZestRenderer->render_target_recreate_queue)) {
+            zest_render_target render_target = ZestRenderer->render_target_recreate_queue[i];
+            if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_single_frame_buffer_only)) {
+                if (render_target->frame_buffer_dirty[0]) {
+                    zest_RecreateRenderTargetResources(render_target, 0);
+                    zest__refresh_render_target_sampler(render_target);
+                    render_target->recorder->outdated[0] = 1;
+                    render_target->frame_buffer_dirty[0] = 0;
+                    complete = false;
+                }
+            } else {
+                if (render_target->frame_buffer_dirty[ZEST_FIF]) {
+                    zest_RecreateRenderTargetResources(render_target, ZEST_FIF);
+                    zest__refresh_render_target_sampler(render_target);
+                    render_target->recorder->outdated[ZEST_FIF] = 1;
+                    render_target->frame_buffer_dirty[ZEST_FIF] = 0;
+                    complete = false;
+                }
+            }
         }
-        zest__update_command_queue_viewports();
-        zest_vec_clear(ZestRenderer->render_target_recreate_queue[ZEST_FIF]);
+		zest__update_command_queue_viewports();
+        if (complete) {
+            zest_vec_clear(ZestRenderer->render_target_recreate_queue);
+        }
     }
 
     if (zest_vec_size(ZestRenderer->rt_sampler_refresh_queue)) {
@@ -2232,6 +2251,8 @@ void zest__main_loop(void) {
         zest__set_elapsed_time();
 
         ZestApp->update_callback(ZestApp->current_elapsed, ZestApp->user_data);
+
+        zest__render_target_maintennance();
 
         zest__draw_renderer_frame();
 
@@ -10029,6 +10050,7 @@ void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_i
         render_target->sampler_image.width = zest_GetSwapChainExtent().width;
         render_target->sampler_image.height = zest_GetSwapChainExtent().height;
     }
+	ZEST__FLAG(render_target->flags, zest_render_target_flag_was_changed);
 }
 
 void zest__refresh_render_target_sampler(zest_render_target render_target) {
@@ -10056,6 +10078,13 @@ void zest__refresh_render_target_sampler(zest_render_target render_target) {
         zest_vec_push(set->descriptor_writes[fif], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[fif], &render_target->image_info[fif], 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
     }
     zest_UpdateTextureSingleDescriptorSet(texture);
+}
+
+void zest__render_target_maintennance() {
+    for (zest_map_foreach_i(ZestRenderer->render_targets)) {
+        zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
+        ZEST__UNFLAG(render_target->flags, zest_render_target_flag_was_changed);
+    }
 }
 
 void zest__record_render_target_commands(zest_render_target render_target, zest_index fif) {
@@ -10160,17 +10189,19 @@ void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, 
     render_target->create_info.viewport.extent.width = width;
     render_target->create_info.viewport.extent.height = height;
     ZEST__FLAG(render_target->create_info.flags, zest_render_target_flag_fixed_size);
+	zest_vec_push(ZestRenderer->render_target_recreate_queue, render_target);
+}
 
-    if (render_target->frames_in_flight == 1) {
-        //Not sure if pushing a render with with only 1 set of resources to the current frame in flight is correct. Maybe there's a chance that it could be
-        //recreated while in use, but render targets with a single set of resources should not be used for per frame rendering so maybe it's ok.
-        zest_vec_push(ZestRenderer->render_target_recreate_queue[0], render_target);
+int zest_RenderTargetWasChanged(zest_render_target render_target) {
+    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
+    return ZEST__FLAGGED(render_target->flags, zest_render_target_flag_was_changed) > 0;
+}
+
+void zest_ScheduleRenderTargetRefresh(zest_render_target render_target) {
+    zest_ForEachFrameInFlight(fif) {
+        render_target->frame_buffer_dirty[fif] = 1;
     }
-    else {
-        for (ZEST_EACH_FIF_i) {
-            zest_vec_push(ZestRenderer->render_target_recreate_queue[i], render_target);
-        }
-    }
+	zest_vec_push(ZestRenderer->render_target_recreate_queue, render_target);
 }
 
 void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target) {
