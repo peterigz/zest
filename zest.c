@@ -10190,6 +10190,7 @@ void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, 
     render_target->create_info.viewport.extent.height = height;
     ZEST__FLAG(render_target->create_info.flags, zest_render_target_flag_fixed_size);
 	zest_vec_push(ZestRenderer->render_target_recreate_queue, render_target);
+    zest_ScheduleRenderTargetRefresh(render_target);
 }
 
 int zest_RenderTargetWasChanged(zest_render_target render_target) {
