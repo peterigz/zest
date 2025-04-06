@@ -4855,7 +4855,7 @@ ZEST_API void zest_RunCompute(zest_compute compute);
 ZEST_API void zest_WaitForCompute(zest_compute compute);
 //If your buffers have changed in anyway then you can call this function to update the descriptors for them. This is only needed if you're implementing your own
 //descriptor update callback function.
-ZEST_API void zest_UpdateComputeDescriptorInfos(zest_compute compute);
+ZEST_API void zest_UpdateComputeDescriptorInfos(zest_compute compute, zest_uint fif);
 //If at anytime you resize buffers used in a compute shader then you will need to update it's descriptor infos so that the compute shader connects to the new
 //resized buffer. You can call this function which will just call the callback function you specified when creating the compute shader.
 ZEST_API void zest_UpdateComputeDescriptors(zest_compute compute, zest_uint fif);
@@ -4888,7 +4888,7 @@ ZEST_API int zest_ComputeConditionAlwaysTrue(zest_compute compute);
 //-----------------------------------------------
 //        Events_and_States
 //-----------------------------------------------
-//Returns true is the swap chain was recreated last frame. The swap chain will mainly be recreated if the window size changes
+//Returns true if the swap chain was recreated last frame. The swap chain will mainly be recreated if the window size changes
 ZEST_API zest_bool zest_SwapchainWasRecreated(void);
 //--End Events and States
 

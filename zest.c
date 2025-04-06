@@ -12273,27 +12273,23 @@ void zest_UpdateComputeDescriptors(zest_compute compute, zest_uint fif) {
     compute->descriptor_update_callback(compute, fif);
 }
 
-void zest_UpdateComputeDescriptorInfos(zest_compute compute) {
+void zest_UpdateComputeDescriptorInfos(zest_compute compute, zest_uint fif) {
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
     for (zest_foreach_j(compute->descriptor_infos)) {
-        zest_descriptor_infos_for_binding_t* descriptor_info = &compute->descriptor_infos[j];
-        for (ZEST_EACH_FIF_i) {
-            zest_index descriptor_fif_index = descriptor_info->all_frames_in_flight ? i : 0;
-            if (descriptor_info->descriptor_buffer_info[i].buffer) {
-                descriptor_info->descriptor_buffer_info[i] = descriptor_info->buffer->descriptor_info[descriptor_fif_index];
-            }
-            else if (descriptor_info->descriptor_image_info[i].sampler) {
-                descriptor_info->descriptor_image_info[i] = descriptor_info->texture->descriptor_image_info[descriptor_info->texture->current_index];
-            }
+        zest_descriptor_infos_for_binding_t *descriptor_info = &compute->descriptor_infos[j];
+        zest_index descriptor_fif_index = descriptor_info->all_frames_in_flight ? fif : 0;
+        if (descriptor_info->descriptor_buffer_info[descriptor_fif_index].buffer) {
+            descriptor_info->descriptor_buffer_info[fif] = descriptor_info->buffer->descriptor_info[descriptor_fif_index];
+        } else if (descriptor_info->descriptor_image_info[descriptor_fif_index].sampler) {
+            descriptor_info->descriptor_image_info[fif] = descriptor_info->texture->descriptor_image_info[descriptor_info->texture->current_index];
         }
     }
 }
-
 void zest_StandardComputeDescriptorUpdate(zest_compute compute, zest_uint fif) {
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
     VkWriteDescriptorSet* compute_write_descriptor_sets = 0;
 
-    zest_UpdateComputeDescriptorInfos(compute);
+    zest_UpdateComputeDescriptorInfos(compute, fif);
 
 	int binding_index = 0;
 	for (zest_foreach_j(compute->descriptor_infos)) {
