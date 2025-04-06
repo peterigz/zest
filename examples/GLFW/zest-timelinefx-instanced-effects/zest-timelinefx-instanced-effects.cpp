@@ -224,34 +224,34 @@ void SpriteComputeFunction(zest_compute compute) {
 	//The compute queue item can contain more then one compute shader to be dispatched but in this case there's only
 	//one which is the effect playback compute shader
 	VkCommandBuffer command_buffer = zest_BeginComputeRecording(compute->recorder, ZEST_FIF);
-		//Grab our ComputeExample struct out of the user data
-		ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
+	//Grab our ComputeExample struct out of the user data
+	ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
 
-		tfx_animation_buffer_metrics_t metrics = tfx_GetAnimationBufferMetrics(example->animation_manager_3d);
-		//Bind the compute shader pipeline
-		zest_BindComputePipeline(compute, example->compute_pipeline_3d);
-		//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
-		//from there we copy to the GPU.
-		zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], tfx_GetOffsetsSizeInBytes(example->animation_manager_3d), 1);
-		zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d), 1);
+	tfx_animation_buffer_metrics_t metrics = tfx_GetAnimationBufferMetrics(example->animation_manager_3d);
+	//Bind the compute shader pipeline
+	zest_BindComputePipeline(compute, example->compute_pipeline_3d);
+	//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
+	//from there we copy to the GPU.
+	zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], tfx_GetOffsetsSizeInBytes(example->animation_manager_3d), 1);
+	zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[ZEST_FIF], example->animation_instances_buffer->buffer[ZEST_FIF], tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d), 1);
 
-		//Update the push constants with some metrics. These are referenced in the compute shader.
-		//The total number of animation instances that need to be drawn
-		compute->push_constants.parameters.x = (float)metrics.instances_size;
-		//If any animation instance contains animated shapes then set to 1. The compute shader can use this to avoid some unecessary
-		//computation if all particle shapes are not animated
-		compute->push_constants.parameters.y = float(example->animation_manager_3d->flags & tfxAnimationManagerFlags_has_animated_shapes);
-		//Set the total number of sprites that need to be processed by the shader
-		compute->push_constants.parameters.z = (float)metrics.total_sprites_to_draw;
-		//Set the offset into the sprite data that the sprites start at
-		compute->push_constants.parameters.w = (float)example->animation_manager_3d->render_queue[0].offset_into_sprite_data;
+	//Update the push constants with some metrics. These are referenced in the compute shader.
+	//The total number of animation instances that need to be drawn
+	compute->push_constants.parameters.x = (float)metrics.instances_size;
+	//If any animation instance contains animated shapes then set to 1. The compute shader can use this to avoid some unecessary
+	//computation if all particle shapes are not animated
+	compute->push_constants.parameters.y = float(example->animation_manager_3d->flags & tfxAnimationManagerFlags_has_animated_shapes);
+	//Set the total number of sprites that need to be processed by the shader
+	compute->push_constants.parameters.z = (float)metrics.total_sprites_to_draw;
+	//Set the offset into the sprite data that the sprites start at
+	compute->push_constants.parameters.w = (float)example->animation_manager_3d->render_queue[0].offset_into_sprite_data;
 
-		//Send the push constants in the compute object to the shader
-		zest_SendComputePushConstants(ZestRenderer->current_command_buffer, compute);
+	//Send the push constants in the compute object to the shader
+	zest_SendComputePushConstants(ZestRenderer->current_command_buffer, compute);
 
-		//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
-		//For example if there are 1024 sprites, if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
-		zest_DispatchCompute(compute, (metrics.total_sprites_to_draw / 128) + 1, 1, 1);
+	//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
+	//For example if there are 1024 sprites, if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
+	zest_DispatchCompute(compute, (metrics.total_sprites_to_draw / 128) + 1, 1, 1);
 
 	//We want the compute shader to finish before the vertex shader is run so we put a barrier here.
 	//zest_ComputeToVertexBarrier();
