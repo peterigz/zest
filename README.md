@@ -1,7 +1,7 @@
 # Zest
 ## A Vulkan Pocket Renderer
 
-Zest is a very simple single-header C library for drawing things on the screen with Vulkan. It has minimal dependencies, which are the Vulkan SDK and a single-header library bundle that includes some STB libraries and my memory allocator.
+Zest is a very simple single header, single c library for drawing things on the screen with Vulkan. It has minimal dependencies, which are the Vulkan SDK and a single-header library bundle that includes some STB libraries and my memory allocator.
 
 As it stands currently, this library is primarily for drawing 2D and 3D sprites, but it has plenty of flexibility for adding your custom draw routines. It's also straightforward to set up compute shaders.
 
