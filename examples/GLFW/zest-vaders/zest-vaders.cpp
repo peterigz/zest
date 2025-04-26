@@ -130,9 +130,9 @@ struct VadersGame {
 	tfx_vec3_t bottom_right_bound;
 
 	tfx_library library;
-	tfx_particle_manager game_pm;
-	tfx_particle_manager background_pm;
-	tfx_particle_manager title_pm;
+	tfx_effect_manager game_pm;
+	tfx_effect_manager background_pm;
+	tfx_effect_manager title_pm;
 
 	tfx_effect_template player_bullet_effect;
 	tfx_effect_template vader_explosion_effect;
@@ -175,6 +175,7 @@ void UpdateUniform3d(VadersGame *game) {
 	buffer_3d->screen_size.y = zest_ScreenHeightf();
 	buffer_3d->millisecs = 0;
 	buffer_3d->parameters1.x = (float)zest_TimerLerp(game->timer);
+	buffer_3d->parameters1.y = UpdateFrequency;
 }
 
 //Before you load an effects file, you will need to define a ShapeLoader function that passes the following parameters:
@@ -243,7 +244,7 @@ tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_pos
 }
 
 //Update the power up effect to follow the player
-void UpdateGotPowerUpEffect(tfx_particle_manager_t *pm, tfxEffectID effect_index) {
+void UpdateGotPowerUpEffect(tfx_effect_manager pm, tfxEffectID effect_index) {
 	VadersGame *game = static_cast<VadersGame*>(tfx_GetEffectUserData(pm, effect_index));
 	tfx_SetEffectPositionVec3(pm, effect_index, game->player.position);
 }
@@ -260,7 +261,7 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	//Compile the shaders we will use to render the particles
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	render_resources.fragment_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	render_resources.vertex_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx3d.vert", "tfx_vertex3d.spv", shaderc_vertex_shader, true, compiler, 0);
+	render_resources.vertex_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx3d.vert", "tfx_vertex.spv", shaderc_vertex_shader, true, compiler, 0);
 	shaderc_compiler_release(compiler);
 
 	//To render the particles we setup a pipeline with the vertex attributes and shaders to render the particles.
@@ -271,18 +272,18 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 
 	zest_pipeline_template_create_info_t instance_create_info = zest_CreatePipelineTemplateCreateInfo();
 	instance_create_info.viewport.extent = zest_GetSwapChainExtent();
-	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_3d_instance_t objects
-	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(tfx_3d_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(tfx_3d_instance_t, position)));	            // Location 0: Postion and stretch in w
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(tfx_3d_instance_t, rotations)));	            // Location 1: Rotations
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8_SNORM, offsetof(tfx_3d_instance_t, alignment)));					// Location 2: Alignment
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(tfx_3d_instance_t, size_handle)));		    // Location 3: Size and handle of the sprite
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(tfx_3d_instance_t, intensity_gradient_map)));    // Location 4: 2 intensities for each color
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R8G8B8_UNORM, offsetof(tfx_3d_instance_t, curved_alpha_life)));          	// Location 5: Sharpness and mix lerp value
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(tfx_3d_instance_t, indexes)));							// Location 6: texture indexes to sample the correct image and color ramp
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(tfx_3d_instance_t, captured_index)));   				// Location 7: index of the sprite in the previous buffer when double buffering
+	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_instance_t objects
+	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(tfx_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(tfx_instance_t, position)));	            // Location 0: Postion and stretch in w
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(tfx_instance_t, rotations)));	                // Location 1: Rotations
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8_SNORM, offsetof(tfx_instance_t, alignment)));					    // Location 2: Alignment
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(tfx_instance_t, size_handle)));		    // Location 3: Size and handle of the sprite
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(tfx_instance_t, intensity_gradient_map)));       // Location 4: 2 intensities for each color
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R8G8B8_UNORM, offsetof(tfx_instance_t, curved_alpha_life)));          	// Location 5: Sharpness and mix lerp value
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(tfx_instance_t, indexes)));							// Location 6: texture indexes to sample the correct image and color ramp
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(tfx_instance_t, captured_index)));   				    // Location 7: index of the sprite in the previous buffer when double buffering
 	//Set the shaders to our custom timelinefx shaders
-	zest_SetPipelineTemplateVertShader(&instance_create_info, "tfx_vertex3d.spv", 0);
+	zest_SetPipelineTemplateVertShader(&instance_create_info, "tfx_vertex.spv", 0);
 	zest_SetPipelineTemplateFragShader(&instance_create_info, "tfx_frag.spv", 0);
 	zest_SetPipelineTemplatePushConstant(&instance_create_info, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
 	zest_AddPipelineTemplateDescriptorLayout(&instance_create_info, render_resources.descriptor_layout->vk_layout);
@@ -293,9 +294,9 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	render_resources.pipeline->pipeline_template.depthStencil.depthTestEnable = true;
 	zest_BuildPipeline(render_resources.pipeline);
 
-	//Create a drawroutine specifically for the tfx_3d_instance_t object
+	//Create a drawroutine specifically for the tfx_instance_t object
 	//We'll create one for each particle manager so it's easier to set up interpolation in the shader
-	render_resources.draw_routine = zest_CreateInstanceDrawRoutine("timelinefx game draw routine", sizeof(tfx_3d_instance_t), 25000);
+	render_resources.draw_routine = zest_CreateInstanceDrawRoutine("timelinefx game draw routine", sizeof(tfx_instance_t), 25000);
 
 	//Set up the draw layers we need in the renderer
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);
@@ -381,6 +382,19 @@ void VadersGame::Init() {
 	//Process the texture with all the particle shapes that we just added to
 	zest_ProcessTextureImages(tfx_rendering.particle_texture);
 
+	//Prepare all the Effect templates we need from the library
+	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
+	vader_explosion_effect = tfx_CreateEffectTemplate(library, "Vader Explosion");
+	big_explosion = tfx_CreateEffectTemplate(library, "Big Explosion");
+	player_explosion = tfx_CreateEffectTemplate(library, "Player Explosion");
+	background = tfx_CreateEffectTemplate(library, "Background");
+	title = tfx_CreateEffectTemplate(library, "Title");
+	laser = tfx_CreateEffectTemplate(library, "Laser");
+	charge_up = tfx_CreateEffectTemplate(library, "Charge Up");
+	got_power_up = tfx_CreateEffectTemplate(library, "Got Power Up");
+	weapon_power_up = tfx_CreateEffectTemplate(library, "Power Up");
+	damage = tfx_CreateEffectTemplate(library, "Damage");
+
 	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
 	//simply copied to a bitmap for uploading to the texture
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
@@ -407,13 +421,6 @@ void VadersGame::Init() {
 	camera = zest_CreateCamera();
 	zest_CameraSetFoV(&camera, 60.f);
 
-	//Update the uniform buffer so that the projection and view matrices are set for the screen ray functions below
-	UpdateUniform3d(this);
-
-	//Get the top left and bottom right screen positions in 3d space so we know when things leave the screen
-	top_left_bound = ScreenRay(0.f, 0.f, 10.f, camera.position, tfx_rendering.uniform_buffer_3d);
-	bottom_right_bound = ScreenRay(zest_ScreenWidthf(), zest_ScreenHeightf(), 10.f, camera.position, tfx_rendering.uniform_buffer_3d);
-
 	tfxU32 layer_max_values[tfxLAYERS];
 	memset(layer_max_values, 0, 16);
 	layer_max_values[0] = 5000;
@@ -423,12 +430,12 @@ void VadersGame::Init() {
 	//Initialise a particle manager. This manages effects, emitters and the particles that they spawn
 	//Depending on your needs you can use as many particle managers as you need.
 	//pm.InitFor3d(layer_max_values, 100, tfx_particle_manager_tMode_ordered_by_depth_guaranteed, 512);
-	tfx_particle_manager_info_t background_pm_info = tfx_CreateParticleManagerInfo(tfxParticleManagerSetup_3d_ordered_by_depth);
-	background_pm = tfx_CreateParticleManager(background_pm_info);
-	tfx_particle_manager_info_t game_pm_info = tfx_CreateParticleManagerInfo(tfxParticleManagerSetup_3d_group_sprites_by_effect);
-	game_pm = tfx_CreateParticleManager(game_pm_info);
+	tfx_effect_manager_info_t background_pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
+	background_pm = tfx_CreateEffectManager(background_pm_info);
+	tfx_effect_manager_info_t game_pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
+	game_pm = tfx_CreateEffectManager(game_pm_info);
 	game_pm_info.max_effects = 10;
-	title_pm = tfx_CreateParticleManager(game_pm_info);
+	title_pm = tfx_CreateEffectManager(game_pm_info);
 
 	//Load a font we can draw text with
 	font = zest_LoadMSDFFont("examples/assets/RussoOne-Regular.zft");
@@ -440,31 +447,9 @@ void VadersGame::Init() {
 	player.rate_of_fire = 4.f * UpdateFrequency;
 	high_score = 0;
 
-	//Prepare all the Effect templates we need from the library
-	player_bullet_effect = tfx_CreateEffectTemplate(library, "Player Bullet");
-	vader_explosion_effect = tfx_CreateEffectTemplate(library, "Vader Explosion");
-	big_explosion = tfx_CreateEffectTemplate(library, "Big Explosion");
-	player_explosion = tfx_CreateEffectTemplate(library, "Player Explosion");
-	background = tfx_CreateEffectTemplate(library, "Background");
-	title = tfx_CreateEffectTemplate(library, "Title");
-	laser = tfx_CreateEffectTemplate(library, "Laser");
-	charge_up = tfx_CreateEffectTemplate(library, "Charge Up");
-	got_power_up = tfx_CreateEffectTemplate(library, "Got Power Up");
-	weapon_power_up = tfx_CreateEffectTemplate(library, "Power Up");
-	damage = tfx_CreateEffectTemplate(library, "Damage");
-
 	//Set the user data in the got power up effect and the update callback so that we can position it each frame
 	tfx_SetTemplateEffectUserData(got_power_up, this);
 	tfx_SetTemplateEffectUpdateCallback(got_power_up, UpdateGotPowerUpEffect);
-
-	//Add the background effect nad title effect to the particle manager and set their positions
-	if (tfx_AddEffectTemplateToParticleManager(background_pm, background, &background_index)) {
-		zest_vec3 position = zest_AddVec3(zest_ScaleVec3(camera.front, 12.f), camera.position);
-		tfx_SetEffectPositionVec3(background_pm, background_index, { position.x, position.y, position.z });
-	}
-	if (tfx_AddEffectTemplateToParticleManager(title_pm, title, &title_index)) {
-		tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, tfx_rendering.uniform_buffer_3d));
-	}
 
 	//Initialise imgui
 	zest_imgui_Initialise(&imgui_layer_info);
@@ -502,7 +487,22 @@ void VadersGame::Init() {
 	zest_TimerReset(timer);
 	//Output the memory usage to the console
 	zest_OutputMemoryUsage();
-	TFX_ASSERT(!(background_pm->flags & tfxParticleManagerFlags_use_effect_sprite_buffers));
+
+	//Update the uniform buffer so that the projection and view matrices are set for the screen ray functions below
+	UpdateUniform3d(this);
+
+	//Get the top left and bottom right screen positions in 3d space so we know when things leave the screen
+	top_left_bound = ScreenRay(0.f, 0.f, 10.f, camera.position, tfx_rendering.uniform_buffer_3d);
+	bottom_right_bound = ScreenRay(zest_ScreenWidthf(), zest_ScreenHeightf(), 10.f, camera.position, tfx_rendering.uniform_buffer_3d);
+
+	//Add the background effect and title effect to the particle manager and set their positions
+	if (tfx_AddEffectTemplateToEffectManager(background_pm, background, &background_index)) {
+		zest_vec3 position = zest_AddVec3(zest_ScaleVec3(camera.front, 12.f), camera.position);
+		tfx_SetEffectPositionVec3(background_pm, background_index, { position.x, position.y, position.z });
+	}
+	if (tfx_AddEffectTemplateToEffectManager(title_pm, title, &title_index)) {
+		tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, tfx_rendering.uniform_buffer_3d));
+	}
 
 	for (ZEST_EACH_FIF_i) {
 		index_offset[i] = 0;
@@ -621,7 +621,7 @@ void UpdateVaders(VadersGame *game) {
 				bullet.remove = true;
 				//Blow up the vader. Add teh vader_explosion_effect template to the particle manager
 				tfxEffectID effect_index;
-				if (tfx_AddEffectTemplateToParticleManager(game->game_pm, game->vader_explosion_effect, &effect_index)) {
+				if (tfx_AddEffectTemplateToEffectManager(game->game_pm, game->vader_explosion_effect, &effect_index)) {
 					//Set the effect position
 					tfx_SetEffectPositionVec3(game->game_pm, effect_index, vader.position);
 					//Alter the effect scale
@@ -679,14 +679,14 @@ void UpdateVaders(VadersGame *game) {
 				vader.health--;
 				//Add the damage taken effect to the particle manager and set it's position
 				tfxEffectID damage_index;
-				if (tfx_AddEffectTemplateToParticleManager(game->game_pm, game->damage, &damage_index)) {
+				if (tfx_AddEffectTemplateToEffectManager(game->game_pm, game->damage, &damage_index)) {
 					tfx_SetEffectPositionVec3(game->game_pm, damage_index, bullet.position);
 				}
 				if (vader.health == 0) {
 					dead = true;
 					//blow up the big vader, add the big_explosion template to the particle manager and set position and scale
 					tfxEffectID effect_index;
-					if (tfx_AddEffectTemplateToParticleManager(game->game_pm, game->big_explosion, &effect_index)) {
+					if (tfx_AddEffectTemplateToEffectManager(game->game_pm, game->big_explosion, &effect_index)) {
 						tfx_SetEffectPositionVec3(game->game_pm, effect_index, vader.position);
 						tfx_SetEffectOveralScale(game->game_pm, effect_index, 2.5f);
 					}
@@ -697,7 +697,7 @@ void UpdateVaders(VadersGame *game) {
 					}
 					//Add the power up effect that floats downward to the particle manager and set its position and scale
 					tfxEffectID power_up_index;
-					if (tfx_AddEffectTemplateToParticleManager(game->game_pm, game->weapon_power_up, &power_up_index)) {
+					if (tfx_AddEffectTemplateToEffectManager(game->game_pm, game->weapon_power_up, &power_up_index)) {
 						tfx_SetEffectPositionVec3(game->game_pm, power_up_index, vader.position);
 						tfx_SetEffectOveralScale(game->game_pm, power_up_index, 3.f);
 						game->power_ups[game->current_buffer].push_back(power_up_index);
@@ -716,7 +716,7 @@ void UpdateVaders(VadersGame *game) {
 			//The big vader has started to power up it's laser, add the charge up effect to the particle manager
 			//Position at the tip of the vader
 			tfxEffectID effect_index;
-			if (tfx_AddEffectTemplateToParticleManager(game->game_pm, game->charge_up, &effect_index)) {
+			if (tfx_AddEffectTemplateToEffectManager(game->game_pm, game->charge_up, &effect_index)) {
 				tfx_vec3_t laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
 				tfx_SetEffectPositionVec3(game->game_pm, effect_index, vader.position + laser_offset);
 			}
@@ -726,10 +726,10 @@ void UpdateVaders(VadersGame *game) {
 		else if (vader.time > 3.f && vader.flags & VaderFlags_charging_up) {
 			//Big vader has finished charging up so shoot the laser
 			//Add the laser effect to the particle manager and set the position
-			tfx_AddEffectTemplateToParticleManager(game->game_pm, game->laser, &vader.laser);
+			tfx_AddEffectTemplateToEffectManager(game->game_pm, game->laser, &vader.laser);
 			tfx_vec3_t laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
 			tfx_SetEffectPositionVec3(game->game_pm, vader.laser, vader.position + laser_offset);
-			tfx_SetEffectPitch(game->game_pm, vader.laser, tfx_DegreesToRadians(vader.angle));
+			tfx_SetEffectRoll(game->game_pm, vader.laser, -tfx_DegreesToRadians(vader.angle));
 			tfx_SetEffectOveralScale(game->game_pm, vader.laser, 2.f);
 			//Set the height of the laser which will change the length of it. We want it to extend off of the screen
 			tfx_SetEffectHeightMultiplier(game->game_pm, vader.laser, 3.f);
@@ -743,7 +743,7 @@ void UpdateVaders(VadersGame *game) {
 			tfx_vec3_t laser_offset = RotatePoint({ 0.f, .4f, 0.f }, { 0.f, 0.f, 0.f }, vader.angle - 90.f);
 			tfx_SetEffectPositionVec3(game->game_pm, vader.laser, vader.position + laser_offset);
 			//Rotate the laser
-			tfx_SetEffectPitch(game->game_pm, vader.laser, tfx_DegreesToRadians(vader.angle));
+			tfx_SetEffectRoll(game->game_pm, vader.laser, -tfx_DegreesToRadians(vader.angle));
 			if (vader.angle == vader.end_angle) {
 				vader.time = 0;
 				vader.end_angle = vader.start_angle;
@@ -759,7 +759,7 @@ void UpdateVaders(VadersGame *game) {
 				if (game->state != GameState_game_over && IsLineCircleCollision(vader.position + laser_offset, vader.position + laser_offset + (laser_normal * 20.f), game->player.position, .3f)) {
 					//Destroy the player. Add the player explosion to the particle manager and position/scale it.
 					tfxEffectID effect_index;
-					if (tfx_AddEffectTemplateToParticleManager(game->game_pm, game->player_explosion, &effect_index)) {
+					if (tfx_AddEffectTemplateToEffectManager(game->game_pm, game->player_explosion, &effect_index)) {
 						tfx_SetEffectPositionVec3(game->game_pm, effect_index, game->player.position);
 						tfx_SetEffectOveralScale(game->game_pm, effect_index, 1.5f);
 					}
@@ -784,14 +784,14 @@ void UpdatePowerUps(VadersGame *game) {
 		if (tfx_GetDistance(position.z, position.y, game->player.position.z, game->player.position.y) < 0.3f) {
 			tfx_HardExpireEffect(game->game_pm, power_up);
 			tfxEffectID effect_index;
-			if (tfx_AddEffectTemplateToParticleManager(game->game_pm, game->got_power_up, &effect_index)) {
+			if (tfx_AddEffectTemplateToEffectManager(game->game_pm, game->got_power_up, &effect_index)) {
 				tfx_SetEffectPositionVec3(game->game_pm, effect_index, game->player.position);
 				tfx_SetEffectOveralScale(game->game_pm, effect_index, 2.5f);
 			}
 			game->player.rate_of_fire += 1 * UpdateFrequency;
 			continue;
 		}
-		tfx_MoveEffect3d(game->game_pm, power_up, 0.f, -1.f * UpdateFrequency, 0.f);
+		tfx_MoveEffect(game->game_pm, power_up, 0.f, -1.f * UpdateFrequency, 0.f);
 		game->power_ups[next_buffer].push_back(power_up);
 	}
 }
@@ -806,7 +806,7 @@ void UpdatePlayer(VadersGame *game, Player *player) {
 		if (player->fire_count >= 1.f) {
 			player->fire_count = 0;
 			PlayerBullet new_bullet;
-			if(tfx_AddEffectTemplateToParticleManager(game->game_pm, game->player_bullet_effect, &new_bullet.effect_index)){
+			if(tfx_AddEffectTemplateToEffectManager(game->game_pm, game->player_bullet_effect, &new_bullet.effect_index)){
 				new_bullet.position = player->position;
 				tfx_SetEffectPositionVec3(game->game_pm, new_bullet.effect_index, new_bullet.position);
 				tfx_SetEffectBaseNoiseOffset(game->game_pm, new_bullet.effect_index, game->noise_offset);
@@ -849,7 +849,7 @@ void UpdateVaderBullets(VadersGame *game) {
 		if (game->state != GameState_game_over && tfx_GetDistance(bullet.position.z, bullet.position.y, game->player.position.z, game->player.position.y) < 0.3f) {
 			//Blow up the player, add the player_explosion effect to the particle manager and set it's position/scale
 			tfxEffectID effect_index = 0;
-			if (tfx_AddEffectTemplateToParticleManager(game->game_pm, game->player_explosion, &effect_index)) {
+			if (tfx_AddEffectTemplateToEffectManager(game->game_pm, game->player_explosion, &effect_index)) {
 				tfx_SetEffectPositionVec3(game->game_pm, effect_index, bullet.position);
 				tfx_SetEffectOveralScale(game->game_pm, effect_index, 1.5f);
 			}
@@ -875,7 +875,7 @@ void UpdateVaderBullets(VadersGame *game) {
 void SetParticleOption(VadersGame *game) {
 	//Here we can alter the particle effects so that on slower PCs the particles can be toned down
 	if (game->particle_option == 0) {
-		tfx_ScaleTemplateGlobalMultiplier(game->background, tfxGlobal_amount, .25f);
+		tfx_ScaleTemplateGlobalMultiplier(game->background, tfxEffect_global_amount_index, .25f);
 		//Restart the title/background effects
 		tfx_SoftExpireEffect(game->background_pm, game->background_index);
 		tfx_HardExpireEffect(game->title_pm, game->title_index);
@@ -886,74 +886,74 @@ void SetParticleOption(VadersGame *game) {
 		tfx_SetTemplateSingleSpawnAmount(game->big_explosion, "Big Explosion/Ring Stretch", 100);
 		tfx_SetTemplateSingleSpawnAmount(game->big_explosion, "Big Explosion/Ring Stretch.1", 100);
 		//Scale the base amount of the cloud burst expand emitter
-		tfx_ScaleTemplateEmitterGraph(game->big_explosion, "Big Explosion/Cloud Burst Expand", tfxBase_amount, 0.25f);
+		tfx_ScaleTemplateEmitterGraph(game->big_explosion, "Big Explosion/Cloud Burst Expand", tfxEmitter_base_amount_index, 0.25f);
 		//Tone down the player explosion as well
 		tfx_SetTemplateSingleSpawnAmount(game->player_explosion, "Player Explosion/Ring Stretch", 100);
 		tfx_SetTemplateSingleSpawnAmount(game->player_explosion, "Player Explosion/Ring Stretch.1", 100);
-		tfx_ScaleTemplateEmitterGraph(game->player_explosion, "Player Explosion/Cloud Burst", tfxBase_amount, 0.25f);
+		tfx_ScaleTemplateEmitterGraph(game->player_explosion, "Player Explosion/Cloud Burst", tfxEmitter_base_amount_index, 0.25f);
 		tfx_SetTemplateSingleSpawnAmount(game->got_power_up, "Got Power Up/Delayed Ellipse", 100);
-		tfx_ScaleTemplateGlobalMultiplier(game->vader_explosion_effect, tfxGlobal_amount, .25f);
+		tfx_ScaleTemplateGlobalMultiplier(game->vader_explosion_effect, tfxEffect_global_amount_index, .25f);
 		//For the laser scale the global amount to adjust the amount of all emitters within the effect
-		tfx_ScaleTemplateGlobalMultiplier(game->laser, tfxGlobal_amount, .5f);
+		tfx_ScaleTemplateGlobalMultiplier(game->laser, tfxEffect_global_amount_index, .5f);
 		tfx_DisableTemplateEmitter(game->laser, "Laser/Flare");
 
-		if (tfx_AddEffectTemplateToParticleManager(game->background_pm, game->background, &game->background_index)) {
+		if (tfx_AddEffectTemplateToEffectManager(game->background_pm, game->background, &game->background_index)) {
 			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(game->camera.front, 12.f), game->camera.position);
 			tfx_SetEffectPositionVec3(game->background_pm, game->background_index, { position.x, position.y, position.z });
 		}
-		if (tfx_AddEffectTemplateToParticleManager(game->title_pm, game->title, &game->title_index)) {
+		if (tfx_AddEffectTemplateToEffectManager(game->title_pm, game->title, &game->title_index)) {
 			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d));
 		}
 	}
 	else if (game->particle_option == 1) {
-		tfx_ScaleTemplateGlobalMultiplier(game->background, tfxGlobal_amount, .65f);
+		tfx_ScaleTemplateGlobalMultiplier(game->background, tfxEffect_global_amount_index, .65f);
 		tfx_SoftExpireEffect(game->background_pm, game->background_index);
 		tfx_HardExpireEffect(game->title_pm, game->title_index);
 		tfx_EnableTemplateEmitter(game->player_bullet_effect, "Player Bullet/Flare");
-		tfx_ScaleTemplateEmitterGraph(game->player_bullet_effect, "Player Bullet/Flare", tfxBase_amount, 0.5f);
+		tfx_ScaleTemplateEmitterGraph(game->player_bullet_effect, "Player Bullet/Flare", tfxEmitter_base_amount_index, 0.5f);
 		tfx_DisableTemplateEmitter(game->title, "Title/Flare");
 		tfx_SetTemplateSingleSpawnAmount(game->big_explosion, "Big Explosion/Ring Stretch", 200);
 		tfx_SetTemplateSingleSpawnAmount(game->big_explosion, "Big Explosion/Ring Stretch.1", 250);
-		tfx_ScaleTemplateEmitterGraph(game->big_explosion, "Big Explosion/Cloud Burst Expand", tfxBase_amount, 0.65f);
+		tfx_ScaleTemplateEmitterGraph(game->big_explosion, "Big Explosion/Cloud Burst Expand", tfxEmitter_base_amount_index, 0.65f);
 		tfx_SetTemplateSingleSpawnAmount(game->player_explosion, "Player Explosion/Ring Stretch", 200);
 		tfx_SetTemplateSingleSpawnAmount(game->player_explosion, "Player Explosion/Ring Stretch.1", 250);
-		tfx_ScaleTemplateEmitterGraph(game->player_explosion, "Player Explosion/Cloud Burst", tfxBase_amount, 0.65f);
-		tfx_ScaleTemplateGlobalMultiplier(game->vader_explosion_effect, tfxGlobal_amount, .65f);
+		tfx_ScaleTemplateEmitterGraph(game->player_explosion, "Player Explosion/Cloud Burst", tfxEmitter_base_amount_index, 0.65f);
+		tfx_ScaleTemplateGlobalMultiplier(game->vader_explosion_effect, tfxEffect_global_amount_index, .65f);
 		tfx_SetTemplateSingleSpawnAmount(game->got_power_up, "Got Power Up/Delayed Ellipse", 250);
-		tfx_ScaleTemplateGlobalMultiplier(game->laser, tfxGlobal_amount, 1.f);
+		tfx_ScaleTemplateGlobalMultiplier(game->laser, tfxEffect_global_amount_index, 1.f);
 		tfx_DisableTemplateEmitter(game->laser, "Laser/Flare");
 
-		if (tfx_AddEffectTemplateToParticleManager(game->background_pm, game->background, &game->background_index)) {
+		if (tfx_AddEffectTemplateToEffectManager(game->background_pm, game->background, &game->background_index)) {
 			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(game->camera.front, 12.f), game->camera.position);
 			tfx_SetEffectPositionVec3(game->background_pm, game->background_index, { position.x, position.y, position.z });
 		}
-		if (tfx_AddEffectTemplateToParticleManager(game->title_pm, game->title, &game->title_index)) {
+		if (tfx_AddEffectTemplateToEffectManager(game->title_pm, game->title, &game->title_index)) {
 			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d));
 		}
 	}
 	else if (game->particle_option == 2) {
-	tfx_ScaleTemplateGlobalMultiplier(game->background, tfxGlobal_amount, 1.f);
+		tfx_ScaleTemplateGlobalMultiplier(game->background, tfxEffect_global_amount_index, 1.f);
 		tfx_SoftExpireEffect(game->background_pm, game->background_index);
 		tfx_HardExpireEffect(game->title_pm, game->title_index);
 		tfx_EnableTemplateEmitter(game->player_bullet_effect, "Player Bullet/Flare");
-		tfx_ScaleTemplateEmitterGraph(game->player_bullet_effect, "Player Bullet/Flare", tfxBase_amount, 1.f);
+		tfx_ScaleTemplateEmitterGraph(game->player_bullet_effect, "Player Bullet/Flare", tfxEmitter_base_amount_index, 1.f);
 		tfx_EnableTemplateEmitter(game->title, "Title/Flare");
 		tfx_SetTemplateSingleSpawnAmount(game->big_explosion, "Big Explosion/Ring Stretch", 400);
 		tfx_SetTemplateSingleSpawnAmount(game->big_explosion, "Big Explosion/Ring Stretch.1", 500);
-		tfx_ScaleTemplateEmitterGraph(game->big_explosion, "Big Explosion/Cloud Burst Expand", tfxBase_amount, 1.f);
+		tfx_ScaleTemplateEmitterGraph(game->big_explosion, "Big Explosion/Cloud Burst Expand", tfxEmitter_base_amount_index, 1.f);
 		tfx_SetTemplateSingleSpawnAmount(game->player_explosion, "Player Explosion/Ring Stretch", 400);
 		tfx_SetTemplateSingleSpawnAmount(game->player_explosion, "Player Explosion/Ring Stretch.1", 500);
-		tfx_ScaleTemplateEmitterGraph(game->player_explosion, "Player Explosion/Cloud Burst", tfxBase_amount, 1.f);
-		tfx_ScaleTemplateGlobalMultiplier(game->vader_explosion_effect, tfxGlobal_amount, 1.f);
+		tfx_ScaleTemplateEmitterGraph(game->player_explosion, "Player Explosion/Cloud Burst", tfxEmitter_base_amount_index, 1.f);
+		tfx_ScaleTemplateGlobalMultiplier(game->vader_explosion_effect, tfxEffect_global_amount_index, 1.f);
 		tfx_SetTemplateSingleSpawnAmount(game->got_power_up, "Got Power Up/Delayed Ellipse", 566);
-		tfx_ScaleTemplateGlobalMultiplier(game->laser, tfxGlobal_amount, 1.f);
+		tfx_ScaleTemplateGlobalMultiplier(game->laser, tfxEffect_global_amount_index, 1.f);
 		tfx_EnableTemplateEmitter(game->laser, "Laser/Flare");
 
-		if (tfx_AddEffectTemplateToParticleManager(game->background_pm, game->background, &game->background_index)) {
+		if (tfx_AddEffectTemplateToEffectManager(game->background_pm, game->background, &game->background_index)) {
 			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(game->camera.front, 12.f), game->camera.position);
 			tfx_SetEffectPositionVec3(game->background_pm, game->background_index, { position.x, position.y, position.z });
 		}
-		if (tfx_AddEffectTemplateToParticleManager(game->title_pm, game->title, &game->title_index)) {
+		if (tfx_AddEffectTemplateToEffectManager(game->title_pm, game->title, &game->title_index)) {
 			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d));
 		}
 	}
@@ -1053,35 +1053,35 @@ void DrawVaderBullets(VadersGame *game, float lerp) {
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
-void RenderParticles3d(tfx_particle_manager pm, VadersGame *game) {
+void RenderParticles3d(tfx_effect_manager pm, VadersGame *game) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_SetInstanceDrawing(game->tfx_rendering.layer, game->tfx_rendering.shader_resource, game->tfx_rendering.pipeline);
 
-	tfx_3d_instance_t *billboards = tfx_Get3dInstanceBuffer(pm);
+	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, tfx_GetInstanceCount(pm));
 	game->index_offset[game->tfx_rendering.layer->fif ^ 1] = zest_GetInstanceLayerCount(game->tfx_rendering.layer);
 }
 
 //Render the particles by effect
-void RenderEffectParticles(tfx_particle_manager pm, VadersGame *game) {
+void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_SetInstanceDrawing(game->tfx_rendering.layer, game->tfx_rendering.shader_resource, game->tfx_rendering.pipeline);
 
 	//Because we're drawing the background first without using per effect drawing, we need to send the starting offset of the sprite
 	//instances in the layer so that the previous sprite lookup in the shader is aligned properly.
 	game->tfx_rendering.layer->current_instruction.push_constants.parameters1.x += game->index_offset[game->tfx_rendering.layer->fif];
-	tfx_3d_instance_t *billboards = nullptr;
+	tfx_instance_t *billboards = nullptr;
 	tfx_effect_instance_data_t *instance_data;
 	tfxU32 instance_count = 0;
 	bool halt = false;
-	while (tfx_GetNext3dInstanceBuffer(pm, &billboards, &instance_data, &instance_count)) {
+	while (tfx_GetNextInstanceBuffer(pm, &billboards, &instance_data, &instance_count)) {
 		zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, instance_count);
 	}
 	tfx_ResetInstanceBufferLoopIndex(pm);
 }
 
 void ResetGame(VadersGame *game) {
-	tfx_ClearParticleManager(game->game_pm, false, false);
+	tfx_ClearEffectManager(game->game_pm, false, false);
 	game->vaders[game->current_buffer].clear();
 	game->big_vaders[game->current_buffer].clear();
 	game->player_bullets[game->current_buffer].clear();
@@ -1115,11 +1115,10 @@ void VadersGame::Update(float ellapsed) {
 		//Render based on the current game state
 		if (state == GameState_title) {
 			//Update the background particle manager
-			TFX_ASSERT(!(background_pm->flags & tfxParticleManagerFlags_use_effect_sprite_buffers));
 			if (pending_ticks > 0) {
-				tfx_UpdateParticleManager(background_pm, FrameLength * pending_ticks);
+				tfx_UpdateEffectManager(background_pm, FrameLength * pending_ticks);
 				//Update the title particle manager
-				tfx_UpdateParticleManager(title_pm, FrameLength * pending_ticks);
+				tfx_UpdateEffectManager(title_pm, FrameLength * pending_ticks);
 				pending_ticks = 0;
 			}
 			if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
@@ -1136,8 +1135,8 @@ void VadersGame::Update(float ellapsed) {
 			if (!paused) {
 				//Update the main game particle manager and the background particle manager
 				if (pending_ticks > 0) {
-					tfx_UpdateParticleManager(game_pm, FrameLength * pending_ticks);
-					tfx_UpdateParticleManager(background_pm, FrameLength * pending_ticks);
+					tfx_UpdateEffectManager(game_pm, FrameLength * pending_ticks);
+					tfx_UpdateEffectManager(background_pm, FrameLength * pending_ticks);
 					pending_ticks = 0;
 				}
 				//We can alter the noise offset so that the bullet noise particles cycle their noise offsets to avoid repetition in the noise patterns
@@ -1164,8 +1163,8 @@ void VadersGame::Update(float ellapsed) {
 		else if (state == GameState_game_over) {
 			//Update the main game particle manager and the background particle manager
 			if (pending_ticks > 0) {
-				tfx_UpdateParticleManager(game_pm, FrameLength * pending_ticks);
-				tfx_UpdateParticleManager(background_pm, FrameLength * pending_ticks);
+				tfx_UpdateEffectManager(game_pm, FrameLength * pending_ticks);
+				tfx_UpdateEffectManager(background_pm, FrameLength * pending_ticks);
 				pending_ticks = 0;
 			}
 			noise_offset += 1.f * UpdateFrequency;
@@ -1257,8 +1256,6 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 // Windows entry point
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 //int main() {
-	zest_vec3 v = zest_Vec3Set(1.f, 0.f, 0.f);
-	zest_uint packed = zest_Pack8bitx3(&v);
 	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = ".";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);

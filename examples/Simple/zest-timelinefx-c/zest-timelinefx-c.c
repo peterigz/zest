@@ -38,7 +38,7 @@ typedef struct TimelineFXExample_s {
 	tfx_render_resources_t tfx_rendering;
 
 	tfx_library library;
-	tfx_particle_manager pm;
+	tfx_effect_manager pm;
 
 	tfx_effect_template effect_template1;
 	tfx_effect_template effect_template2;
@@ -57,6 +57,8 @@ void UpdateUniform3d(TimelineFXExample *game) {
 	buffer_3d->screen_size.x = zest_ScreenWidthf();
 	buffer_3d->screen_size.y = zest_ScreenHeightf();
 	buffer_3d->millisecs = 0;
+	buffer_3d->parameters1.x = (float)zest_TimerLerp(game->timer);
+	buffer_3d->parameters1.y = (float)zest_TimerUpdateTime(game->timer);
 }
 
 //Before you load an effects file, you will need to define a ShapeLoader function that passes the following parameters:
@@ -125,8 +127,8 @@ void InitTimelineFXRenderResources(tfx_render_resources_t *render_resources, con
 
 	//Compile the shaders we will use to render the particles
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	render_resources->fragment_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", shaderc_fragment_shader, true, compiler);
-	render_resources->vertex_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx3d.vert", "tfx_vertex3d.spv", shaderc_vertex_shader, true, compiler);
+	render_resources->fragment_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx.frag", "tfx_frag.spv", shaderc_fragment_shader, true, compiler, 0);
+	render_resources->vertex_shader = zest_CreateShaderFromFile("examples/assets/shaders/timelinefx3d.vert", "tfx_vertex3d.spv", shaderc_vertex_shader, true, compiler, 0);
 	shaderc_compiler_release(compiler);
 
 	//To render the particles we setup a pipeline with the vertex attributes and shaders to render the particles.
@@ -137,16 +139,16 @@ void InitTimelineFXRenderResources(tfx_render_resources_t *render_resources, con
 
 	zest_pipeline_template_create_info_t instance_create_info = zest_CreatePipelineTemplateCreateInfo();
 	instance_create_info.viewport.extent = zest_GetSwapChainExtent();
-	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_3d_instance_t objects
-	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(tfx_3d_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(tfx_3d_instance_t, position)));	            // Location 0: Postion and stretch in w
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(tfx_3d_instance_t, rotations)));	            // Location 1: Rotations
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8_SNORM, offsetof(tfx_3d_instance_t, alignment)));					// Location 2: Alignment
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(tfx_3d_instance_t, size_handle)));		    // Location 3: Size and handle of the sprite
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(tfx_3d_instance_t, intensity_gradient_map)));    		    // Location 4: 2 intensities for each color
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R8G8B8_UNORM, offsetof(tfx_3d_instance_t, curved_alpha_life)));               	// Location 5: Sharpness and mix lerp value
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(tfx_3d_instance_t, indexes)));							// Location 6: texture indexes to sample the correct image and color ramp
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(tfx_3d_instance_t, captured_index)));   				// Location 7: index of the sprite in the previous buffer when double buffering
+	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_instance_t objects
+	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(tfx_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(tfx_instance_t, position)));	            // Location 0: Postion and stretch in w
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(tfx_instance_t, rotations)));	            // Location 1: Rotations
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8_SNORM, offsetof(tfx_instance_t, alignment)));					// Location 2: Alignment
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(tfx_instance_t, size_handle)));		    // Location 3: Size and handle of the sprite
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(tfx_instance_t, intensity_gradient_map)));    		    // Location 4: 2 intensities for each color
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R8G8B8_UNORM, offsetof(tfx_instance_t, curved_alpha_life)));               	// Location 5: Sharpness and mix lerp value
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(tfx_instance_t, indexes)));							// Location 6: texture indexes to sample the correct image and color ramp
+	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(tfx_instance_t, captured_index)));   				// Location 7: index of the sprite in the previous buffer when double buffering
 	//Set the shaders to our custom timelinefx shaders
 	zest_SetPipelineTemplateVertShader(&instance_create_info, "tfx_vertex3d.spv", 0);
 	zest_SetPipelineTemplateFragShader(&instance_create_info, "tfx_frag.spv", 0);
@@ -159,8 +161,8 @@ void InitTimelineFXRenderResources(tfx_render_resources_t *render_resources, con
 	render_resources->pipeline->pipeline_template.depthStencil.depthTestEnable = true;
 	zest_BuildPipeline(render_resources->pipeline);
 
-	//Create a drawroutine specifically for the tfx_3d_instance_t object
-	render_resources->draw_routine = zest_CreateInstanceDrawRoutine("timelinefx draw routine", sizeof(tfx_3d_instance_t), 25000);
+	//Create a drawroutine specifically for the tfx_instance_t object
+	render_resources->draw_routine = zest_CreateInstanceDrawRoutine("timelinefx draw routine", sizeof(tfx_instance_t), 25000);
 
 
 	//Set up the draw layers we need in the renderer
@@ -223,6 +225,20 @@ void Init(TimelineFXExample *example) {
 	//Process the texture with all the particle shapes that we just added to
 	zest_ProcessTextureImages(example->tfx_rendering.particle_texture);
 
+	/*
+	Prepare a tfx_effect_template_t that you can use to customise effects in the library in various ways before adding them into a particle manager for updating and rendering. Using a template like this
+	means that you can tweak an effect without editing the base effect in the library.
+	*NOTE*	You must create all your templates before uploading color ramps as each effect template will create it's own emitter
+			color ramps that you can edit in the template. If you don't then the fragment shader will try indexing into the text
+			where there is no color data.
+	* @param library					A reference to a tfx_library_t that should be loaded with LoadEffectLibraryPackage
+	* @param name						The name of the effect in the library that you want to use for the template. If the effect is in a folder then use normal pathing: "My Folder/My effect"
+	* @param effect_template			The empty tfx_effect_template_t object that you want the effect loading into
+	//Returns a handle for a tfx_effect_template.
+	*/
+	example->effect_template1 = tfx_CreateEffectTemplate(example->library, "Star Burst Flash");
+	example->effect_template2 = tfx_CreateEffectTemplate(example->library, "Star Burst Flash.1");
+
 	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
 	//simply copied to a bitmap for uploading to the texture
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(example->library);
@@ -255,8 +271,8 @@ void Init(TimelineFXExample *example) {
 
 	In this example we'll setup a particle manager for 3d effects and group the sprites by each effect.
 	*/
-	tfx_particle_manager_info_t pm_info = tfx_CreateParticleManagerInfo(tfxParticleManagerSetup_3d_group_sprites_by_effect);
-	example->pm = tfx_CreateParticleManager(pm_info);
+	tfx_effect_manager_info_t pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
+	example->pm = tfx_CreateEffectManager(pm_info);
 
 	//Renderer specific that sets up some draw layers
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.1f, 0.1f, .1f, 1.f);
@@ -264,25 +280,14 @@ void Init(TimelineFXExample *example) {
 
 	zest_TimerReset(example->timer);
 	//End of render specific code
-
-	/*
-	Prepare a tfx_effect_template_t that you can use to customise effects in the library in various ways before adding them into a particle manager for updating and rendering. Using a template like this
-	means that you can tweak an effect without editing the base effect in the library.
-	* @param library					A reference to a tfx_library_t that should be loaded with LoadEffectLibraryPackage
-	* @param name						The name of the effect in the library that you want to use for the template. If the effect is in a folder then use normal pathing: "My Folder/My effect"
-	* @param effect_template			The empty tfx_effect_template_t object that you want the effect loading into
-	//Returns true on success.
-	*/
-	example->effect_template1 = tfx_CreateEffectTemplate(example->library, "Star Burst Flash");
-	example->effect_template2 = tfx_CreateEffectTemplate(example->library, "Star Burst Flash.1");
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
-void RenderParticles3d(tfx_particle_manager_t *pm, TimelineFXExample *game) {
+void RenderParticles(tfx_effect_manager_t *pm, TimelineFXExample *game) {
 	//Let our renderer know that we want to draw to the timelinefx layer.
 	zest_SetInstanceDrawing(game->tfx_rendering.layer, game->tfx_rendering.shader_resource, game->tfx_rendering.pipeline);
 
-	tfx_3d_instance_t *billboards = tfx_Get3dInstanceBuffer(pm);
+	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, tfx_GetInstanceCount(game->pm));
 }
 
@@ -300,7 +305,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 		tfxEffectID effect_id;
 		//Add the effect template to the particle manager
-		if (tfx_AddEffectTemplateToParticleManager(game->pm, game->effect_template1, &effect_id)) {
+		if (tfx_AddEffectTemplateToEffectManager(game->pm, game->effect_template1, &effect_id)) {
 			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
 			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, &game->camera.position, game->tfx_rendering.uniform_buffer_3d);
 			//Set the effect position
@@ -312,7 +317,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 		tfxEffectID effect_id;
 		//Add the effect template to the particle manager
-		if (tfx_AddEffectTemplateToParticleManager(game->pm, game->effect_template2, &effect_id)) {
+		if (tfx_AddEffectTemplateToEffectManager(game->pm, game->effect_template2, &effect_id)) {
 			//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
 			tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 12.f, &game->camera.position, game->tfx_rendering.uniform_buffer_3d);
 			//Set the effect position
@@ -329,7 +334,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//instead. This is important in order to keep the billboard buffer on the gpu in sync for interpolating the particles
 		//with the previous frame. It's also just more efficient to do this.
 		if (pending_ticks > 0) {
-			tfx_UpdateParticleManager(game->pm, FrameLength);
+			tfx_UpdateEffectManager(game->pm, FrameLength);
 			pending_ticks = 0;
 		}
 
@@ -343,7 +348,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//have to upload the latest billboards to the gpu.
 	if (zest_TimerUpdateWasRun(game->timer)) {
 		zest_ResetInstanceLayer(game->tfx_rendering.layer);
-		RenderParticles3d(game->pm, game);
+		RenderParticles(game->pm, game);
 	}
 }
 
