@@ -2173,6 +2173,7 @@ typedef struct zest_timer_t {
     double lerp;
     double time_passed;
     double seconds_passed;
+    double max_elapsed_time;
     int update_count;
 } zest_timer_t;
 
@@ -4900,6 +4901,7 @@ ZEST_API zest_bool zest_SwapchainWasRecreated(void);
 ZEST_API zest_timer zest_CreateTimer(double update_frequency);                                  //Create a new timer and return its handle
 ZEST_API void zest_FreeTimer(zest_timer timer);                                                 //Free a timer and its memory
 ZEST_API void zest_TimerSetUpdateFrequency(zest_timer timer, double update_frequency);          //Set the update frequency for timing loop functions, accumulators and such
+ZEST_API void zest_TimerSetMaxFrames(zest_timer timer, double frames);                          //Set the maximum amount of frames that can pass each update. This helps avoid simulations blowing up
 ZEST_API void zest_TimerReset(zest_timer timer);                                                //Set the clock time to now
 ZEST_API double zest_TimerDeltaTime(zest_timer timer);                                          //The amount of time passed since the last tick
 ZEST_API void zest_TimerTick(zest_timer timer);                                                 //Update the delta time

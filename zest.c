@@ -12463,6 +12463,7 @@ zest_timer zest_CreateTimer(double update_frequency) {
     *timer = blank_timer;
     timer->magic = zest_INIT_MAGIC;
     zest_TimerSetUpdateFrequency(timer, update_frequency);
+    zest_TimerSetMaxFrames(timer, 4.0);
     zest_TimerReset(timer);
     return timer;
 }
@@ -12507,6 +12508,7 @@ double zest_TimerAccumulate(zest_timer timer) {
 
     timer->accumulator_delta = timer->accumulator;
     timer->accumulator += frame_time;
+    timer->accumulator = ZEST__MIN(timer->accumulator, timer->max_elapsed_time);
     timer->update_count = 0;
     return frame_time;
 }
@@ -12538,6 +12540,11 @@ double zest_TimerLerp(zest_timer timer) {
 void zest_TimerSet(zest_timer timer) {
     ZEST_CHECK_HANDLE(timer);	//Not a valid handle!
     timer->lerp = timer->accumulator / timer->update_tick_length;
+}
+
+void zest_TimerSetMaxFrames(zest_timer timer, double frames) {
+    ZEST_CHECK_HANDLE(timer);	//Not a valid handle!
+    timer->max_elapsed_time = timer->update_tick_length * frames;
 }
 
 void zest_TimerSetUpdateFrequency(zest_timer timer, double frequency) {
