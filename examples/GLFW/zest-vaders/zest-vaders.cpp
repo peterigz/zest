@@ -934,7 +934,6 @@ void SetParticleOption(VadersGame *game) {
 	else if (game->particle_option == 2) {
 		tfx_ScaleTemplateGlobalMultiplier(game->background, tfxEffect_global_amount_index, 1.f);
 		tfx_SoftExpireEffect(game->background_pm, game->background_index);
-		tfx_HardExpireEffect(game->title_pm, game->title_index);
 		tfx_EnableTemplateEmitter(game->player_bullet_effect, "Player Bullet/Flare");
 		tfx_ScaleTemplateEmitterGraph(game->player_bullet_effect, "Player Bullet/Flare", tfxEmitter_base_amount_index, 1.f);
 		tfx_EnableTemplateEmitter(game->title, "Title/Flare");
@@ -953,6 +952,7 @@ void SetParticleOption(VadersGame *game) {
 			zest_vec3 position = zest_AddVec3(zest_ScaleVec3(game->camera.front, 12.f), game->camera.position);
 			tfx_SetEffectPositionVec3(game->background_pm, game->background_index, { position.x, position.y, position.z });
 		}
+		tfx_HardExpireEffect(game->title_pm, game->title_index);
 		if (tfx_AddEffectTemplateToEffectManager(game->title_pm, game->title, &game->title_index)) {
 			tfx_SetEffectPositionVec3(game->title_pm, game->title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, game->camera.position, game->tfx_rendering.uniform_buffer_3d));
 		}
@@ -1177,6 +1177,16 @@ void VadersGame::Update(float ellapsed) {
 			if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 				state = GameState_title;
 				wait_for_mouse_release = true;
+				//Clear out the title effect manager and restart the effect. This is so that when the shader tries to 
+				//lerp with particles in the previous it won't be able to because they've already been replaced with other
+				//sprite data while the game was playing. If you didn't want to do this then you could just give the title
+				//effect manager it's own layer and sprite buffer to render particles with, but I just simlify things here
+				//by restarting the effect instead.
+				tfx_HardExpireEffect(title_pm, title_index);
+				tfx_ClearEffectManager(title_pm, false, false);
+				if (tfx_AddEffectTemplateToEffectManager(title_pm, title, &title_index)) {
+					tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, tfx_rendering.uniform_buffer_3d));
+				}
 			}
 			else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
 				wait_for_mouse_release = false;

@@ -13,7 +13,7 @@ const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
 const vec3 up = vec3( 0, 1, 0.00001 );
 const vec3 front = vec3( 0, 0, 1 );
 const vec3 left = vec3( 1, 0, 0 );
-const float size_max_value = 256.0 / 32767.0;
+const float size_max_value = 64.0 / 32767.0;
 const float handle_max_value = 128.0 / 32767.0;
 const float intensity_max_value = 128.0 / 32767.0;
 
@@ -98,31 +98,36 @@ void main() {
     vec2 handle = size_handle.zw * handle_max_value;
 
 	uint prev_index = (captured_index & 0x0FFFFFFF) + uint(pc.parameters1.x);  //Add on an offset if the are multiple draw instructions
-	float first_frame = float((texture_indexes & 0x00008000) >> 15);
+    //We won't interpolate the position of the particle for a few possible reasons:
+    //  It's the first frame of the particle and there's no previous frame to interpolate with
+    //  We're looping back to the start of a path or line
+    //  It maybe cancelled becuase too much time passed since the last frame
+	float interpolate_is_active = float((texture_indexes & 0x00008000) >> 15);
 
 	uint prev_size_packed = prev_billboards[prev_index].size_handle.x;
 
     #ifdef LOW_UPDATE_RATE
     //For updating particles at 30 fps or less you can improve the first frame of particles by doing the following ternary operations to effectively cancel the interpolation:
     //define LOW_UPDATE_RATE to compile with this instead.
-	vec2 lerped_size = first_frame == 1 ? vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value) : size;
+	vec2 lerped_size = interpolate_is_active == 1 ? vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value) : size;
 	lerped_size = mix(lerped_size, size, ub.lerp.x);
-	vec3 lerped_position = first_frame == 1 ? mix(prev_billboards[prev_index].position.xyz, position.xyz, ub.lerp.x) : position.xyz;
-	vec3 lerped_rotation = first_frame == 1 ? mix(prev_billboards[prev_index].rotations, rotations, ub.lerp.x) : rotations;
+	vec3 lerped_position = interpolate_is_active == 1 ? mix(prev_billboards[prev_index].position.xyz, position.xyz, ub.lerp.x) : position.xyz;
+	vec3 lerped_rotation = interpolate_is_active == 1 ? mix(prev_billboards[prev_index].rotations, rotations, ub.lerp.x) : rotations;
     #else
     //Otherwise just hide the first frame of the particle which is a little more efficient:
 	vec2 lerped_size = vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value);
-	lerped_size = mix(lerped_size, size, ub.lerp.x) * first_frame;
+	lerped_size = mix(lerped_size, size, ub.lerp.x) * interpolate_is_active;
 	vec3 lerped_position = mix(prev_billboards[prev_index].position.xyz, position.xyz, ub.lerp.x);
 	vec3 lerped_rotation = mix(prev_billboards[prev_index].rotations, rotations, ub.lerp.x);
     #endif
     vec3 motion = position.xyz - prev_billboards[prev_index].position.xyz;
     motion.z += 0.000001;
+    float travel_distance = length(motion); // Calculate the actual distance traveled
 	bool has_alignment = dot(alignment, alignment) > 0;
-    float stretch = has_alignment ? position.w : position.w * first_frame * length(motion) / ub.lerp.y;
-    motion = normalize(motion);
-    vec3 final_alignment = has_alignment ? alignment : motion;
+    float stretch_factor = position.w * interpolate_is_active;
 
+    motion = normalize(motion); // Normalize for direction
+    vec3 final_alignment = has_alignment ? alignment : motion; // Use normalized motion or specified alignment
     //----
 
     //Info about how to align the billboard is stored in bits 22 and 23 of intensity_texture_array
@@ -238,9 +243,22 @@ void main() {
 
     mat4 modelView = ub.view * model;
     vec3 pos = rot_mat * vertex_position;
-    //Stretch effect but negate if billboarding is not active
-    pos += !billboarding    ? camera_relative_aligment * dot(pos, camera_relative_aligment) * stretch : vec3(0);
-    pos += billboarding     ? final_alignment * dot(pos, final_alignment) * stretch : vec3(0);
+
+    //Calculate the amount to stretch the particles. A stretch value (set in the editor) of 1 means that the particle is stretched
+    //by the amount travelled.
+
+    //Get the direction to stretch based on the billboarding option
+	vec3 stretch_direction = billboarding ? final_alignment : normalize(camera_relative_aligment); // Assume inputs allow normalization
+    //Half the amount in order to apply half of the stretch in the forward direction and the other half behind
+	float vertex_offset_magnitude = 0.5 * travel_distance * stretch_factor;
+    //See which vertex this is: Front or back
+	float front_back_sign = sign(dot(pos, stretch_direction));
+    //Calculate the final stretch amount for this vertex
+	vec3 potential_offset = stretch_direction * front_back_sign * vertex_offset_magnitude;
+
+    //Apply the stretch if applicable
+	bool apply_stretch = (travel_distance > 0.00001 && stretch_factor > 0.0);
+	pos += apply_stretch ? potential_offset : vec3(0.0);
 
     //Billboarding. If billboarding = 0 then billboarding is active and the quad will always face the camera, 
     //otherwise the modelView matrix is used as it is.
