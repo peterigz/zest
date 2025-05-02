@@ -78,7 +78,7 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
                     //The imgui image must have its image, pipeline and shader resources defined
                     ZEST_ASSERT(imgui_image->image);
                     zest_ClearLayerDrawSets(imgui_layer);
-                    zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &imgui_layer->draw_sets, imgui_layer->fif);
+                    zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &imgui_layer->draw_sets, imgui_layer->draw_routine->fif);
                     zest_BindPipeline(command_buffer, imgui_image->pipeline, imgui_layer->draw_sets, set_count);
                     last_descriptor_set = VK_NULL_HANDLE;
                     last_pipeline = imgui_image->pipeline;
