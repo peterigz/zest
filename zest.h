@@ -1476,6 +1476,11 @@ typedef enum zest_draw_buffer_result {
     zest_draw_buffer_result_failed_to_grow
 } zest_draw_buffer_result;
 
+typedef enum {
+    zest_query_state_none,
+    zest_query_state_ready,
+} zest_query_state;
+
 typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
 typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
 
@@ -2318,6 +2323,7 @@ typedef struct zest_create_info_t {
 typedef struct zest_device_t {
     zest_uint api_version;
     zest_uint use_labels_address_bit;
+    zest_uint previous_fif;
     zest_uint current_fif;
     zest_uint max_fif;
     zest_uint saved_fif;
@@ -2422,12 +2428,30 @@ typedef struct zest_semaphore_connector_t {
     zest_connector_type type;
 } zest_semaphore_connector_t;
 
+typedef struct zest_timestamp_s {
+    zest_u64 render_start;
+    zest_u64 compute_start;
+    zest_u64 compute_end;
+    zest_u64 render_pass_start;
+    zest_u64 render_pass_end;
+    zest_u64 render_end;
+} zest_timestamp_t;
+
+typedef struct zest_timestamp_duration_s {
+    double nanoseconds;
+    double microseconds;
+    double milliseconds;
+} zest_timestamp_duration_t;
+
 //command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects for a more complex example
 typedef struct zest_command_queue_t {
     int magic;
     zest_semaphore_connector_t semaphores[ZEST_MAX_FIF];
     const char *name;
     VkCommandPool command_pool;                                      //The command pool for command buffers
+    VkQueryPool query_pool;                                          //For profiling
+    zest_query_state query_state[ZEST_MAX_FIF];                      //For checking if the timestamp query is ready
+    zest_timestamp_t timestamps[ZEST_MAX_FIF];                       //The last recorded frame durations for the whole render pipeline
     zest_recorder recorder;                                          //Primary command buffer for recording the whole queue
     VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
     zest_command_queue_draw_commands *draw_commands;                 //A list of draw command handles - mostly these will be draw_commands that are recorded to the command buffer
@@ -2599,6 +2623,7 @@ struct zest_draw_routine_t {
     int magic;
     const char *name;
     zest_uint last_fif;                                                          //The frame in flight index that was set
+    zest_uint fif;
     zest_command_queue command_queue;                                            //The index of the render queue that this draw routine is within
     void *draw_data;                                                             //The user index of the draw routine. Use this to index the routine in your own lists. For Zest layers, this is used to hold the index of the layer in the renderer
     zest_index *command_queues;                                                  //A list of the render queues that this draw routine belongs to
@@ -2768,7 +2793,6 @@ typedef struct zest_layer_t {
 
     const char *name;
 
-    zest_uint fif;
     zest_layer_buffers_t memory_refs[ZEST_MAX_FIF];
     zest_bool dirty[ZEST_MAX_FIF];
     zest_uint initial_instance_pool_size;
@@ -3287,12 +3311,14 @@ ZEST_PRIVATE void zest__draw_renderer_frame(void);
 ZEST_PRIVATE void zest__cleanup_command_queue(zest_command_queue command_queue);
 ZEST_PRIVATE zest_command_queue_draw_commands zest__create_command_queue_draw_commands(const char *name);
 ZEST_PRIVATE void zest__update_command_queue_viewports(void);
+ZEST_PRIVATE void zest__reset_query_pool(VkCommandBuffer command_buffer, VkQueryPool query_pool, zest_uint count);
 // --End Command Queue functions
 
 // --Command Queue Setup functions
 ZEST_PRIVATE zest_command_queue zest__create_command_queue(const char *name);
 ZEST_PRIVATE void zest__set_queue_context(zest_setup_context_type context);
 ZEST_PRIVATE zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer);
+ZEST_PRIVATE VkQueryPool zest__create_query_pool(zest_uint timestamp_count);
 
 // --Draw layer internal functions
 ZEST_PRIVATE void zest__start_mesh_instructions(zest_layer layer);
@@ -4013,6 +4039,10 @@ ZEST_API zest_command_queue zest_CurrentCommandQueue(void);
 //Returns the current command buffer being used to record the queue inside the private function zest__draw_renderer_frame. This can be a useful function to use inside
 //draw routine callback functions if you need to retrieve the command buffer being recording to for any reason (like to pass to a vkCmd function.
 ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void);
+//Get the timestamps for the whole render pipeline
+ZEST_API zest_timestamp_duration_t zest_CommandQueueRenderTimes(zest_command_queue command_queue);
+ZEST_API zest_timestamp_duration_t zest_CommandQueueRenderPassTimes(zest_command_queue command_queue);
+ZEST_API zest_timestamp_duration_t zest_CommandQueueComputeTimes(zest_command_queue command_queue);
 //-- End Command queue setup and creation
 
 //-----------------------------------------------
