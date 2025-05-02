@@ -963,50 +963,54 @@ void BuildUI(VadersGame *game) {
 	//Draw the imgui window
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
-	ImGui::Begin("Effects");
-	ImGui::Text("FPS: %i", ZestApp->last_fps);
-	ImGui::Text("Game Particles: %i", tfx_ParticleCount(game->game_pm));
-	ImGui::Text("Background Particles: %i", tfx_ParticleCount(game->background_pm));
-	ImGui::Text("Title Particles: %i", tfx_ParticleCount(game->title_pm));
-	ImGui::Text("Effects: %i", tfx_EffectCount(game->game_pm));
-	ImGui::Text("Emitters: %i", tfx_EmitterCount(game->game_pm));
-	ImGui::Text("Free Emitters: %i", game->game_pm->free_emitters.size());
-	ImGui::Text("Position: %f, %f, %f", game->player.position.x, game->player.position.y, game->player.position.z);
-	static bool filtering = false;
-	static bool sync_fps = false;
-	ImGui::Checkbox("Texture Filtering", &filtering);
-	if (ImGui::IsItemDeactivatedAfterEdit()) {
-		zest_SetTextureUseFiltering(game->tfx_rendering.particle_texture, filtering);
-		zest_ProcessTextureImages(game->tfx_rendering.particle_texture);
-	}
-	ImGui::Checkbox("Sync FPS", &sync_fps);
-	if (ImGui::IsItemDeactivatedAfterEdit()) {
-		if (sync_fps) {
-			zest_EnableVSync();
+	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
+		ImGui::Begin("Effects");
+		ImGui::Text("FPS: %i", ZestApp->last_fps);
+		ImGui::Text("Game Particles: %i", tfx_ParticleCount(game->game_pm));
+		ImGui::Text("Background Particles: %i", tfx_ParticleCount(game->background_pm));
+		ImGui::Text("Title Particles: %i", tfx_ParticleCount(game->title_pm));
+		ImGui::Text("Effects: %i", tfx_EffectCount(game->game_pm));
+		ImGui::Text("Emitters: %i", tfx_EmitterCount(game->game_pm));
+		ImGui::Text("Free Emitters: %i", game->game_pm->free_emitters.size());
+		ImGui::Text("Position: %f, %f, %f", game->player.position.x, game->player.position.y, game->player.position.z);
+		ImGui::Text("Render Time (MicroSecs): %f", (float)zest_CommandQueueRenderTimes(ZestApp->default_command_queue).microseconds);
+		ImGui::Text("Compute Time (MicroSecs): %f", (float)zest_CommandQueueComputeTimes(ZestApp->default_command_queue).microseconds);
+		ImGui::Text("Render Pass Time (MicroSecs): %f", (float)zest_CommandQueueRenderPassTimes(ZestApp->default_command_queue).microseconds);
+		static bool filtering = false;
+		static bool sync_fps = false;
+		ImGui::Checkbox("Texture Filtering", &filtering);
+		if (ImGui::IsItemDeactivatedAfterEdit()) {
+			zest_SetTextureUseFiltering(game->tfx_rendering.particle_texture, filtering);
+			zest_ProcessTextureImages(game->tfx_rendering.particle_texture);
 		}
-		else {
-			zest_DisableVSync();
-		}
-	}
-	static const char *options[3] = { "Low", "Medium", "High" };
-	if (ImGui::BeginCombo("Particles", options[game->particle_option])) {
-		for (int i = 0; i != 3; ++i)
-		{
-			bool is_selected = (game->particle_option == i);
-			if (ImGui::Selectable(options[i], is_selected))
-				if (game->particle_option != i) {
-					game->particle_option = i;
-					SetParticleOption(game);
-
-				}
-			if (is_selected) {
-				ImGui::SetItemDefaultFocus();
+		ImGui::Checkbox("Sync FPS", &sync_fps);
+		if (ImGui::IsItemDeactivatedAfterEdit()) {
+			if (sync_fps) {
+				zest_EnableVSync();
+			} else {
+				zest_DisableVSync();
 			}
 		}
-		ImGui::EndCombo();
+		static const char *options[3] = { "Low", "Medium", "High" };
+		if (ImGui::BeginCombo("Particles", options[game->particle_option])) {
+			for (int i = 0; i != 3; ++i)
+			{
+				bool is_selected = (game->particle_option == i);
+				if (ImGui::Selectable(options[i], is_selected))
+					if (game->particle_option != i) {
+						game->particle_option = i;
+						SetParticleOption(game);
+
+					}
+				if (is_selected) {
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+			ImGui::EndCombo();
+		}
+		ImGui::Separator();
+		ImGui::End();
 	}
-	ImGui::Separator();
-	ImGui::End();
 
 	ImGui::Render();
 	//This will let the layer know that the mesh buffer containing all of the imgui vertex data needs to be
@@ -1059,7 +1063,7 @@ void RenderParticles3d(tfx_effect_manager pm, VadersGame *game) {
 
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, tfx_GetInstanceCount(pm));
-	game->index_offset[game->tfx_rendering.layer->fif ^ 1] = zest_GetInstanceLayerCount(game->tfx_rendering.layer);
+	game->index_offset[game->tfx_rendering.layer->draw_routine->fif ^ 1] = zest_GetInstanceLayerCount(game->tfx_rendering.layer);
 }
 
 //Render the particles by effect
@@ -1069,7 +1073,7 @@ void RenderEffectParticles(tfx_effect_manager pm, VadersGame *game) {
 
 	//Because we're drawing the background first without using per effect drawing, we need to send the starting offset of the sprite
 	//instances in the layer so that the previous sprite lookup in the shader is aligned properly.
-	game->tfx_rendering.layer->current_instruction.push_constants.parameters1.x += game->index_offset[game->tfx_rendering.layer->fif];
+	game->tfx_rendering.layer->current_instruction.push_constants.parameters1.x += game->index_offset[game->tfx_rendering.layer->draw_routine->fif];
 	tfx_instance_t *billboards = nullptr;
 	tfx_effect_instance_data_t *instance_data;
 	tfxU32 instance_count = 0;
@@ -1099,10 +1103,6 @@ void VadersGame::Update(float ellapsed) {
 	//Renderer specific
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 
-	if (ImGui::IsKeyReleased(ImGuiKey_Space)) {
-		paused = !paused;
-	}
-
 	UpdatePlayerPosition(this, &player);
 	UpdateUniform3d(this);
 	zest_Update2dUniformBuffer();
@@ -1121,14 +1121,15 @@ void VadersGame::Update(float ellapsed) {
 				tfx_UpdateEffectManager(title_pm, FrameLength * pending_ticks);
 				pending_ticks = 0;
 			}
-			if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-				ResetGame(this);
-				vaders[current_buffer].clear();
-				state = GameState_game;
-				wait_for_mouse_release = true;
-			}
-			else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-				wait_for_mouse_release = false;
+			if (!ImGui::IsKeyDown(ImGuiKey_Space)) {
+				if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+					ResetGame(this);
+					vaders[current_buffer].clear();
+					state = GameState_game;
+					wait_for_mouse_release = true;
+				} else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+					wait_for_mouse_release = false;
+				}
 			}
 		}
 		else if (state == GameState_game) {
@@ -1174,22 +1175,23 @@ void VadersGame::Update(float ellapsed) {
 			UpdatePlayerBullets(this);
 			UpdatePowerUps(this);
 			current_buffer = !current_buffer;
-			if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-				state = GameState_title;
-				wait_for_mouse_release = true;
-				//Clear out the title effect manager and restart the effect. This is so that when the shader tries to 
-				//lerp with particles in the previous it won't be able to because they've already been replaced with other
-				//sprite data while the game was playing. If you didn't want to do this then you could just give the title
-				//effect manager it's own layer and sprite buffer to render particles with, but I just simlify things here
-				//by restarting the effect instead.
-				tfx_HardExpireEffect(title_pm, title_index);
-				tfx_ClearEffectManager(title_pm, false, false);
-				if (tfx_AddEffectTemplateToEffectManager(title_pm, title, &title_index)) {
-					tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, tfx_rendering.uniform_buffer_3d));
+			if (!ImGui::IsKeyDown(ImGuiKey_Space)) {
+				if (!wait_for_mouse_release && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+					state = GameState_title;
+					wait_for_mouse_release = true;
+					//Clear out the title effect manager and restart the effect. This is so that when the shader tries to 
+					//lerp with particles in the previous it won't be able to because they've already been replaced with other
+					//sprite data while the game was playing. If you didn't want to do this then you could just give the title
+					//effect manager it's own layer and sprite buffer to render particles with, but I just simlify things here
+					//by restarting the effect instead.
+					tfx_HardExpireEffect(title_pm, title_index);
+					tfx_ClearEffectManager(title_pm, false, false);
+					if (tfx_AddEffectTemplateToEffectManager(title_pm, title, &title_index)) {
+						tfx_SetEffectPositionVec3(title_pm, title_index, ScreenRay(zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .25f, 4.f, camera.position, tfx_rendering.uniform_buffer_3d));
+					}
+				} else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+					wait_for_mouse_release = false;
 				}
-			}
-			else if (wait_for_mouse_release && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-				wait_for_mouse_release = false;
 			}
 		}
 		//Draw the Imgui window
@@ -1264,8 +1266,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
 	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = ".";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
