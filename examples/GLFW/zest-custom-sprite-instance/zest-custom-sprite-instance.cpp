@@ -24,13 +24,13 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_imgui_RebuildFontTexture(&app->imgui_layer_info, tex_width, tex_height, font_data);
 
 	//Create a texture to load in a test image to show drawing that image in an imgui window
-	app->test_texture = zest_CreateTexture("test image", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	app->test_texture = zest_CreateTexture("test image", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
 	//Load in the image and add it to the texture
 	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/glow.png");
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
-	app->color_ramps_texture = zest_CreateTexture("Color Ramps", zest_texture_storage_type_bank, 0, zest_texture_format_rgba, 10);
+	app->color_ramps_texture = zest_CreateTexture("Color Ramps", zest_texture_storage_type_bank, 0, zest_texture_format_rgba_unorm, 10);
 	app->color_ramps_texture->sampler_info.minFilter = VK_FILTER_NEAREST;
 	app->color_ramps_texture->sampler_info.magFilter = VK_FILTER_NEAREST;
 	app->color_ramps_texture->sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;

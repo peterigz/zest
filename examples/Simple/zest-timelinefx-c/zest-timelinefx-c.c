@@ -121,8 +121,8 @@ void InitTimelineFXRenderResources(tfx_render_resources_t *render_resources, con
 	render_resources->uniform_buffer_descriptor_set = zest_CreateUniformDescriptorSet(render_resources->uniform_buffer_3d);
 
 	int shape_count = tfx_GetShapeCountInLibrary(library_path);
-	render_resources->particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, zest_texture_flag_use_filtering, zest_texture_format_rgba, shape_count);
-	render_resources->color_ramps_texture = zest_CreateTextureBank("Particle Color Ramps", zest_texture_format_rgba);
+	render_resources->particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, shape_count);
+	render_resources->color_ramps_texture = zest_CreateTextureBank("Particle Color Ramps", zest_texture_format_rgba_unorm);
 	zest_SetTextureUseFiltering(render_resources->color_ramps_texture, false);
 
 	//Compile the shaders we will use to render the particles

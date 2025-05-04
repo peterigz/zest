@@ -91,7 +91,7 @@ void InitImGuiApp(Ribbons *app) {
 	app->ribbon_pipeline->pipeline_template.rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
 	zest_BuildPipeline(app->ribbon_pipeline);
 
-	app->ribbon_texture = zest_CreateTextureBank("ribbon texture", zest_texture_format_rgba);
+	app->ribbon_texture = zest_CreateTextureBank("ribbon texture", zest_texture_format_rgba_unorm);
 	app->ribbon_image = zest_AddTextureImageFile(app->ribbon_texture, "examples/assets/BrightGlow.png");
 	zest_ProcessTextureImages(app->ribbon_texture);
 

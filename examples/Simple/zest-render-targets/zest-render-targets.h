@@ -10,6 +10,7 @@ struct RenderTargetExample {
 	zest_render_target top_target;		//Render target to draw the result of the blur effect on top of the other layers
 	zest_render_target base_target;		//The base target to draw the initial images that will be blurred
 	zest_render_target final_blur;		//Render target where the final blur effect happens
+	zest_render_target tonemapping_target;		//Final blur gets rendered here and tonemapped
 	zest_command_queue command_queue;	//Custom command queue that we'll build from scratch
 	zest_layer base_layer;				//Base layer for drawing to the base render target
 	zest_layer top_layer;				//Top layer for drawing to the top render target

@@ -1429,8 +1429,10 @@ typedef zest_uint zest_render_target_flags;
 
 typedef enum zest_texture_format {
     zest_texture_format_alpha = VK_FORMAT_R8_UNORM,
-    zest_texture_format_rgba = VK_FORMAT_R8G8B8A8_UNORM,
-    zest_texture_format_bgra = VK_FORMAT_B8G8R8A8_UNORM,
+    zest_texture_format_rgba_unorm = VK_FORMAT_R8G8B8A8_UNORM,
+    zest_texture_format_bgra_unorm = VK_FORMAT_B8G8R8A8_UNORM,
+    zest_texture_format_rgba_srgb = VK_FORMAT_R8G8B8A8_SRGB,
+    zest_texture_format_bgra_srgb = VK_FORMAT_B8G8R8A8_SRGB,
 } zest_texture_format;
 
 typedef enum zest_connector_type {
@@ -4232,7 +4234,7 @@ zest_texture_storage_type_render_target     Texture storage for a render target 
                                             another render target. Generally this is used only when creating a render_target so 
                                             you don't have to worry about it set use filtering to 1 if you want to generate mipmaps 
                                             for the texture. You can also choose from the following texture formats: 
-                                            zest_texture_format_alpha = VK_FORMAT_R8_UNORM, zest_texture_format_rgba = VK_FORMAT_R8G8B8A8_UNORM, zest_texture_format_bgra = VK_FORMAT_B8G8R8A8_UNORM. */ 
+                                            zest_texture_format_alpha = VK_FORMAT_R8_UNORM, zest_texture_format_rgba_unorm = VK_FORMAT_R8G8B8A8_UNORM, zest_texture_format_bgra_unorm = VK_FORMAT_B8G8R8A8_UNORM. */ 
 ZEST_API zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format format, zest_uint reserve_images);
 //The following are helper functions to create a texture of a given type. the texture will be set to use filtering by default
 ZEST_API zest_texture zest_CreateTexturePacked(const char *name, zest_texture_format format);
@@ -4292,8 +4294,8 @@ ZEST_API void zest_CopyBitmap(zest_bitmap_t *src, int from_x, int from_y, int wi
 ZEST_API void zest_ConvertBitmapToTextureFormat(zest_bitmap_t *src, VkFormat format);
 //Convert a bitmap to a specific zest_texture_format. Accepted values are;
 //zest_texture_format_alpha
-//zest_texture_format_rgba
-//zest_texture_format_bgra
+//zest_texture_format_rgba_unorm
+//zest_texture_format_bgra_unorm
 ZEST_API void zest_ConvertBitmap(zest_bitmap_t *src, zest_texture_format format, zest_byte alpha_level);
 //Convert a bitmap to BGRA format
 ZEST_API void zest_ConvertBitmapToBGRA(zest_bitmap_t *src, zest_byte alpha_level);
@@ -4442,6 +4444,8 @@ ZEST_API zest_render_target_create_info_t zest_RenderTargetCreateInfo();
 //Creat a new render target with a name and the zest_render_target_create_info_t containing the configuration of the render target. All render targets are stored in the
 //renderer by name. Returns a handle to the render target.
 ZEST_API zest_render_target zest_CreateRenderTargetWithInfo(const char *name, zest_render_target_create_info_t create_info);
+//Create a render target for high definition rendering.
+ZEST_API zest_render_target zest_CreateHDRRenderTarget(const char *name);
 //Create a render target with the given name and default settings. By default the size will be the same as the window.
 ZEST_API zest_render_target zest_CreateRenderTarget(const char *name);
 //Create a new initialised render target.

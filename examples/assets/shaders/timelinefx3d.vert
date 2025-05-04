@@ -4,7 +4,7 @@
 //draw the effect with one draw call. Otherwise if your effect only uses one or the other you can optimise by
 //using the shaders that only handle whatever you need for the effect.
 
-#define LOW_UPDATE_RATE
+//#define LOW_UPDATE_RATE
 
 //Quad indexes
 const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
@@ -13,7 +13,7 @@ const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
 const vec3 up = vec3( 0, 1, 0.00001 );
 const vec3 front = vec3( 0, 0, 1 );
 const vec3 left = vec3( 1, 0, 0 );
-const float size_max_value = 64.0 / 32767.0;
+const float size_max_value = 256.0 / 32767.0;
 const float handle_max_value = 128.0 / 32767.0;
 const float intensity_max_value = 128.0 / 32767.0;
 

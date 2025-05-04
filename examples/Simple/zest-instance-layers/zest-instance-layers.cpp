@@ -30,7 +30,7 @@ void UpdateUniformBuffer3d(zest_example *example) {
 
 void InitExample(zest_example *example) {
 	//Create a new texture for storing the bunny image
-	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
 	//Load in the bunny image from file and add it to the texture
 	example->image = zest_AddTextureImageFile(example->texture, "examples/assets/wabbit_alpha.png");
 	//Process the texture which will create the resources on the GPU for sampling from the bunny image texture

@@ -46,7 +46,8 @@ void InitExample(RenderTargetExample *example) {
 	//Create the render targets that we will draw the layers to. The Base render target will be where we draw the images, The top render target
 	//will be where we draw the result of the the blur effect.
 	example->top_target = zest_CreateRenderTarget("Top render target");
-	example->base_target = zest_CreateRenderTarget("Base render target");
+	example->base_target = zest_CreateHDRRenderTarget("Base render target");
+	example->tonemapping_target = zest_CreateRenderTarget("Tonemapping");
 
 	//Post render targets can be created by passing the width and height as a ratio of the screen size, which is what we do here 
 	//to create the render targets for the blur effect. One target is for the vertical blur and the other is for the horizontal blur.
@@ -126,7 +127,7 @@ void InitExample(RenderTargetExample *example) {
 	zest_OutputQueues();
 
 	//Load the images into a texture
-	example->texture = zest_CreateTexturePacked("Statue texture", zest_texture_format_rgba);
+	example->texture = zest_CreateTexturePacked("Statue texture", zest_texture_format_rgba_srgb);
 	example->image = zest_AddTextureImageFile(example->texture, "examples/assets/texture.jpg");
 	example->wabbit = zest_AddTextureImageFile(example->texture, "examples/assets/wabbit_alpha.png");
 	//Process the images so the texture is ready to use

@@ -3279,23 +3279,79 @@ VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR* capabilities) {
     //}
 }
 
-VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR* available_formats) {
-    if (zest_vec_size(available_formats) == 1 && available_formats[0].format == VK_FORMAT_UNDEFINED) {
-        VkSurfaceFormatKHR format = {
-            .format = VK_FORMAT_B8G8R8A8_UNORM,
+VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *available_formats) {
+    size_t num_available_formats = zest_vec_size(available_formats);
+
+    // --- 1. Handle the rare case where the surface provides no preferred formats ---
+    if (num_available_formats == 1 && available_formats[0].format == VK_FORMAT_UNDEFINED) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: Surface format is UNDEFINED. Choosing VK_FORMAT_B8G8R8A8_SRGB by default.");
+        VkSurfaceFormatKHR chosen_format = {
+            .format = VK_FORMAT_B8G8R8A8_SRGB, // Prefer SRGB for automatic gamma correction
             .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR
         };
-        return format;
+        // Note: A truly robust implementation might double-check if this default
+        // is *actually* supported by querying all possible formats, but this case is rare.
+        return chosen_format;
     }
 
-    VkFormat format = ZestApp->create_info.color_format == VK_FORMAT_R8G8B8A8_UNORM ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_B8G8R8A8_SRGB;
+    // --- 2. Determine the user's desired format ---
+    VkFormat desired_format = ZestApp->create_info.color_format;
 
-    for (zest_foreach_i(available_formats)) {
-        if (available_formats[i].format == format && available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+    if (desired_format == VK_FORMAT_UNDEFINED) {
+        desired_format = VK_FORMAT_B8G8R8A8_SRGB; // Default to SRGB if user doesn't care
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: User preference is UNDEFINED. Defaulting preference to VK_FORMAT_B8G8R8A8_SRGB.");
+    } else {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: User preference is Format %d.", desired_format);
+    }
+
+    // --- 3. Search for the User's Preferred Format with SRGB Color Space ---
+    for (size_t i = 0; i < num_available_formats; ++i) {
+        if (available_formats[i].format == desired_format &&
+            available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: Found exact user preference: Format %d, Colorspace %d", available_formats[i].format, available_formats[i].colorSpace);
             return available_formats[i];
         }
     }
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: User preferred format (%d) with SRGB colorspace not available.", desired_format);
 
+    // --- 4. Fallback: Search for *any* SRGB Format with SRGB Color Space ---
+    for (size_t i = 0; i < num_available_formats; ++i) {
+        if (available_formats[i].format == VK_FORMAT_B8G8R8A8_SRGB &&
+            available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: Falling back to available VK_FORMAT_B8G8R8A8_SRGB.");
+            return available_formats[i];
+        }
+    }
+    for (size_t i = 0; i < num_available_formats; ++i) {
+        if (available_formats[i].format == VK_FORMAT_R8G8B8A8_SRGB &&
+            available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: Falling back to available VK_FORMAT_R8G8B8A8_SRGB.");
+            return available_formats[i];
+        }
+    }
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: No SRGB formats with SRGB colorspace available.");
+
+    // --- 5. Fallback: Search for *any* UNORM Format with SRGB Color Space ---
+    // If no SRGB format works, take any UNORM format as long as the colorspace is right.
+    // This means we'll have to handle gamma correction manually in the shader.
+    for (size_t i = 0; i < num_available_formats; ++i) {
+        if (available_formats[i].format == VK_FORMAT_B8G8R8A8_UNORM &&
+            available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: Falling back to VK_FORMAT_B8G8R8A8_UNORM with SRGB colorspace (Manual gamma needed).");
+            return available_formats[i];
+        }
+    }
+    for (size_t i = 0; i < num_available_formats; ++i) {
+        if (available_formats[i].format == VK_FORMAT_R8G8B8A8_UNORM &&
+            available_formats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: Falling back to VK_FORMAT_R8G8B8A8_UNORM with SRGB colorspace (Manual gamma needed).");
+            return available_formats[i];
+        }
+    }
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: No UNORM formats with SRGB colorspace available.");
+
+    // --- 6. Last Resort Fallback ---
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Swapchain: Critical Fallback! Using first available format: Format %d, Colorspace %d. Check results!", available_formats[0].format, available_formats[0].colorSpace);
     return available_formats[0];
 }
 
@@ -6613,7 +6669,7 @@ zest_create_info_t zest_CreateInfo() {
         .virtual_width = 1280,
         .virtual_height = 768,
         .thread_count = zest_GetDefaultThreadCount(),
-        .color_format = VK_FORMAT_R8G8B8A8_UNORM,
+        .color_format = VK_FORMAT_B8G8R8A8_SRGB,
         .max_descriptor_pool_sets = 100,
         .flags = zest_init_flag_initialise_with_command_queue | zest_init_flag_enable_vsync | zest_init_flag_cache_shaders,
         .destroy_window_callback = zest__destroy_window_callback,
@@ -7637,16 +7693,19 @@ zest_bitmap_t* zest_GetBitmap(zest_texture texture, zest_index bitmap_index) {
 }
 
 void zest_ConvertBitmapToTextureFormat(zest_bitmap_t* src, VkFormat format) {
-    if (format == VK_FORMAT_R8G8B8A8_UNORM) {
+    switch (format) {
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SRGB:
         zest_ConvertBitmapToRGBA(src, 255);
-    }
-    else if (format == VK_FORMAT_B8G8R8A8_UNORM) {
+        break;
+    case VK_FORMAT_B8G8R8A8_UNORM:
+    case VK_FORMAT_B8G8R8A8_SRGB:
         zest_ConvertBitmapToBGRA(src, 255);
-    }
-    else if (format == VK_FORMAT_R8_UNORM) {
+        break;
+    case VK_FORMAT_R8_UNORM:
         zest_ConvertBitmapTo1Channel(src);
-    }
-    else {
+        break;
+    default:
         ZEST_ASSERT(0);    //Unknown texture format
     }
 }
@@ -7799,7 +7858,7 @@ void zest_ConvertBitmap(zest_bitmap_t* src, zest_texture_format format, zest_byt
     zest_size new_pos = 0;
 
     zest_uint order[3] = { 1, 2, 3 };
-    if (format == zest_texture_format_bgra) {
+    if (format == zest_texture_format_bgra_unorm) {
         order[0] = 3; order[2] = 1;
     }
 
@@ -7843,11 +7902,11 @@ void zest_ConvertBitmap(zest_bitmap_t* src, zest_texture_format format, zest_byt
 }
 
 void zest_ConvertBitmapToBGRA(zest_bitmap_t* src, zest_byte alpha_level) {
-    zest_ConvertBitmap(src, zest_texture_format_bgra, alpha_level);
+    zest_ConvertBitmap(src, zest_texture_format_bgra_unorm, alpha_level);
 }
 
 void zest_ConvertBitmapToRGBA(zest_bitmap_t* src, zest_byte alpha_level) {
-    zest_ConvertBitmap(src, zest_texture_format_rgba, alpha_level);
+    zest_ConvertBitmap(src, zest_texture_format_rgba_unorm, alpha_level);
 }
 
 void zest_ConvertBGRAToRGBA(zest_bitmap_t* src) {
@@ -9153,7 +9212,10 @@ void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format
     texture->image_format = format;
     switch (format) {
     case VK_FORMAT_R8G8B8A8_UNORM:
-    case VK_FORMAT_B8G8R8A8_UNORM: {
+    case VK_FORMAT_B8G8R8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SRGB:
+    case VK_FORMAT_B8G8R8A8_SRGB: 
+    case VK_FORMAT_R16G16B16A16_SFLOAT: {
         texture->color_channels = 4;
     } break;
     case VK_FORMAT_R8_UNORM: {
@@ -9731,7 +9793,7 @@ zest_font zest_LoadMSDFFont(const char* filename) {
     position += sizeof(size_t);
     memcpy(image_data, font_data + position, buffer_size);
 
-    font->texture = zest_CreateTextureSingle(filename, zest_texture_format_rgba);
+    font->texture = zest_CreateTextureSingle(filename, zest_texture_format_rgba_unorm);
 
     stbi_set_flip_vertically_on_load(1);
     zest_LoadBitmapImageMemory(zest_GetTextureSingleBitmap(font->texture), image_data, image_size, 0);
@@ -9964,7 +10026,7 @@ zest_render_target_create_info_t zest_RenderTargetCreateInfo() {
         .sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
         .flags = zest_render_target_flag_is_src | zest_render_target_flag_sampler_size_match_texture,
         .input_source = 0,
-        .render_format = ZestRenderer->swapchain_image_format,
+        .render_format = VK_FORMAT_B8G8R8A8_UNORM,
         .viewport = {0}
     };
     if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {
@@ -9975,6 +10037,12 @@ zest_render_target_create_info_t zest_RenderTargetCreateInfo() {
 
 zest_render_target zest_CreateRenderTarget(const char* name) {
     return zest_CreateRenderTargetWithInfo(name, zest_RenderTargetCreateInfo());
+}
+
+zest_render_target zest_CreateHDRRenderTarget(const char* name) {
+    zest_render_target_create_info_t info = zest_RenderTargetCreateInfo();
+    info.render_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    return zest_CreateRenderTargetWithInfo(name, info);
 }
 
 zest_render_target zest_CreateRenderTargetWithInfo(const char* name, zest_render_target_create_info_t create_info) {
@@ -9990,7 +10058,6 @@ zest_render_target zest_CreateRenderTargetWithInfo(const char* name, zest_render
     else if (!zest_Vec2Length2(create_info.ratio_of_screen_size)) {
         ZEST__FLAG(create_info.flags, zest_render_target_flag_fixed_size);
     }
-    create_info.render_format = ZestRenderer->swapchain_image_format;
 
     ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_schedule_rerecord_final_render_buffer);
 
@@ -10012,6 +10079,7 @@ zest_render_target zest_AddPostProcessRenderTarget(const char* name, float width
     create_info.viewport.extent.width = (zest_uint)((float)input_source->render_width * width_ratio_of_input);
     create_info.viewport.extent.height = (zest_uint)((float)input_source->render_height * height_ration_of_input);
     create_info.input_source = input_source;
+    create_info.render_format = input_source->render_format;
     create_info.sampler_address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     create_info.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     create_info.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;

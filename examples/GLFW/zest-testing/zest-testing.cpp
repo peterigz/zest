@@ -355,10 +355,10 @@ void InitImGuiApp(ImGuiApp* app) {
 	//Rebuild the Zest font texture
 	zest_imgui_RebuildFontTexture(&app->imgui_layer_info, tex_width, tex_height, font_data);
 
-	app->floor_texture = zest_CreateTexture("Floor texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	app->floor_texture = zest_CreateTexture("Floor texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
 	app->floor_image = zest_AddTextureImageFile(app->floor_texture, "examples/assets/checker.png");
 	zest_ProcessTextureImages(app->floor_texture);
-	app->sprite_texture = zest_CreateTexture("Sprite texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba, 10);
+	app->sprite_texture = zest_CreateTexture("Sprite texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
 	app->sprite = zest_AddTextureImageFile(app->sprite_texture, "examples/assets/wabbit_alpha.png");
 	zest_ProcessTextureImages(app->sprite_texture);
 	app->mesh_pipeline = zest_Pipeline("pipeline_mesh");
