@@ -3416,6 +3416,7 @@ ZEST_PRIVATE void zest__free_pipeline_create_info(zest_pipeline_template_create_
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
 ZEST_PRIVATE void zest__add_pipeline_descriptor_write(zest_pipeline pipeline, zest_uint layout_index, VkWriteDescriptorSet set, zest_index fif);
 ZEST_PRIVATE void zest__free_pipeline_descriptor_writes(zest_pipeline pipeline);
+ZEST_PRIVATE zest_pipeline zest__cache_pipeline(zest_pipeline_template pipeline_template, VkRenderPass render_pass);
 // --End Pipeline Helper Functions
 
 // --Buffer allocation funcitons
@@ -3709,7 +3710,6 @@ ZEST_API void zest_ClearPipelineTemplateDescriptorLayouts(zest_pipeline_template
 //zest_pipeline_template_create_info_t and create another new pipeline with that
 ZEST_API void zest_MakePipelineTemplate(zest_pipeline_template pipeline, zest_pipeline_template_create_info_t *create_info);
 //Build the pipeline ready for use in your draw routines. This is the final step in building the pipeline.
-ZEST_API zest_pipeline zest_CachePipeline(zest_pipeline_template pipeline_template, VkRenderPass render_pass);
 ZEST_API void zest_BuildPipeline(zest_pipeline pipeline);
 //Get the shader stage flags for a specific push constant range in the pipeline
 ZEST_API VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_uint index);

@@ -4750,7 +4750,7 @@ void zest__set_pipeline_template(zest_pipeline_template pipeline_template, zest_
     pipeline_template->dynamicState.flags = 0;
 }
 
-zest_pipeline zest_CachePipeline(zest_pipeline_template pipeline_template, VkRenderPass render_pass) {
+zest_pipeline zest__cache_pipeline(zest_pipeline_template pipeline_template, VkRenderPass render_pass) {
 	zest_pipeline pipeline = zest__create_pipeline();
     pipeline->pipeline_template = pipeline_template;
     pipeline->render_pass = render_pass;
@@ -5309,7 +5309,7 @@ zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template template, VkRende
     if (zest_map_valid_key(ZestRenderer->cached_pipelines, cached_pipeline_key)) {
 		return *zest_map_at_key(ZestRenderer->cached_pipelines, cached_pipeline_key); 
     }
-    return zest_CachePipeline(*zest_map_at_key(ZestRenderer->pipelines, pipeline_key), render_pass);
+    return zest__cache_pipeline(*zest_map_at_key(ZestRenderer->pipelines, pipeline_key), render_pass);
 }
 
 zest_pipeline zest_Pipeline(const char* name, VkRenderPass render_pass) { 
@@ -5325,7 +5325,7 @@ zest_pipeline zest_Pipeline(const char* name, VkRenderPass render_pass) {
     if (zest_map_valid_key(ZestRenderer->cached_pipelines, cached_pipeline_key)) {
 		return *zest_map_at_key(ZestRenderer->cached_pipelines, cached_pipeline_key); 
     }
-    return zest_CachePipeline(*zest_map_at_key(ZestRenderer->pipelines, pipeline_key), render_pass);
+    return zest__cache_pipeline(*zest_map_at_key(ZestRenderer->pipelines, pipeline_key), render_pass);
 }
 zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(const char* pipeline_name) {
     return zest__copy_pipeline_create_info(&zest_PipelineTemplate(pipeline_name)->create_info);
@@ -10803,7 +10803,7 @@ void zest_RecordInstanceLayer(zest_layer layer, zest_uint fif) {
             zest_vec_push(layer->draw_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : layer->draw_routine->fif]);
         }
 
-        zest_pipeline pipeline = zest_CachePipeline(current->pipeline_template, ZestRenderer->current_render_pass);
+        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, ZestRenderer->current_render_pass);
         zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
         //The only reason I do this is because of some strange alignment issues on intel macs only. I haven't fully gotten to the bottom of it
@@ -10843,7 +10843,7 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
             zest_vec_push(layer->draw_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : layer->draw_routine->fif]);
         }
 
-        zest_pipeline pipeline = zest_CachePipeline(current->pipeline_template, ZestRenderer->current_render_pass);
+        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, ZestRenderer->current_render_pass);
         zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
         memcpy(&current->push_constants.global.x, &layer->global_push_values.x, sizeof(zest_vec4));
@@ -10883,7 +10883,7 @@ void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
             zest_vec_push(layer->draw_sets, set->descriptor_set[set->type == zest_descriptor_type_dynamic ? ZEST_FIF : layer->draw_routine->fif]);
         }
 
-        zest_pipeline pipeline = zest_CachePipeline(current->pipeline_template, ZestRenderer->current_render_pass);
+        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, ZestRenderer->current_render_pass);
         zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
         memcpy(&current->push_constants.global.x, &layer->global_push_values.x, sizeof(zest_vec4));
