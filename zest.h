@@ -5079,6 +5079,8 @@ ZEST_API zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags);
 //Find out if the current GPU can use memory that is both device local and cpu visible. If it can then that means that you write directly to gpu memory without the need for
 //a staging buffer. AMD cards tend to be better at supporting this then nvidia as it seems nvidia only introduced it later.
 ZEST_API zest_bool zest_GPUHasDeviceLocalHostVisible(VkDeviceSize mimimum_size);
+//Convert a linear color value to an srgb color space value
+ZEST_API float zest_LinearToSRGB(float value);
 //--End General Helper functions
 
 //-----------------------------------------------

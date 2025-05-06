@@ -5542,6 +5542,10 @@ zest_bool zest_GPUHasDeviceLocalHostVisible(VkDeviceSize minimum_size) {
     return ZEST_FALSE;
 }
 
+float zest_LinearToSRGB(float value) {
+    return powf(value, 2.2f);
+}
+
 zest_uint zest__grow_capacity(void* T, zest_uint size) {
     zest_uint new_capacity = T ? (size + size / 2) : 8;
     return new_capacity > size ? new_capacity : size;
