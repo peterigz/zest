@@ -1,16 +1,16 @@
 #include <zest.h>
 
 typedef struct zest_example {
-	zest_texture texture;						//A handle to the texture that will contain the bunny image
-	zest_image image;							//A handle to image in the texture for the bunny image
-	zest_pipeline sprite_pipeline;				//The builtin sprite pipeline that will drawing sprites
-	zest_layer sprite_layer;					//The builtin sprite layer that contains the vertex buffer for drawing the sprites
-	zest_layer billboard_layer;					//A builtin billboard layer for drawing billboards
-	zest_layer mesh_layer;						//A builtin mesh layer that we will use to draw a texured plane
-	zest_pipeline billboard_pipeline;			//The pipeline for drawing billboards
-	zest_pipeline mesh_pipeline;				//The pipeline for drawing the textured plane
-	zest_camera_t camera;						//A camera for the 3d view
-	zest_uniform_buffer uniform_buffer_3d;		//A uniform buffer to contain the projection and view matrix
+	zest_texture texture;						        //A handle to the texture that will contain the bunny image
+	zest_image image;							        //A handle to image in the texture for the bunny image
+	zest_pipeline_template sprite_pipeline;				//The builtin sprite pipeline that will drawing sprites
+	zest_layer sprite_layer;					        //The builtin sprite layer that contains the vertex buffer for drawing the sprites
+	zest_layer billboard_layer;					        //A builtin billboard layer for drawing billboards
+	zest_layer mesh_layer;						        //A builtin mesh layer that we will use to draw a texured plane
+	zest_pipeline_template billboard_pipeline;			//The pipeline for drawing billboards
+	zest_pipeline_template mesh_pipeline;				//The pipeline for drawing the textured plane
+	zest_camera_t camera;						        //A camera for the 3d view
+	zest_uniform_buffer uniform_buffer_3d;		        //A uniform buffer to contain the projection and view matrix
 	zest_descriptor_set uniform_descriptor_set_3d;		//A descriptor set for the 3d uniform buffer
 	zest_shader_resources sprite_shader_resources;		//Handle for the sprite descriptor
 	zest_shader_resources billboard_shader_resources;	//Handle for the billboard shader resources
@@ -30,17 +30,17 @@ void UpdateUniformBuffer3d(zest_example *example) {
 
 void InitExample(zest_example *example) {
 	//Create a new texture for storing the bunny image
-	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
+	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_srgb, 10);
 	//Load in the bunny image from file and add it to the texture
 	example->image = zest_AddTextureImageFile(example->texture, "examples/assets/wabbit_alpha.png");
 	//Process the texture which will create the resources on the GPU for sampling from the bunny image texture
 	zest_ProcessTextureImages(example->texture);
 	//To save having to lookup these handles in the mainloop, we can look them up here in advance and store the handles in our example struct
-	example->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites");
+	example->sprite_pipeline = zest_PipelineTemplate("pipeline_2d_sprites");
 	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
 	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, example->texture);
-	example->billboard_pipeline = zest_Pipeline("pipeline_billboard");
-	example->mesh_pipeline = zest_Pipeline("pipeline_mesh");
+	example->billboard_pipeline = zest_PipelineTemplate("pipeline_billboard");
+	example->mesh_pipeline = zest_PipelineTemplate("pipeline_mesh");
 	//Create a new uniform buffer for the 3d view
 	example->uniform_buffer_3d = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
 	example->uniform_descriptor_set_3d = zest_CreateUniformDescriptorSet(example->uniform_buffer_3d);
@@ -48,7 +48,7 @@ void InitExample(zest_example *example) {
 	example->billboard_shader_resources = zest_CombineUniformAndTextureSampler(example->uniform_descriptor_set_3d, example->texture);
 	//Get the sprite draw commands and set the clear color for its render pass
 	zest_command_queue_draw_commands sprite_draw = zest_GetDrawCommands("Default Draw Commands");
-	sprite_draw->cls_color = zest_Vec4Set1(0.25f);
+	sprite_draw->cls_color = zest_Vec4Set1(zest_LinearToSRGB(0.25f));
 
 	//Create a camera for the 3d view
 	example->camera = zest_CreateCamera();
@@ -81,14 +81,14 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 
 	//Set the current intensity of the sprite layer
-	example->sprite_layer->intensity = 1.f;
+	//example->sprite_layer->intensity = 1.f;
 	//You must call this command before doing any sprite draw to set the current texture, descriptor and pipeline to draw with.
 	//Call this function anytime that you need to draw with a different texture. Note that a single texture and contain many images
 	//you can draw a lot with a single draw call
 	zest_SetInstanceDrawing(example->sprite_layer, example->sprite_shader_resources, example->sprite_pipeline);
 	//Set the alpha of the sprite layer to 0. This means that the sprites will be additive. 1 = alpha blending and anything imbetween
 	//is a mix between the two.
-	example->sprite_layer->current_color.a = 0;
+	example->sprite_layer->current_color.a = 0.f;
 	for (float x = 0; x != 25; ++x) {
 		for (float y = 0; y != 15; ++y) {
 			example->sprite_layer->current_color.r = (zest_byte)(1 - ((y + 1) / 16.f) * 255.f);
@@ -135,6 +135,8 @@ int main(void)
 
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	//create_info.color_format = VK_FORMAT_B8G8R8A8_UNORM;
+	create_info.thread_count = 0;
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = "./";
