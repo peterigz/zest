@@ -1184,6 +1184,8 @@ layout(location = 0) out vec2 outUV;
 layout(push_constant) uniform pushes
 {
 	vec2 res;
+    uint flags;
+    float threshold;
 } pc;
 
 out gl_PerVertex
@@ -1212,15 +1214,88 @@ void main(void)
 );
 
 //----------------------
+//Tonemapper vert shader
+//----------------------
+static const char *zest_shader_tonemapper_vert = ZEST_GLSL(450,
+layout(location = 0) out vec2 outUV;
+layout(location = 1) out float threshold;
+layout(push_constant) uniform pushes
+{
+    vec2 res;
+    uint flags;
+    float threshold;
+} pc;
+
+out gl_PerVertex
+{
+    vec4 gl_Position;
+};
+
+void main()
+{
+    outUV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+    gl_Position = vec4(outUV * 2.0f - 1.0f, 0.0f, 1.0f);
+    threshold = pc.threshold;
+}
+);
+
+//----------------------
 //Tonermapp frag shader
 //----------------------
 static const char *zest_shader_tonemapper_frag = ZEST_GLSL(450,
 layout(set = 0, binding = 0) uniform sampler2DArray samplerColor;
 layout(location = 0) in vec2 inUV;
+layout(location = 1) in float threshold;
 layout(location = 0) out vec4 outFragColor;
 void main(void)
 {
     outFragColor = texture(samplerColor, vec3(inUV, 0));
+}
+);
+
+//----------------------
+//Tonemapper vert shader
+//----------------------
+static const char *zest_shader_compositor_vert = ZEST_GLSL(450,
+layout(location = 0) out vec2 outUV;
+layout(location = 1) out uint blendmode;
+layout(location = 2) out float intensity;
+layout(push_constant) uniform pushes
+{
+    vec2 res;
+    uint flags;
+    float alpha_level;
+} pc;
+
+out gl_PerVertex
+{
+    vec4 gl_Position;
+};
+
+void main()
+{
+    outUV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+    gl_Position = vec4(outUV * 2.0f - 1.0f, 0.0f, 1.0f);
+    blendmode = pc.flags;
+    intensity = pc.alpha_level;
+}
+);
+
+//----------------------
+//Compositor frag shader
+//----------------------
+static const char *zest_shader_compositor_frag = ZEST_GLSL(450,
+layout(set = 0, binding = 0) uniform sampler2DArray base_sampler;
+layout(set = 0, binding = 1) uniform sampler2DArray top_sampler;
+layout(location = 0) in vec2 inUV;
+layout(location = 1) in flat uint blend_type;
+layout(location = 2) in float intensity_level;
+layout(location = 0) out vec4 outFragColor;
+void main(void)
+{
+    vec4 base_color = texture(base_sampler, vec3(inUV, 0));
+    vec4 top_color = texture(top_sampler, vec3(inUV, 0));
+    outFragColor = base_color + top_color;
 }
 );
 
@@ -2428,9 +2503,11 @@ typedef struct zest_frame_buffer_t {
     VkSampler sampler;
 } zest_frame_buffer_t;
 
-typedef struct zest_final_render_push_constants_t {
+typedef struct zest_render_target_push_constants_t {
     zest_vec2 screen_resolution;            //the current size of the window/resolution
-} zest_final_render_push_constants_t;
+    zest_uint flags;
+    float alpha_level;
+} zest_render_target_push_constants_t;
 
 typedef struct zest_semaphore_connector_t {
     VkSemaphore *fif_incoming_semaphores;                //Must be waited on, eg a command queue waiting on present signal
@@ -2582,6 +2659,7 @@ typedef struct zest_pipeline_template_t {
     zest_pipeline_template_create_info_t create_info;                 //A copy of the create info and template is stored so that they can be used to update the pipeline later for any reason (like the swap chain is recreated)
     zest_pipeline_set_flags flags;                                               //Flag bits
     zest_uint uniforms;                                                          //Number of uniform buffers in the pipeline, usually 1 or 0
+    zest_uint push_constant_size;                                                //Size of the push constant struct if it uses one
     
     zest_text_t vertShaderFile;
     zest_text_t fragShaderFile;
@@ -2601,7 +2679,6 @@ typedef struct zest_pipeline_t {
     VkPipeline pipeline;                                                         //The vulkan handle for the pipeline
     VkPipelineLayout pipeline_layout;                                            //The vulkan handle for the pipeline layout
     zest_uniform_buffer uniform_buffer;                                          //Handle of the uniform buffer used in the pipline. Will be set to the default 2d uniform buffer if none is specified
-    zest_uint push_constant_size;                                                //Size of the push constant struct if it uses one
     void(*rebuild_pipeline_function)(void*);                                     //Override the function to rebuild the pipeline when the swap chain is recreated
     zest_pipeline_set_flags flags;                                               //Flag bits
     VkRenderPass render_pass;
@@ -2621,6 +2698,7 @@ typedef struct zest_command_setup_context_t {
     zest_layer layer;
     zest_index compute_index;
     zest_setup_context_type type;
+    zest_render_target composite_render_target;
 } zest_command_setup_context_t ;
 
 ZEST_PRIVATE inline void zest__reset_command_setup_context(zest_command_setup_context_t *context) {
@@ -3095,7 +3173,7 @@ typedef struct zest_render_target_t {
     int magic;
     const char *name;
 
-    zest_final_render_push_constants_t push_constants;
+    zest_render_target_push_constants_t push_constants;
     zest_render_target_create_info_t create_info;
 
     void(*post_process_record_callback)(zest_render_target_t *target, void *user_data, zest_uint fif);
@@ -3115,11 +3193,13 @@ typedef struct zest_render_target_t {
     zest_image_t sampler_image;
     zest_pipeline_template_create_info_t sampler_pipeline_template;
     zest_pipeline_template_create_info_t im_gui_rt_pipeline_template;
+    zest_pipeline_template composite_pipeline_template;
     zest_pipeline_template pipeline_template;
 
     int frames_in_flight;
     int frame_buffer_dirty[ZEST_MAX_FIF];
     zest_texture sampler_texture;
+    zest_shader_resources composite_shader_resources; 
     VkDescriptorImageInfo image_info[ZEST_MAX_FIF];
     zest_frame_buffer_t framebuffers[ZEST_MAX_FIF];
 
@@ -3169,7 +3249,7 @@ typedef struct zest_renderer_t {
 
     VkRenderPass final_render_pass;
     zest_frame_buffer_attachment_t final_render_pass_depth_attachment;
-    zest_final_render_push_constants_t push_constants;
+    zest_render_target_push_constants_t push_constants;
     VkDescriptorBufferInfo view_buffer_info[ZEST_MAX_FIF];
 
     VkPipelineCache pipeline_cache;
@@ -3968,10 +4048,13 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
     ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char *name, zest_render_target render_target);
     //Create draw commands that draw render targets to a composite render target. This is useful if you are drawing to render targets elsewhere and 
     //want to combine them all before doing tonemapping
-    ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char *name, zest_render_target render_target);
+    ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char *name, zest_render_target render_target, zest_pipeline_template pipeline_template, zest_shader_resources shader_resources);
         //Add a render target to the render pass within a zest_NewDrawCommandSetupRenderTargetSwap
         //Context:    Must be called after zest_NewDrawCommandSetupRenderTargetSwap when the context will be zest_setup_context_type_render_pass
         ZEST_API void zest_AddRenderTarget(zest_render_target render_target);
+        //Add a render target layer to the compositor. You can set the type of blend mode that you want to use
+        //and an alpha level.
+        ZEST_API void zest_AddCompositeLayer(zest_render_target render_target, float intensity);
     //Connect the current command queue to the swap chain. You must call this if you're intending for this queue to be drawn to the swap chain for
     //for presenting to the screen otherwise the command queue will not be valid.
     //Call this function immediately before zest_FinishQueueSetup

@@ -16,9 +16,17 @@ void InitExample(RenderTargetExample *example) {
 	zest_AddPipelineTemplatePushConstantRange(&create_info, image_pushconstant_range);
 	//Set the vert and frag shaders for the blur effect
 
+	//Create the render targets that we will draw the layers to. The Base render target will be where we draw the images, The top render target
+	//will be where we draw the result of the the blur effect.
+	example->top_target = zest_CreateSimpleRenderTarget("Top render target");
+	example->base_target = zest_CreateHDRRenderTarget("Base render target");
+	example->compositor = zest_CreateHDRRenderTarget("Compositor render target");
+
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	example->blur_frag_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.frag", "blur_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
 	example->blur_vert_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.vert", "blur_vert.spv", shaderc_vertex_shader, 1, compiler, 0);
+	example->composite_frag_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/composite.frag", "composite_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
+	example->composite_vert_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/composite.vert", "composite_vert.spv", shaderc_vertex_shader, 1, compiler, 0);
 	shaderc_compiler_release(compiler);
 	
 	zest_SetPipelineTemplateVertShader(&create_info, "blur_vert.spv", 0);
@@ -32,22 +40,25 @@ void InitExample(RenderTargetExample *example) {
 	//Add a new pipeline for the blur effect
 	example->blur_pipeline = zest_AddPipeline("blur effect");
 	//Make the pipeline template with the create_info we just set up and specify a standard render pass
-	zest_MakePipelineTemplate(example->blur_pipeline, zest_GetStandardRenderPass(), &create_info);
+	zest_MakePipelineTemplate(example->blur_pipeline, &create_info);
 	//Now the template is built we can tweak it a little bit more:
-	example->blur_pipeline->pipeline_template.depthStencil.depthWriteEnable = false;
-	example->blur_pipeline->pipeline_template.multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	example->blur_pipeline->depthStencil.depthWriteEnable = false;
+	example->blur_pipeline->multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 	//We're not using any uniform buffers
 	example->blur_pipeline->uniforms = 0;
 	//Let the pipeline know the size of the push constants
 	example->blur_pipeline->push_constant_size = sizeof(PushConstants);
-	//Build the pipeline so it's ready to use
-	zest_BuildPipeline(example->blur_pipeline);
 
-	//Create the render targets that we will draw the layers to. The Base render target will be where we draw the images, The top render target
-	//will be where we draw the result of the the blur effect.
-	example->top_target = zest_CreateRenderTarget("Top render target");
-	example->base_target = zest_CreateHDRRenderTarget("Base render target");
-	example->tonemapping_target = zest_CreateRenderTarget("Tonemapping");
+    example->composite_pipeline = zest_AddPipeline("pipeline_compositor");
+    example->composite_pipeline->create_info = zest_CopyTemplateFromPipeline("pipeline_swap_chain");
+    zest_SetText(&example->composite_pipeline->create_info.vertShaderFile, "composite_vert.spv");
+    zest_SetText(&example->composite_pipeline->create_info.fragShaderFile, "composite_frag.spv");
+    zest_ClearPipelineTemplateDescriptorLayouts(&example->composite_pipeline->create_info);
+    zest_AddPipelineTemplateDescriptorLayout(&example->composite_pipeline->create_info, *zest_GetDescriptorSetLayout("2 sampler"));
+    zest_MakePipelineTemplate(example->composite_pipeline, &example->composite_pipeline->create_info);
+    example->composite_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
+    example->composite_pipeline->depthStencil.depthTestEnable = VK_FALSE;
+    example->composite_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
 	//Post render targets can be created by passing the width and height as a ratio of the screen size, which is what we do here 
 	//to create the render targets for the blur effect. One target is for the vertical blur and the other is for the horizontal blur.
@@ -58,6 +69,15 @@ void InitExample(RenderTargetExample *example) {
 	zest_render_target horizontal_blur1 = zest_AddPostProcessRenderTarget("Horizontal blur render target", 1.f, 1.f, vertical_blur1, example, RecordHorizontalBlur);
 	zest_render_target vertical_blur2 = zest_AddPostProcessRenderTarget("Vertical blur 2 render target", 0.5, 0.5, horizontal_blur1, example, RecordVerticalBlur);
 	example->final_blur = zest_AddPostProcessRenderTarget("Final blur render target", 1.f, 1.f, vertical_blur2, example, RecordHorizontalBlur);
+
+	example->composite_descriptor_layout = zest_AddDescriptorLayout("2 samplers", 0, 0, 2, 0);
+	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
+	zest_AddBuilderDescriptorWriteImage(&set_builder, &example->base_target->image_info[0], 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	zest_AddBuilderDescriptorWriteImage(&set_builder, &example->final_blur->image_info[0], 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	example->composite_descriptor_set = zest_BuildDescriptorSet(&set_builder, example->composite_descriptor_layout, zest_descriptor_type_dynamic);
+
+	example->composite_shader_resources = zest_CreateShaderResources();
+	zest_AddDescriptorSetToResources(example->composite_shader_resources, &example->composite_descriptor_set);
 
 	//Create the render queue
 	//For blur effect we need to draw the scene to a base render target first, then have 2 render passes that draw to a smaller texture with horizontal and then vertical blur effects
@@ -102,6 +122,8 @@ void InitExample(RenderTargetExample *example) {
 			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
 			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
 		}
+		//Create draw commands that applies horizontal blur to the vertical blur target
+		zest_NewDrawCommandSetupCompositor("Compositer", example->compositor, example->composite_pipeline, example->composite_shader_resources);
 		//Create draw commands that we can use to draw on top of the blur effect
 		zest_NewDrawCommandSetup("Top render pass", example->top_target);
 		{
@@ -112,7 +134,7 @@ void InitExample(RenderTargetExample *example) {
 		//Finally we won't see anything unless we tell the render queue to render to the swap chain to be presented to the screen, but we
 		//need to specify which render targets we want to be drawn to the swap chain.
 		//We can use zest_NewDrawCommandSetupRenderTargetSwap which sets up a render pass to the swap chain specifying the render target to draw to it
-		zest_NewDrawCommandSetupRenderTargetSwap("Render render targets to swap", example->base_target);
+		zest_NewDrawCommandSetupRenderTargetSwap("Render render targets to swap", example->compositor);
 		{
 			//We can add as many other render targets as we need to get drawn to the swap chain. In this case we'll add the top target where we can
 			//draw a textured rectangle that samples the blurred texture.
@@ -157,7 +179,8 @@ void RecordHorizontalBlur(zest_render_target_t *target, void *data, zest_uint fi
 	//Grab the example struct from the user data set in the call to zest_AddPostProcessRenderTarget
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(data);
 	//Bind our custom blur pipeline that we created
-	zest_BindPipeline(command_buffer, example->blur_pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
+	zest_pipeline pipeline = zest_PipelineWithTemplate(example->blur_pipeline, ZestRenderer->current_render_pass);
+	zest_BindPipeline(command_buffer, pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
 	//Set the pusch constant to tell the shader to blur horizontally
 	example->push_constants.blur.x = 1.f;
 	example->push_constants.blur.y = 1.f;
@@ -166,7 +189,7 @@ void RecordHorizontalBlur(zest_render_target_t *target, void *data, zest_uint fi
 	example->push_constants.texture_size.x = (float)target->render_width;
 	example->push_constants.texture_size.y = (float)target->render_height;
 	//Send the push constants
-	zest_SendPushConstants(command_buffer, example->blur_pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, example->blur_pipeline->push_constant_size, &example->push_constants);
+	zest_SendPushConstants(command_buffer, pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, example->blur_pipeline->push_constant_size, &example->push_constants);
 	//Send a draw command. We just need to send 3 vertices to draw a triangle that covers the render target
 	zest_Draw(command_buffer, 3, 1, 0, 0);
 	zest_EndRecording(target->recorder, fif);
@@ -183,7 +206,8 @@ void RecordVerticalBlur(zest_render_target_t *target, void *data, zest_uint fif)
 	//Grab the example struct from the user data set in the call to zest_AddPostProcessRenderTarget
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(data);
 	//Bind our custom blur pipeline that we created
-	zest_BindPipeline(command_buffer, example->blur_pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
+	zest_pipeline pipeline = zest_PipelineWithTemplate(example->blur_pipeline, ZestRenderer->current_render_pass);
+	zest_BindPipeline(command_buffer, pipeline, zest_GetRenderTargetSourceDescriptorSet(target), 1);
 	//Set the pusch constant to tell the shader to blur vertically
 	example->push_constants.blur.x = 1.f;
 	example->push_constants.blur.y = 1.f;
@@ -192,7 +216,7 @@ void RecordVerticalBlur(zest_render_target_t *target, void *data, zest_uint fif)
 	example->push_constants.texture_size.x = (float)target->render_width;
 	example->push_constants.texture_size.y = (float)target->render_height;
 	//Send the push constants
-	zest_SendPushConstants(command_buffer, example->blur_pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, example->blur_pipeline->push_constant_size, &example->push_constants);
+	zest_SendPushConstants(command_buffer, pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, example->blur_pipeline->push_constant_size, &example->push_constants);
 	//Send a draw command. We just need to send 3 vertices to draw a triangle that covers the render target
 	zest_Draw(command_buffer, 3, 1, 0, 0);
 	zest_EndRecording(target->recorder, fif);
@@ -218,7 +242,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	float delta = (float)elapsed / ZEST_MICROSECS_SECOND;
 
 	//Set the sprite drawing to use the shader resources we created earlier
-	zest_SetInstanceDrawing(example->base_layer, example->sprite_shader_resources, zest_Pipeline("pipeline_2d_sprites"));
+	zest_SetInstanceDrawing(example->base_layer, example->sprite_shader_resources, zest_PipelineTemplate("pipeline_2d_sprites"));
 	//Set the layer intensity
 	zest_SetLayerIntensity(example->base_layer, 1.f);
 	//Draw the statue sprite to cover the screen
@@ -245,9 +269,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Set it's color and blend mix
 	zest_SetLayerColor(example->top_layer, 255, 255, 255, (zest_byte)(blend * 255));
 	//Set the sprite drawing for the top layer to use the final blur texture with the standard pipeline for sprites
-	zest_SetInstanceDrawing(example->top_layer, example->rt_shader_resources, zest_Pipeline("pipeline_2d_sprites"));
-	//Draw the render target as a sprite to the top layer.
-	zest_DrawSprite(example->top_layer, zest_GetRenderTargetImage(example->final_blur), 0.f, 0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 0.f, 0, 0.f);
+	zest_SetInstanceDrawing(example->top_layer, example->rt_shader_resources, zest_PipelineTemplate("pipeline_2d_sprites"));
 	//Set the font to use for the font layer
 	zest_SetMSDFFontDrawing(example->font_layer, example->font);
 	//Set the shadow and color
@@ -270,6 +292,7 @@ int main()
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);
 	create_info.log_path = "./";
 	create_info.thread_count = 0;
 	zest_Initialise(&create_info);

@@ -3968,6 +3968,9 @@ void zest__create_descriptor_pools(VkDescriptorPoolSize *pool_sizes, zest_uint m
 void zest__make_standard_descriptor_layouts() {
     zest_AddDescriptorLayout("uniform buffer", 1, 0, 0, 0);
     zest_AddDescriptorLayout("1 sampler", 0, 0, 1, 0);
+    zest_AddDescriptorLayout("2 sampler", 0, 0, 2, 0);
+    zest_AddDescriptorLayout("3 sampler", 0, 0, 3, 0);
+    zest_AddDescriptorLayout("4 sampler", 0, 0, 4, 0);
     zest_AddDescriptorLayout("Standard 1 uniform 1 sampler", 1, 0, 1, 0);
     zest_AddDescriptorLayout("Render target layout", 0, 0, 1, 0);
     zest_AddDescriptorLayout("Ribbon 2d layout", 1, 0, 1, 0);
@@ -4008,6 +4011,9 @@ zest_descriptor_set_layout zest_BuildDescriptorSetLayout(zest_descriptor_set_lay
 }
 
 zest_descriptor_set_layout zest_AddDescriptorLayout(const char *name, zest_uint uniforms, zest_uint storage_buffers, zest_uint combined_samplers, zest_uint samplers) {
+    if (zest_map_valid_name(ZestRenderer->descriptor_layouts, name)) {
+        return *zest_map_at(ZestRenderer->descriptor_layouts, name);
+    }
     zest_descriptor_set_layout descriptor_layout = ZEST__NEW(zest_descriptor_set_layout);
     descriptor_layout->name.str = 0;
     descriptor_layout->magic = zest_INIT_MAGIC;
@@ -4405,7 +4411,6 @@ zest_pipeline zest__create_pipeline() {
         .pipeline = VK_NULL_HANDLE,
         .pipeline_layout = VK_NULL_HANDLE,
         .uniform_buffer = 0,
-        .push_constant_size = 0,
         .rebuild_pipeline_function = ZEST_NULL,
         .flags = zest_pipeline_set_flag_none,
     };
@@ -5718,6 +5723,7 @@ void zest__compile_builtin_shaders(zest_bool compile_shaders) {
     zest_CreateShader(zest_shader_mesh_instance_frag, shaderc_fragment_shader, "mesh_instance_frag.spv", 1, 0, compiler, 0);
     zest_CreateShader(zest_shader_swap_vert, shaderc_vertex_shader, "swap_vert.spv", 1, 0, compiler, 0);
     zest_CreateShader(zest_shader_swap_frag, shaderc_fragment_shader, "swap_frag.spv", 1, 0, compiler, 0);
+    zest_CreateShader(zest_shader_tonemapper_vert, shaderc_vertex_shader, "tonemapper_vert.spv", 1, 0, compiler, 0);
     zest_CreateShader(zest_shader_tonemapper_frag, shaderc_fragment_shader, "tonemapper_frag.spv", 1, 0, compiler, 0);
     if (compiler) {
         shaderc_compiler_release(compiler);
@@ -5976,7 +5982,7 @@ void zest__prepare_standard_pipelines() {
     final_render->create_info.viewport.extent = zest_GetSwapChainExtent();
     VkPushConstantRange final_render_pushconstant_range;
     final_render_pushconstant_range.offset = 0;
-    final_render_pushconstant_range.size = sizeof(zest_final_render_push_constants_t);
+    final_render_pushconstant_range.size = sizeof(zest_render_target_push_constants_t);
     final_render_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     zest_vec_push(final_render->create_info.pushConstantRange, final_render_pushconstant_range);
     final_render->create_info.no_vertex_input = ZEST_TRUE;
@@ -5996,30 +6002,18 @@ void zest__prepare_standard_pipelines() {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Final render pipeline");
 
     //Tonemapper Render Pipelines
+
     zest_pipeline_template tonemapper_pipeline = zest_AddPipeline("pipeline_tonemapper");
-
-    tonemapper_pipeline->create_info = zest_CreatePipelineTemplateCreateInfo();
-    tonemapper_pipeline->create_info.viewport.extent = zest_GetSwapChainExtent();
-    VkPushConstantRange tonemapper_pushconstant_range;
-    tonemapper_pushconstant_range.offset = 0;
-    tonemapper_pushconstant_range.size = sizeof(zest_final_render_push_constants_t);
-    tonemapper_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    zest_vec_push(tonemapper_pipeline->create_info.pushConstantRange, tonemapper_pushconstant_range);
-    tonemapper_pipeline->create_info.no_vertex_input = ZEST_TRUE;
-    zest_SetText(&tonemapper_pipeline->create_info.vertShaderFile, "swap_vert.spv");
+    tonemapper_pipeline->create_info = zest_CopyTemplateFromPipeline("pipeline_swap_chain");
+    zest_SetText(&tonemapper_pipeline->create_info.vertShaderFile, "tonemapper_vert.spv");
     zest_SetText(&tonemapper_pipeline->create_info.fragShaderFile, "tonemapper_frag.spv");
-    tonemapper_pipeline->uniforms = 0;
-    tonemapper_pipeline->flags = zest_pipeline_set_flag_is_render_target_pipeline;
-
-    zest_ClearPipelineTemplateDescriptorLayouts(&tonemapper_pipeline->create_info);
-    zest_AddPipelineTemplateDescriptorLayout(&tonemapper_pipeline->create_info, *zest_GetDescriptorSetLayout("1 sampler"));
     zest_MakePipelineTemplate(tonemapper_pipeline, &tonemapper_pipeline->create_info);
     tonemapper_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
     tonemapper_pipeline->depthStencil.depthTestEnable = VK_FALSE;
-
-    tonemapper_pipeline->colorBlendAttachment = zest_PreMultiplyBlendStateForSwap();
+    tonemapper_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Tonemapper render pipeline");
+
 }
 
 void zest__update_pipeline_template(zest_pipeline_template_t* pipeline_template, zest_pipeline_template_create_info_t* create_info) {
@@ -6909,6 +6903,7 @@ void zest_FinishQueueSetup() {
     ZestRenderer->setup_context.draw_commands = ZEST_NULL;
     ZestRenderer->setup_context.draw_routine = ZEST_NULL;
     ZestRenderer->setup_context.layer = ZEST_NULL;
+    ZestRenderer->setup_context.composite_render_target = ZEST_NULL;
     ZestRenderer->setup_context.type = zest_setup_context_type_none;
 }
 
@@ -7012,28 +7007,46 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const 
     return draw_commands;
 }
 
-zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char* name, zest_render_target render_target) {
-    ZEST_ASSERT(render_target);    //render_target must be valid
+zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char* name, zest_render_target render_target, zest_pipeline_template pipeline_template, zest_shader_resources shader_resources) {
+    ZEST_ASSERT(render_target);        //render_target must be a valid index to a render target
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));        //There are already draw commands with that name
     zest__set_queue_context(zest_setup_context_type_render_pass);
     zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
     zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
     zest_vec_push(command_queue->draw_commands, draw_commands);
+    render_target->composite_shader_resources = shader_resources;
+    render_target->composite_pipeline_template = pipeline_template;
     draw_commands->name = name;
-    draw_commands->render_pass = ZestRenderer->final_render_pass;
-    draw_commands->get_frame_buffer = zest_GetRendererFrameBuffer;
+    draw_commands->render_pass = render_target->render_pass;
+    draw_commands->get_frame_buffer = zest_GetRenderTargetFrameBufferCallback;
     draw_commands->render_pass_function = zest_CompositeRenderTargets;
+    draw_commands->viewport = render_target->viewport;
     draw_commands->render_target = render_target;
-    zest_vec_push(draw_commands->render_targets, render_target);
-    draw_commands->viewport.extent = zest_GetSwapChainExtent();
-    draw_commands->viewport.offset.x = draw_commands->viewport.offset.y = 0;
+    if (zest_Vec2Length2(render_target->create_info.ratio_of_screen_size)) {
+        draw_commands->viewport_scale = render_target->create_info.ratio_of_screen_size;
+        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
+    } else if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_fixed_size)) {
+        draw_commands->viewport_type = zest_render_viewport_type_fixed;
+    } else {
+        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
+        draw_commands->viewport_scale = zest_Vec2Set(1.f, 1.f);
+    }
     ZestRenderer->setup_context.draw_commands = draw_commands;
     ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
+    ZestRenderer->setup_context.composite_render_target = render_target;
     return draw_commands;
 }
 
 void zest_AddRenderTarget(zest_render_target render_target) {
     ZEST_ASSERT(render_target);        //render_target must be a valid render target
     ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass);    //The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderPassSetupSC
+    zest_vec_push(ZestRenderer->setup_context.draw_commands->render_targets, render_target);
+}
+
+void zest_AddCompositeLayer(zest_render_target render_target, float intensity) {
+    ZEST_ASSERT(render_target);        //render_target must be a valid render target
+    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass);    //The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderPassSetupSC
+    render_target->push_constants.alpha_level = intensity;
     zest_vec_push(ZestRenderer->setup_context.draw_commands->render_targets, render_target);
 }
 
@@ -10061,6 +10074,8 @@ void zest__initialise_render_target(zest_render_target render_target, zest_rende
 
     render_target->push_constants.screen_resolution.x = (float)(info->viewport.extent.width);
     render_target->push_constants.screen_resolution.y = (float)(info->viewport.extent.height);
+    render_target->push_constants.flags = 0;
+    render_target->push_constants.alpha_level = 1.f;
 
     ZEST__FLAG(render_target->flags, zest_render_target_flag_initialised);
 }
@@ -10359,7 +10374,7 @@ void zest__record_render_target_commands(zest_render_target render_target, zest_
 		pipeline->pipeline_layout,
 		VK_SHADER_STAGE_VERTEX_BIT,
 		0,
-		sizeof(zest_final_render_push_constants_t),
+		sizeof(zest_render_target_push_constants_t),
 		&render_target->push_constants);
 
 	vkCmdDraw(command_buffer, 3, 1, 0, 0);
@@ -10408,18 +10423,29 @@ void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, Vk
     render_pass_info.clearValueCount = 2;
     render_pass_info.pClearValues = clear_values;
 
-    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->render_target->viewport.extent.width, (float)item->render_target->viewport.extent.height, 0.f, 1.f);
+    VkRect2D scissor = zest_CreateRect2D(item->render_target->viewport.extent.width, item->render_target->viewport.extent.height, 0, 0);
+    vkCmdSetViewport(command_buffer, 0, 1, &view);
+    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
     for (zest_foreach_i(item->render_targets)) {
-        zest_render_target target = item->render_targets[i];
+        zest_render_target layer = item->render_targets[i];
 
-		if (target->post_process_record_callback && target->recorder->outdated[ZEST_FIF] != 0) {
-            target->post_process_record_callback(target, target->post_process_user_data, ZEST_FIF);
-        } else if(target->recorder->outdated[ZEST_FIF] != 0) {
-            zest__record_render_target_commands(target, ZEST_FIF);
-        }
+        zest_pipeline pipeline = zest_PipelineWithTemplate(layer->pipeline_template, render_pass);
+        vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSetVK(layer), 0, NULL);
+        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 
-		zest_ExecuteRecorderCommands(command_buffer, target->recorder, ZEST_FIF);
+        vkCmdPushConstants(
+            command_buffer,
+            pipeline->pipeline_layout,
+            VK_SHADER_STAGE_VERTEX_BIT,
+            0,
+            sizeof(zest_render_target_push_constants_t),
+            &layer->push_constants);
+
+        vkCmdDraw(command_buffer, 3, 1, 0, 0);
     }
 
     vkCmdEndRenderPass(command_buffer);
@@ -10440,21 +10466,29 @@ void zest_CompositeRenderTargets(zest_command_queue_draw_commands item, VkComman
     render_pass_info.clearValueCount = 2;
     render_pass_info.pClearValues = clear_values;
 
-    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
-    for (zest_foreach_i(item->render_targets)) {
-        zest_render_target target = item->render_targets[i];
+	VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->render_target->viewport.extent.width, (float)item->render_target->viewport.extent.height, 0.f, 1.f);
+	VkRect2D scissor = zest_CreateRect2D(item->render_target->viewport.extent.width, item->render_target->viewport.extent.height, 0, 0);
+	vkCmdSetViewport(command_buffer, 0, 1, &view);
+	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-		if (target->post_process_record_callback && target->recorder->outdated[ZEST_FIF] != 0) {
-            target->post_process_record_callback(target, target->post_process_user_data, ZEST_FIF);
-        } else if(target->recorder->outdated[ZEST_FIF] != 0) {
-            zest__record_render_target_commands(target, ZEST_FIF);
-        }
+	zest_pipeline pipeline = zest_PipelineWithTemplate(item->render_target->composite_pipeline_template, render_pass);
+    zest_BindPipelineShaderResource(command_buffer, pipeline, item->render_target->composite_shader_resources, ZEST_FIF);
 
-		zest_ExecuteRecorderCommands(command_buffer, target->recorder, ZEST_FIF);
-    }
+	vkCmdPushConstants(
+		command_buffer,
+		pipeline->pipeline_layout,
+		VK_SHADER_STAGE_VERTEX_BIT,
+		0,
+		sizeof(zest_render_target_push_constants_t),
+		&item->render_target->push_constants);
+
+	vkCmdDraw(command_buffer, 3, 1, 0, 0);
 
     vkCmdEndRenderPass(command_buffer);
+
+    item->render_target->recorder->outdated[ZEST_FIF] = 1;
 }
 
 void zest_CleanUpRenderTarget(zest_render_target render_target, zest_index fif) {

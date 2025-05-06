@@ -6,27 +6,33 @@ struct PushConstants {
 } push;
 
 struct RenderTargetExample {
-	zest_pipeline blur_pipeline;		//Handle to the pipeline we will use for the blur effect
-	zest_render_target top_target;		//Render target to draw the result of the blur effect on top of the other layers
-	zest_render_target base_target;		//The base target to draw the initial images that will be blurred
-	zest_render_target final_blur;		//Render target where the final blur effect happens
-	zest_render_target tonemapping_target;		//Final blur gets rendered here and tonemapped
-	zest_command_queue command_queue;	//Custom command queue that we'll build from scratch
-	zest_layer base_layer;				//Base layer for drawing to the base render target
-	zest_layer top_layer;				//Top layer for drawing to the top render target
-	zest_layer font_layer;				//Font layer for drawing some text to the top layer
-	zest_texture texture;				//A texture to store the images
+	zest_pipeline_template blur_pipeline;		    //Handle to the pipeline template we will use for the blur effect
+	zest_pipeline_template composite_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
+	zest_render_target top_target;		            //Render target to draw the result of the blur effect on top of the other layers
+	zest_render_target base_target;		            //The base target to draw the initial images that will be blurred
+	zest_render_target final_blur;		            //Render target where the final blur effect happens
+	zest_render_target compositor;		            //Render target to combine the base target with the final blur
+	zest_command_queue command_queue;	            //Custom command queue that we'll build from scratch
+	zest_layer base_layer;				            //Base layer for drawing to the base render target
+	zest_layer top_layer;				            //Top layer for drawing to the top render target
+	zest_layer font_layer;				            //Font layer for drawing some text to the top layer
+	zest_texture texture;				            //A texture to store the images
 	zest_shader blur_frag_shader;
 	zest_shader blur_vert_shader;
+	zest_shader composite_frag_shader;
+	zest_shader composite_vert_shader;
+	zest_descriptor_set_layout composite_descriptor_layout;
+	zest_descriptor_set_t composite_descriptor_set;
 	zest_shader_resources sprite_shader_resources;	//Shader resources for the sprite drawing
-	zest_shader_resources rt_shader_resources;	//Shader resources for the render target drawing
-	zest_image image;					//Handle to the statue image
-	zest_image wabbit;					//Handle to the rabbit image that we'll bounce around the screen
-	zest_font font;						//Handle to the font
-	PushConstants push_constants;		//The push constants containing the texture size and the direction of the blur
+	zest_shader_resources composite_shader_resources;	//Shader resources for compositing the base and blur render targets
+	zest_shader_resources rt_shader_resources;	    //Shader resources for the render target drawing
+	zest_image image;					            //Handle to the statue image
+	zest_image wabbit;					            //Handle to the rabbit image that we'll bounce around the screen
+	zest_font font;						            //Handle to the font
+	PushConstants push_constants;		            //The push constants containing the texture size and the direction of the blur
 
 	struct wabbit_pos {
-		float x, y;						//Some variables to help bounce the rabbit around
+		float x, y;						            //Some variables to help bounce the rabbit around
 		float vx, vy;
 	} wabbit_pos;
 };
