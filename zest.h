@@ -1361,6 +1361,7 @@ typedef enum {
     zest_setup_context_type_none,
     zest_setup_context_type_command_queue,
     zest_setup_context_type_render_pass,
+    zest_setup_context_type_composite_render_pass,
     zest_setup_context_type_draw_routine,
     zest_setup_context_type_layer,
     zest_setup_context_type_compute
@@ -3191,15 +3192,17 @@ typedef struct zest_render_target_t {
     zest_render_target_flags flags;
 
     zest_image_t sampler_image;
-    zest_pipeline_template_create_info_t sampler_pipeline_template;
-    zest_pipeline_template_create_info_t im_gui_rt_pipeline_template;
-    zest_pipeline_template composite_pipeline_template;
     zest_pipeline_template pipeline_template;
+
+    zest_pipeline_template composite_pipeline_template;
+    zest_shader_resources composite_shader_resources;
+    zest_descriptor_set_layout composite_descriptor_layout;
+    zest_descriptor_set_t composite_descriptor_set;
+    zest_render_target *composite_layers;
 
     int frames_in_flight;
     int frame_buffer_dirty[ZEST_MAX_FIF];
     zest_texture sampler_texture;
-    zest_shader_resources composite_shader_resources; 
     VkDescriptorImageInfo image_info[ZEST_MAX_FIF];
     zest_frame_buffer_t framebuffers[ZEST_MAX_FIF];
 
@@ -4048,7 +4051,7 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
     ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char *name, zest_render_target render_target);
     //Create draw commands that draw render targets to a composite render target. This is useful if you are drawing to render targets elsewhere and 
     //want to combine them all before doing tonemapping
-    ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char *name, zest_render_target render_target, zest_pipeline_template pipeline_template, zest_shader_resources shader_resources);
+    ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char *name, zest_render_target render_target, zest_pipeline_template pipeline_template);
         //Add a render target to the render pass within a zest_NewDrawCommandSetupRenderTargetSwap
         //Context:    Must be called after zest_NewDrawCommandSetupRenderTargetSwap when the context will be zest_setup_context_type_render_pass
         ZEST_API void zest_AddRenderTarget(zest_render_target render_target);

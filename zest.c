@@ -6797,13 +6797,17 @@ char* zest_ReadEntireFile(const char* file_name, zest_bool terminate) {
 
 // --Command queue setup and modify functions
 void zest__set_queue_context(zest_setup_context_type context) {
+    ZestRenderer->setup_context.type = context;
     if (ZestRenderer->setup_context.type == zest_setup_context_type_command_queue) {
         ZestRenderer->setup_context.draw_commands = ZEST_NULL;
         ZestRenderer->setup_context.layer = ZEST_NULL;
         ZestRenderer->setup_context.draw_routine = ZEST_NULL;
         ZestRenderer->setup_context.compute_index = -1;
-    }
-    else if (ZestRenderer->setup_context.type == zest_setup_context_type_render_pass) {
+    } else if (ZestRenderer->setup_context.type == zest_setup_context_type_render_pass) {
+        ZestRenderer->setup_context.layer = ZEST_NULL;
+        ZestRenderer->setup_context.compute_index = -1;
+        ZestRenderer->setup_context.draw_routine = ZEST_NULL;
+    } else if (ZestRenderer->setup_context.type == zest_setup_context_type_composite_render_pass) {
         ZestRenderer->setup_context.layer = ZEST_NULL;
         ZestRenderer->setup_context.compute_index = -1;
         ZestRenderer->setup_context.draw_routine = ZEST_NULL;
@@ -6899,6 +6903,27 @@ void zest_ContextSetClsColor(float r, float g, float b, float a) {
 void zest_FinishQueueSetup() {
     ZEST_ASSERT(ZestRenderer->setup_context.command_queue != ZEST_NULL);        //Trying to validate a queue that has no context. Finish queue setup must me run at the end of a queue setup
     zest_ValidateQueue(ZestRenderer->setup_context.command_queue);
+    //Finish setting up any composite render_targets
+    zest_vec_foreach(i, ZestRenderer->setup_context.command_queue->draw_commands) {
+        zest_command_queue_draw_commands draw_command = ZestRenderer->setup_context.command_queue->draw_commands[i];
+        if (ZEST_VALID_HANDLE(draw_command->render_target) && !zest_vec_empty(draw_command->render_target->composite_layers)) {
+            zest_render_target compositor = draw_command->render_target;
+            zest_uint layer_count = zest_vec_size(draw_command->render_target->composite_layers);
+            zest_text_t layout_name = {0};
+            zest_SetTextf(&layout_name, "%i samplers", layer_count);
+            compositor->composite_descriptor_layout = zest_AddDescriptorLayout(layout_name.str, 0, 0, layer_count, 0);
+            zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
+            zest_vec_foreach(c, draw_command->render_target->composite_layers) {
+                zest_render_target layer = draw_command->render_target->composite_layers[c];
+				zest_AddBuilderDescriptorWriteImage(&set_builder, &layer->image_info[0], c, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            }
+            compositor->composite_descriptor_set = zest_BuildDescriptorSet(&set_builder, compositor->composite_descriptor_layout, zest_descriptor_type_dynamic);
+            compositor->composite_shader_resources = zest_CreateShaderResources();
+            zest_AddDescriptorSetToResources(compositor->composite_shader_resources, &compositor->composite_descriptor_set);
+            zest_FreeText(&layout_name);
+            break;
+        }
+    }
     ZestRenderer->setup_context.command_queue = ZEST_NULL;
     ZestRenderer->setup_context.draw_commands = ZEST_NULL;
     ZestRenderer->setup_context.draw_routine = ZEST_NULL;
@@ -7007,14 +7032,13 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const 
     return draw_commands;
 }
 
-zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char* name, zest_render_target render_target, zest_pipeline_template pipeline_template, zest_shader_resources shader_resources) {
+zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char* name, zest_render_target render_target, zest_pipeline_template pipeline_template) {
     ZEST_ASSERT(render_target);        //render_target must be a valid index to a render target
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));        //There are already draw commands with that name
-    zest__set_queue_context(zest_setup_context_type_render_pass);
+    zest__set_queue_context(zest_setup_context_type_composite_render_pass);
     zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
     zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
     zest_vec_push(command_queue->draw_commands, draw_commands);
-    render_target->composite_shader_resources = shader_resources;
     render_target->composite_pipeline_template = pipeline_template;
     draw_commands->name = name;
     draw_commands->render_pass = render_target->render_pass;
@@ -7032,7 +7056,6 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char* 
         draw_commands->viewport_scale = zest_Vec2Set(1.f, 1.f);
     }
     ZestRenderer->setup_context.draw_commands = draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
     ZestRenderer->setup_context.composite_render_target = render_target;
     return draw_commands;
 }
@@ -7045,9 +7068,9 @@ void zest_AddRenderTarget(zest_render_target render_target) {
 
 void zest_AddCompositeLayer(zest_render_target render_target, float intensity) {
     ZEST_ASSERT(render_target);        //render_target must be a valid render target
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass);    //The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderPassSetupSC
+    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_composite_render_pass);    //The current setup context must be a composite render pass 
     render_target->push_constants.alpha_level = intensity;
-    zest_vec_push(ZestRenderer->setup_context.draw_commands->render_targets, render_target);
+    zest_vec_push(ZestRenderer->setup_context.composite_render_target->composite_layers, render_target);
 }
 
 zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char* name, zest_render_target render_target) {
@@ -10297,6 +10320,11 @@ void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_i
     render_target->create_info.viewport.extent.width = width;
     render_target->create_info.viewport.extent.height = height;
     render_target->recorder->outdated[fif] = 1;
+
+    if (ZEST_VALID_HANDLE(render_target->composite_pipeline_template)) {
+		render_target->composite_pipeline_template->create_info.viewport.extent = render_target->viewport.extent;
+		render_target->composite_pipeline_template->create_info.viewport.offset = render_target->viewport.offset;
+    }
 
     zest_CleanUpRenderTarget(render_target, fif);
 

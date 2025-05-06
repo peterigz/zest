@@ -21,10 +21,7 @@ struct RenderTargetExample {
 	zest_shader blur_vert_shader;
 	zest_shader composite_frag_shader;
 	zest_shader composite_vert_shader;
-	zest_descriptor_set_layout composite_descriptor_layout;
-	zest_descriptor_set_t composite_descriptor_set;
 	zest_shader_resources sprite_shader_resources;	//Shader resources for the sprite drawing
-	zest_shader_resources composite_shader_resources;	//Shader resources for compositing the base and blur render targets
 	zest_shader_resources rt_shader_resources;	    //Shader resources for the render target drawing
 	zest_image image;					            //Handle to the statue image
 	zest_image wabbit;					            //Handle to the rabbit image that we'll bounce around the screen

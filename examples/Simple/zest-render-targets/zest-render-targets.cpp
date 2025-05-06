@@ -70,15 +70,6 @@ void InitExample(RenderTargetExample *example) {
 	zest_render_target vertical_blur2 = zest_AddPostProcessRenderTarget("Vertical blur 2 render target", 0.5, 0.5, horizontal_blur1, example, RecordVerticalBlur);
 	example->final_blur = zest_AddPostProcessRenderTarget("Final blur render target", 1.f, 1.f, vertical_blur2, example, RecordHorizontalBlur);
 
-	example->composite_descriptor_layout = zest_AddDescriptorLayout("2 samplers", 0, 0, 2, 0);
-	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
-	zest_AddBuilderDescriptorWriteImage(&set_builder, &example->base_target->image_info[0], 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	zest_AddBuilderDescriptorWriteImage(&set_builder, &example->final_blur->image_info[0], 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	example->composite_descriptor_set = zest_BuildDescriptorSet(&set_builder, example->composite_descriptor_layout, zest_descriptor_type_dynamic);
-
-	example->composite_shader_resources = zest_CreateShaderResources();
-	zest_AddDescriptorSetToResources(example->composite_shader_resources, &example->composite_descriptor_set);
-
 	//Create the render queue
 	//For blur effect we need to draw the scene to a base render target first, then have 2 render passes that draw to a smaller texture with horizontal and then vertical blur effects
 	//then we can draw the base target to the swap chain and draw the blur texture over the top by drawing it as a textured rectangle on a top layer that doesn't get blurred.
@@ -123,7 +114,11 @@ void InitExample(RenderTargetExample *example) {
 			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
 		}
 		//Create draw commands that applies horizontal blur to the vertical blur target
-		zest_NewDrawCommandSetupCompositor("Compositer", example->compositor, example->composite_pipeline, example->composite_shader_resources);
+		zest_NewDrawCommandSetupCompositor("Compositer", example->compositor, example->composite_pipeline); 
+		{
+			zest_AddCompositeLayer(example->base_target, 1.f);
+			zest_AddCompositeLayer(example->final_blur, 2.f);
+		}
 		//Create draw commands that we can use to draw on top of the blur effect
 		zest_NewDrawCommandSetup("Top render pass", example->top_target);
 		{
