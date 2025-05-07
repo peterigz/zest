@@ -3628,6 +3628,8 @@ ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescript
 ZEST_API zest_descriptor_set_builder_t zest_NewDescriptorSetBuilder();
 //Add a VkDescriptorImageInfo from a zest_texture (or render target) to a descriptor set builder.
 ZEST_API void zest_AddBuilderDescriptorWriteImage(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
+//Add a VkDescriptorImageInfo with a specific frame in flight
+ZEST_API void zest_AddBuilderDescriptorWriteImageFIF(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type, zest_uint fif);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a uniform buffer.
 ZEST_API void zest_AddBuilderDescriptorWriteUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uniform_buffer buffer, zest_uint dst_binding);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a storage buffer.

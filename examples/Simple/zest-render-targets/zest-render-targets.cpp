@@ -87,7 +87,6 @@ void InitExample(RenderTargetExample *example) {
 			//your own custom layer and draw routine
 			example->base_layer = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
 		}
-		/*
 		//Create draw commands that applies vertical blur to the base target
 		zest_NewDrawCommandSetup("Vertical blur render pass", vertical_blur1);
 		{
@@ -120,7 +119,6 @@ void InitExample(RenderTargetExample *example) {
 			zest_AddCompositeLayer(example->base_target, 1.f);
 			zest_AddCompositeLayer(example->final_blur, 2.f);
 		}
-		*/
 		//Create draw commands that we can use to draw on top of the blur effect
 		zest_NewDrawCommandSetup("Top render pass", example->top_target);
 		{
@@ -131,7 +129,7 @@ void InitExample(RenderTargetExample *example) {
 		//Finally we won't see anything unless we tell the render queue to render to the swap chain to be presented to the screen, but we
 		//need to specify which render targets we want to be drawn to the swap chain.
 		//We can use zest_NewDrawCommandSetupRenderTargetSwap which sets up a render pass to the swap chain specifying the render target to draw to it
-		zest_NewDrawCommandSetupRenderTargetSwap("Render render targets to swap", example->base_target);
+		zest_NewDrawCommandSetupRenderTargetSwap("Render render targets to swap", example->compositor);
 		{
 			//We can add as many other render targets as we need to get drawn to the swap chain. In this case we'll add the top target where we can
 			//draw a textured rectangle that samples the blurred texture.
@@ -235,7 +233,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Set the layer intensity
 	zest_SetLayerIntensity(example->base_layer, 1.f);
 	//Draw the statue sprite to cover the screen
-	zest_DrawSprite(example->base_layer, example->image, 0.f, 0.f, 0.f, zest_ScreenWidthf()*.5f, zest_ScreenHeightf()*.5f, 0.f, 0.f, 0, 0.f);
+	zest_DrawSprite(example->base_layer, example->image, 0.f, 0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 0.f, 0, 0.f);
 	//bounce the rabbit if it hits the screen edge
 	if (example->wabbit_pos.x >= zest_ScreenWidthf()) example->wabbit_pos.vx *= -1.f;
 	if (example->wabbit_pos.y >= zest_ScreenHeightf()) example->wabbit_pos.vy *= -1.f;
