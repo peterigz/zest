@@ -3732,9 +3732,9 @@ void zest_Update2dUniformBuffer() {
     zest_vec3 center = { 0 };
     zest_vec3 up = { .x = 0.f, .y = -1.f, .z = 0.f };
     ubo_ptr->view = zest_LookAt(eye, center, up);
-    ubo_ptr->proj = zest_Ortho(0.f, zest_SwapChainWidthf() / ZestRenderer->dpi_scale, 0.f, -zest_SwapChainHeightf() / ZestRenderer->dpi_scale, -1000.f, 1000.f);
-    ubo_ptr->screen_size.x = zest_ScreenWidthf();
-    ubo_ptr->screen_size.y = zest_ScreenHeightf();
+    ubo_ptr->proj = zest_Ortho(0.f, 1280.f / ZestRenderer->dpi_scale, 0.f, -768.f / ZestRenderer->dpi_scale, -1000.f, 1000.f);
+    ubo_ptr->screen_size.x = 1280.f;
+    ubo_ptr->screen_size.y = 768.f;
     ubo_ptr->millisecs = zest_Millisecs() % 1000;
 }
 
@@ -6123,7 +6123,6 @@ zest_bool zest__acquire_next_swapchain_image() {
 
     //Has the window been resized? if so rebuild the swap chain.
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-        ZEST_PRINT("acquire frame");
         zest__recreate_swapchain();
         return ZEST_FALSE;
     }
@@ -6176,7 +6175,6 @@ void zest__present_frame() {
         ZestApp->window->framebuffer_resized = ZEST_FALSE;
         ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
 
-        ZEST_PRINT("preset frame");
         zest__recreate_swapchain();
     }
     else {
@@ -10879,11 +10877,19 @@ void zest_RecordInstanceLayer(zest_layer layer, zest_uint fif) {
     VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
 	VkDeviceSize instance_data_offsets[] = { layer->memory_refs[layer->draw_routine->fif].device_instance_data->memory_offset };
 	vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[layer->draw_routine->fif].device_instance_data), instance_data_offsets);
+    bool has_instruction_view_port = false;
     for (zest_foreach_i(layer->draw_instructions[layer->draw_routine->fif])) {
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->draw_routine->fif][i];
 
-        vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
-        vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+        if (current->draw_mode == zest_draw_mode_viewport) {
+            vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+            has_instruction_view_port = true;
+            continue;
+        } else if(!has_instruction_view_port) {
+            vkCmdSetViewport(command_buffer, 0, 1, &layer->viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
+        }
 
         ZEST_ASSERT(current->shader_resources); //Shader resources must be set in the instruction
         zest_vec_foreach(set_index, current->shader_resources->sets) {
@@ -10920,11 +10926,19 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
     zest_BindMeshIndexBuffer(command_buffer, layer);
     zest_BindMeshVertexBuffer(command_buffer, layer);
 
+    bool has_instruction_view_port = false;
     for (zest_foreach_i(layer->draw_instructions[layer->draw_routine->fif])) {
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->draw_routine->fif][i];
 
-        vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
-        vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+        if (current->draw_mode == zest_draw_mode_viewport) {
+            vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+            has_instruction_view_port = true;
+            continue;
+        } else if(!has_instruction_view_port) {
+            vkCmdSetViewport(command_buffer, 0, 1, &layer->viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
+        }
 
         zest_vec_foreach(set_index, current->shader_resources->sets) {
             zest_descriptor_set set = current->shader_resources->sets[set_index];
@@ -10960,11 +10974,19 @@ void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
 
 	vkCmdBindVertexBuffers(command_buffer, 1, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[layer->draw_routine->fif].device_instance_data), instance_data_offsets);
 
+    bool has_instruction_view_port = false;
     for (zest_foreach_i(layer->draw_instructions[layer->draw_routine->fif])) {
         zest_layer_instruction_t *current = &layer->draw_instructions[layer->draw_routine->fif][i];
 
-        vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
-        vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+        if (current->draw_mode == zest_draw_mode_viewport) {
+            vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+            has_instruction_view_port = true;
+            continue;
+        } else if(!has_instruction_view_port) {
+            vkCmdSetViewport(command_buffer, 0, 1, &layer->viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
+        }
 
         zest_vec_foreach(set_index, current->shader_resources->sets) {
             zest_descriptor_set set = current->shader_resources->sets[set_index];
@@ -11079,6 +11101,7 @@ void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
     instance_ptr += size_in_bytes_to_draw;
     layer->memory_refs[layer->draw_routine->fif].instance_ptr = instance_ptr;
 }
+
 // End general instance layer functionality -----
 
 //Start internal mesh layer functionality -----
@@ -11533,10 +11556,17 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_reso
 	ZEST_ASSERT(shader_resources);   //You must specifiy the shader resources to draw with
 	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_instance;
-    layer->current_instruction.scissor = layer->scissor;
-    layer->current_instruction.viewport = layer->viewport;
     layer->current_instruction.push_constants = layer->push_constants;
     layer->last_draw_mode = zest_draw_mode_instance;
+}
+
+void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
+    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    zest_EndInstanceInstructions(layer);
+    zest_StartInstanceInstructions(layer);
+    layer->current_instruction.scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
+    layer->current_instruction.viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
+    layer->current_instruction.draw_mode = zest_draw_mode_viewport;
 }
 
 //-- Start Billboard Drawing API

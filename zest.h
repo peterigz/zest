@@ -2868,7 +2868,8 @@ typedef struct zest_push_constants_t {             //128 bytes seems to be the l
 typedef struct zest_layer_instruction_t {
     zest_push_constants_t push_constants;         //Each draw instruction can have different values in the push constants push_constants
     VkRect2D scissor;                             //The drawinstruction can also clip whats drawn
-    zest_index start_index;                        //The starting index
+    VkViewport viewport;                          //The viewport size of the draw call
+    zest_index start_index;                       //The starting index
     union {
         zest_uint total_instances;                //The total number of instances to be drawn in the draw instruction
         zest_uint total_indexes;                  //The total number of indexes to be drawn in the draw instruction
@@ -2876,7 +2877,6 @@ typedef struct zest_layer_instruction_t {
     zest_index last_instance;                     //The last instance that was drawn in the previous instance instruction
     zest_pipeline_template pipeline_template;     //The pipeline template to draw the instances.
     zest_shader_resources shader_resources;       //The descriptor set shader_resources used to draw with
-    VkViewport viewport;                          //The viewport size of the draw call
     void *asset;                                  //Optional pointer to either texture, font etc
     zest_draw_mode draw_mode;
 } zest_layer_instruction_t ZEST_ALIGN_AFFIX(16);
@@ -4752,6 +4752,9 @@ ZEST_API zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void 
 //In situations where you write directly to a staging buffer you can use this function to simply tell the draw instruction
 //how many instances should be drawn. You will still need to call zest_SetInstanceDrawing
 ZEST_API void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount);
+//Set the viewport and scissors of the next draw instructions for a layer. Otherwise by default it will use either the screen size
+//of or the viewport size you set with zest_SetLayerViewPort
+ZEST_API void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
 
 //-----------------------------------------------
 //        Draw_billboard_layers

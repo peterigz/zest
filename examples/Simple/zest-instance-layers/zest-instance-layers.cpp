@@ -85,6 +85,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//You must call this command before doing any sprite draw to set the current texture, descriptor and pipeline to draw with.
 	//Call this function anytime that you need to draw with a different texture. Note that a single texture and contain many images
 	//you can draw a lot with a single draw call
+	//zest_SetLayerViewPort(example->sprite_layer, 0, 0, 1280, 768, 1280.f, 768.f);
+	//zest_SetLayerDrawingViewport(example->sprite_layer, 0, 0, 1280, 768, 1280.f, 768.f);
 	zest_SetInstanceDrawing(example->sprite_layer, example->sprite_shader_resources, example->sprite_pipeline);
 	//Set the alpha of the sprite layer to 0. This means that the sprites will be additive. 1 = alpha blending and anything imbetween
 	//is a mix between the two.
@@ -116,7 +118,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	float scale_x = (float)ZestApp->mouse_x * 5.f / zest_ScreenWidthf();
 	float scale_y = (float)ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
 	//Draw the billboard
-	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
+	//zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->billboard_shader_resources, example->mesh_pipeline);
 	//Draw the textured plane
