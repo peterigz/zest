@@ -87,6 +87,7 @@ void InitExample(RenderTargetExample *example) {
 			//your own custom layer and draw routine
 			example->base_layer = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
 		}
+		/*
 		//Create draw commands that applies vertical blur to the base target
 		zest_NewDrawCommandSetup("Vertical blur render pass", vertical_blur1);
 		{
@@ -119,6 +120,7 @@ void InitExample(RenderTargetExample *example) {
 			zest_AddCompositeLayer(example->base_target, 1.f);
 			zest_AddCompositeLayer(example->final_blur, 2.f);
 		}
+		*/
 		//Create draw commands that we can use to draw on top of the blur effect
 		zest_NewDrawCommandSetup("Top render pass", example->top_target);
 		{
@@ -129,7 +131,7 @@ void InitExample(RenderTargetExample *example) {
 		//Finally we won't see anything unless we tell the render queue to render to the swap chain to be presented to the screen, but we
 		//need to specify which render targets we want to be drawn to the swap chain.
 		//We can use zest_NewDrawCommandSetupRenderTargetSwap which sets up a render pass to the swap chain specifying the render target to draw to it
-		zest_NewDrawCommandSetupRenderTargetSwap("Render render targets to swap", example->compositor);
+		zest_NewDrawCommandSetupRenderTargetSwap("Render render targets to swap", example->base_target);
 		{
 			//We can add as many other render targets as we need to get drawn to the swap chain. In this case we'll add the top target where we can
 			//draw a textured rectangle that samples the blurred texture.
@@ -152,8 +154,6 @@ void InitExample(RenderTargetExample *example) {
 	//Create the shader resources for the texture and sprite drawing. This will take in a builtin uniform buffer descriptor set
 	//and the texture containing the sprites and create the shader resources for them.
 	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, example->texture);
-	//Do the same with the final blur render target so that can also be drawn to the screen anywhere we want
-	example->rt_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, zest_GetRenderTargetTexture(example->final_blur));
 	//Load a font
 	example->font = zest_LoadMSDFFont("examples/assets/SourceSansPro-Regular.zft");
 	//Set an initial position for the rabbit.
@@ -220,12 +220,6 @@ void RecordVerticalBlur(zest_render_target_t *target, void *data, zest_uint fif)
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(user_data);
 
-	if (zest_RenderTargetWasChanged(example->final_blur)) {
-		zest_UpdateShaderResources(
-			example->rt_shader_resources, 
-			zest_GetRenderTargetSamplerDescriptorSet(example->final_blur), 1);
-	}
-
 	//Set the active command queue to our custom command queue that we created
 	zest_SetActiveCommandQueue(example->command_queue);
 	//Update the standard 2d uniform buffer
@@ -241,7 +235,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Set the layer intensity
 	zest_SetLayerIntensity(example->base_layer, 1.f);
 	//Draw the statue sprite to cover the screen
-	zest_DrawSprite(example->base_layer, example->image, 0.f, 0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 0.f, 0, 0.f);
+	zest_DrawSprite(example->base_layer, example->image, 0.f, 0.f, 0.f, zest_ScreenWidthf()*.5f, zest_ScreenHeightf()*.5f, 0.f, 0.f, 0, 0.f);
 	//bounce the rabbit if it hits the screen edge
 	if (example->wabbit_pos.x >= zest_ScreenWidthf()) example->wabbit_pos.vx *= -1.f;
 	if (example->wabbit_pos.y >= zest_ScreenHeightf()) example->wabbit_pos.vy *= -1.f;
@@ -263,8 +257,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_SetLayerIntensity(example->top_layer, top_layer_intensity);
 	//Set it's color and blend mix
 	zest_SetLayerColor(example->top_layer, 255, 255, 255, (zest_byte)(blend * 255));
-	//Set the sprite drawing for the top layer to use the final blur texture with the standard pipeline for sprites
-	zest_SetInstanceDrawing(example->top_layer, example->rt_shader_resources, zest_PipelineTemplate("pipeline_2d_sprites"));
 	//Set the font to use for the font layer
 	zest_SetMSDFFontDrawing(example->font_layer, example->font);
 	//Set the shadow and color
@@ -275,7 +267,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawMSDFText(example->font_layer, "Mouse x = intensity level, Mouse y = additive/alpha blend", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .05f, .5f, .5f, 40.f, 0.f);
 
 	if (zest_MouseHit(zest_left_mouse)) {
-		zest_ScheduleRenderTargetRefresh(example->final_blur);
+		//zest_ScheduleRenderTargetRefresh(example->final_blur);
 	}
 }
 

@@ -16,7 +16,7 @@ void zest_imgui_RebuildFontTexture(zest_imgui_layer_info_t *imgui_layer_info, ze
 
 void zest_imgui_CreateLayer(zest_imgui_layer_info_t *imgui_layer_info) {
     imgui_layer_info->mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
-    imgui_layer_info->pipeline = zest_Pipeline("pipeline_imgui");
+    imgui_layer_info->pipeline = zest_PipelineTemplate("pipeline_imgui");
     zest_ContextDrawRoutine()->record_callback = zest_imgui_DrawLayer;
     zest_ContextDrawRoutine()->condition_callback = zest_imgui_RecordCondition;
     zest_ContextDrawRoutine()->user_data = imgui_layer_info;
@@ -32,7 +32,7 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
     zest_BindMeshVertexBuffer(command_buffer, imgui_layer);
     zest_BindMeshIndexBuffer(command_buffer, imgui_layer);
 
-    zest_pipeline last_pipeline = ZEST_NULL;
+    zest_pipeline_template last_pipeline = ZEST_NULL;
     VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
 
     VkViewport view = zest_CreateViewport(0.f, 0.f, zest_SwapChainWidthf(), zest_SwapChainHeightf(), 0.f, 1.f);
@@ -63,11 +63,12 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
 
                 zest_push_constants_t *push_constants = &imgui_layer->push_constants;
 
+				zest_pipeline pipeline = zest_PipelineWithTemplate(layer_info->pipeline, ZestRenderer->current_render_pass);
                 switch (current_image->struct_type) {
                 case zest_struct_type_image:
                     if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_GetTextureDescriptorSetVK(current_image->texture)) {
                         last_descriptor_set = zest_GetTextureDescriptorSetVK(current_image->texture);
-                        zest_BindPipeline(command_buffer, layer_info->pipeline, &last_descriptor_set, 1);
+                        zest_BindPipeline(command_buffer, pipeline, &last_descriptor_set, 1);
                         last_pipeline = layer_info->pipeline;
                     }
                     push_constants->parameters2.x = (float)current_image->layer;
@@ -79,7 +80,8 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
                     ZEST_ASSERT(imgui_image->image);
                     zest_ClearLayerDrawSets(imgui_layer);
                     zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &imgui_layer->draw_sets, imgui_layer->draw_routine->fif);
-                    zest_BindPipeline(command_buffer, imgui_image->pipeline, imgui_layer->draw_sets, set_count);
+					pipeline = zest_PipelineWithTemplate(layer_info->pipeline, ZestRenderer->current_render_pass);
+                    zest_BindPipeline(command_buffer, pipeline, imgui_layer->draw_sets, set_count);
                     last_descriptor_set = VK_NULL_HANDLE;
                     last_pipeline = imgui_image->pipeline;
                     push_constants = &imgui_image->push_constants;
@@ -88,11 +90,12 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
                 break;
                 default:
                     //Invalid image
+					pipeline = zest_PipelineWithTemplate(layer_info->pipeline, ZestRenderer->current_render_pass);
                     ZEST_PRINT_WARNING("%s", "Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
                     continue;
                 }
 
-                vkCmdPushConstants(command_buffer, layer_info->pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), push_constants);
+                vkCmdPushConstants(command_buffer, pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), push_constants);
 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);

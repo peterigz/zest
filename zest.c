@@ -3522,6 +3522,26 @@ void zest__recreate_swapchain() {
 		zest__refresh_render_target_sampler(render_target);
     }
 
+    for (zest_map_foreach_i(ZestRenderer->render_targets)) {
+        zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
+        if (!zest_vec_empty(render_target->composite_layers)) {
+            zest_uint layer_count = zest_vec_size(render_target->composite_layers);
+            zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
+            if (ZEST_VALID_HANDLE(&render_target->composite_descriptor_set)) zest_FreeDescriptorSets(&render_target->composite_descriptor_set);
+            zest_vec_foreach(c, render_target->composite_layers) {
+                zest_render_target layer = render_target->composite_layers[c];
+                zest_AddBuilderDescriptorWriteImage(&set_builder, &layer->image_info[0], c, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            }
+            render_target->composite_descriptor_set = zest_BuildDescriptorSet(&set_builder, render_target->composite_descriptor_layout, zest_descriptor_type_dynamic);
+            if (!ZEST_VALID_HANDLE(render_target->composite_shader_resources)) {
+                render_target->composite_shader_resources = zest_CreateShaderResources();
+                zest_AddDescriptorSetToResources(render_target->composite_shader_resources, &render_target->composite_descriptor_set);
+            } else {
+                zest_UpdateShaderResources(render_target->composite_shader_resources, &render_target->composite_descriptor_set, 0);
+            }
+        }
+    }
+
     VkExtent2D extent;
     extent.width = fb_width;
     extent.height = fb_height;
@@ -4259,6 +4279,7 @@ zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_set_builder_t *bui
     ZEST_ASSERT(zest_vec_size(builder->writes[0]));        //Nothing to build.  Call AddBuilder functions to add descriptor writes first.
     //Note that calling this function will free the builder descriptor so you will need to add to the builder again
     zest_descriptor_set_t set = { 0 };
+    set.magic = zest_INIT_MAGIC;
     set.type = type;
     zest_layout_type_counts_t counts = { 0 };
     for (ZEST_EACH_FIF_i) {
@@ -6102,6 +6123,7 @@ zest_bool zest__acquire_next_swapchain_image() {
 
     //Has the window been resized? if so rebuild the swap chain.
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+        ZEST_PRINT("acquire frame");
         zest__recreate_swapchain();
         return ZEST_FALSE;
     }
@@ -6154,8 +6176,8 @@ void zest__present_frame() {
         ZestApp->window->framebuffer_resized = ZEST_FALSE;
         ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
 
+        ZEST_PRINT("preset frame");
         zest__recreate_swapchain();
-        ZestRenderer->current_frame = 0;
     }
     else {
         ZEST_VK_CHECK_RESULT(result);

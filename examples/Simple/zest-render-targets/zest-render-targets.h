@@ -22,7 +22,6 @@ struct RenderTargetExample {
 	zest_shader composite_frag_shader;
 	zest_shader composite_vert_shader;
 	zest_shader_resources sprite_shader_resources;	//Shader resources for the sprite drawing
-	zest_shader_resources rt_shader_resources;	    //Shader resources for the render target drawing
 	zest_image image;					            //Handle to the statue image
 	zest_image wabbit;					            //Handle to the rabbit image that we'll bounce around the screen
 	zest_font font;						            //Handle to the font

@@ -7,7 +7,7 @@ struct App {
 	zest_image image1;						//Handle to a test image
 	zest_image image2;						//Handle to a test image
 	zest_image animation;					//Handle to a test animation
-	zest_pipeline sprite_pipeline;			//Handle to the sprite handle to save looking it up each frame
+	zest_pipeline_template sprite_pipeline;			//Handle to the sprite handle to save looking it up each frame
 	zest_shader_resources shader_resources;	//Shader resources contain the information required for the pipeline and shaders to find the buffers and textures required to draw the sprites
 	zest_timer timer;						//Time to delete images after a few seconds
 	zest_microsecs period;					//Time between each delete
@@ -22,7 +22,7 @@ void InitialiseApp(App *app) {
 	app->image1 = zest_AddTextureImageFile(app->texture, "examples/assets/texture.jpg");
 	app->image2 = zest_AddTextureImageFile(app->texture, "examples/assets/wabbit_alpha.png");
 	//Store a handle to the sprite pipeline
-	app->sprite_pipeline = zest_Pipeline("pipeline_2d_sprites");
+	app->sprite_pipeline = zest_PipelineTemplate("pipeline_2d_sprites");
 	//Process the texture to pack all the images into the texture
 	zest_ProcessTextureImages(app->texture);
 	zest_SetTextureUserData(app->texture, app);

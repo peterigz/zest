@@ -2927,7 +2927,7 @@ typedef struct zest_layer_t {
 typedef struct zest_imgui_layer_info_t {
 	zest_texture font_texture;
 	zest_layer mesh_layer;
-	zest_pipeline pipeline;
+	zest_pipeline_template pipeline;
 } zest_imgui_layer_info_t;
 
 typedef struct zest_font_character_t {
@@ -3082,7 +3082,7 @@ typedef struct zest_imgui_image_t {
     int magic;
     zest_struct_type struct_type;
     zest_image image;
-    zest_pipeline pipeline;
+    zest_pipeline_template pipeline;
     zest_shader_resources shader_resources;
     zest_push_constants_t push_constants;
 } zest_imgui_image_t;
