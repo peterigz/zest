@@ -4526,6 +4526,8 @@ ZEST_API zest_render_target_create_info_t zest_RenderTargetCreateInfo();
 ZEST_API zest_render_target zest_CreateRenderTarget(const char *name, zest_render_target_create_info_t create_info);
 //Create a render target for high definition rendering.
 ZEST_API zest_render_target zest_CreateHDRRenderTarget(const char *name);
+//Create a render target for high definition rendering that is scaled up or down to the swap chain size
+ZEST_API zest_render_target zest_CreateScaledHDRRenderTarget(const char *name, float scale);
 //Create a render target for linear RGBA UNORM rendering
 ZEST_API zest_render_target zest_CreateSimpleRenderTarget(const char *name);
 //Create a new initialised render target.

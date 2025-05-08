@@ -10105,6 +10105,14 @@ zest_render_target zest_CreateHDRRenderTarget(const char* name) {
     return zest_CreateRenderTarget(name, info);
 }
 
+zest_render_target zest_CreateScaledHDRRenderTarget(const char* name, float scale) {
+    zest_render_target_create_info_t info = zest_RenderTargetCreateInfo();
+    info.render_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    info.ratio_of_screen_size.x = scale;
+    info.ratio_of_screen_size.y = scale;
+    return zest_CreateRenderTarget(name, info);
+}
+
 zest_render_target zest_CreateRenderTarget(const char* name, zest_render_target_create_info_t create_info) {
     if (zest_map_valid_name(ZestRenderer->render_targets, name)) {
         ZEST_PRINT_WARNING("%s - %s", name, "This render target name already exists, existing render target will be overwritten.");
@@ -10225,9 +10233,12 @@ VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_co
 void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_index fif) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
     int width, height;
-    if (zest_Vec2Length(render_target->create_info.ratio_of_screen_size)) {
+    if (render_target->create_info.input_source && zest_Vec2Length(render_target->create_info.ratio_of_screen_size)) {
         width = (zest_uint)((float)render_target->create_info.input_source->render_width * render_target->create_info.ratio_of_screen_size.x);
         height = (zest_uint)((float)render_target->create_info.input_source->render_height * render_target->create_info.ratio_of_screen_size.y);
+    } else if (zest_Vec2Length(render_target->create_info.ratio_of_screen_size)) {
+        width = (zest_uint)((float)ZestApp->window->window_width * render_target->create_info.ratio_of_screen_size.x);
+        height = (zest_uint)((float)ZestApp->window->window_height * render_target->create_info.ratio_of_screen_size.y);
     }
     else if (ZEST__NOT_FLAGGED(render_target->create_info.flags, zest_render_target_flag_fixed_size)) {
         width = zest_SwapChainWidth();
@@ -10431,7 +10442,8 @@ void zest_CompositeRenderTargets(zest_command_queue_draw_commands item, VkComman
 	zest_pipeline pipeline = zest_PipelineWithTemplate(item->render_target->composite_pipeline_template, render_pass);
     zest_BindPipelineShaderResource(command_buffer, pipeline, item->render_target->composite_shader_resources, ZEST_FIF);
 
-    if (item->render_target->push_constants) {
+    if (pipeline->pipeline_template->pushConstantRange.size > 0) {
+        ZEST_ASSERT(item->render_target->push_constants);   //You must the pointer the push content data in the render target
         vkCmdPushConstants(
             command_buffer,
             pipeline->pipeline_layout,
