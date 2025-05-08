@@ -1181,12 +1181,6 @@ void main() {
 //----------------------
 static const char *zest_shader_swap_vert = ZEST_GLSL(450,
 layout(location = 0) out vec2 outUV;
-layout(push_constant) uniform pushes
-{
-	vec2 res;
-    uint flags;
-    float threshold;
-} pc;
 
 out gl_PerVertex
 {
@@ -2617,24 +2611,6 @@ typedef struct zest_render_pass_info_s{
 	int depth_buffer;
 } zest_render_pass_info_t;
 
-//Pipeline create template to setup the creation of a pipeline. Create this first and then use it with MakePipelineTemplate or SetPipelineTemplate to create a PipelineTemplate which you can then customise
-//further if needed before calling CreatePipeline
-typedef struct zest_pipeline_template_create_info_t {
-    VkRect2D viewport;
-    VkDescriptorSetLayout *descriptorSetLayouts;
-    VkPushConstantRange *pushConstantRange;
-    VkVertexInputAttributeDescription *attributeDescriptions;
-    VkVertexInputBindingDescription *bindingDescriptions;
-    VkDynamicState *dynamicStates;
-    zest_bool no_vertex_input;
-    zest_text_t shader_path_prefix;
-    zest_text_t vertShaderFile;
-    zest_text_t fragShaderFile;
-    zest_text_t vertShaderFunctionName;
-    zest_text_t fragShaderFunctionName;
-    VkPrimitiveTopology topology;
-} zest_pipeline_template_create_info_t;
-
 //Pipeline template is used with CreatePipeline to create a vulkan pipeline. Use PipelineTemplate() or SetPipelineTemplate with PipelineTemplateCreateInfo to create a PipelineTemplate
 typedef struct zest_pipeline_template_t {
     int magic;
@@ -2657,11 +2633,19 @@ typedef struct zest_pipeline_template_t {
     VkPushConstantRange pushConstantRange;
     VkPipelineDynamicStateCreateInfo dynamicState;
     zest_render_pass_info_t render_pass_info;
-    zest_pipeline_template_create_info_t create_info;                 //A copy of the create info and template is stored so that they can be used to update the pipeline later for any reason (like the swap chain is recreated)
     zest_pipeline_set_flags flags;                                               //Flag bits
     zest_uint uniforms;                                                          //Number of uniform buffers in the pipeline, usually 1 or 0
-    zest_uint push_constant_size;                                                //Size of the push constant struct if it uses one
+    void *push_constants;                                                        //Pointer to user push constant data
     
+    VkDescriptorSetLayout *descriptorSetLayouts;
+    VkVertexInputAttributeDescription *attributeDescriptions;
+    VkVertexInputBindingDescription *bindingDescriptions;
+    VkDynamicState *dynamicStates;
+    zest_bool no_vertex_input;
+    zest_text_t shader_path_prefix;
+    zest_text_t vertShaderFunctionName;
+    zest_text_t fragShaderFunctionName;
+    VkPrimitiveTopology topology;
     zest_text_t vertShaderFile;
     zest_text_t fragShaderFile;
 } zest_pipeline_template_t;
@@ -3174,7 +3158,7 @@ typedef struct zest_render_target_t {
     int magic;
     const char *name;
 
-    zest_render_target_push_constants_t push_constants;
+    void* push_constants;
     zest_render_target_create_info_t create_info;
 
     void(*post_process_record_callback)(zest_render_target_t *target, void *user_data, zest_uint fif);
@@ -3382,7 +3366,6 @@ ZEST_PRIVATE void zest__cleanup_renderer(void);
 ZEST_PRIVATE void zest__cleanup_draw_routines(void);
 ZEST_PRIVATE void zest__clean_up_compute(zest_compute compute);
 ZEST_PRIVATE void zest__recreate_swapchain(void);
-ZEST_PRIVATE void zest__add_push_constant(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange push_constant);
 ZEST_PRIVATE void zest__add_draw_routine(zest_command_queue_draw_commands command_queue_draw, zest_draw_routine draw_routine);
 ZEST_PRIVATE void zest__create_swapchain_image_views(void);
 ZEST_PRIVATE VkRenderPass zest__get_render_pass_with_info(zest_render_pass_info_t info);
@@ -3399,7 +3382,6 @@ ZEST_PRIVATE void zest__compile_builtin_shaders(zest_bool compile_shaders);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__create_empty_command_queue(zest_command_queue command_queue);
 ZEST_PRIVATE void zest__render_blank(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
-ZEST_PRIVATE void zest__destroy_pipeline(zest_pipeline *p);
 ZEST_PRIVATE void zest__cleanup_pipelines(void);
 ZEST_PRIVATE void zest__cleanup_textures(void);
 ZEST_PRIVATE void zest__cleanup_framebuffer(zest_frame_buffer_t *frame_buffer);
@@ -3491,11 +3473,9 @@ ZEST_PRIVATE zest_index zest__next_fif(void);
 // --End General Helper Functions
 
 // --Pipeline Helper Functions
-ZEST_PRIVATE void zest__set_pipeline_template(zest_pipeline_template pipeline_template, zest_pipeline_template_create_info_t *create_info);
-ZEST_PRIVATE void zest__update_pipeline_template(zest_pipeline_template pipeline_template, zest_pipeline_template_create_info_t *create_info);
+ZEST_PRIVATE void zest__set_pipeline_template(zest_pipeline_template pipeline_template);
+ZEST_PRIVATE void zest__update_pipeline_template(zest_pipeline_template pipeline_template);
 ZEST_PRIVATE VkShaderModule zest__create_shader_module(char *code);
-ZEST_PRIVATE zest_pipeline_template_create_info_t zest__copy_pipeline_create_info(zest_pipeline_template_create_info_t *create_info);
-ZEST_PRIVATE void zest__free_pipeline_create_info(zest_pipeline_template_create_info_t *create_info);
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
 ZEST_PRIVATE void zest__add_pipeline_descriptor_write(zest_pipeline pipeline, zest_uint layout_index, VkWriteDescriptorSet set, zest_index fif);
 ZEST_PRIVATE void zest__free_pipeline_descriptor_writes(zest_pipeline pipeline);
@@ -3673,6 +3653,8 @@ ZEST_API void zest_FreeDescriptorSets(zest_descriptor_set descriptor_set);
 ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
 //Create a VkRect2D, generally used when building a render pass.
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
+//Create a scissor and view port command. Must be called within a command buffer
+ZEST_API void zest_Clip(VkCommandBuffer command_buffer, float x, float y, float width, float height, float minDepth, float maxDepth);
 //Create a new shader handle
 ZEST_API zest_shader zest_NewShader(shaderc_shader_kind type);
 //Validate a shader from a string and add it to the library of shaders in the renderer
@@ -3743,28 +3725,21 @@ ZEST_API void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine
 //        for sprite/billboard/mesh/font drawing. You can take a look in zest__prepare_standard_pipelines to see how
 //        the following functions are utilised, plus look at the exmaples for building your own custom pipelines.
 //-----------------------------------------------
-//Add a new pipeline to the renderer and return its handle.
+//Add a new pipeline template to the renderer and return its handle.
 ZEST_API zest_pipeline_template zest_AddPipeline(const char *name);
-//When building a new pipeline, use a zest_pipeline_template_create_info_t struct to do this and make it a lot easier.
-//Call this function to create a base version with some default values, and overwrite those values depending on what
-//you need for the pipeline. Once you have configured the template create info you can then call zest_MakePipelineTemplate
-//to configure the pipeline and then you can do some further tweaks of the zest_pipeline before calling zest_BuildPipeline
-//to finalise the pipeline ready for using
-ZEST_API zest_pipeline_template_create_info_t zest_CreatePipelineTemplateCreateInfo(void);
 //Set the name of the file to use for the vert and frag shader in the zest_pipeline_template_create_info_t
-ZEST_API void zest_SetPipelineTemplateVertShader(zest_pipeline_template_create_info_t *create_info, const char *file, const char *prefix);
-ZEST_API void zest_SetPipelineTemplateFragShader(zest_pipeline_template_create_info_t *create_info, const char *file, const char *prefix);
+ZEST_API void zest_SetPipelineTemplateVertShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
+ZEST_API void zest_SetPipelineTemplateFragShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
 //Set the name of both the fragment and vertex shader to the same file (frag and vertex shaders can be combined into the same spv)
-ZEST_API void zest_SetPipelineTemplateShader(zest_pipeline_template_create_info_t *create_info, const char *file, const char *prefix);
+ZEST_API void zest_SetPipelineTemplateShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
 //Add a new VkVertexInputBindingDescription which is used to set the size of the struct (stride) and the vertex input rate.
 //You can add as many bindings as you need, just make sure you set the correct binding index for each one
-ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template_create_info_t *create_info, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
+ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
 //Clear the input binding descriptions from the zest_pipeline_template_create_info_t bindingDescriptions array.
-ZEST_API void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template_create_info_t *create_info);
+ZEST_API void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template pipeline_template);
 //Clear the push constant ranges in a pipeline. You can use this after copying a pipeline to set up your own push constants instead
 //if your pipeline will use a different push constant range.
-ZEST_API void zest_ClearPipelinePushConstantRanges(zest_pipeline_template_create_info_t *create_info);
-ZEST_API void zest_AddPipelinePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range);
+ZEST_API void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeline_template);
 //Make a new array of vertex input descriptors for use with zest_AddVertexInputDescription. input descriptions are used
 //to define the vertex input types such as position, color, uv coords etc., depending on what you need.
 ZEST_API zest_vertex_input_descriptions zest_NewVertexInputDescriptions();
@@ -3777,23 +3752,20 @@ ZEST_API void zest_AddVertexInputDescription(zest_vertex_input_descriptions *des
 ZEST_API VkVertexInputAttributeDescription zest_CreateVertexInputDescription(zest_uint binding, zest_uint location, VkFormat format, zest_uint offset);
 //Set up the push contant that you might plan to use in the pipeline. Just pass in the size of the push constant struct, the offset and the shader
 //stage flags where the push constant will be used. Use this if you only want to set up a single push constant range
-ZEST_API void zest_SetPipelineTemplatePushConstant(zest_pipeline_template_create_info_t *create_info, zest_uint size, zest_uint offset, VkShaderStageFlags stage_flags);
-//If you have more then one push constant range you want to use with the pipeline then you can use this to add what you need. Just pass in
-//the create info struct pointer and a VkPushConstantRange
-ZEST_API void zest_AddPipelineTemplatePushConstantRange(zest_pipeline_template_create_info_t *create_info, VkPushConstantRange range);
+ZEST_API void zest_SetPipelineTemplatePushConstantRange(zest_pipeline_template create_info, zest_uint size, zest_uint offset, VkShaderStageFlags stage_flags);
 //Set the uniform buffer that the pipeline should use. You must call zest_MakePipelineDescriptorWrites after setting the uniform buffer.
 ZEST_API void zest_SetPipelineUniformBuffer(zest_pipeline pipeline, zest_uniform_buffer uniform_buffer);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest_BuildPipeline
-ZEST_API void zest_AddPipelineTemplateDescriptorLayout(zest_pipeline_template_create_info_t *create_info, VkDescriptorSetLayout layout);
+ZEST_API void zest_AddPipelineTemplateDescriptorLayout(zest_pipeline_template pipeline_template, VkDescriptorSetLayout layout);
 //Clear the descriptor layouts in a pipeline template create info
-ZEST_API void zest_ClearPipelineTemplateDescriptorLayouts(zest_pipeline_template_create_info_t *create_info);
+ZEST_API void zest_ClearPipelineTemplateDescriptorLayouts(zest_pipeline_template pipeline_template);
 //Make a pipeline template ready for building. Pass in the pipeline that you created with zest_AddPipeline, the render pass that you want to
 //use for the pipeline and the zest_pipeline_template_create_info_t you have setup to configure the pipeline. After you have called this
 //function you can make a few more alterations to configure the pipeline further if needed before calling zest_BuildPipeline.
 //NOTE: the create info that you pass into this function will get copied and then freed so don't use it after calling this function. If
 //you want to create another variation of this pipeline you're creating then you can call zest_CopyTemplateFromPipeline to create a new
 //zest_pipeline_template_create_info_t and create another new pipeline with that
-ZEST_API void zest_MakePipelineTemplate(zest_pipeline_template pipeline, zest_pipeline_template_create_info_t *create_info);
+ZEST_API void zest_FinalisePipelineTemplate(zest_pipeline_template pipeline_template);
 //Build the pipeline ready for use in your draw routines. This is the final step in building the pipeline.
 ZEST_API void zest_BuildPipeline(zest_pipeline pipeline);
 //Get the shader stage flags for a specific push constant range in the pipeline
@@ -3829,10 +3801,7 @@ ZEST_API zest_pipeline_template zest_PipelineTemplate(const char *name);
 ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, VkRenderPass render_pass);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
-ZEST_API zest_pipeline_template_create_info_t zest_CopyTemplateFromPipeline(const char *pipeline_name);
-//Get a pointer to the zest_pipeline_template_create_info_t saved in a pipeline. You use this to alter the pipeline and remake if you need to.
-//Note: use zest_CopyTemplateFromPipeline to create a new pipeline based on another, don't use this function to try and make a copy.
-ZEST_API zest_pipeline_template_create_info_t *zest_PipelineCreateInfo(const char *name);
+ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_template);
 //Make the descriptor writes for a pipeine and update the descriptor set
 ZEST_API void zest_MakePipelineDescriptorWrites(zest_pipeline pipeline);
 //-- End Pipeline related
@@ -4059,7 +4028,7 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
         ZEST_API void zest_AddRenderTarget(zest_render_target render_target);
         //Add a render target layer to the compositor. You can set the type of blend mode that you want to use
         //and an alpha level.
-        ZEST_API void zest_AddCompositeLayer(zest_render_target render_target, float intensity);
+        ZEST_API void zest_AddCompositeLayer(zest_render_target render_target);
     //Connect the current command queue to the swap chain. You must call this if you're intending for this queue to be drawn to the swap chain for
     //for presenting to the screen otherwise the command queue will not be valid.
     //Call this function immediately before zest_FinishQueueSetup
@@ -5128,9 +5097,9 @@ ZEST_API void zest_GetMouseSpeed(double *x, double *y);
 ZEST_API void zest_WaitForIdleDevice(void);
 //If you pass true to this function (or any value other then 0) then the zest_app_flag_quit_application meaning the main loop with break at the end of the next frame.
 ZEST_API void zest_MaybeQuit(zest_bool condition);
-//Send push constants. For use inside a draw routine callback function. pass in the pipeline_layout, shader stage flags (that were set in the pipeline), the
-//size of the push constant struct and a pointer to the data containing the push constants
-ZEST_API void zest_SendPushConstants(VkCommandBuffer command_buffer, zest_pipeline pipeline_layout, VkShaderStageFlags shader_flags, zest_uint size, void *data);
+//Send push constants. For use inside a draw routine callback function. pass in the pipeline,
+//and a pointer to the data containing the push constants. The data MUST match the push constant range in the pipeline
+ZEST_API void zest_SendPushConstants(VkCommandBuffer command_buffer, zest_pipeline pipeline, void *data);
 //Helper function to send the standard zest_push_constants_t push constants struct.
 ZEST_API void zest_SendStandardPushConstants(VkCommandBuffer command_buffer, zest_pipeline_t *pipeline_layout, void *data);
 //Helper function to record the vulkan command vkCmdDraw. Will record with the current command buffer being used in the active command queue. For use inside
