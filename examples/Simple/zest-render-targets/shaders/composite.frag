@@ -4,8 +4,6 @@ layout(set = 0, binding = 0) uniform sampler2DArray base_sampler;
 layout(set = 0, binding = 1) uniform sampler2DArray blend_sampler;
 
 layout(location = 0) in vec2 inUV;
-layout(location = 1) in flat uint blend_type;
-layout(location = 2) in float intensity_level;
 layout(location = 0) out vec4 out_color;
 
 // --- Blend Mode Functions (RGB components) ---
@@ -143,13 +141,13 @@ void main(void)
     //blended_rgb = blend_overlay(base_color.rgb, blend_color.rgb);
     //blended_rgb = blend_soft_light(base_color.rgb, blend_color.rgb);
     //blended_rgb = blend_hard_light(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_add(base_color.rgb, blend_color.rgb); // Good starting point for effects like blur/bloom
+    blended_rgb = blend_add(base_color.rgb, blend_color.rgb); // Good starting point for effects like blur/bloom
     //blended_rgb = blend_difference(base_color.rgb, blend_color.rgb);
     //blended_rgb = blend_exclusion(base_color.rgb, blend_color.rgb);
     //blended_rgb = blend_lighten(base_color.rgb, blend_color.rgb);
     //blended_rgb = blend_darken(base_color.rgb, blend_color.rgb);
     //blended_rgb = blend_color_dodge(base_color.rgb, blend_color.rgb);
-    blended_rgb = blend_color_burn(base_color.rgb, blend_color.rgb);
+    //blended_rgb = blend_color_burn(base_color.rgb, blend_color.rgb);
 
     // --- Alpha Handling & Output ---
     // Option 1: Use blend layer's alpha to mix the blended RGB with the base RGB.

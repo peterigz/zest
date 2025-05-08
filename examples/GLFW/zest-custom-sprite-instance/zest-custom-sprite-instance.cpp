@@ -97,7 +97,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Add a new pipeline to the render
 	app->custom_pipeline = zest_AddPipeline("custom_sprite_pipeline");
 	//Finalise the pipeline template ready for building the pipeline
-	zest_MakePipelineTemplate(app->custom_pipeline, zest_GetStandardRenderPass(), &instance_create_info);
+	zest_FinalisePipelineTemplate(app->custom_pipeline, zest_GetStandardRenderPass(), &instance_create_info);
 	//Make some final tweaks to the template
 	app->custom_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
 	app->custom_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;

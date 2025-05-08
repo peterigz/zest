@@ -90,7 +90,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_SetPipelineTemplatePushConstant(&create_info, sizeof(zest_vec2), 0, VK_SHADER_STAGE_VERTEX_BIT);
 
 	//Using the create_info we prepared build the template for the pipeline
-	zest_MakePipelineTemplate(app->particle_pipeline, zest_GetStandardRenderPass(), &create_info);
+	zest_FinalisePipelineTemplate(app->particle_pipeline, zest_GetStandardRenderPass(), &create_info);
 	//Alter a few things in the template to tweak it to how we want
 	zest_PipelineTemplate(app->particle_pipeline)->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	zest_PipelineTemplate(app->particle_pipeline)->rasterizer.cullMode = VK_CULL_MODE_NONE;

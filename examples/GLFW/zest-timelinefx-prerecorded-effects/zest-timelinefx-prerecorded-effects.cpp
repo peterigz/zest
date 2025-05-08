@@ -253,7 +253,7 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	zest_SetPipelineTemplatePushConstant(&instance_create_info, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
 	zest_AddPipelineTemplateDescriptorLayout(&instance_create_info, render_resources.descriptor_layout->vk_layout);
 	render_resources.pipeline = zest_AddPipeline("tfx_billboard_pipeline");
-	zest_MakePipelineTemplate(render_resources.pipeline, zest_GetStandardRenderPass(), &instance_create_info);
+	zest_FinalisePipelineTemplate(render_resources.pipeline, zest_GetStandardRenderPass(), &instance_create_info);
 	render_resources.pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
 	render_resources.pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	render_resources.pipeline->pipeline_template.depthStencil.depthTestEnable = true;

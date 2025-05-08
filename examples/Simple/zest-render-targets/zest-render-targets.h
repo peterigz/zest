@@ -1,17 +1,25 @@
 #pragma once
 
-struct PushConstants {
+struct BlurPushConstants {
 	zest_vec4 blur;				
 	zest_vec2 texture_size;
-} push;
+};
+
+struct BloomPushConstants {
+	zest_vec4 settings;				
+};
 
 struct RenderTargetExample {
 	zest_pipeline_template blur_pipeline;		    //Handle to the pipeline template we will use for the blur effect
 	zest_pipeline_template composite_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
+	zest_pipeline_template tonemapper_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
+	zest_pipeline_template bloom_pass_pipeline;		//Handle to the pipeline template we will use filter the base target to pick out a color threshold
 	zest_render_target top_target;		            //Render target to draw the result of the blur effect on top of the other layers
 	zest_render_target base_target;		            //The base target to draw the initial images that will be blurred
 	zest_render_target final_blur;		            //Render target where the final blur effect happens
+	zest_render_target bloom_pass;		            //Render target where the bloom pass happens to filter out dark colors
 	zest_render_target compositor;		            //Render target to combine the base target with the final blur
+	zest_render_target tonemap;			            //Render target to tonemap the composted base and blur/bloom layers
 	zest_command_queue command_queue;	            //Custom command queue that we'll build from scratch
 	zest_layer base_layer;				            //Base layer for drawing to the base render target
 	zest_layer top_layer;				            //Top layer for drawing to the top render target
@@ -21,11 +29,17 @@ struct RenderTargetExample {
 	zest_shader blur_vert_shader;
 	zest_shader composite_frag_shader;
 	zest_shader composite_vert_shader;
+	zest_shader bloom_pass_frag_shader;
+	zest_shader bloom_pass_vert_shader;
+	zest_shader tonemapper_pass_frag_shader;
+	zest_shader tonemapper_pass_vert_shader;
 	zest_shader_resources sprite_shader_resources;	//Shader resources for the sprite drawing
 	zest_image image;					            //Handle to the statue image
 	zest_image wabbit;					            //Handle to the rabbit image that we'll bounce around the screen
 	zest_font font;						            //Handle to the font
-	PushConstants push_constants;		            //The push constants containing the texture size and the direction of the blur
+	BlurPushConstants blur_push_constants;	        //The push constants containing the texture size and the direction of the blur
+	BloomPushConstants bloom_constants;		        //The push constants containing the bloom thresholds
+	BloomPushConstants tonemap_constants;			//The push constants containing the tonemapping settings
 
 	struct wabbit_pos {
 		float x, y;						            //Some variables to help bounce the rabbit around
@@ -36,5 +50,4 @@ struct RenderTargetExample {
 void InitExample(RenderTargetExample * example);
 void RecordHorizontalBlur(zest_render_target_t *target, void *data, zest_uint fif);
 void RecordVerticalBlur(zest_render_target_t *target, void *data, zest_uint fif);
-void AddHorizontalBlur(zest_render_target_t *target, void *data);
-void AddRecordVerticalBlur(zest_render_target_t *target, void *data);
+void RecordBloomPass(zest_render_target_t *target, void *data, zest_uint fif);
