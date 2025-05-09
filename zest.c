@@ -3395,14 +3395,19 @@ void zest__cleanup_textures() {
 }
 
 void zest__cleanup_framebuffer(zest_frame_buffer_t* frame_buffer) {
-    if (frame_buffer->resolve_buffer.view != VK_NULL_HANDLE) vkDestroyImageView(ZestDevice->logical_device, frame_buffer->resolve_buffer.view, &ZestDevice->allocation_callbacks);
-    if (frame_buffer->resolve_buffer.image != VK_NULL_HANDLE) vkDestroyImage(ZestDevice->logical_device, frame_buffer->resolve_buffer.image, &ZestDevice->allocation_callbacks);
     if (frame_buffer->color_buffer.view != VK_NULL_HANDLE) vkDestroyImageView(ZestDevice->logical_device, frame_buffer->color_buffer.view, &ZestDevice->allocation_callbacks);
     if (frame_buffer->depth_buffer.view != VK_NULL_HANDLE) vkDestroyImageView(ZestDevice->logical_device, frame_buffer->depth_buffer.view, &ZestDevice->allocation_callbacks);
     if (frame_buffer->color_buffer.image != VK_NULL_HANDLE) vkDestroyImage(ZestDevice->logical_device, frame_buffer->color_buffer.image, &ZestDevice->allocation_callbacks);
     if (frame_buffer->depth_buffer.image != VK_NULL_HANDLE) vkDestroyImage(ZestDevice->logical_device, frame_buffer->depth_buffer.image, &ZestDevice->allocation_callbacks);
     if (frame_buffer->sampler != VK_NULL_HANDLE) vkDestroySampler(ZestDevice->logical_device, frame_buffer->sampler, &ZestDevice->allocation_callbacks);
-    if (frame_buffer->device_frame_buffer != VK_NULL_HANDLE) vkDestroyFramebuffer(ZestDevice->logical_device, frame_buffer->device_frame_buffer, &ZestDevice->allocation_callbacks);
+    zest_vec_foreach(i, frame_buffer->framebuffers) {
+        if (frame_buffer->framebuffers[i] != VK_NULL_HANDLE) vkDestroyFramebuffer(ZestDevice->logical_device, frame_buffer->framebuffers[i], &ZestDevice->allocation_callbacks);
+    }
+    zest_vec_clear(frame_buffer->framebuffers);
+    zest_vec_foreach(i, frame_buffer->color_buffer.mip_views) {
+        if (frame_buffer->color_buffer.mip_views[i] != VK_NULL_HANDLE) vkDestroyImageView(ZestDevice->logical_device, frame_buffer->color_buffer.mip_views[i], &ZestDevice->allocation_callbacks);
+    }
+    zest_vec_clear(frame_buffer->color_buffer.mip_views);
 }
 
 void zest__cleanup_draw_routines(void) {
@@ -3425,9 +3430,7 @@ void zest__cleanup_renderer() {
 
     for (zest_map_foreach_i(ZestRenderer->render_targets)) {
         zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
-        for (zest_index fif = 0; fif != render_target->frames_in_flight; ++fif) {
-            zest_CleanUpRenderTarget(render_target, fif);
-        }
+		zest_CleanUpRenderTarget(render_target);
         zest_FreeRecorder(render_target->recorder);
     }
     zest_map_clear(ZestRenderer->render_targets);
@@ -3516,6 +3519,7 @@ void zest__recreate_swapchain() {
     zest__create_swap_chain_frame_buffers(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer));
     for (zest_map_foreach_i(ZestRenderer->render_targets)) {
         zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
+		zest_CleanUpRenderTarget(render_target);
         for (int fif = 0; fif != render_target->frames_in_flight; ++fif) {
             zest_RecreateRenderTargetResources(render_target, fif);
         }
@@ -3617,20 +3621,9 @@ void zest__create_swapchain_image_views() {
     zest_vec_resize(ZestRenderer->swapchain_image_views, zest_vec_size(ZestRenderer->swapchain_images));
 
     for (zest_foreach_i(ZestRenderer->swapchain_images)) {
-        zest_vec_set(ZestRenderer->swapchain_image_views, i, zest__create_image_view(ZestRenderer->swapchain_images[i], ZestRenderer->swapchain_image_format, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 1));
+        zest_vec_set(ZestRenderer->swapchain_image_views, i, zest__create_image_view(ZestRenderer->swapchain_images[i], ZestRenderer->swapchain_image_format, VK_IMAGE_ASPECT_COLOR_BIT, 1, 0, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 1));
     }
 }
-
-/*
-void zest__make_standard_render_passes() {
-    zest__add_render_pass("Render pass present", zest__create_render_pass(ZestRenderer->swapchain_image_format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ATTACHMENT_LOAD_OP_CLEAR, ZEST_TRUE));
-    zest__add_render_pass("Render pass standard", zest__create_render_pass(ZestRenderer->swapchain_image_format, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ATTACHMENT_LOAD_OP_CLEAR, ZEST_TRUE));
-    zest__add_render_pass("Render pass standard no clear", zest__create_render_pass(ZestRenderer->swapchain_image_format, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ATTACHMENT_LOAD_OP_DONT_CARE, ZEST_TRUE));
-    zest__add_render_pass("Render pass present no depth", zest__create_render_pass(ZestRenderer->swapchain_image_format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ATTACHMENT_LOAD_OP_CLEAR, ZEST_FALSE));
-    zest__add_render_pass("Render pass standard no depth", zest__create_render_pass(ZestRenderer->swapchain_image_format, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ATTACHMENT_LOAD_OP_CLEAR, ZEST_FALSE));
-    zest__add_render_pass("Render pass standard no clear no depth", zest__create_render_pass(ZestRenderer->swapchain_image_format, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ATTACHMENT_LOAD_OP_DONT_CARE, ZEST_FALSE));
-}
-*/
 
 VkRenderPass zest__get_render_pass_with_info(zest_render_pass_info_t render_pass_info) {
     return zest__get_render_pass(render_pass_info.render_format, render_pass_info.final_layout, render_pass_info.load_op, render_pass_info.depth_buffer);
@@ -3655,7 +3648,7 @@ zest_buffer_t* zest__create_depth_resources() {
     VkFormat depth_format = zest__find_depth_format();
 
     zest_buffer_t* buffer = zest__create_image(ZestRenderer->swapchain_extent.width, ZestRenderer->swapchain_extent.height, 1, VK_SAMPLE_COUNT_1_BIT, depth_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &ZestRenderer->final_render_pass_depth_attachment.image);
-    ZestRenderer->final_render_pass_depth_attachment.view = zest__create_image_view(ZestRenderer->final_render_pass_depth_attachment.image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 1);
+    ZestRenderer->final_render_pass_depth_attachment.view = zest__create_image_view(ZestRenderer->final_render_pass_depth_attachment.image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, 0, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 1);
 
     zest__transition_image_layout(ZestRenderer->final_render_pass_depth_attachment.image, depth_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1, 1, 0);
 
@@ -5711,8 +5704,6 @@ void zest__compile_builtin_shaders(zest_bool compile_shaders) {
     zest_CreateShader(zest_shader_mesh_instance_frag, shaderc_fragment_shader, "mesh_instance_frag.spv", 1, 0, compiler, 0);
     zest_CreateShader(zest_shader_swap_vert, shaderc_vertex_shader, "swap_vert.spv", 1, 0, compiler, 0);
     zest_CreateShader(zest_shader_swap_frag, shaderc_fragment_shader, "swap_frag.spv", 1, 0, compiler, 0);
-    zest_CreateShader(zest_shader_tonemapper_vert, shaderc_vertex_shader, "tonemapper_vert.spv", 1, 0, compiler, 0);
-    zest_CreateShader(zest_shader_tonemapper_frag, shaderc_fragment_shader, "tonemapper_frag.spv", 1, 0, compiler, 0);
     if (compiler) {
         shaderc_compiler_release(compiler);
     }
@@ -6197,15 +6188,15 @@ void zest_Clip(VkCommandBuffer command_buffer, float x, float y, float width, fl
 	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 }
 
-VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, zest_uint mip_levels, VkImageViewType view_type, zest_uint layer_count) {
+VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, zest_uint mip_levels_this_view, zest_uint base_mip, VkImageViewType view_type, zest_uint layer_count) {
     VkImageViewCreateInfo viewInfo = { 0 };
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
     viewInfo.viewType = view_type;
     viewInfo.format = format;
     viewInfo.subresourceRange.aspectMask = aspect_flags;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = mip_levels;
+    viewInfo.subresourceRange.baseMipLevel = base_mip;
+    viewInfo.subresourceRange.levelCount = mip_levels_this_view;
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount = layer_count;
 
@@ -8700,17 +8691,22 @@ void zest__create_texture_stream(zest_texture texture, zest_uint mip_levels, VkI
 }
 
 void zest__create_texture_image_view(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count) {
-    texture->frame_buffer[texture->current_index].view = zest__create_image_view(texture->frame_buffer[texture->current_index].image, texture->image_format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels, view_type, layer_count);
+    texture->frame_buffer[texture->current_index].view = zest__create_image_view(texture->frame_buffer[texture->current_index].image, texture->image_format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels, 0, view_type, layer_count);
 }
 
 void zest__create_texture_sampler(zest_texture texture, VkSamplerCreateInfo sampler_info, zest_uint mip_levels) {
-
     sampler_info.maxLod = (float)mip_levels;
-
     ZEST_VK_CHECK_RESULT(vkCreateSampler(ZestDevice->logical_device, &sampler_info, &ZestDevice->allocation_callbacks, &texture->sampler[texture->current_index]));
 }
 
-zest_frame_buffer_t zest_CreateFrameBuffer(VkRenderPass render_pass, uint32_t width, uint32_t height, VkFormat render_format, zest_bool use_depth_buffer, zest_bool is_src) {
+VkSampler zest__create_sampler(VkSamplerCreateInfo sampler_info) {
+    VkSampler sampler;
+    ZEST_VK_CHECK_RESULT(vkCreateSampler(ZestDevice->logical_device, &sampler_info, &ZestDevice->allocation_callbacks, &sampler));
+    return sampler;
+}
+
+zest_frame_buffer_t zest_CreateFrameBuffer(VkRenderPass render_pass, int mip_levels, uint32_t width, uint32_t height, VkFormat render_format, zest_bool use_depth_buffer, zest_bool is_src) {
+    ZEST_ASSERT(mip_levels);    //Mip levels must be at least 1 or more
     zest_frame_buffer_t frame_buffer = { 0 };
     frame_buffer.format = render_format;
     frame_buffer.width = width;
@@ -8722,8 +8718,8 @@ zest_frame_buffer_t zest_CreateFrameBuffer(VkRenderPass render_pass, uint32_t wi
         usage_flags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     }
 
-    frame_buffer.color_buffer.buffer = zest__create_image(frame_buffer.width, frame_buffer.height, 1, VK_SAMPLE_COUNT_1_BIT, color_format, VK_IMAGE_TILING_OPTIMAL, usage_flags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &frame_buffer.color_buffer.image);
-    frame_buffer.color_buffer.view = zest__create_image_view(frame_buffer.color_buffer.image, color_format, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 1);
+    frame_buffer.color_buffer.buffer = zest__create_image(frame_buffer.width, frame_buffer.height, mip_levels, VK_SAMPLE_COUNT_1_BIT, color_format, VK_IMAGE_TILING_OPTIMAL, usage_flags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &frame_buffer.color_buffer.image);
+    frame_buffer.color_buffer.view = zest__create_image_view(frame_buffer.color_buffer.image, color_format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels, 0, VK_IMAGE_VIEW_TYPE_2D, 1);
 
     zest__transition_image_layout(frame_buffer.color_buffer.image, color_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1, 1, 0);
 
@@ -8731,26 +8727,61 @@ zest_frame_buffer_t zest_CreateFrameBuffer(VkRenderPass render_pass, uint32_t wi
 
     if (use_depth_buffer) {
         frame_buffer.depth_buffer.buffer = zest__create_image(frame_buffer.width, frame_buffer.height, 1, VK_SAMPLE_COUNT_1_BIT, depth_format, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &frame_buffer.depth_buffer.image);
-        frame_buffer.depth_buffer.view = zest__create_image_view(frame_buffer.depth_buffer.image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 1);
+        frame_buffer.depth_buffer.view = zest__create_image_view(frame_buffer.depth_buffer.image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, 1, 0, VK_IMAGE_VIEW_TYPE_2D, 1);
         zest__transition_image_layout(frame_buffer.depth_buffer.image, depth_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1, 1, 0);
     }
 
-    VkImageView* fb_attachments = 0;
-    zest_vec_push(fb_attachments, frame_buffer.color_buffer.view);
-    if (use_depth_buffer) {
-        zest_vec_push(fb_attachments, frame_buffer.depth_buffer.view);
+	VkImageView *fb_attachments = 0;
+    if (mip_levels == 1) {
+        zest_vec_push(fb_attachments, frame_buffer.color_buffer.view);
+        if (use_depth_buffer) {
+            zest_vec_push(fb_attachments, frame_buffer.depth_buffer.view);
+        }
+
+        VkFramebufferCreateInfo frame_buffer_create_info = { 0 };
+        frame_buffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        frame_buffer_create_info.renderPass = render_pass;
+        frame_buffer_create_info.attachmentCount = (zest_uint)(zest_vec_size(fb_attachments));
+        frame_buffer_create_info.pAttachments = fb_attachments;
+        frame_buffer_create_info.width = frame_buffer.width;
+        frame_buffer_create_info.height = frame_buffer.height;
+        frame_buffer_create_info.layers = 1;
+
+        zest_vec_push(frame_buffer.framebuffers, 0);
+
+        ZEST_VK_CHECK_RESULT(vkCreateFramebuffer(ZestDevice->logical_device, &frame_buffer_create_info, &ZestDevice->allocation_callbacks, &zest_vec_back(frame_buffer.framebuffers)));
+    } else {
+        zest_uint current_mip_width = width; 
+        zest_uint current_mip_height = height; 
+        for (int mip_level = 0; mip_level != mip_levels; ++mip_level) {
+
+			VkImageView mip_view = zest__create_image_view(frame_buffer.color_buffer.image, color_format, VK_IMAGE_ASPECT_COLOR_BIT, 1, mip_level, VK_IMAGE_VIEW_TYPE_2D, 1);
+			zest_vec_push(frame_buffer.color_buffer.mip_views, mip_view);
+
+            if (mip_level > 0) { 
+                current_mip_width = ZEST__MAX(1u, current_mip_width / 2);
+                current_mip_height = ZEST__MAX(1u, current_mip_height / 2);
+            }
+
+            zest_vec_push(fb_attachments, mip_view);
+            //Note no depth view if there's more than one mip level
+
+            VkFramebufferCreateInfo frame_buffer_create_info = { 0 };
+            frame_buffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            frame_buffer_create_info.renderPass = render_pass;
+            frame_buffer_create_info.attachmentCount = 1;
+            frame_buffer_create_info.pAttachments = fb_attachments;
+            frame_buffer_create_info.width = current_mip_width;
+            frame_buffer_create_info.height = current_mip_height;
+            frame_buffer_create_info.layers = 1;
+
+            zest_vec_push(frame_buffer.framebuffers, 0);
+
+            ZEST_VK_CHECK_RESULT(vkCreateFramebuffer(ZestDevice->logical_device, &frame_buffer_create_info, &ZestDevice->allocation_callbacks, &zest_vec_back(frame_buffer.framebuffers)));
+
+            zest_vec_clear(fb_attachments);
+        }
     }
-
-    VkFramebufferCreateInfo frame_buffer_create_info = { 0 };
-    frame_buffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    frame_buffer_create_info.renderPass = render_pass;
-    frame_buffer_create_info.attachmentCount = (zest_uint)(zest_vec_size(fb_attachments));
-    frame_buffer_create_info.pAttachments = fb_attachments;
-    frame_buffer_create_info.width = frame_buffer.width;
-    frame_buffer_create_info.height = frame_buffer.height;
-    frame_buffer_create_info.layers = 1;
-
-    ZEST_VK_CHECK_RESULT(vkCreateFramebuffer(ZestDevice->logical_device, &frame_buffer_create_info, &ZestDevice->allocation_callbacks, &frame_buffer.device_frame_buffer));
 
     zest_vec_free(fb_attachments);
     return frame_buffer;
@@ -9970,6 +10001,7 @@ void zest__initialise_render_target(zest_render_target render_target, zest_rende
     render_target->render_width = info->viewport.extent.width;
     render_target->render_height = info->viewport.extent.height;
     render_target->cls_color = zest_Vec4Set1(0.f);
+    render_target->mip_levels = info->mip_levels;
 
     if (ZEST__FLAGGED(info->flags, zest_render_target_flag_single_frame_buffer_only)) {
         render_target->frames_in_flight = 1;
@@ -9995,24 +10027,41 @@ void zest__initialise_render_target(zest_render_target render_target, zest_rende
     }
 	render_target->render_pass = zest__get_render_pass_with_info(render_target->render_pass_info);
     for (zest_index i = 0; i != render_target->frames_in_flight; ++i) {
-        render_target->framebuffers[i] = zest_CreateFrameBuffer(render_target->render_pass,
+        render_target->framebuffers[i] = zest_CreateFrameBuffer(render_target->render_pass, render_target->mip_levels,
             render_target->render_width, render_target->render_height, info->render_format,
             ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer), ZEST__FLAGGED(info->flags, zest_render_target_flag_is_src));
     }
-	render_target->sampler_texture = VK_NULL_HANDLE;
 
-	zest_text_t texture_name = { 0 };
-	zest_SetTextf(&texture_name, "%s_texture", render_target->name);
-	render_target->sampler_texture = zest_CreateTexture(texture_name.str, zest_texture_storage_type_render_target, 0, render_target->render_format, 0);
-	zest_FreeText(&texture_name);
-
-	zest_texture texture = render_target->sampler_texture;
-	texture->imgui_blend_type = render_target->create_info.imgui_blend_type;
-	zest__update_texture_single_image_meta(texture, render_target->sampler_image.width, render_target->sampler_image.height);
-	texture->sampler_info.addressModeU = render_target->create_info.sampler_address_mode_u;
-	texture->sampler_info.addressModeV = render_target->create_info.sampler_address_mode_v;
-	texture->sampler_info.addressModeW = render_target->create_info.sampler_address_mode_w;
-	zest__create_texture_sampler(texture, texture->sampler_info, 1);
+    zest_image_t image = zest_NewImage();
+    image.width = render_target->sampler_image.width;
+    image.height = render_target->sampler_image.width;
+    zest__update_image_vertices(&image);
+    image.uv.x = 0.f;
+    image.uv.y = 0.f;
+    image.uv.z = 1.f;
+    image.uv.w = 1.f;
+	image.uv_packed = zest_Pack16bit4SNorm(image.uv.x, image.uv.y, image.uv.z, image.uv.w);
+    image.texture = 0;
+    image.layer = 0;
+	render_target->sampler_info.addressModeU = render_target->create_info.sampler_address_mode_u;
+	render_target->sampler_info.addressModeV = render_target->create_info.sampler_address_mode_v;
+	render_target->sampler_info.addressModeW = render_target->create_info.sampler_address_mode_w;
+    render_target->sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    render_target->sampler_info.magFilter = VK_FILTER_LINEAR;
+    render_target->sampler_info.minFilter = VK_FILTER_LINEAR;
+    render_target->sampler_info.anisotropyEnable = VK_FALSE;
+    render_target->sampler_info.maxAnisotropy = 1.f;
+    render_target->sampler_info.unnormalizedCoordinates = VK_FALSE;
+    render_target->sampler_info.compareEnable = VK_FALSE;
+    render_target->sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+    render_target->sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    render_target->sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    render_target->sampler_info.mipLodBias = 0.f;
+    render_target->sampler_info.minLod = 0.0f;
+    render_target->sampler_info.maxLod = 1.0f;
+    render_target->sampler_info.pNext = VK_NULL_HANDLE;
+    render_target->sampler_info.flags = 0;
+	render_target->sampler[render_target->current_index] = zest__create_sampler(render_target->sampler_info);
 
 	zest__create_render_target_sampler_image(render_target);
 
@@ -10032,7 +10081,8 @@ void zest__initialise_render_target(zest_render_target render_target, zest_rende
 
 void zest__create_render_target_sampler_image(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-	zest_texture texture = render_target->sampler_texture;
+    int index = render_target->current_index;
+	zest_descriptor_set set = &render_target->sampler_descriptor_set[index];
     for (zest_index fif = 0; fif != render_target->frames_in_flight; ++fif) {
         if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_sampler_size_match_texture)) {
             render_target->sampler_image.width = render_target->create_info.viewport.extent.width;
@@ -10044,9 +10094,8 @@ void zest__create_render_target_sampler_image(zest_render_target render_target) 
 
         render_target->image_info[fif].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         render_target->image_info[fif].imageView = render_target->framebuffers[fif].color_buffer.view;
-        render_target->image_info[fif].sampler = texture->sampler[texture->current_index];
+        render_target->image_info[fif].sampler = render_target->sampler[index];
 
-        zest_descriptor_set set = &texture->descriptor_sets[texture->current_index];
         set->type = zest_descriptor_type_static;
 
         zest_AllocateDescriptorSets(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("1 sampler"), 1, &set->descriptor_set[fif]);
@@ -10054,11 +10103,9 @@ void zest__create_render_target_sampler_image(zest_render_target render_target) 
         zest_vec_push(set->descriptor_writes[fif], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[fif], &render_target->image_info[fif], 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
     }
     
-    zest_UpdateTextureSingleDescriptorSet(texture);
-
-    texture->flags |= zest_texture_flag_descriptor_sets_created;
-
-	ZEST__FLAG(texture->flags, zest_texture_flag_ready);
+    for (ZEST_EACH_FIF_i) {
+        zest_UpdateDescriptorSet(set->descriptor_writes[i]);
+    }
 }
 
 zest_render_target zest_NewRenderTarget() {
@@ -10072,6 +10119,7 @@ zest_render_target zest_NewRenderTarget() {
     render_target->post_process_record_callback = 0;
     render_target->post_process_user_data = 0;
     render_target->frames_in_flight = ZEST_MAX_FIF;
+    render_target->mip_levels = 1;
     return render_target;
 }
 
@@ -10086,7 +10134,8 @@ zest_render_target_create_info_t zest_RenderTargetCreateInfo() {
         .input_source = 0,
         .render_format = VK_FORMAT_B8G8R8A8_UNORM,
         .viewport = {0},
-        .pipeline = 0
+        .pipeline = 0,
+        .mip_levels = 1
     };
     if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {
         create_info.flags |= zest_render_target_flag_use_depth_buffer;
@@ -10110,6 +10159,13 @@ zest_render_target zest_CreateScaledHDRRenderTarget(const char* name, float scal
     info.render_format = VK_FORMAT_R16G16B16A16_SFLOAT;
     info.ratio_of_screen_size.x = scale;
     info.ratio_of_screen_size.y = scale;
+    return zest_CreateRenderTarget(name, info);
+}
+
+zest_render_target zest_CreateMippedHDRRenderTarget(const char *name, int mip_levels) {
+    zest_render_target_create_info_t info = zest_RenderTargetCreateInfo();
+    info.render_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    info.mip_levels = mip_levels;
     return zest_CreateRenderTarget(name, info);
 }
 
@@ -10151,6 +10207,7 @@ zest_render_target zest_AddPostProcessRenderTarget(const char* name, float width
     create_info.sampler_address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     create_info.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     create_info.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    create_info.mip_levels = 1;
     ZEST__UNFLAG(create_info.flags, zest_render_target_flag_sampler_size_match_texture);
     zest_render_target target = zest_CreateRenderTarget(name, create_info);
     zest_SetRenderTargetPostProcessCallback(target, render_callback);
@@ -10179,14 +10236,12 @@ void zest_SetRenderTargetPostProcessUserData(zest_render_target render_target, v
 
 VkDescriptorSet* zest_GetRenderTargetSamplerDescriptorSetVK(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    zest_texture texture = render_target->sampler_texture;
-    return &texture->descriptor_sets[texture->current_index].descriptor_set[ZEST_FIF];
+    return &render_target->sampler_descriptor_set[render_target->current_index].descriptor_set[ZEST_FIF];
 }
 
 zest_descriptor_set zest_GetRenderTargetSamplerDescriptorSet(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    zest_texture texture = render_target->sampler_texture;
-    return &texture->descriptor_sets[texture->current_index];
+    return &render_target->sampler_descriptor_set[render_target->current_index];
 }
 
 VkDescriptorSet* zest_GetRenderTargetSourceDescriptorSet(zest_render_target render_target) {
@@ -10194,15 +10249,9 @@ VkDescriptorSet* zest_GetRenderTargetSourceDescriptorSet(zest_render_target rend
     return zest_GetRenderTargetSamplerDescriptorSetVK(render_target->input_source);
 }
 
-zest_texture zest_GetRenderTargetTexture(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return render_target->sampler_texture;
-}
-
 zest_image zest_GetRenderTargetImage(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    zest_texture texture = render_target->sampler_texture;
-    return zest_GetImageFromTexture(texture, 0);
+    return &render_target->sampler_image;
 }
 
 zest_frame_buffer_t* zest_RenderTargetFramebuffer(zest_render_target render_target) {
@@ -10225,9 +10274,9 @@ VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_draw_comman
 }
 
 VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_commands item) {
-    //This is dubious if the render target does not need multiple frames in flight?
     zest_index fif = ZEST__FLAGGED(item->render_target->flags, zest_render_target_flag_single_frame_buffer_only) ? 0 : ZEST_FIF;
-    return item->render_target->framebuffers[fif].device_frame_buffer;
+    ZEST_ASSERT(zest_vec_size(item->render_target->framebuffers[fif].framebuffers));
+    return item->render_target->framebuffers[fif].framebuffers[0];
 }
 
 void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_index fif) {
@@ -10264,14 +10313,13 @@ void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_i
 		render_target->composite_pipeline_template->scissor.offset = render_target->viewport.offset;
     }
 
-    zest_CleanUpRenderTarget(render_target, fif);
-
     zest_FreeBuffer(render_target->framebuffers[fif].color_buffer.buffer);
     if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer)) {
         zest_FreeBuffer(render_target->framebuffers[fif].depth_buffer.buffer);
     }
     render_target->framebuffers[fif] = zest_CreateFrameBuffer(
         render_target->render_pass, 
+        render_target->mip_levels,
         render_target->render_width, 
         render_target->render_height,
         render_target->render_format,
@@ -10291,21 +10339,20 @@ void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_i
 
 void zest__refresh_render_target_sampler(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    render_target->sampler_texture->current_index ^= 1;
-	zest__cleanup_unused_texture_buffers(render_target->sampler_texture, render_target->sampler_texture->current_index);
-	zest_texture texture = render_target->sampler_texture;
-    ZEST_ASSERT(texture);   //Must be a texture created at this point or something went wrong when initialising the render target
-	zest__update_texture_single_image_meta(texture, render_target->sampler_image.width, render_target->sampler_image.height);
-	zest__create_texture_sampler(texture, texture->sampler_info, 1);
+    render_target->current_index ^= 1;
+    int index = render_target->current_index;
+    if (render_target->sampler[index]) vkDestroySampler(ZestDevice->logical_device, render_target->sampler[index], &ZestDevice->allocation_callbacks);
+    zest__update_image_vertices(&render_target->sampler_image);
+	render_target->sampler[render_target->current_index] = zest__create_sampler(render_target->sampler_info);
 
-	zest_descriptor_set set = &texture->descriptor_sets[texture->current_index];
+	zest_descriptor_set set = &render_target->sampler_descriptor_set[index];
     if (set->descriptor_set[0]) {
         zest_FreeDescriptorSets(set);
     }
     for (zest_index fif = 0; fif != render_target->frames_in_flight; ++fif) {
         render_target->image_info[fif].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         render_target->image_info[fif].imageView = render_target->framebuffers[fif].color_buffer.view;
-        render_target->image_info[fif].sampler = texture->sampler[texture->current_index];
+        render_target->image_info[fif].sampler = render_target->sampler[index];
 
         set->type = zest_descriptor_type_static;
 
@@ -10313,7 +10360,9 @@ void zest__refresh_render_target_sampler(zest_render_target render_target) {
         zest_vec_clear(set->descriptor_writes[fif]);
         zest_vec_push(set->descriptor_writes[fif], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[fif], &render_target->image_info[fif], 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
     }
-    zest_UpdateTextureSingleDescriptorSet(texture);
+    for (ZEST_EACH_FIF_i) {
+        zest_UpdateDescriptorSet(set->descriptor_writes[i]);
+    }
 }
 
 void zest__render_target_maintennance() {
@@ -10460,9 +10509,68 @@ void zest_CompositeRenderTargets(zest_command_queue_draw_commands item, VkComman
     item->render_target->recorder->outdated[ZEST_FIF] = 1;
 }
 
-void zest_CleanUpRenderTarget(zest_render_target render_target, zest_index fif) {
+void zest_DownSampleRenderTarget(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer) {
+    VkRect2D current_viewport = { 0 };
+    current_viewport.extent = item->viewport.extent;
+
+    for (int mip_level = 0; mip_level != item->render_target->mip_levels; ++mip_level) {
+		if (mip_level > 0) { 
+			current_viewport.extent.width = ZEST__MAX(1u, current_viewport.extent.width / 2);
+			current_viewport.extent.height = ZEST__MAX(1u, current_viewport.extent.height / 2);
+		}
+        zest_frame_buffer_t *frame_buffer = &item->render_target->framebuffers[ZEST_FIF];
+        VkRenderPassBeginInfo render_pass_info = { 0 };
+        render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        render_pass_info.renderPass = render_pass;
+        render_pass_info.framebuffer = frame_buffer->framebuffers[mip_level];
+        render_pass_info.renderArea = current_viewport;
+
+        VkClearValue clear_values[2] = {
+            [0] .color = {.float32[0] = item->cls_color.x, .float32[1] = item->cls_color.y, .float32[2] = item->cls_color.z, .float32[3] = item->cls_color.w },
+            [1].depthStencil = {.depth = 1.0f, .stencil = 0 }
+        };
+
+        render_pass_info.clearValueCount = 2;
+        render_pass_info.pClearValues = clear_values;
+
+        vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport view = zest_CreateViewport(0.f, 0.f, (float)current_viewport.extent.width, (float)current_viewport.extent.height, 0.f, 1.f);
+        VkRect2D scissor = zest_CreateRect2D(current_viewport.extent.width, current_viewport.extent.height, 0, 0);
+        vkCmdSetViewport(command_buffer, 0, 1, &view);
+        vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
+        zest_pipeline pipeline = zest_PipelineWithTemplate(item->render_target->composite_pipeline_template, render_pass);
+        zest_BindPipelineShaderResource(command_buffer, pipeline, item->render_target->composite_shader_resources, ZEST_FIF);
+
+        if (pipeline->pipeline_template->pushConstantRange.size > 0) {
+            ZEST_ASSERT(item->render_target->push_constants);   //You must the pointer the push content data in the render target
+            vkCmdPushConstants(
+                command_buffer,
+                pipeline->pipeline_layout,
+                pipeline->pipeline_template->pushConstantRange.stageFlags,
+                pipeline->pipeline_template->pushConstantRange.offset,
+                pipeline->pipeline_template->pushConstantRange.size,
+                item->render_target->push_constants);
+        }
+
+        vkCmdDraw(command_buffer, 3, 1, 0, 0);
+
+        vkCmdEndRenderPass(command_buffer);
+    }
+
+    item->render_target->recorder->outdated[ZEST_FIF] = 1;
+}
+
+void zest_CleanUpRenderTarget(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    zest__cleanup_framebuffer(&render_target->framebuffers[fif]);
+    zest_ForEachFrameInFlight(fif) {
+        zest__cleanup_framebuffer(&render_target->framebuffers[fif]);
+    }
+    for (int i = 0; i != 2; ++i) {
+        if(render_target->sampler[i]) vkDestroySampler(ZestDevice->logical_device, render_target->sampler[i], &ZestDevice->allocation_callbacks);
+        render_target->sampler[i] = 0;
+    }
 }
 
 void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno) {
@@ -10499,17 +10607,17 @@ void zest_ScheduleRenderTargetRefresh(zest_render_target render_target) {
 
 void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    for (ZEST_EACH_FIF_i) {
-        zest_SetTextureWrappingClamp(render_target->sampler_texture);
-    }
+    render_target->sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    render_target->sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    render_target->sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	zest_map_insert(ZestRenderer->rt_sampler_refresh_queue, render_target->name, render_target);
 }
 
 void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target) {
     ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    for (ZEST_EACH_FIF_i) {
-        zest_SetTextureWrappingRepeat(render_target->sampler_texture);
-    }
+    render_target->sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    render_target->sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    render_target->sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	zest_map_insert(ZestRenderer->rt_sampler_refresh_queue, render_target->name, render_target);
 }
 

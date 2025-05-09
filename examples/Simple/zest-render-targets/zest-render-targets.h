@@ -20,6 +20,7 @@ struct RenderTargetExample {
 	zest_render_target bloom_pass;		            //Render target where the bloom pass happens to filter out dark colors
 	zest_render_target compositor;		            //Render target to combine the base target with the final blur
 	zest_render_target tonemap;			            //Render target to tonemap the composted base and blur/bloom layers
+	zest_render_target downsampled;		            //Render target where the bloom pass happens to filter out dark colors
 	zest_command_queue command_queue;	            //Custom command queue that we'll build from scratch
 	zest_layer base_layer;				            //Base layer for drawing to the base render target
 	zest_layer top_layer;				            //Top layer for drawing to the top render target

@@ -1,6 +1,6 @@
 #version 450
 
-layout (set = 0, binding = 0) uniform sampler2DArray samplerColor; 
+layout (set = 0, binding = 0) uniform sampler2D samplerColor; 
 
 layout (location = 0) in vec2 inUV;
 
@@ -17,7 +17,7 @@ float luminance(vec3 color) {
 
 void main(void)
 {
-    vec4 source_color = texture(samplerColor, vec3(inUV, 0)); 
+    vec4 source_color = texture(samplerColor, inUV); 
 
     float brightness = luminance(source_color.rgb);
     float threshold_value = settings.threshold_settings.x; // Main threshold

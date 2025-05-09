@@ -8,7 +8,9 @@ void InitExample(RenderTargetExample *example) {
 	example->top_target = zest_CreateSimpleRenderTarget("Top render target");
 	example->base_target = zest_CreateHDRRenderTarget("Base render target");
 	example->compositor = zest_CreateHDRRenderTarget("Compositor render target");
-	example->tonemap = zest_CreateSimpleRenderTarget("Tonemap render target");
+	example->tonemap = zest_CreateSimpleRenderTarget("Tone map render target");
+	example->bloom_pass = zest_CreateScaledHDRRenderTarget("Bloom pass render target", .5f);
+	example->downsampled = zest_CreateMippedHDRRenderTarget("Mipped render target", 4);
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	example->blur_frag_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.frag", "blur_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
@@ -79,7 +81,7 @@ void InitExample(RenderTargetExample *example) {
 	//In order to reduce flicker we can blur once at a smaller size, then reduce the size again and do the blur again.
 	//Note that the ratio is based on the input source, so we don't want to reduce the size on the horizontal blur - we already did that
 	//with the vertical blur whose input source was the base render target
-	example->bloom_pass = zest_AddPostProcessRenderTarget("Bloom pass render target", .5f, .5f, example->base_target, example, RecordBloomPass);
+	//example->bloom_pass = zest_AddPostProcessRenderTarget("Bloom pass render target", .5f, .5f, example->base_target, example, RecordBloomPass);
 	zest_render_target vertical_blur1 = zest_AddPostProcessRenderTarget("Vertical blur render target", 0.5f, 0.5f, example->bloom_pass, example, RecordVerticalBlur);
 	zest_render_target horizontal_blur1 = zest_AddPostProcessRenderTarget("Horizontal blur render target", 1.f, 1.f, vertical_blur1, example, RecordHorizontalBlur);
 	zest_render_target vertical_blur2 = zest_AddPostProcessRenderTarget("Vertical blur 2 render target", 0.5, 0.5, horizontal_blur1, example, RecordVerticalBlur);
@@ -103,9 +105,9 @@ void InitExample(RenderTargetExample *example) {
 			example->base_layer = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
 		}
 		//Create draw commands that applies vertical blur to the base target
-		zest_NewDrawCommandSetup("Bloom pass render pass", example->bloom_pass);
+		zest_NewDrawCommandSetupCompositor("Bloom pass render pass", example->bloom_pass, example->bloom_pass_pipeline);
 		{
-			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
+			zest_AddCompositeLayer(example->base_target);
 		}
 		//Create draw commands that applies vertical blur to the base target
 		zest_NewDrawCommandSetup("Vertical blur render pass", vertical_blur1);
@@ -134,13 +136,13 @@ void InitExample(RenderTargetExample *example) {
 			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
 		}
 		//Create draw commands that applies horizontal blur to the vertical blur target
-		zest_NewDrawCommandSetupCompositor("Compositer", example->compositor, example->composite_pipeline); 
+		zest_NewDrawCommandSetupCompositor("Compositor", example->compositor, example->composite_pipeline); 
 		{
 			zest_AddCompositeLayer(example->base_target);
 			zest_AddCompositeLayer(example->final_blur);
 		}
 		//Create draw commands that applies horizontal blur to the vertical blur target
-		zest_NewDrawCommandSetupCompositor("Tonemapper", example->tonemap, example->tonemapper_pipeline); 
+		zest_NewDrawCommandSetupCompositor("Tone mapper", example->tonemap, example->tonemapper_pipeline); 
 		{
 			zest_AddCompositeLayer(example->compositor);
 		}
@@ -186,11 +188,12 @@ void InitExample(RenderTargetExample *example) {
 	example->wabbit_pos.vy = 200.f;
 
 	example->tonemap_constants.settings.x = 1.f;
-	example->tonemap_constants.settings.y = 1.f;
+	example->tonemap_constants.settings.y = 0.f;
 	example->tonemap_constants.settings.z = 0.f;
 	example->tonemap_constants.settings.w = 1.f;
 
 	example->tonemap->push_constants = &example->tonemap_constants;
+	example->bloom_pass->push_constants = &example->bloom_constants;
 }
 
 void RecordBloomPass(zest_render_target_t *target, void *data, zest_uint fif) {

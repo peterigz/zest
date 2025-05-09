@@ -1,7 +1,7 @@
 #version 450
 
-layout(set = 0, binding = 0) uniform sampler2DArray base_sampler;
-layout(set = 0, binding = 1) uniform sampler2DArray blend_sampler;
+layout(set = 0, binding = 0) uniform sampler2D base_sampler;
+layout(set = 0, binding = 1) uniform sampler2D blend_sampler;
 
 layout(location = 0) in vec2 inUV;
 layout(location = 0) out vec4 out_color;
@@ -125,8 +125,8 @@ vec3 blend_color_burn(vec3 base, vec3 blend) {
 
 void main(void)
 {
-    vec4 base_color = texture(base_sampler, vec3(inUV, 0));
-    vec4 blend_color = texture(blend_sampler, vec3(inUV, 0)) * 2.0;
+    vec4 base_color = texture(base_sampler, inUV);
+    vec4 blend_color = texture(blend_sampler, inUV) * 2.0;
     blend_color = clamp(blend_color, 0.0, 1.0);
 
     vec3 blended_rgb;

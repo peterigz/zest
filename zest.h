@@ -1198,98 +1198,12 @@ void main()
 //Swap chain frag shader
 //----------------------
 static const char *zest_shader_swap_frag = ZEST_GLSL(450,
-layout(set = 0, binding = 0) uniform sampler2DArray samplerColor;
+layout(set = 0, binding = 0) uniform sampler2D samplerColor;
 layout(location = 0) in vec2 inUV;
 layout(location = 0) out vec4 outFragColor;
 void main(void)
 {
-    outFragColor = texture(samplerColor, vec3(inUV, 0));
-}
-);
-
-//----------------------
-//Tonemapper vert shader
-//----------------------
-static const char *zest_shader_tonemapper_vert = ZEST_GLSL(450,
-layout(location = 0) out vec2 outUV;
-layout(location = 1) out float threshold;
-layout(push_constant) uniform pushes
-{
-    vec2 res;
-    uint flags;
-    float threshold;
-} pc;
-
-out gl_PerVertex
-{
-    vec4 gl_Position;
-};
-
-void main()
-{
-    outUV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-    gl_Position = vec4(outUV * 2.0f - 1.0f, 0.0f, 1.0f);
-    threshold = pc.threshold;
-}
-);
-
-//----------------------
-//Tonermapp frag shader
-//----------------------
-static const char *zest_shader_tonemapper_frag = ZEST_GLSL(450,
-layout(set = 0, binding = 0) uniform sampler2DArray samplerColor;
-layout(location = 0) in vec2 inUV;
-layout(location = 1) in float threshold;
-layout(location = 0) out vec4 outFragColor;
-void main(void)
-{
-    outFragColor = texture(samplerColor, vec3(inUV, 0));
-}
-);
-
-//----------------------
-//Tonemapper vert shader
-//----------------------
-static const char *zest_shader_compositor_vert = ZEST_GLSL(450,
-layout(location = 0) out vec2 outUV;
-layout(location = 1) out uint blendmode;
-layout(location = 2) out float intensity;
-layout(push_constant) uniform pushes
-{
-    vec2 res;
-    uint flags;
-    float alpha_level;
-} pc;
-
-out gl_PerVertex
-{
-    vec4 gl_Position;
-};
-
-void main()
-{
-    outUV = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-    gl_Position = vec4(outUV * 2.0f - 1.0f, 0.0f, 1.0f);
-    blendmode = pc.flags;
-    intensity = pc.alpha_level;
-}
-);
-
-//----------------------
-//Compositor frag shader
-//----------------------
-static const char *zest_shader_compositor_frag = ZEST_GLSL(450,
-layout(set = 0, binding = 0) uniform sampler2DArray base_sampler;
-layout(set = 0, binding = 1) uniform sampler2DArray top_sampler;
-layout(location = 0) in vec2 inUV;
-layout(location = 1) in flat uint blend_type;
-layout(location = 2) in float intensity_level;
-layout(location = 0) out vec4 outFragColor;
-void main(void)
-{
-    vec4 base_color = texture(base_sampler, vec3(inUV, 0));
-    vec4 top_color = texture(top_sampler, vec3(inUV, 0));
-    outFragColor = base_color + top_color;
+    outFragColor = texture(samplerColor, inUV);
 }
 );
 
@@ -2487,14 +2401,15 @@ typedef struct zest_frame_buffer_attachment_t {
     VkImage image;
     zest_buffer_t *buffer;
     VkImageView view;
+    VkImageView *mip_views;
     VkFormat format;
 } zest_frame_buffer_attachment_t;
 
 typedef struct zest_frame_buffer_t {
     zest_uint width, height;
     VkFormat format;
-    VkFramebuffer device_frame_buffer;
-    zest_frame_buffer_attachment_t color_buffer, depth_buffer, resolve_buffer;
+    VkFramebuffer *framebuffers;
+    zest_frame_buffer_attachment_t color_buffer, depth_buffer;
     VkSampler sampler;
 } zest_frame_buffer_t;
 
@@ -3143,6 +3058,7 @@ typedef struct zest_render_target_create_info_t {
     zest_render_target_flags flags;
     zest_render_target input_source;
     zest_pipeline_template pipeline;
+    int mip_levels;
 } zest_render_target_create_info_t;
 
 typedef struct zest_recorder_t {
@@ -3171,11 +3087,16 @@ typedef struct zest_render_target_t {
     VkRect2D render_viewport;
     zest_render_target input_source;
     int render_width, render_height;
+    int mip_levels;
     VkFormat render_format;
 
     zest_render_target_flags flags;
 
+    VkSamplerCreateInfo sampler_info;
     zest_image_t sampler_image;
+    int current_index;
+    VkSampler sampler[2];
+    zest_descriptor_set_t sampler_descriptor_set[2];
     zest_pipeline_template pipeline_template;
 
     zest_pipeline_template composite_pipeline_template;
@@ -3186,7 +3107,6 @@ typedef struct zest_render_target_t {
 
     int frames_in_flight;
     int frame_buffer_dirty[ZEST_MAX_FIF];
-    zest_texture sampler_texture;
     VkDescriptorImageInfo image_info[ZEST_MAX_FIF];
     zest_frame_buffer_t framebuffers[ZEST_MAX_FIF];
 
@@ -3333,7 +3253,7 @@ ZEST_PRIVATE void zest__os_set_window_title(const char *title);
 ZEST_PRIVATE bool zest__create_folder(const char *path);
 //-- End Platform dependent functions
 
-//Only available outsie lib for some implementations like SDL2
+//Only available outside lib for some implementations like SDL2
 ZEST_API void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
 
 //Buffer & Memory Management
@@ -3456,7 +3376,7 @@ ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size v
 ZEST_PRIVATE void zest__draw_instance_mesh_layer_callback(struct zest_work_queue_t *queue, void *data);
 
 // --General Helper Functions
-ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mipLevels, VkImageViewType viewType, zest_uint layerCount);
+ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mip_levels_this_view, zest_uint base_mip, VkImageViewType viewType, zest_uint layerCount);
 ZEST_PRIVATE void zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory);
 ZEST_PRIVATE zest_buffer zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
 ZEST_PRIVATE zest_buffer zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
@@ -3464,6 +3384,7 @@ ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_o
 ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount, VkCommandBuffer command_buffer);
 ZEST_PRIVATE VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout final_layout, VkAttachmentLoadOp load_op, zest_bool depth_buffer);
+ZEST_PRIVATE VkSampler zest__create_sampler(VkSamplerCreateInfo samplerInfo);
 ZEST_PRIVATE VkFormat zest__find_depth_format(void);
 ZEST_PRIVATE zest_bool zest__has_stencil_format(VkFormat format);
 ZEST_PRIVATE VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features);
@@ -4075,6 +3996,7 @@ ZEST_API void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands i
 ZEST_API void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_CompositeRenderTargets(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
+ZEST_API void zest_DownSampleRenderTarget(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
 //Add an existing zest_draw_routine to a zest_command_queue_draw_commands. This just lets you add draw routines to a queue separately outside of a command queue
 //setup context
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
@@ -4441,7 +4363,7 @@ ZEST_API void zest_UpdateTextureSingleDescriptorSet(zest_texture texture);
 //details about the frame buffer. You must pass in a valid render pass that the frame buffer will use (you can use zest_GetRenderPass), the width/height of the frame buffer, a valid
 //VkFormat, whether or not you want to use a depth buffer with it, and if it's a frame buffer that will be used as a src buffer for something else so that it gets the appropriate
 //flags set. You shouldn't need to use this function as it's mainly used when creating zest_render_targets.
-ZEST_API zest_frame_buffer_t zest_CreateFrameBuffer(VkRenderPass render_pass, uint32_t width, uint32_t height, VkFormat render_format, zest_bool use_depth_buffer, zest_bool is_src);
+ZEST_API zest_frame_buffer_t zest_CreateFrameBuffer(VkRenderPass render_pass, int mip_levels, uint32_t width, uint32_t height, VkFormat render_format, zest_bool use_depth_buffer, zest_bool is_src);
 //Create and allocate a bitmap array. Bitmap arrays are exactly as they sound, an array of bitmaps. These are used to copy an array of bitmaps into a GPU texture array. These are
 //primarily used in the creation of textures that use zest_texture_storage_type_packed and zest_texture_storage_type_bank.
 ZEST_API void zest_CreateBitmapArray(zest_bitmap_array_t *images, int width, int height, int channels, zest_uint size_of_array);
@@ -4528,12 +4450,15 @@ ZEST_API zest_render_target zest_CreateRenderTarget(const char *name, zest_rende
 ZEST_API zest_render_target zest_CreateHDRRenderTarget(const char *name);
 //Create a render target for high definition rendering that is scaled up or down to the swap chain size
 ZEST_API zest_render_target zest_CreateScaledHDRRenderTarget(const char *name, float scale);
+//Create a render target designed for downsampling a source image, used for blurring. Uses mip levels for
+//the downsamples
+ZEST_API zest_render_target zest_CreateMippedHDRRenderTarget(const char *name, int mip_levels);
 //Create a render target for linear RGBA UNORM rendering
 ZEST_API zest_render_target zest_CreateSimpleRenderTarget(const char *name);
 //Create a new initialised render target.
 ZEST_API zest_render_target zest_NewRenderTarget();
 //Frees all the resources in the frame buffer
-ZEST_API void zest_CleanUpRenderTarget(zest_render_target render_target, zest_index fif);
+ZEST_API void zest_CleanUpRenderTarget(zest_render_target render_target);
 //Recreate the render target resources. This is called automatically whenever the window is resized (if it's not a fixed size render target). But if you need you can
 //manually call this function.
 ZEST_API void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_index fif);

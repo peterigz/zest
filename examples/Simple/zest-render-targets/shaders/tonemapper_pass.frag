@@ -1,6 +1,6 @@
 #version 450
 
-layout (set = 0, binding = 0) uniform sampler2DArray samplerColor; 
+layout (set = 0, binding = 0) uniform sampler2D samplerColor; 
 
 layout (location = 0) in vec2 inUV;
 
@@ -57,7 +57,7 @@ vec3 tonemap_aces_filmic(vec3 color, float exposure) {
 
 void main(void)
 {
-    vec4 source_hdr_color = texture(samplerColor, vec3(inUV, 0)); 
+    vec4 source_hdr_color = texture(samplerColor, inUV); 
 
     vec3 linear_color = source_hdr_color.rgb;
     float alpha = source_hdr_color.a;
