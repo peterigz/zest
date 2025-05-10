@@ -9,8 +9,8 @@ void InitExample(RenderTargetExample *example) {
 	example->base_target = zest_CreateHDRRenderTarget("Base render target");
 	example->compositor = zest_CreateHDRRenderTarget("Compositor render target");
 	example->tonemap = zest_CreateSimpleRenderTarget("Tone map render target");
-	example->bloom_pass = zest_CreateScaledHDRRenderTarget("Bloom pass render target", .5f);
-	example->downsampled = zest_CreateMippedHDRRenderTarget("Mipped render target", 4);
+	example->bloom_pass = zest_CreateMippedHDRRenderTarget("Bloom pass render target", 4);
+	example->bloom_pass->input_source = example->base_target;
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	example->blur_frag_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.frag", "blur_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
@@ -26,7 +26,7 @@ void InitExample(RenderTargetExample *example) {
 	//Make a pipeline to handle the blur effect
 	example->blur_pipeline = zest_AddPipeline("blur effect");
 	//Set the push constant range for the fragment shader 
-	zest_SetPipelineTemplatePushConstantRange(example->blur_pipeline, sizeof(BlurPushConstants), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelineTemplatePushConstantRange(example->blur_pipeline, sizeof(zest_downsampler_push_constants_t), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
 	//Set the vert and frag shaders for the blur effect
 	zest_SetPipelineTemplateVertShader(example->blur_pipeline, "blur_vert.spv", 0);
 	zest_SetPipelineTemplateFragShader(example->blur_pipeline, "blur_frag.spv", 0);
@@ -87,6 +87,7 @@ void InitExample(RenderTargetExample *example) {
 	zest_render_target vertical_blur2 = zest_AddPostProcessRenderTarget("Vertical blur 2 render target", 0.5, 0.5, horizontal_blur1, example, RecordVerticalBlur);
 	example->final_blur = zest_AddPostProcessRenderTarget("Final blur render target", 1.f, 1.f, vertical_blur2, example, RecordHorizontalBlur);
 
+	example->bloom_pass->pipeline_template = example->blur_pipeline;
 	//Create the render queue
 	//For blur effect we need to draw the scene to a base render target first, then have 2 render passes that draw to a smaller texture with horizontal and then vertical blur effects
 	//then we can draw the base target to the swap chain and draw the blur texture over the top by drawing it as a textured rectangle on a top layer that doesn't get blurred.
@@ -105,41 +106,15 @@ void InitExample(RenderTargetExample *example) {
 			example->base_layer = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
 		}
 		//Create draw commands that applies vertical blur to the base target
-		zest_NewDrawCommandSetupCompositor("Bloom pass render pass", example->bloom_pass, example->bloom_pass_pipeline);
+		zest_NewDrawCommandSetupDownSampler("Bloom pass render pass", example->bloom_pass, example->base_target, example->bloom_pass_pipeline);
 		{
-			zest_AddCompositeLayer(example->base_target);
-		}
-		//Create draw commands that applies vertical blur to the base target
-		zest_NewDrawCommandSetup("Vertical blur render pass", vertical_blur1);
-		{
-			//Use a draw function that renders to the whole texture. Because we specified AddVerticalBlur callback when calling zest_AddPostProcessRenderTarget above
-			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
-			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
-		}
-		zest_NewDrawCommandSetup("Horizontal blur render pass", horizontal_blur1);
-		{
-			//Use a draw function that renders to the whole texture. Because we specified AddVerticalBlur callback when calling zest_AddPostProcessRenderTarget above
-			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
-			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
-		}
-		zest_NewDrawCommandSetup("Vertical blur 2 render pass", vertical_blur2);
-		{
-			//Use a draw function that renders to the whole texture. Because we specified AddVerticalBlur callback when calling zest_AddPostProcessRenderTarget above
-			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
-			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
-		}
-		//Create draw commands that applies horizontal blur to the vertical blur target
-		zest_NewDrawCommandSetup("Horizontal blur 2 render pass", example->final_blur);
-		{
-			//Use a draw function that renders to the whole texture. Because we specified AddHorizontalBlur callback when calling zest_AddPostProcessRenderTarget above
-			//it means that our vertical blur function will be called to specify the draw commands that we want to happen
-			zest_SetDrawCommandsCallback(zest_DrawToRenderTargetCallback);
+			zest_SetDrawCommandsCallback(zest_DownSampleRenderTarget);
 		}
 		//Create draw commands that applies horizontal blur to the vertical blur target
 		zest_NewDrawCommandSetupCompositor("Compositor", example->compositor, example->composite_pipeline); 
 		{
 			zest_AddCompositeLayer(example->base_target);
-			zest_AddCompositeLayer(example->final_blur);
+			zest_AddCompositeLayer(example->bloom_pass);
 		}
 		//Create draw commands that applies horizontal blur to the vertical blur target
 		zest_NewDrawCommandSetupCompositor("Tone mapper", example->tonemap, example->tonemapper_pipeline); 

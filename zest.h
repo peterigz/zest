@@ -2400,7 +2400,7 @@ typedef struct zest_semaphores_t {
 typedef struct zest_frame_buffer_attachment_t {
     VkImage image;
     zest_buffer_t *buffer;
-    VkImageView view;
+    VkImageView base_view;
     VkImageView *mip_views;
     VkFormat format;
 } zest_frame_buffer_attachment_t;
@@ -2415,9 +2415,13 @@ typedef struct zest_frame_buffer_t {
 
 typedef struct zest_render_target_push_constants_t {
     zest_vec2 screen_resolution;            //the current size of the window/resolution
-    zest_uint flags;
-    float alpha_level;
 } zest_render_target_push_constants_t;
+
+typedef struct zest_downsampler_push_constants_t {
+    zest_vec4 settings;                     //w is reserved for the mip level to read from
+    zest_vec2 source_resolution;            //the current size of the window/resolution
+    zest_vec2 padding;
+} zest_downsampler_push_constants_t;
 
 typedef struct zest_semaphore_connector_t {
     VkSemaphore *fif_incoming_semaphores;                //Must be waited on, eg a command queue waiting on present signal
@@ -2521,6 +2525,7 @@ typedef struct zest_uniform_buffer_data_t {
 
 typedef struct zest_render_pass_info_s{
 	VkFormat render_format;
+	VkImageLayout initial_layout;
 	VkImageLayout final_layout;
 	VkAttachmentLoadOp load_op;
 	int depth_buffer;
@@ -3099,10 +3104,11 @@ typedef struct zest_render_target_t {
     zest_descriptor_set_t sampler_descriptor_set[2];
     zest_pipeline_template pipeline_template;
 
-    zest_pipeline_template composite_pipeline_template;
-    zest_shader_resources composite_shader_resources;
-    zest_descriptor_set_layout composite_descriptor_layout;
-    zest_descriptor_set_t composite_descriptor_set;
+    zest_pipeline_template filter_pipeline_template;
+    zest_shader_resources filter_shader_resources;
+    zest_descriptor_set_layout filter_descriptor_layout;
+    zest_descriptor_set_t filter_descriptor_set;
+    zest_downsampler_push_constants_t downsampler_push_constants;
     zest_render_target *composite_layers;
 
     int frames_in_flight;
@@ -3289,7 +3295,7 @@ ZEST_PRIVATE void zest__recreate_swapchain(void);
 ZEST_PRIVATE void zest__add_draw_routine(zest_command_queue_draw_commands command_queue_draw, zest_draw_routine draw_routine);
 ZEST_PRIVATE void zest__create_swapchain_image_views(void);
 ZEST_PRIVATE VkRenderPass zest__get_render_pass_with_info(zest_render_pass_info_t info);
-ZEST_PRIVATE VkRenderPass zest__get_render_pass(VkFormat render_format, VkImageLayout final_layout, VkAttachmentLoadOp load_op, zest_bool depth_buffer);
+ZEST_PRIVATE VkRenderPass zest__get_render_pass(VkFormat render_format, VkImageLayout initial_layout, VkImageLayout final_layout, VkAttachmentLoadOp load_op, zest_bool depth_buffer);
 ZEST_PRIVATE zest_buffer_t *zest__create_depth_resources(void);
 ZEST_PRIVATE void zest__create_swap_chain_frame_buffers(zest_bool depth_buffer);
 ZEST_PRIVATE void zest__create_sync_objects(void);
@@ -3358,7 +3364,7 @@ ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBu
 
 // --Render target internal functions
 ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
-ZEST_PRIVATE void zest__create_render_target_sampler_image(zest_render_target render_target);
+ZEST_PRIVATE void zest__create_render_target_sampler(zest_render_target render_target);
 ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target);
 ZEST_PRIVATE void zest__record_render_target_commands(zest_render_target render_target, zest_index fif);
 ZEST_PRIVATE void zest__render_target_maintennance();
@@ -3383,7 +3389,9 @@ ZEST_PRIVATE zest_buffer zest__create_image_array(zest_uint width, zest_uint hei
 ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout image_layout, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount, VkCommandBuffer command_buffer);
-ZEST_PRIVATE VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout final_layout, VkAttachmentLoadOp load_op, zest_bool depth_buffer);
+ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage image, VkAccessFlags from_access, VkAccessFlags to_access, VkImageLayout from_layout, VkImageLayout to_layout, zest_uint target_mip_level, zest_uint mip_count);
+ZEST_PRIVATE void zest__place_fragment_barrier(VkCommandBuffer command_buffer, VkImageMemoryBarrier *barrier);
+ZEST_PRIVATE VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout initial_layout, VkImageLayout final_layout, VkAttachmentLoadOp load_op, zest_bool depth_buffer);
 ZEST_PRIVATE VkSampler zest__create_sampler(VkSamplerCreateInfo samplerInfo);
 ZEST_PRIVATE VkFormat zest__find_depth_format(void);
 ZEST_PRIVATE zest_bool zest__has_stencil_format(VkFormat format);
@@ -3944,6 +3952,9 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
     //Create draw commands that draw render targets to a composite render target. This is useful if you are drawing to render targets elsewhere and 
     //want to combine them all before doing tonemapping
     ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char *name, zest_render_target render_target, zest_pipeline_template pipeline_template);
+    //Create draw commands that take an input source which you can use a specific shader/pipeline to filter the image
+    //and then down/upsample the image for blur/bloom or other effects that require this
+    ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupDownSampler(const char *name, zest_render_target render_target, zest_render_target input_source, zest_pipeline_template pipeline_template);
         //Add a render target to the render pass within a zest_NewDrawCommandSetupRenderTargetSwap
         //Context:    Must be called after zest_NewDrawCommandSetupRenderTargetSwap when the context will be zest_setup_context_type_render_pass
         ZEST_API void zest_AddRenderTarget(zest_render_target render_target);
