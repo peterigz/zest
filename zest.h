@@ -3102,6 +3102,7 @@ typedef struct zest_render_target_t {
     int current_index;
     VkSampler sampler[2];
     zest_descriptor_set_t sampler_descriptor_set[2];
+    zest_descriptor_set_t *mip_level_samplers[2];
     zest_pipeline_template pipeline_template;
 
     zest_pipeline_template filter_pipeline_template;
@@ -3365,6 +3366,7 @@ ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBu
 // --Render target internal functions
 ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
 ZEST_PRIVATE void zest__create_render_target_sampler(zest_render_target render_target);
+ZEST_PRIVATE void zest__create_mip_level_render_target_samplers(zest_render_target render_target);
 ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target);
 ZEST_PRIVATE void zest__record_render_target_commands(zest_render_target render_target, zest_index fif);
 ZEST_PRIVATE void zest__render_target_maintennance();

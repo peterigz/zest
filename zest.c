@@ -10136,6 +10136,10 @@ void zest__initialise_render_target(zest_render_target render_target, zest_rende
 
 	zest__create_render_target_sampler(render_target);
 
+    if (render_target->mip_levels > 1) {
+        zest__create_mip_level_render_target_samplers(render_target);
+    }
+
     if (info->pipeline) {
 		render_target->pipeline_template = info->pipeline;
     } else {
@@ -10173,6 +10177,42 @@ void zest__create_render_target_sampler(zest_render_target render_target) {
     
     for (zest_index fif = 0; fif != render_target->frames_in_flight; ++fif) {
         zest_UpdateDescriptorSet(set->descriptor_writes[fif]);
+    }
+}
+
+void zest__create_mip_level_render_target_samplers(zest_render_target render_target) {
+    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
+    int index = render_target->current_index;
+
+    zest_vec_resize(render_target->mip_level_samplers[index], (zest_uint)render_target->mip_levels);
+
+	VkDescriptorImageInfo image_info[ZEST_MAX_FIF];
+
+    for (zest_index mip_level = 0; mip_level != render_target->mip_levels; ++mip_level) {
+		zest_descriptor_set set = &render_target->mip_level_samplers[index][mip_level];
+        for (zest_index fif = 0; fif != render_target->frames_in_flight; ++fif) {
+            if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_sampler_size_match_texture)) {
+                render_target->sampler_image.width = render_target->create_info.viewport.extent.width;
+                render_target->sampler_image.height = render_target->create_info.viewport.extent.height;
+            } else {
+                render_target->sampler_image.width = zest_GetSwapChainExtent().width;
+                render_target->sampler_image.height = zest_GetSwapChainExtent().height;
+            }
+
+            image_info[fif].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info[fif].imageView = render_target->framebuffers[fif].color_buffer.mip_views[mip_level];
+            image_info[fif].sampler = render_target->sampler[index];
+
+            set->type = zest_descriptor_type_dynamic;
+
+            zest_AllocateDescriptorSets(ZestRenderer->descriptor_pool, zest_GetDescriptorSetLayout("1 sampler"), 1, &set->descriptor_set[fif]);
+            zest_vec_clear(set->descriptor_writes[fif]);
+            zest_vec_push(set->descriptor_writes[fif], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[fif], &image_info[fif], 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
+        }
+
+        for (zest_index fif = 0; fif != render_target->frames_in_flight; ++fif) {
+            zest_UpdateDescriptorSet(set->descriptor_writes[fif]);
+        }
     }
 }
 
@@ -10666,7 +10706,8 @@ void zest_DownSampleRenderTarget(zest_command_queue_draw_commands item, VkComman
         vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(item->render_target->pipeline_template, render_pass);
-		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSetVK(item->render_target), 0, NULL);
+        VkDescriptorSet mip_level_set = item->render_target->mip_level_samplers[item->render_target->current_index][mip_level - 1].descriptor_set[ZEST_FIF];
+		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, &mip_level_set, 0, NULL);
 		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 
         if (pipeline->pipeline_template->pushConstantRange.size > 0) {
