@@ -17,6 +17,8 @@ float luminance(vec3 color) {
 
 void main(void)
 {
+    outColor = texture(samplerColor, inUV);
+    /*
     vec4 source_color = texture(samplerColor, inUV); 
 
     float brightness = luminance(source_color.rgb);
@@ -26,10 +28,13 @@ void main(void)
     float soft_factor = clamp((brightness - (threshold_value - feather)) / (2.0 * feather + 0.00001), 0.0, 1.0); 
 
     vec3 filtered_color = source_color.rgb * soft_factor;
+    */
 
+    /*
     if (brightness < threshold_value - feather) { 
         outColor = vec4(0.0, 0.0, 0.0, source_color.a);
     } else {
         outColor = vec4(filtered_color, source_color.a);
     }
+    */
 }

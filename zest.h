@@ -1420,6 +1420,8 @@ typedef enum zest_render_target_flag_bits {
     zest_render_target_flag_initialised                   = 1 << 7,
     zest_render_target_flag_has_imgui_pipeline            = 1 << 8,
     zest_render_target_flag_was_changed                   = 1 << 9,
+    zest_render_target_flag_multi_mip                     = 1 << 10,
+    zest_render_target_flag_upsampler                     = 1 << 11,
 } zest_render_target_flag_bits;
 
 typedef zest_uint zest_render_target_flags;
@@ -2417,11 +2419,11 @@ typedef struct zest_render_target_push_constants_t {
     zest_vec2 screen_resolution;            //the current size of the window/resolution
 } zest_render_target_push_constants_t;
 
-typedef struct zest_downsampler_push_constants_t {
-    zest_vec4 settings;                     //w is reserved for the mip level to read from
+typedef struct zest_mip_push_constants_t {
+    zest_vec4 settings;                     
     zest_vec2 source_resolution;            //the current size of the window/resolution
     zest_vec2 padding;
-} zest_downsampler_push_constants_t;
+} zest_mip_push_constants_t;
 
 typedef struct zest_semaphore_connector_t {
     VkSemaphore *fif_incoming_semaphores;                //Must be waited on, eg a command queue waiting on present signal
@@ -3093,6 +3095,7 @@ typedef struct zest_render_target_t {
     zest_render_target input_source;
     int render_width, render_height;
     int mip_levels;
+    VkRect2D *mip_level_sizes;
     VkFormat render_format;
 
     zest_render_target_flags flags;
@@ -3103,13 +3106,15 @@ typedef struct zest_render_target_t {
     VkSampler sampler[2];
     zest_descriptor_set_t sampler_descriptor_set[2];
     zest_descriptor_set_t *mip_level_samplers[2];
+    zest_descriptor_set_t *mip_level_descriptor_sets[2];
+    VkDescriptorImageInfo *mip_level_image_infos[ZEST_MAX_FIF];
     zest_pipeline_template pipeline_template;
 
     zest_pipeline_template filter_pipeline_template;
     zest_shader_resources filter_shader_resources;
     zest_descriptor_set_layout filter_descriptor_layout;
     zest_descriptor_set_t filter_descriptor_set;
-    zest_downsampler_push_constants_t downsampler_push_constants;
+    zest_mip_push_constants_t mip_push_constants;
     zest_render_target *composite_layers;
 
     int frames_in_flight;
@@ -3368,6 +3373,7 @@ ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_targe
 ZEST_PRIVATE void zest__create_render_target_sampler(zest_render_target render_target);
 ZEST_PRIVATE void zest__create_mip_level_render_target_samplers(zest_render_target render_target);
 ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target);
+ZEST_PRIVATE void zest__refresh_render_target_mip_samplers(zest_render_target render_target);
 ZEST_PRIVATE void zest__record_render_target_commands(zest_render_target render_target, zest_index fif);
 ZEST_PRIVATE void zest__render_target_maintennance();
 
@@ -3393,6 +3399,7 @@ ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions,
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount, VkCommandBuffer command_buffer);
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage image, VkAccessFlags from_access, VkAccessFlags to_access, VkImageLayout from_layout, VkImageLayout to_layout, zest_uint target_mip_level, zest_uint mip_count);
 ZEST_PRIVATE void zest__place_fragment_barrier(VkCommandBuffer command_buffer, VkImageMemoryBarrier *barrier);
+ZEST_PRIVATE void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout initial_layout, VkImageLayout final_layout, VkAttachmentLoadOp load_op, zest_bool depth_buffer);
 ZEST_PRIVATE VkSampler zest__create_sampler(VkSamplerCreateInfo samplerInfo);
 ZEST_PRIVATE VkFormat zest__find_depth_format(void);
@@ -3957,6 +3964,7 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
     //Create draw commands that take an input source which you can use a specific shader/pipeline to filter the image
     //and then down/upsample the image for blur/bloom or other effects that require this
     ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupDownSampler(const char *name, zest_render_target render_target, zest_render_target input_source, zest_pipeline_template pipeline_template);
+    ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupUpSampler(const char *name, zest_render_target render_target, zest_render_target downsampler_render_target, zest_pipeline_template pipeline_template);
         //Add a render target to the render pass within a zest_NewDrawCommandSetupRenderTargetSwap
         //Context:    Must be called after zest_NewDrawCommandSetupRenderTargetSwap when the context will be zest_setup_context_type_render_pass
         ZEST_API void zest_AddRenderTarget(zest_render_target render_target);
@@ -4010,6 +4018,7 @@ ZEST_API void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands i
 ZEST_API void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_CompositeRenderTargets(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
 ZEST_API void zest_DownSampleRenderTarget(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
+ZEST_API void zest_UpSampleRenderTarget(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
 //Add an existing zest_draw_routine to a zest_command_queue_draw_commands. This just lets you add draw routines to a queue separately outside of a command queue
 //setup context
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
@@ -4464,7 +4473,9 @@ ZEST_API zest_render_target zest_CreateHDRRenderTarget(const char *name);
 //Create a render target for high definition rendering that is scaled up or down to the swap chain size
 ZEST_API zest_render_target zest_CreateScaledHDRRenderTarget(const char *name, float scale);
 //Create a render target designed for downsampling a source image, used for blurring. Uses mip levels for
-//the downsamples
+//the downsamples. If you're creating an upsampler for use with a down sampler then you can specify the downsampler input
+//source which will then create the shader resources for a shader you can use for the up sampling. Otherwise
+//leave this as 0
 ZEST_API zest_render_target zest_CreateMippedHDRRenderTarget(const char *name, int mip_levels);
 //Create a render target for linear RGBA UNORM rendering
 ZEST_API zest_render_target zest_CreateSimpleRenderTarget(const char *name);
@@ -4988,12 +4999,10 @@ ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer timer);                    
 ZEST_API char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
 //Get the current swap chain frame buffer
 ZEST_API VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands item);
-//Get a descriptor set layout by name. The following are built in layouts:
-//Standard 1 uniform 1 sampler
-//Polygon layout (no sampler)
-//Render target layout
-//Ribbon 2d layout
-ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayout(const char *name);
+//Get a descriptor set layout by name.
+ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutVK(const char *name);
+//Get a descriptor set layout by name.
+ZEST_API zest_descriptor_set_layout zest_GetDescriptorSetLayout(const char *name);
 //Get the swap chain extent which will basically be the size of the window returned in a VkExtend2d struct.
 ZEST_API VkExtent2D zest_GetSwapChainExtent(void);
 //Get the window size in a VkExtent2d. In most cases this is the same as the swap chain extent.

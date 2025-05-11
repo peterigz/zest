@@ -155,7 +155,7 @@ void main(void)
     // The final alpha could be the base's alpha, or max of both, or blend_color.a if it's an overlay.
     float blend_amount = 1.0; // Assuming blend_color.a controls the opacity of the blend effect
     // If you have a global opacity uniform: blend_amount *= u_blendOpacity;
-    blend_amount *= 0.75;
+    blend_amount *= 0.05;
 
     out_color.rgb = mix(base_color.rgb, blended_rgb, blend_amount);
     out_color.a = base_color.a; // Preserve base alpha, or choose another strategy like max(base_color.a, blend_color.a)

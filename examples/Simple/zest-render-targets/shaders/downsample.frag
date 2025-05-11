@@ -1,6 +1,6 @@
 #version 450
 
-layout (set = 0, binding = 0) uniform sampler2D sampler_color;
+layout (set = 0, binding = 0) uniform sampler2D sampler_color;	//this will be the mip_level - 1
 
 layout (location = 0) in vec2 uv;
 
@@ -18,7 +18,6 @@ void main(void)
 	vec2 src_texel_size = 1.0 / pc.texture_size;
 	float x = src_texel_size.x;
 	float y = src_texel_size.y;
-	float lod = pc.settings.w;
 
 	// Take 13 samples around current texel:
 	// a - b - c
@@ -27,22 +26,22 @@ void main(void)
 	// - l - m -
 	// g - h - i
 	// === ('e' is the current texel) ===
-	vec3 a = textureLod(sampler_color, vec2(uv.x - 2*x, uv.y + 2*y), lod).rgb;
-	vec3 b = textureLod(sampler_color, vec2(uv.x,       uv.y + 2*y), lod).rgb;
-	vec3 c = textureLod(sampler_color, vec2(uv.x + 2*x, uv.y + 2*y), lod).rgb;
+	vec3 a = texture(sampler_color, vec2(uv.x - 2*x, uv.y + 2*y)).rgb;
+	vec3 b = texture(sampler_color, vec2(uv.x,       uv.y + 2*y)).rgb;
+	vec3 c = texture(sampler_color, vec2(uv.x + 2*x, uv.y + 2*y)).rgb;
 
-	vec3 d = textureLod(sampler_color, vec2(uv.x - 2*x, uv.y), lod).rgb;
-	vec3 e = textureLod(sampler_color, vec2(uv.x,       uv.y), lod).rgb;
-	vec3 f = textureLod(sampler_color, vec2(uv.x + 2*x, uv.y), lod).rgb;
+	vec3 d = texture(sampler_color, vec2(uv.x - 2*x, uv.y)).rgb;
+	vec3 e = texture(sampler_color, vec2(uv.x,       uv.y)).rgb;
+	vec3 f = texture(sampler_color, vec2(uv.x + 2*x, uv.y)).rgb;
 
-	vec3 g = textureLod(sampler_color, vec2(uv.x - 2*x, uv.y - 2*y), lod).rgb;
-	vec3 h = textureLod(sampler_color, vec2(uv.x,       uv.y - 2*y), lod).rgb;
-	vec3 i = textureLod(sampler_color, vec2(uv.x + 2*x, uv.y - 2*y), lod).rgb;
+	vec3 g = texture(sampler_color, vec2(uv.x - 2*x, uv.y - 2*y)).rgb;
+	vec3 h = texture(sampler_color, vec2(uv.x,       uv.y - 2*y)).rgb;
+	vec3 i = texture(sampler_color, vec2(uv.x + 2*x, uv.y - 2*y)).rgb;
 
-	vec3 j = textureLod(sampler_color, vec2(uv.x - x, uv.y + y), lod).rgb;
-	vec3 k = textureLod(sampler_color, vec2(uv.x + x, uv.y + y), lod).rgb;
-	vec3 l = textureLod(sampler_color, vec2(uv.x - x, uv.y - y), lod).rgb;
-	vec3 m = textureLod(sampler_color, vec2(uv.x + x, uv.y - y), lod).rgb;
+	vec3 j = texture(sampler_color, vec2(uv.x - x, uv.y + y)).rgb;
+	vec3 k = texture(sampler_color, vec2(uv.x + x, uv.y + y)).rgb;
+	vec3 l = texture(sampler_color, vec2(uv.x - x, uv.y - y)).rgb;
+	vec3 m = texture(sampler_color, vec2(uv.x + x, uv.y - y)).rgb;
 
 	// Apply weighted distribution:
 	// 0.5 + 0.125 + 0.125 + 0.125 + 0.125 = 1

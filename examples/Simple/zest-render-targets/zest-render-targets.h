@@ -10,17 +10,18 @@ struct BloomPushConstants {
 };
 
 struct RenderTargetExample {
-	zest_pipeline_template blur_pipeline;		    //Handle to the pipeline template we will use for the blur effect
+	zest_pipeline_template downsample_pipeline;	    //Handle to the pipeline template we will use for the downsampling part of the blur effect
+	zest_pipeline_template upsample_pipeline;	    //Handle to the pipeline template we will use for the upsampling part of the blur effect
 	zest_pipeline_template composite_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
 	zest_pipeline_template tonemapper_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
 	zest_pipeline_template bloom_pass_pipeline;		//Handle to the pipeline template we will use filter the base target to pick out a color threshold
 	zest_render_target top_target;		            //Render target to draw the result of the blur effect on top of the other layers
 	zest_render_target base_target;		            //The base target to draw the initial images that will be blurred
 	zest_render_target final_blur;		            //Render target where the final blur effect happens
-	zest_render_target bloom_pass;		            //Render target where the bloom pass happens to filter out dark colors
+	zest_render_target downsampler;		            //Render target where the bloom pass happens to filter out dark colors
+	zest_render_target upsampler;		            //Render target where the bloom pass happens to filter out dark colors
 	zest_render_target compositor;		            //Render target to combine the base target with the final blur
 	zest_render_target tonemap;			            //Render target to tonemap the composted base and blur/bloom layers
-	zest_render_target downsampled;		            //Render target where the bloom pass happens to filter out dark colors
 	zest_command_queue command_queue;	            //Custom command queue that we'll build from scratch
 	zest_layer base_layer;				            //Base layer for drawing to the base render target
 	zest_layer top_layer;				            //Top layer for drawing to the top render target
@@ -49,6 +50,3 @@ struct RenderTargetExample {
 };
 
 void InitExample(RenderTargetExample * example);
-void RecordHorizontalBlur(zest_render_target_t *target, void *data, zest_uint fif);
-void RecordVerticalBlur(zest_render_target_t *target, void *data, zest_uint fif);
-void RecordBloomPass(zest_render_target_t *target, void *data, zest_uint fif);
