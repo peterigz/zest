@@ -10565,6 +10565,22 @@ void zest__refresh_render_target_mip_samplers(zest_render_target render_target) 
     zest_vec_resize(render_target->mip_level_samplers[index], (zest_uint)render_target->mip_levels);
     zest_uint mip_descriptor_size = zest_vec_size(render_target->mip_level_image_infos);
 
+	zest_uint current_mip_width = render_target->render_width; 
+	zest_uint current_mip_height = render_target->render_height; 
+
+    zest_vec_clear(render_target->mip_level_sizes);
+
+    if (zest_vec_size(render_target->mip_level_descriptor_sets[index])) {
+        zest_vec_foreach(i, render_target->mip_level_descriptor_sets[index]) {
+            zest_descriptor_set set = &render_target->mip_level_descriptor_sets[index][i];
+            if (ZEST_VALID_HANDLE(set) && set->descriptor_set[0]) {
+                zest_FreeDescriptorSets(set);
+            }
+        }
+    } else {
+        zest_vec_resize(render_target->mip_level_descriptor_sets[index], render_target->mip_levels);
+    }
+
     for (zest_index mip_level = 0; mip_level != render_target->mip_levels; ++mip_level) {
         zest_descriptor_set set = &render_target->mip_level_samplers[index][mip_level];
         if (ZEST_VALID_HANDLE(set) && set->descriptor_set[0]) {
@@ -10575,14 +10591,6 @@ void zest__refresh_render_target_mip_samplers(zest_render_target render_target) 
             set->magic = zest_INIT_MAGIC;
         }
         for (zest_index fif = 0; fif != render_target->frames_in_flight; ++fif) {
-            if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_sampler_size_match_texture)) {
-                render_target->sampler_image.width = render_target->create_info.viewport.extent.width;
-                render_target->sampler_image.height = render_target->create_info.viewport.extent.height;
-            } else {
-                render_target->sampler_image.width = zest_GetSwapChainExtent().width;
-                render_target->sampler_image.height = zest_GetSwapChainExtent().height;
-            }
-
 			VkDescriptorImageInfo *image_info = &render_target->mip_level_image_infos[fif][mip_level];
 			image_info->imageView = render_target->framebuffers[fif].color_buffer.mip_views[mip_level];
 			image_info->sampler = render_target->sampler[index];
@@ -10594,11 +10602,15 @@ void zest__refresh_render_target_mip_samplers(zest_render_target render_target) 
             zest_vec_push(set->descriptor_writes[fif], zest_CreateImageDescriptorWriteWithType(set->descriptor_set[fif], image_info, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER));
         }
 
+		VkRect2D mip_size = { 0 };
+		mip_size.extent.width = current_mip_width;
+		mip_size.extent.height = current_mip_height;
+		zest_vec_push(render_target->mip_level_sizes, mip_size);
+
+		current_mip_width = ZEST__MAX(1u, current_mip_width / 2);
+		current_mip_height = ZEST__MAX(1u, current_mip_height / 2);
+
         if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_upsampler)) {
-            zest_vec_resize(render_target->mip_level_descriptor_sets[index], (zest_uint)render_target->mip_levels);
-            if (render_target->mip_level_descriptor_sets[index][mip_level].descriptor_set[0]) {
-                zest_FreeDescriptorSets(&render_target->mip_level_descriptor_sets[index][mip_level]);
-            }
             zest_descriptor_set_builder_t builder = zest_NewDescriptorSetBuilder();
             zest_ForEachFrameInFlight(fif) {
 				VkDescriptorImageInfo *image_info = &render_target->mip_level_image_infos[fif][mip_level];

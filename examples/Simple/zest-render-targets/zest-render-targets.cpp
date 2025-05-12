@@ -135,9 +135,7 @@ void InitExample(RenderTargetExample *example) {
 		//We can use zest_NewDrawCommandSetupRenderTargetSwap which sets up a render pass to the swap chain specifying the render target to draw to it
 		zest_NewDrawCommandSetupRenderTargetSwap("Render render targets to swap", example->tonemap);
 		{
-			//We can add as many other render targets as we need to get drawn to the swap chain. In this case we'll add the top target where we can
-			//draw a textured rectangle that samples the blurred texture.
-			zest_AddRenderTarget(example->top_target);
+			//We can add as many other render targets as we need to get drawn to the swap chain. 
 		}
 		//Connect the render queue to the Present queue so that the swap chain has to wait until the rendering is complete before
 		//presenting to the screen
