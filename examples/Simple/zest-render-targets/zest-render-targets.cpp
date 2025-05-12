@@ -9,8 +9,8 @@ void InitExample(RenderTargetExample *example) {
 	example->base_target = zest_CreateHDRRenderTarget("Base render target");
 	example->compositor = zest_CreateHDRRenderTarget("Compositor render target");
 	example->tonemap = zest_CreateSimpleRenderTarget("Tone map render target");
-	example->downsampler = zest_CreateMippedHDRRenderTarget("Bloom pass downsampler", 5);
-	example->upsampler = zest_CreateMippedHDRRenderTarget("Bloom pass upsampler", 5);
+	example->downsampler = zest_CreateMippedHDRRenderTarget("Bloom pass downsampler", 8);
+	example->upsampler = zest_CreateMippedHDRRenderTarget("Bloom pass upsampler", 8);
 	example->downsampler->input_source = example->base_target;
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
@@ -62,21 +62,12 @@ void InitExample(RenderTargetExample *example) {
 	zest_ClearPipelinePushConstantRanges(example->composite_pipeline);
     zest_ClearPipelineTemplateDescriptorLayouts(example->composite_pipeline);
     zest_AddPipelineTemplateDescriptorLayout(example->composite_pipeline, *zest_GetDescriptorSetLayoutVK("2 sampler"));
+	zest_SetPipelineTemplatePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelineTemplatePushConstants(example->composite_pipeline, &example->composite_push_constants);
     zest_FinalisePipelineTemplate(example->composite_pipeline);
     example->composite_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
     example->composite_pipeline->depthStencil.depthTestEnable = VK_FALSE;
     example->composite_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
-
-    example->tonemapper_pipeline = zest_CopyPipelineTemplate("pipeline_tonemapper", zest_PipelineTemplate("pipeline_swap_chain"));
-    zest_SetText(&example->tonemapper_pipeline->vertShaderFile, "tonemapper_vert.spv");
-    zest_SetText(&example->tonemapper_pipeline->fragShaderFile, "tonemapper_frag.spv");
-    zest_ClearPipelineTemplateDescriptorLayouts(example->tonemapper_pipeline);
-    zest_AddPipelineTemplateDescriptorLayout(example->tonemapper_pipeline, *zest_GetDescriptorSetLayoutVK("1 sampler"));
-	zest_SetPipelineTemplatePushConstantRange(example->tonemapper_pipeline, sizeof(BloomPushConstants), 0, VK_SHADER_STAGE_FRAGMENT_BIT );
-    zest_FinalisePipelineTemplate(example->tonemapper_pipeline);
-    example->tonemapper_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-    example->tonemapper_pipeline->depthStencil.depthTestEnable = VK_FALSE;
-    example->tonemapper_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
 
     example->bloom_pass_pipeline = zest_CopyPipelineTemplate("pipeline_bloom_pass", zest_PipelineTemplate("downsampler"));
     zest_SetText(&example->bloom_pass_pipeline->vertShaderFile, "bloom_pass_vert.spv");
@@ -119,22 +110,13 @@ void InitExample(RenderTargetExample *example) {
 		{
 			zest_SetDrawCommandsCallback(zest_UpSampleRenderTarget);
 		}
-		//Composite the base target and upsampled render target using additive blending
-		zest_NewDrawCommandSetupCompositor("Compositor", example->compositor, example->composite_pipeline); 
-		{
-			zest_AddCompositeLayer(example->base_target);
-			zest_AddCompositeLayer(example->upsampler);
-		}
-		//Tonemap the composited render target to put it into rgba8 unorm format and tonemap the colors with uncharted style tone mapping
-		zest_NewDrawCommandSetupCompositor("Tone mapper", example->tonemap, example->tonemapper_pipeline); 
-		{
-			zest_AddCompositeLayer(example->compositor);
-		}
 		//Finally we won't see anything unless we tell the render queue to render to the swap chain to be presented to the screen, but we
 		//need to specify which render targets we want to be drawn to the swap chain.
 		//We can use zest_NewDrawCommandSetupRenderTargetSwap which sets up a render pass to the swap chain specifying the render target to draw to it
-		zest_NewDrawCommandSetupRenderTargetSwap("Render render targets to swap", example->tonemap);
+		zest_NewDrawCommandSetupCompositeToSwap("Render render targets to swap", example->composite_pipeline);
 		{
+			zest_AddRenderTarget(example->base_target);
+			zest_AddRenderTarget(example->upsampler);
 			//We can add as many other render targets as we need to get drawn to the swap chain. 
 		}
 		//Connect the render queue to the Present queue so that the swap chain has to wait until the rendering is complete before
@@ -163,12 +145,12 @@ void InitExample(RenderTargetExample *example) {
 	example->wabbit_pos.vx = 200.f;
 	example->wabbit_pos.vy = 200.f;
 
-	example->tonemap_constants.settings.x = 1.f;
-	example->tonemap_constants.settings.y = 1.f;
-	example->tonemap_constants.settings.z = 0.f;
-	example->tonemap_constants.settings.w = 1.f;
+	example->composite_push_constants.tonemapping.x = 1.f;
+	example->composite_push_constants.tonemapping.y = 1.f;
+	example->composite_push_constants.tonemapping.z = 0.f;
+	example->composite_push_constants.tonemapping.w = 1.f;
+	example->composite_push_constants.composting.x = 0.1f;
 
-	example->tonemap->push_constants = &example->tonemap_constants;
 	example->downsampler->push_constants = &example->bloom_constants;
 }
 
@@ -208,6 +190,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	knee = ZEST__CLAMP(knee, 0.f, 1.f) * .5f;
 	threshold = ZEST__CLAMP(threshold, 0.f, 2.f);
 
+	example->composite_push_constants.composting.x = threshold;
 	example->bloom_constants.settings.x = threshold;
 	example->bloom_constants.settings.y = knee;
 	example->downsampler->recorder->outdated[ZEST_FIF] = 1;
@@ -238,13 +221,13 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main()
 {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	zest_create_info_t create_info = zest_CreateInfo();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	create_info.log_path = "./";
-	create_info.thread_count = 0;
+	//create_info.thread_count = 0;
 	zest_SetDescriptorPoolCount(&create_info, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 200);
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);

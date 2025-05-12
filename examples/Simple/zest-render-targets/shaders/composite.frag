@@ -6,172 +6,109 @@ layout(set = 0, binding = 1) uniform sampler2D blend_sampler;
 layout(location = 0) in vec2 inUV;
 layout(location = 0) out vec4 out_color;
 
-// --- Blend Mode Functions (RGB components) ---
-
-// Normal (Blend layer on top of Base, using Blend's alpha)
-// Note: This isn't a function for RGB, it's how main() would handle it with mix.
-
-// Multiply
-vec3 blend_multiply(vec3 base, vec3 blend) {
-    return base * blend;
-}
-
-// Screen
-vec3 blend_screen(vec3 base, vec3 blend) {
-    return vec3(1.0) - (vec3(1.0) - base) * (vec3(1.0) - blend);
-}
-
-// Overlay
-// Combines Multiply and Screen. If base < 0.5, it darkens; otherwise, it lightens.
-vec3 blend_overlay(vec3 base, vec3 blend) {
-    vec3 result;
-    // This can be done component-wise with a helper or direct ifs
-    for (int i = 0; i < 3; ++i) {
-        if (base[i] < 0.5) {
-            result[i] = 2.0 * base[i] * blend[i];
-        } else {
-            result[i] = 1.0 - 2.0 * (1.0 - base[i]) * (1.0 - blend[i]);
-        }
-    }
-    return result;
-}
-
-// Soft Light (Photoshop's formula)
-// D(cs) function for Soft Light
-float soft_light_D(float cs) {
-    if (cs <= 0.25) {
-        return (( (16.0 * cs - 12.0) * cs + 4.0) * cs);
-    } else {
-        return sqrt(cs);
-    }
-}
-vec3 blend_soft_light(vec3 base, vec3 blend) {
-    vec3 result;
-    for (int i = 0; i < 3; ++i) {
-        if (blend[i] < 0.5) {
-            result[i] = base[i] - (1.0 - 2.0 * blend[i]) * base[i] * (1.0 - base[i]);
-        } else {
-            result[i] = base[i] + (2.0 * blend[i] - 1.0) * (soft_light_D(base[i]) - base[i]);
-        }
-    }
-    return result;
-}
-
-// Hard Light
-// Swaps roles of base and blend for the condition compared to Overlay.
-// If blend color < 0.5, it multiplies; otherwise, it screens.
-vec3 blend_hard_light(vec3 base, vec3 blend) {
-    vec3 result;
-    for (int i = 0; i < 3; ++i) {
-        if (blend[i] < 0.5) {
-            result[i] = 2.0 * base[i] * blend[i]; // Multiply
-        } else {
-            result[i] = 1.0 - 2.0 * (1.0 - base[i]) * (1.0 - blend[i]); // Screen
-        }
-    }
-    return result;
-}
-
-// Linear Dodge (Add)
 // Good for glows, sparks, etc. Works naturally with HDR values too.
 vec3 blend_add(vec3 base, vec3 blend) {
     return base + blend; // For LDR, you might clamp(base + blend, 0.0, 1.0);
 }
 
-// Difference
-vec3 blend_difference(vec3 base, vec3 blend) {
-    return abs(base - blend);
+vec3 blend_screen(vec3 base, vec3 blend) {
+    return vec3(1.0) - (vec3(1.0) - base) * (vec3(1.0) - blend);
 }
 
-// Exclusion
-// Similar to Difference but lower contrast.
-vec3 blend_exclusion(vec3 base, vec3 blend) {
-    return base + blend - 2.0 * base * blend;
+layout(push_constant) uniform frag_pushes
+{
+    // x: exposure
+    // y: Tonemapper choice (e.g., 0 for Reinhard, 1 for Uncharted 2, 2 for ACES Filmic (simplified))
+    // z: Unused
+    // w: (Optional) White point for Uncharted 2 / ACES
+    vec4 tonemapping_params;
+    // x: blend amount
+    vec4 composite_settings;
+} settings;
+
+vec3 tonemap_reinhard(vec3 color, float exposure) {
+    color *= exposure;
+    return color / (color + vec3(1.0));
 }
 
-// Lighten
-// Selects the lighter of the base or blend color for each component.
-vec3 blend_lighten(vec3 base, vec3 blend) {
-    return max(base, blend);
+// Constants for Uncharted 2 operator
+const float A = 0.15; // Shoulder Strength
+const float B = 0.50; // Linear Strength
+const float C = 0.10; // Linear Angle
+const float D = 0.20; // Toe Strength
+const float E = 0.02; // Toe Numerator
+const float F = 0.30; // Toe Denominator
+// Note: E/F = Toe Angle
+
+vec3 uncharted2TonemapPartial(vec3 color, float exposure) {
+    color *= exposure;
+    return ((color * (A * color + C * B) + D * E) / (color * (A * color + B) + D * F)) - E / F;
 }
 
-// Darken
-// Selects the darker of the base or blend color for each component.
-vec3 blend_darken(vec3 base, vec3 blend) {
-    return min(base, blend);
+vec3 tonemap_uncharted2(vec3 color, float exposure, float whitePoint) {
+    vec3 curr = uncharted2TonemapPartial(color, exposure);
+    vec3 W_vector = vec3(whitePoint); // White point; linear value that should be mapped to 1.0
+    vec3 white_scale = vec3(1.0f) / uncharted2TonemapPartial(W_vector, 1.0); // Use exposure=1.0 for W_vector as exposure is already applied to color
+    return curr * white_scale;
 }
 
-// Color Dodge
-// Brightens the base color to reflect the blend color.
-// Division by zero if blend component is 1.0; result should be white.
-vec3 blend_color_dodge(vec3 base, vec3 blend) {
-    vec3 result = vec3(0.0);
-    if (blend.r < 1.0) result.r = clamp(base.r / (1.0 - blend.r), 0.0, 1.0); else result.r = 1.0;
-    if (blend.g < 1.0) result.g = clamp(base.g / (1.0 - blend.g), 0.0, 1.0); else result.g = 1.0;
-    if (blend.b < 1.0) result.b = clamp(base.b / (1.0 - blend.b), 0.0, 1.0); else result.b = 1.0;
-    return result;
-}
-
-// Color Burn
-// Darkens the base color to reflect the blend color.
-// Division by zero if blend component is 0.0; result should be black.
-vec3 blend_color_burn(vec3 base, vec3 blend) {
-    vec3 result = vec3(1.0);
-    if (blend.r > 0.0) result.r = clamp(1.0 - (1.0 - base.r) / blend.r, 0.0, 1.0); else result.r = 0.0;
-    if (blend.g > 0.0) result.g = clamp(1.0 - (1.0 - base.g) / blend.g, 0.0, 1.0); else result.g = 0.0;
-    if (blend.b > 0.0) result.b = clamp(1.0 - (1.0 - base.b) / blend.b, 0.0, 1.0); else result.b = 0.0;
-    return result;
+// 3. ACES Filmic Tonemapping (Simplified)
+// Approximates the ACES curve, known for good highlight handling and natural look.
+// Source: https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
+vec3 tonemap_aces_filmic(vec3 color, float exposure) {
+    color *= exposure;
+    const float a = 2.51f;
+    const float b = 0.03f;
+    const float c = 2.43f;
+    const float d = 0.59f;
+    const float e = 0.14f;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
 }
 
 void main(void)
 {
+    //Composite the base and blend layers
     vec4 base_color = texture(base_sampler, inUV);
     vec4 blend_color = texture(blend_sampler, inUV) * 2.0;
     blend_color = clamp(blend_color, 0.0, 1.0);
 
     vec3 blended_rgb;
 
-        // --- CHOOSE YOUR BLEND MODE TO EXPERIMENT ---
-    // blended_rgb = base_color.rgb; // No blend, just show base
-    // blended_rgb = blend_color.rgb; // No blend, just show blend layer (useful for checking its content)
+    blended_rgb = blend_add(base_color.rgb, blend_color.rgb); 
 
-    // Separable Blend Modes (operate on RGB independently)
-    //blended_rgb = blend_multiply(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_screen(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_overlay(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_soft_light(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_hard_light(base_color.rgb, blend_color.rgb);
-    blended_rgb = blend_add(base_color.rgb, blend_color.rgb); // Good starting point for effects like blur/bloom
-    //blended_rgb = blend_difference(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_exclusion(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_lighten(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_darken(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_color_dodge(base_color.rgb, blend_color.rgb);
-    //blended_rgb = blend_color_burn(base_color.rgb, blend_color.rgb);
+    float blend_amount = settings.composite_settings.x; 
 
-    // --- Alpha Handling & Output ---
-    // Option 1: Use blend layer's alpha to mix the blended RGB with the base RGB.
-    // This is good if blend_color represents an effect you want to fade in/out.
-    // The final alpha could be the base's alpha, or max of both, or blend_color.a if it's an overlay.
-    float blend_amount = 1.0; // Assuming blend_color.a controls the opacity of the blend effect
-    // If you have a global opacity uniform: blend_amount *= u_blendOpacity;
-    blend_amount *= 0.05;
+	vec4 source_hdr_color = vec4(mix(base_color.rgb, blended_rgb, blend_amount), base_color.a); 
 
-    out_color.rgb = mix(base_color.rgb, blended_rgb, blend_amount);
-    out_color.a = base_color.a; // Preserve base alpha, or choose another strategy like max(base_color.a, blend_color.a)
+    //Setup for tonemapping
+    vec3 linear_color = source_hdr_color.rgb;
+    float alpha = source_hdr_color.a;
 
-    // Option 2: If both inputs are considered opaque and you just want the RGB result.
-    //out_color = vec4(blended_rgb, 1.0);
+    float exposure = settings.tonemapping_params.x;
+    if (exposure <= 0.0) {
+        exposure = 1.0;
+    }
 
-    // Option 3: Full "Over" Porter-Duff compositing (if blend_color itself has transparency over base_color)
-    // This treats blended_rgb as the color of the blend layer if it were fully opaque.
-    // float outA = blend_color.a + base_color.a * (1.0 - blend_color.a);
-    // if (outA > 0.0001) { // Avoid division by zero
-    //     out_color.rgb = (blended_rgb * blend_color.a + base_color.rgb * base_color.a * (1.0 - blend_color.a)) / outA;
-    // } else {
-    //     out_color.rgb = vec3(0.0);
-    // }
-    // out_color.a = outA;
+    //Apply Tonemapping
+    vec3 tonemapped_color;
+    int tonemapper_choice = int(round(settings.tonemapping_params.y));
+    float white_point = settings.tonemapping_params.w; // Optional, for Uncharted 2 / ACES like adjustments
+
+    if (white_point <= 0.0) {
+        white_point = 11.2; 
+    }
+
+    if (tonemapper_choice == 0) {
+        tonemapped_color = tonemap_reinhard(linear_color, exposure);
+    } else if (tonemapper_choice == 1) {
+        tonemapped_color = tonemap_uncharted2(linear_color, exposure, white_point);
+    } else if (tonemapper_choice == 2) {
+        tonemapped_color = tonemap_aces_filmic(linear_color, exposure);
+    } else {
+        tonemapped_color = tonemap_reinhard(linear_color, exposure);
+    }
+
+    out_color = vec4(tonemapped_color, alpha);
 }
 
 

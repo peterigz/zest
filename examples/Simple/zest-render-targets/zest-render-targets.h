@@ -5,6 +5,11 @@ struct BlurPushConstants {
 	zest_vec2 texture_size;
 };
 
+struct CompositePushConstants {
+	zest_vec4 tonemapping;				
+	zest_vec4 composting;
+};
+
 struct BloomPushConstants {
 	zest_vec4 settings;				
 };
@@ -13,7 +18,6 @@ struct RenderTargetExample {
 	zest_pipeline_template downsample_pipeline;	    //Handle to the pipeline template we will use for the downsampling part of the blur effect
 	zest_pipeline_template upsample_pipeline;	    //Handle to the pipeline template we will use for the upsampling part of the blur effect
 	zest_pipeline_template composite_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
-	zest_pipeline_template tonemapper_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
 	zest_pipeline_template bloom_pass_pipeline;		//Handle to the pipeline template we will use filter the base target to pick out a color threshold
 	zest_render_target top_target;		            //Render target to draw the result of the blur effect on top of the other layers
 	zest_render_target base_target;		            //The base target to draw the initial images that will be blurred
@@ -41,7 +45,7 @@ struct RenderTargetExample {
 	zest_font font;						            //Handle to the font
 	BlurPushConstants blur_push_constants;	        //The push constants containing the texture size and the direction of the blur
 	BloomPushConstants bloom_constants;		        //The push constants containing the bloom thresholds
-	BloomPushConstants tonemap_constants;			//The push constants containing the tonemapping settings
+	CompositePushConstants composite_push_constants;//The push constants used with compositing the render targets to the swap chain
 
 	struct wabbit_pos {
 		float x, y;						            //Some variables to help bounce the rabbit around

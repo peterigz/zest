@@ -49,6 +49,8 @@
     [Debug_Helpers]                     Functions for debugging and outputting queues to the console.
 */
 
+#define ZEST_DEBUGGING
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -1519,6 +1521,7 @@ typedef struct zest_timer_t zest_timer_t;
 typedef struct zest_window_t zest_window_t;
 typedef struct zest_shader_t zest_shader_t;
 typedef struct zest_recorder_t zest_recorder_t;
+typedef struct zest_debug_t zest_debug_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_texture)
@@ -1780,6 +1783,27 @@ ZEST_API void zest_FreeText(zest_text_t *buffer);
 ZEST_API zest_uint zest_TextSize(zest_text_t *buffer);      //Will include a null terminator
 ZEST_API zest_uint zest_TextLength(zest_text_t *buffer);    //Uses strlen to get the length
 // --End pocket text buffer
+
+#ifndef ZEST_LOG_ENTRY_SIZE
+#define ZEST_LOG_ENTRY_SIZE 256
+#endif
+typedef struct zest_log_entry_t {
+    char str[ZEST_LOG_ENTRY_SIZE];
+    zest_microsecs time;
+    zest_render_target render_target;
+} zest_log_entry_t;
+
+ZEST_PRIVATE void zest__log_entry(const char *entry, ...);
+ZEST_PRIVATE void zest__log_entry_v(char *str, const char *entry, ...);
+ZEST_PRIVATE void zest__reset_frame_log(char *str, const char *entry, ...);
+
+#ifdef ZEST_DEBUGGING
+#define ZEST_FRAME_LOG(message_f, ...) zest__log_entry(message_f, ##__VA_ARGS__)
+#define ZEST_RESET_LOG() zest__reset_log()
+#else
+#define ZEST_FRAME_LOG(message_f, ...) 
+#define ZEST_RESET_LOG() 
+#endif
 
 //Threading
 
@@ -2431,14 +2455,15 @@ typedef struct zest_semaphore_connector_t {
     zest_connector_type type;
 } zest_semaphore_connector_t;
 
-typedef struct zest_timestamp_s {
-    zest_u64 render_start;
-    zest_u64 compute_start;
-    zest_u64 compute_end;
-    zest_u64 render_pass_start;
-    zest_u64 render_pass_end;
-    zest_u64 render_end;
-} zest_timestamp_t;
+typedef struct zest_gpu_timestamp_s {
+    zest_u64 start;
+    zest_u64 end;
+} zest_gpu_timestamp_t;
+
+
+typedef struct zest_gpu_timestamp_info_s {
+    zest_render_target render_target;
+} zest_gpu_timestamp_info_t;
 
 typedef struct zest_timestamp_duration_s {
     double nanoseconds;
@@ -2453,8 +2478,10 @@ typedef struct zest_command_queue_t {
     const char *name;
     VkCommandPool command_pool;                                      //The command pool for command buffers
     VkQueryPool query_pool;                                          //For profiling
+    zest_uint timestamp_count;
     zest_query_state query_state[ZEST_MAX_FIF];                      //For checking if the timestamp query is ready
-    zest_timestamp_t timestamps[ZEST_MAX_FIF];                       //The last recorded frame durations for the whole render pipeline
+    zest_gpu_timestamp_t *timestamps[ZEST_MAX_FIF];                  //The last recorded frame durations for the whole render pipeline
+    zest_gpu_timestamp_info_t *timestamp_infos[ZEST_MAX_FIF];        //The last recorded frame durations for the whole render pipeline
     zest_recorder recorder;                                          //Primary command buffer for recording the whole queue
     VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
     zest_command_queue_draw_commands *draw_commands;                 //A list of draw command handles - mostly these will be draw_commands that are recorded to the command buffer
@@ -2652,6 +2679,10 @@ typedef struct zest_command_queue_draw_commands_t {
     VkRenderPass render_pass;
     zest_vec4 cls_color;
     zest_render_target render_target;
+    zest_pipeline_template composite_pipeline;
+    zest_shader_resources composite_shader_resources;
+    zest_descriptor_set_layout composite_descriptor_layout;
+    zest_descriptor_set_t composite_descriptor_set;
     VkCommandBuffer *secondary_command_buffers;
     const char *name;
 } zest_command_queue_draw_commands_t;
@@ -3126,6 +3157,16 @@ typedef struct zest_render_target_t {
     zest_thread_access lock;
 } zest_render_target_t;
 
+typedef struct zest_debug_render_pass_t {
+    zest_render_target render_target;
+    zest_command_queue_draw_commands draw_commands;
+} zest_debug_render_pass_t;
+
+typedef struct zest_debug_t {
+    zest_uint function_depth;
+    zest_log_entry_t *frame_log;
+} zest_debug_t;
+
 zest_hash_map(zest_command_queue) zest_map_command_queues;
 zest_hash_map(VkRenderPass) zest_map_render_passes;
 zest_hash_map(zest_descriptor_set_layout) zest_map_descriptor_layouts;
@@ -3226,6 +3267,9 @@ typedef struct zest_renderer_t {
     
     //Optional prefix path for loading shaders
     zest_text_t shader_path_prefix;
+
+    //Debugging
+    zest_debug_t debug;
 
     //Callbacks for customising window and surface creation
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
@@ -3691,6 +3735,10 @@ ZEST_API VkVertexInputAttributeDescription zest_CreateVertexInputDescription(zes
 //Set up the push contant that you might plan to use in the pipeline. Just pass in the size of the push constant struct, the offset and the shader
 //stage flags where the push constant will be used. Use this if you only want to set up a single push constant range
 ZEST_API void zest_SetPipelineTemplatePushConstantRange(zest_pipeline_template create_info, zest_uint size, zest_uint offset, VkShaderStageFlags stage_flags);
+//You can set a pointer in the pipeline template to point to the push constant data that you want to pass to the shader.
+//It MUST match the same data layout/size that you set with zest_SetPipelineTemplatePushConstantRange and align with the 
+//push constants that you use in the shader. The point you use must be stable! Or update it if it changes for any reason.
+ZEST_API void zest_SetPipelineTemplatePushConstants(zest_pipeline_template pipeline_template, void *push_constants);
 //Set the uniform buffer that the pipeline should use. You must call zest_MakePipelineDescriptorWrites after setting the uniform buffer.
 ZEST_API void zest_SetPipelineUniformBuffer(zest_pipeline pipeline, zest_uniform_buffer uniform_buffer);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest_BuildPipeline
@@ -3958,6 +4006,7 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
     //Context:    Must be called after zest_NewCommandQueue or zest_NewFloatingCommandQueue. This will add the draw commands to the current command
     //            queue being set up. This will set the current context to zest_setup_context_type_render_pass
     ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char *name, zest_render_target render_target);
+    ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositeToSwap(const char* name, zest_pipeline_template composite_pipeline);
     //Create draw commands that draw render targets to a composite render target. This is useful if you are drawing to render targets elsewhere and 
     //want to combine them all before doing tonemapping
     ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char *name, zest_render_target render_target, zest_pipeline_template pipeline_template);
@@ -4068,7 +4117,6 @@ ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void);
 //Get the timestamps for the whole render pipeline
 ZEST_API zest_timestamp_duration_t zest_CommandQueueRenderTimes(zest_command_queue command_queue);
 ZEST_API zest_timestamp_duration_t zest_CommandQueueRenderPassTimes(zest_command_queue command_queue);
-ZEST_API zest_timestamp_duration_t zest_CommandQueueComputeTimes(zest_command_queue command_queue);
 //-- End Command queue setup and creation
 
 //-----------------------------------------------

@@ -3535,28 +3535,6 @@ void zest__recreate_swapchain() {
         }
     }
 
-    for (zest_map_foreach_i(ZestRenderer->render_targets)) {
-        zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
-        if (!zest_vec_empty(render_target->composite_layers)) {
-            zest_uint layer_count = zest_vec_size(render_target->composite_layers);
-            zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
-            if (ZEST_VALID_HANDLE(&render_target->filter_descriptor_set)) zest_FreeDescriptorSets(&render_target->filter_descriptor_set);
-            zest_vec_foreach(c, render_target->composite_layers) {
-                zest_render_target layer = render_target->composite_layers[c];
-                zest_ForEachFrameInFlight(fif) {
-                    zest_AddBuilderDescriptorWriteImageFIF(&set_builder, &layer->image_info[fif], c, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, fif);
-                }
-            }
-            render_target->filter_descriptor_set = zest_BuildDescriptorSet(&set_builder, render_target->filter_descriptor_layout, zest_descriptor_type_dynamic);
-            if (!ZEST_VALID_HANDLE(render_target->filter_shader_resources)) {
-                render_target->filter_shader_resources = zest_CreateShaderResources();
-                zest_AddDescriptorSetToResources(render_target->filter_shader_resources, &render_target->filter_descriptor_set);
-            } else {
-                zest_UpdateShaderResources(render_target->filter_shader_resources, &render_target->filter_descriptor_set, 0);
-            }
-        }
-    }
-
     VkExtent2D extent;
     extent.width = fb_width;
     extent.height = fb_height;
@@ -3608,6 +3586,25 @@ void zest__recreate_swapchain() {
                     draw_commands->viewport.extent.height = (zest_uint)((float)fb_height * draw_commands->viewport_scale.y);
                 }
             }
+            if (draw_commands->composite_pipeline) {
+                zest_uint layer_count = zest_vec_size(draw_commands->render_targets);
+                zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
+                if (ZEST_VALID_HANDLE(&draw_commands->composite_descriptor_set)) zest_FreeDescriptorSets(&draw_commands->composite_descriptor_set);
+                zest_vec_foreach(c, draw_commands->render_targets) {
+                    zest_render_target layer = draw_commands->render_targets[c];
+                    zest_ForEachFrameInFlight(fif) {
+                        zest_AddBuilderDescriptorWriteImageFIF(&set_builder, &layer->image_info[fif], c, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, fif);
+                    }
+                }
+                draw_commands->composite_descriptor_set = zest_BuildDescriptorSet(&set_builder, draw_commands->composite_descriptor_layout, zest_descriptor_type_dynamic);
+                if (!ZEST_VALID_HANDLE(draw_commands->composite_shader_resources)) {
+                    draw_commands->composite_shader_resources = zest_CreateShaderResources();
+                    zest_AddDescriptorSetToResources(draw_commands->composite_shader_resources, &draw_commands->composite_descriptor_set);
+                } else {
+                    zest_UpdateShaderResources(draw_commands->composite_shader_resources, &draw_commands->composite_descriptor_set, 0);
+                }
+            }
+
         }
     }
 
@@ -4492,6 +4489,10 @@ void zest_SetPipelineTemplatePushConstantRange(zest_pipeline_template pipeline_t
     range.offset = offset;
     range.stageFlags = stage_flags;
     pipeline_template->pushConstantRange = range;
+}
+
+void zest_SetPipelineTemplatePushConstants(zest_pipeline_template pipeline_template, void *push_constants) {
+    pipeline_template->push_constants = push_constants;
 }
 
 void zest_SetPipelineUniformBuffer(zest_pipeline pipeline, zest_uniform_buffer uniform_buffer) {
@@ -5595,7 +5596,7 @@ void zest_SetTextfv(zest_text_t* buffer, const char* text, va_list args)
     {
         zest_vec_resize(buffer->str, (zest_uint)(len + 1));
     }
-    len = vsnprintf(buffer->str, len + 1, text, args2);
+    vsnprintf(buffer->str, len + 1, text, args2);
 #else
     int len = vsnprintf(buffer->str ? buffer->str : NULL, (size_t)zest_TextSize(buffer), text, args);
     ZEST_ASSERT(len >= 0);
@@ -5603,7 +5604,7 @@ void zest_SetTextfv(zest_text_t* buffer, const char* text, va_list args)
     if (zest_TextSize(buffer) < len + 1)
     {
         zest_vec_resize(buffer->str, len + 1);
-        len = vsnprintf(buffer->str, (size_t)len + 1, text, args2);
+        vsnprintf(buffer->str, (size_t)len + 1, text, args2);
     }
 #endif
 
@@ -5629,8 +5630,43 @@ zest_uint zest_TextLength(zest_text_t* buffer) {
 zest_uint zest_TextSize(zest_text_t* buffer) {
     return zest_vec_size(buffer->str);
 }
-
 //End api functions
+
+void zest__log_entry_v(char *str, const char *text, va_list args)
+{
+    va_list args2;
+    va_copy(args2, args);
+
+#ifdef _MSC_VER
+    int len = vsnprintf(NULL, 0, text, args);
+    ZEST_ASSERT(len >= 0 && len + 1 < ZEST_LOG_ENTRY_SIZE); //log entry must be within buffer limit
+
+    vsnprintf(str, len + 1, text, args2);
+#else
+    int len = vsnprintf(str ? str : NULL, (size_t)ZEST_LOG_ENTRY_SIZE, text, args);
+    ZEST_ASSERT(len >= 0 && len + 1 < ZEST_LOG_ENTRY_SIZE); //log entry must be within buffer limit
+
+	vsnprintf(buffer->str, (size_t)len + 1, text, args2);
+#endif
+
+    ZEST_ASSERT(str);
+}
+
+void zest__log_entry(const char *text, ...) {
+    va_list args;
+    va_start(args, text);
+    zest_log_entry_t entry = { 0 };
+    entry.time = zest_Microsecs();
+    zest__log_entry_v(entry.str, text, args);
+    zest_vec_push(ZestRenderer->debug.frame_log, entry);
+    va_end(args);
+}
+
+void zest__reset_frame_log(char *str, const char *entry, ...) {
+    zest_vec_clear(ZestRenderer->debug.frame_log);
+    ZestRenderer->debug.function_depth = 0;
+}
+
 void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs) {
     ZEST_ASSERT(*position < zest_TextSize(text));
     text->str[(*position)++] = current_char;
@@ -6008,7 +6044,6 @@ void zest__create_empty_command_queue(zest_command_queue command_queue) {
     draw_commands->viewport_scale.x = 1.f;
     draw_commands->viewport_scale.y = 1.f;
     zest_ConnectCommandQueueToPresent(command_queue);
-    command_queue->query_pool = zest__create_query_pool(6);
     zest_map_insert(ZestRenderer->command_queue_draw_commands, "Blank Screen", draw_commands);
     zest_vec_push(command_queue->draw_commands, draw_commands);
 }
@@ -6835,8 +6870,6 @@ zest_command_queue zest__create_command_queue(const char* name) {
 
     command_queue->recorder = zest_CreatePrimaryRecorder();
 
-    command_queue->query_pool = zest__create_query_pool(6);
-
     zest_map_insert(ZestRenderer->command_queues, name, command_queue);
     return command_queue;
 }
@@ -6891,27 +6924,31 @@ void zest_FinishQueueSetup() {
     ZEST_ASSERT(ZestRenderer->setup_context.command_queue != ZEST_NULL);        //Trying to validate a queue that has no context. Finish queue setup must me run at the end of a queue setup
     zest_ValidateQueue(ZestRenderer->setup_context.command_queue);
     //Finish setting up any composite render_targets
-    zest_vec_foreach(i, ZestRenderer->setup_context.command_queue->draw_commands) {
+    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
+    zest_vec_foreach(i, command_queue->draw_commands) {
         zest_command_queue_draw_commands draw_command = ZestRenderer->setup_context.command_queue->draw_commands[i];
-        if (ZEST_VALID_HANDLE(draw_command->render_target) && !zest_vec_empty(draw_command->render_target->composite_layers)) {
-            zest_render_target compositor = draw_command->render_target;
-            zest_uint layer_count = zest_vec_size(draw_command->render_target->composite_layers);
+        if (ZEST_VALID_HANDLE(draw_command->composite_pipeline) && !zest_vec_empty(draw_command->render_targets)) {
+            zest_uint layer_count = zest_vec_size(draw_command->render_targets);
             zest_text_t layout_name = {0};
             zest_SetTextf(&layout_name, "%i samplers", layer_count);
-            compositor->filter_descriptor_layout = zest_AddDescriptorLayout(layout_name.str, 0, 0, layer_count, 0);
+            draw_command->composite_descriptor_layout = zest_AddDescriptorLayout(layout_name.str, 0, 0, layer_count, 0);
             zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
-            zest_vec_foreach(c, draw_command->render_target->composite_layers) {
-                zest_render_target layer = draw_command->render_target->composite_layers[c];
+            zest_vec_foreach(c, draw_command->render_targets) {
+                zest_render_target layer = draw_command->render_targets[c];
                 zest_ForEachFrameInFlight(fif) {
                     zest_AddBuilderDescriptorWriteImageFIF(&set_builder, &layer->image_info[fif], c, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, fif);
                 }
             }
-            compositor->filter_descriptor_set = zest_BuildDescriptorSet(&set_builder, compositor->filter_descriptor_layout, zest_descriptor_type_dynamic);
-            compositor->filter_shader_resources = zest_CreateShaderResources();
-            zest_AddDescriptorSetToResources(compositor->filter_shader_resources, &compositor->filter_descriptor_set);
+            draw_command->composite_descriptor_set = zest_BuildDescriptorSet(&set_builder, draw_command->composite_descriptor_layout, zest_descriptor_type_dynamic);
+            draw_command->composite_shader_resources = zest_CreateShaderResources();
+            zest_AddDescriptorSetToResources(draw_command->composite_shader_resources, &draw_command->composite_descriptor_set);
             zest_FreeText(&layout_name);
         }
     }
+    command_queue->timestamp_count = zest_vec_size(command_queue->draw_commands) * 2;
+    command_queue->query_pool = zest__create_query_pool(command_queue->timestamp_count);
+    zest_vec_resize(command_queue->timestamps[0], command_queue->timestamp_count / 2);
+    zest_vec_resize(command_queue->timestamps[1], command_queue->timestamp_count / 2);
     ZestRenderer->setup_context.command_queue = ZEST_NULL;
     ZestRenderer->setup_context.draw_commands = ZEST_NULL;
     ZestRenderer->setup_context.draw_routine = ZEST_NULL;
@@ -7013,6 +7050,23 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const 
     draw_commands->render_pass_function = zest_DrawRenderTargetsToSwapchain;
     draw_commands->render_target = render_target;
     zest_vec_push(draw_commands->render_targets, render_target);
+    draw_commands->viewport.extent = zest_GetSwapChainExtent();
+    draw_commands->viewport.offset.x = draw_commands->viewport.offset.y = 0;
+    ZestRenderer->setup_context.draw_commands = draw_commands;
+    ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
+    return draw_commands;
+}
+
+zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositeToSwap(const char* name, zest_pipeline_template composite_pipeline) {
+    zest__set_queue_context(zest_setup_context_type_render_pass);
+    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
+    zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
+    zest_vec_push(command_queue->draw_commands, draw_commands);
+    draw_commands->name = name;
+    draw_commands->render_pass = ZestRenderer->final_render_pass;
+    draw_commands->get_frame_buffer = zest_GetRendererFrameBuffer;
+    draw_commands->render_pass_function = zest_CompositeRenderTargets;
+    draw_commands->composite_pipeline = composite_pipeline;
     draw_commands->viewport.extent = zest_GetSwapChainExtent();
     draw_commands->viewport.offset.x = draw_commands->viewport.offset.y = 0;
     ZestRenderer->setup_context.draw_commands = draw_commands;
@@ -7469,29 +7523,9 @@ VkQueryPool zest__create_query_pool(zest_uint timestamp_count) {
 
 zest_timestamp_duration_t zest_CommandQueueRenderTimes(zest_command_queue command_queue) {
     zest_uint index = ZestDevice->previous_fif;
-    zest_timestamp_t *ts = &command_queue->timestamps[index > 0 ? index : 0];
+    zest_gpu_timestamp_t *ts = command_queue->timestamps[index];
     zest_timestamp_duration_t duration;
-    duration.nanoseconds = (double)(ts->render_end - ts->render_start) * ZestDevice->properties.limits.timestampPeriod;
-    duration.microseconds = duration.nanoseconds / 1000.0;
-    duration.milliseconds = duration.microseconds / 1000.0;
-    return duration;
-}
-
-zest_timestamp_duration_t zest_CommandQueueRenderPassTimes(zest_command_queue command_queue) {
-    zest_uint index = ZestDevice->previous_fif;
-    zest_timestamp_t *ts = &command_queue->timestamps[index > 0 ? index : 0];
-    zest_timestamp_duration_t duration;
-    duration.nanoseconds = (double)(ts->render_pass_end - ts->render_pass_start) * ZestDevice->properties.limits.timestampPeriod;
-    duration.microseconds = duration.nanoseconds / 1000.0;
-    duration.milliseconds = duration.microseconds / 1000.0;
-    return duration;
-}
-
-zest_timestamp_duration_t zest_CommandQueueComputeTimes(zest_command_queue command_queue) {
-    zest_uint index = ZestDevice->previous_fif;
-    zest_timestamp_t *ts = &command_queue->timestamps[index > 0 ? index : 0];
-    zest_timestamp_duration_t duration;
-    duration.nanoseconds = (double)(ts->compute_end - ts->compute_start) * ZestDevice->properties.limits.timestampPeriod;
+    duration.nanoseconds = (double)(ts->start - ts->end) * ZestDevice->properties.limits.timestampPeriod;
     duration.microseconds = duration.nanoseconds / 1000.0;
     duration.milliseconds = duration.microseconds / 1000.0;
     return duration;
@@ -7589,37 +7623,25 @@ void zest_ResetComputeRoutinesIndex(zest_command_queue_compute compute_queue) {
 }
 
 void zest_StartCommandQueue(zest_command_queue command_queue, zest_index fif) {
-    const zest_uint query_count = 6;
     if (command_queue->query_state[ZestDevice->previous_fif] == zest_query_state_ready) {
-		zest_u64 timestamps[6];
         VkResult result = vkGetQueryPoolResults(ZestDevice->logical_device,
             command_queue->query_pool,
-            ZestDevice->previous_fif * query_count,
-            query_count,
-            sizeof(zest_u64) * query_count,
-            timestamps,
+            ZestDevice->previous_fif * command_queue->timestamp_count,
+            command_queue->timestamp_count,
+            sizeof(zest_u64) * command_queue->timestamp_count,
+            command_queue->timestamps[ZEST_FIF],
             sizeof(zest_u64),
             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT); // Wait ensures results are ready
-        zest_timestamp_t *ts = &command_queue->timestamps[ZEST_FIF];
-        ts->render_start       = timestamps[0];
-        ts->compute_start      = timestamps[1];
-        ts->compute_end        = timestamps[2];
-        ts->render_pass_start  = timestamps[3];
-        ts->render_pass_end    = timestamps[4];
-        ts->render_end         = timestamps[5];
     }
 
     VkCommandBufferBeginInfo begin_info = { 0 };
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(command_queue->recorder->command_buffer[fif], &begin_info));
     ZestRenderer->current_command_buffer = command_queue->recorder->command_buffer[fif];
-    zest__reset_query_pool(command_queue->recorder->command_buffer[ZEST_FIF], command_queue->query_pool, 6);
-    vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * 6);
-
+    zest__reset_query_pool(command_queue->recorder->command_buffer[ZEST_FIF], command_queue->query_pool, command_queue->timestamp_count);
 }
 
 void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
-    const zest_uint query_count = 6;
     for (zest_foreach_i(command_queue->compute_commands)) {
         zest_command_queue_compute compute_commands = command_queue->compute_commands[i];
         ZEST_ASSERT(compute_commands->compute_function);        //Compute item must have its compute function callback set
@@ -7642,7 +7664,6 @@ void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
         }
     }
 
-    vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * query_count + 1);
     zest_uint command_buffer_count = zest_vec_size(command_queue->secondary_compute_command_buffers);
     if (command_buffer_count > 0) {
         //Note: If you get a validation error here about an empty command queue being executed then make sure that
@@ -7650,7 +7671,6 @@ void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
         vkCmdExecuteCommands(ZestRenderer->current_command_buffer, command_buffer_count, command_queue->secondary_compute_command_buffers);
 		zest_vec_clear(command_queue->secondary_compute_command_buffers);
     }
-    vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, command_queue->query_pool, ZEST_FIF * query_count + 2);
 
     //Insert any texture reprocessing in to the command queue
     if (zest_map_size(ZestRenderer->texture_reprocess_queue)) {
@@ -7665,20 +7685,20 @@ void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
         zest_map_clear(ZestRenderer->texture_reprocess_queue);
     }
 
-    vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, command_queue->query_pool, ZEST_FIF * query_count + 3);
+    zest_uint current_timestamp = 0;
     for (zest_foreach_i(command_queue->draw_commands)) {
         zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[i];
         ZestRenderer->current_draw_commands = draw_commands;
 
 		ZestRenderer->current_render_pass = draw_commands->render_pass;
+		vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * command_queue->timestamp_count + current_timestamp++);
         draw_commands->render_pass_function(draw_commands, command_queue->recorder->command_buffer[fif], draw_commands->render_pass, draw_commands->get_frame_buffer(draw_commands));
+		vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * command_queue->timestamp_count + current_timestamp++);
     }
 	ZestRenderer->current_render_pass = 0;
-    vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, command_queue->query_pool, ZEST_FIF * query_count + 4);
 }
 
 void zest_EndCommandQueue(zest_command_queue command_queue, zest_index fif) {
-    vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * 6 + 5);
     command_queue->query_state[fif] = zest_query_state_ready;
     ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(command_queue->recorder->command_buffer[fif]));
     ZestRenderer->current_command_buffer = ZEST_NULL;
@@ -10356,6 +10376,7 @@ zest_render_target zest_CreateScaledHDRRenderTarget(const char* name, float scal
 }
 
 zest_render_target zest_CreateMippedHDRRenderTarget(const char *name, int mip_levels) {
+    ZEST_ASSERT(mip_levels > 1);        //If you're creating a mipped render target then 2 is the mimimum number of mip levels
     zest_render_target_create_info_t info = zest_RenderTargetCreateInfo();
     info.render_format = VK_FORMAT_R16G16B16A16_SFLOAT;
     info.mip_levels = mip_levels;
@@ -10578,7 +10599,7 @@ void zest__refresh_render_target_mip_samplers(zest_render_target render_target) 
             }
         }
     } else {
-        zest_vec_resize(render_target->mip_level_descriptor_sets[index], render_target->mip_levels);
+        zest_vec_resize(render_target->mip_level_descriptor_sets[index], (zest_uint)render_target->mip_levels);
     }
 
     for (zest_index mip_level = 0; mip_level != render_target->mip_levels; ++mip_level) {
@@ -10744,30 +10765,31 @@ void zest_CompositeRenderTargets(zest_command_queue_draw_commands item, VkComman
 
     vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
 
-	VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->render_target->viewport.extent.width, (float)item->render_target->viewport.extent.height, 0.f, 1.f);
-	VkRect2D scissor = zest_CreateRect2D(item->render_target->viewport.extent.width, item->render_target->viewport.extent.height, 0, 0);
+	VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
+	VkRect2D scissor = zest_CreateRect2D(item->viewport.extent.width, item->viewport.extent.height, 0, 0);
 	vkCmdSetViewport(command_buffer, 0, 1, &view);
 	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-	zest_pipeline pipeline = zest_PipelineWithTemplate(item->render_target->filter_pipeline_template, render_pass);
-    zest_BindPipelineShaderResource(command_buffer, pipeline, item->render_target->filter_shader_resources, ZEST_FIF);
+    ZEST_ASSERT(item->composite_pipeline);  //The composite_pipeline must have been set in the draw commands. Use zest_NewDrawCommandSetupCompositeToSwap to set this up.
+	zest_pipeline pipeline = zest_PipelineWithTemplate(item->composite_pipeline, render_pass);
+    zest_BindPipelineShaderResource(command_buffer, pipeline, item->composite_shader_resources, ZEST_FIF);
 
     if (pipeline->pipeline_template->pushConstantRange.size > 0) {
-        ZEST_ASSERT(item->render_target->push_constants);   //You must the pointer the push content data in the render target
+        ZEST_ASSERT(item->composite_pipeline->push_constants);   //You must specify the push constants for the composite shader when setting up the draw commands (zest_NewDrawCommandSetupCompositeToSwap)
+        //You must also ensure that the push_constants pointer points to the correct place in memory or you'll just send
+        //pushConstantRange.size worth of garbage to the shader.
         vkCmdPushConstants(
             command_buffer,
             pipeline->pipeline_layout,
             pipeline->pipeline_template->pushConstantRange.stageFlags,
             pipeline->pipeline_template->pushConstantRange.offset,
             pipeline->pipeline_template->pushConstantRange.size,
-            item->render_target->push_constants);
+            item->composite_pipeline->push_constants);
     }
 
 	vkCmdDraw(command_buffer, 3, 1, 0, 0);
 
     vkCmdEndRenderPass(command_buffer);
-
-    item->render_target->recorder->outdated[ZEST_FIF] = 1;
 }
 
 void zest_DownSampleRenderTarget(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer unused) {
