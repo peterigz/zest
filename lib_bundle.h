@@ -829,7 +829,6 @@ extern "C" {
 		//we stick to the paper and just move on to the next class up to keep a O1 speed at the cost of some extra fragmentation
 		if (zloc__has_free_block(allocator, fli, sli) && zloc__do_size_class_callback(allocator->segregated_lists[fli][sli]) >= zloc__map_size) {
 			zloc_header *block = zloc__pop_block(allocator, fli, sli);
-			zloc__unlock_thread_access;
 			return block;
 		}
 		if (sli == zloc__SECOND_LEVEL_INDEX_COUNT - 1) {
@@ -844,14 +843,12 @@ extern "C" {
 				sli = zloc__scan_forward(allocator->second_level_bitmaps[fli]);
 				zloc_header *block = zloc__pop_block(allocator, fli, sli);
 				zloc_header *split_block = zloc__call_maybe_split_block;
-				zloc__unlock_thread_access;
 				return split_block;
 			}
 		}
 		else {
 			zloc_header *block = zloc__pop_block(allocator, fli, sli);
 			zloc_header *split_block = zloc__call_maybe_split_block;
-			zloc__unlock_thread_access;
 			return split_block;
 		}
 
@@ -1001,6 +998,7 @@ void *zloc_Allocate(zloc_allocator *allocator, zloc_size size) {
 	zloc_header *block = zloc__find_free_block(allocator, size, remote_size);
 
 	if (block) {
+		zloc__unlock_thread_access;
 		return zloc__block_user_ptr(block);
 	}
 
@@ -1016,6 +1014,7 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 	if (ptr && size == 0) {
 		zloc__unlock_thread_access;
 		zloc_Free(allocator, ptr);
+		zloc__lock_thread_access;
 	}
 
 	if (!ptr) {
@@ -1039,7 +1038,9 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 			zloc_size smallest_size = zloc__Min(current_size, size);
 			memcpy(allocation, ptr, smallest_size);
 			zloc__do_unable_to_reallocate_callback;
+			zloc__unlock_thread_access;
 			zloc_Free(allocator, ptr);
+			zloc__lock_thread_access;
 		}
 	}
 	else {
@@ -1091,6 +1092,7 @@ void *zloc_AllocateAligned(zloc_allocator *allocator, zloc_size size, zloc_size 
 		ZLOC_ASSERT(zloc__ptr_is_aligned(zloc__block_user_ptr(block), alignment));	//pointer not aligned to requested alignment
 	}
 	else {
+		zloc__unlock_thread_access;
 		return 0;
 	}
 
@@ -1227,6 +1229,7 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 	if (ptr && remote_size == 0) {
 		zloc__unlock_thread_access;
 		zloc_FreeRemote(allocator, ptr);
+		zloc__lock_thread_access;
 	}
 
 	if (!ptr) {
