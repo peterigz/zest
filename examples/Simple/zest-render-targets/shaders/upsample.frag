@@ -1,7 +1,7 @@
 #version 450
 
 layout (set = 0, binding = 0) uniform sampler2D upsample_source_image;	//this will be the mip_level + 1
-layout (set = 0, binding = 1) uniform sampler2D downsampler;	//Use textureLod to fetch the mip we want to sample from
+layout (set = 0, binding = 1) uniform sampler2D downsampler;	        //Use textureLod to fetch the mip we want to sample from in the downsampler texture
 
 layout (location = 0) in vec2 uv;
 

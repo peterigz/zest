@@ -31,10 +31,11 @@ struct ImGuiApp {
 	zest_texture gradient_texture;
 	zest_descriptor_set_layout descriptor_layout;
 	zest_descriptor_set_t descriptor_set;
+	zest_descriptor_pool descriptor_pool;
 	zest_shader_resources shader_resources;
 
 	zest_descriptor_buffer particle_buffer;
-	zest_pipeline particle_pipeline;
+	zest_pipeline_template particle_pipeline;
 	zest_vertex_input_descriptions vertice_attributes;
 	zest_uniform_buffer compute_uniform_buffer;
 	zest_compute compute;

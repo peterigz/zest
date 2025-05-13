@@ -7,9 +7,6 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Imgui for zest, this function just sets up some things like display size and font texture
 	zest_imgui_Initialise(&app->imgui_layer_info);
 
-	//Grab the imgui pipeline so we can use it later
-	app->imgui_layer_info.pipeline = zest_Pipeline("pipeline_imgui");
-
 	app->frame_timer = 1.f;
 	app->timer = 0.f;
 	app->anim_start = 20.f;
@@ -28,13 +25,16 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_AddTextureImageFile(app->gradient_texture, "examples/assets/gradient.png");
 	zest_ProcessTextureImages(app->gradient_texture);
 
+	app->descriptor_pool = zest_CreateDescriptorPool(1);
+	zest_AddDescriptorPoolSize(app->descriptor_pool, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	zest_BuildDescriptorPool(app->descriptor_pool);
 	//We'll need to create our own descriptor layout for the vertex and fragment shaders that can 
 	//sample from both textures
 	app->descriptor_layout = zest_AddDescriptorLayout("Particles descriptor layout", 0, 0, 2, 0);
 	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
 	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->particle_texture), 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->gradient_texture), 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	app->descriptor_set = zest_BuildDescriptorSet(&set_builder, app->descriptor_layout, zest_descriptor_type_static);
+	app->descriptor_set = zest_BuildDescriptorSet(app->descriptor_pool, &set_builder, app->descriptor_layout);
 
 	//Load the particle data with random coordinates
 	std::default_random_engine rndEngine(0);
@@ -60,16 +60,14 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 
-	//Prepare a pipeline for the compute sprites based on the built in pipeline 2d sprites
-	zest_pipeline_template_create_info_t create_info = zest_CopyTemplateFromPipeline("pipeline_2d_sprites");
-	//Create a new pipeline in the renderer
-	app->particle_pipeline = zest_AddPipeline("particles");
+	//Create a new pipeline in the renderer based on an existing default one
+	app->particle_pipeline = zest_CopyPipelineTemplate("particles", zest_PipelineTemplate("pipeline_2d_sprites"));
 
 	//Change some things in the create info to set up our own pipeline
 	//Clear the current vertex input binding descriptions
-	zest_ClearVertexInputBindingDescriptions(&create_info);
+	zest_ClearVertexInputBindingDescriptions(app->particle_pipeline);
 	//Add our own vertex binding description using the Particle struct
-	zest_AddVertexInputBindingDescription(&create_info, 0, sizeof(Particle), VK_VERTEX_INPUT_RATE_VERTEX);
+	zest_AddVertexInputBindingDescription(app->particle_pipeline, 0, sizeof(Particle), VK_VERTEX_INPUT_RATE_VERTEX);
 	//Create a new vertex input description array
 	app->vertice_attributes = zest_NewVertexInputDescriptions();
 	//Add the descriptions for each type in the Particle struct
@@ -77,29 +75,27 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_AddVertexInputDescription(&app->vertice_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Particle, gradient_pos)));
 
 	//Assign our vertex input descriptions to the attributeDescriptions in the create info of the pipeline we're building
-	create_info.attributeDescriptions = app->vertice_attributes;
+	app->particle_pipeline->attributeDescriptions = app->vertice_attributes;
 	//Set the shader file to use in the pipeline
-	zest_SetPipelineTemplateShader(&create_info, "particle.spv", "examples/assets/spv/");
+	zest_SetPipelineTemplateShader(app->particle_pipeline, "particle.spv", "examples/assets/spv/");
 	//We're going to use point sprites so set that
-	create_info.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+	app->particle_pipeline->topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 	//Add the descriptor layout we created earlier, but clear the layouts in the template first as a uniform buffer is added
 	//by default.
-	zest_ClearPipelineTemplateDescriptorLayouts(&create_info);
-	zest_AddPipelineTemplateDescriptorLayout(&create_info, app->descriptor_layout->vk_layout);
+	zest_ClearPipelineTemplateDescriptorLayouts(app->particle_pipeline);
+	zest_AddPipelineTemplateDescriptorLayout(app->particle_pipeline, app->descriptor_layout->vk_layout);
 	//Set the push constant we'll be using
-	zest_SetPipelineTemplatePushConstant(&create_info, sizeof(zest_vec2), 0, VK_SHADER_STAGE_VERTEX_BIT);
+	zest_SetPipelineTemplatePushConstantRange(app->particle_pipeline, sizeof(zest_vec2), 0, VK_SHADER_STAGE_VERTEX_BIT);
 
 	//Using the create_info we prepared build the template for the pipeline
-	zest_FinalisePipelineTemplate(app->particle_pipeline, zest_GetStandardRenderPass(), &create_info);
+	zest_FinalisePipelineTemplate(app->particle_pipeline);
 	//Alter a few things in the template to tweak it to how we want
-	zest_PipelineTemplate(app->particle_pipeline)->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-	zest_PipelineTemplate(app->particle_pipeline)->rasterizer.cullMode = VK_CULL_MODE_NONE;
-	zest_PipelineTemplate(app->particle_pipeline)->rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	zest_PipelineTemplate(app->particle_pipeline)->colorBlendAttachment = zest_AdditiveBlendState2();
-	zest_PipelineTemplate(app->particle_pipeline)->depthStencil.depthWriteEnable = VK_FALSE;
-	zest_PipelineTemplate(app->particle_pipeline)->depthStencil.depthTestEnable = VK_FALSE;
-	//Build the pipeline so it's ready to use
-	zest_BuildPipeline(app->particle_pipeline);
+	app->particle_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	app->particle_pipeline->rasterizer.cullMode = VK_CULL_MODE_NONE;
+	app->particle_pipeline->rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	app->particle_pipeline->colorBlendAttachment = zest_AdditiveBlendState2();
+	app->particle_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
+	app->particle_pipeline->depthStencil.depthTestEnable = VK_FALSE;
 
 	//Setup a uniform buffer
 	app->compute_uniform_buffer = zest_CreateUniformBuffer("Compute Uniform", sizeof(ComputeUniformBuffer));
@@ -158,10 +154,11 @@ void RecordComputeSprites(zest_work_queue_t *queue, void *data) {
 	ImGuiApp *app = (ImGuiApp*)draw_routine->user_data;
 	//We can make use of helper functions to easily bind the pipeline/vertex buffer and make the draw call
 	//to draw the sprites
+	zest_pipeline pipeline = zest_PipelineWithTemplate(app->particle_pipeline, ZestRenderer->current_render_pass);
 	zest_GetDescriptorSetsForBinding(app->shader_resources, &app->draw_sets, ZEST_FIF);
-	zest_BindPipeline(command_buffer, app->particle_pipeline, app->draw_sets, 1);
+	zest_BindPipeline(command_buffer, pipeline, app->draw_sets, 1);
 	zest_vec2 screen_size = zest_Vec2Set(zest_ScreenWidthf(), zest_ScreenHeightf());
-	zest_SendPushConstants(command_buffer, app->particle_pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_vec2), &screen_size);
+	zest_SendPushConstants(command_buffer, pipeline, &screen_size);
     VkViewport view = zest_CreateViewport(0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 1.f);
     VkRect2D scissor = zest_CreateRect2D(zest_ScreenWidth(), zest_ScreenHeight(), 0, 0);
     vkCmdSetViewport(command_buffer, 0, 1, &view);
@@ -252,8 +249,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	//Disable vsync so we can see how fast it runs
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);

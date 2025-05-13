@@ -31,14 +31,6 @@ struct RenderTargetExample {
 	zest_layer top_layer;				            //Top layer for drawing to the top render target
 	zest_layer font_layer;				            //Font layer for drawing some text to the top layer
 	zest_texture texture;				            //A texture to store the images
-	zest_shader blur_frag_shader;
-	zest_shader blur_vert_shader;
-	zest_shader composite_frag_shader;
-	zest_shader composite_vert_shader;
-	zest_shader bloom_pass_frag_shader;
-	zest_shader bloom_pass_vert_shader;
-	zest_shader tonemapper_pass_frag_shader;
-	zest_shader tonemapper_pass_vert_shader;
 	zest_shader_resources sprite_shader_resources;	//Shader resources for the sprite drawing
 	zest_image image;					            //Handle to the statue image
 	zest_image wabbit;					            //Handle to the rabbit image that we'll bounce around the screen
