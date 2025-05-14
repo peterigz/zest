@@ -101,7 +101,10 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->compute_uniform_buffer = zest_CreateUniformBuffer("Compute Uniform", sizeof(ComputeUniformBuffer));
 
 	app->shader_resources = zest_CreateShaderResources();
-	zest_AddDescriptorSetToResources(app->shader_resources, &app->descriptor_set);
+	zest_ForEachFrameInFlight(fif) {
+		zest_AddDescriptorSetToResources(app->shader_resources, &app->descriptor_set, fif);
+	}
+	zest_ValidateShaderResource(app->shader_resources);
 
 	//Set up the compute shader
 	//Create a new empty compute shader in the renderer
@@ -251,11 +254,12 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	zest_create_info_t create_info = zest_CreateInfo();
 	//Disable vsync so we can see how fast it runs
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = ".";
+	create_info.color_format = VK_FORMAT_B8G8R8A8_UNORM;
 	//We're using GLFW for this example so use the following function to set that up for us. You must include
 	//impl_glfw.h for this
 	zest_implglfw_SetCallbacks(&create_info);

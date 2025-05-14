@@ -1616,12 +1616,12 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 
 enum { zest__HASH_MAX_BUFFER_SIZE = 31 + 1 };
 
-typedef struct zest_hasher {
+typedef struct zest_hasher_t {
     zest_ull      state[4];
     unsigned char buffer[zest__HASH_MAX_BUFFER_SIZE];
     zest_ull      buffer_size;
     zest_ull      total_length;
-} zest_hasher;
+} zest_hasher_t;
 
 ZEST_PRIVATE zest_bool zest__is_aligned(void *ptr, size_t alignment) {
     uintptr_t address = (uintptr_t)ptr;
@@ -1643,7 +1643,7 @@ ZEST_PRIVATE inline void zest__hasher_process(const void* data, zest_ull *state0
     *state2 = zest__hash_process_single(*state2, blocks[2]);
     *state3 = zest__hash_process_single(*state3, blocks[3]);
 }
-ZEST_PRIVATE inline zest_bool zest__hasher_add(zest_hasher *hasher, const void* input, zest_ull length)
+ZEST_PRIVATE inline zest_bool zest__hasher_add(zest_hasher_t *hasher, const void* input, zest_ull length)
 {
     if (!input || length == 0) return ZEST_FALSE;
 
@@ -1684,7 +1684,7 @@ ZEST_PRIVATE inline zest_bool zest__hasher_add(zest_hasher *hasher, const void* 
     return ZEST_TRUE;
 }
 
-ZEST_PRIVATE inline zest_ull zest__get_hash(zest_hasher *hasher)
+ZEST_PRIVATE inline zest_ull zest__get_hash(zest_hasher_t *hasher)
 {
     zest_ull result;
     if (hasher->total_length >= zest__HASH_MAX_BUFFER_SIZE)
@@ -1722,11 +1722,10 @@ ZEST_PRIVATE inline zest_ull zest__get_hash(zest_hasher *hasher)
     result ^= result >> 32;
     return result;
 }
-void zest__hash_initialise(zest_hasher *hasher, zest_ull seed);
+void zest__hash_initialise(zest_hasher_t *hasher, zest_ull seed);
 
 //The only command you need for the hasher. Just used internally by the hash map.
-zest_key zest_Hash(zest_hasher *hasher, const void* input, zest_ull length, zest_ull seed);
-extern zest_hasher *ZestHasher;
+zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed);
 //-- End of Pocket Hasher
 
 // --Begin Pocket_hash_map
@@ -1741,15 +1740,15 @@ typedef struct {
 ZEST_PRIVATE zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key) { zest_hash_pair *first = map; zest_hash_pair *last = map ? zest_vec_end(map) : 0; size_t count = (size_t)(last - first); while (count > 0) { size_t count2 = count >> 1; zest_hash_pair* mid = first + count2; if (mid->key < key) { first = ++mid; count -= count2 + 1; } else { count = count2; } } return first; }
 ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { for (zest_foreach_i(map)) { if (map[i].index < index) continue; map[i].index--; } }
 ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
-#define zest_map_hash(hash_map, name) zest_Hash(ZestHasher, name, strlen(name), ZEST_HASH_SEED)
-#define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ZestHasher, ptr, size, ZEST_HASH_SEED)
+#define zest_map_hash(hash_map, name) zest_Hash(name, strlen(name), ZEST_HASH_SEED)
+#define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ptr, size, ZEST_HASH_SEED)
 #define zest_hash_map(T) typedef struct { zest_hash_pair *map; T *data; zest_index *free_slots; zest_index last_index; }
 #define zest_map_valid_name(hash_map, name) (hash_map.map && zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name)) != -1)
 #define zest_map_valid_key(hash_map, key) (hash_map.map && zest__map_get_index(hash_map.map, key) != -1)
 #define zest_map_valid_index(hash_map, index) (hash_map.map && (zest_uint)index < zest_vec_size(hash_map.data))
 #define zest_map_valid_hash(hash_map, ptr, size) (zest__map_get_index(hash_map.map, zest_map_hash_ptr(hash_map, ptr, size)) != -1)
 #define zest_map_set_index(hash_map, hash_key, value) zest_hash_pair *it = zest__lower_bound(hash_map.map, hash_key); if(!hash_map.map || it == zest_vec_end(hash_map.map) || it->key != hash_key) { if(zest_vec_size(hash_map.free_slots)) { hash_map.last_index = zest_vec_pop(hash_map.free_slots); hash_map.data[hash_map.last_index] = value; } else {hash_map.last_index = zest_vec_size(hash_map.data); zest_vec_push(hash_map.data, value);} zest_hash_pair new_pair; new_pair.key = hash_key; new_pair.index = hash_map.last_index; zest_vec_insert(hash_map.map, it, new_pair); } else {hash_map.data[it->index] = value;}
-#define zest_map_insert(hash_map, name, value) { zest_key key = zest_Hash(ZestHasher, name, strlen(name), ZEST_HASH_SEED); zest_map_set_index(hash_map, key, value); }
+#define zest_map_insert(hash_map, name, value) { zest_key key = zest_Hash(name, strlen(name), ZEST_HASH_SEED); zest_map_set_index(hash_map, key, value); }
 #define zest_map_insert_key(hash_map, hash_key, value) { zest_map_set_index(hash_map, hash_key, value) }
 #define zest_map_insert_with_ptr_hash(hash_map, ptr, size, value) { zest_key key = zest_map_hash_ptr(hash_map, ptr, size); zest_map_set_index(hash_map, key, value) }
 #define zest_map_at(hash_map, name) &hash_map.data[zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name))]
@@ -2524,7 +2523,7 @@ typedef struct zest_descriptor_set_t {
 
 typedef struct zest_shader_resources_t {
     int magic;
-    zest_descriptor_set *sets;
+    zest_descriptor_set *sets[ZEST_MAX_FIF];
     VkDescriptorSet *binding_sets;
     VkCommandBuffer *command_buffers;
 } zest_shader_resources_t ZEST_ALIGN_AFFIX(16);
@@ -2570,6 +2569,7 @@ typedef struct zest_render_pass_info_s{
 //Pipeline template is used with CreatePipeline to create a vulkan pipeline. Use PipelineTemplate() or SetPipelineTemplate with PipelineTemplateCreateInfo to create a PipelineTemplate
 typedef struct zest_pipeline_template_t {
     int magic;
+    zest_hasher_t hasher;
     zest_text_t name;                                                            //Name for the pipeline just for labelling it when listing all the renderer objects in debug
     VkPipelineShaderStageCreateInfo vertShaderStageInfo;
     VkPipelineShaderStageCreateInfo fragShaderStageInfo;
@@ -2617,7 +2617,7 @@ typedef struct zest_pipeline_t {
     VkDescriptorSetLayout *descriptor_layouts;                                   //The descriptor layout being used which is stored in the Renderer. Layouts can be reused an shared between pipelines
     zest_descriptor_pool descriptor_pool;
     zest_descriptor_set_t *descriptor_sets[ZEST_MAX_FIF];                        //Descriptor sets are only stored here for certain pipelines like non textured drawing or the final render pipelines for render targets in the swap chain
-    zest_shader_resources shader_resources[ZEST_MAX_FIF];                        //By default this contails a uniform buffer for line drawing and final render pipelines
+    zest_shader_resources shader_resources;                                      //By default this contails a uniform buffer for line drawing and final render pipelines
     VkPipeline pipeline;                                                         //The vulkan handle for the pipeline
     VkPipelineLayout pipeline_layout;                                            //The vulkan handle for the pipeline layout
     zest_uniform_buffer uniform_buffer;                                          //Handle of the uniform buffer used in the pipline. Will be set to the default 2d uniform buffer if none is specified
@@ -2688,7 +2688,7 @@ typedef struct zest_command_queue_draw_commands_t {
     zest_vec4 cls_color;
     zest_render_target render_target;
     zest_pipeline_template composite_pipeline;
-    zest_shader_resources composite_shader_resources[ZEST_MAX_FIF];
+    zest_shader_resources composite_shader_resources;
     zest_descriptor_set_layout composite_descriptor_layout;
     zest_descriptor_pool descriptor_pool;
     zest_descriptor_set_t composite_descriptor_set[ZEST_MAX_FIF];
@@ -2895,7 +2895,7 @@ typedef struct zest_font_t {
     zest_text_t name;
     zest_texture texture;
     zest_pipeline_template pipeline_template;
-    zest_shader_resources shader_resources[ZEST_MAX_FIF];
+    zest_shader_resources shader_resources;
     float pixel_range;
     float miter_limit;
     float padding;
@@ -3647,18 +3647,23 @@ ZEST_API zest_descriptor_set_t zest_BuildDescriptorSet(zest_descriptor_pool pool
 ZEST_API zest_shader_resources zest_CreateShaderResources();
 //Add a descriptor set to a descriptor set shader_resources. Bundles are used for binding to a draw call so the descriptor sets can be passed in to the shaders
 //according to their set and binding number. So therefore it's important that you add the descriptor sets to the shader_resources in the same order
-//that you set up the descriptor set layouts.
-ZEST_API void zest_AddDescriptorSetToResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set);
+//that you set up the descriptor set layouts. You must also specify the frame in flight for the descriptor set that you're addeding.
+//Use zest_AddDescriptorSetsToResources to add all frames in flight by passing an array of desriptor sets
+ZEST_API void zest_AddDescriptorSetToResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set, zest_uint fif);
+//Add an array of desriptor sets to a shader resource. The length of the array must be equal to the number of frames in fligth (ZEST_MAX_FIF)
+ZEST_API void zest_AddDescriptorSetsToResources(zest_shader_resources shader_resources, zest_descriptor_set *descriptor_set);
 //Clear all the descriptor sets in a shader resources object. This does not free the memory, call zest_FreeShaderResources to do that.
 ZEST_API void zest_ClearShaderResources(zest_shader_resources shader_resources);
 //Update the descriptor set in a shader_resources. You'll need this whenever you update a descriptor set for whatever reason. Pass the index of the
 //descriptor set in the shader_resources that you want to update.
-ZEST_API void zest_UpdateShaderResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set, zest_uint index);
+ZEST_API void zest_UpdateShaderResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set, zest_uint index, zest_uint fif);
 //Free the memory of used to store the descriptor sets in the shader resources, this does not free the descriptor sets themselves.
 ZEST_API void zest_FreeShaderResources(zest_shader_resources shader_resources);
+//Helper function to validate
+ZEST_API bool zest_ValidateShaderResource(zest_shader_resources shader_resources);
 //Take in a descriptor set for a uniform buffer and a texture to create a shader resource that combines them together for use with
 //binding them with a pipeline when making draw calls
-ZEST_API zest_shader_resources zest_CombineUniformAndTextureSampler(zest_descriptor_set descriptor_set, zest_texture texture);
+ZEST_API zest_shader_resources zest_CombineUniformAndTextureSampler(zest_uniform_buffer uniform_buffer, zest_texture texture);
 //Update a VkDescriptorSet with an array of descriptor writes. For when the images/buffers in a descriptor set have changed, the corresponding descriptor set will need to be updated.
 ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
 //Create a VkViewport, generally used when building a render pass.

@@ -11,7 +11,6 @@ typedef struct zest_example {
 	zest_pipeline_template mesh_pipeline;				//The pipeline for drawing the textured plane
 	zest_camera_t camera;						        //A camera for the 3d view
 	zest_uniform_buffer uniform_buffer_3d;		        //A uniform buffer to contain the projection and view matrix
-	zest_descriptor_set uniform_descriptor_set_3d;		//A descriptor set for the 3d uniform buffer
 	zest_shader_resources sprite_shader_resources;		//Handle for the sprite descriptor
 	zest_shader_resources billboard_shader_resources;	//Handle for the billboard shader resources
 	zest_vec3 last_position;
@@ -38,14 +37,15 @@ void InitExample(zest_example *example) {
 	//To save having to lookup these handles in the mainloop, we can look them up here in advance and store the handles in our example struct
 	example->sprite_pipeline = zest_PipelineTemplate("pipeline_2d_sprites");
 	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
-	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, example->texture);
+	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->standard_uniform_buffer, example->texture);
+	zest_ValidateShaderResource(example->sprite_shader_resources);
 	example->billboard_pipeline = zest_PipelineTemplate("pipeline_billboard");
 	example->mesh_pipeline = zest_PipelineTemplate("pipeline_mesh");
 	//Create a new uniform buffer for the 3d view
 	example->uniform_buffer_3d = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
-	example->uniform_descriptor_set_3d = zest_CreateUniformDescriptorSet(example->uniform_buffer_3d);
 	//Create a new descriptor set to use the 3d uniform buffer
-	example->billboard_shader_resources = zest_CombineUniformAndTextureSampler(example->uniform_descriptor_set_3d, example->texture);
+	example->billboard_shader_resources = zest_CombineUniformAndTextureSampler(example->uniform_buffer_3d, example->texture);
+	zest_ValidateShaderResource(example->billboard_shader_resources);
 	//Get the sprite draw commands and set the clear color for its render pass
 	zest_command_queue_draw_commands sprite_draw = zest_GetDrawCommands("Default Draw Commands");
 	sprite_draw->cls_color = zest_Vec4Set1(zest_LinearToSRGB(0.25f));
@@ -90,7 +90,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_SetInstanceDrawing(example->sprite_layer, example->sprite_shader_resources, example->sprite_pipeline);
 	//Set the alpha of the sprite layer to 0. This means that the sprites will be additive. 1 = alpha blending and anything imbetween
 	//is a mix between the two.
-	example->sprite_layer->current_color.a = 0.f;
+	example->sprite_layer->current_color.a = 0;
 	for (float x = 0; x != 25; ++x) {
 		for (float y = 0; y != 15; ++y) {
 			example->sprite_layer->current_color.r = (zest_byte)(1 - ((y + 1) / 16.f) * 255.f);
@@ -137,7 +137,7 @@ int main(void)
 
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	//create_info.color_format = VK_FORMAT_B8G8R8A8_UNORM;
+	create_info.color_format = VK_FORMAT_B8G8R8A8_SRGB;
 	create_info.thread_count = 0;
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

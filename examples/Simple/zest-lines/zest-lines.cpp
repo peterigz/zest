@@ -28,7 +28,7 @@ void InitExample(zest_example *example) {
 	{
 		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
 		{
-			//Create a new billboard layer in the command queue
+			//Create a new line layer in the command queue
 			example->line_layer = zest_NewBuiltinLayerSetup("Lines", zest_builtin_layer_lines);
 		}
 		//Finish modifying the queue
