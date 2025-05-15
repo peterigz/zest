@@ -372,7 +372,7 @@ void InitImGuiApp(ImGuiApp* app) {
 	zest_AddDescriptorSetToResources(app->mesh_shader_resources, ZestRenderer->uniform_descriptor_set);
 
 	zest_pipeline_template_create_info_t custom_mesh_pipeline = zest_CopyTemplateFromPipeline("pipeline_mesh_instance");
-	app->mesh_instance_pipeline = zest_AddPipeline("pipeline_mesh_instance_custom");
+	app->mesh_instance_pipeline = zest_CreatePipelineTemplate("pipeline_mesh_instance_custom");
 	zest_SetPipelineTemplateShader(&custom_mesh_pipeline, "mesh_instance_custom.spv", "examples/assets/spv/");
 	zest_FinalisePipelineTemplate(app->mesh_instance_pipeline, zest_GetStandardRenderPass(), &custom_mesh_pipeline);
 	zest_BuildPipeline(app->mesh_instance_pipeline);

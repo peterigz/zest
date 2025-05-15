@@ -19,6 +19,25 @@
     [Threading]                         Simple worker queue mainly used for recording secondary command buffers
     [Structs]                           All the structs are defined here.
     [Internal_functions]                Private functions only, no API access
+		[Platform_dependent_functions]
+        [Buffer_and_Memory_Management]
+        [Renderer_functions]
+        [Command_Queue_functions]
+        [Command_Queue_Setup_functions]
+        [Draw_layer_internal_functions]
+        [Texture_internal_functions]
+        [Render_target_internal_functions]
+        [General_layer_internal_functions]
+        [Font_layer_internal_functions]
+        [Mesh_layer_internal_functions]
+        [General_Helper_Functions]
+        [Pipeline_Helper_Functions]
+        [Buffer_allocation_funcitons]
+        [Maintenance_functions]
+        [Descriptor_set_functions]
+        [Device_set_up]
+        [App_initialise_and_run_functions]
+        [Window_related_functions]
 
     --API functions
     [Essential_setup_functions]         Functions for initialising Zest
@@ -1306,15 +1325,14 @@ typedef zest_uint zest_pipeline_set_flags;
 
 typedef enum zest_init_flag_bits {
     zest_init_flag_none                                         = 0,
-    zest_init_flag_initialise_with_command_queue                = 1 << 0,
-    zest_init_flag_use_depth_buffer                             = 1 << 1,
-    zest_init_flag_maximised                                    = 1 << 2,
-    zest_init_flag_cache_shaders                                = 1 << 3,
-    zest_init_flag_enable_vsync                                 = 1 << 6,
-    zest_init_flag_enable_fragment_stores_and_atomics           = 1 << 7,
-    zest_init_flag_disable_shaderc                              = 1 << 8,
-    zest_init_flag_enable_validation_layers                     = 1 << 9,
-    zest_init_flag_log_validation_errors_to_console             = 1 << 10,
+    zest_init_flag_use_depth_buffer                             = 1 << 0,
+    zest_init_flag_maximised                                    = 1 << 1,
+    zest_init_flag_cache_shaders                                = 1 << 2,
+    zest_init_flag_enable_vsync                                 = 1 << 3,
+    zest_init_flag_enable_fragment_stores_and_atomics           = 1 << 4,
+    zest_init_flag_disable_shaderc                              = 1 << 5,
+    zest_init_flag_enable_validation_layers                     = 1 << 6,
+    zest_init_flag_log_validation_errors_to_console             = 1 << 7,
 } zest_init_flag_bits;
 
 typedef zest_uint zest_init_flags;
@@ -1358,17 +1376,6 @@ typedef enum {
     zest_shape_dashed_line = zest_draw_mode_dashed_line,
     zest_shape_rect = zest_draw_mode_rect_instance
 } zest_shape_type;
-
-typedef enum {
-    zest_builtin_layer_custom = 0,
-    zest_builtin_layer_sprites,
-    zest_builtin_layer_billboards,
-    zest_builtin_layer_lines,
-    zest_builtin_layer_3dlines,
-    zest_builtin_layer_fonts,
-    zest_builtin_layer_mesh,
-    zest_builtin_layer_mesh_instance,
-} zest_builtin_layer_type;
 
 typedef enum {
     zest_imgui_blendtype_none,					//Just draw with standard alpha blend
@@ -2416,11 +2423,6 @@ typedef struct zest_app_t {
     zest_uint frame_count;
     zest_uint last_fps;
 
-    zest_layer default_layer;
-    zest_command_queue default_command_queue;
-    zest_command_queue_draw_commands default_draw_commands;
-    zest_uint default_font_index;
-
     zest_app_flags flags;
 } zest_app_t;
 
@@ -2482,7 +2484,6 @@ typedef struct zest_command_queue_t {
     int magic;
     zest_semaphore_connector_t semaphores[ZEST_MAX_FIF];
     const char *name;
-    VkCommandPool command_pool;                                      //The command pool for command buffers
     VkQueryPool query_pool;                                          //For profiling
     zest_uint timestamp_count;
     zest_query_state query_state[ZEST_MAX_FIF];                      //For checking if the timestamp query is ready
@@ -2614,10 +2615,6 @@ typedef struct zest_pipeline_descriptor_writes_t {
 typedef struct zest_pipeline_t {
     int magic;
     zest_pipeline_template pipeline_template;
-    VkDescriptorSetLayout *descriptor_layouts;                                   //The descriptor layout being used which is stored in the Renderer. Layouts can be reused an shared between pipelines
-    zest_descriptor_pool descriptor_pool;
-    zest_descriptor_set_t *descriptor_sets[ZEST_MAX_FIF];                        //Descriptor sets are only stored here for certain pipelines like non textured drawing or the final render pipelines for render targets in the swap chain
-    zest_shader_resources shader_resources;                                      //By default this contails a uniform buffer for line drawing and final render pipelines
     VkPipeline pipeline;                                                         //The vulkan handle for the pipeline
     VkPipelineLayout pipeline_layout;                                            //The vulkan handle for the pipeline layout
     zest_uniform_buffer uniform_buffer;                                          //Handle of the uniform buffer used in the pipline. Will be set to the default 2d uniform buffer if none is specified
@@ -2651,6 +2648,12 @@ ZEST_PRIVATE inline void zest__reset_command_setup_context(zest_command_setup_co
     context->type = zest_setup_context_type_none;
 }
 
+typedef void(*zest_record_draw_routine_callback)(zest_work_queue_t *queue, void *data);
+typedef void(*zest_update_buffers_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
+typedef int(*zest_condition_callback)(zest_draw_routine draw_routine);                    
+typedef void(*zest_update_resolution_callback)(zest_draw_routine draw_routine);
+typedef void(*zest_clean_up_callback)(zest_draw_routine draw_routine);
+
 //A draw routine is used to actually draw things to the render target. Zest provides Layers that have a set of draw commands for doing this or you can develop your own
 //By settting the callbacks and data pointers in the draw routine
 struct zest_draw_routine_t {
@@ -2664,11 +2667,11 @@ struct zest_draw_routine_t {
     void *user_data;                                                             //Pointer to some user data
     zest_recorder recorder;                                                      //For recording to a command buffer (this is a secondary command buffer)
     zest_command_queue_draw_commands draw_commands;                              //
-    void(*update_buffers_callback)(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);            //The callback used to update and upload the buffers before rendering
-    int(*condition_callback)(zest_draw_routine draw_routine);                    //The callback used to determine whether there's anything to record for the draw routine
-    void(*record_callback)(zest_work_queue_t *queue, void *data);                //draw callback called by the render target when rendering
-    void(*update_resolution_callback)(zest_draw_routine draw_routine);           //Callback used when the window size changes
-    void(*clean_up_callback)(zest_draw_routine draw_routine);                    //Clean up function call back called when the draw routine is deleted
+    zest_update_buffers_callback update_buffers_callback;                        //The callback used to update and upload the buffers before rendering
+    zest_condition_callback condition_callback;                                  //The callback used to determine whether there's anything to record for the draw routine
+    zest_record_draw_routine_callback record_callback;                           //draw callback called by the render target when rendering
+    zest_update_resolution_callback update_resolution_callback;                  //Callback used when the window size changes
+    zest_clean_up_callback clean_up_callback;                                    //Clean up function call back called when the draw routine is deleted
 };
 
 //Every command queue will have either one or more render passes (unless it's purely for compute shading). Render pass contains various data for drawing things during the render pass.
@@ -2864,10 +2867,19 @@ typedef struct zest_layer_t {
 
     zest_draw_routine draw_routine;
     zest_layer_flags flags;
-    zest_builtin_layer_type layer_type;
     void *user_data;
     VkDescriptorSet *draw_sets;
 } zest_layer_t ZEST_ALIGN_AFFIX(16);
+
+typedef struct zest_layer_builder_t {
+    zest_size type_size;
+    zest_uint initial_count;
+    zest_update_buffers_callback update_buffers_callback;                        //The callback used to update and upload the buffers before rendering
+    zest_condition_callback condition_callback;                                  //The callback used to determine whether there's anything to record for the draw routine
+    zest_record_draw_routine_callback record_callback;                           //draw callback called by the render target when rendering
+    zest_update_resolution_callback update_resolution_callback;                  //Callback used when the window size changes
+    zest_clean_up_callback clean_up_callback;                                    //Clean up function call back called when the draw routine is deleted
+} zest_layer_builder_t;
 
 //This struct must be filled and attached to the draw routine that implements imgui as user data
 typedef struct zest_imgui_layer_info_t {
@@ -3320,7 +3332,7 @@ ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_
 
 //--Internal_functions
 
-//Platform dependent functions
+//Platform_dependent_functions
 //These functions need a different implementation depending on the platform being run on
 //See definitions at the top of zest.c
 ZEST_PRIVATE zest_window zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
@@ -3334,7 +3346,7 @@ ZEST_PRIVATE bool zest__create_folder(const char *path);
 //Only available outside lib for some implementations like SDL2
 ZEST_API void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
 
-//Buffer & Memory Management
+//Buffer_and_Memory_Management
 ZEST_PRIVATE void zest__add_host_memory_pool(zest_size size);
 ZEST_PRIVATE void *zest__allocate(zest_size size);
 ZEST_PRIVATE void *zest__allocate_aligned(zest_size size, zest_size alignment);
@@ -3351,7 +3363,7 @@ ZEST_PRIVATE void zest__buffer_write_barrier(VkCommandBuffer command_buffer, zes
 ZEST_PRIVATE void zest__set_uniform_descriptors(zest_uniform_buffer buffer);
 //End Buffer Management
 
-//Renderer functions
+//Renderer_functions
 ZEST_PRIVATE void zest__initialise_renderer(zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__create_swapchain(void);
 ZEST_PRIVATE VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *availableFormats);
@@ -3391,20 +3403,21 @@ ZEST_PRIVATE void zest__draw_renderer_frame(void);
 ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets);
 // --End Renderer functions
 
-// --Command Queue functions
+// --Command_Queue_functions
 ZEST_PRIVATE void zest__cleanup_command_queue(zest_command_queue command_queue);
 ZEST_PRIVATE zest_command_queue_draw_commands zest__create_command_queue_draw_commands(const char *name);
 ZEST_PRIVATE void zest__update_command_queue_viewports(void);
 ZEST_PRIVATE void zest__reset_query_pool(VkCommandBuffer command_buffer, VkQueryPool query_pool, zest_uint count);
+ZEST_PRIVATE void zest__connect_command_queue_to_present(void);
 // --End Command Queue functions
 
-// --Command Queue Setup functions
+// --Command_Queue_Setup_functions
 ZEST_PRIVATE zest_command_queue zest__create_command_queue(const char *name);
 ZEST_PRIVATE void zest__set_queue_context(zest_setup_context_type context);
-ZEST_PRIVATE zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char *name, zest_builtin_layer_type builtin_layer);
+ZEST_PRIVATE zest_draw_routine zest__create_draw_routine_with_mesh_layer(const char *name);
 ZEST_PRIVATE VkQueryPool zest__create_query_pool(zest_uint timestamp_count);
 
-// --Draw layer internal functions
+// --Draw_layer_internal_functions
 ZEST_PRIVATE void zest__start_mesh_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__end_mesh_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
@@ -3413,7 +3426,7 @@ ZEST_PRIVATE void zest__record_mesh_layer(zest_layer layer, zest_uint fif);
 ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
 ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
 
-// --Texture internal functions
+// --Texture_internal_functions
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
 ZEST_PRIVATE float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 ZEST_PRIVATE void zest__delete_texture_layers(zest_texture texture);
@@ -3435,7 +3448,7 @@ ZEST_PRIVATE void zest__cleanup_unused_texture_buffers(zest_texture texture, zes
 ZEST_PRIVATE void zest__create_texture_sampler_descriptor_set(zest_texture texture);
 ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer);
 
-// --Render target internal functions
+// --Render_target_internal_functions
 ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
 ZEST_PRIVATE void zest__create_render_target_sampler(zest_render_target render_target);
 ZEST_PRIVATE void zest__create_mip_level_render_target_samplers(zest_render_target render_target);
@@ -3446,17 +3459,19 @@ ZEST_PRIVATE void zest__render_target_maintennance();
 
 ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);
 
-// --Font layer internal functions
+// --General_layer_internal_functions
+ZEST_PRIVATE zest_layer zest__create_instance_layer(const char *name, zest_size instance_type_size, zest_uint initial_instance_count);
+
+// --Font_layer_internal_functions
 ZEST_PRIVATE void zest__setup_font_texture(zest_font font);
 ZEST_PRIVATE zest_font zest__add_font(zest_font font);
-ZEST_PRIVATE void zest__initialise_font_layer(zest_layer font_layer, zest_uint instance_pool_size);
 
-// --Mesh layer internal functions
+// --Mesh_layer_internal_functions
 ZEST_PRIVATE void zest__draw_mesh_layer_callback(struct zest_work_queue_t *queue, void *data);
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
 ZEST_PRIVATE void zest__draw_instance_mesh_layer_callback(struct zest_work_queue_t *queue, void *data);
 
-// --General Helper Functions
+// --General_Helper_Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mip_levels_this_view, zest_uint base_mip, VkImageViewType viewType, zest_uint layerCount);
 ZEST_PRIVATE void zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory);
 ZEST_PRIVATE zest_buffer zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
@@ -3477,17 +3492,15 @@ ZEST_PRIVATE void zest__end_single_time_commands(VkCommandBuffer command_buffer)
 ZEST_PRIVATE zest_index zest__next_fif(void);
 // --End General Helper Functions
 
-// --Pipeline Helper Functions
+// --Pipeline_Helper_Functions
 ZEST_PRIVATE void zest__set_pipeline_template(zest_pipeline_template pipeline_template);
 ZEST_PRIVATE void zest__update_pipeline_template(zest_pipeline_template pipeline_template);
 ZEST_PRIVATE VkShaderModule zest__create_shader_module(char *code);
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
-ZEST_PRIVATE void zest__add_pipeline_descriptor_write(zest_pipeline pipeline, zest_uint layout_index, VkWriteDescriptorSet set, zest_index fif);
-ZEST_PRIVATE void zest__free_pipeline_descriptor_writes(zest_pipeline pipeline);
 ZEST_PRIVATE zest_pipeline zest__cache_pipeline(zest_pipeline_template pipeline_template, VkRenderPass render_pass);
 // --End Pipeline Helper Functions
 
-// --Buffer allocation funcitons
+// --Buffer_allocation_funcitons
 ZEST_PRIVATE void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer, const char *name);
 ZEST_PRIVATE void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer);
 ZEST_PRIVATE zest_size zest__get_minimum_block_size(zest_size pool_size);
@@ -3495,7 +3508,7 @@ ZEST_PRIVATE void zest__on_add_pool(void *user_data, void *block);
 ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc_header *trimmed_block, zest_size remote_size);
 // --End Buffer allocation funcitons
 
-// --Maintenance functions
+// --Maintenance_functions
 ZEST_PRIVATE void zest__delete_texture(zest_texture texture);
 ZEST_PRIVATE void zest__delete_font(zest_font_t *font);
 ZEST_PRIVATE void zest__cleanup_texture(zest_texture texture);
@@ -3503,12 +3516,12 @@ ZEST_PRIVATE void zest__free_all_texture_images(zest_texture texture);
 ZEST_PRIVATE void zest__reindex_texture_images(zest_texture texture);
 // --End Maintenance functions
 
-// --Descriptor set functions
+// --Descriptor_set_functions
 ZEST_PRIVATE zest_descriptor_set_layout zest__add_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout);
 ZEST_PRIVATE bool zest__validate_descriptor_set_layout(zest_layout_type_counts_t counts, zest_descriptor_set_layout layout);
 // --End Descriptor set functions
 
-//Device set up
+// --Device_set_up
 ZEST_PRIVATE void zest__create_instance();
 ZEST_PRIVATE void zest__setup_validation(void);
 ZEST_PRIVATE VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
@@ -3534,7 +3547,7 @@ ZEST_PRIVATE void *zest_vk_reallocate_callback(void* pUserData, void *memory, si
 ZEST_PRIVATE void zest_vk_free_callback(void* pUserData, void *memory);
 //end device setup functions
 
-//App initialise/run functions
+//App_initialise_and_run_functions
 ZEST_PRIVATE void zest__do_scheduled_tasks(void);
 ZEST_PRIVATE void zest__initialise_app(zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__initialise_device();
@@ -3544,7 +3557,7 @@ ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
 ZEST_PRIVATE zest_bool zest__validation_layers_are_enabled(void);
 //-- end of internal functions
 
-//-- Window related functions
+//-- Window_related_functions
 ZEST_PRIVATE void zest__update_window_size(zest_window window, zest_uint width, zest_uint height);
 //-- End Window related functions
 
@@ -3743,7 +3756,7 @@ ZEST_API void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine
 //        the following functions are utilised, plus look at the exmaples for building your own custom pipelines.
 //-----------------------------------------------
 //Add a new pipeline template to the renderer and return its handle.
-ZEST_API zest_pipeline_template zest_AddPipeline(const char *name);
+ZEST_API zest_pipeline_template zest_CreatePipelineTemplate(const char *name);
 //Set the name of the file to use for the vert and frag shader in the zest_pipeline_template_create_info_t
 ZEST_API void zest_SetPipelineTemplateVertShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
 ZEST_API void zest_SetPipelineTemplateFragShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
@@ -3762,7 +3775,7 @@ ZEST_API void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeli
 ZEST_API zest_vertex_input_descriptions zest_NewVertexInputDescriptions();
 //Add a VkVertexInputeAttributeDescription to a zest_vertex_input_descriptions array. You can use zest_CreateVertexInputDescription
 //helper function to create the description
-ZEST_API void zest_AddVertexInputDescription(zest_vertex_input_descriptions *descriptions, VkVertexInputAttributeDescription description);
+ZEST_API void zest_AddVertexInputDescription(zest_pipeline_template pipeline_template,  VkVertexInputAttributeDescription description);
 //Create a VkVertexInputAttributeDescription for adding to a zest_vertex_input_descriptions array. Just pass the binding and location in
 //the shader, the VkFormat and the offset into the struct that you're using for the vertex data. See zest__prepare_standard_pipelines
 //for examples of how the builtin pipelines do this
@@ -3780,7 +3793,7 @@ ZEST_API void zest_SetPipelineUniformBuffer(zest_pipeline pipeline, zest_uniform
 ZEST_API void zest_AddPipelineTemplateDescriptorLayout(zest_pipeline_template pipeline_template, VkDescriptorSetLayout layout);
 //Clear the descriptor layouts in a pipeline template create info
 ZEST_API void zest_ClearPipelineTemplateDescriptorLayouts(zest_pipeline_template pipeline_template);
-//Make a pipeline template ready for building. Pass in the pipeline that you created with zest_AddPipeline, the render pass that you want to
+//Make a pipeline template ready for building. Pass in the pipeline that you created with zest_CreatePipelineTemplate, the render pass that you want to
 //use for the pipeline and the zest_pipeline_template_create_info_t you have setup to configure the pipeline. After you have called this
 //function you can make a few more alterations to configure the pipeline further if needed before calling zest_BuildPipeline.
 //NOTE: the create info that you pass into this function will get copied and then freed so don't use it after calling this function. If
@@ -3823,8 +3836,6 @@ ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
 ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_template);
-//Make the descriptor writes for a pipeine and update the descriptor set
-ZEST_API void zest_MakePipelineDescriptorWrites(zest_pipeline pipeline);
 //-- End Pipeline related
 
 //--End vulkan helper functions
@@ -3987,8 +3998,7 @@ ZEST_API void zest_AddIndirectDrawCommands(zest_draw_commands_buffer buffer, voi
 //-----------------------------------------------
 //        Command_queue_setup_and_creation
 //        Command queues are where all of the vulkan commands get written for submitting and executing
-//        on the GPU. A simple command queue is created by Zest when you Initialise zest for drawing
-//        sprites. The best way to understand them would be to look at the examples, such as the render
+//        on the GPU. The best way to understand them would be to look at the examples, such as the render
 //        targets example. Note that the command queue setup commands are contextual and must be called
 //        in the correct order depending on how you want your queue setup.
 //        The declarations below are indented to indicate contextual dependencies of the commands where
@@ -4023,9 +4033,6 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
         //buffer. A mesh layer is what's used to render Dear ImGui if you're using that but see the implementation and example for imgui.
         //Context:    Must be called within a draw commands context
         ZEST_API zest_layer zest_NewMeshLayer(const char *name, zest_size vertex_struct_size);
-        //Add a new builtin layer that zest provides. Currently this is just a sprite, billboard, mesh or fonts
-        //Context:    Must be called within a draw commands context
-        ZEST_API zest_layer zest_NewBuiltinLayerSetup(const char *name, zest_builtin_layer_type builtin_layer);
         //Add a pre-existin layer that you already created elsewhere.
         //Context:    Must be called within a draw commands context
         ZEST_API void zest_AddLayer(zest_layer layer);
@@ -4054,11 +4061,8 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
         //Add a render target layer to the compositor. You can set the type of blend mode that you want to use
         //and an alpha level.
         ZEST_API void zest_AddCompositeLayer(zest_render_target render_target);
-    //Connect the current command queue to the swap chain. You must call this if you're intending for this queue to be drawn to the swap chain for
-    //for presenting to the screen otherwise the command queue will not be valid.
-    //Call this function immediately before zest_FinishQueueSetup
-    ZEST_API void zest_ConnectQueueToPresent(void);
     //Finish setting up a command queue. You must call this after setting up a command queue to reset contexts and validate the command queue.
+    //This function will also connect the command queue to the swap chain so that it gets presented to the user
     ZEST_API void zest_FinishQueueSetup(void);
 
 //-----------------------------------------------
@@ -4107,11 +4111,9 @@ ZEST_API void zest_UpSampleRenderTarget(zest_command_queue_draw_commands item, V
 ZEST_API void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine);
 //Helper functions for creating the builtin layers. these can be called separately outside of a command queue setup context
 ZEST_API zest_layer zest_CreateBuiltinSpriteLayer(const char *name);
-ZEST_API zest_layer zest_CreateBuiltin2dLineLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltin3dLineLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinBillboardLayer(const char *name);
-ZEST_API zest_layer zest_CreateBuiltinFontLayer(const char *name);
-ZEST_API zest_layer zest_CreateBuiltinMeshLayer(const char *name);
+ZEST_API zest_layer zest_CreateMeshLayer(const char *name, zest_size vertex_type_size);
 ZEST_API zest_layer zest_CreateBuiltinInstanceMeshLayer(const char *name);
 //Insert a layer into storage. You can use this for custom layers of you're own
 ZEST_API void zest_InsertLayer(zest_layer layer);
@@ -4643,6 +4645,17 @@ ZEST_API int zest_AlwaysRecordCallback(zest_draw_routine draw_routine);
 //-- Draw_Layers_API
 //-----------------------------------------------
 
+//Create a new layer for instanced drawing. This just creates a standard layer with default options and callbacks, all
+//you need to pass in is the size of type used for the instance struct that you'll use with whatever pipeline you setup
+//to use with the layer.
+ZEST_API zest_layer zest_CreateInstanceLayer(const char* name, zest_size type_size);
+//Create a new layer builder which you can use to build new custom layers to draw with using instances
+ZEST_API zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_size type_size);
+//Once you have configured your layer you can call this to create the layer ready for adding to a command queue
+ZEST_API zest_layer zest_BuildInstanceLayer(const char *name, zest_layer_builder_t *builder);
+//Create a layer specifically for drawing text using msdf font rendering. See the section Draw_MSDF_font_layers for commands 
+//yous can use to setup and draw text. Also see the fonts example.
+ZEST_API zest_layer zest_CreateFontLayer(const char *name);
 // --Initialise a layer for drawing instanced data like billboards or other mesh instances. This function will create a buffer to store instance data that can
 //be uploaded to the GPU for drawing each frame
 ZEST_API void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size);

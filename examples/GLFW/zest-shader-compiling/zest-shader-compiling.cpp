@@ -62,7 +62,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	image_pushconstant_range.offset = 0;
 	image_pushconstant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	zest_AddPipelinePushConstantRange(&custom_pipeline_template, image_pushconstant_range);
-	app->custom_pipeline = zest_AddPipeline("pipeline_custom_shader");
+	app->custom_pipeline = zest_CreatePipelineTemplate("pipeline_custom_shader");
 	zest_SetPipelineTemplateVertShader(&custom_pipeline_template, "custom_vert.spv", 0);
 	zest_SetPipelineTemplateFragShader(&custom_pipeline_template, "custom_frag.spv", 0);
 	zest_FinalisePipelineTemplate(app->custom_pipeline, zest_GetStandardRenderPass(), &custom_pipeline_template);

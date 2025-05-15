@@ -14,6 +14,8 @@ typedef struct zest_example {
 	zest_shader_resources sprite_shader_resources;		//Handle for the sprite descriptor
 	zest_shader_resources billboard_shader_resources;	//Handle for the billboard shader resources
 	zest_vec3 last_position;
+	zest_command_queue command_queue;
+	zest_command_queue_draw_commands draw_commands;
 } zest_example;
 
 void UpdateUniformBuffer3d(zest_example *example) {
@@ -36,38 +38,54 @@ void InitExample(zest_example *example) {
 	zest_ProcessTextureImages(example->texture);
 	//To save having to lookup these handles in the mainloop, we can look them up here in advance and store the handles in our example struct
 	example->sprite_pipeline = zest_PipelineTemplate("pipeline_2d_sprites");
-	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
+//	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
 	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->standard_uniform_buffer, example->texture);
 	zest_ValidateShaderResource(example->sprite_shader_resources);
-	example->billboard_pipeline = zest_PipelineTemplate("pipeline_billboard");
 	example->mesh_pipeline = zest_PipelineTemplate("pipeline_mesh");
 	//Create a new uniform buffer for the 3d view
 	example->uniform_buffer_3d = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
 	//Create a new descriptor set to use the 3d uniform buffer
 	example->billboard_shader_resources = zest_CombineUniformAndTextureSampler(example->uniform_buffer_3d, example->texture);
 	zest_ValidateShaderResource(example->billboard_shader_resources);
-	//Get the sprite draw commands and set the clear color for its render pass
-	zest_command_queue_draw_commands sprite_draw = zest_GetDrawCommands("Default Draw Commands");
-	sprite_draw->cls_color = zest_Vec4Set1(zest_LinearToSRGB(0.25f));
 
 	//Create a camera for the 3d view
 	example->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&example->camera, 60.f);
 
-	//Modify the default command queue to add a billboard and mesh layer.
-	zest_ModifyCommandQueue(ZestApp->default_command_queue);
+	//Create a pipeline that we can use to draw billboards
+	example->billboard_pipeline = zest_CreatePipelineTemplate("pipeline_billboard");
+	zest_AddVertexInputBindingDescription(example->billboard_pipeline, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+
+	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));			    // Location 0: Position
+	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));		         	// Location 9: Alignment X, Y and Z
+	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch)));	// Location 2: Rotations + stretch
+	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv)));		    		// Location 1: uv_packed
+	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle)));		// Location 4: Scale + Handle
+	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array)));		// Location 6: texture array index * intensity
+	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			        // Location 7: Instance Color
+
+	zest_SetPipelineTemplateVertShader(example->billboard_pipeline, "billboard_vert.spv", "spv/");
+	zest_SetPipelineTemplateFragShader(example->billboard_pipeline, "image_frag.spv", "spv/");
+	zest_FinalisePipelineTemplate(example->billboard_pipeline);
+	example->billboard_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
+	example->billboard_pipeline->depthStencil.depthTestEnable = VK_TRUE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard pipeline");
+
+	example->billboard_layer = zest_CreateInstanceLayer("billboards", sizeof(zest_billboard_instance_t));
+	example->mesh_layer = zest_CreateMeshLayer("Meshes", sizeof(zest_textured_vertex_t));
+
+	//Create a command queue to draw with
+	example->command_queue = zest_NewCommandQueue("Example Command Queue");
 	{
-		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
+		example->draw_commands = zest_NewDrawCommandSetupSwap("Example Draw Commands");
 		{
-			//Create a new mesh layer in the command queue. If you want depth testing to work then the layer with depth write enabled
-			//should come before the layer with only depth test enabled.
-			example->mesh_layer = zest_NewBuiltinLayerSetup("Meshes", zest_builtin_layer_mesh);
-			//Create a new billboard layer in the command queue
-			example->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
+			zest_AddLayer(example->mesh_layer);
+			zest_AddLayer(example->billboard_layer);
 		}
-		//Finish modifying the queue
 		zest_FinishQueueSetup();
 	}
+	//Get the sprite draw commands and set the clear color for its render pass
+	example->draw_commands->cls_color = zest_Vec4Set1(zest_LinearToSRGB(0.25f));
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
@@ -78,8 +96,9 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//Also update the 3d uniform buffer for the billboard drawing
 	UpdateUniformBuffer3d(example);
 	//It's important to set the command queue you want to use each frame otherwise you will just see a blank screen
-	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
+	zest_SetActiveCommandQueue(example->command_queue);
 
+	/*
 	//Set the current intensity of the sprite layer
 	//example->sprite_layer->intensity = 1.f;
 	//You must call this command before doing any sprite draw to set the current texture, descriptor and pipeline to draw with.
@@ -103,6 +122,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 	//Draw a textured sprite to the sprite (basically a textured rect). 
 	zest_DrawTexturedSprite(example->sprite_layer, example->image, 600.f, 100.f, 500.f, 500.f, 1.f, 1.f, 0.f, 0.f);
+	*/
 
 	//Now lets draw a billboard. Similar to the sprite, we must call this command before any billboard drawing.
 	zest_SetInstanceDrawing(example->billboard_layer, example->billboard_shader_resources, example->billboard_pipeline);
@@ -118,7 +138,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	float scale_x = (float)ZestApp->mouse_x * 5.f / zest_ScreenWidthf();
 	float scale_y = (float)ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
 	//Draw the billboard
-	//zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
+	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
 	//Now set the mesh drawing so that we can draw a textured plane
 	zest_SetMeshDrawing(example->mesh_layer, example->billboard_shader_resources, example->mesh_pipeline);
 	//Draw the textured plane

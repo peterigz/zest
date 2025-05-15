@@ -42,6 +42,7 @@ struct ImGuiApp {
 	zest_command_queue_compute compute_commands;
 	zest_draw_routine draw_routine;
 	zest_command_queue command_queue;
+	zest_command_queue_draw_commands draw_commands;
     VkDescriptorSet *draw_sets;
 
 	zest_timer loop_timer;

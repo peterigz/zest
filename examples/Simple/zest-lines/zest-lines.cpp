@@ -9,6 +9,15 @@ typedef struct zest_example {
 	zest_descriptor_set line_descriptor;		//Hanlde for the billboard descriptor
 } zest_example;
 
+zest_layer zest_CreateBuiltin2dLineLayer(const char* name) {
+    zest_layer layer = zest_NewLayer();
+    layer->name = name;
+    layer->layer_type = zest_builtin_layer_lines;
+    zest_InitialiseInstanceLayer(layer, sizeof(zest_shape_instance_t), 1000);
+    zest_map_insert(ZestRenderer->layers, name, layer);
+    return layer;
+}
+
 void InitExample(zest_example *example) {
 	//Create a new texture for storing the bunny image
 	example->texture = zest_CreateTexture("Example Texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
@@ -65,6 +74,7 @@ int main(void)
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
+	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = "./";
 
 	zest_Initialise(&create_info);

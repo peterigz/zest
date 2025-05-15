@@ -1374,17 +1374,6 @@ void zest_Initialise(zest_create_info_t* info) {
     zest__initialise_device(info);
     zest__initialise_renderer(info);
     zest__create_empty_command_queue(&ZestRenderer->empty_queue);
-    if (info->flags & zest_init_flag_initialise_with_command_queue) {
-        ZestApp->default_command_queue = zest_NewCommandQueue("Default command queue");
-        {
-            ZestApp->default_draw_commands = zest_NewDrawCommandSetupSwap("Default Draw Commands");
-            {
-                ZestApp->default_layer = zest_NewBuiltinLayerSetup("Sprite 2d Layer", zest_builtin_layer_sprites);
-            }
-            zest_ConnectQueueToPresent();
-            zest_FinishQueueSetup();
-        }
-    }
 }
 
 void zest_Start() {
@@ -3392,9 +3381,6 @@ void zest__cleanup_pipelines() {
     for (zest_map_foreach_i(ZestRenderer->cached_pipelines)) {
         zest_pipeline pipeline = *zest_map_at_index(ZestRenderer->cached_pipelines, i);
         zest__destroy_pipeline_set(pipeline);
-        zest_ResetDescriptorPool(pipeline->descriptor_pool);
-        zest_FreeDescriptorPool(pipeline->descriptor_pool);
-        pipeline->descriptor_pool = 0;
     }
 }
 
@@ -4368,55 +4354,9 @@ void zest_UpdateDescriptorSet(VkWriteDescriptorSet* descriptor_writes) {
     vkUpdateDescriptorSets(ZestDevice->logical_device, zest_vec_size(descriptor_writes), descriptor_writes, 0, ZEST_NULL);
 }
 
-void zest__add_pipeline_descriptor_write(zest_pipeline pipeline, zest_uint layout_index, VkWriteDescriptorSet set, zest_index fif) {
-    zest_vec_push(pipeline->descriptor_sets[fif][layout_index].descriptor_writes, set);
-}
-
-void zest__free_pipeline_descriptor_writes(zest_pipeline pipeline) {
-    zest_ForEachFrameInFlight(fif) {
-        zest_vec_foreach(i, pipeline->descriptor_sets[i]) {
-            zest_vec_free(pipeline->descriptor_sets[fif][i].descriptor_writes);
-        }
-    }
-}
-
-void zest_MakePipelineDescriptorWrites(zest_pipeline pipeline) {
-    zest_uint binding = 0;
-	zest__free_pipeline_descriptor_writes(pipeline);
-    zest_ResetDescriptorPool(pipeline->descriptor_pool);
-    zest_vec_foreach(layout_index, pipeline->descriptor_layouts) {
-        zest_ForEachFrameInFlight(fif) {
-			zest_descriptor_set_t set = { 0 };
-			zest_vec_push(pipeline->descriptor_sets[fif], set);
-            zest_AllocateDescriptorSet(pipeline->descriptor_pool, pipeline->descriptor_layouts[layout_index], &pipeline->descriptor_sets[fif][layout_index].descriptor_set);
-            if (pipeline->pipeline_template->uniforms) {
-                if (!pipeline->uniform_buffer) {
-                    zest__add_pipeline_descriptor_write(pipeline, layout_index, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_sets[fif][layout_index].descriptor_set, zest_GetUniformBufferInfo("Standard 2d Uniform Buffer", fif), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), fif);
-                }
-                else {
-                    zest__add_pipeline_descriptor_write(pipeline, layout_index, zest_CreateBufferDescriptorWriteWithType(pipeline->descriptor_sets[fif][layout_index].descriptor_set, &pipeline->uniform_buffer->descriptor_info[fif], 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER), fif);
-                }
-                binding++;
-            }
-            zest_UpdateDescriptorSet(pipeline->descriptor_sets[fif][layout_index].descriptor_writes);
-        }
-    }
-    zest_ForEachFrameInFlight(fif) {
-        if (!pipeline->shader_resources) {
-            pipeline->shader_resources = zest_CreateShaderResources();
-        } else {
-            zest_ClearShaderResources(pipeline->shader_resources);
-        }
-        zest_vec_foreach(i, pipeline->descriptor_sets[fif]) {
-            zest_AddDescriptorSetToResources(pipeline->shader_resources, &pipeline->descriptor_sets[fif][i], fif);
-        }
-    }
-}
-
 zest_pipeline zest__create_pipeline() {
     zest_pipeline_t blank_pipeline = {
         .pipeline_template = {0},
-        .descriptor_layouts = 0,
         .pipeline = VK_NULL_HANDLE,
         .pipeline_layout = VK_NULL_HANDLE,
         .uniform_buffer = 0,
@@ -4654,6 +4594,7 @@ void zest_BindComputePipelineCB(VkCommandBuffer command_buffer, zest_compute com
 }
 
 void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_t* pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count) {
+    ZEST_ASSERT(set_count && descriptor_set);    //No descriptor sets. Must bind the pipeline with a valid desriptor set
     vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, set_count, descriptor_set, 0, 0);
 }
@@ -4747,7 +4688,6 @@ zest_pipeline zest__cache_pipeline(zest_pipeline_template pipeline_template, VkR
     pipeline->pipeline_template = pipeline_template;
     pipeline->render_pass = render_pass;
     zest_BuildPipeline(pipeline);
-    zest_MakePipelineDescriptorWrites(pipeline);
     zest_key pipeline_key = zest_Hash(pipeline_template->name.str, zest_TextLength(&pipeline_template->name), ZEST_HASH_SEED);
     struct {
         zest_key pipeline_key;
@@ -4841,9 +4781,6 @@ void zest_BuildPipeline(zest_pipeline pipeline) {
         pipeline_info.pDynamicState = &pipeline->pipeline_template->dynamicState;
     }
 
-    pipeline->descriptor_pool = zest__create_descriptor_pool(ZEST_MAX_FIF * 10);
-    zest_AddDescriptorPoolSize(pipeline->descriptor_pool, ZEST_MAX_FIF * 10, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-    zest_BuildDescriptorPool(pipeline->descriptor_pool);
     ZEST_VK_CHECK_RESULT(vkCreateGraphicsPipelines(ZestDevice->logical_device, ZestRenderer->pipeline_cache, 1, &pipeline_info, &ZestDevice->allocation_callbacks, &pipeline->pipeline));
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Built pipeline %s", pipeline->pipeline_template->name.str);
 
@@ -4870,7 +4807,7 @@ VkShaderModule zest__create_shader_module(char* code) {
 }
 
 zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_to_copy) {
-    zest_pipeline_template copy = zest_AddPipeline(name);
+    zest_pipeline_template copy = zest_CreatePipelineTemplate(name);
     copy->no_vertex_input = pipeline_to_copy->no_vertex_input;
     copy->topology = pipeline_to_copy->topology;
     copy->viewport = pipeline_to_copy->viewport;
@@ -4911,9 +4848,6 @@ void zest__refresh_pipeline_template(zest_pipeline_template pipeline_template) {
 
 void zest__rebuild_pipeline(zest_pipeline pipeline) {
     zest_BuildPipeline(pipeline);
-    for (ZEST_EACH_FIF_i) {
-        zest_vec_clear(pipeline->descriptor_sets[i]);
-    }
 }
 
 zest_shader zest_NewShader(shaderc_shader_kind type) {
@@ -5208,9 +5142,9 @@ zest_recorder zest_CreateSecondaryRecorder() {
 
 void zest_FreeCommandBuffers(zest_recorder recorder) {
     if (ZEST__FLAGGED(recorder->flags, zest_command_buffer_flag_primary)) {
-        vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->command_pool, 2, recorder->command_buffer);
+        vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->command_pool, ZEST_MAX_FIF, recorder->command_buffer);
     } else {
-        vkFreeCommandBuffers(ZestDevice->logical_device, recorder->command_pool, 2, recorder->command_buffer);
+        vkFreeCommandBuffers(ZestDevice->logical_device, recorder->command_pool, ZEST_MAX_FIF, recorder->command_buffer);
     }
     for (ZEST_EACH_FIF_i) {
         recorder->command_buffer[i] = VK_NULL_HANDLE;
@@ -5236,7 +5170,7 @@ void zest_FreeRecorder(zest_recorder recorder) {
     ZEST__FREE(recorder);
 }
 
-zest_pipeline_template zest_AddPipeline(const char* name) {
+zest_pipeline_template zest_CreatePipelineTemplate(const char* name) {
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->pipelines, name));    //That pipeline name already exists!
     zest_pipeline_template_t blank = { 0 };
     zest_pipeline_template pipeline_template = ZEST__NEW(zest_pipeline_template);
@@ -5265,8 +5199,8 @@ zest_vertex_input_descriptions zest_NewVertexInputDescriptions() {
     return descriptions;
 }
 
-void zest_AddVertexInputDescription(zest_vertex_input_descriptions* descriptions, VkVertexInputAttributeDescription description) {
-    zest_vec_push(*descriptions, description);
+void zest_AddVertexInputDescription(zest_pipeline_template pipeline_template,  VkVertexInputAttributeDescription description) {
+    zest_vec_push(pipeline_template->attributeDescriptions, description);
 }
 
 zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) { 
@@ -5293,6 +5227,7 @@ zest_pipeline_template zest_PipelineTemplate(const char *name) {
 }
 
 zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template template, VkRenderPass render_pass) {
+    ZEST_CHECK_HANDLE(template);        //Not a valid pipeline template!
     zest_key pipeline_key = zest_Hash(template->name.str, zest_TextLength(&template->name), ZEST_HASH_SEED);
     struct {
         zest_key pipeline_key;
@@ -5764,7 +5699,7 @@ zest_sampler zest_GetSampler(VkSamplerCreateInfo *info) {
 void zest__prepare_standard_pipelines() {
 
     //2d sprite rendering
-    zest_pipeline_template sprite_instance_pipeline = zest_AddPipeline("pipeline_2d_sprites");
+    zest_pipeline_template sprite_instance_pipeline = zest_CreatePipelineTemplate("pipeline_2d_sprites");
     zest_AddVertexInputBindingDescription(sprite_instance_pipeline, 0, sizeof(zest_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 
     VkVertexInputAttributeDescription* instance_vertex_input_attributes = 0;
@@ -5837,36 +5772,6 @@ void zest__prepare_standard_pipelines() {
     line3d_instance_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF 3D Lines pipeline");
 
-    //3d billboards
-    zest_pipeline_template billboard_instance_pipeline = zest_CopyPipelineTemplate("pipeline_billboard", sprite_instance_pipeline);
-    zest_ClearVertexInputBindingDescriptions(billboard_instance_pipeline);
-    zest_AddVertexInputBindingDescription(billboard_instance_pipeline, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
-    VkVertexInputAttributeDescription* billboard_vertex_input_attributes = 0;
-
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));			    // Location 0: Position
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));		         	// Location 9: Alignment X, Y and Z
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch)));	// Location 2: Rotations + stretch
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv)));		    		// Location 1: uv_packed
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle)));		// Location 4: Scale + Handle
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array)));		// Location 6: texture array index * intensity
-    zest_vec_push(billboard_vertex_input_attributes, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			        // Location 7: Instance Color
-
-    billboard_instance_pipeline->attributeDescriptions = billboard_vertex_input_attributes;
-    zest_SetText(&billboard_instance_pipeline->vertShaderFile, "billboard_vert.spv");
-    zest_SetText(&billboard_instance_pipeline->fragShaderFile, "image_frag.spv");
-    zest_FinalisePipelineTemplate(billboard_instance_pipeline);
-    billboard_instance_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-    billboard_instance_pipeline->depthStencil.depthTestEnable = VK_TRUE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard pipeline");
-
-    zest_pipeline_template billboard_pipeline_alpha = zest_CopyPipelineTemplate("pipeline_billboard_alpha", billboard_instance_pipeline);
-    zest_SetText(&billboard_pipeline_alpha->vertShaderFile, "billboard_vert.spv");
-    zest_SetText(&billboard_pipeline_alpha->fragShaderFile, "sprite_alpha_frag.spv");
-    zest_FinalisePipelineTemplate(billboard_pipeline_alpha);
-    billboard_pipeline_alpha->depthStencil.depthWriteEnable = VK_FALSE;
-    billboard_pipeline_alpha->depthStencil.depthTestEnable = VK_TRUE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard alpha pipeline");
-
     //Font Texture
     zest_pipeline_template font_pipeline = zest_CopyPipelineTemplate("pipeline_fonts", sprite_instance_pipeline);
     zest_SetPipelineTemplatePushConstantRange(font_pipeline, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -5878,7 +5783,7 @@ void zest__prepare_standard_pipelines() {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Font pipeline");
 
     //ImGuiPipeline
-    zest_pipeline_template imgui_pipeline = zest_AddPipeline("pipeline_imgui");
+    zest_pipeline_template imgui_pipeline = zest_CreatePipelineTemplate("pipeline_imgui");
     imgui_pipeline->scissor.offset.x = 0;
     imgui_pipeline->scissor.offset.y = 0;
     zest_SetPipelineTemplatePushConstantRange(imgui_pipeline, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
@@ -5909,7 +5814,7 @@ void zest__prepare_standard_pipelines() {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
 
     //General mesh drawing
-    zest_pipeline_template mesh_pipeline = zest_AddPipeline("pipeline_mesh");
+    zest_pipeline_template mesh_pipeline = zest_CreatePipelineTemplate("pipeline_mesh");
     mesh_pipeline->scissor.offset.x = 0;
     mesh_pipeline->scissor.offset.y = 0;
     zest_SetPipelineTemplatePushConstantRange(mesh_pipeline, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
@@ -5936,7 +5841,7 @@ void zest__prepare_standard_pipelines() {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Mesh pipeline");
 
     //Instanced mesh drawing for drawing primatives
-    zest_pipeline_template imesh_pipeline = zest_AddPipeline("pipeline_mesh_instance");
+    zest_pipeline_template imesh_pipeline = zest_CreatePipelineTemplate("pipeline_mesh_instance");
     imesh_pipeline->scissor.offset.x = 0;
     imesh_pipeline->scissor.offset.y = 0;
     zest_SetPipelineTemplatePushConstantRange(imesh_pipeline, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
@@ -5974,7 +5879,7 @@ void zest__prepare_standard_pipelines() {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Instance Mesh pipeline");
 
     //Final Render Pipelines
-    zest_pipeline_template final_render = zest_AddPipeline("pipeline_swap_chain");
+    zest_pipeline_template final_render = zest_CreatePipelineTemplate("pipeline_swap_chain");
     final_render->scissor.extent = zest_GetSwapChainExtent();
     zest_SetPipelineTemplatePushConstantRange(final_render, sizeof(zest_render_target_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
     final_render->no_vertex_input = ZEST_TRUE;
@@ -6744,7 +6649,7 @@ zest_create_info_t zest_CreateInfo() {
         .thread_count = zest_GetDefaultThreadCount(),
         .color_format = VK_FORMAT_B8G8R8A8_UNORM,
         .max_descriptor_pool_sets = 100,
-        .flags = zest_init_flag_initialise_with_command_queue | zest_init_flag_enable_vsync | zest_init_flag_cache_shaders,
+        .flags = zest_init_flag_enable_vsync | zest_init_flag_cache_shaders,
         .destroy_window_callback = zest__destroy_window_callback,
         .get_window_size_callback = zest__get_window_size_callback,
         .poll_events_callback = zest__os_poll_events,
@@ -6915,6 +6820,7 @@ void zest_ContextSetClsColor(float r, float g, float b, float a) {
 }
 
 void zest_FinishQueueSetup() {
+    zest__connect_command_queue_to_present();
     ZEST_ASSERT(ZestRenderer->setup_context.command_queue != ZEST_NULL);        //Trying to validate a queue that has no context. Finish queue setup must me run at the end of a queue setup
     zest_ValidateQueue(ZestRenderer->setup_context.command_queue);
     //Finish setting up any composite render_targets
@@ -7009,12 +6915,6 @@ void zest_ConnectCommandQueues(zest_command_queue sender, zest_command_queue rec
 void zest_ConnectQueueTo(zest_command_queue receiver, VkPipelineStageFlags stage_flags) {
     ZEST_ASSERT(ZestRenderer->setup_context.type != zest_setup_context_type_none);    //Must be within a command queue setup context
     zest_ConnectCommandQueues(ZestRenderer->setup_context.command_queue, receiver, stage_flags);
-}
-
-void zest_ConnectQueueToPresent() {
-    ZEST_ASSERT(ZestRenderer->setup_context.type != zest_setup_context_type_none);    //Must be within a command queue setup context
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    zest_ConnectCommandQueueToPresent(command_queue);
 }
 
 VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue command_queue) {
@@ -7250,7 +7150,7 @@ zest_layer zest_NewMeshLayer(const char* name, zest_size vertex_struct_size) {
     ZEST_ASSERT(strlen(name) <= 50);    //Layer name must be less then 50 characters
     zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
     zest_draw_routine_t* draw_routine = { 0 };
-    draw_routine = zest__create_draw_routine_with_builtin_layer(name, zest_builtin_layer_mesh);
+    draw_routine = zest__create_draw_routine_with_mesh_layer(name);
     zest_layer layer = (zest_layer)draw_routine->draw_data;
     zest__initialise_mesh_layer(layer, vertex_struct_size, zloc__MEGABYTE(1));
     ZestRenderer->setup_context.layer = (zest_layer)draw_routine->draw_data;
@@ -7262,20 +7162,18 @@ zest_layer zest_NewMeshLayer(const char* name, zest_size vertex_struct_size) {
     return layer;
 }
 
-zest_layer zest_CreateBuiltinSpriteLayer(const char* name) {
+zest_layer zest__create_instance_layer(const char *name, zest_size instance_type_size, zest_uint initial_instance_count) {
     zest_layer layer = zest_NewLayer();
     layer->name = name;
-    layer->layer_type = zest_builtin_layer_sprites;
-    zest_InitialiseInstanceLayer(layer, sizeof(zest_sprite_instance_t), 1000);
+    zest_InitialiseInstanceLayer(layer, instance_type_size, initial_instance_count);
     zest_map_insert(ZestRenderer->layers, name, layer);
     return layer;
 }
 
-zest_layer zest_CreateBuiltin2dLineLayer(const char* name) {
+zest_layer zest_CreateBuiltinSpriteLayer(const char* name) {
     zest_layer layer = zest_NewLayer();
     layer->name = name;
-    layer->layer_type = zest_builtin_layer_lines;
-    zest_InitialiseInstanceLayer(layer, sizeof(zest_shape_instance_t), 1000);
+    zest_InitialiseInstanceLayer(layer, sizeof(zest_sprite_instance_t), 1000);
     zest_map_insert(ZestRenderer->layers, name, layer);
     return layer;
 }
@@ -7283,7 +7181,6 @@ zest_layer zest_CreateBuiltin2dLineLayer(const char* name) {
 zest_layer zest_CreateBuiltin3dLineLayer(const char* name) {
     zest_layer layer = zest_NewLayer();
     layer->name = name;
-    layer->layer_type = zest_builtin_layer_3dlines;
     zest_InitialiseInstanceLayer(layer, sizeof(zest_line_instance_t), 1000);
     zest_map_insert(ZestRenderer->layers, name, layer);
     return layer;
@@ -7292,34 +7189,40 @@ zest_layer zest_CreateBuiltin3dLineLayer(const char* name) {
 zest_layer zest_CreateBuiltinBillboardLayer(const char* name) {
     zest_layer layer = zest_NewLayer();
     layer->name = name;
-    layer->layer_type = zest_builtin_layer_billboards;
     zest_InitialiseInstanceLayer(layer, sizeof(zest_billboard_instance_t), 1000);
     zest_map_insert(ZestRenderer->layers, name, layer);
     return layer;
 }
 
-zest_layer zest_CreateBuiltinFontLayer(const char* name) {
+zest_layer zest_CreateMeshLayer(const char* name, zest_size vertex_type_size) {
+    ZEST_ASSERT(ZestRenderer);  //Initialise Zest first!
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));   //A draw routine with that name already exists
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->layers, name));          //A layer with that name already exists
     zest_layer layer = zest_NewLayer();
     layer->name = name;
-    layer->layer_type = zest_builtin_layer_fonts;
-    zest__initialise_font_layer(layer, 1000);
-    zest_map_insert(ZestRenderer->layers, name, layer);
-    return layer;
-}
-
-zest_layer zest_CreateBuiltinMeshLayer(const char* name) {
-    zest_layer layer = zest_NewLayer();
-    layer->name = name;
-    layer->layer_type = zest_builtin_layer_mesh;
     zest__initialise_mesh_layer(layer, sizeof(zest_textured_vertex_t), 1000);
     if(ZestRenderer && ZestRenderer->layers.map) zest_map_insert(ZestRenderer->layers, name, layer);
+    zest_draw_routine_t blank_draw_routine = { 0 };
+    zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
+    *draw_routine = blank_draw_routine;
+    draw_routine->magic = zest_INIT_MAGIC;
+    draw_routine->last_fif = -1;
+    draw_routine->fif = ZEST_FIF;
+    draw_routine->name = layer->name;
+    draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
+    draw_routine->recorder = zest_CreateSecondaryRecorder();
+    draw_routine->draw_data = layer;
+    draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
+    draw_routine->record_callback = zest__draw_mesh_layer_callback;
+    draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
+    zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
+    layer->draw_routine = draw_routine;
     return layer;
 }
 
 zest_layer zest_CreateBuiltinInstanceMeshLayer(const char* name) {
     zest_layer layer = zest_NewLayer();
     layer->name = name;
-    layer->layer_type = zest_builtin_layer_mesh_instance;
     zest_InitialiseInstanceLayer(layer, sizeof(zest_mesh_instance_t), 1000);
     zest_map_insert(ZestRenderer->layers, name, layer);
     return layer;
@@ -7329,75 +7232,15 @@ void zest_InsertLayer(zest_layer layer) {
     zest_map_insert(ZestRenderer->layers, layer->name, layer);
 }
 
-zest_layer zest_NewBuiltinLayerSetup(const char* name, zest_builtin_layer_type builtin_layer) {
-    zest__set_queue_context(zest_setup_context_type_layer);
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);    //The current setup context must be a render pass, layer or compute
-    ZEST_ASSERT(strlen(name) <= 50);    //Layer name must be less then 50 characters
-    zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
-    zest_draw_routine draw_routine = zest__create_draw_routine_with_builtin_layer(name, builtin_layer);
-    zest_layer layer = (zest_layer)draw_routine->draw_data;
-    ZestRenderer->setup_context.layer = layer;
-    layer->name = name;
-    layer->layer_type = builtin_layer;
-    draw_routine->draw_commands = draw_commands;
-    zest_SetLayerSize(layer, (float)draw_commands->viewport.extent.width, (float)draw_commands->viewport.extent.height);
-    zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
-    ZestRenderer->setup_context.type = zest_setup_context_type_layer;
-    return layer;
-}
-
 void zest_AddLayer(zest_layer layer) {
     ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);    //The current setup context must be a render pass, layer or compute
+    ZEST_ASSERT(layer->draw_routine);   //Layer must have a draw routine. Use the layer builders to create a new layer
     zest__set_queue_context(zest_setup_context_type_layer);
     zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
-    if (!layer->draw_routine) {
-        ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, layer->name));    //A draw routine with that name already exists
-        zest_draw_routine_t blank_draw_routine = { 0 };
-        zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
-        *draw_routine = blank_draw_routine;
-        draw_routine->magic = zest_INIT_MAGIC;
-		draw_routine->last_fif = -1;
-		draw_routine->fif = ZEST_FIF;
-        draw_routine->name = layer->name;
-        draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
-		draw_routine->recorder = zest_CreateSecondaryRecorder();
-        if (layer->layer_type == zest_builtin_layer_sprites) {
-            draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-            draw_routine->draw_data = layer;
-            draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-        }
-        else if (layer->layer_type == zest_builtin_layer_billboards) {
-            draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-            draw_routine->draw_data = layer;
-            draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-        }
-        else if (layer->layer_type == zest_builtin_layer_mesh) {
-            draw_routine->draw_data = layer;
-            draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
-            draw_routine->record_callback = zest__draw_mesh_layer_callback;
-            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-        }
-        else if (layer->layer_type == zest_builtin_layer_mesh_instance) {
-            draw_routine->draw_data = layer;
-            draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-            draw_routine->record_callback = zest__draw_instance_mesh_layer_callback;
-            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-        }
-        else if (layer->layer_type == zest_builtin_layer_fonts) {
-            draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-            draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-            draw_routine->draw_data = layer;
-            draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-        }
-        zest_map_insert(ZestRenderer->draw_routines, draw_routine->name, draw_routine);
-        ZestRenderer->setup_context.draw_routine = draw_routine;
-        layer->draw_routine = draw_routine;
-    }
     ZestRenderer->setup_context.layer = layer;
     ZestRenderer->setup_context.type = zest_setup_context_type_layer;
     ZestRenderer->setup_context.draw_routine = layer->draw_routine;
+    layer->draw_routine->draw_commands = draw_commands;
     zest_SetLayerSize(layer, (float)draw_commands->viewport.extent.width, (float)draw_commands->viewport.extent.height);
     zest_AddDrawRoutineToDrawCommands(draw_commands, layer->draw_routine);
 }
@@ -7426,7 +7269,7 @@ zest_command_queue_compute zest_NewComputeSetup(const char* name, zest_compute c
     return compute_commands;
 }
 
-zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char* name, zest_builtin_layer_type builtin_layer) {
+zest_draw_routine zest__create_draw_routine_with_mesh_layer(const char* name) {
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));    //A draw routine with that name already exists
 
     zest_draw_routine_t blank_draw_routine = { 0 };
@@ -7438,55 +7281,11 @@ zest_draw_routine zest__create_draw_routine_with_builtin_layer(const char* name,
 	draw_routine->fif = ZEST_FIF;
 
     zest_layer layer = 0;
-    if (builtin_layer == zest_builtin_layer_sprites) {
-        layer = zest_CreateBuiltinSpriteLayer(name);
-        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-        draw_routine->draw_data = layer;
-        draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-    }
-    else if (builtin_layer == zest_builtin_layer_lines) {
-        layer = zest_CreateBuiltin2dLineLayer(name);
-        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-        draw_routine->draw_data = layer;
-        draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-    }
-    else if (builtin_layer == zest_builtin_layer_3dlines) {
-        layer = zest_CreateBuiltin3dLineLayer(name);
-        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-        draw_routine->draw_data = layer;
-        draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-    }
-    else if (builtin_layer == zest_builtin_layer_billboards) {
-        layer = zest_CreateBuiltinBillboardLayer(name);
-        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-        draw_routine->draw_data = layer;
-        draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-    }
-    else if (builtin_layer == zest_builtin_layer_mesh) {
-        layer = zest_CreateBuiltinMeshLayer(name);
-        draw_routine->draw_data = layer;
-        draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
-        draw_routine->record_callback = zest__draw_mesh_layer_callback;
-        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-    }
-    else if (builtin_layer == zest_builtin_layer_mesh_instance) {
-        layer = zest_CreateBuiltinInstanceMeshLayer(name);
-        draw_routine->draw_data = layer;
-        draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-        draw_routine->record_callback = zest__draw_instance_mesh_layer_callback;
-        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-    }
-    else if (builtin_layer == zest_builtin_layer_fonts) {
-        layer = zest_CreateBuiltinFontLayer(name);
-        draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-        draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-        draw_routine->draw_data = layer;
-        draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-    }
+	layer = zest_CreateMeshLayer(name, sizeof(zest_textured_vertex_t));
+	draw_routine->draw_data = layer;
+	draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
+	draw_routine->record_callback = zest__draw_mesh_layer_callback;
+	draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
     draw_routine->name = name;
     draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
 
@@ -7507,6 +7306,12 @@ void zest__update_command_queue_viewports(void) {
             }
         }
     }
+}
+
+void zest__connect_command_queue_to_present() {
+    ZEST_ASSERT(ZestRenderer->setup_context.type != zest_setup_context_type_none);    //Must be within a command queue setup context
+    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
+    zest_ConnectCommandQueueToPresent(command_queue);
 }
 
 void zest__reset_query_pool(VkCommandBuffer command_buffer, VkQueryPool query_pool, zest_uint count) {
@@ -7564,7 +7369,6 @@ zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size ins
 	draw_routine->fif = ZEST_FIF;
     zest_layer layer = zest_NewLayer();
     layer->name = name;
-    layer->layer_type = zest_builtin_layer_custom;
     layer->draw_routine = draw_routine;
     zest_InitialiseInstanceLayer(layer, instance_size, reserve_amount);
     zest_map_insert(ZestRenderer->layers, name, layer);
@@ -10085,63 +9889,6 @@ void zest__setup_font_texture(zest_font font) {
     }
     zest_ValidateShaderResource(font->shader_resources);
 }
-
-void zest__initialise_font_layer(zest_layer layer, zest_uint instance_pool_size) {
-    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    layer->current_color.r = 255;
-    layer->current_color.g = 255;
-    layer->current_color.b = 255;
-    layer->current_color.a = 255;
-    layer->intensity = 1;
-    layer->push_constants.model = zest_M4(1);
-    layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
-    layer->push_constants.parameters2.x = 1.f;     //Shadow Vector
-    layer->push_constants.parameters2.y = 1.f;
-    layer->push_constants.parameters2.z = 0.2f;    //Shadow Smoothing
-    layer->push_constants.parameters2.w = 0.f;     //Shadow Clipping
-
-    //Font defaults.
-    layer->push_constants.parameters1.x = 25.f;    //Radius
-    layer->push_constants.parameters1.y = 0.25f;   //Bleed
-    layer->push_constants.parameters1.z = 5.f;     //AA factor
-    layer->push_constants.parameters1.w = 5.5f;    //Thickness
-
-    layer->layer_size = zest_Vec2Set1(1.f);
-    layer->instance_struct_size = sizeof(zest_sprite_instance_t);
-
-    zest_buffer_info_t device_buffer_info = zest_CreateVertexBufferInfo(0);
-    if (zest_GPUHasDeviceLocalHostVisible(sizeof(zest_sprite_instance_t) * instance_pool_size)) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating Device local buffers for font layer");
-        ZEST__FLAG(layer->flags, zest_layer_flag_device_local_direct);
-        device_buffer_info = zest_CreateVertexBufferInfo(ZEST_TRUE);
-    }
-
-    zest_buffer_info_t staging_buffer_info = zest_CreateStagingBufferInfo();
-    for (ZEST_EACH_FIF_i) {
-        layer->memory_refs[i].device_instance_data = zest_CreateBuffer(sizeof(zest_sprite_instance_t) * instance_pool_size, &device_buffer_info, ZEST_NULL);
-        if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
-            layer->memory_refs[i].staging_instance_data = zest_CreateBuffer(sizeof(zest_sprite_instance_t) * instance_pool_size, &staging_buffer_info, ZEST_NULL);
-            layer->memory_refs[i].instance_ptr = layer->memory_refs[i].staging_instance_data->data;
-            layer->memory_refs[i].write_to_buffer = layer->memory_refs[i].staging_instance_data;
-        }
-        else {
-            layer->memory_refs[i].instance_ptr = layer->memory_refs[i].device_instance_data->data;
-            layer->memory_refs[i].write_to_buffer = layer->memory_refs[i].device_instance_data;
-        }
-        layer->memory_refs[i].instance_count = 0;
-        layer->memory_refs[i].instance_count = 0;
-    }
-
-    zest_SetLayerViewPort(layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
-
-    zest_ForEachFrameInFlight(i) {
-        zest_vec_clear(layer->draw_instructions[i]);
-        layer->memory_refs[i].write_to_buffer->memory_in_use = 0;
-        layer->current_instruction = zest__layer_instruction();
-        layer->memory_refs[i].instance_count = 0;
-        layer->memory_refs[i].instance_ptr = layer->memory_refs[i].write_to_buffer->data;
-    }
-}
 //-- End Fonts
 
 //Render Targets
@@ -11694,6 +11441,53 @@ void zest_SetLayerGlobalPushConstants(zest_layer layer, float x, float y, float 
 //-- End Draw Layers
 
 //-- Start Instance Drawing API
+zest_layer zest_CreateInstanceLayer(const char* name, zest_size type_size) {
+    zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(type_size);
+    return zest_BuildInstanceLayer(name, &builder);
+}
+
+zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_size type_size) {
+    zest_layer_builder_t builder = {
+        .initial_count = 1000,
+        .type_size = type_size,
+		.record_callback = zest_RecordInstanceLayerCallback,
+        .condition_callback = zest_LayerHasInstructionsCallback,
+        .update_buffers_callback = zest__update_instance_layer_buffers_callback,
+        .update_resolution_callback = 0,
+        .clean_up_callback = 0,
+    };
+    return builder;
+}
+
+zest_layer zest_BuildInstanceLayer(const char *name, zest_layer_builder_t *builder) {
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));   //A draw routine with that name already exists
+    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->layers, name));          //A layer with that name already exists
+
+    zest_draw_routine_t blank_draw_routine = { 0 };
+    zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
+    *draw_routine = blank_draw_routine;
+    draw_routine->magic = zest_INIT_MAGIC;
+    draw_routine->recorder = zest_CreateSecondaryRecorder();
+	draw_routine->last_fif = -1;
+	draw_routine->fif = ZEST_FIF;
+
+    zest_layer layer = zest__create_instance_layer(name, builder->type_size, builder->initial_count);
+	draw_routine->draw_data = layer;
+	draw_routine->record_callback = zest_RecordInstanceLayerCallback;
+	draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
+	draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
+    draw_routine->clean_up_callback = builder->clean_up_callback;
+    draw_routine->update_resolution_callback = builder->update_resolution_callback;
+    draw_routine->name = name;
+    draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
+
+    zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
+    ZestRenderer->setup_context.draw_routine = draw_routine;
+
+    layer->draw_routine = draw_routine;
+    return layer;
+}
+
 void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     layer->current_color.r = 255;
@@ -11744,6 +11538,22 @@ void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_ui
         layer->memory_refs[i].instance_count = 0;
         layer->memory_refs[i].instance_ptr = layer->memory_refs[i].write_to_buffer->data;
     }
+}
+
+zest_layer zest_CreateFontLayer(const char *name) {
+    zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(sizeof(zest_sprite_instance_t));
+    zest_layer layer = zest_BuildInstanceLayer(name, &builder);
+    layer->push_constants.parameters2.x = 1.f;     //Shadow Vector
+    layer->push_constants.parameters2.y = 1.f;
+    layer->push_constants.parameters2.z = 0.2f;    //Shadow Smoothing
+    layer->push_constants.parameters2.w = 0.f;     //Shadow Clipping
+
+    //Font defaults.
+    layer->push_constants.parameters1.x = 25.f;    //Radius
+    layer->push_constants.parameters1.y = 0.25f;   //Bleed
+    layer->push_constants.parameters1.z = 5.f;     //AA factor
+    layer->push_constants.parameters1.w = 5.5f;    //Thickness
+    return layer;
 }
 
 void zest_UpdateInstanceLayerDescriptorInfo(zest_layer layer) {

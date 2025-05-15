@@ -22,7 +22,7 @@ void InitExample(RenderTargetExample *example) {
 	shaderc_compiler_release(compiler);
 
 	//Make a pipeline to handle the blur effect
-	example->downsample_pipeline = zest_AddPipeline("downsampler");
+	example->downsample_pipeline = zest_CreatePipelineTemplate("downsampler");
 	//Set the push constant range for the fragment shader 
 	zest_SetPipelineTemplatePushConstantRange(example->downsample_pipeline, sizeof(zest_mip_push_constants_t), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
 	//Set the vert and frag shaders for the blur effect

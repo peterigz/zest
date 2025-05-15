@@ -81,7 +81,7 @@ void InitImGuiApp(Ribbons *app) {
 	zest_SetPipelineTemplateFragShader(&instance_create_info, "ribbon_frag.spv", 0);
 	//zest_SetPipelineTemplatePushConstant(&instance_create_info, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
 	zest_AddPipelineTemplateDescriptorLayout(&instance_create_info, *zest_GetDescriptorSetLayout("1 sampler"));
-	app->ribbon_pipeline = zest_AddPipeline("tfx_billboard_pipeline");
+	app->ribbon_pipeline = zest_CreatePipelineTemplate("tfx_billboard_pipeline");
 	zest_FinalisePipelineTemplate(app->ribbon_pipeline, zest_GetStandardRenderPass(), &instance_create_info);
 	app->ribbon_pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
 	app->ribbon_pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;

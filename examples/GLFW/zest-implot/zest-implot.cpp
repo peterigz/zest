@@ -31,15 +31,14 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	app->sync_refresh = true;
 
-	//Modify the existing default queue
-	zest_ModifyCommandQueue(ZestApp->default_command_queue);
+	//Create a command queue to draw with
+	app->command_queue = zest_NewCommandQueue("Example Command Queue");
 	{
-		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
+		app->draw_commands = zest_NewDrawCommandSetupSwap("Example Draw Commands");
 		{
 			//Create a Dear ImGui layer
 			zest_imgui_CreateLayer(&app->imgui_layer_info);
 		}
-		//Don't forget to finish the queue set up
 		zest_FinishQueueSetup();
 	}
 
@@ -48,8 +47,8 @@ void InitImGuiApp(ImGuiApp *app) {
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Set the active command queue to the default one that was created when Zest was initialised
-	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 	ImGuiApp* app = (ImGuiApp*)user_data;
+	zest_SetActiveCommandQueue(app->command_queue);
 
 	//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
 	//means that the buffers are uploaded less frequently and the command buffer is also re-recorded

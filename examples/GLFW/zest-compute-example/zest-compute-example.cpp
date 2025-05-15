@@ -131,17 +131,18 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->draw_routine->condition_callback = DrawComputeSpritesCondition;
 	app->draw_routine->user_data = app;
 
-	//Modify the existing builtin command queue so we can add our new compute shader and draw routine
-	zest_ModifyCommandQueue(ZestApp->default_command_queue);
+	//Create a command queue so we can add our new compute shader and draw routine
+	app->command_queue = zest_NewCommandQueue("Default command queue");
 	{
 		app->compute_commands = zest_NewComputeSetup("particles compute", app->compute, RecordComputeCommands, 0);
-		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
+		app->draw_commands = zest_NewDrawCommandSetupSwap("Default Draw Commands");
 		{
 			//Add our custom draw routine that will draw all the point sprites on the screen
 			zest_AddDrawRoutine(app->draw_routine);
 			//Also add a layer for dear imgui interface
 			zest_imgui_CreateLayer(&app->imgui_layer_info);
 		}
+		zest_FinishQueueSetup();
 	}
 
 	//Create a timer for a fixed update loop
@@ -214,7 +215,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	UpdateComputeUniformBuffers(app);
 
 	//Set the active render queue to the default one that we modified earlier
-	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
+	zest_SetActiveCommandQueue(app->command_queue);
 
 	//Set timing variables that are used to update the uniform buffer
 	app->frame_timer = (float)elapsed / ZEST_MICROSECS_SECOND;

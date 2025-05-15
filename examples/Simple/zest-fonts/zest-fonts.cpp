@@ -3,18 +3,20 @@
 typedef struct zest_example {
 	zest_font font;
 	zest_layer font_layer;
+	zest_command_queue command_queue;
+	zest_command_queue_draw_commands draw_commands;
+	zest_draw_routine draw_routine;
 } zest_example;
 
 void InitExample(zest_example *example) {
-	//Modify the existing builtin command queue
-	zest_ModifyCommandQueue(ZestApp->default_command_queue);
+	example->font_layer = zest_CreateFontLayer("Example fonts");
+	//Create a command queue to draw the fonts with
+	example->command_queue = zest_NewCommandQueue("Example Command Queue");
 	{
-		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
+		example->draw_commands = zest_NewDrawCommandSetupSwap("Example Draw Commands");
 		{
-			//Add a new draw routine layer for our font drawing
-			example->font_layer = zest_NewBuiltinLayerSetup("Fonts", zest_builtin_layer_fonts);
+			zest_AddLayer(example->font_layer);
 		}
-		//That's it, finish the queue setup
 		zest_FinishQueueSetup();
 	}
 
@@ -28,7 +30,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Update the uniform buffer.
 	zest_Update2dUniformBuffer();
 	//Set the current active command queue that we modified in InitExample
-	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
+	zest_SetActiveCommandQueue(example->command_queue);
 
 	//Set the instensity of the font
 	example->font_layer->intensity = 1.f;
@@ -43,8 +45,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	create_info.log_path = "./";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

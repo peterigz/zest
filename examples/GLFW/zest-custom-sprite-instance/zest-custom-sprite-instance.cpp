@@ -95,7 +95,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_SetPipelineTemplatePushConstant(&instance_create_info, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
 
 	//Add a new pipeline to the render
-	app->custom_pipeline = zest_AddPipeline("custom_sprite_pipeline");
+	app->custom_pipeline = zest_CreatePipelineTemplate("custom_sprite_pipeline");
 	//Finalise the pipeline template ready for building the pipeline
 	zest_FinalisePipelineTemplate(app->custom_pipeline, zest_GetStandardRenderPass(), &instance_create_info);
 	//Make some final tweaks to the template
