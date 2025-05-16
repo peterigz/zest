@@ -16,6 +16,9 @@ typedef struct zest_example {
 	zest_vec3 last_position;
 	zest_command_queue command_queue;
 	zest_command_queue_draw_commands draw_commands;
+	zest_shader billboard_vert_shader;
+	zest_shader billboard_frag_shader;
+	zest_descriptor_set_layout billboard_layout;
 } zest_example;
 
 void UpdateUniformBuffer3d(zest_example *example) {
@@ -45,12 +48,26 @@ void InitExample(zest_example *example) {
 	//Create a new uniform buffer for the 3d view
 	example->uniform_buffer_3d = zest_CreateUniformBuffer("example 3d uniform", sizeof(zest_uniform_buffer_data_t));
 	//Create a new descriptor set to use the 3d uniform buffer
-	example->billboard_shader_resources = zest_CombineUniformAndTextureSampler(example->uniform_buffer_3d, example->texture);
-	zest_ValidateShaderResource(example->billboard_shader_resources);
 
 	//Create a camera for the 3d view
 	example->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&example->camera, 60.f);
+
+	//Create and compile the shaders for our custom sprite pipeline
+	shaderc_compiler_t compiler = shaderc_compiler_initialize();
+	example->billboard_frag_shader = zest_CreateShaderFromFile("examples/assets/shaders/billboard.frag", "billboard_frag.spv", shaderc_fragment_shader, true, compiler, 0);
+	example->billboard_vert_shader = zest_CreateShaderFromFile("examples/assets/shaders/billboard.vert", "billboard_vert.spv", shaderc_vertex_shader,  true, compiler, 0);
+	shaderc_compiler_release(compiler);
+
+	zest_descriptor_set_layout_builder_t builder = zest_BeginDescriptorSetLayoutBuilder();
+	zest_AddLayoutBuilderUniformBuffer(&builder, 0, 1, VK_SHADER_STAGE_VERTEX_BIT);
+	zest_AddLayoutBuilderCombinedImageSampler(&builder, 0, 1);
+	example->billboard_layout = zest_FinishDescriptorSetLayout(&builder, "Billboard Layout");
+
+	zest_descriptor_set_builder_t builder = zest_NewDescriptorSetBuilder();
+
+	example->billboard_shader_resources = zest_CombineUniformAndTextureSampler(example->uniform_buffer_3d, example->texture);
+	zest_ValidateShaderResource(example->billboard_shader_resources);
 
 	//Create a pipeline that we can use to draw billboards
 	example->billboard_pipeline = zest_CreatePipelineTemplate("pipeline_billboard");
@@ -65,7 +82,7 @@ void InitExample(zest_example *example) {
 	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			        // Location 7: Instance Color
 
 	zest_SetPipelineTemplateVertShader(example->billboard_pipeline, "billboard_vert.spv", "spv/");
-	zest_SetPipelineTemplateFragShader(example->billboard_pipeline, "image_frag.spv", "spv/");
+	zest_SetPipelineTemplateFragShader(example->billboard_pipeline, "billboard_frag.spv", "spv/");
 	zest_FinalisePipelineTemplate(example->billboard_pipeline);
 	example->billboard_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
 	example->billboard_pipeline->depthStencil.depthTestEnable = VK_TRUE;
