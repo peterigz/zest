@@ -64,7 +64,7 @@ void InitExample(zest_example *example) {
 	zest_AddLayoutBuilderCombinedImageSampler(&builder, 0, 1);
 	example->billboard_layout = zest_FinishDescriptorSetLayout(&builder, "Billboard Layout");
 
-	zest_descriptor_set_builder_t builder = zest_NewDescriptorSetBuilder();
+	zest_descriptor_set_builder_t builder = zest_BeginDescriptorSetBuilder();
 
 	example->billboard_shader_resources = zest_CombineUniformAndTextureSampler(example->uniform_buffer_3d, example->texture);
 	zest_ValidateShaderResource(example->billboard_shader_resources);

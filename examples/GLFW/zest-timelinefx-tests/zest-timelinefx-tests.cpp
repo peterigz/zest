@@ -214,12 +214,12 @@ void UpdateTimelineFXImageData(tfx_render_resources_t &tfx_rendering, tfx_librar
 
 void CreateTimelineFXShaderResources(tfx_render_resources_t &tfx_rendering) {
 	//We need a descriptor set for the shader resources that we will use in the pipeline we created above
-	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
-	zest_AddBuilderDescriptorWriteStorageBuffer(&set_builder, tfx_rendering.image_data, 0);
-	zest_AddBuilderDescriptorWriteInstanceLayerLerp(&set_builder, tfx_rendering.layer, 1);
-	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(tfx_rendering.particle_texture), 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(tfx_rendering.color_ramps_texture), 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	tfx_rendering.descriptor_set = zest_BuildDescriptorSet(&set_builder, tfx_rendering.descriptor_layout, zest_descriptor_type_static);
+	zest_descriptor_set_builder_t set_builder = zest_BeginDescriptorSetBuilder();
+	zest_AddSetBuilderDescriptorWriteStorageBuffer(&set_builder, tfx_rendering.image_data, 0);
+	zest_AddSetBuilderDescriptorWriteInstanceLayerLerp(&set_builder, tfx_rendering.layer, 1);
+	zest_AddSetBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(tfx_rendering.particle_texture), 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	zest_AddSetBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(tfx_rendering.color_ramps_texture), 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	tfx_rendering.descriptor_set = zest_FinishDescriptorSet(&set_builder, tfx_rendering.descriptor_layout, zest_descriptor_type_static);
 
 	//Finally, set up a shader resource to be used when sending the draw calls to the gpu in our render function
 	//This will have the uniform buffer in set 0 and the texures and storage buffers in set 1

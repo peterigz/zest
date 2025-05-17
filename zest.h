@@ -2361,11 +2361,11 @@ typedef struct zest_descriptor_set_layout_t {
     VkDescriptorSetLayout vk_layout;
     zest_text_t name;
     zest_u64 binding_indexes;
+    VkDescriptorSetLayoutCreateFlags create_flags;
 } zest_descriptor_set_layout_t;
 
 typedef struct zest_descriptor_set_t {
     int magic;
-    VkWriteDescriptorSet *descriptor_writes;
     VkDescriptorSet descriptor_set;
 } zest_descriptor_set_t;
 
@@ -2847,7 +2847,6 @@ typedef struct zest_sampler_t {
     int magic;
     VkSampler vk_sampler;
     VkSamplerCreateInfo create_info;
-    zest_descriptor_set_t descriptor_set;
 } zest_sampler_t;
 
 zest_hash_map(zest_descriptor_set_builder_t) zest_map_texture_descriptor_builders;
@@ -2930,10 +2929,8 @@ typedef struct zest_texture_t {
     zest_bitmap_t texture_bitmap;
 
     // --- GPU data. When changing a texture that is in use, we double buffer then flip when ready
-    zest_descriptor_pool descriptor_pool[2];
     zest_frame_buffer_attachment_t frame_buffer[2];
     VkDescriptorImageInfo descriptor_image_info[2];
-    zest_descriptor_set_t descriptor_sets[2];
     zest_sampler sampler;
     zest_uint current_index;
     // --- 
@@ -3212,7 +3209,6 @@ ZEST_PRIVATE zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_inf
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer_t *buffer, zest_bool is_host_visible);
 ZEST_PRIVATE void zest__buffer_write_barrier(VkCommandBuffer command_buffer, zest_buffer buffer);
-ZEST_PRIVATE void zest__set_uniform_descriptors(zest_uniform_buffer buffer);
 //End Buffer Management
 
 //Renderer_functions
@@ -3252,7 +3248,6 @@ ZEST_PRIVATE void zest__rebuild_pipeline(zest_pipeline pipeline);
 ZEST_PRIVATE void zest__present_frame(void);
 ZEST_PRIVATE zest_bool zest__acquire_next_swapchain_image(void);
 ZEST_PRIVATE void zest__draw_renderer_frame(void);
-ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets);
 // --End Renderer functions
 
 // --Command_Queue_functions
@@ -3282,7 +3277,6 @@ ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
 ZEST_PRIVATE float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 ZEST_PRIVATE void zest__delete_texture_layers(zest_texture texture);
-ZEST_PRIVATE void zest__update_all_texture_descriptor_writes(zest_texture texture);
 ZEST_PRIVATE void zest__generate_mipmaps(VkImage image, VkFormat image_format, int32_t texture_width, int32_t texture_height, zest_uint mip_levels, zest_uint layer_count, VkImageLayout image_layout, VkCommandBuffer cb);
 ZEST_PRIVATE void zest__create_texture_image(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__create_texture_image_array(zest_texture texture, zest_uint mip_levels, VkCommandBuffer command_buffer);
@@ -3294,9 +3288,7 @@ ZEST_PRIVATE void zest__pack_images(zest_texture texture, zest_uint size);
 ZEST_PRIVATE void zest__update_image_vertices(zest_image image);
 ZEST_PRIVATE void zest__update_texture_single_image_meta(zest_texture texture, zest_uint width, zest_uint height);
 ZEST_PRIVATE void zest__create_texture_image_view(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
-ZEST_PRIVATE void zest__update_texture_descriptor_set(zest_texture texture);
 ZEST_PRIVATE void zest__cleanup_unused_texture_buffers(zest_texture texture, zest_uint i);
-ZEST_PRIVATE void zest__create_texture_sampler_descriptor_set(zest_texture texture);
 ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer);
 
 // --Render_target_internal_functions
@@ -3368,8 +3360,10 @@ ZEST_PRIVATE void zest__reindex_texture_images(zest_texture texture);
 // --End Maintenance functions
 
 // --Descriptor_set_functions
+ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets);
 ZEST_PRIVATE zest_descriptor_set_layout zest__add_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout);
 ZEST_PRIVATE bool zest__binding_exists_in_layout_builder(zest_descriptor_set_layout_builder_t *builder, zest_uint binding);
+VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_descriptor_set_layout layout, zest_uint binding_index);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -3443,16 +3437,9 @@ ZEST_API void zest_AddInstanceExtension(char *extension);
 //Allocate space in memory for a zest_window_t which contains data about the window. If you're using your own method for creating a window then you can use
 //this and then assign your window handle to zest_window_t.window_handle. Returns a pointer to the zest_window_t
 ZEST_API zest_window zest_AllocateWindow(void);
-//Function to build a descriptor pool. Use with zest_AddDescriptorPoolSize and zest_BuildDesriptorPool. Pass in the 
-//maximum number of descriptor sets that you might want to allocate from the pool
-ZEST_API zest_descriptor_pool zest_CreateDescriptorPool(zest_uint max_sets);
-//Add a pool size to the descriptor pool. Add the pool sizes that you need before calling zest_BuildDescriptorPool and
-//actually creating the Vulkan descriptor pool
-ZEST_API void zest_AddDescriptorPoolSize(zest_descriptor_pool pool, zest_uint descriptor_count, VkDescriptorType type);
-//Build the desriptor pool. Call this after adding the pool sizes you need
-ZEST_API void zest_BuildDescriptorPool(zest_descriptor_pool pool);
-//Allocate a descriptor set from the pool.
-ZEST_API void zest_AllocateDescriptorSet(zest_descriptor_pool pool, VkDescriptorSetLayout descriptor_layouts, VkDescriptorSet *descriptor_set);
+//Create a descriptor pool based on a descriptor set layout. This will take the max sets value and create a pool 
+//with enough descriptor pool types based on the bindings found in the layout
+ZEST_API zest_descriptor_pool zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layout layout, uint32_t max_set_count, VkDescriptorPoolCreateFlags pool_flags);
 //Reset a descriptor pool. This invalidates all descriptor sets current allocated from the pool so you can reallocate them.
 ZEST_API void zest_ResetDescriptorPool(zest_descriptor_pool pool);
 //Destroys the VkDescriptorPool and frees the zest_descriptor_pool and all contents
@@ -3475,7 +3462,7 @@ ZEST_API void zest_AddLayoutBuilderUniformBuffer(zest_descriptor_set_layout_buil
 //Add a descriptor set layout binding to a layout builder for a sampled image in the fragment shader.
 ZEST_API void zest_AddLayoutBuilderStorageBuffer(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, zest_uint descriptor_count, VkShaderStageFlags shader_stages);
 //Build the descriptor set layout and add it to the render. The layout is also returned from the function.
-ZEST_API zest_descriptor_set_layout zest_FinishDescriptorSetLayout(zest_descriptor_set_layout_builder_t *builder, const char *name);
+ZEST_API zest_descriptor_set_layout zest_FinishDescriptorSetLayout(zest_descriptor_set_layout_builder_t *builder, const char *name, ...);
 //Create a vulkan descriptor layout binding for use in setting up a descriptor set layout. This is a more general function for setting up whichever layout binding
 //you need. Just pass in the VkDescriptorType, VkShaderStageFlags, the binding number (which will correspond to the binding in the shader, and the number of descriptors
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateDescriptorLayoutBinding(VkDescriptorType type, VkShaderStageFlags stageFlags, zest_uint binding, zest_uint descriptorCount);
@@ -3496,39 +3483,38 @@ ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescript
 //To make creating a new VkDescriptorSet you can use a builder. Make sure you call this function to properly initialise the zest_descriptor_set_builder_t
 //Once you have a builder, you can call the Add commands to add image and buffer bindings then call zest_FinishDescriptorSet to create the descriptor set
 ZEST_API zest_descriptor_set_builder_t zest_BeginDescriptorSetBuilder(zest_descriptor_set_layout layout);
-// The new general-purpose write function
-ZEST_API void zest_AddSetBuilderWrite(
-    zest_descriptor_set_builder_t *builder,
-    zest_uint dst_binding,
-    zest_uint dst_array_element,    // Starting element in the destination binding's array
-    zest_uint descriptor_count,     // Number of descriptors to write (for arrays)
-    VkDescriptorType descriptor_type,
-    // Provide ONE of these sets of pointers, others should be NULL:
-    const VkDescriptorImageInfo *p_image_infos,   // Pointer to an array of descriptor_count infos
-    const VkDescriptorBufferInfo *p_buffer_infos, // Pointer to an array of descriptor_count infos
-    const VkBufferView *p_texel_buffer_views      // Pointer to an array of descriptor_count views
-);
-VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_descriptor_set_layout layout, zest_uint binding_index);
+// Generic function to add any kind of descriptor write to a builder. If there's something that the more simple
+// helper functions don't cover then you can just use this.
+//    zest_uint dst_array_element,    // Starting element in the destination binding's array
+//    zest_uint descriptor_count,     // Number of descriptors to write (for arrays)
+//    VkDescriptorType descriptor_type,
+// Provide ONE of these sets of pointers, others should be NULL:
+//    const VkDescriptorImageInfo *p_image_infos,   // Pointer to an array of descriptor_count infos
+//    const VkDescriptorBufferInfo *p_buffer_infos, // Pointer to an array of descriptor_count infos
+//    const VkBufferView *p_texel_buffer_views      // Pointer to an array of descriptor_count views
+ZEST_API void zest_AddSetBuilderWrite( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element,    zest_uint descriptor_count,     VkDescriptorType descriptor_type, const VkDescriptorImageInfo *p_image_infos,   const VkDescriptorBufferInfo *p_buffer_infos, const VkBufferView *p_texel_buffer_views);
 //Add a sampler to a descriptor set builder
-ZEST_API void zest_AddSetBuilderSampler(zest_descriptor_set_builder_t* builder, zest_uint dst_binding);
+ZEST_API void zest_AddSetBuilderSampler( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, VkSampler sampler_handle);
+//Add a combine image and sampler to a descriptor set builder
+ZEST_API void zest_AddSetBuilderCombinedImageSampler(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, VkSampler sampler_handle, VkImageView image_view_handle, VkImageLayout layout);
+//Add an array of samplers to a set builder
+ZEST_API void zest_AddSetBuilderCombinedImageSamplers(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uint count, const VkDescriptorImageInfo *p_image_infos);
 //Add a VkDescriptorImageInfo from a zest_texture (or render target) to a descriptor set builder.
-ZEST_API void zest_AddSetBuilderDescriptorWriteImage(zest_descriptor_set_builder_t *builder, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API void zest_AddSetBuilderDirectImageWrite(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, VkDescriptorType type, const VkDescriptorImageInfo *image_info);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a uniform buffer.
-ZEST_API void zest_AddSetBuilderDescriptorWriteUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uniform_buffer buffer, zest_uint dst_binding, zest_uint fif);
+ZEST_API void zest_AddSetBuilderUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer uniform_buffer, uint32_t fif);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a storage buffer.
-ZEST_API void zest_AddSetBuilderDescriptorWriteStorageBuffer(zest_descriptor_set_builder_t *builder, zest_descriptor_buffer buffer, zest_uint dst_binding, zest_uint fif);
+ZEST_API void zest_AddSetBuilderStorageBuffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_descriptor_buffer storage_buffer, uint32_t fif);
 //Add a VkDescriptorBufferInfo from a zest_layer instance buffer.
-ZEST_API void zest_AddSetBuilderDescriptorWriteInstanceLayer(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding, zest_uint fif);
+ZEST_API void zest_AddSetBuilderInstanceLayer(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding, zest_uint fif);
 //Add a VkDescriptorBufferInfo from a zest_layer instance buffer for the purpose of interpolating in the shader.
 //This will assign the buffer to the descriptor so that the previous frame in fligh will be set. This means that you can then access
 //the preview frame in flight instance buffer in the vertex shader as a storage buffer and use it to interpolate position and other 
 //attributes of the instance.
-ZEST_API void zest_AddSetBuilderDescriptorWriteInstanceLayerLerp(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding, zest_uint fif);
-//Add an array of VkDescriptorImageInfos to a descriptor set builder.
-ZEST_API void zest_AddSetBuilderDescriptorWriteImages(zest_descriptor_set_builder_t *builder, zest_uint image_count, VkDescriptorImageInfo *view_image_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API void zest_AddSetBuilderInstanceLayerLerp(zest_descriptor_set_builder_t *builder, zest_layer layer, zest_uint dst_binding, zest_uint fif);
 //Build a zest_descriptor_set_t using a builder that you made using the AddBuilder command. The layout that you pass to this function must be configured properly.
 //zest_descriptor_set_t will contain a VkDescriptorSet for each frame in flight as well as descriptor writes used to create the set.
-ZEST_API zest_descriptor_set_t zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_descriptor_set_builder_t *builder, zest_descriptor_set_layout layout);
+ZEST_API VkDescriptorSet zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_descriptor_set_builder_t *builder, VkDescriptorSet new_set_to_populate_or_update);
 //Create a new descriptor set shader_resources
 ZEST_API zest_shader_resources zest_CreateShaderResources();
 //Add a descriptor set to a descriptor set shader_resources. Bundles are used for binding to a draw call so the descriptor sets can be passed in to the shaders
@@ -3547,9 +3533,6 @@ ZEST_API void zest_UpdateShaderResources(zest_shader_resources shader_resources,
 ZEST_API void zest_FreeShaderResources(zest_shader_resources shader_resources);
 //Helper function to validate
 ZEST_API bool zest_ValidateShaderResource(zest_shader_resources shader_resources);
-//Take in a descriptor set for a uniform buffer and a texture to create a shader resource that combines them together for use with
-//binding them with a pipeline when making draw calls
-ZEST_API zest_shader_resources zest_CombineUniformAndTextureSampler(zest_uniform_buffer uniform_buffer, zest_texture texture);
 //Update a VkDescriptorSet with an array of descriptor writes. For when the images/buffers in a descriptor set have changed, the corresponding descriptor set will need to be updated.
 ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
 //Create a VkViewport, generally used when building a render pass.
@@ -4327,15 +4310,8 @@ ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const c
 //just call zest_ScheduleTextureReprocess which will recreate the texture between frames and then schedule a cleanup the next
 //frame after.
 ZEST_API void zest_ProcessTextureImages(zest_texture texture);
-//Get the descriptor set in the texture. This will always be a simple sampler + uniform buffer descriptor set
-ZEST_API zest_descriptor_set zest_GetTextureDescriptorSet(zest_texture texture);
-//This accesses the specific VkDescriptorSet type within the zest_descriptor_set as an extra convenience
-ZEST_API VkDescriptorSet zest_GetTextureDescriptorSetVK(zest_texture texture);
 //Get the descriptor image info for the texture that you can use to build a descriptor set with
 ZEST_API VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture texture);
-//Update the descriptor set for a single descriptor set in the texture. Just pass the name of the descriptor that you want to update. This is necessary to run after making any changes
-//to the texture that required a call to zest_ProcessTexture
-ZEST_API void zest_UpdateTextureSingleDescriptorSet(zest_texture texture);
 //Create a vulkan frame buffer. Maybe this should be a private function, but leaving API for now. This returns a zest_frame_buffer_t containing the frame buffer attachment and other
 //details about the frame buffer. You must pass in a valid render pass that the frame buffer will use (you can use zest_GetRenderPass), the width/height of the frame buffer, a valid
 //VkFormat, whether or not you want to use a depth buffer with it, and if it's a frame buffer that will be used as a src buffer for something else so that it gets the appropriate
@@ -4381,9 +4357,6 @@ ZEST_API zest_bitmap_t *zest_GetTextureSingleBitmap(zest_texture texture);
 ZEST_API zest_texture zest_GetTexture(const char *name);
 //Returns true if the texture has a storage type of zest_texture_storage_type_bank or zest_texture_storage_type_single.
 ZEST_API zest_bool zest_TextureCanTile(zest_texture texture);
-//Update all descriptor sets in the texture. Call this if the texture has been altered so that it's image view and sampler have changed. But bear in mind that the texture cannot be in use
-//by the renderer (accessed by a command queue).
-ZEST_API void zest_RefreshTextureDescriptors(zest_texture texture);
 //Schedule a texture to be reprocessed. This will ensure that it only gets processed (zest_ProcessTextureImages) when not in use.
 ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture, void(*callback)(zest_texture texture, void *user_data));
 //Schedule a texture to clean up it's unused buffers. Textures are double buffered so that they can safely be changed whilst

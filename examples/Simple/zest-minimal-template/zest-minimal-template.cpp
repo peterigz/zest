@@ -9,10 +9,11 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 int main(void) 
 {
 	//Make a config struct where you can configure zest with some options
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	create_info.log_path = "./";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
+	create_info.thread_count = 0;
 
 	//Initialise Zest with the configuration
 	zest_Initialise(&create_info);

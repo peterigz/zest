@@ -31,10 +31,10 @@ void InitImGuiApp(ImGuiApp *app) {
 	//We'll need to create our own descriptor layout for the vertex and fragment shaders that can 
 	//sample from both textures
 	app->descriptor_layout = zest_AddDescriptorLayout("Particles descriptor layout", 0, 0, 2, 0);
-	zest_descriptor_set_builder_t set_builder = zest_NewDescriptorSetBuilder();
-	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->particle_texture), 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	zest_AddBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->gradient_texture), 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-	app->descriptor_set = zest_BuildDescriptorSet(app->descriptor_pool, &set_builder, app->descriptor_layout);
+	zest_descriptor_set_builder_t set_builder = zest_BeginDescriptorSetBuilder();
+	zest_AddSetBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->particle_texture), 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	zest_AddSetBuilderDescriptorWriteImage(&set_builder, zest_GetTextureDescriptorImageInfo(app->gradient_texture), 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	app->descriptor_set = zest_FinishDescriptorSet(app->descriptor_pool, &set_builder, app->descriptor_layout);
 
 	//Load the particle data with random coordinates
 	std::default_random_engine rndEngine(0);
