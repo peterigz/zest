@@ -124,7 +124,6 @@ void InitExample(RenderTargetExample *example) {
 		}
 		//Connect the render queue to the Present queue so that the swap chain has to wait until the rendering is complete before
 		//presenting to the screen
-		zest_ConnectQueueToPresent();
 		zest_FinishQueueSetup();
 	}
 
