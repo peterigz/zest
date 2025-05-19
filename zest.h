@@ -1340,7 +1340,7 @@ typedef enum {
 
 typedef enum {
     zest_queue_compute,
-    zest_queue_graphices,
+    zest_queue_graphics,
     zest_queue_transfer
 } zest_device_queue_type;
 
@@ -1351,9 +1351,10 @@ typedef enum {
 } zest_resource_type;
 
 typedef enum zest_resource_node_flag_bits {
-    zest_resource_node_flag_none = 0,
-    zest_resource_node_flag_transient = 1 << 0,
-    zest_resource_node_flag_imported = 1 << 1,
+    zest_resource_node_flag_none            = 0,
+    zest_resource_node_flag_transient       = 1 << 0,
+    zest_resource_node_flag_imported        = 1 << 1,
+    zest_resource_node_flag_used_in_output  = 1 << 2,
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;
@@ -2310,14 +2311,14 @@ typedef struct zest_app_t {
     zest_app_flags flags;
 } zest_app_t;
 
-typedef struct zest_semaphores_t {
-    VkSemaphore incoming;
-    VkSemaphore outgoing;
-} zest_semaphores_t;
+typedef struct zest_frame_sync_t {
+    VkSemaphore render_finished_semaphore;
+    VkSemaphore image_available_semaphore;
+} zest_frame_sync_t;
 
 typedef struct zest_image_buffer_t {
     VkImage image;
-    zest_buffer_t *buffer;
+    zest_buffer buffer;
     VkImageView base_view;
     VkImageView *mip_views;
     VkFormat format;
@@ -2351,7 +2352,6 @@ typedef struct zest_gpu_timestamp_s {
     zest_u64 start;
     zest_u64 end;
 } zest_gpu_timestamp_t;
-
 
 typedef struct zest_gpu_timestamp_info_s {
     zest_render_target render_target;
@@ -2388,6 +2388,10 @@ typedef struct zest_buffer_description_t {
     zest_buffer_info_t buffer_info;
 } zest_buffer_description_t;
 
+typedef struct zest_pass_adjacency_list_t {
+    int *pass_indices;
+} zest_pass_adjacency_list_t;
+
 typedef struct zest_rg_pass_resource_usage_desc_t {
     zest_rg_resource_node resource_node;
     VkImageLayout         image_layout;
@@ -2401,6 +2405,12 @@ typedef struct zest_rg_pass_resource_usage_desc_t {
     VkAttachmentStoreOp   stencil_store_op;
     VkClearValue          clear_value;
 } zest_rg_pass_resource_usage_desc_t;
+
+typedef struct zest_temp_attachment_info_t { 
+    zest_rg_resource_node resource_node; 
+    zest_resource_usage_t *usage_info; 
+    zest_uint attachment_slot;
+} zest_temp_attachment_info_t;
 
 typedef struct zest_resource_usage_t {
     zest_rg_resource_node resource_node;   
@@ -2438,7 +2448,11 @@ typedef struct zest_rg_resource_node_t {
 	zest_buffer_description_t buffer_desc; // Used if transient buffer
 
     zest_image_buffer_t image_buffer;
+    zest_buffer storage_buffer;
 
+    VkAccessFlags current_access_mask;
+    VkPipelineStageFlags last_stage_mask;
+    VkImageLayout current_layout;                   // The current layout of the image in the resource
     VkImageLayout initial_layout;                   // Required initial layout before first use in this graph
     VkImageLayout final_layout;                     // Layout resource should be in after last use in this graph
 
@@ -2449,12 +2463,20 @@ typedef struct zest_rg_resource_node_t {
     zest_uint last_usage_pass_idx;                  // For lifetime tracking
 } zest_rg_resource_node_t;
 
+typedef struct zest_execution_details_t {
+    VkFramebuffer frame_buffer;
+    VkRenderPass render_pass;
+    VkImageMemoryBarrier *pre_pass_image_barriers;
+    VkBufferMemoryBarrier *pre_pass_buffer_barriers;
+} zest_execution_details_t;
+
 typedef struct zest_render_graph_t {
     int magic;
     zest_rg_pass_node_t *passes; 
     zest_rg_resource_node_t *resources; 
 
     zest_uint *compiled_execution_order;            // Execution order after compilation
+    zest_execution_details_t *pass_exec_details_list;
 
     zest_resource_handle swapchain_resource_handle; // Handle to the current swapchain image resource
     VkImage current_swapchain_image;
@@ -2462,32 +2484,61 @@ typedef struct zest_render_graph_t {
     zest_uint current_swapchain_image_index;
     zest_uint id_counter;
     zest_descriptor_pool descriptor_pool;           //Descriptor pool for execution nodes within the graph.
+    zest_recorder recorder;                         //For recording the render graph passes with a primary recorder
+
+    void *user_data;
+    zest_render_graph_context_t context;
+
+    VkQueryPool query_pool;                                          //For profiling
+    zest_uint timestamp_count;
+    zest_query_state query_state[ZEST_MAX_FIF];                      //For checking if the timestamp query is ready
+    zest_gpu_timestamp_t *timestamps[ZEST_MAX_FIF];                  //The last recorded frame durations for the whole render pipeline
+    zest_gpu_timestamp_info_t *timestamp_infos[ZEST_MAX_FIF];        //The last recorded frame durations for the whole render pipeline
+
+    VkSemaphore signal_present[ZEST_MAX_FIF];
+    VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
 } zest_render_graph_t;
 
 ZEST_API zest_render_graph zest_NewRenderGraph();
 ZEST_API bool zest_BeginRenderGraph(zest_render_graph render_graph);
 ZEST_API void zest_EndRenderGraph(zest_render_graph render_graph);
-ZEST_API zest_rg_resource_node zest_AddResourceNode(zest_render_graph render_graph, zest_resource_handle resource, bool imported);
+ZEST_API void zest_ExecuteRenderGraph(zest_render_graph render_graph);
+
 ZEST_API zest_rg_pass_node zest_AddPassNode(zest_render_graph render_graph, const char *name, zest_rg_execution_callback callback);
+
+ZEST_API zest_rg_resource_node zest_AddTransientImageResource(zest_render_graph graph, const char *name, const zest_image_description_t *desc);
+ZEST_API zest_rg_resource_node zest_AddTransientBufferResource(zest_render_graph graph, const char *name, const zest_buffer_description_t *desc);
+ZEST_API void zest_AddPassVertexBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node vertex_buffer);
+ZEST_API void zest_AddPassIndexBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node index_buffer);
+ZEST_API void zest_AddPassTransferSrc(zest_rg_pass_node pass_node, zest_rg_resource_node src_resource);
+ZEST_API void zest_AddPassTransferDst(zest_rg_pass_node pass_node, zest_rg_resource_node dst_resource);
+
+ZEST_API zest_rg_resource_node zest_ImportImageResource(zest_render_graph graph, const char *name, zest_texture texture);
+ZEST_API zest_rg_resource_node zest_ImportSwapChainResource(zest_render_graph graph, const char *name);
+
 ZEST_API void zest_AddPassInputDetailed(zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc);
 ZEST_API void zest_AddPassOutputDetailed(zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc);
-
 ZEST_API void zest_AddPassColorAttachmentOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color);
 ZEST_API void zest_AddPassDepthStencilOutput(zest_rg_pass_node pass_node, zest_rg_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_ds_value);
 ZEST_API void zest_AddPassDepthStencilInputReadOnly(zest_rg_pass_node pass_node, zest_rg_resource_node depth_target);
 ZEST_API void zest_AddPassSampledImageInput(zest_rg_pass_node pass_node, zest_rg_resource_node texture, VkPipelineStageFlags shader_stages);
 ZEST_API void zest_AddPassStorageImageUsage(zest_rg_pass_node pass_node, zest_rg_resource_node image_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages);
 
-ZEST_API zest_rg_resource_node zest_AddTransientImageResource(zest_render_graph graph, const char *name, const zest_image_description_t *desc);
-ZEST_API zest_rg_resource_node zest_AddTransientBufferResource(zest_render_graph graph, const char *name, const zest_buffer_description_t *desc);
+ZEST_API void zest_AddPassStorageBufferUsage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages);
+ZEST_API void zest_AddPassUniformBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node ubo_resource, VkPipelineStageFlags shader_stages);
 
-ZEST_API zest_rg_resource_node zest_ImportImageResource(zest_render_graph graph, const char *name, zest_texture texture);
-ZEST_API zest_rg_resource_node zest_ImportSwapChainResource(zest_render_graph graph, const char *name, VkImage swap_chain_image, VkImageView swap_chain_view, VkImageLayout initial_layout, VkImageLayout final_layout_for_present);
+//Where zest_RecordCommandQueue records and then ends the command queue ready for submitting, this will just start the recording
+//allowing you to insert your own vkCmds between calling AddCommandQueue and then EndCommandQueue
+ZEST_API void zest_StartRecordingRenderGraph(zest_render_graph render_graph, zest_index fif);
+//End a command queue ready for submitting
+ZEST_API void zest_EndRecordingRenderGraph(zest_render_graph render_graph, zest_index fif);
+//Submit a command queue to be executed on the GPU. Utilise the fence commands to know when the queue has finished executing: zest_CreateFence, zest_CheckFence,
+//zest_WaitForFence and zest_DestoryFence. Pass in a fence which will be signalled once the execution is done.
+ZEST_API void zest_SubmitRenderGraph(zest_render_graph render_graph, VkFence fence);
 
 //command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects for a more complex example
 typedef struct zest_command_queue_t {
     int magic;
-    zest_semaphore_connector_t semaphores[ZEST_MAX_FIF];
     const char *name;
     VkQueryPool query_pool;                                          //For profiling
     zest_uint timestamp_count;
@@ -3229,7 +3280,7 @@ zest_hash_map(zest_render_target) zest_map_rt_recreate_queue;
 zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
 
 typedef struct zest_renderer_t {
-    zest_semaphores_t semaphores[ZEST_MAX_FIF];
+    zest_frame_sync_t frame_sync[ZEST_MAX_FIF];
 
     VkFormat swapchain_image_format;
     VkExtent2D swapchain_extent;
@@ -3478,6 +3529,8 @@ ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format,
 ZEST_PRIVATE void zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory);
 ZEST_PRIVATE zest_buffer zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
 ZEST_PRIVATE zest_buffer zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
+ZEST_PRIVATE void zest__create_transient_image(zest_rg_resource_node node);
+ZEST_PRIVATE void zest__create_transient_buffer(zest_rg_resource_node node);
 ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout image_layout, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount, VkCommandBuffer command_buffer);
@@ -4098,17 +4151,6 @@ ZEST_API zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(const
 //Set the clear color for the render pass that happens within a zest_command_queue_draw_commands object
 //Note that this only applies if you use the default draw commands callback: zest_RenderDrawRoutinesCallback
 ZEST_API void zest_SetDrawCommandsClsColor(zest_command_queue_draw_commands draw_commands, float r, float g, float b, float a);
-//Set up the semaphores to connect the present (swap chain) to a command queue. This command is generally called
-//automatically when you set up the command queue. This will ensure that the command queue waits for the swap chain to present
-//to the screen before executing.
-ZEST_API void zest_ConnectPresentToCommandQueue(zest_command_queue receiver, VkPipelineStageFlags stage_flags);
-//Set the semaphores in the command queue to connect it to the swap chain. This ensures that the swap chain will wait
-//for the command queue to finish executing before presenting the frame to the screen
-ZEST_API void zest_ConnectCommandQueueToPresent(zest_command_queue sender);
-//Get the semaphore that connects the command queue to the swap chain
-ZEST_API VkSemaphore zest_GetCommandQueuePresentSemaphore(zest_command_queue command_queue);
-//Any zest_command_queue_draw_commands that you create can be assigned your own custom render pass callback so that you can call any Vulkan commands that you want
-//See zest_RenderDrawRoutinesCallback, zest_DrawToRenderTargetCallback, zest_DrawRenderTargetsToSwapchain for some of the builtin functions that do this
 ZEST_API void zest_SetDrawCommandsCallback(void(*render_pass_function)(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer));
 //Get a zest_draw_routine by name
 ZEST_API zest_draw_routine zest_GetDrawRoutine(const char *name);
@@ -4140,10 +4182,6 @@ ZEST_API zest_command_queue_compute zest_CreateComputeItem(const char *name, zes
 //Validate a command queue to make sure that all semaphores are connected. This is automatically called when you call zest_FinishQueueSetup but I've just left it
 //here as an API function if needed
 ZEST_API void zest_ValidateQueue(zest_command_queue queue);
-//Connect 2 command queues with semaphores - UNTESTED. Write now things are designed to just use a single command queue per frame.
-ZEST_API void zest_ConnectCommandQueues(zest_command_queue sender, zest_command_queue receiver, VkPipelineStageFlags stage_flags);
-//Connect 2 command queues with semaphores - UNTESTED. Write now things are designed to just use a single command queue per frame.
-ZEST_API void zest_ConnectQueueTo(zest_command_queue receiver, VkPipelineStageFlags stage_flags);
 //Reset the compute queue shader index back to 0, this is actually done automatically each frame. It's purpose is so that zest_NextComputeRoutine can iterate through
 //the compute routines in a compute shader and dispatch each one starting from 0. But if you're only doing that once each frame (which you probably are) then you won't
 //need to call this.
@@ -4167,7 +4205,6 @@ ZEST_API zest_command_queue zest_CurrentCommandQueue(void);
 ZEST_API VkCommandBuffer zest_CurrentCommandBuffer(void);
 //Get the timestamps for the whole render pipeline
 ZEST_API zest_timestamp_duration_t zest_CommandQueueRenderTimes(zest_command_queue command_queue);
-ZEST_API zest_timestamp_duration_t zest_CommandQueueRenderPassTimes(zest_command_queue command_queue);
 //-- End Command queue setup and creation
 
 //-----------------------------------------------
