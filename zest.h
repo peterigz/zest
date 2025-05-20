@@ -1359,6 +1359,11 @@ typedef enum zest_resource_node_flag_bits {
 
 typedef zest_uint zest_resource_node_flags;
 
+typedef enum {
+    zest_access_write_bits_general = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+    zest_access_read_bits_general = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
+} zest_general_access_bits;
+
 typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
 typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
 
@@ -2406,18 +2411,13 @@ typedef struct zest_rg_pass_resource_usage_desc_t {
     VkClearValue          clear_value;
 } zest_rg_pass_resource_usage_desc_t;
 
-typedef struct zest_temp_attachment_info_t { 
-    zest_rg_resource_node resource_node; 
-    zest_resource_usage_t *usage_info; 
-    zest_uint attachment_slot;
-} zest_temp_attachment_info_t;
-
 typedef struct zest_resource_usage_t {
     zest_rg_resource_node resource_node;   
     zest_resource_access_type access_type;
     VkPipelineStageFlags stage_mask; // Pipeline stages this usage pertains to
-    VkAccessFlags access_mask;      // Vulkan access mask for barriers
-    VkImageLayout image_layout;     // Required VkImageLayout if it's an image
+    VkAccessFlags access_mask;       // Vulkan access mask for barriers
+    VkImageLayout image_layout;      // Required VkImageLayout if it's an image
+    VkImageAspectFlags    aspect_flags; 
     // For framebuffer attachments
     VkAttachmentLoadOp load_op;
     VkAttachmentStoreOp store_op;
@@ -2455,6 +2455,7 @@ typedef struct zest_rg_resource_node_t {
     VkImageLayout current_layout;                   // The current layout of the image in the resource
     VkImageLayout initial_layout;                   // Required initial layout before first use in this graph
     VkImageLayout final_layout;                     // Layout resource should be in after last use in this graph
+    VkImageLayout desired_layout_after_graph_use;
 
     int producer_pass_idx;                          // Index of the pass that writes/creates this resource (-1 if imported)
     int *consumer_pass_indices;                     // Dynamic array of pass indices that read this
@@ -2466,9 +2467,19 @@ typedef struct zest_rg_resource_node_t {
 typedef struct zest_execution_details_t {
     VkFramebuffer frame_buffer;
     VkRenderPass render_pass;
+    VkRect2D render_area;
+    VkClearValue *clear_values;
     VkImageMemoryBarrier *pre_pass_image_barriers;
     VkBufferMemoryBarrier *pre_pass_buffer_barriers;
+    VkPipelineStageFlags overall_src_stage_mask_for_pre_pass_barriers;
+    VkPipelineStageFlags overall_dst_stage_mask_for_pre_pass_barriers;
 } zest_execution_details_t;
+
+typedef struct zest_temp_attachment_info_t { 
+    zest_rg_resource_node resource_node; 
+    zest_resource_usage_t *usage_info; 
+    zest_uint attachment_slot;
+} zest_temp_attachment_info_t;
 
 typedef struct zest_render_graph_t {
     int magic;
@@ -2499,6 +2510,7 @@ typedef struct zest_render_graph_t {
     VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
 } zest_render_graph_t;
 
+ZEST_PRIVATE VkImageLayout zest__determine_final_layout(zest_render_graph render_graph, int start_from_idx, zest_rg_resource_node node, zest_resource_usage_t *current_usage);
 ZEST_API zest_render_graph zest_NewRenderGraph();
 ZEST_API bool zest_BeginRenderGraph(zest_render_graph render_graph);
 ZEST_API void zest_EndRenderGraph(zest_render_graph render_graph);
@@ -2513,7 +2525,7 @@ ZEST_API void zest_AddPassIndexBufferInput(zest_rg_pass_node pass_node, zest_rg_
 ZEST_API void zest_AddPassTransferSrc(zest_rg_pass_node pass_node, zest_rg_resource_node src_resource);
 ZEST_API void zest_AddPassTransferDst(zest_rg_pass_node pass_node, zest_rg_resource_node dst_resource);
 
-ZEST_API zest_rg_resource_node zest_ImportImageResource(zest_render_graph graph, const char *name, zest_texture texture);
+ZEST_API zest_rg_resource_node zest_ImportImageResource(zest_render_graph graph, const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
 ZEST_API zest_rg_resource_node zest_ImportSwapChainResource(zest_render_graph graph, const char *name);
 
 ZEST_API void zest_AddPassInputDetailed(zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc);
