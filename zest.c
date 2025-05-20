@@ -7289,29 +7289,46 @@ void zest_ExecuteRenderGraph(zest_render_graph render_graph) {
     zest_vec_foreach(i, render_graph->compiled_execution_order) {
         zest_uint pass_index = render_graph->compiled_execution_order[i];
         zest_rg_pass_node pass = &render_graph->passes[pass_index];
-        zest_execution_details_t *exe_details = &render_graph->pass_exec_details_list[pass_index];
+        zest_execution_details_t *exe_details = &render_graph->pass_exec_details_list[i];
 
-        //Execute pre pass barriers for images
-        zest_vec_foreach(barrier_idx, exe_details->pre_pass_image_barriers) {
-            VkImageMemoryBarrier *barrier = &exe_details->pre_pass_image_barriers[barrier_idx];
-            zest__place_image_barrier(command_buffer, exe_details->overall_src_stage_mask_for_pre_pass_barriers, exe_details->overall_dst_stage_mask_for_pre_pass_barriers, barrier);
+        //Batch execute pre pass barriers for images
+        if (zest_vec_size(exe_details->pre_pass_image_barriers) > 0 ||
+            zest_vec_size(exe_details->pre_pass_buffer_barriers) > 0) { // Also check buffer barriers
+
+            vkCmdPipelineBarrier(
+                command_buffer,
+                exe_details->overall_src_stage_mask_for_pre_pass_barriers, // Single mask for all barriers in this batch
+                exe_details->overall_dst_stage_mask_for_pre_pass_barriers, // Single mask for all barriers in this batch
+                0, 
+                0, NULL, 
+                zest_vec_size(exe_details->pre_pass_buffer_barriers), // Count of buffer barriers
+                exe_details->pre_pass_buffer_barriers, // Pointer to buffer barriers (if zest_vec_data gives raw ptr)
+                zest_vec_size(exe_details->pre_pass_image_barriers),  // Count of image barriers
+                exe_details->pre_pass_image_barriers   // Pointer to image barriers (if zest_vec_data gives raw ptr)
+            );
         }
 
-        //Begin the render pass
-        VkRenderPassBeginInfo render_pass_info = { 0 };
-        render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        render_pass_info.renderPass = exe_details->render_pass;
-        render_pass_info.framebuffer = exe_details->frame_buffer;
-        render_pass_info.renderArea = exe_details->render_area;
+        //Begin the render pass if the pass has one
+        if (exe_details->render_pass != VK_NULL_HANDLE) {
+            VkRenderPassBeginInfo render_pass_info = { 0 };
+            render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            render_pass_info.renderPass = exe_details->render_pass;
+            render_pass_info.framebuffer = exe_details->frame_buffer;
+            render_pass_info.renderArea = exe_details->render_area;
 
-        render_pass_info.clearValueCount = zest_vec_size(exe_details->clear_values);
-        render_pass_info.pClearValues = exe_details->clear_values;
+			render_pass_info.clearValueCount = zest_vec_size(exe_details->clear_values);
+			render_pass_info.pClearValues = exe_details->clear_values;
 
-        vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+            vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+        }
+
         //Execute the callback in the pass
         ZEST_ASSERT(pass->execution_callback);  //Something went very wrong, no execution callback defined in the pass!
         pass->execution_callback(command_buffer, &render_graph->context, render_graph->user_data);
-        vkCmdEndRenderPass(command_buffer);
+
+        if (exe_details->render_pass != VK_NULL_HANDLE) {
+            vkCmdEndRenderPass(command_buffer);
+        }
         //End render pass
     }
 	zest_EndRecordingRenderGraph(render_graph, ZEST_FIF);
