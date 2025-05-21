@@ -1,6 +1,29 @@
 #include <zest.h>
 
+// This is the function that will be called for your pass.
+void clear_pass_execute_callback(
+	VkCommandBuffer command_buffer,
+	const zest_render_graph_context_t *context, // Your graph context
+	void *user_data                             // Global or per-pass user data
+) {
+	//Nothing happens here, just clearing the screen as a minimal render graph test
+}
+
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
+	zest_render_graph render_graph = static_cast<zest_render_graph>(user_data);
+
+	// 2. Begin Render Graph Definition
+	if (zest_BeginRenderToScreen(render_graph)) {
+		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource(
+			render_graph,
+			"Swapchain Output" 
+		);
+		zest_rg_pass_node clear_pass = zest_AddPassNode( render_graph, "Clear Swapchain Pass", clear_pass_execute_callback );
+		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} }; 
+		zest_AddPassSwapChainOutput( clear_pass, swapchain_output_resource, clear_color);
+		zest_EndRenderGraph(render_graph);
+		zest_ExecuteRenderGraph(render_graph);
+	}
 }
 
 #if defined(_WIN32)
@@ -17,6 +40,10 @@ int main(void)
 
 	//Initialise Zest with the configuration
 	zest_Initialise(&create_info);
+
+	zest_render_graph render_graph = zest_NewRenderGraph("Simple Test");
+
+	zest_SetUserData(render_graph);
     zest_LogFPSToConsole(1);
 	//Set the callback you want to use that will be called each frame.
 	zest_SetUserUpdateCallback(UpdateCallback);

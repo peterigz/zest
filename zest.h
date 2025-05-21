@@ -1157,6 +1157,9 @@ typedef enum zest_renderer_flag_bits {
     zest_renderer_flag_disable_default_uniform_update            = 1 << 7,
     zest_renderer_flag_swapchain_was_recreated                   = 1 << 8,
     zest_renderer_flag_has_depth_buffer                          = 1 << 9,
+    zest_renderer_flag_swap_chain_was_acquired                   = 1 << 10,
+    zest_renderer_flag_swap_chain_was_used                       = 1 << 11,
+    zest_renderer_flag_work_was_submitted                        = 1 << 12,
 } zest_renderer_flag_bits;
 
 typedef zest_uint zest_renderer_flags;
@@ -1358,6 +1361,13 @@ typedef enum zest_resource_node_flag_bits {
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;
+
+typedef enum zest_render_graph_flag_bits {
+    zest_render_graph_flag_none                     = 0,
+    zest_render_graph_expecting_swap_chain_usage    = 1 << 0,
+} zest_render_graph_flag_bits;
+
+typedef zest_uint zest_render_graph_flags;
 
 typedef enum {
     zest_access_write_bits_general = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -2483,6 +2493,9 @@ typedef struct zest_temp_attachment_info_t {
 
 typedef struct zest_render_graph_t {
     int magic;
+    zest_render_graph_flags flags;
+    const char *name;
+
     zest_rg_pass_node_t *passes; 
     zest_rg_resource_node_t *resources; 
 
@@ -2506,15 +2519,20 @@ typedef struct zest_render_graph_t {
     zest_gpu_timestamp_t *timestamps[ZEST_MAX_FIF];                  //The last recorded frame durations for the whole render pipeline
     zest_gpu_timestamp_info_t *timestamp_infos[ZEST_MAX_FIF];        //The last recorded frame durations for the whole render pipeline
 
+    VkFramebuffer *old_frame_buffers[ZEST_MAX_FIF];                  //For clearing up frame buffers from previous frames that aren't needed anymore
+
     VkSemaphore signal_present[ZEST_MAX_FIF];
     VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
 } zest_render_graph_t;
 
 ZEST_PRIVATE VkImageLayout zest__determine_final_layout(zest_render_graph render_graph, int start_from_idx, zest_rg_resource_node node, zest_resource_usage_t *current_usage);
-ZEST_API zest_render_graph zest_NewRenderGraph();
+ZEST_API zest_render_graph zest_NewRenderGraph(const char *name);
 ZEST_API bool zest_BeginRenderGraph(zest_render_graph render_graph);
+ZEST_API bool zest_BeginRenderToScreen(zest_render_graph render_graph);
 ZEST_API void zest_EndRenderGraph(zest_render_graph render_graph);
 ZEST_API void zest_ExecuteRenderGraph(zest_render_graph render_graph);
+
+ZEST_API zest_bool zest_AcquireSwapChainImage(void);
 
 ZEST_API zest_rg_pass_node zest_AddPassNode(zest_render_graph render_graph, const char *name, zest_rg_execution_callback callback);
 
@@ -2530,6 +2548,7 @@ ZEST_API zest_rg_resource_node zest_ImportSwapChainResource(zest_render_graph gr
 
 ZEST_API void zest_AddPassInputDetailed(zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc);
 ZEST_API void zest_AddPassOutputDetailed(zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc);
+ZEST_API void zest_AddPassSwapChainOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkClearColorValue clear_color);
 ZEST_API void zest_AddPassColorAttachmentOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color);
 ZEST_API void zest_AddPassDepthStencilOutput(zest_rg_pass_node pass_node, zest_rg_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_ds_value);
 ZEST_API void zest_AddPassDepthStencilInputReadOnly(zest_rg_pass_node pass_node, zest_rg_resource_node depth_target);
@@ -3290,6 +3309,7 @@ zest_hash_map(zest_shader) zest_map_shaders;
 zest_hash_map(zest_render_target) zest_map_rt_refresh_queue;
 zest_hash_map(zest_render_target) zest_map_rt_recreate_queue;
 zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
+zest_hash_map(zest_render_graph) zest_map_render_graph;
 
 typedef struct zest_renderer_t {
     zest_frame_sync_t frame_sync[ZEST_MAX_FIF];
@@ -3317,6 +3337,8 @@ typedef struct zest_renderer_t {
 
     zest_map_buffer_allocators buffer_allocators;
 
+    VkCommandBuffer utility_command_buffer[ZEST_MAX_FIF];
+
     //Context data
     VkCommandBuffer current_command_buffer;
     VkRenderPass current_render_pass;
@@ -3341,6 +3363,7 @@ typedef struct zest_renderer_t {
     zest_map_shaders shaders;
     zest_map_samplers samplers;
     zest_descriptor_pool *user_descriptor_pools;
+    zest_map_render_graph render_graphs;
 
     zest_command_queue active_command_queue;
     zest_command_queue_t empty_queue;
@@ -3468,7 +3491,8 @@ ZEST_PRIVATE void zest__cleanup_framebuffer(zest_frame_buffer_t *frame_buffer);
 ZEST_PRIVATE void zest__refresh_pipeline_template(zest_pipeline_template pipeline);
 ZEST_PRIVATE void zest__rebuild_pipeline(zest_pipeline pipeline);
 ZEST_PRIVATE void zest__present_frame(void);
-ZEST_PRIVATE zest_bool zest__acquire_next_swapchain_image(void);
+ZEST_PRIVATE void zest__dummy_submit_fence_only(void);
+ZEST_PRIVATE void zest__dummy_submit_for_present_only(void);
 ZEST_PRIVATE void zest__draw_renderer_frame(void);
 // --End Renderer functions
 
