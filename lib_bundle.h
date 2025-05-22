@@ -456,6 +456,45 @@ extern "C" {
 
 	ZLOC_API void* zloc_AllocationFromExtensionPtr(const void *block);
 
+    //Very simple linear allocator.
+    typedef struct zloc_linear_allocator_t {
+        zloc_size buffer_size;
+        zloc_size current_offset;
+    } zloc_linear_allocator_t;
+
+    /*
+        Initialise a linear allocator. Best used for transient data. All memory allocated from here is
+        aligned to 8 bytes.
+		@param	void*			A pointer to a block of memory you want to use for the arena
+		@returns zloc_size		The size of the memory.
+    */
+    zloc_linear_allocator_t *zloc_InitialiseLinearAllocator(void *memory, zloc_size size);
+
+    /*
+        Reset the linear allocator to 0 size used.
+    */
+	void zloc_ResetLinearAllocator(zloc_linear_allocator_t *allocator);
+
+    /*
+        Allocate a block of memory from a linear allocator
+		@param	zloc_linear_allocator*			A pointer to a linear allocator
+		@returns zloc_size		                The size of the memory that you want to allocate from the linear allocator
+    */
+	void *zloc_LinearAllocation(zloc_linear_allocator_t *allocator, zloc_size size_requested);
+
+    /*  Get the current offset of the allocator. This can be use to reset to a point in the allocator rather
+        then reset the whole thing
+		@param	zloc_linear_allocator*			A pointer to a linear allocator
+    */
+    zloc_size zloc_GetMarker(zloc_linear_allocator_t *allocator);
+
+    /*  Reset the allocator to a specific point that you got using zloc_GetMarker
+        then reset the whole thing
+		@param	zloc_linear_allocator*			A pointer to a linear allocator
+		@param	zloc_size			            The marker offset to reset to
+    */
+    void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker);
+
 #endif
 
 	//--End of user functions
@@ -1281,7 +1320,61 @@ int zloc_FreeRemote(zloc_allocator *allocator, void* block_extension) {
 	void *allocation = (char*)block_extension - zloc__MINIMUM_BLOCK_SIZE;
 	return zloc_Free(allocator, allocation);
 }
+
+zloc_linear_allocator_t *zloc_InitialiseLinearAllocator(void *memory, zloc_size size) {
+    if (!memory) {
+        ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: The memory pointer passed in to the initialiser was NULL, did it allocate properly?\n", ZLOC_ERROR_NAME);
+        return NULL;
+    }
+    if (size <= sizeof(zloc_linear_allocator_t) + zloc__MINIMUM_BLOCK_SIZE) {
+        ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: Size of linear allocotor size is too small. It must be a mimimum of %llu\n", ZLOC_ERROR_NAME, sizeof(zloc_linear_allocator_t) + zloc__MINIMUM_BLOCK_SIZE);
+        return NULL;
+    }
+    zloc_linear_allocator_t *allocator = (zloc_linear_allocator_t *)memory;
+    memset(allocator, 0, sizeof(zloc_linear_allocator_t));
+    allocator->buffer_size = size;
+    allocator->current_offset = sizeof(zloc_linear_allocator_t);
+    return allocator;
+}
+
+void zloc_ResetLinearAllocator(zloc_linear_allocator_t *allocator) {
+    allocator->current_offset = sizeof(zloc_linear_allocator_t);
+}
+
+void *zloc_LinearAllocation(zloc_linear_allocator_t *allocator, zloc_size size_requested) {
+    if (!allocator) return NULL;
+
+    zloc_size actual_size = size_requested < zloc__MINIMUM_BLOCK_SIZE ? zloc__MINIMUM_BLOCK_SIZE : size_requested;
+    zloc_size alignment = sizeof(void *);
+
+    char *current_ptr = (char *)allocator + allocator->current_offset;
+    void *aligned_address = (void *)(((uintptr_t)current_ptr + alignment - 1) & ~(alignment - 1));
+
+    zloc_size new_offset = (zloc_size)((char *)aligned_address - (char *)allocator) + actual_size;
+
+    if (new_offset > allocator->buffer_size) {
+        ZLOC_PRINT_ERROR(ZLOC_ERROR_COLOR"%s: Out of memory in linear allocator.\n", ZLOC_ERROR_NAME);
+        return NULL;
+    }
+
+    allocator->current_offset = new_offset;
+    return aligned_address;
+}
+
+zloc_size zloc_GetMarker(zloc_linear_allocator_t *allocator) {
+    ZLOC_ASSERT(allocator);     //Not a valid allocator!
+    return allocator->current_offset;
+}
+
+void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker) {
+    ZLOC_ASSERT(allocator);     //Not a valid allocator!
+    //marker point not valid!
+    ZLOC_ASSERT(marker >= sizeof(zloc_linear_allocator_t) && marker <= allocator->current_offset && marker <= allocator->buffer_size);     //Not a valid allocator!
+	allocator->current_offset = marker;
+}
+
 #endif
+
 
 #endif
 

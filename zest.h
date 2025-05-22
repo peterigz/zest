@@ -1160,6 +1160,7 @@ typedef enum zest_renderer_flag_bits {
     zest_renderer_flag_swap_chain_was_acquired                   = 1 << 10,
     zest_renderer_flag_swap_chain_was_used                       = 1 << 11,
     zest_renderer_flag_work_was_submitted                        = 1 << 12,
+    zest_renderer_flag_building_render_graph                     = 1 << 13,
 } zest_renderer_flag_bits;
 
 typedef zest_uint zest_renderer_flags;
@@ -1479,6 +1480,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_clip(T) zest__vec_header(T)->current_size--
 #define zest_vec_trim(T, amount) zest__vec_header(T)->current_size -= amount;
 #define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
+#define zest_vec_linear_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_linear_reserve(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
 #define zest_vec_empty(T) (!T || zest__vec_header(T)->current_size == 0)
 #define zest_vec_size(T) ((T) ? zest__vec_header(T)->current_size : 0)
 #define zest_vec_last_index(T) (zest__vec_header(T)->current_size - 1)
@@ -1491,7 +1493,10 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_free(T) if(T) { ZEST__FREE(zest__vec_header(T)); T = ZEST_NULL;}
 #define zest_vec_reserve(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size == 1 ? 8 : new_size);
 #define zest_vec_resize(T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_reserve(T, sizeof(*T), new_size == 1 ? 8 : new_size); zest__vec_header(T)->current_size = new_size
+#define zest_vec_linear_reserve(allocator, T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_linear_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size);
+#define zest_vec_linear_resize(allocator, T, new_size) if(!T || zest__vec_header(T)->capacity < new_size) T = zest__vec_linear_reserve(allocator, T, sizeof(*T), new_size == 1 ? 8 : new_size); zest__vec_header(T)->current_size = new_size
 #define zest_vec_push(T, value) zest_vec_grow(T); (T)[zest__vec_header(T)->current_size++] = value
+#define zest_vec_linear_push(allocator, T, value) zest_vec_linear_grow(allocator, T); (T)[zest__vec_header(T)->current_size++] = value
 #define zest_vec_pop(T) (zest__vec_header(T)->current_size--, T[zest__vec_header(T)->current_size])
 #define zest_vec_insert(T, location, value) { ptrdiff_t offset = location - T; zest_vec_grow(T); if(offset < zest_vec_size(T)) memmove(T + offset + 1, T + offset, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); T[offset] = value; zest_vec_bump(T); }
 #define zest_vec_erase(T, location) { ptrdiff_t offset = location - T; ZEST_ASSERT(T && offset >= 0 && location < zest_vec_end(T)); memmove(T + offset, T + offset + 1, ((size_t)zest_vec_size(T) - offset) * sizeof(*T)); zest_vec_clip(T); }
@@ -2526,13 +2531,13 @@ typedef struct zest_render_graph_t {
 } zest_render_graph_t;
 
 ZEST_PRIVATE VkImageLayout zest__determine_final_layout(zest_render_graph render_graph, int start_from_idx, zest_rg_resource_node node, zest_resource_usage_t *current_usage);
+ZEST_API zest_bool zest_AcquireSwapChainImage(void);
+
 ZEST_API zest_render_graph zest_NewRenderGraph(const char *name);
 ZEST_API bool zest_BeginRenderGraph(zest_render_graph render_graph);
 ZEST_API bool zest_BeginRenderToScreen(zest_render_graph render_graph);
 ZEST_API void zest_EndRenderGraph(zest_render_graph render_graph);
 ZEST_API void zest_ExecuteRenderGraph(zest_render_graph render_graph);
-
-ZEST_API zest_bool zest_AcquireSwapChainImage(void);
 
 ZEST_API zest_rg_pass_node zest_AddPassNode(zest_render_graph render_graph, const char *name, zest_rg_execution_callback callback);
 
@@ -3345,6 +3350,10 @@ typedef struct zest_renderer_t {
     zest_command_queue_draw_commands current_draw_commands;
     zest_command_queue_compute current_compute_routine;
 
+    //Linear allocators for building the render graph each frame
+    zloc_linear_allocator_t *render_graph_allocator;
+    zloc_size last_render_graph_offset;
+
     //General Storage
     zest_map_command_queues command_queues;
     zest_map_render_passes render_passes;
@@ -3439,6 +3448,7 @@ ZEST_PRIVATE bool zest__create_folder(const char *path);
 
 //Only available outside lib for some implementations like SDL2
 ZEST_API void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
+ZEST_PRIVATE void* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void *T, zest_uint unit_size, zest_uint new_capacity);
 
 //Buffer_and_Memory_Management
 ZEST_PRIVATE void zest__add_host_memory_pool(zest_size size);
