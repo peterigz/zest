@@ -6939,7 +6939,6 @@ void zest_ResetRenderGraph(zest_render_graph render_graph) {
     render_graph->resources = NULL;
     render_graph->pass_exec_details_list = NULL;
 
-    zest_vec_clear(render_graph->old_frame_buffers[ZEST_FIF]);
     render_graph->id_counter = 0;
 }
 
@@ -6955,6 +6954,7 @@ bool zest_BeginRenderGraph(zest_render_graph render_graph) {
         VkFramebuffer frame_buffer = render_graph->old_frame_buffers[ZEST_FIF][i];
 		vkDestroyFramebuffer(ZestDevice->logical_device, frame_buffer, &ZestDevice->allocation_callbacks);
     }
+    zest_vec_clear(render_graph->old_frame_buffers[ZEST_FIF]);
 
 	ZEST__UNFLAG(render_graph->flags, zest_render_graph_expecting_swap_chain_usage);
 	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
