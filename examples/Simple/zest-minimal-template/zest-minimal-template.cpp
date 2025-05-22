@@ -1,7 +1,5 @@
 #include <zest.h>
 
-
-
 // This is the function that will be called for your pass.
 void ExampleRenderPassCallback(
 	VkCommandBuffer command_buffer,
@@ -16,10 +14,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	// 2. Begin Render Graph Definition
 	if (zest_BeginRenderToScreen(render_graph)) {
-		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource(
-			render_graph,
-			"Swapchain Output" 
-		);
+		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource( render_graph, "Swapchain Output" );
 		zest_rg_pass_node clear_pass = zest_AddPassNode( render_graph, "Clear Swapchain Pass", ExampleRenderPassCallback );
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} }; 
 		zest_AddPassSwapChainOutput( clear_pass, swapchain_output_resource, clear_color);

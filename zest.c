@@ -6827,6 +6827,7 @@ zest_index zest__next_fif() {
 zest_create_info_t zest_CreateInfo() {
     zest_create_info_t create_info = {
         .memory_pool_size = zloc__MEGABYTE(64),
+        .render_graph_allocator_size = zloc__MEGABYTE(1),
         .shader_path_prefix = "spv/",
         .log_path = NULL,
         .screen_width = 1280,
@@ -6931,33 +6932,30 @@ zest_render_graph zest_NewRenderGraph(const char *name) {
     return render_graph;
 }
 
+void zest_ResetRenderGraph(zest_render_graph render_graph) {
+    ZEST_CHECK_HANDLE(render_graph);    //Not a valid render graph handle!
+    render_graph->compiled_execution_order = NULL;
+    render_graph->passes = NULL;
+    render_graph->resources = NULL;
+    render_graph->pass_exec_details_list = NULL;
+
+    zest_vec_clear(render_graph->old_frame_buffers[ZEST_FIF]);
+    render_graph->id_counter = 0;
+}
+
 bool zest_BeginRenderGraph(zest_render_graph render_graph) {
     if (!ZEST_VALID_HANDLE(render_graph)) {
         return false;
     }
 	ZEST_ASSERT(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_building_render_graph));  //Render graph already being built. You cannot build a render graph within another begin render graph process.
 
-    zest_vec_clear(render_graph->compiled_execution_order);
-    render_graph->passes = 0;
-    render_graph->resources = 0;
-
-    zest_vec_foreach(i, render_graph->pass_exec_details_list) {
-        zest_execution_details_t *exe_details = &render_graph->pass_exec_details_list[i];
-        zest_vec_free(exe_details->pre_pass_buffer_barriers);
-        zest_vec_free(exe_details->pre_pass_image_barriers);
-        zest_vec_free(exe_details->clear_values);
-        exe_details->frame_buffer = VK_NULL_HANDLE;
-        exe_details->render_pass = VK_NULL_HANDLE;
-    }
+    zest_ResetRenderGraph(render_graph);
 
     zest_vec_foreach(i, render_graph->old_frame_buffers[ZEST_FIF]) {
         VkFramebuffer frame_buffer = render_graph->old_frame_buffers[ZEST_FIF][i];
 		vkDestroyFramebuffer(ZestDevice->logical_device, frame_buffer, &ZestDevice->allocation_callbacks);
     }
 
-    zest_vec_clear(render_graph->pass_exec_details_list);
-    zest_vec_clear(render_graph->old_frame_buffers[ZEST_FIF]);
-    render_graph->id_counter = 0;
 	ZEST__UNFLAG(render_graph->flags, zest_render_graph_expecting_swap_chain_usage);
 	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
     return true;
@@ -7004,7 +7002,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
         zest_vec_foreach(j, pass_node->inputs) {
             zest_resource_usage_t *input_usage = &pass_node->inputs[j];
             zest_rg_resource_node resource = input_usage->resource_node;
-            zest_vec_push(resource->consumer_pass_indices, i); // pass 'i' consumes this
+            zest_vec_linear_push(allocator, resource->consumer_pass_indices, i); // pass 'i' consumes this
         }
     }
 
@@ -7047,7 +7045,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
     while (index != zest_vec_size(dependency_queue)) {
         int pass_index = dependency_queue[index++];
         //Add the pass index to the compiled_execution_order list;
-        zest_vec_push(render_graph->compiled_execution_order, pass_index);
+        zest_vec_linear_push(allocator, render_graph->compiled_execution_order, pass_index);
         //Check it's adjacency list and for those adjacent passes, reduce their dependency count by one.
         zest_vec_foreach(i, adjacency_list[pass_index].pass_indices) {
             int adj_index = adjacency_list[pass_index].pass_indices[i];
@@ -7117,7 +7115,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
         }
     }
 
-    zest_vec_resize(render_graph->pass_exec_details_list, zest_vec_size(render_graph->compiled_execution_order));
+    zest_vec_linear_resize(allocator, render_graph->pass_exec_details_list, zest_vec_size(render_graph->compiled_execution_order));
 	zest_hash_map(zest_uint) attachment_idx;
 
     zloc_size execution_marker = zloc_GetMarker(allocator);
@@ -7156,7 +7154,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                         input_resource->current_layout,
                         required_layout,
                         0, input_resource->image_desc.mip_levels);
-                    zest_vec_push(exe_details->pre_pass_image_barriers, image_barrier);
+                    zest_vec_linear_push(allocator, exe_details->pre_pass_image_barriers, image_barrier);
 					exe_details->overall_src_stage_mask_for_pre_pass_barriers |= input_resource->last_stage_mask;
 					exe_details->overall_dst_stage_mask_for_pre_pass_barriers |= input_usage->stage_mask;
                 }
@@ -7188,7 +7186,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                         output_resource->current_layout,
                         required_layout,
                         0, output_resource->image_desc.mip_levels);
-                    zest_vec_push(exe_details->pre_pass_image_barriers, image_barrier);
+                    zest_vec_linear_push(allocator, exe_details->pre_pass_image_barriers, image_barrier);
 					exe_details->overall_src_stage_mask_for_pre_pass_barriers |= output_resource->last_stage_mask;
 					exe_details->overall_dst_stage_mask_for_pre_pass_barriers |= output_usage->stage_mask;
                 }
@@ -7273,9 +7271,9 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                         ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used);
                     }
 					zest_vec_linear_push(allocator, attachments, attachment);
-                    zest_map_insert_key(attachment_indexes, (zest_key)node, (zest_vec_size(attachments) - 1));
+                    zest_map_insert_linear_key(allocator, attachment_indexes, (zest_key)node, (zest_vec_size(attachments) - 1));
                     zest_vec_linear_push(allocator, attachment_resource_nodes, node);
-                    zest_vec_push(exe_details->clear_values, usage_info->clear_value);
+                    zest_vec_linear_push(allocator, exe_details->clear_values, usage_info->clear_value);
                     render_pass_hash += zest_Hash(&attachment, sizeof(VkAttachmentDescription), ZEST_HASH_SEED);
                 }
             }
@@ -7293,9 +7291,9 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                     attachment.initialLayout = node->current_layout;
                     attachment.finalLayout = zest__determine_final_layout(render_graph, k + 1, node, usage_info);
                     zest_vec_linear_push(allocator, attachments, attachment);
-                    zest_map_insert_key(attachment_indexes, (zest_key)node, (zest_vec_size(attachments) - 1));
+                    zest_map_insert_linear_key(allocator, attachment_indexes, (zest_key)node, (zest_vec_size(attachments) - 1));
                     zest_vec_linear_push(allocator, attachment_resource_nodes, node);
-                    zest_vec_push(exe_details->clear_values, usage_info->clear_value);
+                    zest_vec_linear_push(allocator, exe_details->clear_values, usage_info->clear_value);
                     render_pass_hash += zest_Hash(&attachment, sizeof(VkAttachmentDescription), ZEST_HASH_SEED);
                 }
             }
@@ -7402,7 +7400,6 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
 
             //Cleanup the temp lists
             zloc_ResetToMarker(allocator, execution_marker);
-            zest_map_free(attachment_indexes);
         }
     }
 
@@ -7451,7 +7448,7 @@ void zest_ExecuteRenderGraph(zest_render_graph render_graph) {
 
         //Batch execute pre pass barriers for images
         if (zest_vec_size(exe_details->pre_pass_image_barriers) > 0 ||
-            zest_vec_size(exe_details->pre_pass_buffer_barriers) > 0) { // Also check buffer barriers
+            zest_vec_size(exe_details->pre_pass_buffer_barriers) > 0) { 
 
             vkCmdPipelineBarrier(
                 command_buffer,
