@@ -29,26 +29,51 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
-	app->sync_refresh = true;
-
-	//Create a command queue to draw with
-	app->command_queue = zest_NewCommandQueue("Example Command Queue");
-	{
-		app->draw_commands = zest_NewDrawCommandSetupSwap("Example Draw Commands");
-		{
-			//Create a Dear ImGui layer
-			zest_imgui_CreateLayer(&app->imgui_layer_info);
-		}
-		zest_FinishQueueSetup();
-	}
+	app->render_graph = zest_NewRenderGraph("ImGui");
 
 	app->timer = zest_CreateTimer(60);
+}
+
+// This is the function that will be called for your pass.
+void DrawImGuiRenderPass(
+	VkCommandBuffer command_buffer,
+	const zest_render_graph_context_t *context, // Your graph context
+	void *user_data                             // Global or per-pass user data
+) {
+	zest_imgui_layer_info_t *layer_info = (zest_imgui_layer_info_t *)context->pass_user_data;
+	zest_buffer vertex_buffer = context->pass_node->inputs[0].resource_node->storage_buffer;
+	zest_buffer index_buffer = context->pass_node->inputs[1].resource_node->storage_buffer;
+	zest_imgui_RecordLayer(context, layer_info, vertex_buffer, index_buffer);
+}
+
+// This is the function that will be called for your pass.
+void UploadImGuiPass(
+	VkCommandBuffer command_buffer,
+	const zest_render_graph_context_t *context, // Your graph context
+	void *user_data                             // Global or per-pass user data
+) {
+	zest_imgui_layer_info_t *layer_info = (zest_imgui_layer_info_t *)context->pass_user_data;
+
+	zest_buffer staging_vertex = layer_info->vertex_staging_buffer;
+	zest_buffer staging_index = layer_info->index_staging_buffer;
+	zest_buffer device_vertex = context->pass_node->outputs[0].resource_node->storage_buffer;
+	zest_buffer device_index = context->pass_node->outputs[1].resource_node->storage_buffer;
+
+	zest_buffer_uploader_t index_upload = { 0, staging_index, device_index, 0 };
+	zest_buffer_uploader_t vertex_upload = { 0, staging_vertex, device_vertex, 0 };
+
+	if (staging_vertex->memory_in_use && staging_index->memory_in_use) {
+		zest_AddCopyCommand(&vertex_upload, staging_vertex, device_vertex, 0);
+		zest_AddCopyCommand(&index_upload, staging_index, device_index, 0);
+	}
+
+	zest_UploadBuffer(&vertex_upload, command_buffer);
+	zest_UploadBuffer(&index_upload, command_buffer);
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Set the active command queue to the default one that was created when Zest was initialised
 	ImGuiApp* app = (ImGuiApp*)user_data;
-	zest_SetActiveCommandQueue(app->command_queue);
 
 	//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
 	//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
@@ -70,23 +95,46 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 				app->sync_refresh = true;
 			}
 		}
-		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
+		//ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
 		//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 		ImGui::End();
 		ImGui::Render();
 		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
-		zest_ResetLayer(app->imgui_layer_info.mesh_layer);
 		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-		zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
+		zest_imgui_UpdateBuffers(&app->imgui_layer_info);
 	} zest_EndTimerLoop(app->timer);
+
+	if (zest_BeginRenderToScreen(app->render_graph)) {
+		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
+		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
+		zest_rg_resource_node imgui_vertex_buffer = zest_imgui_AddTransientVertexResources(app->render_graph, "Imgui Vertex Buffer");
+		zest_rg_resource_node imgui_index_buffer = zest_imgui_AddTransientIndexResources(app->render_graph, "Imgui Vertex Buffer");
+		if (imgui_vertex_buffer && imgui_index_buffer) {
+			zest_rg_pass_node imgui_upload_pass = zest_AddPassNode(app->render_graph, "Upload ImGui", UploadImGuiPass);
+			zest_SetPassUserData(imgui_upload_pass, &app->imgui_layer_info);
+			zest_AddPassTransferDst(imgui_upload_pass, imgui_vertex_buffer);
+			zest_AddPassTransferDst(imgui_upload_pass, imgui_index_buffer);
+			zest_rg_pass_node imgui_pass = zest_AddPassNode(app->render_graph, "Draw ImGui", DrawImGuiRenderPass);
+			zest_AddPassBufferUsage(imgui_pass, imgui_vertex_buffer, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+			zest_AddPassBufferUsage(imgui_pass, imgui_index_buffer, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+			zest_SetPassUserData(imgui_pass, &app->imgui_layer_info);
+			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+		} else {
+			//Just render a blank screen if imgui didn't render anything
+			zest_rg_pass_node blank_pass = zest_AddPassNode(app->render_graph, "Draw Nothing", zest_EmptyRenderPass);
+			zest_AddPassSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
+		}
+		zest_EndRenderGraph(app->render_graph);
+		zest_ExecuteRenderGraph(app->render_graph);
+	}
 }
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
     create_info.log_path = ".";

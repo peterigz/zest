@@ -1373,6 +1373,7 @@ typedef zest_uint zest_render_graph_flags;
 typedef enum {
     zest_access_write_bits_general = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
     zest_access_read_bits_general = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
+    zest_access_render_pass_bits = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 } zest_general_access_bits;
 
 typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
@@ -2390,7 +2391,11 @@ typedef struct zest_timestamp_duration_s {
 //Render_graph_types
 
 typedef struct zest_render_graph_context_t {
+    VkCommandBuffer command_buffer;
+    VkRenderPass render_pass;
     zest_render_graph render_graph;
+    zest_rg_pass_node pass_node;
+    void *pass_user_data;
 } zest_render_graph_context_t;
 
 typedef void (*zest_rg_execution_callback)(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
@@ -2454,6 +2459,7 @@ typedef struct zest_rg_pass_node_t {
     zest_device_queue_type queue_type;
     zest_rg_execution_callback execution_callback;
     zest_render_graph render_graph;
+    void *user_data;
 } zest_rg_pass_node_t;
 
 typedef struct zest_rg_resource_node_t {
@@ -2500,6 +2506,11 @@ typedef struct zest_temp_attachment_info_t {
     zest_uint attachment_slot;
 } zest_temp_attachment_info_t;
 
+typedef struct zest_destruction_queue_t {
+    zest_buffer *buffers[ZEST_MAX_FIF];
+    zest_image_buffer_t *images[ZEST_MAX_FIF];
+}zest_destruction_queue_t;
+
 typedef struct zest_render_graph_t {
     int magic;
     zest_render_graph_flags flags;
@@ -2535,7 +2546,12 @@ typedef struct zest_render_graph_t {
 } zest_render_graph_t;
 
 ZEST_PRIVATE VkImageLayout zest__determine_final_layout(zest_render_graph render_graph, int start_from_idx, zest_rg_resource_node node, zest_resource_usage_t *current_usage);
+ZEST_PRIVATE VkImageAspectFlags zest__determine_aspect_flag(VkFormat format);
+ZEST_PRIVATE void zest__deferr_buffer_destruction(zest_buffer storage_buffer);
+ZEST_PRIVATE void zest__deferr_image_destruction(zest_image_buffer_t *image_buffer);
 ZEST_API zest_bool zest_AcquireSwapChainImage(void);
+
+void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 
 ZEST_API zest_render_graph zest_NewRenderGraph(const char *name);
 ZEST_API bool zest_BeginRenderGraph(zest_render_graph render_graph);
@@ -2553,8 +2569,13 @@ ZEST_API void zest_AddPassIndexBufferInput(zest_rg_pass_node pass_node, zest_rg_
 ZEST_API void zest_AddPassTransferSrc(zest_rg_pass_node pass_node, zest_rg_resource_node src_resource);
 ZEST_API void zest_AddPassTransferDst(zest_rg_pass_node pass_node, zest_rg_resource_node dst_resource);
 
-ZEST_API zest_rg_resource_node zest_ImportImageResource(zest_render_graph graph, const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
-ZEST_API zest_rg_resource_node zest_ImportSwapChainResource(zest_render_graph graph, const char *name);
+ZEST_API void zest_SetPassUserData(zest_rg_pass_node pass_node, void *user_data);
+
+ZEST_API zest_rg_resource_node zest_ImportImageResource(zest_render_graph render_graph, const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
+ZEST_API zest_rg_resource_node zest_ImportVertexBufferResource(zest_render_graph render_graph, const char *name, zest_buffer vertex_buffer);
+ZEST_API zest_rg_resource_node zest_ImportIndexBufferResource(zest_render_graph render_graph, const char *name, zest_buffer index_buffer);
+ZEST_API zest_rg_resource_node zest_ImportLayerResource(zest_render_graph render_graph, const char *name, zest_layer layer);
+ZEST_API zest_rg_resource_node zest_ImportSwapChainResource(zest_render_graph render_graph, const char *name);
 
 ZEST_API void zest_AddPassInputDetailed(zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc);
 ZEST_API void zest_AddPassOutputDetailed(zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc);
@@ -2565,7 +2586,7 @@ ZEST_API void zest_AddPassDepthStencilInputReadOnly(zest_rg_pass_node pass_node,
 ZEST_API void zest_AddPassSampledImageInput(zest_rg_pass_node pass_node, zest_rg_resource_node texture, VkPipelineStageFlags shader_stages);
 ZEST_API void zest_AddPassStorageImageUsage(zest_rg_pass_node pass_node, zest_rg_resource_node image_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages);
 
-ZEST_API void zest_AddPassStorageBufferUsage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages);
+ZEST_API void zest_AddPassBufferUsage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages);
 ZEST_API void zest_AddPassUniformBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node ubo_resource, VkPipelineStageFlags shader_stages);
 
 //Where zest_RecordCommandQueue records and then ends the command queue ready for submitting, this will just start the recording
@@ -2620,7 +2641,7 @@ typedef struct zest_descriptor_set_layout_t {
 
 typedef struct zest_descriptor_set_t {
     int magic;
-    VkDescriptorSet descriptor_set;
+    VkDescriptorSet vk_descriptor_set;
 } zest_descriptor_set_t;
 
 typedef struct zest_shader_resources_t {
@@ -2988,9 +3009,15 @@ typedef struct zest_layer_builder_t {
 
 //This struct must be filled and attached to the draw routine that implements imgui as user data
 typedef struct zest_imgui_layer_info_t {
+    int magic;
 	zest_texture font_texture;
-	zest_layer mesh_layer;
 	zest_pipeline_template pipeline;
+    zest_descriptor_pool descriptor_pool;
+    zest_descriptor_set_t descriptor_set;
+    zest_buffer vertex_staging_buffer;
+    zest_buffer index_staging_buffer;
+    zest_push_constants_t push_constants;
+    zest_shader_resources shader_resources;
 } zest_imgui_layer_info_t;
 
 typedef struct zest_font_character_t {
@@ -3400,6 +3427,7 @@ typedef struct zest_renderer_t {
     zest_pipeline *pipeline_recreate_queue;
     zest_pipeline_handles_t *pipeline_destroy_queue;
     zest_uint current_frame;
+    zest_destruction_queue_t deferred_resource_freeing_list;
 
     //Threading
     zest_work_queue_t work_queue;
@@ -3586,6 +3614,7 @@ ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_o
 ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount, VkCommandBuffer command_buffer);
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage image, VkAccessFlags from_access, VkAccessFlags to_access, VkImageLayout from_layout, VkImageLayout to_layout, zest_uint target_mip_level, zest_uint mip_count);
+ZEST_PRIVATE VkBufferMemoryBarrier zest__create_buffer_memory_barrier( VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkDeviceSize offset, VkDeviceSize size);
 ZEST_PRIVATE void zest__place_fragment_barrier(VkCommandBuffer command_buffer, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE VkRenderPass zest__create_render_pass(VkFormat render_format, VkImageLayout initial_layout, VkImageLayout final_layout, VkAttachmentLoadOp load_op, zest_bool depth_buffer);
@@ -3838,7 +3867,7 @@ ZEST_API void zest_FreeShader(zest_shader shader);
 //pass in an empty array of VkDescriptorSets. Set this array up as simple an 0 pointer and the function will allocate the space for the
 //descriptor sets. This means that it's a good idea to not use a local variable. Call zest_ClearShaderResourceDescriptorSets after you've
 //bound the pipeline.
-ZEST_API zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resources, VkDescriptorSet **draw_sets, zest_uint static_index);
+ZEST_API zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resources, VkDescriptorSet **draw_sets);
 ZEST_API void zest_ClearShaderResourceDescriptorSets(VkDescriptorSet *draw_sets);
 ZEST_API zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets);
 //Create command buffers which you can record to for draw command queues
@@ -4933,7 +4962,7 @@ ZEST_API void zest_Draw3DLine(zest_layer layer, float start_point[3], float end_
 //        sampling. You can use a simple application for generating these files in the examples:
 //        zest-msdf-font-maker
 //-----------------------------------------------
-//Before drawing any fonts you must call this function in order to set the font you want to use. the zest_font handle can be used to get the descriptor_set and pipeline. See
+//Before drawing any fonts you must call this function in order to set the font you want to use. the zest_font handle can be used to get the vk_descriptor_set and pipeline. See
 //zest-fonts for an example.
 ZEST_API void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font);
 //Set the shadow parameters of your font drawing. This only applies to the current call of zest_SetMSDFFontDrawing. For each text that you want different settings for you must

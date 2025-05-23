@@ -9,28 +9,23 @@ void zest_imgui_RebuildFontTexture(zest_imgui_layer_info_t *imgui_layer_info, ze
     zest_ResetTexture(imgui_layer_info->font_texture);
     zest_image font_image = zest_AddTextureImageBitmap(imgui_layer_info->font_texture, &font_bitmap);
     zest_ProcessTextureImages(imgui_layer_info->font_texture);
-    zest_RefreshTextureDescriptors(imgui_layer_info->font_texture);
+
+	zest_descriptor_set_t *set = &imgui_layer_info->descriptor_set;
+    zest_descriptor_set_builder_t builder = zest_BeginDescriptorSetBuilder(zest_GetDescriptorSetLayout("Combined Sampler"));
+	zest_AddSetBuilderCombinedImageSampler(&builder, 0, 0, imgui_layer_info->font_texture->sampler->vk_sampler, zest_GetTextureDescriptorImageInfo(imgui_layer_info->font_texture)->imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    set->vk_descriptor_set = zest_FinishDescriptorSet(imgui_layer_info->descriptor_pool, &builder, set->vk_descriptor_set);
+    
     ImGuiIO &io = ImGui::GetIO();
     io.Fonts->SetTexID((ImTextureID)font_image);
 }
 
-void zest_imgui_CreateLayer(zest_imgui_layer_info_t *imgui_layer_info) {
-    imgui_layer_info->mesh_layer = zest_NewMeshLayer("imgui mesh layer", sizeof(ImDrawVert));
-    imgui_layer_info->pipeline = zest_PipelineTemplate("pipeline_imgui");
-    zest_ContextDrawRoutine()->record_callback = zest_imgui_DrawLayer;
-    zest_ContextDrawRoutine()->condition_callback = zest_imgui_RecordCondition;
-    zest_ContextDrawRoutine()->user_data = imgui_layer_info;
-    zest_SetLayerToManualFIF(imgui_layer_info->mesh_layer);
-}
-
-void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) {
-    zest_layer_t *imgui_layer = layer_info->mesh_layer;
-
-    VkCommandBuffer command_buffer = zest_BeginRecording(imgui_layer->draw_routine->recorder, imgui_layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
+void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_imgui_layer_info_t *layer_info, zest_buffer vertex_buffer, zest_buffer index_buffer) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
-    zest_BindMeshVertexBuffer(command_buffer, imgui_layer);
-    zest_BindMeshIndexBuffer(command_buffer, imgui_layer);
+    VkCommandBuffer command_buffer = context->command_buffer;
+
+    zest_BindVertexBuffer(command_buffer, vertex_buffer);
+    zest_BindIndexBuffer(command_buffer, index_buffer);
 
     zest_pipeline_template last_pipeline = ZEST_NULL;
     VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
@@ -61,13 +56,13 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
                     current_image = zest_GetRenderTargetImage(render_target);
                 }
 
-                zest_push_constants_t *push_constants = &imgui_layer->push_constants;
+                zest_push_constants_t *push_constants = &layer_info->push_constants;
 
-				zest_pipeline pipeline = zest_PipelineWithTemplate(layer_info->pipeline, ZestRenderer->current_render_pass);
+				zest_pipeline pipeline = zest_PipelineWithTemplate(layer_info->pipeline, context->render_pass);
                 switch (current_image->struct_type) {
                 case zest_struct_type_image:
-                    if (last_pipeline != layer_info->pipeline || last_descriptor_set != zest_GetTextureDescriptorSetVK(current_image->texture)) {
-                        last_descriptor_set = zest_GetTextureDescriptorSetVK(current_image->texture);
+                    if (last_pipeline != layer_info->pipeline || last_descriptor_set != layer_info->descriptor_set.vk_descriptor_set) {
+                        last_descriptor_set = layer_info->descriptor_set.vk_descriptor_set;
                         zest_BindPipeline(command_buffer, pipeline, &last_descriptor_set, 1);
                         last_pipeline = layer_info->pipeline;
                     }
@@ -75,22 +70,23 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
                     break;
                 case zest_struct_type_imgui_image:
                 {
+                    /*
                     zest_imgui_image_t *imgui_image = (zest_imgui_image_t *)pcmd->TextureId;
                     //The imgui image must have its image, pipeline and shader resources defined
                     ZEST_ASSERT(imgui_image->image);
-                    zest_ClearLayerDrawSets(imgui_layer);
-                    zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &imgui_layer->draw_sets, imgui_layer->draw_routine->fif);
-					pipeline = zest_PipelineWithTemplate(layer_info->pipeline, ZestRenderer->current_render_pass);
+                    zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &imgui_layer->draw_sets);
+					pipeline = zest_PipelineWithTemplate(layer_info->pipeline, context->render_pass);
                     zest_BindPipeline(command_buffer, pipeline, imgui_layer->draw_sets, set_count);
                     last_descriptor_set = VK_NULL_HANDLE;
                     last_pipeline = imgui_image->pipeline;
                     push_constants = &imgui_image->push_constants;
                     push_constants->parameters2.x = (float)imgui_image->image->layer;
+                    */
                 }
                 break;
                 default:
                     //Invalid image
-					pipeline = zest_PipelineWithTemplate(layer_info->pipeline, ZestRenderer->current_render_pass);
+					pipeline = zest_PipelineWithTemplate(layer_info->pipeline, context->render_pass);
                     ZEST_PRINT_WARNING("%s", "Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
                     continue;
                 }
@@ -122,7 +118,6 @@ void zest_imgui_RecordLayer(zest_imgui_layer_info_t *layer_info, zest_uint fif) 
     }
     VkRect2D scissor = { { 0, 0 }, { zest_SwapChainWidth(), zest_SwapChainHeight() } };
     vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-    zest_EndRecording(imgui_layer->draw_routine->recorder, ZEST_FIF);
 }
 
 void zest_imgui_DrawLayer(struct zest_work_queue_t *queue, void *data) {
@@ -133,38 +128,56 @@ void zest_imgui_DrawLayer(struct zest_work_queue_t *queue, void *data) {
     assert(layer_info);	//Must set user data as layer info is referenced later
    
     if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
-        zest_imgui_RecordLayer(layer_info, ZEST_FIF);
+        //zest_imgui_RecordLayer(layer_info, ZEST_FIF);
     }
 }
 
-void zest_imgui_UpdateBuffers(zest_layer imgui_layer) {
+zest_rg_resource_node zest_imgui_AddTransientVertexResources(zest_render_graph render_graph, const char *name) {
+    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+    if (imgui_draw_data) {
+        zest_buffer_description_t buffer_desc = { 0 };
+        buffer_desc.size = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
+        buffer_desc.buffer_info = zest_CreateVertexBufferInfo(0);
+        return zest_AddTransientBufferResource(render_graph, name, &buffer_desc);
+    }
+    return NULL;
+}
+
+zest_rg_resource_node zest_imgui_AddTransientIndexResources(zest_render_graph render_graph, const char *name) {
+    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+    if (imgui_draw_data) {
+        zest_buffer_description_t buffer_desc = { 0 };
+        buffer_desc.size = imgui_draw_data->TotalVtxCount * sizeof(ImDrawIdx);
+        buffer_desc.buffer_info = zest_CreateIndexBufferInfo(0);
+        return zest_AddTransientBufferResource(render_graph, name, &buffer_desc);
+    }
+    return NULL;
+}
+
+void zest_imgui_UpdateBuffers(zest_imgui_layer_info_t *imgui_layer) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
-    zest_buffer vertex_buffer = zest_GetVertexWriteBuffer(imgui_layer);
-    zest_buffer index_buffer = zest_GetIndexWriteBuffer(imgui_layer);
-
     if (imgui_draw_data) {
-        index_buffer->memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
-        vertex_buffer->memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
-    } else {
-        index_buffer->memory_in_use = 0;
-        vertex_buffer->memory_in_use = 0;
-    }
+		zest_buffer vertex_buffer = imgui_layer->vertex_staging_buffer;
+		zest_buffer index_buffer = imgui_layer->index_staging_buffer;
+        ZEST_ASSERT(vertex_buffer); //Make sure you call zest_imgui_Initialise first!
+        ZEST_ASSERT(index_buffer);	//Make sure you call zest_imgui_Initialise first!
 
-    imgui_layer->push_constants.parameters1 = zest_Vec4Set(2.0f / zest_ScreenWidthf(), 2.0f / zest_ScreenHeightf(), -1.f, -1.f);
-    imgui_layer->push_constants.parameters2 = zest_Vec4Set1(0.f);
+		index_buffer->memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
+		vertex_buffer->memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
 
-    zest_buffer device_vertex_buffer = zest_GetVertexDeviceBuffer(imgui_layer);
-    zest_buffer device_index_buffer = zest_GetIndexDeviceBuffer(imgui_layer);
+		imgui_layer->push_constants.parameters1 = zest_Vec4Set(2.0f / zest_ScreenWidthf(), 2.0f / zest_ScreenHeightf(), -1.f, -1.f);
+		imgui_layer->push_constants.parameters2 = zest_Vec4Set1(0.f);
 
-    if (imgui_draw_data) {
         if (index_buffer->memory_in_use > index_buffer->size) {
-            zest_GrowMeshIndexBuffers(imgui_layer);
-            index_buffer = zest_GetIndexWriteBuffer(imgui_layer);
+			zest_size memory_in_use = index_buffer->memory_in_use;
+			zest_GrowBuffer(&index_buffer, sizeof(ImDrawIdx), memory_in_use);
+            imgui_layer->index_staging_buffer = index_buffer;
         }
         if (vertex_buffer->memory_in_use > vertex_buffer->size) {
-            zest_GrowMeshVertexBuffers(imgui_layer);
-            vertex_buffer = zest_GetVertexWriteBuffer(imgui_layer);
+			zest_size memory_in_use = vertex_buffer->memory_in_use;
+			zest_GrowBuffer(&vertex_buffer, sizeof(ImDrawVert), memory_in_use);
+            imgui_layer->vertex_staging_buffer = vertex_buffer;
         }
         ImDrawIdx *idxDst = (ImDrawIdx *)index_buffer->data;
         ImDrawVert *vtxDst = (ImDrawVert *)vertex_buffer->data;
