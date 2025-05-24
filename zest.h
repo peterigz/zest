@@ -1419,6 +1419,7 @@ typedef struct zest_debug_t zest_debug_t;
 typedef struct zest_render_graph_t zest_render_graph_t;
 typedef struct zest_rg_pass_node_t zest_rg_pass_node_t;
 typedef struct zest_rg_resource_node_t zest_rg_resource_node_t;
+typedef struct zest_imgui_t zest_imgui_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_render_graph)
@@ -1450,6 +1451,7 @@ ZEST__MAKE_HANDLE(zest_timer)
 ZEST__MAKE_HANDLE(zest_window)
 ZEST__MAKE_HANDLE(zest_shader)
 ZEST__MAKE_HANDLE(zest_recorder)
+ZEST__MAKE_HANDLE(zest_imgui)
 
 typedef zest_descriptor_buffer zest_uniform_buffer;
 
@@ -2219,7 +2221,7 @@ typedef struct zest_draw_commands_buffer_t {
 
 typedef struct zest_descriptor_pool_t {
     int magic;
-    VkDescriptorPool descriptor_pool;
+    VkDescriptorPool vk_descriptor_pool;
     zest_uint max_sets;
     zest_uint allocations;
     VkDescriptorPoolSize *vk_pool_sizes;
@@ -2258,6 +2260,7 @@ typedef struct zest_create_info_t {
     VkDescriptorPoolSize pool_counts[11];               //You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
     zest_uint max_descriptor_pool_sets;                 //The maximum number of descriptor pool sets for the descriptor pool. 100 is default but set to more depending on your needs.
     zest_init_flags flags;                              //Set flags to apply different initialisation options
+    zest_uint imgui_descriptor_pool_size;               //Default is 10. If you want to draw texture with imgui then you'll need to allocate descriptor sets from this pool so make it big enough for your needs.
 
     //Callbacks: use these to implement your own preferred window creation functionality
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
@@ -2618,6 +2621,7 @@ typedef struct zest_command_queue_t {
 
 typedef struct zest_descriptor_set_layout_builder_t {
     VkDescriptorSetLayoutBinding *bindings;
+    VkDescriptorBindingFlags *binding_flags;
     zest_u64 binding_indexes;
     VkDescriptorSetLayoutCreateFlags create_flags;
 } zest_descriptor_set_layout_builder_t;
@@ -2637,6 +2641,7 @@ typedef struct zest_descriptor_set_layout_t {
     zest_text_t name;
     zest_u64 binding_indexes;
     VkDescriptorSetLayoutCreateFlags create_flags;
+    zest_descriptor_pool pool;
 } zest_descriptor_set_layout_t;
 
 typedef struct zest_descriptor_set_t {
@@ -3008,17 +3013,18 @@ typedef struct zest_layer_builder_t {
 } zest_layer_builder_t;
 
 //This struct must be filled and attached to the draw routine that implements imgui as user data
-typedef struct zest_imgui_layer_info_t {
+typedef struct zest_imgui_t {
     int magic;
 	zest_texture font_texture;
 	zest_pipeline_template pipeline;
-    zest_descriptor_pool descriptor_pool;
+    zest_descriptor_set_layout descriptor_layout;
     zest_descriptor_set_t descriptor_set;
     zest_buffer vertex_staging_buffer;
     zest_buffer index_staging_buffer;
     zest_push_constants_t push_constants;
     zest_shader_resources shader_resources;
-} zest_imgui_layer_info_t;
+    VkDescriptorSet *draw_sets;
+} zest_imgui_t;
 
 typedef struct zest_font_character_t {
     char character[4];
@@ -3158,7 +3164,7 @@ typedef struct zest_image_t {
     int magic;
     zest_struct_type struct_type;
     zest_index index;            //index within the QulkanTexture
-    zest_text_t name;              //Filename of the image
+    zest_text_t name;            //Filename of the image
     zest_uint width;
     zest_uint height;
     zest_vec4 uv;                //UV coords are set after the ProcessImages function is called and the images are packed into the texture
@@ -3172,6 +3178,7 @@ typedef struct zest_image_t {
     zest_vec2 handle;            //The handle of the image. 0.5f is the center of the image
     float max_radius;            //You can load images and calculate the max radius of the image which is the furthest pixel from the center.
     zest_texture texture;        //Pointer to the texture that this image belongs to
+    VkDescriptorSet descriptor_set;            
 } zest_image_t;
 
 typedef struct zest_imgui_image_t {
@@ -3197,6 +3204,7 @@ typedef struct zest_texture_t {
     VkFormat image_format;
     VkImageViewType image_view_type;
     VkSamplerCreateInfo sampler_info;
+    zest_uint mip_levels;
 
     zest_text_t name;
 
@@ -3403,15 +3411,11 @@ typedef struct zest_renderer_t {
     zest_map_computes computes;
     zest_map_shaders shaders;
     zest_map_samplers samplers;
-    zest_descriptor_pool *user_descriptor_pools;
     zest_map_render_graph render_graphs;
 
     zest_command_queue active_command_queue;
     zest_command_queue_t empty_queue;
     zest_command_setup_context_t setup_context;
-
-    zest_descriptor_pool sampler_descriptor_pool;
-    zest_descriptor_pool uniform_descriptor_pool;
 
     zest_render_target current_render_target;
     zest_render_target root_render_target;
@@ -3440,6 +3444,9 @@ typedef struct zest_renderer_t {
 
     //Debugging
     zest_debug_t debug;
+
+    //Imgui
+    zest_imgui_t imgui_info;
 
     //Callbacks for customising window and surface creation
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
@@ -3521,7 +3528,6 @@ ZEST_PRIVATE zest_buffer_t *zest__create_depth_resources(void);
 ZEST_PRIVATE void zest__create_swap_chain_frame_buffers(zest_bool depth_buffer);
 ZEST_PRIVATE void zest__create_sync_objects(void);
 ZEST_PRIVATE zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest_uniform_buffer buffer);
-ZEST_PRIVATE void zest__make_standard_descriptor_layouts(void);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__format_shader_code(zest_text_t *code);
 ZEST_PRIVATE void zest__compile_builtin_shaders(zest_bool compile_shaders);
@@ -3659,7 +3665,7 @@ VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_descriptor_set_
 // --End Descriptor set functions
 
 // --Device_set_up
-ZEST_PRIVATE void zest__create_instance();
+ZEST_PRIVATE zest_bool zest__create_instance();
 ZEST_PRIVATE void zest__setup_validation(void);
 ZEST_PRIVATE VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
 ZEST_PRIVATE VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
@@ -3687,7 +3693,7 @@ ZEST_PRIVATE void zest_vk_free_callback(void* pUserData, void *memory);
 //App_initialise_and_run_functions
 ZEST_PRIVATE void zest__do_scheduled_tasks(void);
 ZEST_PRIVATE void zest__initialise_app(zest_create_info_t *create_info);
-ZEST_PRIVATE void zest__initialise_device();
+ZEST_PRIVATE zest_bool zest__initialise_device();
 ZEST_PRIVATE void zest__destroy(void);
 ZEST_PRIVATE void zest__main_loop(void);
 ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
@@ -3712,7 +3718,7 @@ ZEST_API zest_create_info_t zest_CreateInfoWithValidationLayers();
 //draw routines
 ZEST_API void zest_SetDescriptorPoolCount(zest_create_info_t *info, VkDescriptorType descriptor_type, zest_uint count);
 //Initialise Zest. You must call this in order to use Zest. Use zest_CreateInfo() to set up some default values to initialise the renderer.
-ZEST_API void zest_Initialise(zest_create_info_t *info);
+ZEST_API zest_bool zest_Initialise(zest_create_info_t *info);
 //Set the custom user data which will get passed through to the user update function each frame.
 ZEST_API void zest_SetUserData(void* data);
 //Set the user udpate callback that will be called each frame in the main loop of zest. You must set this or the main loop will just render a blank screen.
@@ -3731,7 +3737,8 @@ ZEST_API void zest_AddInstanceExtension(char *extension);
 ZEST_API zest_window zest_AllocateWindow(void);
 //Create a descriptor pool based on a descriptor set layout. This will take the max sets value and create a pool 
 //with enough descriptor pool types based on the bindings found in the layout
-ZEST_API zest_descriptor_pool zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layout layout, zest_uint max_set_count, VkDescriptorPoolCreateFlags pool_flags);
+ZEST_API zest_descriptor_pool zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags);
+ZEST_API zest_descriptor_pool zest_CreateDescriptorPoolForLayoutBindless(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags);
 //Reset a descriptor pool. This invalidates all descriptor sets current allocated from the pool so you can reallocate them.
 ZEST_API void zest_ResetDescriptorPool(zest_descriptor_pool pool);
 //Destroys the VkDescriptorPool and frees the zest_descriptor_pool and all contents
@@ -3741,8 +3748,20 @@ ZEST_API void zest_FreeDescriptorPool(zest_descriptor_pool pool);
 ZEST_API zest_descriptor_set_layout_builder_t zest_BeginDescriptorSetLayoutBuilder();
 //Set the create flags that you need for teh descriptor layout that you're building
 void zest_SetLayoutBuilderCreateFlags(zest_descriptor_set_layout_builder_t *builder, VkDescriptorSetLayoutCreateFlags flags);
-//Set the current stage flags in the shader. These flags will then be applied to subsequent builder functions until you call this again
-void zest_AddLayoutBuilderBinding( zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, VkDescriptorType descriptor_type, zest_uint descriptor_count, VkShaderStageFlags stage_flags, const VkSampler *p_immutable_samplers);
+
+ZEST_API void zest_AddLayoutBuilderBindingBindless( zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, VkDescriptorType descriptor_type, zest_uint descriptor_count, VkShaderStageFlags stage_flags, VkDescriptorBindingFlags binding_flags, const VkSampler *p_immutable_samplers);
+//Add a descriptor set layout binding to a layout builder for a sampler in the fragment shader.
+ZEST_API void zest_AddLayoutBuilderSamplerBindless(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_texture_count);
+//Add a descriptor set layout binding to a layout builder for a sampled image in the fragment shader.
+ZEST_API void zest_AddLayoutBuilderSampledImageBindless(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_texture_count);
+//Add a descriptor set layout binding to a layout builder for a sampled image in the fragment shader.
+ZEST_API void zest_AddLayoutBuilderCombinedImageSamplerBindless(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_texture_count);
+//Add a descriptor set layout binding to a layout builder for a sampled image in the fragment shader.
+ZEST_API void zest_AddLayoutBuilderUniformBufferBindless(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count, VkShaderStageFlags shader_stages);
+//Add a descriptor set layout binding to a layout builder for a sampled image in the fragment shader.
+ZEST_API void zest_AddLayoutBuilderStorageBufferBindless(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count, VkShaderStageFlags shader_stages);
+
+ZEST_API void zest_AddLayoutBuilderBinding(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, VkDescriptorType descriptor_type, zest_uint descriptor_count, VkShaderStageFlags stage_flags, const VkSampler *p_immutable_samplers);
 //Add a descriptor set layout binding to a layout builder for a sampler in the fragment shader.
 ZEST_API void zest_AddLayoutBuilderSampler(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, zest_uint descriptor_count);
 //Add a descriptor set layout binding to a layout builder for a sampled image in the fragment shader.
@@ -3753,8 +3772,13 @@ ZEST_API void zest_AddLayoutBuilderCombinedImageSampler(zest_descriptor_set_layo
 ZEST_API void zest_AddLayoutBuilderUniformBuffer(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, zest_uint descriptor_count, VkShaderStageFlags shader_stages);
 //Add a descriptor set layout binding to a layout builder for a sampled image in the fragment shader.
 ZEST_API void zest_AddLayoutBuilderStorageBuffer(zest_descriptor_set_layout_builder_t *builder, zest_uint binding_number, zest_uint descriptor_count, VkShaderStageFlags shader_stages);
+
+//Build the descriptor set layout and add it to the renderer. This is for large global descriptor set layouts
+ZEST_API zest_descriptor_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_descriptor_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, VkDescriptorPoolCreateFlags additional_pool_flags, const char *name, ...);
 //Build the descriptor set layout and add it to the render. The layout is also returned from the function.
 ZEST_API zest_descriptor_set_layout zest_FinishDescriptorSetLayout(zest_descriptor_set_layout_builder_t *builder, const char *name, ...);
+//Create a simple global layout for use that includes uniform buffer and combined image sampler. Enough for simple
+
 //Create a vulkan descriptor layout binding for use in setting up a descriptor set layout. This is a more general function for setting up whichever layout binding
 //you need. Just pass in the VkDescriptorType, VkShaderStageFlags, the binding number (which will correspond to the binding in the shader, and the number of descriptors
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateDescriptorLayoutBinding(VkDescriptorType type, VkShaderStageFlags stageFlags, zest_uint binding, zest_uint descriptorCount);

@@ -1,7 +1,7 @@
 #include "impl_imgui_sdl2.h"
 #include "imgui_internal.h"
 
-void zest_imgui_Initialise(zest_imgui_layer_info_t *imgui_layer_info) {
+void zest_imgui_Initialise(zest_imgui_t *imgui_layer_info) {
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());

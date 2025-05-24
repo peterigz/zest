@@ -73,7 +73,7 @@ struct ComputeExample {
 
 	tfx_render_resources_t tfx_rendering;
 
-	zest_imgui_layer_info_t imgui_layer_info;
+	zest_imgui_t imgui_layer_info;
 	tfx_gpu_shapes gpu_image_data;
 	zest_push_constants_t push_contants;
 	zest_timer timer;

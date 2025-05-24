@@ -48,7 +48,7 @@ struct TimelineFXExample {
 	tfx_effect_template effect_template2;
 
 	tfxEffectID effect_id;
-	zest_imgui_layer_info_t imgui_layer_info;
+	zest_imgui_t imgui_layer_info;
 
 	void Init();
 };

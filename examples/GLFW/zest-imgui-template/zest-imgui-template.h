@@ -9,10 +9,10 @@
 #include <imgui/backends/imgui_impl_glfw.h>
 
 struct ImGuiApp {
-	zest_imgui_layer_info_t imgui_layer_info;
 	zest_index imgui_draw_routine_index;
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;
+	VkDescriptorSet test_descriptor_set;
 	zest_image test_image;
 	zest_timer timer;
 	zest_command_queue command_queue;

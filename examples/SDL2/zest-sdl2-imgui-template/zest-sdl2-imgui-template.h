@@ -9,7 +9,7 @@
 #include <imgui/backends/imgui_impl_sdl2.h>
 
 struct ImGuiApp {
-	zest_imgui_layer_info_t imgui_layer_info;
+	zest_imgui_t imgui_layer_info;
 	zest_index imgui_draw_routine_index;
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;

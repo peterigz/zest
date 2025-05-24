@@ -53,7 +53,7 @@ struct TimelineFXExample {
 
 	tfx_vector_t<tfxEffectID> test_effects;
 
-	zest_imgui_layer_info_t imgui_layer_info;
+	zest_imgui_t imgui_layer_info;
 	tfx_random_t random;
 	tfx_vector_t<tfx_pool_stats_t> memory_stats;
 

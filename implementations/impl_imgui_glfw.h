@@ -6,5 +6,5 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
-void zest_imgui_Initialise(zest_imgui_layer_info_t *imgui_layer_info);
+zest_imgui zest_imgui_Initialise();
 

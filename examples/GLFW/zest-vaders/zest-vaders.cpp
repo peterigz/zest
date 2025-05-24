@@ -149,7 +149,7 @@ struct VadersGame {
 	tfxEffectID background_index;
 	tfxEffectID title_index;
 	zest_font font;
-	zest_imgui_layer_info_t imgui_layer_info;
+	zest_imgui_t imgui_layer_info;
 	zest_layer font_layer;
 	zest_layer billboard_layer;
 	zest_uint particle_ds_index;
