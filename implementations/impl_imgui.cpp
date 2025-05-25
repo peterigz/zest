@@ -7,14 +7,10 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     zest_WaitForIdleDevice();
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+	imgui_info->font_texture = zest_ReplaceTexture(imgui_info->font_texture, zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
     zest_ResetTexture(imgui_info->font_texture);
     zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, &font_bitmap);
     zest_ProcessTextureImages(imgui_info->font_texture);
-
-	zest_descriptor_set_t *set = &imgui_info->descriptor_set;
-    zest_descriptor_set_builder_t builder = zest_BeginDescriptorSetBuilder(imgui_info->descriptor_layout);
-	zest_AddSetBuilderCombinedImageSampler(&builder, 0, 0, imgui_info->font_texture->sampler->vk_sampler, zest_GetTextureDescriptorImageInfo(imgui_info->font_texture)->imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    set->vk_descriptor_set = zest_FinishDescriptorSet(imgui_info->descriptor_layout->pool, &builder, set->vk_descriptor_set);
     
     ImGuiIO &io = ImGui::GetIO();
     io.Fonts->SetTexID((ImTextureID)font_image);
@@ -63,8 +59,8 @@ void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_buf
 				zest_pipeline pipeline = zest_PipelineWithTemplate(imgui_info->pipeline, context->render_pass);
                 switch (current_image->struct_type) {
                 case zest_struct_type_image:
-                    if (last_pipeline != imgui_info->pipeline || last_descriptor_set != imgui_info->descriptor_set.vk_descriptor_set) {
-                        last_descriptor_set = imgui_info->descriptor_set.vk_descriptor_set;
+                    if (last_pipeline != imgui_info->pipeline || last_descriptor_set != current_image->texture->debug_set.vk_descriptor_set) {
+                        last_descriptor_set = current_image->texture->debug_set.vk_descriptor_set;
                         zest_BindPipeline(command_buffer, pipeline, &last_descriptor_set, 1);
                         last_pipeline = imgui_info->pipeline;
                     }
@@ -200,7 +196,6 @@ void zest_imgui_DrawImage(zest_image image, VkDescriptorSet set, float width, fl
     ImGuiWindow *window = GetCurrentWindow();
     const ImRect image_bb(window->DC.CursorPos + image_offset, window->DC.CursorPos + image_offset + image_size);
     ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
-    image->descriptor_set = set;
     window->DrawList->AddImage((ImTextureID)image, image_bb.Min, image_bb.Max, ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w), GetColorU32(tint_col));
 }
 

@@ -2258,9 +2258,8 @@ typedef struct zest_create_info_t {
     int thread_count;                                   //The number of threads to use if multithreading. 0 if not.
     VkFormat color_format;                              //Choose between VK_FORMAT_R8G8B8A8_UNORM and VK_FORMAT_R8G8B8A8_SRGB
     VkDescriptorPoolSize pool_counts[11];               //You can define descriptor pool counts here using the zest_SetDescriptorPoolCount for each pool type. Defaults will be added for any not defined
-    zest_uint max_descriptor_pool_sets;                 //The maximum number of descriptor pool sets for the descriptor pool. 100 is default but set to more depending on your needs.
     zest_init_flags flags;                              //Set flags to apply different initialisation options
-    zest_uint imgui_descriptor_pool_size;               //Default is 10. If you want to draw texture with imgui then you'll need to allocate descriptor sets from this pool so make it big enough for your needs.
+    zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
 
     //Callbacks: use these to implement your own preferred window creation functionality
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
@@ -2512,6 +2511,7 @@ typedef struct zest_temp_attachment_info_t {
 typedef struct zest_destruction_queue_t {
     zest_buffer *buffers[ZEST_MAX_FIF];
     zest_image_buffer_t *images[ZEST_MAX_FIF];
+    zest_texture *textures[ZEST_MAX_FIF];
 }zest_destruction_queue_t;
 
 typedef struct zest_render_graph_t {
@@ -3017,8 +3017,6 @@ typedef struct zest_imgui_t {
     int magic;
 	zest_texture font_texture;
 	zest_pipeline_template pipeline;
-    zest_descriptor_set_layout descriptor_layout;
-    zest_descriptor_set_t descriptor_set;
     zest_buffer vertex_staging_buffer;
     zest_buffer index_staging_buffer;
     zest_push_constants_t push_constants;
@@ -3178,7 +3176,6 @@ typedef struct zest_image_t {
     zest_vec2 handle;            //The handle of the image. 0.5f is the center of the image
     float max_radius;            //You can load images and calculate the max radius of the image which is the furthest pixel from the center.
     zest_texture texture;        //Pointer to the texture that this image belongs to
-    VkDescriptorSet descriptor_set;            
 } zest_image_t;
 
 typedef struct zest_imgui_image_t {
@@ -3198,7 +3195,7 @@ typedef struct zest_framebuffer_attachment_t {
 } zest_framebuffer_attachment_t;
 
 typedef struct zest_texture_t {
-    zest_resource_identifier_t identifier;
+    int magic;
     zest_struct_type struct_type;
     VkImageLayout image_layout;
     VkFormat image_format;
@@ -3212,16 +3209,15 @@ typedef struct zest_texture_t {
     zest_index image_index;                                    //Tracks the UID of image indexes in the list
     zest_uint packed_border_size;
 
-    zest_buffer stream_staging_buffer;                         //Used for stream buffers only if you need to update the texture every frame
     zest_uint texture_layer_size;
     zest_image_t texture;
     zest_bitmap_t texture_bitmap;
 
     // --- GPU data. When changing a texture that is in use, we double buffer then flip when ready
-    zest_image_buffer_t image_buffer[2];
-    VkDescriptorImageInfo descriptor_image_info[2];
+    zest_image_buffer_t image_buffer;
+    VkDescriptorImageInfo descriptor_image_info;
+    zest_descriptor_set_t debug_set;      //A descriptor set for simply sampling the texture
     zest_sampler sampler;
-    zest_uint current_index;
     // --- 
 
     //Todo: option to not keep the images in memory after they're uploaded to the graphics card
@@ -3427,11 +3423,14 @@ typedef struct zest_renderer_t {
     zest_buffer *staging_buffers;
     zest_map_textures texture_reprocess_queue;
     zest_texture *texture_cleanup_queue;
-    zest_texture *texture_delete_queue;
     zest_pipeline *pipeline_recreate_queue;
     zest_pipeline_handles_t *pipeline_destroy_queue;
     zest_uint current_frame;
     zest_destruction_queue_t deferred_resource_freeing_list;
+
+    //Each texture has a simple descriptor set with a combined image sampler for debugging purposes
+    //allocated from this pool and using the layout
+    zest_descriptor_set_layout texture_debug_layout;
 
     //Threading
     zest_work_queue_t work_queue;
@@ -3531,6 +3530,7 @@ ZEST_PRIVATE zest_uniform_buffer zest__add_uniform_buffer(const char *name, zest
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__format_shader_code(zest_text_t *code);
 ZEST_PRIVATE void zest__compile_builtin_shaders(zest_bool compile_shaders);
+ZEST_PRIVATE void zest__create_debug_layout_and_pool(zest_uint max_texture_count);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__create_empty_command_queue(zest_command_queue command_queue);
 ZEST_PRIVATE void zest__render_blank(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer);
@@ -3575,7 +3575,6 @@ ZEST_PRIVATE void zest__delete_texture_layers(zest_texture texture);
 ZEST_PRIVATE void zest__generate_mipmaps(VkImage image, VkFormat image_format, int32_t texture_width, int32_t texture_height, zest_uint mip_levels, zest_uint layer_count, VkImageLayout image_layout, VkCommandBuffer cb);
 ZEST_PRIVATE void zest__create_texture_image(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__create_texture_image_array(zest_texture texture, zest_uint mip_levels, VkCommandBuffer command_buffer);
-ZEST_PRIVATE void zest__create_texture_stream(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap, VkCommandBuffer command_buffer);
 ZEST_PRIVATE zest_byte zest__calculate_texture_layers(stbrp_rect *rects, zest_uint size, const zest_uint node_count);
 ZEST_PRIVATE void zest__make_image_bank(zest_texture texture, zest_uint size);
 ZEST_PRIVATE void zest__make_sprite_sheet(zest_texture texture);
@@ -3583,8 +3582,8 @@ ZEST_PRIVATE void zest__pack_images(zest_texture texture, zest_uint size);
 ZEST_PRIVATE void zest__update_image_vertices(zest_image image);
 ZEST_PRIVATE void zest__update_texture_single_image_meta(zest_texture texture, zest_uint width, zest_uint height);
 ZEST_PRIVATE void zest__create_texture_image_view(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
-ZEST_PRIVATE void zest__cleanup_unused_texture_buffers(zest_texture texture, zest_uint i);
 ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__create_texture_debug_set(zest_texture texture);
 
 // --Render_target_internal_functions
 ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
@@ -4500,6 +4499,7 @@ zest_texture_storage_type_render_target     Texture storage for a render target 
                                             for the texture. You can also choose from the following texture formats: 
                                             zest_texture_format_alpha = VK_FORMAT_R8_UNORM, zest_texture_format_rgba_unorm = VK_FORMAT_R8G8B8A8_UNORM, zest_texture_format_bgra_unorm = VK_FORMAT_B8G8R8A8_UNORM. */ 
 ZEST_API zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format format, zest_uint reserve_images);
+ZEST_API zest_texture zest_ReplaceTexture(zest_texture texture, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format format, zest_uint reserve_images);
 //The following are helper functions to create a texture of a given type. the texture will be set to use filtering by default
 ZEST_API zest_texture zest_CreateTexturePacked(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_texture_format format);

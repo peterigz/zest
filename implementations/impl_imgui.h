@@ -16,5 +16,6 @@ void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bo
 void zest_imgui_DrawTexturedRectRT(zest_render_target render_target, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
 bool zest_imgui_DrawButton(zest_image image, const char* user_texture_id, float width, float height, int frame_padding);
 void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned char* pixels);
+void zest_imgui_ExposeTextureToImGui(zest_texture texture);
 void zest_imgui_DarkStyle();
 

@@ -21,16 +21,6 @@ zest_imgui zest_imgui_Initialise() {
 	zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, &font_bitmap);
 	zest_ProcessTextureImages(imgui_info->font_texture);
 
-	zest_descriptor_set_layout_builder_t builder = zest_BeginDescriptorSetLayoutBuilder();
-	zest_AddLayoutBuilderCombinedImageSampler(&builder, 0, 32);
-	imgui_info->descriptor_layout = zest_FinishDescriptorSetLayout(&builder, "Imgui Layout");
-	imgui_info->descriptor_layout->pool = zest_CreateDescriptorPoolForLayout(imgui_info->descriptor_layout, ZestDevice->setup_info.imgui_descriptor_pool_size, 0);
-
-	zest_descriptor_set_t *set = &imgui_info->descriptor_set;
-    zest_descriptor_set_builder_t set_builder = zest_BeginDescriptorSetBuilder(imgui_info->descriptor_layout);
-	zest_AddSetBuilderCombinedImageSampler(&set_builder, 0, 0, imgui_info->font_texture->sampler->vk_sampler, zest_GetTextureDescriptorImageInfo(imgui_info->font_texture)->imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    set->vk_descriptor_set = zest_FinishDescriptorSet(imgui_info->descriptor_layout->pool, &set_builder, set->vk_descriptor_set);
-
 	//ImGuiPipeline
 	zest_pipeline_template imgui_pipeline = zest_CreatePipelineTemplate("pipeline_imgui");
 	imgui_pipeline->scissor.offset.x = 0;
@@ -47,7 +37,7 @@ zest_imgui zest_imgui_Initialise() {
 	imgui_pipeline->scissor.extent = zest_GetSwapChainExtent();
 	imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
 	zest_ClearPipelineTemplateDescriptorLayouts(imgui_pipeline);
-	zest_AddPipelineTemplateDescriptorLayout(imgui_pipeline, imgui_info->descriptor_layout->vk_layout);
+	zest_AddPipelineTemplateDescriptorLayout(imgui_pipeline, ZestRenderer->texture_debug_layout->vk_layout);
 	zest_FinalisePipelineTemplate(imgui_pipeline);
 
 	imgui_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;

@@ -8,7 +8,6 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_imgui_DarkStyle();
 	
 	//This is an exmaple of how to change the font that ImGui uses
-	/*
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.Fonts->Clear();
@@ -19,10 +18,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	config.PixelSnapH = true;
 	io.Fonts->AddFontFromFileTTF("examples/assets/Lato-Regular.ttf", font_size);
 	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
-	*/
 
 	//Rebuild the Zest font texture
-	//zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
+	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
 
 	//Create a texture to load in a test image to show drawing that image in an imgui window
 	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
@@ -35,7 +33,6 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->test_descriptor_set = VK_NULL_HANDLE;
 
 	app->render_graph = zest_NewRenderGraph("ImGui");
-	app->test_image->descriptor_set = app->test_descriptor_set;
 
 	app->timer = zest_CreateTimer(60);
 }
@@ -101,7 +98,12 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 				app->sync_refresh = true;
 			}
 		}
-		//ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
+		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
+		for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
+			zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
+			ImGui::Text("Free Blocks: %i, Used Blocks: %i", stats.free_blocks, stats.used_blocks);
+			ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb), Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024, stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
+		}
 		//zest_imgui_DrawImage(app->test_image, app->test_descriptor_set, 50.f, 50.f);
 		ImGui::End();
 		ImGui::Render();
@@ -116,15 +118,15 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_rg_resource_node imgui_vertex_buffer = zest_imgui_AddTransientVertexResources(app->render_graph, "Imgui Vertex Buffer");
 		zest_rg_resource_node imgui_index_buffer = zest_imgui_AddTransientIndexResources(app->render_graph, "Imgui Vertex Buffer");
 		if (imgui_vertex_buffer && imgui_index_buffer) {
-			zest_rg_resource_node imgui_font_texture = zest_ImportImageResource(app->render_graph, "imgui font", ZestRenderer->imgui_info.font_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			zest_rg_resource_node test_texture = zest_ImportImageResource(app->render_graph, "test texture", app->test_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			//zest_rg_resource_node imgui_font_texture = zest_ImportImageResource(app->render_graph, "imgui font", ZestRenderer->imgui_info.font_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			//zest_rg_resource_node test_texture = zest_ImportImageResource(app->render_graph, "test texture", app->test_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			zest_rg_pass_node imgui_upload_pass = zest_AddPassNode(app->render_graph, "Upload ImGui", UploadImGuiPass);
 			zest_AddPassTransferDst(imgui_upload_pass, imgui_vertex_buffer);
 			zest_AddPassTransferDst(imgui_upload_pass, imgui_index_buffer);
 			zest_rg_pass_node imgui_pass = zest_AddPassNode(app->render_graph, "Draw ImGui", DrawImGuiRenderPass);
 			zest_AddPassBufferUsage(imgui_pass, imgui_vertex_buffer, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
 			zest_AddPassBufferUsage(imgui_pass, imgui_index_buffer, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
-			zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+			//zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		} else {
 			//Just render a blank screen if imgui didn't render anything
@@ -141,7 +143,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	zest_create_info_t create_info = zest_CreateInfo();
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
     create_info.log_path = ".";

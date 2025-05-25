@@ -187,6 +187,13 @@ extern "C" {
 		zloc_size memory_offset;
 	} zloc_remote_header;
 
+    typedef struct zloc_pool_stats_t {
+        int used_blocks;
+        int free_blocks;
+        zloc_size free_size;
+        zloc_size used_size;
+    } zloc_pool_stats_t;
+
 #define zloc__map_size (remote_size ? remote_size : size)
 #define zloc__do_size_class_callback(block) allocator->get_block_size_callback(block)
 #define zloc__do_merge_next_callback allocator->merge_next_callback(allocator->user_data, block, next_block)
@@ -393,6 +400,7 @@ extern "C" {
 	@param zloc_size				The bytes per block you want it to be set to. Must be a power of 2
 */
 	ZLOC_API void zloc_SetMinimumAllocationSize(zloc_allocator *allocator, zloc_size size);
+    zloc_pool_stats_t zloc_CreateMemorySnapshot(zloc_header *first_block);
 
 #if defined(ZLOC_ENABLE_REMOTE_MEMORY)
 	/*
@@ -1181,6 +1189,29 @@ int zloc_SafeCopyBlock(void *dst_block_start, void *dst, void *src, zloc_size si
     }
     memcpy(dst, src, size);
     return 1;
+}
+
+zloc_pool_stats_t zloc_CreateMemorySnapshot(zloc_header *first_block) {
+    zloc_pool_stats_t stats = { 0 };
+    zloc_header *current_block = first_block;
+    while (!zloc__is_last_block_in_pool(current_block)) {
+        if (zloc__is_free_block(current_block)) {
+            stats.free_blocks++;
+            stats.free_size += zloc__block_size(current_block);
+        } else {
+            stats.used_blocks++;
+            stats.used_size += zloc__block_size(current_block);
+        }
+        current_block = zloc__next_physical_block(current_block);
+    }
+    if (zloc__is_free_block(current_block)) {
+        stats.free_blocks++;
+        stats.free_size += zloc__block_size(current_block);
+    } else {
+        stats.used_blocks++;
+        stats.used_size += zloc__block_size(current_block);
+    }
+    return stats;
 }
 
 #if defined(ZLOC_ENABLE_REMOTE_MEMORY)
