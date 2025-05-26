@@ -32,7 +32,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Create a descriptor set for imgui to use when drawing from the Bunny texture
 	app->test_descriptor_set = VK_NULL_HANDLE;
 
-	app->render_graph = zest_NewRenderGraph("ImGui");
+	app->render_graph = zest_NewRenderGraph("ImGui", true);
 
 	app->timer = zest_CreateTimer(60);
 }
@@ -120,15 +120,15 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_rg_resource_node imgui_vertex_buffer = zest_imgui_AddTransientVertexResources(app->render_graph, "Imgui Vertex Buffer");
 		zest_rg_resource_node imgui_index_buffer = zest_imgui_AddTransientIndexResources(app->render_graph, "Imgui Vertex Buffer");
 		if (imgui_vertex_buffer && imgui_index_buffer) {
-			//zest_rg_resource_node imgui_font_texture = zest_ImportImageResource(app->render_graph, "imgui font", ZestRenderer->imgui_info.font_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			//zest_rg_resource_node test_texture = zest_ImportImageResource(app->render_graph, "test texture", app->test_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			zest_rg_resource_node imgui_font_texture = zest_ImportImageResource(app->render_graph, "imgui font", ZestRenderer->imgui_info.font_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			zest_rg_resource_node test_texture = zest_ImportImageResource(app->render_graph, "test texture", app->test_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			zest_rg_pass_node imgui_upload_pass = zest_AddTransferPassNode(app->render_graph, "Upload ImGui", UploadImGuiPass);
 			zest_AddPassTransferDst(imgui_upload_pass, imgui_vertex_buffer);
 			zest_AddPassTransferDst(imgui_upload_pass, imgui_index_buffer);
 			zest_rg_pass_node imgui_pass = zest_AddGraphicPassNode(app->render_graph, "Draw ImGui", DrawImGuiRenderPass);
 			zest_AddPassBufferUsage(imgui_pass, imgui_vertex_buffer, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
 			zest_AddPassBufferUsage(imgui_pass, imgui_index_buffer, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
-			//zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+			zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		} else {
 			//Just render a blank screen if imgui didn't render anything
@@ -145,7 +145,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	//Implement GLFW for window creation

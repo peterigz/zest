@@ -7236,13 +7236,16 @@ char* zest_ReadEntireFile(const char* file_name, zest_bool terminate) {
 // --End General Helper Functions
 
 // --Render Graph functions
-zest_render_graph zest_NewRenderGraph(const char *name) {
+zest_render_graph zest_NewRenderGraph(const char *name, bool force_on_graphics_queue) {
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->render_graphs, name));
     zest_render_graph_t blank = { 0 };
     zest_render_graph render_graph = ZEST__NEW(zest_render_graph);
     *render_graph = blank;
     render_graph->magic = zest_INIT_MAGIC;
     render_graph->name = name;
+    if(force_on_graphics_queue) {
+        render_graph->flags |= zest_render_graph_force_on_graphics_queue;
+    }
     VkSemaphoreCreateInfo semaphore_info = { 0 };
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     zest_map_insert(ZestRenderer->render_graphs, name, render_graph);
@@ -8253,11 +8256,13 @@ zest_rg_pass_node zest_AddGraphicPassNode(zest_render_graph render_graph, const 
 }
 
 zest_rg_pass_node zest_AddComputePassNode(zest_render_graph render_graph, const char *name, zest_rg_execution_callback callback) {
-    return zest__add_pass_node(render_graph, name, callback, zest_queue_compute);
+    bool force_graphics_queue = render_graph->flags & zest_render_graph_force_on_graphics_queue > 0;
+    return zest__add_pass_node(render_graph, name, callback, force_graphics_queue ? zest_queue_graphics : zest_queue_compute);
 }
 
 zest_rg_pass_node zest_AddTransferPassNode(zest_render_graph render_graph, const char *name, zest_rg_execution_callback callback) {
-    return zest__add_pass_node(render_graph, name, callback, zest_queue_transfer);
+    bool force_graphics_queue = render_graph->flags & zest_render_graph_force_on_graphics_queue > 0;
+    return zest__add_pass_node(render_graph, name, callback, force_graphics_queue ? zest_queue_graphics : zest_queue_transfer);
 }
 
 void zest_SetPassUserData(zest_rg_pass_node pass_node, void *user_data) {

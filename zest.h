@@ -1366,6 +1366,7 @@ typedef zest_uint zest_resource_node_flags;
 typedef enum zest_render_graph_flag_bits {
     zest_render_graph_flag_none                     = 0,
     zest_render_graph_expecting_swap_chain_usage    = 1 << 0,
+    zest_render_graph_force_on_graphics_queue       = 1 << 1,
 } zest_render_graph_flag_bits;
 
 typedef zest_uint zest_render_graph_flags;
@@ -2567,7 +2568,7 @@ ZEST_API zest_bool zest_AcquireSwapChainImage(void);
 
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 
-ZEST_API zest_render_graph zest_NewRenderGraph(const char *name);
+ZEST_API zest_render_graph zest_NewRenderGraph(const char *name, bool force_on_graphics_queue);
 ZEST_API bool zest_BeginRenderGraph(zest_render_graph render_graph);
 ZEST_API bool zest_BeginRenderToScreen(zest_render_graph render_graph);
 ZEST_API void zest_EndRenderGraph(zest_render_graph render_graph);
