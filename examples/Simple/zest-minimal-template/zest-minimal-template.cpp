@@ -12,10 +12,17 @@ void ExampleRenderPassCallback(
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_render_graph render_graph = static_cast<zest_render_graph>(user_data);
 
+	/*
+	for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
+		zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
+		ZEST_PRINT("%zu, %zu", stats.free_blocks, stats.used_blocks);
+	}
+	*/
+
 	// 2. Begin Render Graph Definition
 	if (zest_BeginRenderToScreen(render_graph)) {
 		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource( render_graph, "Swapchain Output" );
-		zest_rg_pass_node clear_pass = zest_AddPassNode( render_graph, "Clear Swapchain Pass", ExampleRenderPassCallback );
+		zest_rg_pass_node clear_pass = zest_AddGraphicPassNode( render_graph, "Clear Swapchain Pass", ExampleRenderPassCallback );
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} }; 
 		zest_AddPassSwapChainOutput( clear_pass, swapchain_output_resource, clear_color);
 		zest_EndRenderGraph(render_graph);
