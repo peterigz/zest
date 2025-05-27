@@ -4531,7 +4531,7 @@ void zest_AddSetBuilderSampler( zest_descriptor_set_builder_t *builder, zest_uin
     zest_AddSetBuilderWrite(builder, dst_binding, dst_array_element, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &image_info, NULL, NULL);
 }
 
-ZEST_API void zest_AddSetBuilderCombinedImageSampler( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, VkSampler sampler_handle, VkImageView image_view_handle, VkImageLayout layout) {
+void zest_AddSetBuilderCombinedImageSampler( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, VkSampler sampler_handle, VkImageView image_view_handle, VkImageLayout layout) {
     // If the layout has an immutable sampler for this binding, sampler_handle here should ideally be NULL
     // and the verification in zest_AddSetBuilderWrite will check/warn.
     // If not immutable, sampler_handle must be valid.
@@ -4545,7 +4545,7 @@ ZEST_API void zest_AddSetBuilderCombinedImageSampler( zest_descriptor_set_builde
     zest_AddSetBuilderWrite(builder, dst_binding, dst_array_element, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &image_info, NULL, NULL);
 }
 
-ZEST_API void zest_AddSetBuilderCombinedImageSamplers( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uint count, const VkDescriptorImageInfo *p_image_infos ) {
+void zest_AddSetBuilderCombinedImageSamplers( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uint count, const VkDescriptorImageInfo *p_image_infos ) {
     zest_AddSetBuilderWrite(builder, dst_binding, dst_array_element, count, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, p_image_infos, NULL, NULL);
 }
 
@@ -4553,7 +4553,7 @@ void zest_AddSetBuilderDirectImageWrite( zest_descriptor_set_builder_t *builder,
     zest_AddSetBuilderWrite(builder, dst_binding, dst_array_element, 1, type, image_info, NULL, NULL);
 }
 
-ZEST_API void zest_AddSetBuilderUniformBuffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer uniform_buffer, zest_uint fif) {
+void zest_AddSetBuilderUniformBuffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer uniform_buffer, zest_uint fif) {
     ZEST_CHECK_HANDLE(uniform_buffer);
     VkDescriptorBufferInfo buffer_info = uniform_buffer->descriptor_info[fif];
     zest_AddSetBuilderWrite(builder, dst_binding, dst_array_element, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, NULL, &buffer_info, NULL);
@@ -8535,252 +8535,264 @@ void zest_SetPassUserData(zest_rg_pass_node pass_node, void *user_data) {
     pass_node->user_data = user_data;
 }
 
-void zest_AddPassInputDetailed( zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc) {
-    ZEST_CHECK_HANDLE(pass_node); // Assuming your validation macros
-    if (!pass_node || !usage_desc) return;
+void zest_add_pass_buffer_usage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, zest_resource_access_purpose purpose, VkShaderStageFlags relevant_shader_stages, zest_bool is_output) {
+    zest_resource_usage_t usage = { 0 }; // Your internal struct to store resolved flags
+    usage.resource_node = buffer_resource;
 
-    // Create an internal zest_resource_usage_t from usage_desc
-    zest_resource_usage_t internal_usage = { 0 };
-    internal_usage.resource_node = usage_desc->resource_node;
-    internal_usage.stage_mask = usage_desc->stage_mask;
-    internal_usage.access_mask = usage_desc->access_mask;
-    internal_usage.image_layout = usage_desc->image_layout; // Store the target layout
-    internal_usage.aspect_flags = usage_desc->aspect_flags;
-
-    internal_usage.load_op = usage_desc->load_op;
-    internal_usage.store_op = usage_desc->store_op; // Usually DONT_CARE for pure inputs
-    internal_usage.stencil_load_op = usage_desc->stencil_load_op;
-    internal_usage.stencil_store_op = usage_desc->stencil_store_op; // Usually DONT_CARE
-    internal_usage.clear_value = usage_desc->clear_value;
-
-    zest_vec_linear_push(ZestRenderer->render_graph_allocator, pass_node->inputs, internal_usage);
-}
-
-void zest_AddPassOutputDetailed( zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc) {
-    ZEST_CHECK_HANDLE(pass_node);
-    if (!pass_node || !usage_desc) return;
-
-    zest_resource_usage_t internal_usage = { 0 };
-    internal_usage.resource_node = usage_desc->resource_node;
-    internal_usage.stage_mask = usage_desc->stage_mask;
-    internal_usage.access_mask = usage_desc->access_mask;
-    internal_usage.image_layout = usage_desc->image_layout; // Store the target layout
-
-    internal_usage.aspect_flags = usage_desc->aspect_flags;
-    internal_usage.load_op = usage_desc->load_op;
-    internal_usage.store_op = usage_desc->store_op;
-    internal_usage.stencil_load_op = usage_desc->stencil_load_op;
-    internal_usage.stencil_store_op = usage_desc->stencil_store_op;
-    internal_usage.clear_value = usage_desc->clear_value;
-
-    // This would push to your pass_node->outputs dynamic array
-    zest_vec_linear_push(ZestRenderer->render_graph_allocator, pass_node->outputs, internal_usage);
-}
-
-void zest_AddPassSwapChainOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkClearColorValue clear_color) {
-    ZEST_CHECK_HANDLE(pass_node);
-    ZEST_ASSERT(color_target->type == zest_resource_type_swap_chain_image); //The color target must be a swap chain image!
-
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = color_target;
-    desc.image_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    desc.access_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    desc.stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    desc.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT;
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    desc.store_op = VK_ATTACHMENT_STORE_OP_STORE;
-    desc.clear_value.color = clear_color;
-    desc.stencil_load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    desc.stencil_store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
-    zest_AddPassOutputDetailed(pass_node, &desc);
-}
-
-void zest_AddPassColorAttachmentOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = color_target;
-    desc.image_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    desc.access_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    if (load_op == VK_ATTACHMENT_LOAD_OP_LOAD || load_op == VK_ATTACHMENT_LOAD_OP_DONT_CARE) {
-        //TBA
+    switch (purpose) {
+    case zest_purpose_vertex_buffer:
+        usage.access_mask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+        usage.stage_mask = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+        break;
+    case zest_purpose_index_buffer:
+        usage.access_mask = VK_ACCESS_INDEX_READ_BIT;
+        usage.stage_mask = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+        break;
+    case zest_purpose_uniform_buffer:
+        usage.access_mask = VK_ACCESS_UNIFORM_READ_BIT;
+        usage.stage_mask = relevant_shader_stages; 
+        break;
+    case zest_purpose_storage_buffer_read:
+        usage.access_mask = VK_ACCESS_SHADER_READ_BIT;
+        usage.stage_mask = relevant_shader_stages;
+        break;
+    case zest_purpose_storage_buffer_write:
+        usage.access_mask = VK_ACCESS_SHADER_WRITE_BIT;
+        usage.stage_mask = relevant_shader_stages;
+        break;
+    case zest_purpose_storage_buffer_read_write:
+        usage.access_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        usage.stage_mask = relevant_shader_stages;
+        break;
+    case zest_purpose_transfer_src_buffer:
+        usage.access_mask = VK_ACCESS_TRANSFER_READ_BIT;
+        usage.stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        break;
+    case zest_purpose_transfer_dst_buffer:
+        usage.access_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        usage.stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        break;
+    default:
+        ZEST_ASSERT(0);     //Unhandled buffer access purpose!
+        return;
     }
-    desc.stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    desc.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT;
-    desc.load_op = load_op;
-    desc.store_op = store_op;
-    desc.clear_value.color = clear_color;
-    desc.stencil_load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    desc.stencil_store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    usage.image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    zest_AddPassOutputDetailed(pass_node, &desc);
-}
-
-void zest_AddPassDepthStencilOutput( zest_rg_pass_node pass_node, zest_rg_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_ds_value) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = depth_target;
-    // Assuming combined depth/stencil layout. Could be separate with VK_KHR_separate_depth_stencil_layouts
-    desc.image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    desc.access_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    desc.stage_mask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    desc.aspect_flags = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT; // Adjust if only depth or only stencil
-    desc.load_op = depth_load_op;
-    desc.store_op = depth_store_op;
-    desc.stencil_load_op = stencil_load_op;
-    desc.stencil_store_op = stencil_store_op;
-    desc.clear_value.depthStencil = clear_ds_value;
-
-    zest_AddPassOutputDetailed(pass_node, &desc);
-}
-
-void zest_AddPassDepthStencilInputReadOnly( zest_rg_pass_node pass_node, zest_rg_resource_node depth_target ) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = depth_target;
-    desc.image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    desc.access_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-    desc.stage_mask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-    desc.aspect_flags = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-    // Load/store/clear are not relevant for read-only attachment input in this context
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_LOAD; // Typically it's loaded by a previous pass
-    desc.store_op = VK_ATTACHMENT_STORE_OP_STORE; // It will be stored by a previous pass
-
-    zest_AddPassInputDetailed(pass_node, &desc);
-}
-
-void zest_AddPassSampledImageInput(zest_rg_pass_node pass_node, zest_rg_resource_node texture, VkPipelineStageFlags shader_stages) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = texture;
-    desc.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    desc.access_mask = VK_ACCESS_SHADER_READ_BIT;
-    desc.stage_mask = shader_stages;
-    desc.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT; // Assuming color, adjust if depth texture etc.
-    // Load/store/clear not relevant for sampled images
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    desc.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
-    zest_AddPassInputDetailed(pass_node, &desc);
-}
-
-// Helper to add a storage image usage (read, write, or read-write)
-void zest_AddPassStorageImageUsage(zest_rg_pass_node pass_node, zest_rg_resource_node image_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = image_resource;
-    desc.image_layout = VK_IMAGE_LAYOUT_GENERAL; // General layout is typical for read/write storage images
-    desc.access_mask = access_flags;
-    desc.stage_mask = shader_stages;
-    desc.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT; // Assuming color
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // Not an attachment
-    desc.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    if (access_flags & VK_ACCESS_SHADER_WRITE_BIT) {
-        zest_AddPassOutputDetailed(pass_node, &desc); // If it involves writing, it's an output
+    if (is_output) { // Or derive is_output from purpose (e.g. WRITE implies output)
+        zest_vec_push(pass_node->outputs, usage);
     } else {
-        zest_AddPassInputDetailed(pass_node, &desc);  // If only reading, it's an input
+        zest_vec_push(pass_node->inputs, usage);
     }
-    // Note: If it's read-write, it acts as both an input and an output.
-    // Some render graphs handle this by adding it to both lists, or by having a separate
-    // "read_write" category. For simplicity here, if it has a write flag, we mark it as output.
-    // Your graph compilation logic will need to understand read-modify-write patterns.
 }
 
-// Helper to add a storage buffer usage (read, write, or read-write)
-void zest_AddPassBufferUsage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = buffer_resource;
-    desc.image_layout = VK_IMAGE_LAYOUT_UNDEFINED; // Not applicable to buffers
-    desc.access_mask = access_flags;
-    desc.stage_mask = shader_stages;
-    desc.aspect_flags = 0; // Not applicable
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    desc.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+void zest_add_pass_image_usage( zest_rg_pass_node pass_node, zest_rg_resource_node image_resource, zest_resource_access_purpose purpose, VkShaderStageFlags relevant_shader_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value) {
+    zest_resource_usage_t usage = { 0 }; // Your internal struct
+    usage.resource_node = image_resource;
 
-    if (access_flags & VK_ACCESS_SHADER_WRITE_BIT) {
-        zest_AddPassOutputDetailed(pass_node, &desc);
+    // Aspect flags should be determined based on format and purpose
+    // Let's assume you have image_resource->image_desc.format
+    usage.aspect_flags = zest__determine_aspect_flag(image_resource->image_desc.format); // Default based on format
+
+    // Attachment ops are only relevant for attachment purposes
+    // For other usages, they'll default to 0/DONT_CARE which is fine.
+    usage.load_op = load_op;
+    usage.store_op = store_op;
+    usage.stencil_load_op = stencil_load_op;
+    usage.stencil_store_op = stencil_store_op;
+    usage.clear_value = clear_value;
+
+    // Determine if this usage implies an output (modifies the resource)
+    // This could also replace the 'is_output' parameter for many cases
+    zest_bool inferred_is_output = ZEST_FALSE;
+
+    switch (purpose) {
+    case zest_purpose_color_attachment_write:
+        usage.image_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        usage.access_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        // If load_op is VK_ATTACHMENT_LOAD_OP_LOAD, an implicit read occurs.
+        // If blending with destination, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT is also involved.
+        // For simplicity, if this is purely about the *write* aspect:
+        if (load_op == VK_ATTACHMENT_LOAD_OP_LOAD) {
+            usage.access_mask |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT; // For the load itself
+        }
+        usage.stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        usage.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT;
+        inferred_is_output = ZEST_TRUE;
+        break;
+
+    case zest_purpose_color_attachment_read: 
+        usage.image_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        usage.access_mask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+        usage.stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; 
+        usage.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT;
+        inferred_is_output = ZEST_FALSE; 
+        break;
+
+    case zest_purpose_sampled_image:
+        usage.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        usage.access_mask = VK_ACCESS_SHADER_READ_BIT;
+        usage.stage_mask = relevant_shader_stages; 
+        inferred_is_output = ZEST_FALSE;
+        break;
+
+    case zest_purpose_storage_image_read:
+        usage.image_layout = VK_IMAGE_LAYOUT_GENERAL; 
+        usage.access_mask = VK_ACCESS_SHADER_READ_BIT;
+        usage.stage_mask = relevant_shader_stages; 
+        inferred_is_output = ZEST_FALSE;
+        break;
+
+    case zest_purpose_storage_image_write:
+        usage.image_layout = VK_IMAGE_LAYOUT_GENERAL;
+        usage.access_mask = VK_ACCESS_SHADER_WRITE_BIT;
+        usage.stage_mask = relevant_shader_stages;
+        inferred_is_output = ZEST_TRUE;
+        break;
+
+    case zest_purpose_storage_image_read_write:
+        usage.image_layout = VK_IMAGE_LAYOUT_GENERAL;
+        usage.access_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        usage.stage_mask = relevant_shader_stages; 
+        inferred_is_output = ZEST_TRUE;
+        break;
+
+    case zest_purpose_depth_stencil_attachment_read: 
+        usage.image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        usage.access_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+        usage.stage_mask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        inferred_is_output = ZEST_FALSE;
+        break;
+
+    case zest_purpose_depth_stencil_attachment_write:
+        usage.image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        usage.access_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        if (load_op == VK_ATTACHMENT_LOAD_OP_LOAD || stencil_load_op == VK_ATTACHMENT_LOAD_OP_LOAD) {
+            usage.access_mask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+        }
+        usage.stage_mask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        inferred_is_output = ZEST_TRUE;
+        break;
+
+    case zest_purpose_depth_stencil_attachment_read_write: // Typical depth testing and writing
+        usage.image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        usage.access_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        usage.stage_mask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        inferred_is_output = ZEST_TRUE; // Modifies resource
+        break;
+
+    case zest_purpose_input_attachment: // For subpass reads
+        usage.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; 
+        usage.access_mask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
+        usage.stage_mask = relevant_shader_stages; 
+        inferred_is_output = ZEST_FALSE;
+        break;
+
+    case zest_purpose_transfer_src_image:
+        usage.image_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        usage.access_mask = VK_ACCESS_TRANSFER_READ_BIT;
+        usage.stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        inferred_is_output = ZEST_FALSE;
+        break;
+
+    case zest_purpose_transfer_dst_image:
+        usage.image_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        usage.access_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        usage.stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        inferred_is_output = ZEST_TRUE;
+        break;
+
+    case zest_purpose_present_src: 
+        usage.image_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        usage.access_mask = 0; // No specific GPU access by the pass itself for this state.
+        usage.stage_mask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // Ensure all prior work is done.
+        inferred_is_output = is_output; 
+        break;
+
+    default:
+        ZEST_ASSERT(0); //Unhandled image access purpose!"
+        return;
+    }
+
+    if (inferred_is_output) {
+        zest_vec_push(pass_node->outputs, usage);
     } else {
-        zest_AddPassInputDetailed(pass_node, &desc);
+        zest_vec_push(pass_node->inputs, usage);
     }
 }
 
-// Helper to add a uniform buffer input
-void zest_AddPassUniformBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node ubo_resource, VkPipelineStageFlags shader_stages) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = ubo_resource;
-    desc.image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    desc.access_mask = VK_ACCESS_UNIFORM_READ_BIT;
-    desc.stage_mask = shader_stages;
-    desc.aspect_flags = 0;
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    desc.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
-    zest_AddPassInputDetailed(pass_node, &desc);
+void zest_AddPassVertexBufferInput(zest_rg_pass_node pass, zest_rg_resource_node vertex_buffer) {
+    zest_add_pass_buffer_usage(pass, vertex_buffer, zest_purpose_vertex_buffer, 0, ZEST_FALSE);
 }
 
-// Helper for vertex buffer input
-void zest_AddPassVertexBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node vertex_buffer) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = vertex_buffer;
-    desc.image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    desc.access_mask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
-    desc.stage_mask = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
-    desc.aspect_flags = 0;
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    desc.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
-    zest_AddPassInputDetailed(pass_node, &desc);
+void zest_AddPassIndexBufferInput(zest_rg_pass_node pass, zest_rg_resource_node index_buffer) {
+    zest_add_pass_buffer_usage(pass, index_buffer, zest_purpose_index_buffer, 0, ZEST_FALSE);
 }
 
-// Helper for index buffer input
-void zest_AddPassIndexBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node index_buffer) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = index_buffer;
-    desc.image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    desc.access_mask = VK_ACCESS_INDEX_READ_BIT;
-    desc.stage_mask = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
-    desc.aspect_flags = 0;
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    desc.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
-    zest_AddPassInputDetailed(pass_node, &desc);
+void zest_AddPassUniformBufferInput(zest_rg_pass_node pass, zest_rg_resource_node uniform_buffer, VkShaderStageFlags stages) {
+    zest_add_pass_buffer_usage(pass, uniform_buffer, zest_purpose_uniform_buffer, stages, ZEST_FALSE);
 }
 
-// Helper for transfer source (image or buffer)
-void zest_AddPassTransferSrc(zest_rg_pass_node pass_node, zest_rg_resource_node src_resource) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = src_resource;
-    // Assuming the resource node itself can tell us if it's an image or buffer
-    // to set the correct layout. Or the graph infers this.
-    // For simplicity, if it's an image, it should be in TRANSFER_SRC_OPTIMAL.
-    // This might need to be smarter based on resource_node->type.
-    if (src_resource->type == zest_resource_type_image) { // Assuming type field exists
-        desc.image_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        desc.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT; // Or other relevant aspect
-    } else {
-        desc.image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-        desc.aspect_flags = 0;
+void zest_AddPassStorageBufferRead(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkShaderStageFlags stages) {
+    zest_add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_read, stages, ZEST_FALSE);
+}
+
+void zest_AddPassStorageBufferWrite(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkShaderStageFlags stages) {
+    zest_add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_write, stages, ZEST_TRUE);
+}
+
+void zest_AddPassTransferDstBuffer(zest_rg_pass_node pass, zest_rg_resource_node dst_buffer) {
+    zest_add_pass_buffer_usage(pass, dst_buffer, zest_purpose_transfer_dst_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, ZEST_TRUE);
+}
+
+void zest_AddPassTransferSrcBuffer(zest_rg_pass_node pass, zest_rg_resource_node src_buffer) {
+    zest_add_pass_buffer_usage(pass, src_buffer, zest_purpose_transfer_src_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, ZEST_TRUE);
+}
+
+// --- Image Helpers ---
+void zest_AddPassSampledImageInput(zest_rg_pass_node pass, zest_rg_resource_node texture, VkShaderStageFlags stages) {
+    zest_add_pass_image_usage(pass, texture, zest_purpose_sampled_image, stages, ZEST_FALSE,
+        VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue){0});
+}
+
+void zest_AddPassSwapChainOutput( zest_rg_pass_node pass, zest_rg_resource_node swapchain_resource, VkClearColorValue clear_color_on_load) {
+    VkClearValue cv; cv.color = clear_color_on_load;
+    // Assuming clear for swapchain if not explicitly loaded
+    zest_add_pass_image_usage(pass, swapchain_resource, zest_purpose_color_attachment_write, 
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, ZEST_TRUE,
+        VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, cv);
+}
+
+// More flexible version:
+void zest_AddPassColorAttachmentOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing) {
+    VkClearValue cv = { 0 }; 
+    if (load_op == VK_ATTACHMENT_LOAD_OP_CLEAR) {
+        cv.color = clear_color_if_clearing;
     }
-    desc.access_mask = VK_ACCESS_TRANSFER_READ_BIT;
-    desc.stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    desc.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
-    zest_AddPassInputDetailed(pass_node, &desc);
+    zest_add_pass_image_usage(pass_node, color_target, zest_purpose_color_attachment_write,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, ZEST_TRUE,
+        load_op, store_op,
+        VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        cv);
 }
 
-// Helper for transfer destination (image or buffer)
-void zest_AddPassTransferDst( zest_rg_pass_node pass_node, zest_rg_resource_node dst_resource) {
-    zest_rg_pass_resource_usage_desc_t desc = { 0 };
-    desc.resource_node = dst_resource;
-    if (dst_resource->type == zest_resource_type_image) { // Assuming type field exists
-        desc.image_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        desc.aspect_flags = VK_IMAGE_ASPECT_COLOR_BIT; // Or other relevant aspect
-    } else {
-        desc.image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
-        desc.aspect_flags = 0;
+void zest_AddPassDepthStencilOutput(zest_rg_pass_node pass_node, zest_rg_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing) {
+    VkClearValue cv = { 0 };
+    if (depth_load_op == VK_ATTACHMENT_LOAD_OP_CLEAR || stencil_load_op == VK_ATTACHMENT_LOAD_OP_CLEAR) {
+        cv.depthStencil = clear_value_if_clearing;
     }
-    desc.access_mask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    desc.stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    desc.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE; // Often for transfers, but could be LOAD if appending
-    desc.store_op = VK_ATTACHMENT_STORE_OP_STORE;
+    zest_add_pass_image_usage(pass_node, depth_target, zest_purpose_depth_stencil_attachment_write,
+        0, ZEST_TRUE, 
+        depth_load_op, depth_store_op,
+        stencil_load_op, stencil_store_op,
+        cv);
+}
 
-    zest_AddPassOutputDetailed(pass_node, &desc);
+void zest_AddPassDepthStencilInputReadOnly(zest_rg_pass_node pass_node, zest_rg_resource_node depth_target) {
+    zest_add_pass_image_usage(pass_node, depth_target, zest_purpose_depth_stencil_attachment_read,
+        0, ZEST_FALSE, // Internal function sets correct pipeline stages
+        VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_DONT_CARE, 
+        VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        (VkClearValue) { 0 }); 
 }
 
 // --End Render Graph functions

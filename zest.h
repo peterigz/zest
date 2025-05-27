@@ -1378,6 +1378,34 @@ typedef enum {
     zest_access_render_pass_bits = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 } zest_general_access_bits;
 
+typedef enum zest_resource_access_purpose {
+    // Buffer Usages
+    zest_purpose_vertex_buffer,
+    zest_purpose_index_buffer,
+    zest_purpose_uniform_buffer,                      // Might need shader stage too if general
+    zest_purpose_storage_buffer_read,                 // Needs shader stage
+    zest_purpose_storage_buffer_write,                // Needs shader stage
+    zest_purpose_storage_buffer_read_write,           // Needs shader stage
+    zest_purpose_indirect_buffer,
+    zest_purpose_transfer_src_buffer,
+    zest_purpose_transfer_dst_buffer,
+
+    // Image Usages
+    zest_purpose_sampled_image,                       // Needs shader stage
+    zest_purpose_storage_image_read,                  // Needs shader stage
+    zest_purpose_storage_image_write,                 // Needs shader stage
+    zest_purpose_storage_image_read_write,            // Needs shader stage
+    zest_purpose_color_attachment_write,
+    zest_purpose_color_attachment_read,               // For blending or input attachments
+    zest_purpose_depth_stencil_attachment_read,
+    zest_purpose_depth_stencil_attachment_write,
+    zest_purpose_depth_stencil_attachment_read_write, // Common
+    zest_purpose_input_attachment,                    // Needs shader stage (typically fragment)
+    zest_purpose_transfer_src_image,
+    zest_purpose_transfer_dst_image,
+    zest_purpose_present_src,                         // For swapchain final layout
+} zest_resource_access_purpose;
+
 typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
 typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
 
@@ -2572,6 +2600,9 @@ ZEST_PRIVATE zest_rg_pass_node zest__add_pass_node(zest_render_graph render_grap
 ZEST_PRIVATE VkCommandPool zest__create_queue_command_pool(int queue_family_index);
 ZEST_API zest_bool zest_AcquireSwapChainImage(void);
 
+ZEST_PRIVATE void zest_add_pass_buffer_usage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, zest_resource_access_purpose purpose, VkShaderStageFlags relevant_shader_stages, zest_bool is_output);
+ZEST_PRIVATE void zest_add_pass_image_usage(zest_rg_pass_node pass_node, zest_rg_resource_node image_resource, zest_resource_access_purpose purpose, VkShaderStageFlags relevant_shader_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value);
+
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 
 ZEST_API zest_render_graph zest_NewRenderGraph(const char *name, bool force_on_graphics_queue);
@@ -2587,31 +2618,28 @@ ZEST_API zest_rg_pass_node zest_AddTransferPassNode(zest_render_graph render_gra
 
 ZEST_API zest_rg_resource_node zest_AddTransientImageResource(zest_render_graph graph, const char *name, const zest_image_description_t *desc);
 ZEST_API zest_rg_resource_node zest_AddTransientBufferResource(zest_render_graph graph, const char *name, const zest_buffer_description_t *desc);
-ZEST_API void zest_AddPassVertexBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node vertex_buffer);
-ZEST_API void zest_AddPassIndexBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node index_buffer);
-ZEST_API void zest_AddPassTransferSrc(zest_rg_pass_node pass_node, zest_rg_resource_node src_resource);
-ZEST_API void zest_AddPassTransferDst(zest_rg_pass_node pass_node, zest_rg_resource_node dst_resource);
 
 ZEST_API void zest_SetPassUserData(zest_rg_pass_node pass_node, void *user_data);
 
 ZEST_API zest_rg_resource_node zest_ImportImageResource(zest_render_graph render_graph, const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
-ZEST_API zest_rg_resource_node zest_ImportVertexBufferResource(zest_render_graph render_graph, const char *name, zest_buffer vertex_buffer);
-ZEST_API zest_rg_resource_node zest_ImportIndexBufferResource(zest_render_graph render_graph, const char *name, zest_buffer index_buffer);
 ZEST_API zest_rg_resource_node zest_ImportLayerResource(zest_render_graph render_graph, const char *name, zest_layer layer);
 ZEST_API zest_rg_resource_node zest_ImportSwapChainResource(zest_render_graph render_graph, const char *name);
 
-ZEST_API void zest_AddPassInputDetailed(zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc);
-ZEST_API void zest_AddPassOutputDetailed(zest_rg_pass_node pass_node, const zest_rg_pass_resource_usage_desc_t *usage_desc);
-ZEST_API void zest_AddPassSwapChainOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkClearColorValue clear_color);
-ZEST_API void zest_AddPassColorAttachmentOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color);
-ZEST_API void zest_AddPassDepthStencilOutput(zest_rg_pass_node pass_node, zest_rg_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_ds_value);
+ZEST_API void zest_AddPassVertexBufferInput(zest_rg_pass_node pass, zest_rg_resource_node vertex_buffer);
+ZEST_API void zest_AddPassIndexBufferInput(zest_rg_pass_node pass, zest_rg_resource_node index_buffer);
+ZEST_API void zest_AddPassUniformBufferInput(zest_rg_pass_node pass, zest_rg_resource_node uniform_buffer, VkShaderStageFlags stages);
+ZEST_API void zest_AddPassStorageBufferRead(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkShaderStageFlags stages);
+ZEST_API void zest_AddPassStorageBufferWrite(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkShaderStageFlags stages);
+ZEST_API void zest_AddPassTransferDstBuffer(zest_rg_pass_node pass, zest_rg_resource_node dst_buffer);
+ZEST_API void zest_AddPassTransferSrcBuffer(zest_rg_pass_node pass, zest_rg_resource_node src_buffer);
+
+// --- Image Helpers ---
+ZEST_API void zest_AddPassSampledImageInput(zest_rg_pass_node pass, zest_rg_resource_node texture, VkShaderStageFlags stages);
+ZEST_API void zest_AddPassSwapChainOutput(zest_rg_pass_node pass, zest_rg_resource_node swapchain_resource, VkClearColorValue clear_color_on_load);
+
+ZEST_API void zest_AddPassColorAttachmentOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
+ZEST_API void zest_AddPassDepthStencilOutput(zest_rg_pass_node pass_node, zest_rg_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing);
 ZEST_API void zest_AddPassDepthStencilInputReadOnly(zest_rg_pass_node pass_node, zest_rg_resource_node depth_target);
-ZEST_API void zest_AddPassSampledImageInput(zest_rg_pass_node pass_node, zest_rg_resource_node texture, VkPipelineStageFlags shader_stages);
-ZEST_API void zest_AddPassStorageImageUsage(zest_rg_pass_node pass_node, zest_rg_resource_node image_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages);
-
-ZEST_API void zest_AddPassBufferUsage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages);
-ZEST_API void zest_AddPassUniformBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node ubo_resource, VkPipelineStageFlags shader_stages);
-
 
 // Helper functions to convert enums to strings (you'll need these)
 ZEST_PRIVATE const char *zest_vulkan_image_layout_to_string(VkImageLayout layout);
