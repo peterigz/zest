@@ -1367,6 +1367,7 @@ typedef enum zest_render_graph_flag_bits {
     zest_render_graph_flag_none                     = 0,
     zest_render_graph_expecting_swap_chain_usage    = 1 << 0,
     zest_render_graph_force_on_graphics_queue       = 1 << 1,
+    zest_render_graph_is_compiled                   = 1 << 2,
 } zest_render_graph_flag_bits;
 
 typedef zest_uint zest_render_graph_flags;
@@ -2268,6 +2269,8 @@ typedef struct zest_create_info_t {
     void(*create_window_surface_callback)(zest_window window);
 } zest_create_info_t;
 
+zest_hash_map(const char*) zest_map_queue_names;
+
 typedef struct zest_device_t {
     zest_uint api_version;
     zest_uint use_labels_address_bit;
@@ -2276,9 +2279,6 @@ typedef struct zest_device_t {
     zest_uint max_fif;
     zest_uint saved_fif;
     zest_uint max_image_size;
-    zest_uint graphics_queue_family_index;
-    zest_uint transfer_queue_family_index;
-    zest_uint compute_queue_family_index;
     void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
     zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
     zest_uint memory_pool_count;
@@ -2294,10 +2294,14 @@ typedef struct zest_device_t {
     VkPhysicalDeviceProperties properties;
     VkPhysicalDeviceFeatures features;
     VkPhysicalDeviceMemoryProperties memory_properties;
+    zest_uint graphics_queue_family_index;
+    zest_uint transfer_queue_family_index;
+    zest_uint compute_queue_family_index;
     VkQueue graphics_queue;
-    VkQueue one_time_graphics_queue;
+    VkQueue one_time_graphics_queue;    //need? aim to get rid of this
     VkQueue compute_queue;
     VkQueue transfer_queue;
+    zest_map_queue_names queue_names;
     VkCommandPool command_pool;
     VkCommandPool one_time_command_pool;
     PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
@@ -2467,6 +2471,7 @@ typedef struct zest_rg_pass_node_t {
 
 typedef struct zest_rg_resource_node_t {
     int magic;
+    const char *name;
     zest_resource_type type;
     zest_id id;                                     // Unique identifier within the graph
     zest_resource_handle *resource;
@@ -2482,9 +2487,7 @@ typedef struct zest_rg_resource_node_t {
     VkAccessFlags current_access_mask;
     VkPipelineStageFlags last_stage_mask;
     VkImageLayout current_layout;                   // The current layout of the image in the resource
-    VkImageLayout initial_layout;                   // Required initial layout before first use in this graph
     VkImageLayout final_layout;                     // Layout resource should be in after last use in this graph
-    VkImageLayout desired_layout_after_graph_use;
 
     int producer_pass_idx;                          // Index of the pass that writes/creates this resource (-1 if imported)
     int *consumer_pass_indices;                     // Dynamic array of pass indices that read this
@@ -2500,6 +2503,8 @@ typedef struct zest_execution_details_t {
     VkClearValue *clear_values;
     VkImageMemoryBarrier *pre_pass_image_barriers;
     VkBufferMemoryBarrier *pre_pass_buffer_barriers;
+    zest_rg_resource_node *pre_pass_image_barrier_nodes;
+    zest_rg_resource_node *pre_pass_buffer_barrier_nodes;
     VkPipelineStageFlags overall_src_stage_mask_for_pre_pass_barriers;
     VkPipelineStageFlags overall_dst_stage_mask_for_pre_pass_barriers;
 } zest_execution_details_t;
@@ -2521,8 +2526,9 @@ typedef struct zest_submission_batch_t {
     zest_uint queue_family_index;
     zest_uint *pass_indices;
     VkCommandBuffer command_buffer;
-    VkSemaphore signal_batch;
-    VkSemaphore wait_on_batch;
+    VkSemaphore signal_batch_semaphore;
+    VkSemaphore wait_on_batch_semaphore;
+    VkPipelineStageFlags internal_wait_dst_stage_mask;
     VkPipelineStageFlags external_wait_dst_stage_mask;
 } zest_submission_batch_t;
 
@@ -2605,6 +2611,14 @@ ZEST_API void zest_AddPassStorageImageUsage(zest_rg_pass_node pass_node, zest_rg
 
 ZEST_API void zest_AddPassBufferUsage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, VkAccessFlags access_flags, VkPipelineStageFlags shader_stages);
 ZEST_API void zest_AddPassUniformBufferInput(zest_rg_pass_node pass_node, zest_rg_resource_node ubo_resource, VkPipelineStageFlags shader_stages);
+
+
+// Helper functions to convert enums to strings (you'll need these)
+ZEST_PRIVATE const char *zest_vulkan_image_layout_to_string(VkImageLayout layout);
+ZEST_PRIVATE zest_text_t zest_vulkan_access_flags_to_string(VkAccessFlags flags);
+ZEST_PRIVATE zest_text_t zest_vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
+
+ZEST_API void zest_PrintCompiledRenderGraph(zest_render_graph render_graph);
 
 //Submit a command queue to be executed on the GPU. Utilise the fence commands to know when the queue has finished executing: zest_CreateFence, zest_CheckFence,
 //zest_WaitForFence and zest_DestoryFence. Pass in a fence which will be signalled once the execution is done.

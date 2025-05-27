@@ -32,7 +32,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Create a descriptor set for imgui to use when drawing from the Bunny texture
 	app->test_descriptor_set = VK_NULL_HANDLE;
 
-	app->render_graph = zest_NewRenderGraph("ImGui", true);
+	app->render_graph = zest_NewRenderGraph("ImGui", false);
 
 	app->timer = zest_CreateTimer(60);
 }
@@ -98,8 +98,11 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 				app->sync_refresh = true;
 			}
 		}
-		/*
+		if (ImGui::Button("Print Render Graph")) {
+			app->request_graph_print = true;
+		}
 		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
+		/*
 		for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
 			zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
 			ImGui::Text("Free Blocks: %i, Used Blocks: %i", stats.free_blocks, stats.used_blocks);
@@ -118,7 +121,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
 		zest_rg_resource_node imgui_vertex_buffer = zest_imgui_AddTransientVertexResources(app->render_graph, "Imgui Vertex Buffer");
-		zest_rg_resource_node imgui_index_buffer = zest_imgui_AddTransientIndexResources(app->render_graph, "Imgui Vertex Buffer");
+		zest_rg_resource_node imgui_index_buffer = zest_imgui_AddTransientIndexResources(app->render_graph, "Imgui Index Buffer");
 		if (imgui_vertex_buffer && imgui_index_buffer) {
 			zest_rg_resource_node imgui_font_texture = zest_ImportImageResource(app->render_graph, "imgui font", ZestRenderer->imgui_info.font_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			zest_rg_resource_node test_texture = zest_ImportImageResource(app->render_graph, "test texture", app->test_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -126,9 +129,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_AddPassTransferDst(imgui_upload_pass, imgui_vertex_buffer);
 			zest_AddPassTransferDst(imgui_upload_pass, imgui_index_buffer);
 			zest_rg_pass_node imgui_pass = zest_AddGraphicPassNode(app->render_graph, "Draw ImGui", DrawImGuiRenderPass);
-			zest_AddPassBufferUsage(imgui_pass, imgui_vertex_buffer, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
-			zest_AddPassBufferUsage(imgui_pass, imgui_index_buffer, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+			zest_AddPassBufferUsage(imgui_pass, imgui_vertex_buffer, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
+			zest_AddPassBufferUsage(imgui_pass, imgui_index_buffer, VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT);
 			zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+			zest_AddPassSampledImageInput(imgui_pass, test_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		} else {
 			//Just render a blank screen if imgui didn't render anything
@@ -136,6 +140,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_AddPassSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
 		zest_EndRenderGraph(app->render_graph);
+		if (app->request_graph_print) {
+			zest_PrintCompiledRenderGraph(app->render_graph);
+			app->request_graph_print = false;
+		}
 		zest_ExecuteRenderGraph(app->render_graph);
 	}
 }
@@ -151,7 +159,7 @@ int main(void) {
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
 
-	ImGuiApp imgui_app;
+	ImGuiApp imgui_app = {};
 
 	//Initialise Zest
 	zest_Initialise(&create_info);
