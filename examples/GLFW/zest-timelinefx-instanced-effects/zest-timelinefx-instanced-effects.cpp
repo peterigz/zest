@@ -141,7 +141,7 @@ void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	example->playback_shader = zest_AddShaderFromSPVFile("examples/assets/spv/sprite_data_playback.comp.spv", shaderc_compute_shader);
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier
-	zest_compute_builder_t builder = zest_NewComputeBuilder();
+	zest_compute_builder_t builder = zest_BeginComputeBuilder();
 	//Add layout binding for the buffers that we'll need to use in the compute shader
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0);
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1);
@@ -165,7 +165,7 @@ void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	zest_SetComputeDescriptorUpdateCallback(&builder, zest_StandardComputeDescriptorUpdate);
 	//Finalise the compute set up by calling MakeCompute which creates all the boiler plate code to create the
 	//compute pipeline in Vulkan
-	zest_MakeCompute(&builder, example->compute);
+	zest_FinishCompute(&builder, example->compute);
 }
 
 //Prepare the compute shader that will calculate the bounding boxes of each frame of animation. This is only necessary
@@ -177,7 +177,7 @@ void PrepareComputeForBoundingBoxCalculation(ComputeExample *example) {
 	example->bb_shader = zest_AddShaderFromSPVFile("examples/assets/spv/sprite_data_bounding_box.comp.spv", shaderc_compute_shader);
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier
-	zest_compute_builder_t builder = zest_NewComputeBuilder();
+	zest_compute_builder_t builder = zest_BeginComputeBuilder();
 	//Add layout binding for the buffers that we'll need to use in the compute shader
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0);
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1);
@@ -201,7 +201,7 @@ void PrepareComputeForBoundingBoxCalculation(ComputeExample *example) {
 	zest_SetComputePrimaryRecorder(&builder);
 	//Finalise the compute set up by calling MakeCompute which creates all the boiler plate code to create the
 	//compute pipeline in Vulkan
-	zest_MakeCompute(&builder, example->bounding_box_compute);
+	zest_FinishCompute(&builder, example->bounding_box_compute);
 }
 
 int SpriteComputeCondition(zest_compute compute) {

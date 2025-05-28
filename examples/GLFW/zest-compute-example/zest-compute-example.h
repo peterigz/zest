@@ -24,7 +24,7 @@ struct ComputeUniformBuffer {					// Compute shader uniform block object
 } ubo;
 
 struct ImGuiApp {
-	zest_imgui_t imgui_layer_info;
+	zest_imgui imgui_info;
 	zest_index imgui_draw_routine_index;
 
 	zest_texture particle_texture;
@@ -37,13 +37,14 @@ struct ImGuiApp {
 	zest_descriptor_buffer particle_buffer;
 	zest_pipeline_template particle_pipeline;
 	zest_vertex_input_descriptions vertice_attributes;
-	zest_uniform_buffer compute_uniform_buffer;
+	zest_uniform_buffer compute_uniform_buffer[ZEST_MAX_FIF];
+	zest_descriptor_set_layout uniform_layout;
+	zest_descriptor_set_t uniform_set[ZEST_MAX_FIF];
+	zest_descriptor_pool uniform_set_pool;
 	zest_compute compute;
-	zest_command_queue_compute compute_commands;
-	zest_draw_routine draw_routine;
-	zest_command_queue command_queue;
-	zest_command_queue_draw_commands draw_commands;
     VkDescriptorSet *draw_sets;
+
+	zest_render_graph render_graph;
 
 	zest_timer loop_timer;
 
@@ -51,12 +52,13 @@ struct ImGuiApp {
 	float anim_start;
 	float timer;
 	bool attach_to_cursor;
+	bool request_graph_print;
 };
 
 static inline float Radians(float degrees) { return degrees * 0.01745329251994329576923690768489f; }
 static inline float Degrees(float radians) { return radians * 57.295779513082320876798154814105f; }
 void InitImGuiApp(ImGuiApp *app);
 void UpdateComputeUniformBuffers(ImGuiApp *app);
-void RecordComputeCommands(zest_compute compute_commands);
+void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 int DrawComputeSpritesCondition(zest_draw_routine draw_routine);
-void RecordComputeSprites(zest_work_queue_t *queue, void *data);
+void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);

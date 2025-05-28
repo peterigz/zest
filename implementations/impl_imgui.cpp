@@ -16,6 +16,56 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     io.Fonts->SetTexID((ImTextureID)font_image);
 }
 
+zest_rg_pass_node zest_imgui_AddToRenderGraph(zest_render_graph render_graph) {
+    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+    
+    if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
+		zest_rg_resource_node imgui_vertex_buffer = zest_imgui_AddTransientVertexResources(render_graph, "Imgui Vertex Buffer");
+		zest_rg_resource_node imgui_index_buffer = zest_imgui_AddTransientIndexResources(render_graph, "Imgui Index Buffer");
+		zest_rg_resource_node imgui_font_texture = zest_ImportImageResourceReadOnly(render_graph, "Imgui Font", ZestRenderer->imgui_info.font_texture);
+		zest_rg_pass_node imgui_upload_pass = zest_AddTransferPassNode(render_graph, "Upload ImGui");
+        zest_AddPassTask(imgui_upload_pass, zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
+		zest_AddPassTransferDstBuffer(imgui_upload_pass, imgui_vertex_buffer);
+		zest_AddPassTransferDstBuffer(imgui_upload_pass, imgui_index_buffer);
+		zest_rg_pass_node imgui_pass = zest_AddGraphicPassNode(render_graph, "Draw ImGui");
+		zest_AddPassVertexBufferInput(imgui_pass, imgui_vertex_buffer);
+		zest_AddPassIndexBufferInput(imgui_pass, imgui_index_buffer);
+		zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        zest_AddPassTask(imgui_pass, zest_imgui_DrawImGuiRenderPass, &ZestRenderer->imgui_info);
+        return imgui_pass;
+    }
+    return nullptr;
+}
+
+// This is the function that will be called for your pass.
+void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+    zest_imgui imgui_info = &ZestRenderer->imgui_info;
+    zest_buffer vertex_buffer = zest_GetPassInputResource(context->pass_node, "Imgui Vertex Buffer")->storage_buffer;
+    zest_buffer index_buffer = zest_GetPassInputResource(context->pass_node, "Imgui Index Buffer")->storage_buffer;
+    zest_imgui_RecordLayer(context, vertex_buffer, index_buffer);
+}
+
+// This is the function that will be called for your pass.
+void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+    zest_imgui imgui_info = &ZestRenderer->imgui_info;
+
+    zest_buffer staging_vertex = imgui_info->vertex_staging_buffer;
+    zest_buffer staging_index = imgui_info->index_staging_buffer;
+    zest_buffer vertex_buffer = zest_GetPassOutputResource(context->pass_node, "Imgui Vertex Buffer")->storage_buffer;
+    zest_buffer index_buffer = zest_GetPassOutputResource(context->pass_node, "Imgui Index Buffer")->storage_buffer;
+
+    zest_buffer_uploader_t index_upload = { 0, staging_index, index_buffer, 0 };
+    zest_buffer_uploader_t vertex_upload = { 0, staging_vertex, vertex_buffer, 0 };
+
+    if (staging_vertex->memory_in_use && staging_index->memory_in_use) {
+        zest_AddCopyCommand(&vertex_upload, staging_vertex, vertex_buffer, 0);
+        zest_AddCopyCommand(&index_upload, staging_index, index_buffer, 0);
+    }
+
+    zest_UploadBuffer(&vertex_upload, command_buffer);
+    zest_UploadBuffer(&index_upload, command_buffer);
+}
+
 void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_buffer vertex_buffer, zest_buffer index_buffer) {
     zest_imgui imgui_info = &ZestRenderer->imgui_info;
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();

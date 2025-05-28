@@ -43,7 +43,7 @@ void InitImGuiApp(Ribbons *app) {
 		zest_ClearBufferToZero(app->ribbon_staging_buffer[i]);
 	}
 	//A builder is used to simplify the compute shader setup process
-	zest_compute_builder_t builder = zest_NewComputeBuilder();
+	zest_compute_builder_t builder = zest_BeginComputeBuilder();
 	//Declare the bindings we want in the shader
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0);
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1);
@@ -67,7 +67,7 @@ void InitImGuiApp(Ribbons *app) {
 
 	//Declare the actual shader to use
 	app->compute_pipeline_index = zest_AddComputeShader(&builder, app->ribbon_comp_shader);
-	zest_MakeCompute(&builder, app->ribbon_compute);
+	zest_FinishCompute(&builder, app->ribbon_compute);
 
 	zest_pipeline_template_create_info_t instance_create_info = zest_CreatePipelineTemplateCreateInfo();
 	instance_create_info.viewport.extent = zest_GetSwapChainExtent();

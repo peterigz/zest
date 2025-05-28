@@ -37,43 +37,6 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->timer = zest_CreateTimer(60);
 }
 
-// This is the function that will be called for your pass.
-void DrawImGuiRenderPass(
-	VkCommandBuffer command_buffer,
-	const zest_render_graph_context_t *context, // Your graph context
-	void *user_data                             // Global or per-pass user data
-) {
-	zest_imgui imgui_info = &ZestRenderer->imgui_info;
-	zest_buffer vertex_buffer = context->pass_node->inputs[0].resource_node->storage_buffer;
-	zest_buffer index_buffer = context->pass_node->inputs[1].resource_node->storage_buffer;
-	zest_imgui_RecordLayer(context, vertex_buffer, index_buffer);
-}
-
-// This is the function that will be called for your pass.
-void UploadImGuiPass(
-	VkCommandBuffer command_buffer,
-	const zest_render_graph_context_t *context, // Your graph context
-	void *user_data                             // Global or per-pass user data
-) {
-	zest_imgui imgui_info = &ZestRenderer->imgui_info;
-
-	zest_buffer staging_vertex = imgui_info->vertex_staging_buffer;
-	zest_buffer staging_index = imgui_info->index_staging_buffer;
-	zest_buffer device_vertex = context->pass_node->outputs[0].resource_node->storage_buffer;
-	zest_buffer device_index = context->pass_node->outputs[1].resource_node->storage_buffer;
-
-	zest_buffer_uploader_t index_upload = { 0, staging_index, device_index, 0 };
-	zest_buffer_uploader_t vertex_upload = { 0, staging_vertex, device_vertex, 0 };
-
-	if (staging_vertex->memory_in_use && staging_index->memory_in_use) {
-		zest_AddCopyCommand(&vertex_upload, staging_vertex, device_vertex, 0);
-		zest_AddCopyCommand(&index_upload, staging_index, device_index, 0);
-	}
-
-	zest_UploadBuffer(&vertex_upload, command_buffer);
-	zest_UploadBuffer(&index_upload, command_buffer);
-}
-
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Set the active command queue to the default one that was created when Zest was initialised
 	ImGuiApp* app = (ImGuiApp*)user_data;
@@ -117,26 +80,20 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_imgui_UpdateBuffers();
 	} zest_EndTimerLoop(app->timer);
 
+	ImGui::GetDrawData();
+
 	if (zest_BeginRenderToScreen(app->render_graph)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
-		zest_rg_resource_node imgui_vertex_buffer = zest_imgui_AddTransientVertexResources(app->render_graph, "Imgui Vertex Buffer");
-		zest_rg_resource_node imgui_index_buffer = zest_imgui_AddTransientIndexResources(app->render_graph, "Imgui Index Buffer");
-		if (imgui_vertex_buffer && imgui_index_buffer) {
-			zest_rg_resource_node imgui_font_texture = zest_ImportImageResource(app->render_graph, "imgui font", ZestRenderer->imgui_info.font_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			zest_rg_resource_node test_texture = zest_ImportImageResource(app->render_graph, "test texture", app->test_texture, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			zest_rg_pass_node imgui_upload_pass = zest_AddTransferPassNode(app->render_graph, "Upload ImGui", UploadImGuiPass);
-			zest_AddPassTransferDstBuffer(imgui_upload_pass, imgui_vertex_buffer);
-			zest_AddPassTransferDstBuffer(imgui_upload_pass, imgui_index_buffer);
-			zest_rg_pass_node imgui_pass = zest_AddGraphicPassNode(app->render_graph, "Draw ImGui", DrawImGuiRenderPass);
-			zest_AddPassVertexBufferInput(imgui_pass, imgui_vertex_buffer);
-			zest_AddPassIndexBufferInput(imgui_pass, imgui_index_buffer);
-			zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+		zest_rg_pass_node imgui_pass = zest_imgui_AddToRenderGraph(app->render_graph);
+		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return null
+		if (imgui_pass) {
+			zest_rg_resource_node test_texture = zest_ImportImageResourceReadOnly(app->render_graph, "test texture", app->test_texture);
 			zest_AddPassSampledImageInput(imgui_pass, test_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		} else {
 			//Just render a blank screen if imgui didn't render anything
-			zest_rg_pass_node blank_pass = zest_AddGraphicPassNode(app->render_graph, "Draw Nothing", zest_EmptyRenderPass);
+			zest_rg_pass_node blank_pass = zest_AddGraphicBlankScreen(app->render_graph, "Draw Nothing");
 			zest_AddPassSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
 		zest_EndRenderGraph(app->render_graph);

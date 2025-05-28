@@ -140,7 +140,7 @@ void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	example->playback_shader = zest_AddShaderFromSPVFile("examples/assets/spv/sprite_data_playback.comp.spv", shaderc_compute_shader);
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier
-	zest_compute_builder_t builder = zest_NewComputeBuilder();
+	zest_compute_builder_t builder = zest_BeginComputeBuilder();
 	//Add layout binding for the buffers that we'll need to use in the compute shader
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0);
 	zest_AddComputeLayoutBinding(&builder, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1);
@@ -164,7 +164,7 @@ void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	zest_SetComputeDescriptorUpdateCallback(&builder, zest_StandardComputeDescriptorUpdate);
 	//Finalise the compute set up by calling MakeCompute which creates all the boiler plate code to create the
 	//compute pipeline in Vulkan
-	zest_MakeCompute(&builder, example->compute);
+	zest_FinishCompute(&builder, example->compute);
 }
 
 //Every frame the compute shader needs to be dispatched which means that all the commands for the compute shader
