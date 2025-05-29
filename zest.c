@@ -2196,6 +2196,14 @@ void zest__do_scheduled_tasks(void) {
 		zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.buffers[ZEST_FIF]);
     }
 
+    if (zest_vec_size(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF])) {
+        zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF]) {
+            zest_binding_index_for_release_t index = ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF][i];
+            zest__release_bindless_index(index.layout, index.binding_number, index.binding_index);
+        }
+		zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF]);
+    }
+
     if (zest_vec_size(ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF])) {
         zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF]) {
             zest_image_buffer_t *image_buffer = &ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF][i];
@@ -3547,10 +3555,11 @@ void zest__cleanup_renderer() {
     for (zest_map_foreach_i(ZestRenderer->descriptor_layouts)) {
         zest_descriptor_set_layout layout = *zest_map_at_index(ZestRenderer->descriptor_layouts, i);
 		vkDestroyDescriptorSetLayout(ZestDevice->logical_device, layout->vk_layout, &ZestDevice->allocation_callbacks);
-		vkDestroyDescriptorPool(ZestDevice->logical_device, layout->pool->vk_descriptor_pool, &ZestDevice->allocation_callbacks);
+        if (layout->pool) {
+            vkDestroyDescriptorPool(ZestDevice->logical_device, layout->pool->vk_descriptor_pool, &ZestDevice->allocation_callbacks);
+        }
     }
     zest_map_clear(ZestRenderer->descriptor_layouts);
-
 
     for (ZEST_EACH_FIF_i) {
         vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->frame_sync[i].image_available_semaphore, &ZestDevice->allocation_callbacks);
@@ -4216,11 +4225,31 @@ zest_descriptor_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_descri
     }
     zest_vec_free(builder->bindings);
     zest_vec_free(builder->binding_flags);
+
+    zest_CreateDescriptorPoolForLayoutBindless(set_layout, 1, VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT);
+
     zest_FreeText(&layer_name);
-
-    set_layout->pool = zest_CreateDescriptorPoolForLayoutBindless(set_layout, 1, VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT);
-
     return set_layout;
+}
+
+ZEST_API zest_descriptor_set_t zest_CreateBindlessSet(zest_descriptor_set_layout layout) {
+    ZEST_CHECK_HANDLE(layout);  //Not a valid layout
+    ZEST_ASSERT(layout->vk_layout != VK_NULL_HANDLE && "VkDescriptorSetLayout in wrapper is null.");
+    ZEST_ASSERT(layout->pool->vk_descriptor_pool != VK_NULL_HANDLE && "VkDescriptorPool in wrapper is null.");
+    // max_sets_in_pool was set during pool creation, usually 1 for a global bindless set.
+    ZEST_ASSERT(layout->pool->max_sets >= 1 && "Pool was not created to allow allocation of at least one set.");
+
+    VkDescriptorSetAllocateInfo alloc_info = { 0 };
+    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc_info.descriptorPool = layout->pool->vk_descriptor_pool;
+    alloc_info.descriptorSetCount = 1; // We are allocating one instance of this global bindless set
+    alloc_info.pSetLayouts = &layout->vk_layout;
+
+    zest_descriptor_set_t set = { 0 };
+    set.magic = zest_INIT_MAGIC;
+    ZEST_VK_CHECK_RESULT(vkAllocateDescriptorSets(ZestDevice->logical_device, &alloc_info, &set.vk_descriptor_set));
+
+    return set;
 }
 
 zest_descriptor_set_layout zest__add_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout) {
@@ -4348,7 +4377,7 @@ VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding) 
 
 }
 
-VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo* view_buffer_info, zest_uint dst_binding, VkDescriptorType type) {
+VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo* buffer_info, zest_uint dst_binding, VkDescriptorType type) {
     VkWriteDescriptorSet write = { 0 };
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = descriptor_set;
@@ -4356,7 +4385,7 @@ VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet de
     write.dstArrayElement = 0;
     write.descriptorType = type;
     write.descriptorCount = 1;
-    write.pBufferInfo = view_buffer_info;
+    write.pBufferInfo = buffer_info;
     return write;
 }
 
@@ -4622,7 +4651,7 @@ zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets) {
     return pool;
 }
 
-zest_descriptor_pool zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layout layout, zest_uint max_set_count, VkDescriptorPoolCreateFlags pool_flags) {
+void zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layout layout, zest_uint max_set_count, VkDescriptorPoolCreateFlags pool_flags) {
     if (max_set_count == 0) {
         return NULL; // Or handle as appropriate
     }
@@ -4677,10 +4706,10 @@ zest_descriptor_pool zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layo
     zest_descriptor_pool pool = zest__create_descriptor_pool(max_set_count);
     ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_create_info, &ZestDevice->allocation_callbacks, &pool->vk_descriptor_pool));
 
-    return pool;
+    layout->pool = pool;
 }
 
-zest_descriptor_pool zest_CreateDescriptorPoolForLayoutBindless(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags) {
+void zest_CreateDescriptorPoolForLayoutBindless(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags) {
     if (max_global_set_count == 0) {
         return NULL; 
     }
@@ -4743,7 +4772,7 @@ zest_descriptor_pool zest_CreateDescriptorPoolForLayoutBindless(zest_descriptor_
     zest_descriptor_pool pool = zest__create_descriptor_pool(max_global_set_count);
     ZEST_VK_CHECK_RESULT(vkCreateDescriptorPool(ZestDevice->logical_device, &pool_create_info, &ZestDevice->allocation_callbacks, &pool->vk_descriptor_pool));
 
-    return pool;
+    layout->pool = pool;
 }
 
 void zest_ResetDescriptorPool(zest_descriptor_pool pool) {
@@ -4857,6 +4886,10 @@ VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipel
 
 void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template pipeline_template) {
     zest_vec_clear(pipeline_template->bindingDescriptions);
+}
+
+void zest_ClearVertexAttributeDescriptions(zest_pipeline_template pipeline_template) {
+    zest_vec_clear(pipeline_template->attributeDescriptions);
 }
 
 void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeline_template) {
@@ -6128,7 +6161,7 @@ void zest__create_debug_layout_and_pool(zest_uint max_texture_count) {
 	zest_descriptor_set_layout_builder_t builder = zest_BeginDescriptorSetLayoutBuilder();
 	zest_AddLayoutBuilderCombinedImageSampler(&builder, 0, 1);
 	ZestRenderer->texture_debug_layout = zest_FinishDescriptorSetLayout(&builder, "Texture Debug Layout");
-	ZestRenderer->texture_debug_layout->pool = zest_CreateDescriptorPoolForLayout(ZestRenderer->texture_debug_layout, max_texture_count, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
+	zest_CreateDescriptorPoolForLayout(ZestRenderer->texture_debug_layout, max_texture_count, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
 }
 
 void zest__prepare_standard_pipelines() {
@@ -7197,13 +7230,14 @@ char* zest_ReadEntireFile(const char* file_name, zest_bool terminate) {
 // --End General Helper Functions
 
 // --Render Graph functions
-zest_render_graph zest_NewRenderGraph(const char *name, bool force_on_graphics_queue) {
+zest_render_graph zest_NewRenderGraph(const char *name, zest_descriptor_set_layout set_layout, bool force_on_graphics_queue) {
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->render_graphs, name));
     zest_render_graph_t blank = { 0 };
     zest_render_graph render_graph = ZEST__NEW(zest_render_graph);
     *render_graph = blank;
     render_graph->magic = zest_INIT_MAGIC;
     render_graph->name = name;
+    render_graph->bindless_layout = set_layout;
     if(force_on_graphics_queue) {
         render_graph->flags |= zest_render_graph_force_on_graphics_queue;
     }
@@ -7471,6 +7505,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
     //--------------------------------------------------------
 
     zest_uint size_of_exe_order = zest_vec_size(render_graph->compiled_execution_order);
+    VkWriteDescriptorSet *desriptor_writes = 0;
     //Alocate_transient_buffers
     zest_vec_foreach(r, render_graph->resources) {
         zest_rg_resource_node resource = &render_graph->resources[r];
@@ -7494,11 +7529,21 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                 resource->current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
                 resource->current_access_mask = 0;
                 resource->last_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_is_bindless) && ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
+                    resource->bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, resource->binding_number);
+                    zest_binding_index_for_release_t binding_index = { render_graph->bindless_layout, resource->bindless_index, resource->binding_number };
+                    zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
+                }
 
             } else if (resource->type == zest_resource_type_buffer && resource->storage_buffer == NULL) { 
                 zest__create_transient_buffer(resource); 
                 resource->current_access_mask = 0;
                 resource->last_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_is_bindless) && ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
+                    resource->bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, resource->binding_number);
+                    zest_binding_index_for_release_t binding_index = { render_graph->bindless_layout, resource->bindless_index, resource->binding_number };
+                    zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
+                }
             }
         }
     }
@@ -7593,6 +7638,9 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                     }
 					exe_details->overall_src_stage_mask_for_pre_pass_barriers |= input_resource->last_stage_mask;
 					exe_details->overall_dst_stage_mask_for_pre_pass_barriers |= required_stage;
+                    if (exe_details->overall_src_stage_mask_for_pre_pass_barriers & VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT) {
+                        int d = 0;
+                    }
                 }
                 input_resource->current_layout = required_layout;
                 input_resource->current_access_mask = required_access;
@@ -8315,8 +8363,116 @@ void zest_SubmitRenderGraph(zest_render_graph render_graph, VkFence fence) {
 }
 
 // --Command Queue functions
+zest_uint zest__get_image_binding_number(zest_render_graph render_graph, zest_rg_resource_node resource, bool image_view_only) {
+    if (!ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
+        ZEST_PRINT("ERROR: render graph %s doesn't have a bindless layout assigned, but you're tring to add a resource that uses a binding number.", render_graph->name);
+        return ZEST_INVALID;
+    }
 
-zest_rg_resource_node zest_AddTransientImageResource(zest_render_graph render_graph, const char *name, const zest_image_description_t *description) {
+    ZEST_ASSERT(resource->type == zest_resource_type_image);   //resource must be a image
+    zest_uint binding_number = ZEST_INVALID;
+	zest_vec_foreach(i, render_graph->bindless_layout->layout_bindings) {
+		VkDescriptorSetLayoutBinding *binding = &render_graph->bindless_layout->layout_bindings[i];
+		if (!image_view_only && resource->image_desc.usage & VK_IMAGE_USAGE_SAMPLED_BIT && binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+			binding_number = binding->binding;
+			break;
+		} else if (resource->image_desc.usage & VK_IMAGE_USAGE_SAMPLED_BIT && binding->descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
+			binding_number = binding->binding;
+			break;
+		} else if (resource->image_desc.usage & VK_IMAGE_USAGE_STORAGE_BIT && binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
+			binding_number = binding->binding;
+			break;
+		}
+	}
+
+    return binding_number;
+}
+
+zest_uint zest__get_buffer_binding_number(zest_render_graph render_graph, zest_rg_resource_node resource) {
+    if (!ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
+        ZEST_PRINT("ERROR: render graph %s doesn't have a bindless layout assigned, but you're tring to add a resource that uses a binding number.", render_graph->name);
+        return ZEST_INVALID;
+    }
+    ZEST_ASSERT(resource->type == zest_resource_type_buffer);   //resource must be a buffer
+
+    zest_uint binding_number = ZEST_INVALID;
+	zest_vec_foreach(i, render_graph->bindless_layout->layout_bindings) {
+		VkDescriptorSetLayoutBinding *binding = &render_graph->bindless_layout->layout_bindings[i];
+		if (resource->buffer_desc.buffer_info.usage_flags & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT && 
+			binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
+			binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC
+			) {
+			binding_number = binding->binding;
+			break;
+		} else if (resource->buffer_desc.buffer_info.usage_flags & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT && 
+			(binding->descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || 
+			 binding->descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC)) {
+			binding_number = binding->binding;
+			break;
+		}
+	}
+
+    return binding_number;
+}
+
+void zest_AssignBindlessTextureIndex(zest_texture texture, zest_descriptor_set_layout layout, zest_descriptor_set_t *set, zest_uint target_binding_number) {
+    ZEST_CHECK_HANDLE(layout);  //Must be a valid handle to a descriptor set layout
+
+    zest_uint binding_number = ZEST_INVALID;
+    VkDescriptorType descriptor_type;
+	zest_vec_foreach(i, layout->layout_bindings) {
+		VkDescriptorSetLayoutBinding *binding = &layout->layout_bindings[i];
+		if (binding->binding == target_binding_number && 
+            (binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
+             binding->descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+            descriptor_type = binding->descriptorType;
+			binding_number = binding->binding;
+			break;
+        }
+	}
+
+    ZEST_ASSERT(binding_number != ZEST_INVALID);    //Could not find an appropriate descriptor type in the layout with that target binding number!
+    texture->descriptor_array_index = zest__acquire_bindless_index(layout, binding_number);
+    ZEST_ASSERT(texture->descriptor_array_index != ZEST_INVALID);   //Ran out of space in the descriptor pool
+    texture->binding_number = binding_number;
+    texture->bindless_set = *set;
+
+
+    VkWriteDescriptorSet write = { 0 };
+	VkDescriptorImageInfo image_info = texture->descriptor_image_info;
+    if (descriptor_type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+        image_info.sampler = texture->sampler->vk_sampler;
+		write = zest_CreateImageDescriptorWriteWithType(texture->bindless_set.vk_descriptor_set, &image_info, binding_number, descriptor_type);
+    } else {
+		write = zest_CreateImageDescriptorWriteWithType(texture->bindless_set.vk_descriptor_set, &image_info, binding_number, descriptor_type);
+    }
+    write.dstArrayElement = texture->descriptor_array_index;
+	vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
+}
+
+void zest_AssignBindlessStorageBufferIndex(zest_descriptor_buffer buffer, zest_descriptor_set_layout layout, zest_descriptor_set_t *set, zest_uint target_binding_number) {
+    ZEST_CHECK_HANDLE(layout);  //Must be a valid handle to a descriptor set layout
+
+    zest_uint binding_number = ZEST_INVALID;
+	zest_vec_foreach(i, layout->layout_bindings) {
+		VkDescriptorSetLayoutBinding *layout_binding = &layout->layout_bindings[i];
+		if (target_binding_number == layout_binding->binding && layout_binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
+			binding_number = layout_binding->binding;
+			break;
+		}
+	}
+
+    ZEST_ASSERT(binding_number != ZEST_INVALID);    //Could not find an appropriate descriptor type in the layout with that target binding number!
+    buffer->descriptor_array_index = zest__acquire_bindless_index(layout, binding_number);
+    buffer->binding_number = binding_number;
+    buffer->descriptor_set = *set;
+
+    VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(buffer->descriptor_set.vk_descriptor_set, &buffer->descriptor_info, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    write.dstArrayElement = buffer->descriptor_array_index;
+    vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
+}
+
+zest_rg_resource_node zest_AddTransientImageResource(zest_render_graph render_graph, const char *name, const zest_image_description_t *description, zest_bool assign_bindless, zest_bool image_view_binding_only) {
     zest_rg_resource_node_t node = { 0 };
     node.name = name;
 	node.id = render_graph->id_counter++;
@@ -8328,12 +8484,21 @@ zest_rg_resource_node zest_AddTransientImageResource(zest_render_graph render_gr
     node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     node.magic = zest_INIT_MAGIC;
     node.producer_pass_idx = -1;
+    if (assign_bindless) {
+        ZEST_CHECK_HANDLE(render_graph->bindless_layout);   //Trying to assing bindless index number but the render graph bindless layout is null.
+                                                            //Make sure you assign it when creating the render graph.
+        node.bindless_index = zest__get_image_binding_number(render_graph, &node, image_view_binding_only);
+		ZEST_ASSERT(node.binding_number != ZEST_INVALID);   //Could not find a valid binding number for the image/texture. Make sure that
+                                                            //the bindless descriptor set layout you assigned to the render graph has the correct
+															//desriptor types set.
+        ZEST__FLAG(node.flags, zest_resource_node_flag_is_bindless);
+    }
 	ZEST__FLAG(node.flags, zest_resource_node_flag_transient);
     zest_vec_linear_push(ZestRenderer->render_graph_allocator, render_graph->resources, node);
     return &zest_vec_back(render_graph->resources);
 }
 
-zest_rg_resource_node zest_AddTransientBufferResource(zest_render_graph render_graph, const char *name, const zest_buffer_description_t *description) {
+zest_rg_resource_node zest_AddTransientBufferResource(zest_render_graph render_graph, const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless) {
     if (description->size == 0) {
         return NULL;
     }
@@ -8346,9 +8511,34 @@ zest_rg_resource_node zest_AddTransientBufferResource(zest_render_graph render_g
     node.render_graph = render_graph;
     node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     node.magic = zest_INIT_MAGIC;
+    if (assign_bindless) {
+        ZEST_CHECK_HANDLE(render_graph->bindless_layout);   //Trying to assing bindless index number but the render graph bindless layout is null.
+                                                            //Make sure you assign it when creating the render graph.
+        node.bindless_index = zest__get_buffer_binding_number(render_graph, &node);
+		ZEST_ASSERT(node.binding_number != ZEST_INVALID);   //Could not find a valid binding number for the image/texture. Make sure that
+                                                            //the bindless descriptor set layout you assigned to the render graph has the correct
+															//desriptor types set.
+        ZEST__FLAG(node.flags, zest_resource_node_flag_is_bindless);
+    }
     ZEST__FLAG(node.flags, zest_resource_node_flag_transient);
     zest_vec_linear_push(ZestRenderer->render_graph_allocator, render_graph->resources, node);
     return &zest_vec_back(render_graph->resources);
+}
+
+zest_rg_resource_node_t zest__create_import_buffer_resource_node(zest_render_graph render_graph, const char *name, zest_descriptor_buffer buffer) {
+    zest_rg_resource_node_t node = { 0 };
+    node.name = name;
+	node.id = render_graph->id_counter++;
+	node.resource = (zest_resource_handle)buffer;
+    node.first_usage_pass_idx = UINT_MAX;
+	node.type = zest_resource_type_buffer;
+    node.render_graph = render_graph;
+    node.magic = zest_INIT_MAGIC;
+    node.storage_buffer = buffer->buffer;
+    node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
+    node.producer_pass_idx = -1;
+	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
+    return node;
 }
 
 zest_rg_resource_node_t zest__create_import_image_resource_node(zest_render_graph render_graph, const char *name, zest_texture texture) {
@@ -8383,6 +8573,12 @@ zest_rg_resource_node zest_ImportImageResourceReadOnly(zest_render_graph render_
     node.final_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     node.current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
+    zest_vec_linear_push(ZestRenderer->render_graph_allocator, render_graph->resources, node);
+    return &zest_vec_back(render_graph->resources);
+}
+
+zest_rg_resource_node zest_ImportStorageBufferResource(zest_render_graph render_graph, const char *name, zest_descriptor_buffer buffer) {
+    zest_rg_resource_node_t node = zest__create_import_buffer_resource_node(render_graph, name, buffer);
     zest_vec_linear_push(ZestRenderer->render_graph_allocator, render_graph->resources, node);
     return &zest_vec_back(render_graph->resources);
 }
@@ -8469,9 +8665,11 @@ zest_rg_pass_node zest_AddGraphicPassNode(zest_render_graph render_graph, const 
     return zest__add_pass_node(render_graph, name, zest_queue_graphics);
 }
 
-zest_rg_pass_node zest_AddComputePassNode(zest_render_graph render_graph, const char *name) {
+zest_rg_pass_node zest_AddComputePassNode(zest_render_graph render_graph, zest_compute compute, const char *name) {
     bool force_graphics_queue = (render_graph->flags & zest_render_graph_force_on_graphics_queue) > 0;
-    return zest__add_pass_node(render_graph, name, force_graphics_queue ? zest_queue_graphics : zest_queue_compute);
+    zest_rg_pass_node node = zest__add_pass_node(render_graph, name, force_graphics_queue ? zest_queue_graphics : zest_queue_compute);
+    node->compute = compute;
+    return node;
 }
 
 zest_rg_pass_node zest_AddTransferPassNode(zest_render_graph render_graph, const char *name) {
@@ -8491,7 +8689,7 @@ zest_rg_resource_node zest_GetPassOutputResource(zest_rg_pass_node pass, const c
     return usage->resource_node;
 }
 
-void zest_add_pass_buffer_usage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, zest_resource_access_purpose purpose, VkShaderStageFlags relevant_shader_stages, zest_bool is_output) {
+void zest_add_pass_buffer_usage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, zest_resource_access_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output) {
     zest_resource_usage_t usage = { 0 }; // Your internal struct to store resolved flags
     usage.resource_node = buffer_resource;
 
@@ -8506,19 +8704,19 @@ void zest_add_pass_buffer_usage(zest_rg_pass_node pass_node, zest_rg_resource_no
         break;
     case zest_purpose_uniform_buffer:
         usage.access_mask = VK_ACCESS_UNIFORM_READ_BIT;
-        usage.stage_mask = relevant_shader_stages; 
+        usage.stage_mask = relevant_pipeline_stages; 
         break;
     case zest_purpose_storage_buffer_read:
         usage.access_mask = VK_ACCESS_SHADER_READ_BIT;
-        usage.stage_mask = relevant_shader_stages;
+        usage.stage_mask = relevant_pipeline_stages;
         break;
     case zest_purpose_storage_buffer_write:
         usage.access_mask = VK_ACCESS_SHADER_WRITE_BIT;
-        usage.stage_mask = relevant_shader_stages;
+        usage.stage_mask = relevant_pipeline_stages;
         break;
     case zest_purpose_storage_buffer_read_write:
         usage.access_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        usage.stage_mask = relevant_shader_stages;
+        usage.stage_mask = relevant_pipeline_stages;
         break;
     case zest_purpose_transfer_src_buffer:
         usage.access_mask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -8541,7 +8739,7 @@ void zest_add_pass_buffer_usage(zest_rg_pass_node pass_node, zest_rg_resource_no
     }
 }
 
-void zest_add_pass_image_usage( zest_rg_pass_node pass_node,zest_rg_resource_node image_resource, zest_resource_access_purpose purpose, VkShaderStageFlags relevant_shader_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value) {
+void zest_add_pass_image_usage( zest_rg_pass_node pass_node,zest_rg_resource_node image_resource, zest_resource_access_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value) {
     zest_resource_usage_t usage = { 0 }; // Your internal struct
     usage.resource_node = image_resource;
 
@@ -8587,28 +8785,28 @@ void zest_add_pass_image_usage( zest_rg_pass_node pass_node,zest_rg_resource_nod
     case zest_purpose_sampled_image:
         usage.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         usage.access_mask = VK_ACCESS_SHADER_READ_BIT;
-        usage.stage_mask = relevant_shader_stages; 
+        usage.stage_mask = relevant_pipeline_stages; 
         inferred_is_output = ZEST_FALSE;
         break;
 
     case zest_purpose_storage_image_read:
         usage.image_layout = VK_IMAGE_LAYOUT_GENERAL; 
         usage.access_mask = VK_ACCESS_SHADER_READ_BIT;
-        usage.stage_mask = relevant_shader_stages; 
+        usage.stage_mask = relevant_pipeline_stages; 
         inferred_is_output = ZEST_FALSE;
         break;
 
     case zest_purpose_storage_image_write:
         usage.image_layout = VK_IMAGE_LAYOUT_GENERAL;
         usage.access_mask = VK_ACCESS_SHADER_WRITE_BIT;
-        usage.stage_mask = relevant_shader_stages;
+        usage.stage_mask = relevant_pipeline_stages;
         inferred_is_output = ZEST_TRUE;
         break;
 
     case zest_purpose_storage_image_read_write:
         usage.image_layout = VK_IMAGE_LAYOUT_GENERAL;
         usage.access_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        usage.stage_mask = relevant_shader_stages; 
+        usage.stage_mask = relevant_pipeline_stages; 
         inferred_is_output = ZEST_TRUE;
         break;
 
@@ -8639,7 +8837,7 @@ void zest_add_pass_image_usage( zest_rg_pass_node pass_node,zest_rg_resource_nod
     case zest_purpose_input_attachment: // For subpass reads
         usage.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; 
         usage.access_mask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
-        usage.stage_mask = relevant_shader_stages; 
+        usage.stage_mask = relevant_pipeline_stages; 
         inferred_is_output = ZEST_FALSE;
         break;
 
@@ -8684,15 +8882,15 @@ void zest_AddPassIndexBufferInput(zest_rg_pass_node pass, zest_rg_resource_node 
     zest_add_pass_buffer_usage(pass, index_buffer, zest_purpose_index_buffer, 0, ZEST_FALSE);
 }
 
-void zest_AddPassUniformBufferInput(zest_rg_pass_node pass, zest_rg_resource_node uniform_buffer, VkShaderStageFlags stages) {
+void zest_AddPassUniformBufferInput(zest_rg_pass_node pass, zest_rg_resource_node uniform_buffer, VkPipelineStageFlags stages) {
     zest_add_pass_buffer_usage(pass, uniform_buffer, zest_purpose_uniform_buffer, stages, ZEST_FALSE);
 }
 
-void zest_AddPassStorageBufferRead(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkShaderStageFlags stages) {
+void zest_AddPassStorageBufferRead(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkPipelineStageFlags stages) {
     zest_add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_read, stages, ZEST_FALSE);
 }
 
-void zest_AddPassStorageBufferWrite(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkShaderStageFlags stages) {
+void zest_AddPassStorageBufferWrite(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkPipelineStageFlags stages) {
     zest_add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_write, stages, ZEST_TRUE);
 }
 
@@ -9100,7 +9298,7 @@ zest_command_queue_draw_commands zest_NewDrawCommandSetupUpSampler(const char *n
     render_target->input_source = downsampler;
     render_target->pipeline_template = pipeline;
     ZEST__FLAG(render_target->flags, zest_render_target_flag_upsampler);
-    draw_commands->descriptor_pool = zest_CreateDescriptorPoolForLayout(zest_GetDescriptorSetLayout("2 sampler"), render_target->mip_levels * 2 * ZEST_MAX_FIF + 4, 0);
+    zest_CreateDescriptorPoolForLayout(zest_GetDescriptorSetLayout("2 sampler"), render_target->mip_levels * 2 * ZEST_MAX_FIF + 4, 0);
     zest_ForEachFrameInFlight(fif) {
 		zest_vec_resize(render_target->mip_level_descriptor_sets[render_target->current_index][fif], (zest_uint)render_target->mip_levels);
     }
@@ -11854,7 +12052,7 @@ void zest__initialise_render_target(zest_render_target render_target, zest_rende
     render_target->sampler_info.flags = 0;
 	render_target->sampler[render_target->current_index] = zest__create_sampler(render_target->sampler_info);
 
-    render_target->descriptor_pool[0] = zest_CreateDescriptorPoolForLayout(zest_GetDescriptorSetLayout("2 sampler"), render_target->mip_levels * 2 * ZEST_MAX_FIF + 4, 0);
+    zest_CreateDescriptorPoolForLayout(zest_GetDescriptorSetLayout("2 sampler"), render_target->mip_levels * 2 * ZEST_MAX_FIF + 4, 0);
 	zest__create_render_target_sampler(render_target);
 
     if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_multi_mip)) {

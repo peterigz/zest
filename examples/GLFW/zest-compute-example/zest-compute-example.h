@@ -21,7 +21,13 @@ struct ComputeUniformBuffer {					// Compute shader uniform block object
 	float dest_x;								//		x position of the attractor
 	float dest_y;								//		y position of the attractor
 	int32_t particleCount = PARTICLE_COUNT;
+	int32_t particle_buffer_index = 0;
 } ubo;
+
+struct ParticleFragmentPush {
+	int particle_index;
+	int gradient_index;
+};
 
 struct ImGuiApp {
 	zest_imgui imgui_info;
@@ -40,7 +46,6 @@ struct ImGuiApp {
 	zest_uniform_buffer compute_uniform_buffer[ZEST_MAX_FIF];
 	zest_descriptor_set_layout uniform_layout;
 	zest_descriptor_set_t uniform_set[ZEST_MAX_FIF];
-	zest_descriptor_pool uniform_set_pool;
 	zest_compute compute;
     VkDescriptorSet *draw_sets;
 

@@ -324,6 +324,7 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_TRUE 1
 #define ZEST_FALSE 0
 #define ZEST_INVALID 0xFFFFFFFF
+#define ZEST_NOT_BINDLESS 0xFFFFFFFF
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
 
 //Shader_code
@@ -1359,6 +1360,7 @@ typedef enum zest_resource_node_flag_bits {
     zest_resource_node_flag_transient       = 1 << 0,
     zest_resource_node_flag_imported        = 1 << 1,
     zest_resource_node_flag_used_in_output  = 1 << 2,
+    zest_resource_node_flag_is_bindless     = 1 << 3,
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;
@@ -2418,7 +2420,6 @@ typedef struct zest_render_graph_context_t {
     VkRenderPass render_pass;
     zest_render_graph render_graph;
     zest_rg_pass_node pass_node;
-    zest_compute compute;
 } zest_render_graph_context_t;
 
 typedef void (*zest_rg_execution_callback)(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
@@ -2492,6 +2493,7 @@ typedef struct zest_rg_pass_node_t {
     zest_map_resource_usages outputs;
     zest_pass_execution_callback_t *execution_callbacks;
     zest_render_graph render_graph;
+    zest_compute compute;
 } zest_rg_pass_node_t;
 
 typedef struct zest_rg_resource_node_t {
@@ -2507,6 +2509,8 @@ typedef struct zest_rg_resource_node_t {
 
     zest_image_buffer_t image_buffer;
     zest_buffer storage_buffer;
+    zest_uint binding_number;
+    zest_uint bindless_index;               //The index to use in the shader
 
     zest_uint current_queue_family_index;
     VkAccessFlags current_access_mask;
@@ -2540,10 +2544,17 @@ typedef struct zest_temp_attachment_info_t {
     zest_uint attachment_slot;
 } zest_temp_attachment_info_t;
 
+typedef struct zest_binding_index_for_release_t {
+    zest_descriptor_set_layout layout;
+    zest_uint binding_index;
+    zest_uint binding_number;
+} zest_binding_index_for_release_t;
+
 typedef struct zest_destruction_queue_t {
     zest_buffer *buffers[ZEST_MAX_FIF];
     zest_image_buffer_t *images[ZEST_MAX_FIF];
     zest_texture *textures[ZEST_MAX_FIF];
+    zest_binding_index_for_release_t *binding_indexes[ZEST_MAX_FIF];
 } zest_destruction_queue_t;
 
 typedef struct zest_submission_batch_t {
@@ -2574,6 +2585,7 @@ typedef struct zest_render_graph_t {
     zest_uint current_swapchain_image_index;
     zest_uint id_counter;
     zest_descriptor_pool descriptor_pool;           //Descriptor pool for execution nodes within the graph.
+    zest_descriptor_set_layout bindless_layout;
 
     zest_submission_batch_t *submissions;
 
@@ -2596,17 +2608,21 @@ ZEST_PRIVATE void zest__deferr_image_destruction(zest_image_buffer_t *image_buff
 ZEST_PRIVATE zest_rg_pass_node zest__add_pass_node(zest_render_graph render_graph, const char *name, zest_device_queue_type queue_type);
 ZEST_PRIVATE VkCommandPool zest__create_queue_command_pool(int queue_family_index);
 ZEST_PRIVATE zest_rg_resource_node_t zest__create_import_image_resource_node(zest_render_graph render_graph, const char *name, zest_texture texture);
+ZEST_PRIVATE zest_rg_resource_node_t zest__create_import_buffer_resource_node(zest_render_graph render_graph, const char *name, zest_descriptor_buffer buffer);
+ZEST_PRIVATE zest_uint zest__get_image_binding_number(zest_render_graph render_graph, zest_rg_resource_node resource, bool image_view_only);
+ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_render_graph render_graph, zest_rg_resource_node resource);
+ZEST_API void zest_AssignBindlessBufferIndex(zest_descriptor_buffer buffer, zest_descriptor_set_layout layout);
 ZEST_API zest_bool zest_AcquireSwapChainImage(void);
 
-ZEST_PRIVATE void zest_add_pass_buffer_usage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, zest_resource_access_purpose purpose, VkShaderStageFlags relevant_shader_stages, zest_bool is_output);
-ZEST_PRIVATE void zest_add_pass_image_usage(zest_rg_pass_node pass_node, zest_rg_resource_node image_resource, zest_resource_access_purpose purpose, VkShaderStageFlags relevant_shader_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value);
+ZEST_PRIVATE void zest_add_pass_buffer_usage(zest_rg_pass_node pass_node, zest_rg_resource_node buffer_resource, zest_resource_access_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
+ZEST_PRIVATE void zest_add_pass_image_usage(zest_rg_pass_node pass_node, zest_rg_resource_node image_resource, zest_resource_access_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value);
 
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 
 ZEST_API zest_rg_resource_node zest_GetPassInputResource(zest_rg_pass_node pass, const char *name);
 ZEST_API zest_rg_resource_node zest_GetPassOutputResource(zest_rg_pass_node pass, const char *name);
 
-ZEST_API zest_render_graph zest_NewRenderGraph(const char *name, bool force_on_graphics_queue);
+ZEST_API zest_render_graph zest_NewRenderGraph(const char *name, zest_descriptor_set_layout set_layout, bool force_on_graphics_queue);
 ZEST_API bool zest_BeginRenderGraph(zest_render_graph render_graph);
 ZEST_API bool zest_BeginRenderToScreen(zest_render_graph render_graph);
 ZEST_API void zest_EndRenderGraph(zest_render_graph render_graph);
@@ -2615,28 +2631,29 @@ ZEST_API void zest_ResetRenderGraph(zest_render_graph render_graph);
 
 ZEST_API zest_rg_pass_node zest_AddGraphicBlankScreen(zest_render_graph render_graph, const char *name);
 ZEST_API zest_rg_pass_node zest_AddGraphicPassNode(zest_render_graph render_graph, const char *name);
-ZEST_API zest_rg_pass_node zest_AddComputePassNode(zest_render_graph render_graph, const char *name);
+ZEST_API zest_rg_pass_node zest_AddComputePassNode(zest_render_graph render_graph, zest_compute compute, const char *name);
 ZEST_API zest_rg_pass_node zest_AddTransferPassNode(zest_render_graph render_graph, const char *name);
 ZEST_API void zest_AddPassTask(zest_rg_pass_node pass, zest_rg_execution_callback callback, void *user_data);
 
-ZEST_API zest_rg_resource_node zest_AddTransientImageResource(zest_render_graph graph, const char *name, const zest_image_description_t *desc);
-ZEST_API zest_rg_resource_node zest_AddTransientBufferResource(zest_render_graph graph, const char *name, const zest_buffer_description_t *desc);
+ZEST_API zest_rg_resource_node zest_AddTransientImageResource(zest_render_graph graph, const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
+ZEST_API zest_rg_resource_node zest_AddTransientBufferResource(zest_render_graph graph, const char *name, const zest_buffer_description_t *desc, zest_bool assign_bindless);
 
 ZEST_API zest_rg_resource_node zest_ImportImageResource(zest_render_graph render_graph, const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
 ZEST_API zest_rg_resource_node zest_ImportImageResourceReadOnly(zest_render_graph render_graph, const char *name, zest_texture texture);
+ZEST_API zest_rg_resource_node zest_ImportStorageBufferResource(zest_render_graph render_graph, const char *name, zest_descriptor_buffer buffer);
 ZEST_API zest_rg_resource_node zest_ImportLayerResource(zest_render_graph render_graph, const char *name, zest_layer layer);
 ZEST_API zest_rg_resource_node zest_ImportSwapChainResource(zest_render_graph render_graph, const char *name);
 
 ZEST_API void zest_AddPassVertexBufferInput(zest_rg_pass_node pass, zest_rg_resource_node vertex_buffer);
 ZEST_API void zest_AddPassIndexBufferInput(zest_rg_pass_node pass, zest_rg_resource_node index_buffer);
-ZEST_API void zest_AddPassUniformBufferInput(zest_rg_pass_node pass, zest_rg_resource_node uniform_buffer, VkShaderStageFlags stages);
-ZEST_API void zest_AddPassStorageBufferRead(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkShaderStageFlags stages);
-ZEST_API void zest_AddPassStorageBufferWrite(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkShaderStageFlags stages);
+ZEST_API void zest_AddPassUniformBufferInput(zest_rg_pass_node pass, zest_rg_resource_node uniform_buffer, VkPipelineStageFlags stages);
+ZEST_API void zest_AddPassStorageBufferRead(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkPipelineStageFlags stages);
+ZEST_API void zest_AddPassStorageBufferWrite(zest_rg_pass_node pass, zest_rg_resource_node storage_buffer, VkPipelineStageFlags stages);
 ZEST_API void zest_AddPassTransferDstBuffer(zest_rg_pass_node pass, zest_rg_resource_node dst_buffer);
 ZEST_API void zest_AddPassTransferSrcBuffer(zest_rg_pass_node pass, zest_rg_resource_node src_buffer);
 
 // --- Image Helpers ---
-ZEST_API void zest_AddPassSampledImageInput(zest_rg_pass_node pass, zest_rg_resource_node texture, VkShaderStageFlags stages);
+ZEST_API void zest_AddPassSampledImageInput(zest_rg_pass_node pass, zest_rg_resource_node texture, VkPipelineStageFlags stages);
 ZEST_API void zest_AddPassSwapChainOutput(zest_rg_pass_node pass, zest_rg_resource_node swapchain_resource, VkClearColorValue clear_color_on_load);
 
 ZEST_API void zest_AddPassColorAttachmentOutput(zest_rg_pass_node pass_node, zest_rg_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
@@ -2731,6 +2748,8 @@ typedef struct zest_descriptor_buffer_t {
     zest_buffer buffer;
     VkDescriptorBufferInfo descriptor_info;
     zest_descriptor_set_t descriptor_set;
+    zest_uint descriptor_array_index;
+    zest_uint binding_number;
 } zest_descriptor_buffer_t;
 
 typedef struct zest_descriptor_infos_for_binding_t {
@@ -3269,7 +3288,10 @@ typedef struct zest_texture_t {
     zest_image_buffer_t image_buffer;
     VkDescriptorImageInfo descriptor_image_info;
     zest_descriptor_set_t debug_set;      //A descriptor set for simply sampling the texture
+    zest_descriptor_set_t bindless_set;      //A descriptor set for a bindless layout
     zest_sampler sampler;
+    zest_uint descriptor_array_index;
+    zest_uint binding_number;
     // --- 
 
     //Todo: option to not keep the images in memory after they're uploaded to the graphics card
@@ -3815,8 +3837,8 @@ ZEST_API void zest_AddInstanceExtension(char *extension);
 ZEST_API zest_window zest_AllocateWindow(void);
 //Create a descriptor pool based on a descriptor set layout. This will take the max sets value and create a pool 
 //with enough descriptor pool types based on the bindings found in the layout
-ZEST_API zest_descriptor_pool zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags);
-ZEST_API zest_descriptor_pool zest_CreateDescriptorPoolForLayoutBindless(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags);
+ZEST_API void zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags);
+ZEST_API void zest_CreateDescriptorPoolForLayoutBindless(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags);
 //Reset a descriptor pool. This invalidates all descriptor sets current allocated from the pool so you can reallocate them.
 ZEST_API void zest_ResetDescriptorPool(zest_descriptor_pool pool);
 //Destroys the VkDescriptorPool and frees the zest_descriptor_pool and all contents
@@ -3871,7 +3893,7 @@ ZEST_API VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint 
 //Create a vulkan descriptor set layout with bindings. Just pass in an array of bindings and a count of how many bindings there are.
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(zest_uint count, VkDescriptorSetLayoutBinding *bindings);
 //Create a vulkan descriptor write for a buffer. You need to pass the VkDescriptorSet
-ZEST_API VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
+ZEST_API VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo *buffer_info, zest_uint dst_binding, VkDescriptorType type);
 //Create a vulkan descriptor write for an image.
 ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorImageInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
 //To make creating a new VkDescriptorSet you can use a builder. Make sure you call this function to properly initialise the zest_descriptor_set_builder_t
@@ -3911,6 +3933,9 @@ ZEST_API void zest_AddSetBuilderInstanceLayerLerp(zest_descriptor_set_builder_t 
 //Build a zest_descriptor_set_t using a builder that you made using the AddBuilder command. The layout that you pass to this function must be configured properly.
 //zest_descriptor_set_t will contain a VkDescriptorSet for each frame in flight as well as descriptor writes used to create the set.
 ZEST_API VkDescriptorSet zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_descriptor_set_builder_t *builder, VkDescriptorSet new_set_to_populate_or_update);
+ZEST_API zest_descriptor_set_t zest_CreateBindlessSet(zest_descriptor_set_layout layout);
+ZEST_API void zest_AssignBindlessStorageBufferIndex(zest_descriptor_buffer buffer, zest_descriptor_set_layout layout, zest_descriptor_set_t *set, zest_uint target_binding_number);
+ZEST_API void zest_AssignBindlessTextureIndex(zest_texture texture, zest_descriptor_set_layout layout, zest_descriptor_set_t *set, zest_uint target_binding_number);
 //Create a new descriptor set shader_resources
 ZEST_API zest_shader_resources zest_CreateShaderResources();
 //Add a descriptor set to a descriptor set shader_resources. Bundles are used for binding to a draw call so the descriptor sets can be passed in to the shaders
@@ -4019,6 +4044,8 @@ ZEST_API void zest_SetPipelineTemplateShader(zest_pipeline_template pipeline_tem
 ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
 //Clear the input binding descriptions from the zest_pipeline_template_create_info_t bindingDescriptions array.
 ZEST_API void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template pipeline_template);
+//Clear the input attribute descriptions from the zest_pipeline_template_create_info_t attributeDescriptions array.
+ZEST_API void zest_ClearVertexAttributeDescriptions(zest_pipeline_template pipeline_template);
 //Clear the push constant ranges in a pipeline. You can use this after copying a pipeline to set up your own push constants instead
 //if your pipeline will use a different push constant range.
 ZEST_API void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeline_template);

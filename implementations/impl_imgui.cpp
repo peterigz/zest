@@ -172,7 +172,7 @@ zest_rg_resource_node zest_imgui_AddTransientVertexResources(zest_render_graph r
         zest_buffer_description_t buffer_desc = { 0 };
         buffer_desc.size = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
         buffer_desc.buffer_info = zest_CreateVertexBufferInfo(0);
-        return zest_AddTransientBufferResource(render_graph, name, &buffer_desc);
+        return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, ZEST_NOT_BINDLESS);
     }
     return NULL;
 }
@@ -183,7 +183,7 @@ zest_rg_resource_node zest_imgui_AddTransientIndexResources(zest_render_graph re
         zest_buffer_description_t buffer_desc = { 0 };
         buffer_desc.size = imgui_draw_data->TotalVtxCount * sizeof(ImDrawIdx);
         buffer_desc.buffer_info = zest_CreateIndexBufferInfo(0);
-        return zest_AddTransientBufferResource(render_graph, name, &buffer_desc);
+        return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, ZEST_NOT_BINDLESS);
     }
     return NULL;
 }
