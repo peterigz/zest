@@ -90,6 +90,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		if (imgui_pass) {
 			zest_rg_resource_node test_texture = zest_ImportImageResourceReadOnly(app->render_graph, "test texture", app->test_texture);
 			zest_AddPassSampledImageInput(imgui_pass, test_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+			zest_AddPassTask(imgui_pass, zest_imgui_DrawImGuiRenderPass, app);
 			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		} else {
 			//Just render a blank screen if imgui didn't render anything

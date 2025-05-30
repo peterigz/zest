@@ -234,6 +234,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGui::Text("FPS %u", ZestApp->last_fps);
 		ImGui::Text("Particle Count: %u", PARTICLE_COUNT);
 		ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
+		if (ImGui::Button("Print Render Graph")) {
+			app->request_graph_print = true;
+		}
 		ImGui::End();
 		ImGui::Render();
 		zest_imgui_UpdateBuffers();
@@ -250,8 +253,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 			zest_AddPassVertexBufferInput(imgui_pass, particle_buffer);
 			zest_AddPassTask(compute_pass, RecordComputeCommands, app);
 			zest_AddPassTask(imgui_pass, RecordComputeSprites, app);
+			zest_AddPassTask(imgui_pass, zest_imgui_DrawImGuiRenderPass, app);
 			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
-			//app->request_graph_print = true;
 		} else {
 			//Just render a blank screen if imgui didn't render anything
 			zest_rg_pass_node blank_pass = zest_AddGraphicBlankScreen(app->render_graph, "Draw Nothing");

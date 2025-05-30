@@ -2290,7 +2290,7 @@ typedef struct zest_create_info_t {
     void(*create_window_surface_callback)(zest_window window);
 } zest_create_info_t;
 
-zest_hash_map(const char*) zest_map_queue_names;
+zest_hash_map(const char *) zest_map_queue_names;
 
 typedef struct zest_device_t {
     zest_uint api_version;
@@ -2319,9 +2319,9 @@ typedef struct zest_device_t {
     zest_uint transfer_queue_family_index;
     zest_uint compute_queue_family_index;
     VkQueue graphics_queue;
-    VkQueue one_time_graphics_queue;    //need? aim to get rid of this
     VkQueue compute_queue;
     VkQueue transfer_queue;
+    VkQueueFamilyProperties *queue_families;
     zest_map_queue_names queue_names;
     VkCommandPool command_pool;
     VkCommandPool one_time_command_pool;
@@ -2488,6 +2488,7 @@ typedef struct zest_rg_pass_node_t {
     
     VkQueue queue;
     zest_uint queue_family_index;
+    zest_uint batch_index;
     zest_device_queue_type queue_type;
     zest_map_resource_usages inputs;
     zest_map_resource_usages outputs;
@@ -2562,10 +2563,9 @@ typedef struct zest_submission_batch_t {
     zest_uint queue_family_index;
     zest_uint *pass_indices;
     VkCommandBuffer command_buffer;
-    VkSemaphore signal_batch_semaphore;
-    VkSemaphore wait_on_batch_semaphore;
-    VkPipelineStageFlags internal_wait_dst_stage_mask;
-    VkPipelineStageFlags external_wait_dst_stage_mask;
+    VkSemaphore signal_semaphore;
+    VkSemaphore *wait_semaphores;
+    VkPipelineStageFlags *wait_dst_stage_masks;
 } zest_submission_batch_t;
 
 typedef struct zest_render_graph_t {
@@ -2601,6 +2601,7 @@ typedef struct zest_render_graph_t {
     VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
 } zest_render_graph_t;
 
+ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(VkPipelineStageFlags stages_to_check, VkQueueFlags queue_family_capabilities);
 ZEST_PRIVATE VkImageLayout zest__determine_final_layout(zest_render_graph render_graph, int start_from_idx, zest_rg_resource_node node, zest_resource_usage_t *current_usage);
 ZEST_PRIVATE VkImageAspectFlags zest__determine_aspect_flag(VkFormat format);
 ZEST_PRIVATE void zest__deferr_buffer_destruction(zest_buffer storage_buffer);
@@ -2634,6 +2635,7 @@ ZEST_API zest_rg_pass_node zest_AddGraphicPassNode(zest_render_graph render_grap
 ZEST_API zest_rg_pass_node zest_AddComputePassNode(zest_render_graph render_graph, zest_compute compute, const char *name);
 ZEST_API zest_rg_pass_node zest_AddTransferPassNode(zest_render_graph render_graph, const char *name);
 ZEST_API void zest_AddPassTask(zest_rg_pass_node pass, zest_rg_execution_callback callback, void *user_data);
+ZEST_API void zest_ClearPassTasks(zest_rg_pass_node pass);
 
 ZEST_API zest_rg_resource_node zest_AddTransientImageResource(zest_render_graph graph, const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
 ZEST_API zest_rg_resource_node zest_AddTransientBufferResource(zest_render_graph graph, const char *name, const zest_buffer_description_t *desc, zest_bool assign_bindless);
@@ -3837,8 +3839,8 @@ ZEST_API void zest_AddInstanceExtension(char *extension);
 ZEST_API zest_window zest_AllocateWindow(void);
 //Create a descriptor pool based on a descriptor set layout. This will take the max sets value and create a pool 
 //with enough descriptor pool types based on the bindings found in the layout
-ZEST_API void zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags);
-ZEST_API void zest_CreateDescriptorPoolForLayoutBindless(zest_descriptor_set_layout layout, zest_uint max_global_set_count, VkDescriptorPoolCreateFlags pool_flags);
+ZEST_API void zest_CreateDescriptorPoolForLayout(zest_descriptor_set_layout layout, zest_uint max_set_count, VkDescriptorPoolCreateFlags pool_flags);
+ZEST_API void zest_CreateDescriptorPoolForLayoutBindless(zest_descriptor_set_layout layout, zest_uint max_set_count, VkDescriptorPoolCreateFlags pool_flags);
 //Reset a descriptor pool. This invalidates all descriptor sets current allocated from the pool so you can reallocate them.
 ZEST_API void zest_ResetDescriptorPool(zest_descriptor_pool pool);
 //Destroys the VkDescriptorPool and frees the zest_descriptor_pool and all contents

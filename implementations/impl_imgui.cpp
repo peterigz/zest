@@ -31,7 +31,6 @@ zest_rg_pass_node zest_imgui_AddToRenderGraph(zest_render_graph render_graph) {
 		zest_AddPassVertexBufferInput(imgui_pass, imgui_vertex_buffer);
 		zest_AddPassIndexBufferInput(imgui_pass, imgui_index_buffer);
 		zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-        zest_AddPassTask(imgui_pass, zest_imgui_DrawImGuiRenderPass, &ZestRenderer->imgui_info);
         return imgui_pass;
     }
     return nullptr;
