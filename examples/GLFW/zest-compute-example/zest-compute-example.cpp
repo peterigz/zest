@@ -277,7 +277,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 int main(void) {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
 	//Disable vsync so we can see how fast it runs
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = ".";
 	create_info.color_format = VK_FORMAT_B8G8R8A8_UNORM;

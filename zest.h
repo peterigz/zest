@@ -1344,8 +1344,8 @@ typedef enum {
 } zest_resource_access_type;
 
 typedef enum {
-    zest_queue_compute,
     zest_queue_graphics,
+    zest_queue_compute,
     zest_queue_transfer
 } zest_device_queue_type;
 
@@ -2481,6 +2481,12 @@ typedef struct zest_pass_execution_callback_t {
     void *user_data;
 } zest_pass_execution_callback_t;
 
+typedef struct zest_resource_state_t {
+    zest_uint pass_index;
+    zest_resource_usage_t *usage;
+    zest_uint queue_family_index;
+} zest_resource_state_t;
+
 typedef struct zest_rg_pass_node_t {
     int magic;
     zest_id id;
@@ -2489,6 +2495,7 @@ typedef struct zest_rg_pass_node_t {
     VkQueue queue;
     zest_uint queue_family_index;
     zest_uint batch_index;
+    zest_uint execution_order_index;
     zest_device_queue_type queue_type;
     zest_map_resource_usages inputs;
     zest_map_resource_usages outputs;
@@ -2519,6 +2526,7 @@ typedef struct zest_rg_resource_node_t {
     VkImageLayout current_layout;                   // The current layout of the image in the resource
     VkImageLayout final_layout;                     // Layout resource should be in after last use in this graph
 
+    zest_resource_state_t *journey;                 // List of the different states this resource has over the render graph, used to build barriers where needed
     int producer_pass_idx;                          // Index of the pass that writes/creates this resource (-1 if imported)
     int *consumer_pass_indices;                     // Dynamic array of pass indices that read this
     zest_resource_node_flags flags;                 // Imported/Transient Etc.
@@ -2526,17 +2534,28 @@ typedef struct zest_rg_resource_node_t {
     zest_uint last_usage_pass_idx;                  // For lifetime tracking
 } zest_rg_resource_node_t;
 
+typedef struct zest_execution_barriers_t {
+    VkImageMemoryBarrier *acquire_image_barriers;
+    VkBufferMemoryBarrier *acquire_buffer_barriers;
+    VkImageMemoryBarrier *release_image_barriers;
+    VkBufferMemoryBarrier *release_buffer_barriers;
+    zest_rg_resource_node *acquire_image_barrier_nodes;
+    zest_rg_resource_node *acquire_buffer_barrier_nodes;
+    zest_rg_resource_node *release_image_barrier_nodes;
+    zest_rg_resource_node *release_buffer_barrier_nodes;
+    VkPipelineStageFlags overall_src_stage_mask_for_acquire_barriers;
+    VkPipelineStageFlags overall_dst_stage_mask_for_acquire_barriers;
+    VkPipelineStageFlags overall_src_stage_mask_for_release_barriers;
+    VkPipelineStageFlags overall_dst_stage_mask_for_release_barriers;
+} zest_execution_barriers_t;
+
 typedef struct zest_execution_details_t {
     VkFramebuffer frame_buffer;
     VkRenderPass render_pass;
     VkRect2D render_area;
     VkClearValue *clear_values;
-    VkImageMemoryBarrier *pre_pass_image_barriers;
-    VkBufferMemoryBarrier *pre_pass_buffer_barriers;
-    zest_rg_resource_node *pre_pass_image_barrier_nodes;
-    zest_rg_resource_node *pre_pass_buffer_barrier_nodes;
-    VkPipelineStageFlags overall_src_stage_mask_for_pre_pass_barriers;
-    VkPipelineStageFlags overall_dst_stage_mask_for_pre_pass_barriers;
+    zest_execution_barriers_t barriers;
+    bool requires_dynamic_render_pass;
 } zest_execution_details_t;
 
 typedef struct zest_temp_attachment_info_t { 
