@@ -22,7 +22,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	// 2. Begin Render Graph Definition
 	if (zest_BeginRenderToScreen(render_graph)) {
 		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource( render_graph, "Swapchain Output" );
-		zest_rg_pass_node clear_pass = zest_AddGraphicPassNode( render_graph, "Clear Swapchain Pass", ExampleRenderPassCallback );
+		zest_rg_pass_node clear_pass = zest_AddGraphicBlankScreen(render_graph, "Draw Nothing");
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} }; 
 		zest_AddPassSwapChainOutput( clear_pass, swapchain_output_resource, clear_color);
 		zest_EndRenderGraph(render_graph);
@@ -45,7 +45,7 @@ int main(void)
 	//Initialise Zest with the configuration
 	zest_Initialise(&create_info);
 
-	zest_render_graph render_graph = zest_NewRenderGraph("Simple Test");
+	zest_render_graph render_graph = zest_NewRenderGraph("Simple Test", 0, 0);
 
 	zest_SetUserData(render_graph);
     zest_LogFPSToConsole(1);

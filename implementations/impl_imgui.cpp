@@ -61,6 +61,8 @@ void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_rende
         zest_AddCopyCommand(&index_upload, staging_index, index_buffer, 0);
     }
 
+    zest_uint vertex_size = zest_vec_size(vertex_upload.buffer_copies);
+
     zest_UploadBuffer(&vertex_upload, command_buffer);
     zest_UploadBuffer(&index_upload, command_buffer);
 }
@@ -171,6 +173,7 @@ zest_rg_resource_node zest_imgui_AddTransientVertexResources(zest_render_graph r
         zest_buffer_description_t buffer_desc = { 0 };
         buffer_desc.size = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
         buffer_desc.buffer_info = zest_CreateVertexBufferInfo(0);
+		buffer_desc.buffer_info.frame_in_flight = ZEST_FIF;
         return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, ZEST_NOT_BINDLESS);
     }
     return NULL;
@@ -180,8 +183,9 @@ zest_rg_resource_node zest_imgui_AddTransientIndexResources(zest_render_graph re
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     if (imgui_draw_data) {
         zest_buffer_description_t buffer_desc = { 0 };
-        buffer_desc.size = imgui_draw_data->TotalVtxCount * sizeof(ImDrawIdx);
+        buffer_desc.size = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
         buffer_desc.buffer_info = zest_CreateIndexBufferInfo(0);
+        buffer_desc.buffer_info.frame_in_flight = ZEST_FIF;
         return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, ZEST_NOT_BINDLESS);
     }
     return NULL;

@@ -226,7 +226,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 	}
 
-	zest_StartTimerLoop(app->loop_timer) {
+	//zest_StartTimerLoop(app->loop_timer) {
 		//Draw Imgui
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
@@ -240,7 +240,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGui::End();
 		ImGui::Render();
 		zest_imgui_UpdateBuffers();
-	} zest_EndTimerLoop(app->loop_timer)
+	//} zest_EndTimerLoop(app->loop_timer)
 
 	if (zest_BeginRenderToScreen(app->render_graph)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };

@@ -2176,6 +2176,7 @@ typedef struct zest_buffer_info_t {
     zest_buffer_flags flags;
     zest_uint memory_type_bits;
     VkDeviceSize alignment;
+    zest_uint frame_in_flight;
 } zest_buffer_info_t;
 
 typedef struct zest_buffer_pool_size_t {
@@ -2356,15 +2357,11 @@ typedef struct zest_app_t {
     zest_mouse_button mouse_hit;
 
     zest_uint frame_count;
+    zest_uint total_frame_count;
     zest_uint last_fps;
 
     zest_app_flags flags;
 } zest_app_t;
-
-typedef struct zest_frame_sync_t {
-    VkSemaphore render_finished_semaphore;
-    VkSemaphore image_available_semaphore;
-} zest_frame_sync_t;
 
 typedef struct zest_image_buffer_t {
     VkImage image;
@@ -2485,6 +2482,7 @@ typedef struct zest_resource_state_t {
     zest_uint pass_index;
     zest_resource_usage_t *usage;
     zest_uint queue_family_index;
+    bool was_released;
 } zest_resource_state_t;
 
 typedef struct zest_rg_pass_node_t {
@@ -3460,12 +3458,15 @@ typedef struct zest_command_buffer_pools_t {
 } zest_command_buffer_pools_t;
 
 typedef struct zest_renderer_t {
-    zest_frame_sync_t frame_sync[ZEST_MAX_FIF];
+    VkSemaphore *render_finished_semaphore;
+    VkSemaphore image_available_semaphore[ZEST_MAX_FIF];
+
     VkSemaphore *semaphore_pool;
     VkSemaphore *free_semaphores;
 
     zest_command_buffer_pools_t command_buffers;
     
+    zest_uint swapchain_image_count;
     VkFormat swapchain_image_format;
     VkExtent2D swapchain_extent;
     VkExtent2D window_extent;
@@ -3535,7 +3536,7 @@ typedef struct zest_renderer_t {
     zest_texture *texture_cleanup_queue;
     zest_pipeline *pipeline_recreate_queue;
     zest_pipeline_handles_t *pipeline_destroy_queue;
-    zest_uint current_frame;
+    zest_uint current_image_frame;
     zest_destruction_queue_t deferred_resource_freeing_list;
 	VkFramebuffer *old_frame_buffers[ZEST_MAX_FIF];             //For clearing up frame buffers from previous frames that aren't needed anymore
     VkSemaphore *used_semaphores[ZEST_MAX_FIF];                 //For returning to the semaphore pool after a render graph is finished with them from the previous frame
