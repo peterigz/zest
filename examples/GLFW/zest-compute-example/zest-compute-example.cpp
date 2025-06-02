@@ -39,7 +39,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	VkDeviceSize storage_buffer_size = particle_buffer.size() * sizeof(Particle);
 
 	//Create a temporary staging buffer to load the particle data into
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(storage_buffer_size,  particle_buffer.data());
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(storage_buffer_size,  particle_buffer.data(), 0);
 	//Create a "Descriptor buffer". This is a buffer that will have info necessary for a shader - in this case a compute shader.
 	//Create buffer as a single buffer, no need to have a buffer for each frame in flight as we won't be writing to it while it
 	//might be used in the GPU, it's purely for updating by the compute shader only
@@ -110,7 +110,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_descriptor_set_layout_builder_t uniform_layout_builder = zest_BeginDescriptorSetLayoutBuilder();
 	zest_AddLayoutBuilderUniformBuffer(&uniform_layout_builder, 0, 1, VK_SHADER_STAGE_COMPUTE_BIT);
 	app->uniform_layout = zest_FinishDescriptorSetLayout(&uniform_layout_builder, "Particles Compute Uniform");
-	zest_CreateDescriptorPoolForLayout(app->uniform_layout, 2, 0);
+	zest_CreateDescriptorPoolForLayout(app->uniform_layout, ZEST_MAX_FIF, 0);
 
 	zest_ForEachFrameInFlight(fif) {
 		zest_descriptor_set_builder_t uniform_set_builder = zest_BeginDescriptorSetBuilder(app->uniform_layout);
@@ -137,7 +137,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Finally, make the compute shader using the builder
 	app->compute = zest_FinishCompute(&builder, "Particles Compute");
 
-	app->render_graph = zest_NewRenderGraph("Compute Particles", app->descriptor_layout, true);
+	app->render_graph = zest_NewRenderGraph("Compute Particles", app->descriptor_layout, false);
 
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);
@@ -226,7 +226,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 	}
 
-	//zest_StartTimerLoop(app->loop_timer) {
+	zest_StartTimerLoop(app->loop_timer) {
 		//Draw Imgui
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
@@ -240,7 +240,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGui::End();
 		ImGui::Render();
 		zest_imgui_UpdateBuffers();
-	//} zest_EndTimerLoop(app->loop_timer)
+	} zest_EndTimerLoop(app->loop_timer)
 
 	if (zest_BeginRenderToScreen(app->render_graph)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };

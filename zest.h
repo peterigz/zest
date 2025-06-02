@@ -94,7 +94,7 @@ extern "C" {
 
 #ifndef ZEST_MAX_FIF
 //The maximum number of frames in flight. If you're very tight on memory then 1 will use less resources.
-#define ZEST_MAX_FIF 2
+#define ZEST_MAX_FIF 3
 #endif
 
 #ifndef ZEST_ASSERT
@@ -1451,6 +1451,7 @@ typedef struct zest_render_graph_t zest_render_graph_t;
 typedef struct zest_rg_pass_node_t zest_rg_pass_node_t;
 typedef struct zest_rg_resource_node_t zest_rg_resource_node_t;
 typedef struct zest_imgui_t zest_imgui_t;
+typedef struct zest_queue_t zest_queue_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_render_graph)
@@ -1482,6 +1483,7 @@ ZEST__MAKE_HANDLE(zest_window)
 ZEST__MAKE_HANDLE(zest_shader)
 ZEST__MAKE_HANDLE(zest_recorder)
 ZEST__MAKE_HANDLE(zest_imgui)
+ZEST__MAKE_HANDLE(zest_queue)
 
 typedef zest_descriptor_buffer zest_uniform_buffer;
 
@@ -2291,6 +2293,13 @@ typedef struct zest_create_info_t {
     void(*create_window_surface_callback)(zest_window window);
 } zest_create_info_t;
 
+typedef struct zest_queue_t {
+    VkQueue vk_queue;
+    VkSemaphore semaphore[ZEST_MAX_FIF];
+    zest_u64 current_count[ZEST_MAX_FIF];
+    VkPipelineStageFlags wait_stage_mask;
+} zest_queue_t;
+
 zest_hash_map(const char *) zest_map_queue_names;
 
 typedef struct zest_device_t {
@@ -2319,9 +2328,9 @@ typedef struct zest_device_t {
     zest_uint graphics_queue_family_index;
     zest_uint transfer_queue_family_index;
     zest_uint compute_queue_family_index;
-    VkQueue graphics_queue;
-    VkQueue compute_queue;
-    VkQueue transfer_queue;
+    zest_queue_t graphics_queue;
+    zest_queue_t compute_queue;
+    zest_queue_t transfer_queue;
     VkQueueFamilyProperties *queue_families;
     zest_map_queue_names queue_names;
     VkCommandPool command_pool;
@@ -2357,7 +2366,6 @@ typedef struct zest_app_t {
     zest_mouse_button mouse_hit;
 
     zest_uint frame_count;
-    zest_uint total_frame_count;
     zest_uint last_fps;
 
     zest_app_flags flags;
@@ -2490,7 +2498,7 @@ typedef struct zest_rg_pass_node_t {
     zest_id id;
     const char *name;
     
-    VkQueue queue;
+    zest_queue queue;
     zest_uint queue_family_index;
     zest_uint batch_index;
     zest_uint execution_order_index;
@@ -2576,11 +2584,12 @@ typedef struct zest_destruction_queue_t {
 } zest_destruction_queue_t;
 
 typedef struct zest_submission_batch_t {
-    VkQueue queue;
+    zest_queue queue;
     zest_uint queue_family_index;
+    zest_device_queue_type queue_type;
     zest_uint *pass_indices;
     VkCommandBuffer command_buffer;
-    VkSemaphore signal_semaphore;
+    VkSemaphore internal_signal_semaphore;
     VkSemaphore *wait_semaphores;
     VkPipelineStageFlags *wait_dst_stage_masks;
 } zest_submission_batch_t;
@@ -3464,6 +3473,8 @@ typedef struct zest_renderer_t {
     VkSemaphore *semaphore_pool;
     VkSemaphore *free_semaphores;
 
+    zest_u64 total_frame_count;
+
     zest_command_buffer_pools_t command_buffers;
     
     zest_uint swapchain_image_count;
@@ -3540,6 +3551,7 @@ typedef struct zest_renderer_t {
     zest_destruction_queue_t deferred_resource_freeing_list;
 	VkFramebuffer *old_frame_buffers[ZEST_MAX_FIF];             //For clearing up frame buffers from previous frames that aren't needed anymore
     VkSemaphore *used_semaphores[ZEST_MAX_FIF];                 //For returning to the semaphore pool after a render graph is finished with them from the previous frame
+    VkSemaphore *used_timeline_semaphores[ZEST_MAX_FIF];        //For returning to the semaphore pool after a render graph is finished with them from the previous frame
     VkCommandBuffer *used_graphics_command_buffers[ZEST_MAX_FIF];
     VkCommandBuffer *used_compute_command_buffers[ZEST_MAX_FIF];
     VkCommandBuffer *used_transfer_command_buffers[ZEST_MAX_FIF];
@@ -4171,7 +4183,7 @@ ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 //helper functions to create the buffers without needed to create the zest_buffer_info_t, see functions just below this one.
 ZEST_API zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image);
 //Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
-ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data);
+ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data, zest_uint fif);
 //Memset a host visible buffer to 0.
 ZEST_API void zest_ClearBufferToZero(zest_buffer buffer);
 //Create an index buffer.
