@@ -137,7 +137,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Finally, make the compute shader using the builder
 	app->compute = zest_FinishCompute(&builder, "Particles Compute");
 
-	app->render_graph = zest_NewRenderGraph("Compute Particles", app->descriptor_layout, false);
+	app->render_graph = zest_NewRenderGraph("Compute Particles", app->descriptor_layout, true);
 
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);

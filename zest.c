@@ -7793,11 +7793,15 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
             if (!prev_state) {  //This is the first state of the resource
                 //If there's no previous state then we need to see if a barrier is needed to transition from the resource
                 //start state. We put this in the acquire barrier as it needs to be put in place before the pass is executed.
+                //NOTE: current if it's a buffer that's being used, because of a strange write on write hazard validation
+                //we just acquire buffers on first as a "just incase". Might need to revisit this in the future if a similar
+                //issue occurrs
                 zest_uint src_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
                 zest_uint dst_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
                 if (resource->current_layout != current_usage->image_layout ||
                     (resource->current_access_mask & zest_access_write_bits_general) &&
-                    (current_usage->access_mask & zest_access_read_bits_general)) {
+                    (current_usage->access_mask & zest_access_read_bits_general) || 
+                    resource->type == zest_resource_type_buffer) {
                     /* add more robust hazard checks here, e.g., if current_access involves write and required_access is read */
                     switch (resource->type) {
                     case zest_resource_type_image:
