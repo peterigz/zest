@@ -1323,7 +1323,9 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 
 		if (allocation) {
 			zloc__do_unable_to_reallocate_callback;
+			zloc__unlock_thread_access;
 			zloc_Free(allocator, ptr);
+			zloc__lock_thread_access;
 		}
 	}
 	else {
