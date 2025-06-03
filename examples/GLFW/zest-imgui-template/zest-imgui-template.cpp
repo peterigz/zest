@@ -29,16 +29,15 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
-	//Create a descriptor set for imgui to use when drawing from the Bunny texture
-	app->test_descriptor_set = VK_NULL_HANDLE;
+	//Create a render graph that we'll use to render with
+	app->render_graph = zest_NewRenderGraph("ImGui", 0, false);
 
-	app->render_graph = zest_NewRenderGraph("ImGui", false);
-
+	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(60);
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
-	//Set the active command queue to the default one that was created when Zest was initialised
+	//The struct for this example app from the user data we set when initialising Zest
 	ImGuiApp* app = (ImGuiApp*)user_data;
 
 	//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
@@ -66,13 +65,13 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
 		/*
+		//Test for memory leaks in the render graph
 		for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
 			zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
 			ImGui::Text("Free Blocks: %i, Used Blocks: %i", stats.free_blocks, stats.used_blocks);
 			ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb), Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024, stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 		}
 		*/
-		//zest_imgui_DrawImage(app->test_image, app->test_descriptor_set, 50.f, 50.f);
 		ImGui::End();
 		ImGui::Render();
 		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
@@ -80,28 +79,40 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_imgui_UpdateBuffers();
 	} zest_EndTimerLoop(app->timer);
 
-	ImGui::GetDrawData();
-
+	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
+	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
+	//if the window is resized for example.
 	if (zest_BeginRenderToScreen(app->render_graph)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
-		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
-		zest_rg_pass_node imgui_pass = zest_imgui_AddToRenderGraph(app->render_graph);
+		//Import the swap chain into the render pass
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
+		//Call a function that adds all the resources that imgui needs to render
+		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph(app->render_graph);
 		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return null
 		if (imgui_pass) {
-			zest_rg_resource_node test_texture = zest_ImportImageResourceReadOnly(app->render_graph, "test texture", app->test_texture);
+			//Import our test texture with the Bunny sprite
+			zest_resource_node test_texture = zest_ImportImageResourceReadOnly(app->render_graph, "test texture", app->test_texture);
+			//Add the test texture to the imgui render pass
 			zest_AddPassSampledImageInput(imgui_pass, test_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+			//Imgui won't draw anything unless we add a callback with zest_AddPassTask. This has to be done manually rather then
+			//taken care of in the zest_imgui_AddToRenderGraph so that you have the flexibility to draw other things to the swap chain
+			//or other render target in the order that you want.
 			zest_AddPassTask(imgui_pass, zest_imgui_DrawImGuiRenderPass, app);
+			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		} else {
 			//Just render a blank screen if imgui didn't render anything
-			zest_rg_pass_node blank_pass = zest_AddGraphicBlankScreen(app->render_graph, "Draw Nothing");
+			zest_pass_node blank_pass = zest_AddGraphicBlankScreen(app->render_graph, "Draw Nothing");
 			zest_AddPassSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
+		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph(app->render_graph);
 		if (app->request_graph_print) {
+			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(app->render_graph);
 			app->request_graph_print = false;
 		}
+		//Execute the render graph. This must come after the EndRenderGraph function
 		zest_ExecuteRenderGraph(app->render_graph);
 	}
 }

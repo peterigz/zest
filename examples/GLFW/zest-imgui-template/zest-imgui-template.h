@@ -12,7 +12,6 @@ struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;
-	VkDescriptorSet test_descriptor_set;
 	zest_image test_image;
 	zest_timer timer;
 	zest_command_queue command_queue;

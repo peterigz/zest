@@ -16,18 +16,18 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     io.Fonts->SetTexID((ImTextureID)font_image);
 }
 
-zest_rg_pass_node zest_imgui_AddToRenderGraph(zest_render_graph render_graph) {
+zest_pass_node zest_imgui_AddToRenderGraph(zest_render_graph render_graph) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
-		zest_rg_resource_node imgui_vertex_buffer = zest_imgui_AddTransientVertexResources(render_graph, "Imgui Vertex Buffer");
-		zest_rg_resource_node imgui_index_buffer = zest_imgui_AddTransientIndexResources(render_graph, "Imgui Index Buffer");
-		zest_rg_resource_node imgui_font_texture = zest_ImportImageResourceReadOnly(render_graph, "Imgui Font", ZestRenderer->imgui_info.font_texture);
-		zest_rg_pass_node imgui_upload_pass = zest_AddTransferPassNode(render_graph, "Upload ImGui");
+		zest_resource_node imgui_vertex_buffer = zest_imgui_AddTransientVertexResources(render_graph, "Imgui Vertex Buffer");
+		zest_resource_node imgui_index_buffer = zest_imgui_AddTransientIndexResources(render_graph, "Imgui Index Buffer");
+		zest_resource_node imgui_font_texture = zest_ImportImageResourceReadOnly(render_graph, "Imgui Font", ZestRenderer->imgui_info.font_texture);
+		zest_pass_node imgui_upload_pass = zest_AddTransferPassNode(render_graph, "Upload ImGui");
         zest_AddPassTask(imgui_upload_pass, zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
 		zest_AddPassTransferDstBuffer(imgui_upload_pass, imgui_vertex_buffer);
 		zest_AddPassTransferDstBuffer(imgui_upload_pass, imgui_index_buffer);
-		zest_rg_pass_node imgui_pass = zest_AddGraphicPassNode(render_graph, "Draw ImGui");
+		zest_pass_node imgui_pass = zest_AddGraphicPassNode(render_graph, "Draw ImGui");
 		zest_AddPassVertexBufferInput(imgui_pass, imgui_vertex_buffer);
 		zest_AddPassIndexBufferInput(imgui_pass, imgui_index_buffer);
 		zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
@@ -167,7 +167,7 @@ void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_buf
     vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 }
 
-zest_rg_resource_node zest_imgui_AddTransientVertexResources(zest_render_graph render_graph, const char *name) {
+zest_resource_node zest_imgui_AddTransientVertexResources(zest_render_graph render_graph, const char *name) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     if (imgui_draw_data) {
         zest_buffer_description_t buffer_desc = { 0 };
@@ -179,7 +179,7 @@ zest_rg_resource_node zest_imgui_AddTransientVertexResources(zest_render_graph r
     return NULL;
 }
 
-zest_rg_resource_node zest_imgui_AddTransientIndexResources(zest_render_graph render_graph, const char *name) {
+zest_resource_node zest_imgui_AddTransientIndexResources(zest_render_graph render_graph, const char *name) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     if (imgui_draw_data) {
         zest_buffer_description_t buffer_desc = { 0 };

@@ -244,11 +244,11 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	if (zest_BeginRenderToScreen(app->render_graph)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
-		zest_rg_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
-		zest_rg_pass_node imgui_pass = zest_imgui_AddToRenderGraph(app->render_graph);
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
+		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph(app->render_graph);
 		if (imgui_pass) {
-			zest_rg_resource_node particle_buffer = zest_ImportStorageBufferResource(app->render_graph, "particle buffer", app->particle_buffer);
-			zest_rg_pass_node compute_pass = zest_AddComputePassNode(app->render_graph, app->compute, "Compute Particles");
+			zest_resource_node particle_buffer = zest_ImportStorageBufferResource(app->render_graph, "particle buffer", app->particle_buffer);
+			zest_pass_node compute_pass = zest_AddComputePassNode(app->render_graph, app->compute, "Compute Particles");
 			zest_AddPassStorageBufferWrite(compute_pass, particle_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 			zest_AddPassVertexBufferInput(imgui_pass, particle_buffer);
 			zest_AddPassTask(compute_pass, RecordComputeCommands, app);
@@ -257,7 +257,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		} else {
 			//Just render a blank screen if imgui didn't render anything
-			zest_rg_pass_node blank_pass = zest_AddGraphicBlankScreen(app->render_graph, "Draw Nothing");
+			zest_pass_node blank_pass = zest_AddGraphicBlankScreen(app->render_graph, "Draw Nothing");
 			zest_AddPassSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
 
