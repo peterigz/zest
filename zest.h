@@ -94,7 +94,7 @@ extern "C" {
 
 #ifndef ZEST_MAX_FIF
 //The maximum number of frames in flight. If you're very tight on memory then 1 will use less resources.
-#define ZEST_MAX_FIF 3
+#define ZEST_MAX_FIF 2
 #endif
 
 #ifndef ZEST_ASSERT
@@ -3643,6 +3643,7 @@ ZEST_PRIVATE void zest__create_pipeline_cache();
 ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 ZEST_PRIVATE void zest__destroy_window_callback(void *user_data);
 ZEST_PRIVATE void zest__cleanup_swapchain(void);
+ZEST_PRIVATE void zest__cleanup_device(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
 ZEST_PRIVATE void zest__cleanup_draw_routines(void);
 ZEST_PRIVATE void zest__clean_up_compute(zest_compute compute);
