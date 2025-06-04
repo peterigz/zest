@@ -1486,14 +1486,15 @@ zest_bool zest__create_instance() {
         debug_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         debug_create_info.pfnUserCallback = zest_debug_callback;
 
-		zest_vec_push(enabled_validation_features, VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT);
-		// Potentially add others like VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT for more advice
-		VkValidationFeaturesEXT validation_features_ext = { 0 };
-		validation_features_ext.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
-		validation_features_ext.enabledValidationFeatureCount = zest_vec_size(enabled_validation_features);
-		validation_features_ext.pEnabledValidationFeatures = enabled_validation_features;
-
-        debug_create_info.pNext = &validation_features_ext;
+        if (zest__validation_layers_with_sync_are_enabled()) {
+            zest_vec_push(enabled_validation_features, VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT);
+            // Potentially add others like VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT for more advice
+            VkValidationFeaturesEXT validation_features_ext = { 0 };
+            validation_features_ext.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+            validation_features_ext.enabledValidationFeatureCount = zest_vec_size(enabled_validation_features);
+            validation_features_ext.pEnabledValidationFeatures = enabled_validation_features;
+			debug_create_info.pNext = &validation_features_ext;
+        }
 
         create_info.pNext = &debug_create_info;
     }
@@ -2216,6 +2217,10 @@ zest_microsecs zest__set_elapsed_time(void) {
 
 zest_bool zest__validation_layers_are_enabled(void) {
     return ZEST__FLAGGED(ZestDevice->setup_info.flags, zest_init_flag_enable_validation_layers);
+}
+
+zest_bool zest__validation_layers_with_sync_are_enabled(void) {
+    return ZEST__FLAGGED(ZestDevice->setup_info.flags, zest_init_flag_enable_validation_layers_with_sync);
 }
 
 void zest__do_scheduled_tasks(void) {
@@ -7274,9 +7279,12 @@ zest_create_info_t zest_CreateInfo() {
     return create_info;
 }
 
-zest_create_info_t zest_CreateInfoWithValidationLayers() {
+zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags) {
     zest_create_info_t create_info = zest_CreateInfo();
     ZEST__FLAG(create_info.flags, zest_init_flag_enable_validation_layers);
+    if (flags & zest_validation_flag_enable_sync) {
+        create_info.flags |= zest_init_flag_enable_validation_layers_with_sync;
+    }
     return create_info;
 }
 

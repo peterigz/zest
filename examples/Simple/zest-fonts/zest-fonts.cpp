@@ -123,7 +123,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	create_info.log_path = "./";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	zest_example example;

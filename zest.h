@@ -1183,10 +1183,18 @@ typedef enum zest_init_flag_bits {
     zest_init_flag_enable_fragment_stores_and_atomics           = 1 << 4,
     zest_init_flag_disable_shaderc                              = 1 << 5,
     zest_init_flag_enable_validation_layers                     = 1 << 6,
-    zest_init_flag_log_validation_errors_to_console             = 1 << 7,
+    zest_init_flag_enable_validation_layers_with_sync           = 1 << 7,
+    zest_init_flag_log_validation_errors_to_console             = 1 << 8,
 } zest_init_flag_bits;
 
 typedef zest_uint zest_init_flags;
+
+typedef enum zest_validation_flag_bits {
+    zest_validation_flag_none                                         = 0,
+    zest_validation_flag_enable_sync                                  = 1,
+} zest_validation_flag_bits;
+
+typedef zest_uint zest_validation_flags;
 
 typedef enum zest_buffer_upload_flag_bits {
     zest_buffer_upload_flag_initialised                           = 1 << 0,                //Set to true once AddCopyCommand has been run at least once
@@ -3828,6 +3836,7 @@ ZEST_PRIVATE void zest__destroy(void);
 ZEST_PRIVATE void zest__main_loop(void);
 ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
 ZEST_PRIVATE zest_bool zest__validation_layers_are_enabled(void);
+ZEST_PRIVATE zest_bool zest__validation_layers_with_sync_are_enabled(void);
 //-- end of internal functions
 
 //-- Window_related_functions
@@ -3842,7 +3851,7 @@ ZEST_PRIVATE void zest__update_window_size(zest_window window, zest_uint width, 
 //Create a new zest_create_info_t struct with default values for initialising Zest
 ZEST_API zest_create_info_t zest_CreateInfo();
 //Create a new zest_create_info_t struct with default values for initialising Zest but also enable validation layers as well
-ZEST_API zest_create_info_t zest_CreateInfoWithValidationLayers();
+ZEST_API zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags);
 //Set the pool count for a descriptor type in a zest_create_info_t. Do this for any pools that you want to be different to the default. You only
 //need to call this if you're running out of descriptor pool space for a specific VkDescriptorType which you maybe doing if you have a lot of custom
 //draw routines
