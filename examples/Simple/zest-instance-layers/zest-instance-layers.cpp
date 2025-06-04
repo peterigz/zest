@@ -18,7 +18,7 @@ typedef struct zest_example {
 	zest_command_queue_draw_commands draw_commands;
 	zest_shader billboard_vert_shader;
 	zest_shader billboard_frag_shader;
-	zest_descriptor_set_layout billboard_layout;
+	zest_set_layout billboard_layout;
 } zest_example;
 
 void UpdateUniformBuffer3d(zest_example *example) {
@@ -42,7 +42,7 @@ void InitExample(zest_example *example) {
 	//To save having to lookup these handles in the mainloop, we can look them up here in advance and store the handles in our example struct
 	example->sprite_pipeline = zest_PipelineTemplate("pipeline_2d_sprites");
 //	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
-	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->standard_uniform_buffer, example->texture);
+	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_buffer, example->texture);
 	zest_ValidateShaderResource(example->sprite_shader_resources);
 	example->mesh_pipeline = zest_PipelineTemplate("pipeline_mesh");
 	//Create a new uniform buffer for the 3d view
@@ -59,7 +59,7 @@ void InitExample(zest_example *example) {
 	example->billboard_vert_shader = zest_CreateShaderFromFile("examples/assets/shaders/billboard.vert", "billboard_vert.spv", shaderc_vertex_shader,  true, compiler, 0);
 	shaderc_compiler_release(compiler);
 
-	zest_descriptor_set_layout_builder_t builder = zest_BeginDescriptorSetLayoutBuilder();
+	zest_set_layout_builder_t builder = zest_BeginSetLayoutBuilder();
 	zest_AddLayoutBuilderUniformBuffer(&builder, 0, 1, VK_SHADER_STAGE_VERTEX_BIT);
 	zest_AddLayoutBuilderCombinedImageSampler(&builder, 0, 1);
 	example->billboard_layout = zest_FinishDescriptorSetLayout(&builder, "Billboard Layout");

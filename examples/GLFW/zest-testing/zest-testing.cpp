@@ -3,7 +3,7 @@
 
 //Update the uniform buffer used to transform vertices in the vertex buffer
 void UpdateUniform3d(ImGuiApp* app) {
-	zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
+	zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->uniform_buffer));
 
 	if (app->orthagonal == true) {
 		zest_vec3 front = zest_NormalizeVec3(app->camera.position);
@@ -604,7 +604,7 @@ void InitImGuiApp(ImGuiApp* app) {
 }
 
 void HandleWidget(ImGuiApp* app, zest_widget* widget) {
-	zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
+	zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->uniform_buffer));
 	zest_vec3 ray_direction = zest_ScreenRay(zest_MouseXf(), zest_MouseYf(), zest_ScreenWidthf(), zest_ScreenHeightf(), &ubo_ptr->proj, &ubo_ptr->view);
 	if (!app->picked_widget && !PickWidget(&widget->whole_widget, app->camera.position, ray_direction)) {
 		//Early exit if none of the widget is hovered
@@ -709,7 +709,7 @@ void Draw3dWidgets(ImGuiApp* app) {
 	if (app->picked_widget_part && app->picked_widget) {
 		app->picked_widget->layer->current_instruction.push_constants.parameters1.x = (float)app->picked_widget_part->group_id;
 		zest_Set3DLineDrawing(app->line_layer, app->line_pipeline->shader_resources, app->line_pipeline);
-		zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
+		zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->uniform_buffer));
 		zest_axis_flags axis = app->current_axis;
 		for (int i = 0; i != 2; ++i) {
 			zest_vec3 start = app->clicked_widget_position;

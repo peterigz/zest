@@ -223,7 +223,7 @@ void RibbonComputeFunction(zest_command_queue_compute compute_routine) {
 
 //Basic function for updating the uniform buffer
 void UpdateUniform3d(Ribbons *app) {
-	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer);
+	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(ZestRenderer->uniform_buffer);
 	buffer_3d->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
 	buffer_3d->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.1f, 10000.f);
 	buffer_3d->proj.v[1].y *= -1.f;
@@ -443,7 +443,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		app->ribbon_built = true;
 	}
 
-	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer);
+	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(ZestRenderer->uniform_buffer);
 	zest_StartTimerLoop(app->timer) {
 		BuildUI(app);
 

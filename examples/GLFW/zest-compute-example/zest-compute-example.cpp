@@ -51,15 +51,15 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	//We'll need to create our own descriptor layout for the vertex and fragment shaders that can 
 	//sample from both textures
-	zest_descriptor_set_layout_builder_t layout_builder = zest_BeginDescriptorSetLayoutBuilder();
+	zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder();
 	zest_AddLayoutBuilderCombinedImageSamplerBindless(&layout_builder, 0, 10);
 	zest_AddLayoutBuilderStorageBufferBindless(&layout_builder, 1, 10, VK_SHADER_STAGE_COMPUTE_BIT);
-	app->descriptor_layout = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Particles descriptor layout");
-	app->descriptor_set = zest_CreateBindlessSet(app->descriptor_layout);
+	app->bindless_layout = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Particles descriptor layout");
+	app->bindless_set = zest_CreateBindlessSet(app->bindless_layout);
 
-	zest_AssignBindlessStorageBufferIndex(app->particle_buffer, app->descriptor_layout, &app->descriptor_set, 1);
-	zest_AssignBindlessTextureIndex(app->particle_texture, app->descriptor_layout, &app->descriptor_set, 0);
-	zest_AssignBindlessTextureIndex(app->gradient_texture, app->descriptor_layout, &app->descriptor_set, 0);
+	zest_AssignBindlessStorageBufferIndex(app->particle_buffer, app->bindless_layout, &app->bindless_set, 1);
+	zest_AssignBindlessTextureIndex(app->particle_texture, app->bindless_layout, &app->bindless_set, 0);
+	zest_AssignBindlessTextureIndex(app->gradient_texture, app->bindless_layout, &app->bindless_set, 0);
 
 	//Create a new pipeline in the renderer based on an existing default one
 	app->particle_pipeline = zest_CopyPipelineTemplate("particles", zest_PipelineTemplate("pipeline_2d_sprites"));
@@ -88,7 +88,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Add the descriptor layout we created earlier, but clear the layouts in the template first as a uniform buffer is added
 	//by default.
 	zest_ClearPipelineTemplateDescriptorLayouts(app->particle_pipeline);
-	zest_AddPipelineTemplateDescriptorLayout(app->particle_pipeline, app->descriptor_layout->vk_layout);
+	zest_AddPipelineTemplateDescriptorLayout(app->particle_pipeline, app->bindless_layout->vk_layout);
 	//Set the push constant we'll be using
 	zest_SetPipelineTemplatePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
 
@@ -107,7 +107,7 @@ void InitImGuiApp(ImGuiApp *app) {
 		app->compute_uniform_buffer[fif] = zest_CreateUniformBuffer(sizeof(ComputeUniformBuffer));
 	}
 
-	zest_descriptor_set_layout_builder_t uniform_layout_builder = zest_BeginDescriptorSetLayoutBuilder();
+	zest_set_layout_builder_t uniform_layout_builder = zest_BeginSetLayoutBuilder();
 	zest_AddLayoutBuilderUniformBuffer(&uniform_layout_builder, 0, 1, VK_SHADER_STAGE_COMPUTE_BIT);
 	app->uniform_layout = zest_FinishDescriptorSetLayout(&uniform_layout_builder, "Particles Compute Uniform");
 	zest_CreateDescriptorPoolForLayout(app->uniform_layout, ZEST_MAX_FIF, 0);
@@ -118,18 +118,12 @@ void InitImGuiApp(ImGuiApp *app) {
 		app->uniform_set[fif].vk_descriptor_set = zest_FinishDescriptorSet(app->uniform_layout->pool, &uniform_set_builder, app->uniform_set[fif].vk_descriptor_set);
 	}
 
-	app->shader_resources = zest_CreateShaderResources();
-	zest_ForEachFrameInFlight(fif) {
-		zest_AddDescriptorSetToResources(app->shader_resources, &app->descriptor_set, fif);
-	}
-	zest_ValidateShaderResource(app->shader_resources);
-
 	//Set up the compute shader
 	//A builder is used to simplify the compute shader setup process
 	zest_compute_builder_t builder = zest_BeginComputeBuilder();
 	//Declare the bindings we want in the shader
 	zest_AddComputeSetLayout(&builder, app->uniform_layout);
-	zest_SetComputeBindlessLayout(&builder, app->descriptor_layout);
+	zest_SetComputeBindlessLayout(&builder, app->bindless_layout);
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
 	//Declare the actual shader to use
@@ -137,55 +131,50 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Finally, make the compute shader using the builder
 	app->compute = zest_FinishCompute(&builder, "Particles Compute");
 
-	app->render_graph = zest_NewRenderGraph("Compute Particles", app->descriptor_layout, false);
+	app->render_graph = zest_NewRenderGraph("Compute Particles", app->bindless_layout, false);
 
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);
 }
 
 void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+	//Grab the app object from the user_data that we set in the render graph when adding this function callback 
 	ImGuiApp *app = (ImGuiApp*)user_data;
-	//We can make use of helper functions to easily bind the pipeline/vertex buffer and make the draw call
-	//to draw the sprites
+	//Get the pipeline from the template that we created. 
 	zest_pipeline pipeline = zest_PipelineWithTemplate(app->particle_pipeline, context->render_pass);
+	//You can mix and match descriptor sets but we only need the bindless set there containing the particle texture and gradient
 	VkDescriptorSet sets[] = {
-		app->descriptor_set.vk_descriptor_set
+		app->bindless_set.vk_descriptor_set
 	};
+	//Bind the pipeline with the descriptor set
 	zest_BindPipeline(command_buffer, pipeline, sets, 1);
+	//The shader needs to know the indexes into the descriptor array for the textures so we use push constants to
+	//do. You could also use a uniform buffer if you wanted.
 	ParticleFragmentPush push;
 	push.particle_index = app->particle_texture->descriptor_array_index;
 	push.gradient_index = app->gradient_texture->descriptor_array_index;
+	//Send the the push constant
 	zest_SendPushConstants(command_buffer, pipeline, &push);
-    VkViewport view = zest_CreateViewport(0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 1.f);
-    VkRect2D scissor = zest_CreateRect2D(zest_ScreenWidth(), zest_ScreenHeight(), 0, 0);
-    vkCmdSetViewport(command_buffer, 0, 1, &view);
-    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+	//Set the viewport with this helper function
+	zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
+	//Bind the vertex buffer with the particle buffer containing the location of all the point sprite particles
 	zest_BindVertexBuffer(command_buffer, app->particle_buffer->buffer);
+	//Draw the point sprites
 	zest_Draw(command_buffer, PARTICLE_COUNT, 1, 0, 0);
 }
 
-int DrawComputeSpritesCondition(zest_draw_routine draw_routine) {
-	//We can just always excute the draw commands to draw the particles
-	return 1;
-}
-
-int ComputeCondition(zest_compute compute_commands) {
-	return 1;
-}
-
 void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
-	//The compute queue item can contain more then one compute shader to be dispatched
-	//There's only one in this example though
-	//Bind the compute pipeline
+	//Grab the app object from the user_data that we set in the render graph when adding the compute pass task
 	ImGuiApp *app = (ImGuiApp *)user_data;
-	zest_compute compute = app->compute;
+	//Mix the bindless descriptor set with the uniform buffer descriptor set
 	VkDescriptorSet sets[] = {
-		app->descriptor_set.vk_descriptor_set,
+		app->bindless_set.vk_descriptor_set,
 		app->uniform_set[ZEST_FIF].vk_descriptor_set
 	};
-    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline);
-    vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline_layout, 0, 2, sets, 0, 0);
-	zest_DispatchComputeCB(command_buffer, compute, PARTICLE_COUNT / 256, 1, 1);
+	//Bind the compute pipeline
+	zest_BindComputePipeline(command_buffer, app->compute, sets, 2);
+	//Dispatch the compute shader
+	zest_DispatchCompute(command_buffer, app->compute, PARTICLE_COUNT / 256, 1, 1);
 }
 
 void UpdateComputeUniformBuffers(ImGuiApp *app) {

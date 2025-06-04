@@ -25,7 +25,7 @@ typedef struct tfx_render_resources_s {
 	zest_descriptor_set particle_descriptor;
 	zest_pipeline pipeline;
 	zest_shader_resources shader_resource;
-	zest_descriptor_set_layout descriptor_layout;
+	zest_set_layout descriptor_layout;
 	zest_descriptor_set_t descriptor_set;
 	zest_shader fragment_shader;
 	zest_shader vertex_shader;

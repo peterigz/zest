@@ -31,7 +31,7 @@ struct ImGuiApp {
 	zest_image test_image;
 	zest_image color_ramps_image;
 	zest_bitmap_t color_ramps_bitmap;
-	zest_descriptor_set_layout custom_descriptor_set_layout;
+	zest_set_layout custom_descriptor_set_layout;
 	zest_descriptor_set_t custom_descriptor_set;
 	zest_shader_resources shader_resources;
 

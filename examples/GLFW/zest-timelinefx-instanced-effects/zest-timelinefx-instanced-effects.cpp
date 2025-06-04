@@ -645,7 +645,7 @@ void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager anima
 
 //Fuction to cast a ray from screen to world space.
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position) {
-	zest_uniform_buffer_data_t *ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->standard_uniform_buffer));
+	zest_uniform_buffer_data_t *ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->uniform_buffer));
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &ubo_ptr->proj, &ubo_ptr->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
 	return { pos.x, pos.y, pos.z };

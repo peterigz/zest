@@ -31,23 +31,18 @@ struct ParticleFragmentPush {
 
 struct ImGuiApp {
 	zest_imgui imgui_info;
-	zest_index imgui_draw_routine_index;
 
 	zest_texture particle_texture;
 	zest_texture gradient_texture;
-	zest_descriptor_set_layout descriptor_layout;
-	zest_descriptor_set_t descriptor_set;
-	zest_descriptor_pool descriptor_pool;
-	zest_shader_resources shader_resources;
+	zest_set_layout bindless_layout;
+	zest_descriptor_set_t bindless_set;
 
 	zest_descriptor_buffer particle_buffer;
 	zest_pipeline_template particle_pipeline;
-	zest_vertex_input_descriptions vertice_attributes;
 	zest_uniform_buffer compute_uniform_buffer[ZEST_MAX_FIF];
-	zest_descriptor_set_layout uniform_layout;
+	zest_set_layout uniform_layout;
 	zest_descriptor_set_t uniform_set[ZEST_MAX_FIF];
 	zest_compute compute;
-    VkDescriptorSet *draw_sets;
 
 	zest_render_graph render_graph;
 
@@ -65,5 +60,4 @@ static inline float Degrees(float radians) { return radians * 57.295779513082320
 void InitImGuiApp(ImGuiApp *app);
 void UpdateComputeUniformBuffers(ImGuiApp *app);
 void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
-int DrawComputeSpritesCondition(zest_draw_routine draw_routine);
 void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
