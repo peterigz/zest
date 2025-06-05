@@ -93,17 +93,17 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			//Import our test texture with the Bunny sprite
 			zest_resource_node test_texture = zest_ImportImageResourceReadOnly(app->render_graph, "test texture", app->test_texture);
 			//Add the test texture to the imgui render pass
-			zest_AddPassSampledImageInput(imgui_pass, test_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+			zest_ConnectSampledImageInput(imgui_pass, test_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 			//Imgui won't draw anything unless we add a callback with zest_AddPassTask. This has to be done manually rather then
 			//taken care of in the zest_imgui_AddToRenderGraph so that you have the flexibility to draw other things to the swap chain
 			//or other render target in the order that you want.
 			zest_AddPassTask(imgui_pass, zest_imgui_DrawImGuiRenderPass, app);
 			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		} else {
 			//Just render a blank screen if imgui didn't render anything
 			zest_pass_node blank_pass = zest_AddGraphicBlankScreen(app->render_graph, "Draw Nothing");
-			zest_AddPassSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
+			zest_ConnectSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph(app->render_graph);
@@ -122,7 +122,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	//Implement GLFW for window creation

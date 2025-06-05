@@ -36,7 +36,7 @@ void UploadFontData(VkCommandBuffer command_buffer, const zest_render_graph_cont
 	zest_UploadBuffer(&instance_upload, command_buffer);
 }
 
-void RecordFonts(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	//Grab the app object from the user_data that we set in the render graph when adding this function callback 
 	zest_example *app = (zest_example *)user_data;
 	zest_layer layer = app->font_layer;
@@ -99,24 +99,40 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Draw a single line of text
 	zest_DrawMSDFText(example->font_layer, "(This should be centered)", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 50.f, 0.f);
 
+	//Create the render graph
 	if (zest_BeginRenderToScreen(example->render_graph)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
-		//Import the swap chain into the render pass
+
+		//Add resources
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(example->render_graph, "Swapchain Output");
 		zest_resource_node font_layer_resources = zest_AddFontLayerResources(example->render_graph, "Font Buffer", example->font_layer);
-		zest_pass_node font_pass = zest_AddGraphicPassNode(example->render_graph, "Draw Fonts");
-		zest_pass_node upload_font_data = zest_AddTransferPassNode(example->render_graph, "Upload Font Data");
-        zest_AddPassTask(upload_font_data, UploadFontData, example);
-		zest_AddPassTransferDstBuffer(upload_font_data, font_layer_resources);
-		zest_AddPassVertexBufferInput(font_pass, font_layer_resources);
-		zest_AddPassTask(font_pass, RecordFonts, example);
-		zest_AddPassSwapChainOutput(font_pass, swapchain_output_resource, clear_color);
+		zest_resource_node font_layer_texture = zest_ImportImageResourceReadOnly(example->render_graph, "Font Texture", example->font->texture);
 
+		//Add passes
+		zest_pass_node graphics_pass = zest_AddRenderPassNode(example->render_graph, "Graphics Pass");
+		zest_pass_node upload_font_data = zest_AddTransferPassNode(example->render_graph, "Upload Font Data");
+
+		//Connect buffers and textures
+		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
+		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
+		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+
+		//Add the tasks to run for the passes
+        zest_AddPassTask(upload_font_data, UploadFontData, example);
+		zest_AddPassTask(graphics_pass, DrawFonts, example);
 	}
 	zest_EndRenderGraph(example->render_graph);
-	//zest_PrintCompiledRenderGraph(example->render_graph);
-	zest_ExecuteRenderGraph(example->render_graph);
 
+	//Print the render graph
+	static bool print_render_graph = true;
+	if (print_render_graph) {
+		zest_PrintCompiledRenderGraph(example->render_graph);
+		print_render_graph = false;
+	}
+
+	//Execute the render graph
+	zest_ExecuteRenderGraph(example->render_graph);
 }
 
 #if defined(_WIN32)

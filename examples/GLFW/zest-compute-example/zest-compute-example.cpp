@@ -39,7 +39,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	VkDeviceSize storage_buffer_size = particle_buffer.size() * sizeof(Particle);
 
 	//Create a temporary staging buffer to load the particle data into
-	zest_buffer staging_buffer = zest_CreateStagingBuffer(storage_buffer_size,  particle_buffer.data(), 0);
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(storage_buffer_size,  particle_buffer.data());
 	//Create a "Descriptor buffer". This is a buffer that will have info necessary for a shader - in this case a compute shader.
 	//Create buffer as a single buffer, no need to have a buffer for each frame in flight as we won't be writing to it while it
 	//might be used in the GPU, it's purely for updating by the compute shader only
@@ -115,7 +115,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_ForEachFrameInFlight(fif) {
 		zest_descriptor_set_builder_t uniform_set_builder = zest_BeginDescriptorSetBuilder(app->uniform_layout);
 		zest_AddSetBuilderUniformBuffer(&uniform_set_builder, 0, 0, app->compute_uniform_buffer[fif]);
-		app->uniform_set[fif].vk_descriptor_set = zest_FinishDescriptorSet(app->uniform_layout->pool, &uniform_set_builder, app->uniform_set[fif].vk_descriptor_set);
+		app->uniform_set[fif] = zest_FinishDescriptorSet(app->uniform_layout->pool, &uniform_set_builder, app->uniform_set[fif]);
 	}
 
 	//Set up the compute shader
@@ -169,7 +169,7 @@ void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_render_gra
 	//Mix the bindless descriptor set with the uniform buffer descriptor set
 	VkDescriptorSet sets[] = {
 		app->bindless_set.vk_descriptor_set,
-		app->uniform_set[ZEST_FIF].vk_descriptor_set
+		app->uniform_set[ZEST_FIF]->vk_descriptor_set
 	};
 	//Bind the compute pipeline
 	zest_BindComputePipeline(command_buffer, app->compute, sets, 2);
@@ -234,20 +234,22 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	if (zest_BeginRenderToScreen(app->render_graph)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph(app->render_graph);
-		if (imgui_pass) {
+		zest_pass_node render_pass = zest_imgui_AddToRenderGraph(app->render_graph);
+		if (render_pass) {
 			zest_resource_node particle_buffer = zest_ImportStorageBufferResource(app->render_graph, "particle buffer", app->particle_buffer);
 			zest_pass_node compute_pass = zest_AddComputePassNode(app->render_graph, app->compute, "Compute Particles");
-			zest_AddPassStorageBufferWrite(compute_pass, particle_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-			zest_AddPassVertexBufferInput(imgui_pass, particle_buffer);
+
+			zest_ConnectStorageBufferOutput(compute_pass, particle_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+			zest_ConnectVertexBufferInput(render_pass, particle_buffer);
+			zest_ConnectSwapChainOutput(render_pass, swapchain_output_resource, clear_color);
+
 			zest_AddPassTask(compute_pass, RecordComputeCommands, app);
-			zest_AddPassTask(imgui_pass, RecordComputeSprites, app);
-			zest_AddPassTask(imgui_pass, zest_imgui_DrawImGuiRenderPass, app);
-			zest_AddPassSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+			zest_AddPassTask(render_pass, RecordComputeSprites, app);
+			zest_AddPassTask(render_pass, zest_imgui_DrawImGuiRenderPass, app);
 		} else {
 			//Just render a blank screen if imgui didn't render anything
 			zest_pass_node blank_pass = zest_AddGraphicBlankScreen(app->render_graph, "Draw Nothing");
-			zest_AddPassSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
+			zest_ConnectSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
 
 		zest_EndRenderGraph(app->render_graph);
@@ -264,7 +266,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	//Disable vsync so we can see how fast it runs
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

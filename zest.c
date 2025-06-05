@@ -2873,9 +2873,8 @@ zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t* buffer_info
     return buffer;
 }
 
-zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void* data, zest_uint fif) {
+zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void* data) {
     zest_buffer_info_t buffer_info = zest_CreateStagingBufferInfo();
-    buffer_info.frame_in_flight = fif;
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
     if (data) {
         memcpy(buffer->data, data, size);
@@ -3304,7 +3303,7 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     //Set up a builtin uniform buffer and descriptor set
 	zest_set_layout_builder_t uniform_layout_builder = zest_BeginSetLayoutBuilder();
 	zest_AddLayoutBuilderUniformBuffer(&uniform_layout_builder, 0, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-	ZestRenderer->uniform_set_layout = zest_FinishDescriptorSetLayout(&uniform_layout_builder, "Particles Compute Uniform");
+	ZestRenderer->uniform_set_layout = zest_FinishDescriptorSetLayout(&uniform_layout_builder, "Zest Unfiform Buffer");
 	zest_CreateDescriptorPoolForLayout(ZestRenderer->uniform_set_layout, ZEST_MAX_FIF, 0);
 
     zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder();
@@ -3312,7 +3311,7 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     zest_AddLayoutBuilderStorageBufferBindless(&layout_builder, 1, create_info->bindless_storage_buffer_count, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     zest_AddLayoutBuilderSamplerBindless(&layout_builder, 2, create_info->bindless_sampler_count);
     zest_AddLayoutBuilderSampledImageBindless(&layout_builder, 3, create_info->bindless_sampled_image_count);
-    ZestRenderer->global_bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Particles descriptor layout");
+    ZestRenderer->global_bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Zest Descriptor Layout");
     ZestRenderer->global_set = zest_CreateBindlessSet(ZestRenderer->global_bindless_set_layout);
 
 	zest_ForEachFrameInFlight(fif) {
@@ -7898,7 +7897,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                         image_barrier.srcQueueFamilyIndex = src_queue_family_index;
                         image_barrier.dstQueueFamilyIndex = dst_queue_family_index;
                         zest_vec_linear_push(allocator, barriers->acquire_image_barriers, image_barrier);
-						zest_vec_linear_push(allocator, barriers->acquire_image_barrier_nodes, resource);
+                        zest_vec_linear_push(allocator, barriers->acquire_image_barrier_nodes, resource);
                         break;
                     case zest_resource_type_buffer:
                         VkBufferMemoryBarrier buffer_barrier = zest__create_buffer_memory_barrier(
@@ -7910,7 +7909,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                         buffer_barrier.srcQueueFamilyIndex = src_queue_family_index;
                         buffer_barrier.dstQueueFamilyIndex = dst_queue_family_index;
                         zest_vec_linear_push(allocator, barriers->acquire_buffer_barriers, buffer_barrier);
-						zest_vec_linear_push(allocator, barriers->acquire_buffer_barrier_nodes, resource);
+                        zest_vec_linear_push(allocator, barriers->acquire_buffer_barrier_nodes, resource);
                         break;
                     }
                     barriers->overall_src_stage_mask_for_acquire_barriers |= resource->last_stage_mask;
@@ -7929,7 +7928,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                     needs_acquiring = true;
                 }
                 if (needs_acquiring) {
-					zest_resource_usage_t *prev_usage = prev_state->usage;
+                    zest_resource_usage_t *prev_usage = prev_state->usage;
                     //Acquire the resource. No transitioning is done here, acquire only if needed
                     switch (resource->type) {
                     case zest_resource_type_image:
@@ -7944,7 +7943,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                         image_barrier.srcQueueFamilyIndex = src_queue_family_index;
                         image_barrier.dstQueueFamilyIndex = dst_queue_family_index;
                         zest_vec_linear_push(allocator, barriers->acquire_image_barriers, image_barrier);
-						zest_vec_linear_push(allocator, barriers->acquire_image_barrier_nodes, resource);
+                        zest_vec_linear_push(allocator, barriers->acquire_image_barrier_nodes, resource);
                         break;
                     case zest_resource_type_buffer:
                         VkBufferMemoryBarrier buffer_barrier = zest__create_buffer_memory_barrier(
@@ -7956,7 +7955,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                         buffer_barrier.srcQueueFamilyIndex = src_queue_family_index;
                         buffer_barrier.dstQueueFamilyIndex = dst_queue_family_index;
                         zest_vec_linear_push(allocator, barriers->acquire_buffer_barriers, buffer_barrier);
-						zest_vec_linear_push(allocator, barriers->acquire_buffer_barrier_nodes, resource);
+                        zest_vec_linear_push(allocator, barriers->acquire_buffer_barrier_nodes, resource);
                         break;
                     }
                     barriers->overall_src_stage_mask_for_acquire_barriers |= prev_state->usage->stage_mask;
@@ -7993,7 +7992,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                         image_barrier.srcQueueFamilyIndex = src_queue_family_index;
                         image_barrier.dstQueueFamilyIndex = dst_queue_family_index;
                         zest_vec_linear_push(allocator, barriers->release_image_barriers, image_barrier);
-						zest_vec_linear_push(allocator, barriers->release_image_barrier_nodes, resource);
+                        zest_vec_linear_push(allocator, barriers->release_image_barrier_nodes, resource);
                         break;
                     case zest_resource_type_buffer:
                         VkBufferMemoryBarrier buffer_barrier = zest__create_buffer_memory_barrier(
@@ -8005,23 +8004,23 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                         buffer_barrier.srcQueueFamilyIndex = src_queue_family_index;
                         buffer_barrier.dstQueueFamilyIndex = dst_queue_family_index;
                         zest_vec_linear_push(allocator, barriers->release_buffer_barriers, buffer_barrier);
-						zest_vec_linear_push(allocator, barriers->release_buffer_barrier_nodes, resource);
+                        zest_vec_linear_push(allocator, barriers->release_buffer_barrier_nodes, resource);
                         break;
                     }
                     barriers->overall_src_stage_mask_for_release_barriers |= current_state->usage->stage_mask;
                     barriers->overall_dst_stage_mask_for_release_barriers |= VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
                     current_state->was_released = true;
                 }
-            } 
+            }
             prev_state = current_state;
-			if ((resource->type == zest_resource_type_image || resource->type == zest_resource_type_swap_chain_image) &&
-				current_state->usage->access_mask & zest_access_render_pass_bits) {
-				exe_details->requires_dynamic_render_pass = true;
-			}
+            if ((resource->type == zest_resource_type_image || resource->type == zest_resource_type_swap_chain_image) &&
+                current_state->usage->access_mask & zest_access_render_pass_bits) {
+                exe_details->requires_dynamic_render_pass = true;
+            }
         }
     }
 
-	zest_hash_map(zest_uint) attachment_idx;
+    zest_hash_map(zest_uint) attachment_idx;
 
     zest_uint k_global = 0;
     zest_uint current_batch_qfi;
@@ -8645,10 +8644,13 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
             ZEST_PRINT("Image: %s - VkImage: %p, Offset: %zu, Size: %zu", 
                 resource->name, resource->image_buffer.image, resource->image_buffer.buffer->memory_offset, 
                 resource->image_buffer.buffer->size);
+        } else if (resource->type == zest_resource_type_swap_chain_image) {
+            ZEST_PRINT("Image: %s - VkImage: %p", 
+                resource->name, resource->image_buffer.image);
         }
     }
 
-
+    ZEST_PRINT("");
     ZEST_PRINT("Number of Submission Batches: %u\n", zest_vec_size(render_graph->submissions));
 
     zest_vec_foreach(batch_index, render_graph->submissions) {
@@ -8971,7 +8973,6 @@ zest_resource_node zest_AddFontLayerResources(zest_render_graph render_graph, co
 	zest_buffer_description_t buffer_desc = { 0 };
 	buffer_desc.size = layer->memory_refs.staging_instance_data->size;
 	buffer_desc.buffer_info = zest_CreateVertexBufferInfo(0);
-	buffer_desc.buffer_info.frame_in_flight = ZEST_FIF;
 	return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, ZEST_FALSE);
 }
 
@@ -9117,7 +9118,7 @@ zest_pass_node zest_AddGraphicBlankScreen(zest_render_graph render_graph, const 
     return pass;
 }
 
-zest_pass_node zest_AddGraphicPassNode(zest_render_graph render_graph, const char *name) {
+zest_pass_node zest_AddRenderPassNode(zest_render_graph render_graph, const char *name) {
     return zest__add_pass_node(render_graph, name, zest_queue_graphics);
 }
 
@@ -9145,7 +9146,7 @@ zest_resource_node zest_GetPassOutputResource(zest_pass_node pass, const char *n
     return usage->resource_node;
 }
 
-void zest_add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_access_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output) {
+void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output) {
     zest_resource_usage_t usage = { 0 }; // Your internal struct to store resolved flags
     usage.resource_node = buffer_resource;
 
@@ -9195,7 +9196,7 @@ void zest_add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buf
     }
 }
 
-void zest_add_pass_image_usage( zest_pass_node pass_node,zest_resource_node image_resource, zest_resource_access_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value) {
+void zest__add_pass_image_usage( zest_pass_node pass_node,zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value) {
     zest_resource_usage_t usage = { 0 }; // Your internal struct
     usage.resource_node = image_resource;
 
@@ -9330,81 +9331,81 @@ void zest_add_pass_image_usage( zest_pass_node pass_node,zest_resource_node imag
     }
 }
 
-void zest_AddPassVertexBufferInput(zest_pass_node pass, zest_resource_node vertex_buffer) {
+void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_node vertex_buffer) {
     ZEST_CHECK_HANDLE(vertex_buffer);
-    zest_add_pass_buffer_usage(pass, vertex_buffer, zest_purpose_vertex_buffer, 0, ZEST_FALSE);
+    zest__add_pass_buffer_usage(pass, vertex_buffer, zest_purpose_vertex_buffer, 0, ZEST_FALSE);
 }
 
-void zest_AddPassIndexBufferInput(zest_pass_node pass, zest_resource_node index_buffer) {
+void zest_ConnectIndexBufferInput(zest_pass_node pass, zest_resource_node index_buffer) {
     ZEST_CHECK_HANDLE(index_buffer);
-    zest_add_pass_buffer_usage(pass, index_buffer, zest_purpose_index_buffer, 0, ZEST_FALSE);
+    zest__add_pass_buffer_usage(pass, index_buffer, zest_purpose_index_buffer, 0, ZEST_FALSE);
 }
 
-void zest_AddPassUniformBufferInput(zest_pass_node pass, zest_resource_node uniform_buffer, VkPipelineStageFlags stages) {
+void zest_ConnectUniformBufferInput(zest_pass_node pass, zest_resource_node uniform_buffer, VkPipelineStageFlags stages) {
     ZEST_CHECK_HANDLE(uniform_buffer);
-    zest_add_pass_buffer_usage(pass, uniform_buffer, zest_purpose_uniform_buffer, stages, ZEST_FALSE);
+    zest__add_pass_buffer_usage(pass, uniform_buffer, zest_purpose_uniform_buffer, stages, ZEST_FALSE);
 }
 
-void zest_AddPassStorageBufferRead(zest_pass_node pass, zest_resource_node storage_buffer, VkPipelineStageFlags stages) {
+void zest_ConnectStorageBufferInput(zest_pass_node pass, zest_resource_node storage_buffer, VkPipelineStageFlags stages) {
     ZEST_CHECK_HANDLE(storage_buffer);
-    zest_add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_read, stages, ZEST_FALSE);
+    zest__add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_read, stages, ZEST_FALSE);
 }
 
-void zest_AddPassStorageBufferWrite(zest_pass_node pass, zest_resource_node storage_buffer, VkPipelineStageFlags stages) {
+void zest_ConnectStorageBufferOutput(zest_pass_node pass, zest_resource_node storage_buffer, VkPipelineStageFlags stages) {
     ZEST_CHECK_HANDLE(storage_buffer);
-    zest_add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_write, stages, ZEST_TRUE);
+    zest__add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_write, stages, ZEST_TRUE);
 }
 
-void zest_AddPassTransferDstBuffer(zest_pass_node pass, zest_resource_node dst_buffer) {
+void zest_ConnectTransferBufferOutput(zest_pass_node pass, zest_resource_node dst_buffer) {
     ZEST_CHECK_HANDLE(dst_buffer);
-    zest_add_pass_buffer_usage(pass, dst_buffer, zest_purpose_transfer_dst_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, ZEST_TRUE);
+    zest__add_pass_buffer_usage(pass, dst_buffer, zest_purpose_transfer_dst_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, ZEST_TRUE);
 }
 
-void zest_AddPassTransferSrcBuffer(zest_pass_node pass, zest_resource_node src_buffer) {
-    zest_add_pass_buffer_usage(pass, src_buffer, zest_purpose_transfer_src_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, ZEST_TRUE);
+void zest_ConnectTransferBufferInput(zest_pass_node pass, zest_resource_node src_buffer) {
+    zest__add_pass_buffer_usage(pass, src_buffer, zest_purpose_transfer_src_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, ZEST_TRUE);
 }
 
 // --- Image Helpers ---
-void zest_AddPassSampledImageInput(zest_pass_node pass, zest_resource_node texture, VkShaderStageFlags stages) {
-    zest_add_pass_image_usage(pass, texture, zest_purpose_sampled_image, stages, ZEST_FALSE,
+void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture, VkShaderStageFlags stages) {
+    zest__add_pass_image_usage(pass, texture, zest_purpose_sampled_image, stages, ZEST_FALSE,
         VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue){0});
 }
 
-void zest_AddPassSwapChainOutput( zest_pass_node pass, zest_resource_node swapchain_resource, VkClearColorValue clear_color_on_load) {
+void zest_ConnectSwapChainOutput( zest_pass_node pass, zest_resource_node swapchain_resource, VkClearColorValue clear_color_on_load) {
     VkClearValue cv; cv.color = clear_color_on_load;
     // Assuming clear for swapchain if not explicitly loaded
-    zest_add_pass_image_usage(pass, swapchain_resource, zest_purpose_color_attachment_write, 
+    zest__add_pass_image_usage(pass, swapchain_resource, zest_purpose_color_attachment_write, 
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, ZEST_TRUE,
         VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, cv);
 }
 
 // More flexible version:
-void zest_AddPassColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing) {
+void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing) {
     VkClearValue cv = { 0 }; 
     if (load_op == VK_ATTACHMENT_LOAD_OP_CLEAR) {
         cv.color = clear_color_if_clearing;
     }
-    zest_add_pass_image_usage(pass_node, color_target, zest_purpose_color_attachment_write,
+    zest__add_pass_image_usage(pass_node, color_target, zest_purpose_color_attachment_write,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, ZEST_TRUE,
         load_op, store_op,
         VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
         cv);
 }
 
-void zest_AddPassDepthStencilOutput(zest_pass_node pass_node, zest_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing) {
+void zest_ConnectDepthStencilOutput(zest_pass_node pass_node, zest_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing) {
     VkClearValue cv = { 0 };
     if (depth_load_op == VK_ATTACHMENT_LOAD_OP_CLEAR || stencil_load_op == VK_ATTACHMENT_LOAD_OP_CLEAR) {
         cv.depthStencil = clear_value_if_clearing;
     }
-    zest_add_pass_image_usage(pass_node, depth_target, zest_purpose_depth_stencil_attachment_write,
+    zest__add_pass_image_usage(pass_node, depth_target, zest_purpose_depth_stencil_attachment_write,
         0, ZEST_TRUE, 
         depth_load_op, depth_store_op,
         stencil_load_op, stencil_store_op,
         cv);
 }
 
-void zest_AddPassDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target) {
-    zest_add_pass_image_usage(pass_node, depth_target, zest_purpose_depth_stencil_attachment_read,
+void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target) {
+    zest__add_pass_image_usage(pass_node, depth_target, zest_purpose_depth_stencil_attachment_read,
         0, ZEST_FALSE, // Internal function sets correct pipeline stages
         VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_DONT_CARE, 
         VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_DONT_CARE,
@@ -14814,8 +14815,8 @@ void zest_AddMeshToMesh(zest_mesh_t* dst_mesh, zest_mesh_t* src_mesh) {
 
 void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t* src_mesh) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(zest_MeshVertexDataSize(src_mesh), src_mesh->vertices, 0);
-    zest_buffer index_staging_buffer = zest_CreateStagingBuffer(zest_MeshIndexDataSize(src_mesh), src_mesh->indexes, 0);
+    zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(zest_MeshVertexDataSize(src_mesh), src_mesh->vertices);
+    zest_buffer index_staging_buffer = zest_CreateStagingBuffer(zest_MeshIndexDataSize(src_mesh), src_mesh->indexes);
     layer->index_count = zest_vec_size(src_mesh->indexes);
     zest_FreeBuffer(vertex_staging_buffer);
     zest_FreeBuffer(index_staging_buffer);

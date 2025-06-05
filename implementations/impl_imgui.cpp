@@ -25,12 +25,12 @@ zest_pass_node zest_imgui_AddToRenderGraph(zest_render_graph render_graph) {
 		zest_resource_node imgui_font_texture = zest_ImportImageResourceReadOnly(render_graph, "Imgui Font", ZestRenderer->imgui_info.font_texture);
 		zest_pass_node imgui_upload_pass = zest_AddTransferPassNode(render_graph, "Upload ImGui");
         zest_AddPassTask(imgui_upload_pass, zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
-		zest_AddPassTransferDstBuffer(imgui_upload_pass, imgui_vertex_buffer);
-		zest_AddPassTransferDstBuffer(imgui_upload_pass, imgui_index_buffer);
-		zest_pass_node imgui_pass = zest_AddGraphicPassNode(render_graph, "Draw ImGui");
-		zest_AddPassVertexBufferInput(imgui_pass, imgui_vertex_buffer);
-		zest_AddPassIndexBufferInput(imgui_pass, imgui_index_buffer);
-		zest_AddPassSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+		zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_vertex_buffer);
+		zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_index_buffer);
+		zest_pass_node imgui_pass = zest_AddRenderPassNode(render_graph, "Draw ImGui");
+		zest_ConnectVertexBufferInput(imgui_pass, imgui_vertex_buffer);
+		zest_ConnectIndexBufferInput(imgui_pass, imgui_index_buffer);
+		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
         return imgui_pass;
     }
     return nullptr;
@@ -110,8 +110,8 @@ void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_buf
 				zest_pipeline pipeline = zest_PipelineWithTemplate(imgui_info->pipeline, context->render_pass);
                 switch (current_image->struct_type) {
                 case zest_struct_type_image:
-                    if (last_pipeline != imgui_info->pipeline || last_descriptor_set != current_image->texture->debug_set.vk_descriptor_set) {
-                        last_descriptor_set = current_image->texture->debug_set.vk_descriptor_set;
+                    if (last_pipeline != imgui_info->pipeline || last_descriptor_set != current_image->texture->debug_set->vk_descriptor_set) {
+                        last_descriptor_set = current_image->texture->debug_set->vk_descriptor_set;
                         zest_BindPipeline(command_buffer, pipeline, &last_descriptor_set, 1);
                         last_pipeline = imgui_info->pipeline;
                     }
@@ -173,7 +173,6 @@ zest_resource_node zest_imgui_AddTransientVertexResources(zest_render_graph rend
         zest_buffer_description_t buffer_desc = { 0 };
         buffer_desc.size = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
         buffer_desc.buffer_info = zest_CreateVertexBufferInfo(0);
-		buffer_desc.buffer_info.frame_in_flight = ZEST_FIF;
         return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, ZEST_FALSE);
     }
     return NULL;
@@ -185,7 +184,6 @@ zest_resource_node zest_imgui_AddTransientIndexResources(zest_render_graph rende
         zest_buffer_description_t buffer_desc = { 0 };
         buffer_desc.size = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
         buffer_desc.buffer_info = zest_CreateIndexBufferInfo(0);
-        buffer_desc.buffer_info.frame_in_flight = ZEST_FIF;
         return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, ZEST_FALSE);
     }
     return NULL;

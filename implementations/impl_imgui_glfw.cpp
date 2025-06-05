@@ -55,8 +55,8 @@ zest_imgui zest_imgui_Initialise() {
 
     imgui_info->pipeline = imgui_pipeline;
 
-	imgui_info->vertex_staging_buffer = zest_CreateStagingBuffer(1024 * 1024, 0, 0);
-	imgui_info->index_staging_buffer = zest_CreateStagingBuffer(1024 * 1024, 0, 0);
+	imgui_info->vertex_staging_buffer = zest_CreateStagingBuffer(1024 * 1024, 0);
+	imgui_info->index_staging_buffer = zest_CreateStagingBuffer(1024 * 1024, 0);
 
 	return imgui_info;
 }
