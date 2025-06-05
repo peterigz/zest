@@ -2191,6 +2191,7 @@ typedef struct zest_buffer_info_t {
     zest_buffer_flags flags;
     zest_uint memory_type_bits;
     VkDeviceSize alignment;
+    zest_uint frame_in_flight;
 } zest_buffer_info_t;
 
 typedef struct zest_buffer_pool_size_t {

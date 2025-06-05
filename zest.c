@@ -2826,6 +2826,8 @@ zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t* buffer_info
         buffer_info->alignment = memory_requirements.alignment;
     }
 
+    buffer_info->frame_in_flight = ZEST_FIF;
+
     zest_key key = zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t));
     if (!zest_map_valid_key(ZestRenderer->buffer_allocators, key)) {
         //If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
@@ -3125,6 +3127,7 @@ zest_buffer_info_t zest_CreateStagingBufferInfo() {
     zest_buffer_info_t buffer_info = { 0 };
     buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    buffer_info.fif = ZEST_FIF;
     return buffer_info;
 }
 
