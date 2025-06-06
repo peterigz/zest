@@ -329,7 +329,7 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 
 //Shader_code
 //For nicer formatting of the shader code, but note that new lines are ignored when this becomes an actual string.
-#define ZEST_GLSL(version, shader) "#version " #version "\n" #shader
+#define ZEST_GLSL(version, shader) "#version " #version "\n" "#extension GL_EXT_nonuniform_qualifier : require\n" #shader
 //----------------------
 //Imgui vert shader
 //----------------------
@@ -337,7 +337,10 @@ static const char *zest_shader_imgui_vert = ZEST_GLSL(450 core,
 
 layout(push_constant) uniform quad_index
 {
-	mat4 model;
+    uint index1;
+    uint index2;
+    uint index3;
+    uint index4;
 	vec4 transform;
 	vec4 parameters;
 	vec4 parameters3;
@@ -375,7 +378,10 @@ layout(set = 0, binding = 0) uniform sampler2DArray tex_sampler;
 //Not used by default by can be used in custom imgui image shaders
 layout(push_constant) uniform quad_index
 {
-	mat4 model;
+    uint index1;
+    uint index2;
+    uint index3;
+    uint index4;
 	vec4 transform;
 	vec4 parameters;
 	vec4 parameters3;
@@ -420,7 +426,10 @@ layout(set = 1, binding = 0) uniform sampler2DArray texSampler;
 
 layout(push_constant) uniform quad_index
 {
-    mat4 model;
+    uint index1;
+    uint index2;
+    uint index3;
+    uint index4;
     vec4 parameters1;
     vec4 parameters2;
     vec4 parameters3;
@@ -456,7 +465,10 @@ layout(set = 0, binding = 0) uniform UboView
 
 layout(push_constant) uniform quad_index
 {
-    mat4 model;
+    uint index1;
+    uint index2;
+    uint index3;
+    uint index4;
     vec4 parameters1;
     vec4 parameters2;
     vec4 parameters3;
@@ -516,7 +528,7 @@ void main() {
     matrix[1][0] = -s;
     matrix[1][1] = c;
 
-    mat4 modelView = uboView.view * pc.model;
+    mat4 modelView = uboView.view;
     vec3 pos = matrix * vec3(vertex_position.x, vertex_position.y, 1);
     pos.xy += alignment_normal * dot(pos.xy, alignment_normal);
     pos.xy += position_rotation.xy;
@@ -550,7 +562,10 @@ layout(set = 0, binding = 0) uniform UboView
 
 layout(push_constant) uniform quad_index
 {
-    mat4 model;
+    uint index1;
+    uint index2;
+    uint index3;
+    uint index4;
     vec4 parameters1;
     vec4 parameters2;
     vec4 parameters3;
@@ -592,7 +607,7 @@ void main() {
         vertex_position = rect.xy + line * (vertex[index].x + .5) + normal * parameters.x * vertex[index].y;
     }
 
-    mat4 modelView = uboView.view * pc.model;
+    mat4 modelView = uboView.view;
     vec3 pos = vec3(vertex_position.x, vertex_position.y, 1);
     gl_Position = uboView.proj * modelView * vec4(pos, 1.0);
 
@@ -750,7 +765,10 @@ layout(set = 0, binding = 0) uniform UboView
 
 layout(push_constant) uniform quad_index
 {
-    mat4 model;
+    uint font_texture_index;
+    uint index2;
+    uint index3;
+    uint index4;
     vec4 parameters1;
     vec4 parameters2;
     vec4 parameters3;
@@ -770,8 +788,8 @@ layout(location = 4) out float millisecs;
 layout(location = 5) out float res;
 
 void main() {
-    vec4 clip0 = uboView.proj * uboView.view * pc.model * vec4(start.xyz, 1.0);
-    vec4 clip1 = uboView.proj * uboView.view * pc.model * vec4(end.xyz, 1.0);
+    vec4 clip0 = uboView.proj * uboView.view * vec4(start.xyz, 1.0);
+    vec4 clip1 = uboView.proj * uboView.view * vec4(end.xyz, 1.0);
 
     vec2 screen0 = uboView.res * (0.5 * clip0.xy / clip0.w + 0.5);
     vec2 screen1 = uboView.res * (0.5 * clip1.xy / clip1.w + 0.5);
@@ -807,11 +825,14 @@ layout(location = 1) in vec3 frag_tex_coord;
 
 layout(location = 0) out vec4 out_color;
 
-layout(set = 1, binding = 0) uniform sampler2DArray texture_sampler;
+layout(set = 1, binding = 0) uniform sampler2DArray texture_sampler[];
 
 layout(push_constant) uniform quad_index
 {
-    mat4 model;
+    uint font_texture_index;
+    uint index2;
+    uint index3;
+    uint index4;
     vec4 parameters;
     vec4 shadow_parameters;
     vec4 shadow_color;
@@ -843,9 +864,9 @@ void main() {
 
     vec4 glyph = frag_color;
     float opacity;
-    vec4 sampled = texture(texture_sampler, frag_tex_coord);
+    vec4 sampled = texture(texture_sampler[font.font_texture_index], frag_tex_coord);
 
-    vec2 texture_size = textureSize(texture_sampler, 0).xy;
+    vec2 texture_size = textureSize(texture_sampler[font.font_texture_index], 0).xy;
     float scale = get_uv_scale(frag_tex_coord.xy * texture_size) * font.parameters.z;
     float d = (median(sampled.r, sampled.g, sampled.b) - 0.75) * font.parameters.x;
     float sdf = (d + font.parameters.w) / scale + 0.5 + font.parameters.y;
@@ -853,7 +874,7 @@ void main() {
     glyph = vec4(glyph.rgb, glyph.a * mask);
 
     if (font.shadow_color.a > 0) {
-        float sd = texture(texture_sampler, vec3(frag_tex_coord.xy - font.shadow_parameters.xy / texture_size.xy, 0)).a;
+        float sd = texture(texture_sampler[font.font_texture_index], vec3(frag_tex_coord.xy - font.shadow_parameters.xy / texture_size.xy, 0)).a;
         float shadowAlpha = linearstep(0.5 - font.shadow_parameters.z, 0.5 + font.shadow_parameters.z, sd) * font.shadow_color.a;
         shadowAlpha *= 1.0 - mask * font.shadow_parameters.w;
         vec4 shadow = vec4(font.shadow_color.rgb, shadowAlpha);
@@ -943,7 +964,7 @@ layout(location = 0) out vec4 out_frag_color;
 layout(location = 1) out vec3 out_tex_coord;
 
 void main() {
-    gl_Position = uboView.proj * uboView.view * pc.model * vec4(in_position.xyz, 1.0);
+    gl_Position = uboView.proj * uboView.view * vec4(in_position.xyz, 1.0);
 
     out_tex_coord = vec3(in_tex_coord, in_texture_array_index);
 
@@ -1017,7 +1038,7 @@ void main() {
 
     mat3 rotation_matrix = mz * my * mx;
     vec3 position = vertex_position * instance_scale * rotation_matrix + instance_position;
-    gl_Position = (uboView.proj * uboView.view * pc.model * vec4(position, 1.0));
+    gl_Position = (uboView.proj * uboView.view * vec4(position, 1.0));
 
     out_frag_color = vertex_color * instance_color;
 }
@@ -1032,7 +1053,10 @@ layout(location = 0) out vec4 outColor;
 
 layout(push_constant) uniform quad_index
 {
-    mat4 model;
+    uint index1;
+    uint index2;
+    uint index3;
+    uint index4;
     vec4 parameters1;
     vec4 parameters2;
     vec4 parameters3;
@@ -1421,6 +1445,14 @@ typedef enum zest_connection_type {
     zest_output
 } zest_connection_type;
 
+typedef enum zest_supported_pipeline_stages {
+    zest_vertex_input_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+    zest_vertex_stage = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+    zest_fragment_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+    zest_compute_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+    zest_transfer_stage = VK_PIPELINE_STAGE_TRANSFER_BIT
+} zest_supported_pipeline_stages;
+
 typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
 typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
 
@@ -1450,6 +1482,7 @@ typedef struct zest_descriptor_set_t zest_descriptor_set_t;
 typedef struct zest_descriptor_pool_t zest_descriptor_pool_t;
 typedef struct zest_shader_resources_t zest_shader_resources_t;
 typedef struct zest_descriptor_buffer_t zest_descriptor_buffer_t;
+typedef struct zest_uniform_buffer_t zest_uniform_buffer_t;
 typedef struct zest_render_target_t zest_render_target_t;
 typedef struct zest_buffer_allocator_t zest_buffer_allocator_t;
 typedef struct zest_compute_t zest_compute_t;
@@ -1485,6 +1518,7 @@ ZEST__MAKE_HANDLE(zest_set_layout)
 ZEST__MAKE_HANDLE(zest_descriptor_set)
 ZEST__MAKE_HANDLE(zest_shader_resources)
 ZEST__MAKE_HANDLE(zest_descriptor_buffer)
+ZEST__MAKE_HANDLE(zest_uniform_buffer)
 ZEST__MAKE_HANDLE(zest_render_target)
 ZEST__MAKE_HANDLE(zest_buffer_allocator)
 ZEST__MAKE_HANDLE(zest_descriptor_pool)
@@ -1497,8 +1531,6 @@ ZEST__MAKE_HANDLE(zest_shader)
 ZEST__MAKE_HANDLE(zest_recorder)
 ZEST__MAKE_HANDLE(zest_imgui)
 ZEST__MAKE_HANDLE(zest_queue)
-
-typedef zest_descriptor_buffer zest_uniform_buffer;
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -2689,7 +2721,8 @@ ZEST_API void zest_ClearPassTasks(zest_pass_node pass);
 // --- Add Transient resources ---
 ZEST_API zest_resource_node zest_AddTransientImageResource(zest_render_graph graph, const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
 ZEST_API zest_resource_node zest_AddTransientBufferResource(zest_render_graph graph, const char *name, const zest_buffer_description_t *desc, zest_bool assign_bindless);
-ZEST_API zest_resource_node zest_AddFontLayerResources(zest_render_graph graph, const char *name, const zest_layer layer);
+ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(zest_render_graph graph, const zest_layer layer);
+ZEST_API zest_resource_node zest_AddFontLayerTextureResource(zest_render_graph graph, const zest_font font);
 
 // --- Import external resouces into the render graph ---
 ZEST_API zest_resource_node zest_ImportImageResource(zest_render_graph render_graph, const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
@@ -2701,14 +2734,14 @@ ZEST_API zest_resource_node zest_ImportSwapChainResource(zest_render_graph rende
 // --- Connect Buffer Helpers ---
 ZEST_API void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_node vertex_buffer);
 ZEST_API void zest_ConnectIndexBufferInput(zest_pass_node pass, zest_resource_node index_buffer);
-ZEST_API void zest_ConnectUniformBufferInput(zest_pass_node pass, zest_resource_node uniform_buffer, VkPipelineStageFlags stages);
-ZEST_API void zest_ConnectStorageBufferInput(zest_pass_node pass, zest_resource_node storage_buffer, VkPipelineStageFlags stages);
-ZEST_API void zest_ConnectStorageBufferOutput(zest_pass_node pass, zest_resource_node storage_buffer, VkPipelineStageFlags stages);
+ZEST_API void zest_ConnectUniformBufferInput(zest_pass_node pass, zest_resource_node uniform_buffer, zest_supported_pipeline_stages stages);
+ZEST_API void zest_ConnectStorageBufferInput(zest_pass_node pass, zest_resource_node storage_buffer, zest_supported_pipeline_stages stages);
+ZEST_API void zest_ConnectStorageBufferOutput(zest_pass_node pass, zest_resource_node storage_buffer, zest_supported_pipeline_stages stages);
 ZEST_API void zest_ConnectTransferBufferOutput(zest_pass_node pass, zest_resource_node dst_buffer);
 ZEST_API void zest_ConnectTransferBufferInput(zest_pass_node pass, zest_resource_node src_buffer);
 
 // --- Connect Image Helpers ---
-ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture, VkPipelineStageFlags stages);
+ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages);
 ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass, zest_resource_node swapchain_resource, VkClearColorValue clear_color_on_load);
 ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
 ZEST_API void zest_ConnectDepthStencilOutput(zest_pass_node pass_node, zest_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing);
@@ -2806,6 +2839,14 @@ typedef struct zest_descriptor_buffer_t {
     zest_uint descriptor_array_index;
     zest_uint binding_number;
 } zest_descriptor_buffer_t;
+
+typedef struct zest_uniform_buffer_t {
+    int magic;
+    zest_buffer buffer[ZEST_MAX_FIF];
+    VkDescriptorBufferInfo descriptor_info[ZEST_MAX_FIF];
+    zest_descriptor_set descriptor_set[ZEST_MAX_FIF];
+    zest_set_layout set_layout;
+} zest_uniform_buffer_t;
 
 typedef struct zest_descriptor_infos_for_binding_t {
     VkDescriptorBufferInfo descriptor_buffer_info;
@@ -3059,7 +3100,10 @@ typedef struct zest_layer_staging_buffers_t {
 } zest_layer_staging_buffers_t;
 
 typedef struct zest_push_constants_t {             //128 bytes seems to be the limit for push constants on AMD cards, NVidia 256 bytes
-    zest_matrix4 model;                            //Can be used for anything
+    zest_uint descriptor_index1;
+    zest_uint descriptor_index2;
+    zest_uint descriptor_index3;
+    zest_uint descriptor_index4;
     zest_vec4 parameters1;                         //Can be used for anything
     zest_vec4 parameters2;                         //Can be used for anything
     zest_vec4 parameters3;                         //Can be used for anything
@@ -3116,6 +3160,9 @@ typedef struct zest_layer_t {
 
     zest_layer_instruction_t *draw_instructions[ZEST_MAX_FIF];
     zest_draw_mode last_draw_mode;
+
+    zest_resource_node vertex_buffer_node;
+    zest_resource_node index_buffer_node;
 
     zest_layer_flags flags;
     void *user_data;
@@ -3500,11 +3547,10 @@ typedef struct zest_renderer_t {
     VkSwapchainKHR swapchain;
 
     VkFence fif_fence[ZEST_MAX_FIF];
-    zest_descriptor_buffer uniform_buffer[ZEST_MAX_FIF];
-    zest_set_layout uniform_set_layout;
+    zest_uniform_buffer uniform_buffer;
 
     zest_set_layout global_bindless_set_layout;
-    zest_descriptor_set_t global_set;
+    zest_descriptor_set global_set;
 
     VkImage *swapchain_images;
     VkImageView *swapchain_image_views;
@@ -3973,15 +4019,28 @@ ZEST_API void zest_AddSetBuilderTexture(zest_descriptor_set_builder_t *builder, 
 //Add a VkDescriptorImageInfo from a zest_texture (or render target) to a descriptor set builder.
 ZEST_API void zest_AddSetBuilderDirectImageWrite(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, VkDescriptorType type, const VkDescriptorImageInfo *image_info);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a uniform buffer.
-ZEST_API void zest_AddSetBuilderUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer uniform_buffer);
+ZEST_API void zest_AddSetBuilderUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer uniform_buffer, zest_uint fif);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a storage buffer.
 ZEST_API void zest_AddSetBuilderStorageBuffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_descriptor_buffer storage_buffer);
 //Build a zest_descriptor_set_t using a builder that you made using the AddBuilder command. The layout that you pass to this function must be configured properly.
 //zest_descriptor_set_t will contain a VkDescriptorSet for each frame in flight as well as descriptor writes used to create the set.
 ZEST_API zest_descriptor_set zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update);
-ZEST_API zest_descriptor_set_t zest_CreateBindlessSet(zest_set_layout layout);
-ZEST_API void zest_AssignBindlessStorageBufferIndex(zest_descriptor_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
-ZEST_API void zest_AssignBindlessTextureIndex(zest_texture texture, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
+ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout layout);
+ZEST_API zest_uint zest_AcquireBindlessStorageBufferIndex(zest_descriptor_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
+ZEST_API zest_uint zest_AcquireBindlessTextureIndex(zest_texture texture, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
+ZEST_API zest_uint zest_AcquireGlobalCombinedImageSampler(zest_texture texture);
+ZEST_API zest_uint zest_AcquireGlobalSampledImage(zest_texture texture);
+ZEST_API zest_uint zest_AcquireGlobalSampler(zest_texture texture);
+ZEST_API zest_uint zest_AcquireGlobalStorageBufferIndex(zest_descriptor_buffer buffer);
+ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_descriptor_buffer buffer);
+ZEST_API void zest_ReleaseGlobalTextureIndex(zest_texture texture);
+ZEST_API void zest_ReleaseGlobalSamplerIndex(zest_uint index);
+ZEST_API void zest_ReleaseGlobalSampledImageIndex(zest_uint index);
+ZEST_API void zest_ReleaseBindlessIndex(zest_uint index, zest_uint binding_number);
+ZEST_API VkDescriptorSet zest_vk_GetGlobalDescriptorSet();
+ZEST_API VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout();
+ZEST_API zest_set_layout zest_GetGlobalBindlessLayout();
+ZEST_API VkDescriptorSet zest_vk_GetGlobalUniformBufferDescriptorSet();
 //Create a new descriptor set shader_resources
 ZEST_API zest_shader_resources zest_CreateShaderResources();
 //Add a descriptor set to a descriptor set shader_resources. Bundles are used for binding to a draw call so the descriptor sets can be passed in to the shaders
@@ -3989,8 +4048,12 @@ ZEST_API zest_shader_resources zest_CreateShaderResources();
 //that you set up the descriptor set layouts. You must also specify the frame in flight for the descriptor set that you're addeding.
 //Use zest_AddDescriptorSetsToResources to add all frames in flight by passing an array of desriptor sets
 ZEST_API void zest_AddDescriptorSetToResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set, zest_uint fif);
-//Add an array of desriptor sets to a shader resource. The length of the array must be equal to the number of frames in fligth (ZEST_MAX_FIF)
-ZEST_API void zest_AddDescriptorSetsToResources(zest_shader_resources shader_resources, zest_descriptor_set *descriptor_set);
+//Add the descriptor set for a uniform buffer to a shader resource
+ZEST_API void zest_AddUniformBufferToResources(zest_shader_resources shader_resources, zest_uniform_buffer buffer);
+//Add the descriptor set for a uniform buffer to a shader resource
+ZEST_API void zest_AddGlobalBindlessSetToResources(zest_shader_resources shader_resources);
+//Add the descriptor set for a uniform buffer to a shader resource
+ZEST_API void zest_AddBindlessSetToResources(zest_shader_resources shader_resources, zest_descriptor_set set);
 //Clear all the descriptor sets in a shader resources object. This does not free the memory, call zest_FreeShaderResources to do that.
 ZEST_API void zest_ClearShaderResources(zest_shader_resources shader_resources);
 //Update the descriptor set in a shader_resources. You'll need this whenever you update a descriptor set for whatever reason. Pass the index of the
@@ -4287,8 +4350,9 @@ ZEST_API void zest_SetDeviceBufferPoolSize(const char *name, VkBufferUsageFlags 
 //Set the default pool size for images. based on image usage and property flags.
 //Note that minimum allocation size may get overridden if it is smaller than the alignment reported by vkGetImageMemoryRequirements at pool creation
 ZEST_API void zest_SetDeviceImagePoolSize(const char *name, VkImageUsageFlags image_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size);
-//Create a buffer specifically for use as a uniform buffer. Essentially this is just a zest_descriptor_buffer.
-ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(zest_size uniform_struct_size);
+//Create a buffer specifically for use as a uniform buffer. This will also create a descriptor set for the uniform
+//buffers as well so it's ready for use in shaders.
+ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
 //Standard builtin functions for updating a uniform buffer for use in 2d shaders where x,y coordinates represent a location on the screen. This will
 //update the current frame in flight. If you need to update a specific frame in flight then call zest_UpdateUniformBufferFIF.
 ZEST_API void zest_Update2dUniformBuffer(void);
@@ -4297,6 +4361,12 @@ ZEST_API void zest_Update2dUniformBuffer(void);
 ZEST_API void *zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer);
 //Get the VkDescriptorBufferInfo of a uniform buffer by name and specific frame in flight. Use ZEST_FIF you just want the current frame in flight
 ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfo(zest_uniform_buffer buffer);
+//Get the VkDescriptorSetLayout for a uniform buffer that you can use when creating pipelines. The buffer must have
+//been properly initialised, use zest_CreateUniformBuffer for this.
+ZEST_API VkDescriptorSetLayout zest_GetUniformBufferLayout(zest_uniform_buffer buffer);
+//Get the VkDescriptorSet in a uniform buffer. You can use this when binding a pipeline for a draw call or compute
+//dispatch etc. 
+ZEST_API VkDescriptorSet zest_GetUniformBufferSet(zest_uniform_buffer buffer);
 //Bind a vertex buffer. For use inside a draw routine callback function.
 ZEST_API void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
 //Bind an index buffer. For use inside a draw routine callback function.
@@ -4824,6 +4894,8 @@ ZEST_API zest_font zest_LoadMSDFFont(const char *filename);
 ZEST_API void zest_UnloadFont(zest_font font);
 //Get a font that you previously loaded with zest_LoadMSDFFont. It's stored in the renderer with it's full path that you used to load the font
 ZEST_API zest_font zest_GetFont(const char *font);
+ZEST_API void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
+ZEST_API void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 //-- End Fonts
 
 //-----------------------------------------------
@@ -4954,7 +5026,7 @@ ZEST_API void zest_ResetLayer(zest_layer layer);
 //Same as ResetLayer but specifically for an instance layer
 ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
 //Record the secondary buffers of an instance layer
-ZEST_API void zest_RecordInstanceLayer(zest_layer layer, zest_uint fif);
+ZEST_API void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 //Flags a layer to manual frame in flight so you can determine when the buffers should be uploaded to the GPU
 ZEST_API void zest_SetLayerToManualFIF(zest_layer layer);
 //End a set of draw instructs for a standard zest_layer
@@ -4980,9 +5052,6 @@ ZEST_API void zest_SetLayerViewPort(zest_layer layer, int x, int y, zest_uint sc
 ZEST_API void zest_SetLayerScissor(zest_layer layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height);
 //Set the size of the layer. Called internally to set it to the window size. Can this be internal?
 ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
-//Set the scale of the layer. For example, you might have a layer which is 256x256 displaying in a window that is 1280x768, so you can set the scale to
-//zest_SetLayerScale(layer, 256/1280, 256/768)
-ZEST_API void zest_SetLayerScale(zest_layer layer, float x, float y);
 //Get a layer from the renderer by name.
 ZEST_API zest_layer zest_GetLayer(const char *name);
 //Set the layer color. This is used to apply color to the sprite/font/billboard that you're drawing or you can use it in your own draw routines that use zest_layers.
@@ -5043,7 +5112,7 @@ ZEST_API void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float 
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture texture, zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if

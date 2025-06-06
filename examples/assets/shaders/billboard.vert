@@ -26,7 +26,10 @@ layout(set = 0, binding = 0) uniform UboView
 
 layout(push_constant) uniform quad_index
 {
-    mat4 model;
+    uint texture_index1;
+    uint texture_index2;
+    uint texture_index3;
+    uint texture_index4;
     vec4 parameters1;
     vec4 parameters2;
     vec4 parameters3;

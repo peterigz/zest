@@ -24,7 +24,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource( render_graph, "Swapchain Output" );
 		zest_pass_node clear_pass = zest_AddGraphicBlankScreen(render_graph, "Draw Nothing");
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} }; 
-		zest_AddPassSwapChainOutput( clear_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput( clear_pass, swapchain_output_resource, clear_color);
 		zest_EndRenderGraph(render_graph);
 		zest_ExecuteRenderGraph(render_graph);
 	}
@@ -36,7 +36,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 int main(void) 
 {
 	//Make a config struct where you can configure zest with some options
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
 	create_info.log_path = "./";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
