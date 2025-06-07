@@ -45,7 +45,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Add passes
 		zest_pass_node graphics_pass = zest_AddRenderPassNode(example->render_graph, "Graphics Pass");
 		zest_pass_node upload_font_data = zest_AddTransferPassNode(example->render_graph, "Upload Font Data");
-		
+
 		//Connect buffers and textures
 		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
 		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
@@ -53,20 +53,20 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 
 		//Add the tasks to run for the passes
-        zest_AddPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
+		zest_AddPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawFonts, example->font_layer);
-	}
-	zest_EndRenderGraph(example->render_graph);
+		zest_EndRenderGraph(example->render_graph);
 
-	//Print the render graph
-	static bool print_render_graph = true;
-	if (print_render_graph) {
-		zest_PrintCompiledRenderGraph(example->render_graph);
-		print_render_graph = false;
-	}
+		//Print the render graph
+		static bool print_render_graph = true;
+		if (print_render_graph) {
+			zest_PrintCompiledRenderGraph(example->render_graph);
+			print_render_graph = false;
+		}
 
-	//Execute the render graph
-	zest_ExecuteRenderGraph(example->render_graph);
+		//Execute the render graph
+		zest_ExecuteRenderGraph(example->render_graph);
+	}
 }
 
 #if defined(_WIN32)
