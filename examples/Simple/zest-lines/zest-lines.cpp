@@ -3,19 +3,58 @@
 typedef struct zest_example {
 	zest_texture texture;						//A handle to the texture that will contain the bunny image
 	zest_image image;							//A handle to image in the texture for the bunny image
-	zest_pipeline line_pipeline;				//The builtin sprite pipeline that will drawing sprites
 	zest_pipeline_template line_pipeline_template;		//The builtin sprite pipeline that will drawing sprites
 	zest_layer line_layer;						//The builtin sprite layer that contains the vertex buffer for drawing the sprites
 	zest_descriptor_set line_descriptor;		//Hanlde for the billboard descriptor
+	zest_shader_resources line_resources;
+	zest_render_graph render_graph;
 } zest_example;
 
-zest_layer zest_CreateBuiltin2dLineLayer(const char* name) {
-    zest_layer layer = zest_NewLayer();
-    layer->name = name;
-    layer->layer_type = zest_builtin_layer_lines;
-    zest_InitialiseInstanceLayer(layer, sizeof(zest_shape_instance_t), 1000);
-    zest_map_insert(ZestRenderer->layers, name, layer);
-    return layer;
+void zest_SetShapeDrawing(zest_layer layer, zest_shape_type shape_type, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
+    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    zest_EndInstanceInstructions(layer);
+    zest_StartInstanceInstructions(layer);
+    layer->current_instruction.pipeline_template = pipeline;
+	layer->current_instruction.shader_resources = shader_resources;
+    layer->current_instruction.push_constants.parameters1.x = shape_type;
+    layer->current_instruction.draw_mode = (zest_draw_mode)shape_type;
+    layer->last_draw_mode = (zest_draw_mode)shape_type;
+}
+
+void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], float width) {
+    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_line_instance || layer->current_instruction.draw_mode == zest_draw_mode_dashed_line);    //Call zest_StartSpriteDrawing before calling this function
+
+    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs.instance_ptr;
+
+    line->rect.x = start_point[0];
+    line->rect.y = start_point[1];
+    line->rect.z = end_point[0];
+    line->rect.w = end_point[1];
+    line->parameters.x = width;
+    line->parameters.x = width;
+    line->start_color = layer->current_color;
+    line->end_color = layer->current_color;
+    layer->current_instruction.total_instances++;
+
+    zest_NextInstance(layer);
+}
+
+void zest_DrawRect(zest_layer layer, float top_left[2], float width, float height) {
+    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_rect_instance);    //Call zest_StartSpriteDrawing before calling this function
+
+    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs.instance_ptr;
+
+    line->rect.x = top_left[0];
+    line->rect.y = top_left[1];
+    line->rect.z = top_left[0] + width;
+    line->rect.w = top_left[1] + height;
+    line->start_color = layer->current_color;
+    line->end_color = layer->current_color;
+    layer->current_instruction.total_instances++;
+
+    zest_NextInstance(layer);
 }
 
 void InitExample(zest_example *example) {
@@ -25,24 +64,32 @@ void InitExample(zest_example *example) {
 	example->image = zest_AddTextureImageFile(example->texture, "examples/assets/wabbit_alpha.png");
 	//Process the texture which will create the resources on the GPU for sampling from the bunny image texture
 	zest_ProcessTextureImages(example->texture);
-	//To save having to lookup these handles in the mainloop, we can look them up here in advance and store the handles in our example struct
-	example->line_pipeline_template = zest_PipelineTemplate("pipeline_line_instance");
-	example->line_pipeline = zest_Pipeline("pipeline_line_instance", ZestRenderer->final_render_pass);
-	//Get the sprite draw commands and set the clear color for its render pass
-	zest_command_queue_draw_commands sprite_draw = zest_GetDrawCommands("Default Draw Commands");
-	sprite_draw->cls_color = zest_Vec4Set1(0.25f);
 
-	//Modify the default command queue to add a billboard and mesh layer.
-	zest_ModifyCommandQueue(ZestApp->default_command_queue);
-	{
-		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
-		{
-			//Create a new line layer in the command queue
-			example->line_layer = zest_NewBuiltinLayerSetup("Lines", zest_builtin_layer_lines);
-		}
-		//Finish modifying the queue
-		zest_FinishQueueSetup();
-	}
+	//SDF lines 2d
+	example->line_pipeline_template = zest_CopyPipelineTemplate("pipeline_line_instance", zest_PipelineTemplate("pipeline_2d_sprites"));
+	zest_ClearVertexInputBindingDescriptions(example->line_pipeline_template);
+	zest_ClearVertexAttributeDescriptions(example->line_pipeline_template);
+	zest_AddVertexInputBindingDescription(example->line_pipeline_template, 0, sizeof(zest_shape_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+
+	zest_AddVertexInputDescription(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, rect)));        // Location 0: Start Position
+	zest_AddVertexInputDescription(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, parameters)));    // Location 1: End Position
+	zest_AddVertexInputDescription(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, start_color)));        // Location 2: Start Color
+
+	zest_SetText(&example->line_pipeline_template->vertShaderFile, "shape_vert.spv");
+	zest_SetText(&example->line_pipeline_template->fragShaderFile, "shape_frag.spv");
+	zest_ClearPipelineTemplateDescriptorLayouts(example->line_pipeline_template);
+	zest_AddPipelineTemplateDescriptorLayout(example->line_pipeline_template, zest_GetDefaultUniformBufferLayout()->vk_layout);
+	zest_FinalisePipelineTemplate(example->line_pipeline_template);
+	example->line_pipeline_template->colorBlendAttachment = zest_PreMultiplyBlendState();
+	example->line_pipeline_template->depthStencil.depthWriteEnable = VK_FALSE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF Lines pipeline");
+
+	example->line_layer = zest_CreateInstanceLayer("Lines", sizeof(zest_line_instance_t));
+
+	example->line_resources = zest_CreateShaderResources();
+	zest_AddUniformBufferToResources(example->line_resources, ZestRenderer->uniform_buffer);
+
+	example->render_graph = zest_NewRenderGraph("Lines render graph", 0, 0);
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
@@ -50,18 +97,49 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_example *example = (zest_example*)user_data;
 	//Update the builtin 2d uniform buffer. 
 	zest_Update2dUniformBuffer();
-	//It's important to set the command queue you want to use each frame otherwise you will just see a blank screen
-	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 
-	zest_SetShapeDrawing(example->line_layer, zest_shape_dashed_line, example->line_pipeline->shader_resources, example->line_pipeline_template);
+	zest_SetShapeDrawing(example->line_layer, zest_shape_dashed_line, example->line_resources, example->line_pipeline_template);
 	zest_SetLayerColor(example->line_layer, 255, 255, 255, 100);
 	zest_vec2 start = zest_Vec2Set(20.f, 20.f);
 	zest_vec2 end = zest_Vec2Set((float)ZestApp->mouse_x, (float)ZestApp->mouse_y);
 	zest_DrawLine(example->line_layer, &start.x, &end.x, 10.f);
 
-	zest_SetShapeDrawing(example->line_layer, zest_shape_rect, example->line_pipeline->shader_resources, example->line_pipeline_template);
+	zest_SetShapeDrawing(example->line_layer, zest_shape_rect, example->line_resources, example->line_pipeline_template);
 	zest_vec2 top_left = zest_Vec2Set((float)ZestApp->mouse_x, (float)ZestApp->mouse_y);
 	zest_DrawRect(example->line_layer, &top_left.x, 30.f, 50.f);
+
+	//Create the render graph
+	if (zest_BeginRenderToScreen(example->render_graph)) {
+		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
+
+		//Add resources
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(example->render_graph, "Swapchain Output");
+		zest_resource_node line_layer_resources = zest_AddInstanceLayerBufferResource(example->render_graph, example->line_layer);
+
+		//Add passes
+		zest_pass_node graphics_pass = zest_AddRenderPassNode(example->render_graph, "Graphics Pass");
+		zest_pass_node upload_line_data = zest_AddTransferPassNode(example->render_graph, "Upload Line Data");
+
+		//Connect buffers and textures
+		zest_ConnectTransferBufferOutput(upload_line_data, line_layer_resources);
+		zest_ConnectVertexBufferInput(graphics_pass, line_layer_resources);
+		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+
+		//Add the tasks to run for the passes
+		zest_AddPassTask(upload_line_data, zest_UploadInstanceLayerData, example->line_layer);
+		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->line_layer);
+		zest_EndRenderGraph(example->render_graph);
+
+		//Print the render graph
+		static bool print_render_graph = true;
+		if (print_render_graph) {
+			zest_PrintCompiledRenderGraph(example->render_graph);
+			print_render_graph = false;
+		}
+
+		//Execute the render graph
+		zest_ExecuteRenderGraph(example->render_graph);
+	}
 }
 
 #if defined(_WIN32)
@@ -71,7 +149,7 @@ int main(void)
 {
 	zest_example example = { 0 };
 
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
