@@ -5873,6 +5873,26 @@ void* zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer) {
     return uniform_buffer->buffer[ZEST_FIF]->data;
 }
 
+zest_descriptor_set zest_GetDefaultUniformBufferSet() {
+    return ZestRenderer->uniform_buffer->descriptor_set[ZEST_FIF];
+}
+
+VkDescriptorSet zest_vk_GetDefaultUniformBufferSet() {
+    return ZestRenderer->uniform_buffer->descriptor_set[ZEST_FIF]->vk_descriptor_set;
+}
+
+zest_set_layout zest_GetDefaultUniformBufferLayout() {
+    return ZestRenderer->uniform_buffer->set_layout;
+}
+
+VkDescriptorSetLayout zest_vk_GetDefaultUniformBufferLayout() {
+    return ZestRenderer->uniform_buffer->set_layout->vk_layout;
+}
+
+zest_uniform_buffer zest_GetDefaultUniformBuffer() {
+    return ZestRenderer->uniform_buffer;
+}
+
 void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer) {
     VkDeviceSize offsets[] = { buffer->memory_offset };
     vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(buffer), offsets);
@@ -6338,26 +6358,7 @@ void zest__prepare_standard_pipelines() {
     sprite_instance_pipeline_alpha->depthStencil.depthTestEnable = VK_TRUE;
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites alpha pipeline");
 
-    //SDF lines 2d
-    zest_pipeline_template line_instance_pipeline = zest_CopyPipelineTemplate("pipeline_line_instance", sprite_instance_pipeline);
-    zest_ClearVertexInputBindingDescriptions(line_instance_pipeline);
-    zest_AddVertexInputBindingDescription(line_instance_pipeline, 0, sizeof(zest_shape_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
-
-    VkVertexInputAttributeDescription* line_instance_vertex_input_attributes = 0;
-
-    zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, rect)));        // Location 0: Start Position
-    zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, parameters)));    // Location 1: End Position
-    zest_vec_push(line_instance_vertex_input_attributes, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, start_color)));        // Location 2: Start Color
-
-    line_instance_pipeline->attributeDescriptions = line_instance_vertex_input_attributes;
-    zest_SetText(&line_instance_pipeline->vertShaderFile, "shape_vert.spv");
-    zest_SetText(&line_instance_pipeline->fragShaderFile, "shape_frag.spv");
-    zest_ClearPipelineTemplateDescriptorLayouts(line_instance_pipeline);
-    zest_FinalisePipelineTemplate(line_instance_pipeline);
-    line_instance_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
-    line_instance_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF Lines pipeline");
-
+    /*
     //SDF lines 3d
     zest_pipeline_template line3d_instance_pipeline = zest_CopyPipelineTemplate("pipeline_line3d_instance", line_instance_pipeline);
     zest_ClearVertexInputBindingDescriptions(line3d_instance_pipeline);
@@ -6376,6 +6377,7 @@ void zest__prepare_standard_pipelines() {
     line3d_instance_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
     line3d_instance_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF 3D Lines pipeline");
+    */
 
     //Font Texture
     zest_pipeline_template font_pipeline = zest_CopyPipelineTemplate("pipeline_fonts", sprite_instance_pipeline);
@@ -14625,54 +14627,6 @@ void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position
 }
 //-- End Billboard Drawing API
 
-//-- Start Line Drawing API
-void zest_SetShapeDrawing(zest_layer layer, zest_shape_type shape_type, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
-    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    zest_EndInstanceInstructions(layer);
-    zest_StartInstanceInstructions(layer);
-    layer->current_instruction.pipeline_template = pipeline;
-	layer->current_instruction.shader_resources = shader_resources;
-    layer->current_instruction.push_constants.parameters1.x = shape_type;
-    layer->current_instruction.draw_mode = shape_type;
-    layer->last_draw_mode = shape_type;
-}
-
-void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], float width) {
-    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_line_instance || layer->current_instruction.draw_mode == zest_draw_mode_dashed_line);    //Call zest_StartSpriteDrawing before calling this function
-
-    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs.instance_ptr;
-
-    line->rect.x = start_point[0];
-    line->rect.y = start_point[1];
-    line->rect.z = end_point[0];
-    line->rect.w = end_point[1];
-    line->parameters.x = width;
-    line->parameters.x = width;
-    line->start_color = layer->current_color;
-    line->end_color = layer->current_color;
-    layer->current_instruction.total_instances++;
-
-    zest_NextInstance(layer);
-}
-
-void zest_DrawRect(zest_layer layer, float top_left[2], float width, float height) {
-    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_rect_instance);    //Call zest_StartSpriteDrawing before calling this function
-
-    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs.instance_ptr;
-
-    line->rect.x = top_left[0];
-    line->rect.y = top_left[1];
-    line->rect.z = top_left[0] + width;
-    line->rect.w = top_left[1] + height;
-    line->start_color = layer->current_color;
-    line->end_color = layer->current_color;
-    layer->current_instruction.total_instances++;
-
-    zest_NextInstance(layer);
-}
-//-- End Line Drawing API
 
 //-- Start 3D Line Drawing API
 void zest_Set3DLineDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {

@@ -58,7 +58,6 @@
     [Draw_Layers_API]                   Draw layers are used to draw stuff as you'd imagine, there's a bunch of functions here to
     [Draw_sprite_layers]                Functions for drawing the builtin sprite layer pipeline
     [Draw_billboard_layers]             Functions for drawing the builtin billboard layer pipeline
-    [Draw_Line_layers]                  Functions for drawing the builtin line layer pipeline
     [Draw_3D_Line_layers]               Functions for drawing the builtin 3d line layer pipeline
     [Draw_MSDF_font_layers]             Functions for drawing the builtin MSDF font layer pipeline
     [Draw_mesh_layers]                  Functions for drawing the builtin mesh layer pipeline
@@ -1283,7 +1282,7 @@ typedef enum zest_texture_flag_bits {
     zest_texture_flag_premultiply_mode                    = 1 << 0,
     zest_texture_flag_use_filtering                       = 1 << 1,
     zest_texture_flag_get_max_radius                      = 1 << 2,
-    zest_texture_flag_ready                      = 1 << 3,
+    zest_texture_flag_ready                               = 1 << 3,
     zest_texture_flag_dirty                               = 1 << 4,
     zest_texture_flag_descriptor_sets_created             = 1 << 5,
 } zest_texture_flag_bits;
@@ -4378,6 +4377,11 @@ ZEST_API zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer buffer)
 //dispatch etc. 
 ZEST_API VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer buffer);
 ZEST_API zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer buffer);
+ZEST_API zest_descriptor_set zest_GetDefaultUniformBufferSet();
+ZEST_API zest_set_layout zest_GetDefaultUniformBufferLayout();
+ZEST_API VkDescriptorSet zest_vk_GetDefaultUniformBufferSet();
+ZEST_API VkDescriptorSetLayout zest_vk_GetDefaultUniformBufferLayout();
+ZEST_API zest_uniform_buffer zest_GetDefaultUniformBuffer();
 //Bind a vertex buffer. For use inside a draw routine callback function.
 ZEST_API void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
 //Bind an index buffer. For use inside a draw routine callback function.
@@ -5161,22 +5165,6 @@ ZEST_API void zest_DrawBillboardPacked(zest_layer layer, zest_image image, float
 //Note that because scale is packed into 16 bit floats, the max value for scale is 256
 ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy);
 //--End Draw billboard layers
-
-//-----------------------------------------------
-//        Draw_Line_layers
-//        Built in layer for drawing 2d lines.
-//-----------------------------------------------
-//Set descriptor set and pipeline for any calls to zest_DrawLine or zest_DrawRect that come after it. You must call this function if you want to do any billboard drawing, and you
-//must call it again if you wish to switch either the texture, descriptor set or pipeline to do the drawing. Everytime you call this function it creates a new draw instruction
-//in the layer for drawing billboards so each call represents a separate draw call in the render. So if you just call this function once you can call zest_DrawBillboard as many times
-//as you want and they will all be drawn with a single draw call.
-//Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
-//1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
-//2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetShapeDrawing(zest_layer shape_layer, zest_shape_type shape_type, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
-ZEST_API void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], float width);
-ZEST_API void zest_DrawRect(zest_layer layer, float top_left[2], float width, float height);
-//--End Draw line layers
 
 //-----------------------------------------------
 //        Draw_3D_Line_layers
