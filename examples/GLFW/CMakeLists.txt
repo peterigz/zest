@@ -135,7 +135,6 @@ set(EXAMPLES
 	zest-timelinefx-instanced-effects
 	zest-timelinefx-prerecorded-effects
 	zest-testing
-	zest-mesh-instances
 	zest-timelinefx-tests
 	zest-shader-compiling
 	zest-stability-ai

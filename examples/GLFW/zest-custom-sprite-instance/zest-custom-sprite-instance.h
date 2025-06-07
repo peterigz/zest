@@ -23,7 +23,6 @@ struct  extra_layer_data {
 };
 
 struct ImGuiApp {
-	zest_imgui_t imgui_layer_info;
 	zest_index imgui_draw_routine_index;
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;
@@ -34,13 +33,13 @@ struct ImGuiApp {
 	zest_set_layout custom_descriptor_set_layout;
 	zest_descriptor_set_t custom_descriptor_set;
 	zest_shader_resources shader_resources;
+	zest_render_graph render_graph;
 
 	zest_vertex_input_descriptions custom_sprite_vertice_attributes = 0;	//Must be zero'd
-	zest_pipeline custom_pipeline;
+	zest_pipeline_template custom_pipeline;
 	zest_shader custom_frag_shader;
 	zest_shader custom_vert_shader;
 	zest_layer custom_layer;
-	zest_draw_routine custom_draw_routine;
 	float lerp_value;
 	float mix_value;
 	extra_layer_data layer_data;
@@ -50,21 +49,32 @@ void InitImGuiApp(ImGuiApp *app);
 void zest_DrawCustomSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_vec2 lerp_values);
 
 static const char *custom_frag_shader = ZEST_GLSL(450 core,
-	const float intensity_max_value = 128.0 / 32767.0;
+const float intensity_max_value = 128.0 / 32767.0;
 layout(location = 0) in vec3 in_tex_coord;
 layout(location = 1) in float mix_value;
 layout(location = 2) in flat ivec4 in_color_ramp_coords;
 layout(location = 3) in vec2 intensity;
 layout(location = 0) out vec4 outColor;
-layout(set = 1, binding = 0) uniform sampler2DArray texSampler;
-layout(set = 1, binding = 1) uniform sampler2DArray color_ramps;
+layout(set = 1, binding = 0) uniform sampler2DArray texture_sampler[];
+
+layout(push_constant) uniform quad_index
+{
+	uint texture_index1;
+	uint texture_index2;
+	uint texture_index3;
+	uint texture_index4;
+	vec4 parameters1;
+	vec4 parameters2;
+	vec4 parameters3;
+	vec4 camera;
+} pc;
 
 void main() {
-	vec4 texel = texture(texSampler, in_tex_coord);
+	vec4 texel = texture(texture_sampler[pc.texture_index1], in_tex_coord);
 	ivec3 ramp1 = ivec3(in_color_ramp_coords.x, 0, in_color_ramp_coords.w);
 	ivec3 ramp2 = ivec3(in_color_ramp_coords.x, 1, in_color_ramp_coords.w);
-	vec4 ramp_texel1 = texelFetch(color_ramps, ramp1, 0) * (intensity.x * intensity_max_value);
-	vec4 ramp_texel2 = texelFetch(color_ramps, ramp2, 0) * (intensity.y * intensity_max_value);
+	vec4 ramp_texel1 = texelFetch(texture_sampler[pc.texture_index2], ramp1, 0) * (intensity.x * intensity_max_value);
+	vec4 ramp_texel2 = texelFetch(texture_sampler[pc.texture_index2], ramp2, 0) * (intensity.y * intensity_max_value);
 	vec4 frag_color = mix(ramp_texel1, ramp_texel2, texel.a * mix_value);
 	outColor.rgb = texel.rgb * frag_color.rgb * texel.a;
 	outColor.a = texel.a * frag_color.a;
@@ -89,7 +99,10 @@ layout(set = 0, binding = 0) uniform UboView
 
 layout(push_constant) uniform quad_index
 {
-	mat4 model;
+	uint texture_index1;
+	uint texture_index2;
+	uint texture_index3;
+	uint texture_index4;
 	vec4 parameters1;
 	vec4 parameters2;
 	vec4 parameters3;
@@ -148,7 +161,7 @@ void main() {
 	matrix[1][0] = -s;
 	matrix[1][1] = c;
 
-	mat4 modelView = uboView.view * pc.model;
+	mat4 modelView = uboView.view;
 	vec3 pos = matrix * vec3(vertex_position.x, vertex_position.y, 1);
 	pos.xy += alignment_normal * dot(pos.xy, alignment_normal);
 	pos.xy += position_rotation.xy;

@@ -6,9 +6,7 @@ typedef struct zest_example {
 	zest_pipeline_template sprite_pipeline;				//The builtin sprite pipeline that will drawing sprites
 	zest_layer sprite_layer;					        //The builtin sprite layer that contains the vertex buffer for drawing the sprites
 	zest_layer billboard_layer;					        //A builtin billboard layer for drawing billboards
-	zest_layer mesh_layer;						        //A builtin mesh layer that we will use to draw a texured plane
 	zest_pipeline_template billboard_pipeline;			//The pipeline for drawing billboards
-	zest_pipeline_template mesh_pipeline;				//The pipeline for drawing the textured plane
 	zest_camera_t camera;						        //A camera for the 3d view
 	zest_uniform_buffer uniform_buffer_3d;		        //A uniform buffer to contain the projection and view matrix
 	zest_vec3 last_position;
@@ -18,6 +16,7 @@ typedef struct zest_example {
 	zest_shader billboard_frag_shader;
 	zest_render_graph render_graph;
 	zest_shader_resources billboard_shader_resources;
+	zest_shader_resources sprite_shader_resources;
 } zest_example;
 
 void UpdateUniformBuffer3d(zest_example *example) {
@@ -40,8 +39,6 @@ void InitExample(zest_example *example) {
 	zest_ProcessTextureImages(example->texture);
 	//To save having to lookup these handles in the mainloop, we can look them up here in advance and store the handles in our example struct
 	example->sprite_pipeline = zest_PipelineTemplate("pipeline_2d_sprites");
-//	example->sprite_layer = zest_GetLayer("Sprite 2d Layer");
-	example->mesh_pipeline = zest_PipelineTemplate("pipeline_mesh");
 	//Create a new uniform buffer for the 3d view
 	example->uniform_buffer_3d = zest_CreateUniformBuffer("3d uniform buffer", sizeof(zest_uniform_buffer_data_t));
 
@@ -50,6 +47,10 @@ void InitExample(zest_example *example) {
 	example->billboard_shader_resources = zest_CreateShaderResources();
 	zest_AddUniformBufferToResources(example->billboard_shader_resources, example->uniform_buffer_3d);
 	zest_AddGlobalBindlessSetToResources(example->billboard_shader_resources);
+
+	example->sprite_shader_resources = zest_CreateShaderResources();
+	zest_AddUniformBufferToResources(example->sprite_shader_resources, ZestRenderer->uniform_buffer);
+	zest_AddGlobalBindlessSetToResources(example->sprite_shader_resources);
 
 	//Create a camera for the 3d view
 	example->camera = zest_CreateCamera();
@@ -84,9 +85,9 @@ void InitExample(zest_example *example) {
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard pipeline");
 
 	example->billboard_layer = zest_CreateInstanceLayer("billboards", sizeof(zest_billboard_instance_t));
-	example->mesh_layer = zest_CreateMeshLayer("Meshes", sizeof(zest_textured_vertex_t));
+	example->sprite_layer = zest_CreateInstanceLayer("sprites", sizeof(zest_sprite_instance_t));
 
-	example->render_graph = zest_NewRenderGraph("Instance sprites example", zest_GetGlobalBindlessLayout(), 0);
+	example->render_graph = zest_NewRenderGraph("Instance sprites example", zest_GetGlobalBindlessLayout(), ZEST_TRUE);
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
@@ -97,7 +98,6 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//Also update the 3d uniform buffer for the billboard drawing
 	UpdateUniformBuffer3d(example);
 
-	/*
 	//Set the current intensity of the sprite layer
 	//example->sprite_layer->intensity = 1.f;
 	//You must call this command before doing any sprite draw to set the current texture, descriptor and pipeline to draw with.
@@ -105,7 +105,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//you can draw a lot with a single draw call
 	//zest_SetLayerViewPort(example->sprite_layer, 0, 0, 1280, 768, 1280.f, 768.f);
 	//zest_SetLayerDrawingViewport(example->sprite_layer, 0, 0, 1280, 768, 1280.f, 768.f);
-	zest_SetInstanceDrawing(example->sprite_layer, example->sprite_shader_resources, example->sprite_pipeline);
+	zest_SetInstanceDrawing(example->sprite_layer, example->sprite_shader_resources, example->texture, example->sprite_pipeline);
 	//Set the alpha of the sprite layer to 0. This means that the sprites will be additive. 1 = alpha blending and anything imbetween
 	//is a mix between the two.
 	example->sprite_layer->current_color.a = 0;
@@ -119,9 +119,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		}
 	}
 
-	//Draw a textured sprite to the sprite (basically a textured rect). 
+	//Draw a textured sprite to the screen (basically a textured rect). 
 	zest_DrawTexturedSprite(example->sprite_layer, example->image, 600.f, 100.f, 500.f, 500.f, 1.f, 1.f, 0.f, 0.f);
-	*/
 
 	//Now lets draw a billboard. Similar to the sprite, we must call this command before any billboard drawing.
 	zest_SetInstanceDrawing(example->billboard_layer, example->billboard_shader_resources, example->texture, example->billboard_pipeline);
@@ -138,10 +137,6 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	float scale_y = (float)ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
 	//Draw the billboard
 	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
-	//Now set the mesh drawing so that we can draw a textured plane
-	//zest_SetMeshDrawing(example->mesh_layer, example->billboard_shader_resources, example->mesh_pipeline);
-	//Draw the textured plane
-	//zest_DrawTexturedPlane(example->mesh_layer, example->image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 	example->last_position = position;
 
 	//Create the render graph
@@ -152,6 +147,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(example->render_graph, "Swapchain Output");
 		zest_resource_node texture = zest_ImportImageResourceReadOnly(example->render_graph, "Bunny Texture", example->texture);
 		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource(example->render_graph, example->billboard_layer);
+		zest_resource_node sprite_layer = zest_AddInstanceLayerBufferResource(example->render_graph, example->sprite_layer);
 
 		//Add passes
 		zest_pass_node graphics_pass = zest_AddRenderPassNode(example->render_graph, "Graphics Pass");
@@ -159,13 +155,17 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 		//Connect buffers and textures
 		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer);
+		zest_ConnectTransferBufferOutput(upload_instance_data, sprite_layer);
 		zest_ConnectVertexBufferInput(graphics_pass, billboard_layer);
+		zest_ConnectVertexBufferInput(graphics_pass, sprite_layer);
 		zest_ConnectSampledImageInput(graphics_pass, texture, zest_fragment_stage);
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 
 		//Add the tasks to run for the passes
 		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, example->billboard_layer);
+		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, example->sprite_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->billboard_layer);
+		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->sprite_layer);
 	}
 	zest_EndRenderGraph(example->render_graph);
 
@@ -189,7 +189,8 @@ int main(void)
 
 	zest_uint test = zest_Pack8bit(0, 1.f, 0);
 
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfo();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	create_info.color_format = VK_FORMAT_B8G8R8A8_SRGB;
 	create_info.thread_count = 0;

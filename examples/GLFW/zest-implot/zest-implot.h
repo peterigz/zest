@@ -10,14 +10,11 @@
 #include "implot.h"
 
 struct ImGuiApp {
-	zest_imgui_t imgui_layer_info;
-	zest_index imgui_draw_routine_index;
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;
 	zest_image test_image;
 	zest_timer timer;
-	zest_command_queue command_queue;
-	zest_command_queue_draw_commands draw_commands;
+	zest_render_graph render_graph;
 	bool sync_refresh;
 };
 

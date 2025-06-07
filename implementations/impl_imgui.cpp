@@ -16,8 +16,9 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     io.Fonts->SetTexID((ImTextureID)font_image);
 }
 
-zest_pass_node zest_imgui_AddToRenderGraph(zest_render_graph render_graph) {
+bool zest_imgui_AddToRenderGraph(zest_render_graph render_graph, zest_pass_node imgui_pass) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+    ZEST_ASSERT(imgui_pass->queue_type == zest_queue_graphics); //The pass must be a graphics pass for imagui to draw on 
     
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
 		zest_resource_node imgui_vertex_buffer = zest_imgui_AddTransientVertexResources(render_graph, "Imgui Vertex Buffer");
@@ -27,13 +28,12 @@ zest_pass_node zest_imgui_AddToRenderGraph(zest_render_graph render_graph) {
         zest_AddPassTask(imgui_upload_pass, zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
 		zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_vertex_buffer);
 		zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_index_buffer);
-		zest_pass_node imgui_pass = zest_AddRenderPassNode(render_graph, "Draw ImGui");
 		zest_ConnectVertexBufferInput(imgui_pass, imgui_vertex_buffer);
 		zest_ConnectIndexBufferInput(imgui_pass, imgui_index_buffer);
-		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-        return imgui_pass;
+		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture, zest_fragment_stage);
+        return true;
     }
-    return nullptr;
+    return false;
 }
 
 // This is the function that will be called for your pass.

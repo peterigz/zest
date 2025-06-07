@@ -37,9 +37,7 @@ struct ImGuiApp {
 
 	zest_descriptor_buffer particle_buffer;
 	zest_pipeline_template particle_pipeline;
-	zest_uniform_buffer compute_uniform_buffer[ZEST_MAX_FIF];
-	zest_set_layout uniform_layout;
-	zest_descriptor_set uniform_set[ZEST_MAX_FIF];
+	zest_uniform_buffer compute_uniform_buffer;
 	zest_compute compute;
 
 	zest_render_graph render_graph;
