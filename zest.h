@@ -402,10 +402,22 @@ static const char *zest_shader_sprite_frag = ZEST_GLSL(450,
 layout(location = 0) in vec4 in_frag_color;
 layout(location = 1) in vec3 in_tex_coord;
 layout(location = 0) out vec4 outColor;
-layout(set = 1, binding = 0) uniform sampler2DArray texSampler;
+layout(set = 1, binding = 0) uniform sampler2DArray texSampler[];
+
+layout(push_constant) uniform quad_index
+{
+    uint index1;
+    uint index2;
+    uint index3;
+    uint index4;
+    vec4 parameters1;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
+} pc;
 
 void main() {
-    vec4 texel = texture(texSampler, in_tex_coord);
+    vec4 texel = texture(texSampler[pc.index1], in_tex_coord);
     //Pre multiply alpha
     outColor.rgb = texel.rgb * in_frag_color.rgb * texel.a;
     //If in_frag_color.a is 0 then color will be additive. The higher the value of a the more alpha blended the color will be.
@@ -2736,9 +2748,9 @@ ZEST_API void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_n
 ZEST_API void zest_ConnectIndexBufferInput(zest_pass_node pass, zest_resource_node index_buffer);
 ZEST_API void zest_ConnectUniformBufferInput(zest_pass_node pass, zest_resource_node uniform_buffer, zest_supported_pipeline_stages stages);
 ZEST_API void zest_ConnectStorageBufferInput(zest_pass_node pass, zest_resource_node storage_buffer, zest_supported_pipeline_stages stages);
+ZEST_API void zest_ConnectTransferBufferInput(zest_pass_node pass, zest_resource_node src_buffer);
 ZEST_API void zest_ConnectStorageBufferOutput(zest_pass_node pass, zest_resource_node storage_buffer, zest_supported_pipeline_stages stages);
 ZEST_API void zest_ConnectTransferBufferOutput(zest_pass_node pass, zest_resource_node dst_buffer);
-ZEST_API void zest_ConnectTransferBufferInput(zest_pass_node pass, zest_resource_node src_buffer);
 
 // --- Connect Image Helpers ---
 ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages);
@@ -3100,10 +3112,7 @@ typedef struct zest_layer_staging_buffers_t {
 } zest_layer_staging_buffers_t;
 
 typedef struct zest_push_constants_t {             //128 bytes seems to be the limit for push constants on AMD cards, NVidia 256 bytes
-    zest_uint descriptor_index1;
-    zest_uint descriptor_index2;
-    zest_uint descriptor_index3;
-    zest_uint descriptor_index4;
+    zest_uint descriptor_index[4];
     zest_vec4 parameters1;                         //Can be used for anything
     zest_vec4 parameters2;                         //Can be used for anything
     zest_vec4 parameters3;                         //Can be used for anything
@@ -4363,10 +4372,12 @@ ZEST_API void *zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer);
 ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfo(zest_uniform_buffer buffer);
 //Get the VkDescriptorSetLayout for a uniform buffer that you can use when creating pipelines. The buffer must have
 //been properly initialised, use zest_CreateUniformBuffer for this.
-ZEST_API VkDescriptorSetLayout zest_GetUniformBufferLayout(zest_uniform_buffer buffer);
+ZEST_API VkDescriptorSetLayout zest_vk_GetUniformBufferLayout(zest_uniform_buffer buffer);
+ZEST_API zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer buffer);
 //Get the VkDescriptorSet in a uniform buffer. You can use this when binding a pipeline for a draw call or compute
 //dispatch etc. 
-ZEST_API VkDescriptorSet zest_GetUniformBufferSet(zest_uniform_buffer buffer);
+ZEST_API VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer buffer);
+ZEST_API zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer buffer);
 //Bind a vertex buffer. For use inside a draw routine callback function.
 ZEST_API void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
 //Bind an index buffer. For use inside a draw routine callback function.
@@ -5041,7 +5052,7 @@ ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
 ZEST_API zest_uint zest_GetInstanceLayerCount(zest_layer layer);
 //Get the pointer to the current instance in the layer if it's an instanced based layer (meaning you're drawing instances of sprites, billboards meshes etc.)
 //This will return a void* so you can cast it to whatever struct you're using for the instance data
-#define zest_GetLayerInstance(type, layer) (type*)layer->memory_refs[layer->draw_routine->fif].instance_ptr
+#define zest_GetLayerInstance(type, layer, fif) (type*)layer->memory_refs.instance_ptr
 //Move the pointer in memory to the next instance to write to.
 ZEST_API void zest_NextInstance(zest_layer layer);
 //Allocate a new zest_layer and return it's handle. This is mainly used internally but will leave it in the API for now
@@ -5112,7 +5123,7 @@ ZEST_API void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float 
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture texture, zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture *textures, zest_uint texture_count, zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
@@ -5245,7 +5256,7 @@ ZEST_API void zest_GrowMeshVertexBuffers(zest_layer layer);
 //Grow the mesh index buffers. You must update the buffer->memory_in_use so that it can decide if a buffer needs growing
 ZEST_API void zest_GrowMeshIndexBuffers(zest_layer layer);
 //Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
-ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
+ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture texture, zest_pipeline_template pipeline);
 //Helper funciton Push a vertex to the vertex staging buffer. It will automatically grow the buffers if needed
 ZEST_API void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters);
 //Helper funciton Push an index to the index staging buffer. It will automatically grow the buffers if needed

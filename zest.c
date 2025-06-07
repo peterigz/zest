@@ -2408,10 +2408,15 @@ void zest__main_loop(void) {
 
         //zest__draw_renderer_frame();
 
+        //Cover some cases where a render graph wasn't created or it was but there was nothing render etc., to make sure
+        //that the fence is always signalled and another frame can happen
         if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired) && ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used)) {
             if (ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_work_was_submitted)) {
                 zest__dummy_submit_for_present_only();
             }
+			zest__present_frame();
+        } else if (ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_work_was_submitted) && ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
+			zest__dummy_submit_for_present_only();
 			zest__present_frame();
         } else if(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
             zest__dummy_submit_fence_only();
@@ -5775,6 +5780,10 @@ zest_pipeline_template zest_PipelineTemplate(const char *name) {
 
 zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template template, VkRenderPass render_pass) {
     ZEST_CHECK_HANDLE(template);        //Not a valid pipeline template!
+    if (zest_vec_size(template->descriptorSetLayouts) == 0) {
+        ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has not descriptor set layouts configured. You can add descriptor layouts when building the pipeline with zest_AddPipelineTemplateDescriptorLayout.", template->name.str);
+        return NULL;
+    }
     zest_key pipeline_key = zest_Hash(template->name.str, zest_TextLength(&template->name), ZEST_HASH_SEED);
     struct {
         zest_key pipeline_key;
@@ -5837,15 +5846,27 @@ VkDescriptorBufferInfo* zest_GetUniformBufferInfo(zest_uniform_buffer buffer) {
     return &buffer->descriptor_info[ZEST_FIF];
 }
 
-VkDescriptorSetLayout zest_GetUniformBufferLayout(zest_uniform_buffer buffer) {
+VkDescriptorSetLayout zest_vk_GetUniformBufferLayout(zest_uniform_buffer buffer) {
     ZEST_CHECK_HANDLE(buffer);  //Not a valid uniform buffer
+    ZEST_CHECK_HANDLE(buffer->set_layout); //The buffer is not properly initialised, no descriptor set found
     return buffer->set_layout->vk_layout;
 }
 
-VkDescriptorSet zest_GetUniformBufferSet(zest_uniform_buffer buffer) {
+zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer buffer) {
+    ZEST_CHECK_HANDLE(buffer);  //Not a valid uniform buffer
+    return buffer->set_layout;
+}
+
+VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer buffer) {
     ZEST_CHECK_HANDLE(buffer);  //Not a valid uniform buffer
     ZEST_CHECK_HANDLE(buffer->descriptor_set[ZEST_FIF]);  //The buffer is not properly initialised, no descriptor set found
     return buffer->descriptor_set[ZEST_FIF]->vk_descriptor_set;
+}
+
+zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer buffer) {
+    ZEST_CHECK_HANDLE(buffer);  //Not a valid uniform buffer
+    ZEST_CHECK_HANDLE(buffer->descriptor_set[ZEST_FIF]);  //The buffer is not properly initialised, no descriptor set found
+    return buffer->descriptor_set[ZEST_FIF];
 }
 
 void* zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer) {
@@ -6299,10 +6320,13 @@ void zest__prepare_standard_pipelines() {
     sprite_instance_pipeline->attributeDescriptions = instance_vertex_input_attributes;
     zest_SetText(&sprite_instance_pipeline->vertShaderFile, "sprite_vert.spv");
     zest_SetText(&sprite_instance_pipeline->fragShaderFile, "image_frag.spv");
-    zest_SetPipelineTemplatePushConstantRange(sprite_instance_pipeline, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
+    zest_SetPipelineTemplatePushConstantRange(sprite_instance_pipeline, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
+	zest_AddPipelineTemplateDescriptorLayout(sprite_instance_pipeline, zest_vk_GetUniformBufferLayout(ZestRenderer->uniform_buffer));
+	zest_AddPipelineTemplateDescriptorLayout(sprite_instance_pipeline, zest_vk_GetGlobalBindlessLayout());
     sprite_instance_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
     sprite_instance_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
     sprite_instance_pipeline->depthStencil.depthTestEnable = VK_TRUE;
+    zest_FinalisePipelineTemplate(sprite_instance_pipeline);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites pipeline");
 
     zest_pipeline_template sprite_instance_pipeline_alpha = zest_CopyPipelineTemplate("pipeline_2d_sprites_alpha", sprite_instance_pipeline);
@@ -7539,6 +7563,8 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
     zest_vec_linear_resize(allocator, adjacency_list, zest_vec_size(render_graph->passes));
     zest_vec_linear_resize(allocator, dependency_count, zest_vec_size(render_graph->passes));
 
+    bool has_execution_callback = false;
+
     // Set_producers_and_consumers:
     // For each output in a pass, we set it's producer_pass_idx - the pass that writes the output
     // and for each input in a pass we add all of the comuser_pass_idx's that read the inputs
@@ -7552,6 +7578,9 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
         case zest_queue_graphics: 
             pass_node->queue = &ZestDevice->graphics_queue; 
             pass_node->queue_family_index = ZestDevice->graphics_queue_family_index; 
+            if (pass_node->execution_callbacks) {
+                has_execution_callback = true;
+            }
             break;
         case zest_queue_compute: 
             pass_node->queue = &ZestDevice->compute_queue; 
@@ -7575,6 +7604,12 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
             zest_resource_node resource = input_usage->resource_node;
             zest_vec_linear_push(allocator, resource->consumer_pass_indices, i); // pass 'i' consumes this
         }
+    }
+
+    if (!has_execution_callback) {
+        ZEST_PRINT("WARNING: No execution callbacks found in render graph %s.", render_graph->name);
+        ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
+        return;
     }
 
     // Set_adjacency_list
@@ -8297,7 +8332,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
     if (ZEST__FLAGGED(render_graph->flags, zest_render_graph_expecting_swap_chain_usage)) {
         ZEST_ASSERT(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used));    
         //Error: the render graph is trying to render to the screen but no swap chain image was used!
-        //Make sure that you call zest_ImportSwapChainResource and zest_AddPassSwapChainOutput in your render graph setup.
+        //Make sure that you call zest_ImportSwapChainResource and zest_ConnectSwapChainOutput in your render graph setup,
     }
 	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);  
 	ZEST__FLAG(render_graph->flags, zest_render_graph_is_compiled);  
@@ -9168,6 +9203,9 @@ zest_bool zest_AcquireSwapChainImage() {
 }
 
 zest_resource_node zest_ImportSwapChainResource(zest_render_graph render_graph, const char *name) {
+    if (ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
+        ZEST_PRINT("WARNING: Swap chain is being imported but no swap chain image has been acquired. You can use zest_BeginRenderToScreen() to properly acquire a swap chain image.");
+    }
     zest_resource_node_t node = { 0 };
     node.name = name;
 	node.id = render_graph->id_counter++;
@@ -9194,6 +9232,7 @@ zest_resource_node zest_ImportSwapChainResource(zest_render_graph render_graph, 
 }
 
 void zest_AddPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data) {
+    ZEST_CHECK_HANDLE(pass);        //Not a valid pass node!
     zest_pass_execution_callback_t callback_data;
     callback_data.execution_callback = callback;
     callback_data.user_data = user_data;
@@ -12560,7 +12599,11 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_cont
         }
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
-        zest_BindPipeline(command_buffer, pipeline, sets, 2);
+        if (pipeline) {
+            zest_BindPipeline(command_buffer, pipeline, sets, 2);
+        } else {
+            continue;
+        }
 
         //The only reason I do this is because of some strange alignment issues on intel macs only. I haven't fully gotten to the bottom of it
         //but this seems to work for now
@@ -13828,7 +13871,11 @@ void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_gr
         }
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
-        zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
+        if (pipeline) {
+			zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
+        } else {
+            continue;
+        }
 
         //The only reason I do this is because of some strange alignment issues on intel macs only. I haven't fully gotten to the bottom of it
         //but this seems to work for now
@@ -13970,12 +14017,14 @@ void zest_NextInstance(zest_layer layer) {
             layer->memory_refs.instance_count++;
             instance_ptr = (zest_byte*)layer->memory_refs.staging_instance_data->data;
             instance_ptr += layer->memory_refs.instance_count * layer->instance_struct_size;
+			layer->current_instruction.total_instances++;
         }
         else {
             instance_ptr = instance_ptr - layer->instance_struct_size;
         }
     }
     else {
+		layer->current_instruction.total_instances++;
         layer->memory_refs.instance_count++;
     }
     layer->memory_refs.instance_ptr = instance_ptr;
@@ -14292,7 +14341,7 @@ void zest_SetMSDFFontDrawing(zest_layer layer, zest_font font) {
     layer->current_instruction.draw_mode = zest_draw_mode_text;
     layer->current_instruction.asset = font;
     layer->current_instruction.push_constants = layer->push_constants;
-    layer->current_instruction.push_constants.descriptor_index1 = font->bindless_texture_index;
+    layer->current_instruction.push_constants.descriptor_index[0] = font->bindless_texture_index;
     layer->last_draw_mode = zest_draw_mode_text;
 }
 
@@ -14492,16 +14541,19 @@ float zest_TextWidth(zest_font font, const char* text, float font_size, float le
 
 
 //-- Start Instance Drawing API
-void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture texture, zest_pipeline_template pipeline) {
+void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture *textures, zest_uint texture_count, zest_pipeline_template pipeline) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     zest_EndInstanceInstructions(layer);
     zest_StartInstanceInstructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
-	ZEST_ASSERT(shader_resources);   //You must specifiy the shader resources to draw with
+	ZEST_CHECK_HANDLE(shader_resources);   //You must specifiy the shader resources to draw with
 	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_instance;
     layer->current_instruction.push_constants = layer->push_constants;
-    layer->current_instruction.push_constants.descriptor_index1 = texture->descriptor_array_index;
+    for (zest_uint index = 0; index != texture_count; ++index) {
+        ZEST_CHECK_HANDLE(textures[index]); //Not a valid texture handle. Make sure the texture count matches the number of texture in the array.
+        layer->current_instruction.push_constants.descriptor_index[index] = textures[index]->descriptor_array_index;
+    }
     layer->last_draw_mode = zest_draw_mode_instance;
 }
 
@@ -14809,7 +14861,7 @@ void zest_PushIndex(zest_layer layer, zest_uint offset) {
     layer->memory_refs.index_ptr = index_ptr;
 }
 
-void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
+void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture texture, zest_pipeline_template pipeline) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     ZEST_CHECK_HANDLE(shader_resources);	//Not a valid handle!
     ZEST_CHECK_HANDLE(pipeline);	//Not a valid handle!
@@ -14818,6 +14870,7 @@ void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resource
     layer->current_instruction.pipeline_template = pipeline;
 	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_mesh;
+    layer->current_instruction.push_constants.descriptor_index[0] = texture->descriptor_array_index;
     layer->last_draw_mode = zest_draw_mode_mesh;
 }
 
