@@ -158,7 +158,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		zest_ConnectTransferBufferOutput(upload_instance_data, sprite_layer);
 		zest_ConnectVertexBufferInput(graphics_pass, billboard_layer);
 		zest_ConnectVertexBufferInput(graphics_pass, sprite_layer);
-		zest_ConnectSampledImageInput(graphics_pass, texture, zest_fragment_stage);
+		zest_ConnectSampledImageInput(graphics_pass, texture, zest_pipeline_fragment_stage);
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 
 		//Add the tasks to run for the passes

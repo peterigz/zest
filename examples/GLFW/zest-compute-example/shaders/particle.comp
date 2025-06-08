@@ -12,10 +12,8 @@ struct Particle {
 // It contains a member 'data' of type ParticleArrayHolder.
 // The block name "PerParticleSystemSSBO" is used in the binding declaration.
 layout(std140, set = 0, binding = 1) buffer PerParticleSystemSSBO {
-    Particle data[]; // 'data' is the last member here - This is valid.
-} u_particle_buffers_array[]; // This declares an array of SSBOs.
-                              // Each element of this array is a descriptor pointing to a
-                              // buffer structured like PerParticleSystemSSBO.
+    Particle data[]; 
+} u_particle_buffers_array[]; 
 
 layout (local_size_x = 256) in;
 

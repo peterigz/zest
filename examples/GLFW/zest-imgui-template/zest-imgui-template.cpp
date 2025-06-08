@@ -91,7 +91,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//Import our test texture with the Bunny sprite
 		zest_resource_node test_texture = zest_ImportImageResourceReadOnly(app->render_graph, "test texture", app->test_texture);
 		//Add the test texture to the imgui render pass
-		zest_ConnectSampledImageInput(graphics_pass, test_texture, zest_fragment_stage);
+		zest_ConnectSampledImageInput(graphics_pass, test_texture, zest_pipeline_fragment_stage);
 		//If there's imgui to draw then draw it
 		if (zest_imgui_AddToRenderGraph(app->render_graph, graphics_pass)) {
 			//Imgui won't draw anything unless we add a callback with zest_AddPassTask. This has to be done manually rather then

@@ -136,7 +136,7 @@ void UploadBuffers(ComputeExample *example) {
 //Prepare the compute shader that will be used to playback the effects in the animation manager
 void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	//Register a new compute shader
-	example->compute = zest_CreateCompute("Sprite data compute");
+	example->compute = zest__create_compute("Sprite data compute");
 	example->playback_shader = zest_AddShaderFromSPVFile("examples/assets/spv/sprite_data_playback.comp.spv", shaderc_compute_shader);
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier

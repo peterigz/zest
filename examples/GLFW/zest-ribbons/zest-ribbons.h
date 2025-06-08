@@ -51,6 +51,14 @@ struct camera_push_constant {
 	zest_uint tessellation;  // Added tessellation factor
 	zest_uint index_offset;
 	zest_uint ribbon_count;
+	zest_uint segment_buffer_index;
+	zest_uint instance_buffer_index;
+	zest_uint vertex_buffer_index;
+	zest_uint index_buffer_index;
+};
+
+struct ribbon_drawing_push_constants {
+	zest_uint texture_index;
 };
 
 struct Ribbons {
@@ -62,29 +70,22 @@ struct Ribbons {
 	zest_timer timer;
 	zest_camera_t camera;
 
-	zest_pipeline ribbon_pipeline;
+	zest_pipeline_template ribbon_pipeline;
 	zest_index compute_pipeline_index;
 	zest_shader ribbon_vert_shader;
 	zest_shader ribbon_frag_shader;
-	zest_shader_resources ribbon_shader_resources;
 	zest_shader ribbon_comp_shader;
 	zest_compute ribbon_compute;
-	zest_draw_routine ribbon_draw_routine;
 	zest_layer ribbon_layer;
-	zest_descriptor_buffer ribbon_segment_buffer;
-	zest_descriptor_buffer ribbon_instance_buffer;
-	zest_descriptor_buffer ribbon_vertex_buffer;
-	zest_descriptor_buffer ribbon_index_buffer;
-	zest_buffer ribbon_staging_buffer[ZEST_MAX_FIF];
-	zest_buffer ribbon_instance_staging_buffer[ZEST_MAX_FIF];
+	zest_frame_staging_buffer ribbon_segment_staging_buffer;
+	zest_frame_staging_buffer ribbon_instance_staging_buffer;
 	camera_push_constant camera_push;
+	ribbon_drawing_push_constants ribbon_push_constants;
 	zest_texture ribbon_texture;
 	zest_image ribbon_image;
 	zest_uint index_count;
 	float seconds_passed;
-
-	zest_layer line_layer;
-	zest_pipeline line_pipeline;
+	zest_render_graph render_graph;
 
 	ribbon ribbons[RIBBON_COUNT];
 	ribbon_instance ribbon_instances[RIBBON_COUNT];
@@ -99,8 +100,8 @@ RibbonBufferInfo GenerateRibbonInfo(uint32_t tessellation, uint32_t maxSegments,
 void InitImGuiApp(Ribbons *app);
 void BuildUI(Ribbons *app);
 void UpdateUniform3d(Ribbons *app);
-void RecordRibbonDrawRoutine(zest_work_queue_t *queue, void *data);
-int DrawComputeRibbonsCondition(zest_draw_routine draw_routine);
-void RibbonComputeFunction(zest_command_queue_compute compute_routine);
+void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
+void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
+void UploadRibbonData(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 zest_uint CountSegments(Ribbons *app);
 void UpdateRibbons(Ribbons *app);

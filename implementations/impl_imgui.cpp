@@ -30,7 +30,7 @@ bool zest_imgui_AddToRenderGraph(zest_render_graph render_graph, zest_pass_node 
 		zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_index_buffer);
 		zest_ConnectVertexBufferInput(imgui_pass, imgui_vertex_buffer);
 		zest_ConnectIndexBufferInput(imgui_pass, imgui_index_buffer);
-		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture, zest_fragment_stage);
+		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture, zest_pipeline_fragment_stage);
         return true;
     }
     return false;

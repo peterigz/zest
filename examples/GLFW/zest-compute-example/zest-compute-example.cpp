@@ -45,7 +45,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//might be used in the GPU, it's purely for updating by the compute shader only
 	app->particle_buffer = zest_CreateComputeVertexDescriptorBuffer(storage_buffer_size);
 	//Copy the staging buffer to the desciptor buffer
-	zest_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(app->particle_buffer), storage_buffer_size);
+	zest_CopyBufferOneTime(staging_buffer, zest_GetBufferFromDescriptorBuffer(app->particle_buffer), storage_buffer_size);
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 
@@ -82,7 +82,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_ClearPipelineTemplateDescriptorLayouts(app->particle_pipeline);
 	zest_AddPipelineTemplateDescriptorLayout(app->particle_pipeline, ZestRenderer->global_bindless_set_layout->vk_layout);
 	//Set the push constant we'll be using
-	zest_SetPipelineTemplatePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelineTemplatePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), 0, zest_shader_fragment_stage);
 
 	//Using the create_info we prepared build the template for the pipeline
 	zest_FinalisePipelineTemplate(app->particle_pipeline);
@@ -110,7 +110,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Finally, make the compute shader using the builder
 	app->compute = zest_FinishCompute(&builder, "Particles Compute");
 
-	app->render_graph = zest_NewRenderGraph("Compute Particles", ZestRenderer->global_bindless_set_layout, false);
+	app->render_graph = zest_NewRenderGraph("Compute Particles", zest_GetGlobalBindlessLayout(), zest_GetGlobalBindlessSet(), false);
 
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);
@@ -123,7 +123,7 @@ void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_render_grap
 	zest_pipeline pipeline = zest_PipelineWithTemplate(app->particle_pipeline, context->render_pass);
 	//You can mix and match descriptor sets but we only need the bindless set there containing the particle texture and gradient
 	VkDescriptorSet sets[] = {
-		zest_vk_GetGlobalDescriptorSet()
+		zest_vk_GetGlobalBindlessSet()
 	};
 	//Bind the pipeline with the descriptor set
 	zest_BindPipeline(command_buffer, pipeline, sets, 1);
@@ -218,7 +218,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_pass_node compute_pass = zest_AddComputePassNode(app->render_graph, app->compute, "Compute Particles");
 		zest_pass_node render_pass = zest_AddRenderPassNode(app->render_graph, "Graphics Pass");
 
-		zest_ConnectStorageBufferOutput(compute_pass, particle_buffer, zest_compute_stage);
+		zest_ConnectStorageBufferOutput(compute_pass, particle_buffer, zest_pipeline_compute_stage);
 		zest_ConnectVertexBufferInput(render_pass, particle_buffer);
 		zest_ConnectSwapChainOutput(render_pass, swapchain_output_resource, clear_color);
 

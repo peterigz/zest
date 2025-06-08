@@ -25,7 +25,7 @@ zest_imgui zest_imgui_Initialise() {
 	zest_pipeline_template imgui_pipeline = zest_CreatePipelineTemplate("pipeline_imgui");
 	imgui_pipeline->scissor.offset.x = 0;
 	imgui_pipeline->scissor.offset.y = 0;
-	zest_SetPipelineTemplatePushConstantRange(imgui_pipeline, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelineTemplatePushConstantRange(imgui_pipeline, sizeof(zest_push_constants_t), 0, zest_shader_render_stages);
 	zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
 	zest_AddVertexInputDescription(imgui_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos)));    // Location 0: Position
 	zest_AddVertexInputDescription(imgui_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv)));    // Location 1: UV

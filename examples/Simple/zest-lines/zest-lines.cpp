@@ -16,7 +16,7 @@ void zest_SetShapeDrawing(zest_layer layer, zest_shape_type shape_type, zest_sha
     zest_StartInstanceInstructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
 	layer->current_instruction.shader_resources = shader_resources;
-    layer->current_instruction.push_constants.parameters1.x = shape_type;
+    layer->current_instruction.push_constants.parameters1.x = (float)shape_type;
     layer->current_instruction.draw_mode = (zest_draw_mode)shape_type;
     layer->last_draw_mode = (zest_draw_mode)shape_type;
 }

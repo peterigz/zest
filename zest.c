@@ -2889,9 +2889,34 @@ zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void* data) {
     return buffer;
 }
 
+zest_frame_staging_buffer zest_CreateFrameStagingBuffer(VkDeviceSize size) {
+    zest_frame_staging_buffer_t blank = { 0 };
+
+    zest_frame_staging_buffer staging_buffer = ZEST__NEW(zest_frame_staging_buffer);
+    *staging_buffer = blank;
+    staging_buffer->magic = zest_INIT_MAGIC;
+    zest_buffer_info_t buffer_info = zest_CreateStagingBufferInfo();
+    zest_ForEachFrameInFlight(fif) {
+        staging_buffer->buffer[fif] = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+    }
+    return staging_buffer;
+}
+
+zest_buffer zest_GetStagingBuffer(zest_frame_staging_buffer frame_staging_buffer) {
+    ZEST_CHECK_HANDLE(frame_staging_buffer);    //Not a valid buffer handle
+    return frame_staging_buffer->buffer[ZEST_FIF];
+}
+
 void zest_ClearBufferToZero(zest_buffer buffer) {
     ZEST_ASSERT(buffer->data);  //Must be a host visible buffer and the data is mapped
     memset(buffer->data, 0, buffer->size);
+}
+
+void zest_ClearFrameStagingBufferToZero(zest_frame_staging_buffer staging_buffer) {
+    ZEST_CHECK_HANDLE(staging_buffer);  //Not a valid staging_buffer handle
+    zest_ForEachFrameInFlight(fif) {
+        memset(staging_buffer->buffer[fif]->data, 0, staging_buffer->buffer[fif]->size);
+    }
 }
 
 zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
@@ -2899,7 +2924,7 @@ zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
     if (staging_buffer) {
         ZEST_ASSERT(buffer->size >= staging_buffer->size);
-        zest_CopyBuffer(staging_buffer, buffer, size);
+        zest_CopyBufferOneTime(staging_buffer, buffer, size);
     }
     return buffer;
 }
@@ -2909,7 +2934,7 @@ zest_buffer zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_buffe
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
     if (staging_buffer) {
         ZEST_ASSERT(buffer->size >= staging_buffer->size);
-        zest_CopyBuffer(staging_buffer, buffer, size);
+        zest_CopyBufferOneTime(staging_buffer, buffer, size);
     }
     return buffer;
 }
@@ -2919,7 +2944,7 @@ zest_buffer zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buff
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
     if (staging_buffer) {
         ZEST_ASSERT(buffer->size >= staging_buffer->size);
-        zest_CopyBuffer(staging_buffer, buffer, size);
+        zest_CopyBufferOneTime(staging_buffer, buffer, size);
     }
     return buffer;
 }
@@ -2929,7 +2954,7 @@ zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer stagin
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
     if (staging_buffer) {
         ZEST_ASSERT(buffer->size >= staging_buffer->size);
-        zest_CopyBuffer(staging_buffer, buffer, size);
+        zest_CopyBufferOneTime(staging_buffer, buffer, size);
     }
     return buffer;
 }
@@ -2939,12 +2964,12 @@ zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
     if (staging_buffer) {
         ZEST_ASSERT(buffer->size >= staging_buffer->size);
-        zest_CopyBuffer(staging_buffer, buffer, size);
+        zest_CopyBufferOneTime(staging_buffer, buffer, size);
     }
     return buffer;
 }
 
-void zest_CopyBuffer(zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size) {
+void zest_CopyBufferOneTime(zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size) {
     ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
     ZEST_ASSERT(size <= dst_buffer->size);
     VkBufferCopy copyInfo = { 0 };
@@ -2956,7 +2981,7 @@ void zest_CopyBuffer(zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSiz
     zest__end_single_time_commands(command_buffer);
 }
 
-void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size, zest_bool use_barrier) {
+void zest_CopyBuffer(VkCommandBuffer command_buffer, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size) {
     ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
     ZEST_ASSERT(size <= dst_buffer->size);
     VkBufferCopy copyInfo = { 0 };
@@ -2964,9 +2989,30 @@ void zest_CopyBufferCB(VkCommandBuffer command_buffer, zest_buffer src_buffer, z
     copyInfo.dstOffset = dst_buffer->memory_offset;
     copyInfo.size = size;
     vkCmdCopyBuffer(command_buffer, src_buffer->memory_pool->buffer, dst_buffer->memory_pool->buffer, 1, &copyInfo);
-    if (use_barrier) {
-        zest__buffer_write_barrier(command_buffer, dst_buffer);
-    }
+}
+
+void zest_CopyFrameStagingBuffer(VkCommandBuffer command_buffer, zest_frame_staging_buffer src_buffer, zest_buffer dst_buffer) {
+    ZEST_CHECK_HANDLE(src_buffer);  //Not a valid frame staging buffer
+    ZEST_ASSERT(dst_buffer);  //Not a valid destination buffer
+    ZEST_ASSERT(src_buffer->buffer[ZEST_FIF]->memory_in_use <= dst_buffer->size);   //Not enough space in the destination buffer
+    VkBufferCopy copyInfo = { 0 };
+    copyInfo.srcOffset = src_buffer->buffer[ZEST_FIF]->memory_offset;
+    copyInfo.dstOffset = dst_buffer->memory_offset;
+    copyInfo.size = src_buffer->buffer[ZEST_FIF]->memory_in_use;
+    vkCmdCopyBuffer(command_buffer, src_buffer->buffer[ZEST_FIF]->memory_pool->buffer, dst_buffer->memory_pool->buffer, 1, &copyInfo);
+}
+
+void zest_StageFrameData(void *src_data, zest_frame_staging_buffer dst_staging_buffer, zest_size size) {
+    ZEST_CHECK_HANDLE(dst_staging_buffer);  //Not a valid frame staging buffer
+    ZEST_ASSERT(src_data);                  //No source data to copy!
+    ZEST_ASSERT(size <= dst_staging_buffer->buffer[ZEST_FIF]->size);
+	memcpy(dst_staging_buffer->buffer[ZEST_FIF]->data, src_data, size);
+    dst_staging_buffer->buffer[ZEST_FIF]->memory_in_use = size;
+}
+
+zest_size zest_GetFrameStageBufferMemoryInUse(zest_frame_staging_buffer staging_buffer) {
+    ZEST_CHECK_HANDLE(staging_buffer);  //Not a valid frame staging buffer
+    return staging_buffer->buffer[ZEST_FIF]->memory_in_use;
 }
 
 VkResult zest_FlushBuffer(zest_buffer buffer) {
@@ -3060,6 +3106,18 @@ zest_bool zest_ResizeDescriptorBuffer(zest_descriptor_buffer buffer, zest_size n
 zest_buffer_info_t zest_CreateIndexBufferInfo(zest_bool cpu_visible) {
     zest_buffer_info_t buffer_info = { 0 };
     buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    if (cpu_visible) {
+        buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    }
+    else {
+        buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
+    return buffer_info;
+}
+
+zest_buffer_info_t zest_CreateIndexBufferInfoWithStorage(zest_bool cpu_visible) {
+    zest_buffer_info_t buffer_info = { 0 };
+    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     if (cpu_visible) {
         buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
     }
@@ -4168,7 +4226,7 @@ bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, 
     return (builder->binding_indexes & (1ull << binding)) != 0;
 }
 
-void zest_AddLayoutBuilderBinding(zest_set_layout_builder_t *builder, zest_uint binding_number, VkDescriptorType descriptor_type, zest_uint descriptor_count, VkShaderStageFlags stage_flags, const VkSampler *p_immutable_samplers) {
+void zest_AddLayoutBuilderBinding(zest_set_layout_builder_t *builder, zest_uint binding_number, VkDescriptorType descriptor_type, zest_uint descriptor_count, zest_supported_shader_stages stage_flags, const VkSampler *p_immutable_samplers) {
     bool binding_exists = zest__binding_exists_in_layout_builder(builder, binding_number);
     ZEST_ASSERT(binding_number < 64);   //Invalid binding number, values of 0 - 63 only
     ZEST_ASSERT(!binding_exists);       //That binding number already exists in the layout builder
@@ -4194,15 +4252,15 @@ void zest_AddLayoutBuilderCombinedImageSampler(zest_set_layout_builder_t *builde
     zest_AddLayoutBuilderBinding(builder, binding_number, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptor_count, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
 }
 
-void zest_AddLayoutBuilderUniformBuffer(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint descriptor_count, VkShaderStageFlags shader_stages) {
+void zest_AddLayoutBuilderUniformBuffer(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint descriptor_count, zest_supported_shader_stages shader_stages) {
     zest_AddLayoutBuilderBinding(builder, binding_number, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor_count, shader_stages, 0);
 }
 
-void zest_AddLayoutBuilderStorageBuffer(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint descriptor_count, VkShaderStageFlags shader_stages) {
+void zest_AddLayoutBuilderStorageBuffer(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint descriptor_count, zest_supported_shader_stages shader_stages) {
     zest_AddLayoutBuilderBinding(builder, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descriptor_count, shader_stages, 0);
 }
 
-void zest_AddLayoutBuilderBindingBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, VkDescriptorType descriptor_type, zest_uint descriptor_count, VkShaderStageFlags stage_flags, VkDescriptorBindingFlags binding_flags, const VkSampler *p_immutable_samplers) {
+void zest_AddLayoutBuilderBindingBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, VkDescriptorType descriptor_type, zest_uint descriptor_count, zest_supported_shader_stages stage_flags, VkDescriptorBindingFlags binding_flags, const VkSampler *p_immutable_samplers) {
     bool binding_exists = zest__binding_exists_in_layout_builder(builder, binding_number);
     ZEST_ASSERT(binding_number < 64);   //Invalid binding number, values of 0 - 63 only
     ZEST_ASSERT(!binding_exists);       //That binding number already exists in the layout builder
@@ -4232,12 +4290,12 @@ void zest_AddLayoutBuilderCombinedImageSamplerBindless(zest_set_layout_builder_t
     zest_AddLayoutBuilderBindingBindless(builder, binding_number, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, max_texture_count, VK_SHADER_STAGE_FRAGMENT_BIT, binding_flags, 0);
 }
 
-void zest_AddLayoutBuilderUniformBufferBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count, VkShaderStageFlags shader_stages) {
+void zest_AddLayoutBuilderUniformBufferBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count, zest_supported_shader_stages shader_stages) {
     VkDescriptorBindingFlags binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
     zest_AddLayoutBuilderBindingBindless(builder, binding_number, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, max_buffer_count, shader_stages, binding_flags, 0);
 }
 
-void zest_AddLayoutBuilderStorageBufferBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count, VkShaderStageFlags shader_stages) {
+void zest_AddLayoutBuilderStorageBufferBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count, zest_supported_shader_stages shader_stages) {
     VkDescriptorBindingFlags binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
     zest_AddLayoutBuilderBindingBindless(builder, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, max_buffer_count, shader_stages, binding_flags, 0);
 }
@@ -4338,7 +4396,7 @@ ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout layout) {
     VkDescriptorSetAllocateInfo alloc_info = { 0 };
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = layout->pool->vk_descriptor_pool;
-    alloc_info.descriptorSetCount = 1; // We are allocating one instance of this global bindless set
+    alloc_info.descriptorSetCount = 1; // Maybe add this as a parameter at some point if it's needed
     alloc_info.pSetLayouts = &layout->vk_layout;
 
     zest_descriptor_set_t blank = { 0 };
@@ -4424,7 +4482,7 @@ VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(zest_uint count
     return layout;
 }
 
-VkDescriptorSetLayoutBinding zest_CreateDescriptorLayoutBinding(VkDescriptorType type, VkShaderStageFlags stageFlags, zest_uint binding, zest_uint descriptorCount) {
+VkDescriptorSetLayoutBinding zest_CreateDescriptorLayoutBinding(VkDescriptorType type, zest_supported_shader_stages stageFlags, zest_uint binding, zest_uint descriptorCount) {
     VkDescriptorSetLayoutBinding set_layout_binding = { 0 };
     set_layout_binding.descriptorType = type;
     set_layout_binding.stageFlags = stageFlags;
@@ -4936,7 +4994,7 @@ void zest_SetPipelineTemplateShader(zest_pipeline_template pipeline_template, co
     }
 }
 
-void zest_SetPipelineTemplatePushConstantRange(zest_pipeline_template pipeline_template, zest_uint size, zest_uint offset, VkShaderStageFlags stage_flags) {
+void zest_SetPipelineTemplatePushConstantRange(zest_pipeline_template pipeline_template, zest_uint size, zest_uint offset, zest_supported_shader_stages stage_flags) {
     VkPushConstantRange range;
     range.size = size;
     range.offset = offset;
@@ -5924,14 +5982,6 @@ void zest_Draw(VkCommandBuffer command_buffer, zest_uint vertex_count, zest_uint
 
 void zest_DrawIndexed(VkCommandBuffer command_buffer, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
     vkCmdDrawIndexed(command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
-}
-
-void zest_ComputeToVertexBarrier() {
-    VkMemoryBarrier memory_barrier = { 0 };
-    memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    memory_barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-    memory_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-    vkCmdPipelineBarrier(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 1, &memory_barrier, 0, VK_NULL_HANDLE, 0, VK_NULL_HANDLE);
 }
 
 void zest_DispatchCompute(VkCommandBuffer command_buffer, zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
@@ -7399,14 +7449,15 @@ char* zest_ReadEntireFile(const char* file_name, zest_bool terminate) {
 // --End General Helper Functions
 
 // --Render Graph functions
-zest_render_graph zest_NewRenderGraph(const char *name, zest_set_layout set_layout, bool force_on_graphics_queue) {
+zest_render_graph zest_NewRenderGraph(const char *name, zest_set_layout bindless_set_layout, zest_descriptor_set bindless_set, bool force_on_graphics_queue) {
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->render_graphs, name));
     zest_render_graph_t blank = { 0 };
     zest_render_graph render_graph = ZEST__NEW(zest_render_graph);
     *render_graph = blank;
     render_graph->magic = zest_INIT_MAGIC;
     render_graph->name = name;
-    render_graph->bindless_layout = set_layout;
+    render_graph->bindless_layout = bindless_set_layout;
+    render_graph->bindless_set = bindless_set;
     if(force_on_graphics_queue) {
         render_graph->flags |= zest_render_graph_force_on_graphics_queue;
     }
@@ -7703,9 +7754,9 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
             // Finalize and add the previous batch (current_batch)
             VkSemaphore semaphore_to_signal = zest__acquire_semaphore();
             zest_vec_push(ZestRenderer->used_semaphores[ZEST_FIF], semaphore_to_signal);    //For returning to the free list when done with 
-            current_batch.internal_signal_semaphore = semaphore_to_signal;   
+            zest_vec_linear_push(allocator, current_batch.internal_signal_semaphore, semaphore_to_signal);   
             if(current_batch.queue)
-            zest_vec_linear_push(allocator, render_graph->submissions, current_batch);
+				zest_vec_linear_push(allocator, render_graph->submissions, current_batch);
 
             // Start a new batch
             current_batch = (zest_submission_batch_t){ 0 }; 
@@ -7746,7 +7797,7 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
     }
 
     // Add the very last batch being built
-    current_batch.internal_signal_semaphore = VK_NULL_HANDLE; 
+    current_batch.internal_signal_semaphore = 0; 
     zest_vec_linear_push(allocator, render_graph->submissions, current_batch);
 
     //Create_semaphores
@@ -7763,30 +7814,35 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                     if (consumer_pass->batch_index != producer_pass->batch_index) {
                         zest_submission_batch_t *producer_batch = &render_graph->submissions[producer_pass->batch_index];
                         zest_submission_batch_t *consumer_batch = &render_graph->submissions[consumer_pass->batch_index];
-                        if (producer_batch->internal_signal_semaphore == VK_NULL_HANDLE) {
-                            producer_batch->internal_signal_semaphore = zest__acquire_semaphore();
-                            zest_vec_push(ZestRenderer->used_semaphores[ZEST_FIF], producer_batch->internal_signal_semaphore);
+                        if (producer_batch->internal_signal_semaphore == 0) {
+                            VkSemaphore internal_semaphore = zest__acquire_semaphore();
+                            zest_vec_push(ZestRenderer->used_semaphores[ZEST_FIF], internal_semaphore);
+                            zest_vec_linear_push(allocator, producer_batch->internal_signal_semaphore, internal_semaphore);
                         }
                         bool already_waiting = false;
                         zest_vec_foreach(wait_index, consumer_batch->wait_semaphores) {
                             VkSemaphore wait_semaphore = consumer_batch->wait_semaphores[wait_index];
-                            if (wait_semaphore == producer_batch->internal_signal_semaphore) {
-                                already_waiting = true;
-                                if (zest_map_valid_name(consumer_pass->inputs, resource->name)) {
-									zest_resource_usage_t *usage = zest_map_at(consumer_pass->inputs, resource->name);
-                                    consumer_batch->wait_dst_stage_masks[wait_index] |= usage->stage_mask;
+                            zest_vec_foreach(semaphore_index, producer_batch->internal_signal_semaphore) {
+                                if (wait_semaphore == producer_batch->internal_signal_semaphore[semaphore_index]) {
+                                    already_waiting = true;
+                                    if (zest_map_valid_name(consumer_pass->inputs, resource->name)) {
+                                        zest_resource_usage_t *usage = zest_map_at(consumer_pass->inputs, resource->name);
+                                        consumer_batch->wait_dst_stage_masks[wait_index] |= usage->stage_mask;
+                                    }
+                                    break;
                                 }
-                                break;
                             }
                         }
                         if (!already_waiting) {
-							zest_vec_linear_push(allocator, consumer_batch->wait_semaphores, producer_batch->internal_signal_semaphore);
-                            if (zest_map_valid_name(consumer_pass->inputs, resource->name)){
-                                zest_resource_usage_t *usage = zest_map_at(consumer_pass->inputs, resource->name);
-                                zest_vec_linear_push(allocator, consumer_batch->wait_dst_stage_masks, usage->stage_mask);
-                            } else {
-                                ZEST_APPEND_LOG(ZestDevice->log_path.str, "Usage not found for resource %s in pass %s when trying to build semaphore signal dependencies!", resource->name, consumer_pass->name);
-                                ZEST_ASSERT(0); //Error compiling render graph when trying to create wait semaphore, check log for details
+                            zest_vec_foreach(semaphore_index, producer_batch->internal_signal_semaphore) {
+                                zest_vec_linear_push(allocator, consumer_batch->wait_semaphores, producer_batch->internal_signal_semaphore[semaphore_index]);
+                                if (zest_map_valid_name(consumer_pass->inputs, resource->name)) {
+                                    zest_resource_usage_t *usage = zest_map_at(consumer_pass->inputs, resource->name);
+                                    zest_vec_linear_push(allocator, consumer_batch->wait_dst_stage_masks, usage->stage_mask);
+                                } else {
+                                    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Usage not found for resource %s in pass %s when trying to build semaphore signal dependencies!", resource->name, consumer_pass->name);
+                                    ZEST_ASSERT(0); //Error compiling render graph when trying to create wait semaphore, check log for details
+                                }
                             }
                         }
                     }
@@ -7870,8 +7926,8 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
         zest_submission_batch_t *last_batch = &zest_vec_back(render_graph->submissions);
         // This assumes the last batch's *primary* signal is renderFinished.
         // If it also needs to signal internal semaphores, `signal_semaphore` needs to become a list.
-        if (last_batch->internal_signal_semaphore == VK_NULL_HANDLE) {
-            last_batch->internal_signal_semaphore = ZestRenderer->render_finished_semaphore[ZestRenderer->current_image_frame];
+        if (last_batch->internal_signal_semaphore == 0) {
+            zest_vec_linear_push(allocator, last_batch->internal_signal_semaphore, ZestRenderer->render_finished_semaphore[ZestRenderer->current_image_frame]);
         } else {
             // This case needs `p_signal_semaphores` to be a list in your batch struct.
             // You would then add ZestRenderer->frame_sync[ZEST_FIF].render_finished_semaphore to that list.
@@ -7923,6 +7979,13 @@ void zest_EndRenderGraph(zest_render_graph render_graph) {
                 resource->last_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
                 if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_is_bindless) && ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
                     resource->bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, resource->binding_number);
+                    VkDescriptorBufferInfo buffer_info;
+                    buffer_info.buffer = resource->storage_buffer->memory_pool->buffer;
+                    buffer_info.offset = resource->storage_buffer->memory_offset;
+                    buffer_info.range = resource->storage_buffer->size;
+					VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(render_graph->bindless_set->vk_descriptor_set, &buffer_info, resource->binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+					write.dstArrayElement = resource->bindless_index;
+					vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
                     zest_binding_index_for_release_t binding_index = { render_graph->bindless_layout, resource->bindless_index, resource->binding_number };
                     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
                 }
@@ -8557,20 +8620,25 @@ void zest_ExecuteRenderGraph(zest_render_graph render_graph) {
 			submit_info.pWaitDstStageMask = batch->wait_dst_stage_masks; // Needs to be correctly set
         }
 
-        VkSemaphore batch_signal_sem = batch->internal_signal_semaphore;
+        VkSemaphore *batch_signal_semaphores = 0;
+        zest_vec_foreach(semaphore_index, batch->internal_signal_semaphore) {
+            zest_vec_linear_push(allocator, batch_signal_semaphores, batch->internal_signal_semaphore[semaphore_index]);
+        }
         zest_vec_linear_push(allocator, signal_semaphores, batch->queue->semaphore[ZEST_FIF]);
 
         //If this is the last batch then add the fence that tells the cpu to wait each frame
         VkFence submit_fence = VK_NULL_HANDLE;
         if (batch_index == zest_vec_size(render_graph->submissions) - 1) { 
-            batch_signal_sem = ZestRenderer->render_finished_semaphore[ZestRenderer->current_image_frame];
+            zest_vec_linear_push(allocator, batch_signal_semaphores, ZestRenderer->render_finished_semaphore[ZestRenderer->current_image_frame]);
             submit_fence = ZestRenderer->fif_fence[ZEST_FIF];
         }
 
         //If the batch is signalling then add that to the signal semaphores along with the queue timeline semaphore
-        if (batch_signal_sem != VK_NULL_HANDLE) {
-			zest_vec_linear_push(allocator, signal_semaphores, batch_signal_sem);
-            zest_vec_linear_push(allocator, signal_values, 0);
+        if (batch_signal_semaphores != 0) {
+            zest_vec_foreach(semaphore_index, batch_signal_semaphores) {
+                zest_vec_linear_push(allocator, signal_semaphores, batch_signal_semaphores[semaphore_index]);
+                zest_vec_linear_push(allocator, signal_values, 0);
+            }
         }
 
         //Finish the rest of the queue submit info and submit the queue
@@ -8863,8 +8931,11 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
         }
 
         // --- Print Signal Semaphores for the Batch ---
-        if (batch->internal_signal_semaphore != VK_NULL_HANDLE) {
-            ZEST_PRINT("  Signals Semaphore: %p", (void *)batch->internal_signal_semaphore);
+        if (batch->internal_signal_semaphore != 0) {
+            ZEST_PRINT("  Signals Semaphores:");
+            zest_vec_foreach(semaphore_index, batch->internal_signal_semaphore) {
+				ZEST_PRINT("    Signals Semaphores: %p", (void *)batch->internal_signal_semaphore[semaphore_index]);
+            }
         }
         ZEST_PRINT(""); // End of batch
     }
@@ -9034,7 +9105,7 @@ void zest_ReleaseBindlessIndex(zest_uint index, zest_uint binding_number) {
     zest__release_bindless_index(ZestRenderer->global_bindless_set_layout, binding_number, index);
 }
 
-VkDescriptorSet zest_vk_GetGlobalDescriptorSet() {
+VkDescriptorSet zest_vk_GetGlobalBindlessSet() {
     return ZestRenderer->global_set->vk_descriptor_set;
 }
 
@@ -9044,6 +9115,10 @@ VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout() {
 
 zest_set_layout zest_GetGlobalBindlessLayout() {
     return ZestRenderer->global_bindless_set_layout;
+}
+
+zest_descriptor_set zest_GetGlobalBindlessSet() {
+    return ZestRenderer->global_set;
 }
 
 VkDescriptorSet zest_vk_GetGlobalUniformBufferDescriptorSet() {
@@ -9093,7 +9168,7 @@ zest_resource_node zest_AddTransientBufferResource(zest_render_graph render_grap
     if (assign_bindless) {
         ZEST_CHECK_HANDLE(render_graph->bindless_layout);   //Trying to assign bindless index number but the render graph bindless layout is null.
                                                             //Make sure you assign it when creating the render graph.
-        node.bindless_index = zest__get_buffer_binding_number(render_graph, &node);
+        node.binding_number = zest__get_buffer_binding_number(render_graph, &node);
 		ZEST_ASSERT(node.binding_number != ZEST_INVALID);   //Could not find a valid binding number for the image/texture. Make sure that
                                                             //the bindless descriptor set layout you assigned to the render graph has the correct
 															//desriptor types set.
@@ -9115,6 +9190,27 @@ zest_resource_node zest_AddInstanceLayerBufferResource(zest_render_graph render_
 
 zest_resource_node zest_AddFontLayerTextureResource(zest_render_graph render_graph, const zest_font font) {
     return zest_ImportImageResourceReadOnly(render_graph, font->texture->name.str, font->texture);
+}
+
+zest_resource_node zest_AddTransientVertexBufferResource(zest_render_graph render_graph, const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless) {
+	zest_buffer_description_t buffer_desc = { 0 };
+	buffer_desc.size = size;
+	buffer_desc.buffer_info = include_storage_flags ? zest_CreateVertexBufferInfoWithStorage(0) : zest_CreateVertexBufferInfo(0);
+	return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, assign_bindless);
+}
+
+zest_resource_node zest_AddTransientIndexBufferResource(zest_render_graph render_graph, const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless) {
+	zest_buffer_description_t buffer_desc = { 0 };
+	buffer_desc.size = size;
+	buffer_desc.buffer_info = include_storage_flags ? zest_CreateIndexBufferInfoWithStorage(0) : zest_CreateIndexBufferInfo(0);
+	return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, assign_bindless);
+}
+
+zest_resource_node zest_AddTransientStorageBufferResource(zest_render_graph render_graph, const char *name, zest_size size, zest_bool assign_bindless) {
+	zest_buffer_description_t buffer_desc = { 0 };
+	buffer_desc.size = size;
+	buffer_desc.buffer_info = zest_CreateStorageBufferInfo();
+	return zest_AddTransientBufferResource(render_graph, name, &buffer_desc, assign_bindless);
 }
 
 zest_resource_node_t zest__create_import_buffer_resource_node(zest_render_graph render_graph, const char *name, zest_descriptor_buffer buffer) {
@@ -9283,6 +9379,18 @@ zest_resource_node zest_GetPassInputResource(zest_pass_node pass, const char *na
     ZEST_ASSERT(zest_map_valid_name(pass->inputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from outputs?
     zest_resource_usage_t *usage = zest_map_at(pass->inputs, name);
     return usage->resource_node;
+}
+
+zest_buffer zest_GetPassInputBuffer(zest_pass_node pass, const char *name) {
+    ZEST_ASSERT(zest_map_valid_name(pass->inputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from outputs?
+    zest_resource_usage_t *usage = zest_map_at(pass->inputs, name);
+    return usage->resource_node->storage_buffer;
+}
+
+zest_buffer zest_GetPassOutputBuffer(zest_pass_node pass, const char *name) {
+    ZEST_ASSERT(zest_map_valid_name(pass->outputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from inputs?
+    zest_resource_usage_t *usage = zest_map_at(pass->outputs, name);
+    return usage->resource_node->storage_buffer;
 }
 
 zest_resource_node zest_GetPassOutputResource(zest_pass_node pass, const char *name) {
@@ -9724,10 +9832,6 @@ void zest_ValidateQueue(zest_command_queue command_queue) {
         ZEST_ASSERT(present_flags_found == ZEST_MAX_FIF);        //The command queue was created with zest_command_queue_flag_present_dependency but the stage flags should be set to VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
     }
     command_queue->flags |= zest_command_queue_flag_validated;
-}
-
-VkCommandBuffer zest_CurrentCommandBuffer() {
-    return ZestRenderer->current_command_buffer;
 }
 
 zest_command_queue zest_CurrentCommandQueue() {
@@ -10256,7 +10360,7 @@ void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
     if (command_buffer_count > 0) {
         //Note: If you get a validation error here about an empty command queue being executed then make sure that
         //the condition callback for the compute routine is returning the correct value when there's nothing to record.
-        vkCmdExecuteCommands(ZestRenderer->current_command_buffer, command_buffer_count, command_queue->secondary_compute_command_buffers);
+        //vkCmdExecuteCommands(ZestRenderer->current_command_buffer, command_buffer_count, command_queue->secondary_compute_command_buffers);
 		zest_vec_clear(command_queue->secondary_compute_command_buffers);
     }
 
@@ -10279,11 +10383,11 @@ void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
         ZestRenderer->current_draw_commands = draw_commands;
 
         if (command_queue->timestamp_count) {
-            vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * command_queue->timestamp_count + current_timestamp++);
+            //vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * command_queue->timestamp_count + current_timestamp++);
         }
         draw_commands->render_pass_function(draw_commands, command_queue->recorder->command_buffer[fif], draw_commands->render_pass, draw_commands->get_frame_buffer(draw_commands));
         if (command_queue->timestamp_count) {
-            vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * command_queue->timestamp_count + current_timestamp++);
+            //vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * command_queue->timestamp_count + current_timestamp++);
         }
     }
 }
@@ -10303,7 +10407,7 @@ void zest_StartCommandQueue(zest_command_queue command_queue, zest_index fif) {
     VkCommandBufferBeginInfo begin_info = { 0 };
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(command_queue->recorder->command_buffer[fif], &begin_info));
-    ZestRenderer->current_command_buffer = command_queue->recorder->command_buffer[fif];
+    //ZestRenderer->current_command_buffer = command_queue->recorder->command_buffer[fif];
     if (command_queue->timestamp_count) {
         zest__reset_query_pool(command_queue->recorder->command_buffer[ZEST_FIF], command_queue->query_pool, command_queue->timestamp_count);
     }
@@ -10314,7 +10418,6 @@ void zest_EndCommandQueue(zest_command_queue command_queue, zest_index fif) {
         command_queue->query_state[fif] = zest_query_state_ready;
     }
     ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(command_queue->recorder->command_buffer[fif]));
-    ZestRenderer->current_command_buffer = ZEST_NULL;
     ZestRenderer->current_compute_routine = ZEST_NULL;
     ZestRenderer->current_draw_commands = ZEST_NULL;
 }
@@ -12584,7 +12687,7 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_cont
 
 	VkDescriptorSet sets[] = {
 		zest_vk_GetGlobalUniformBufferDescriptorSet(),
-		zest_vk_GetGlobalDescriptorSet()
+		zest_vk_GetGlobalBindlessSet()
 	};
 
     for (zest_foreach_i(layer->draw_instructions[ZEST_FIF])) {
@@ -15270,7 +15373,7 @@ zest_mesh_t zest_CreateRoundedRectangle(float width, float height, float radius,
 //--End Instance Draw mesh layers
 
 //Compute shaders
-zest_compute zest_CreateCompute(const char* name) {
+zest_compute zest__create_compute(const char* name) {
     zest_compute_t blank_compute = { 0 };
     zest_compute compute = ZEST__NEW_ALIGNED(zest_compute, 16);
     *compute = blank_compute;
@@ -15349,7 +15452,7 @@ void zest_SetComputePrimaryRecorder(zest_compute_builder_t *builder) {
 }
 
 zest_compute zest_FinishCompute(zest_compute_builder_t *builder, const char *name) {
-	zest_compute compute = zest_CreateCompute(name);
+	zest_compute compute = zest__create_compute(name);
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle! Unable to create a compute object
     compute->user_data = builder->user_data;
     compute->flags = builder->flags;

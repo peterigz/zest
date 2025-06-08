@@ -49,7 +49,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Connect buffers and textures
 		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
 		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
-		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture, zest_fragment_stage);
+		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture, zest_pipeline_fragment_stage);
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 
 		//Add the tasks to run for the passes
