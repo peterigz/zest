@@ -14,7 +14,6 @@ struct ImGuiApp {
 	zest_texture test_texture;
 	zest_image test_image;
 	zest_timer timer;
-	zest_render_graph render_graph;
 	bool sync_refresh;
 };
 

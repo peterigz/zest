@@ -16,7 +16,6 @@ struct ImGuiApp {
 	zest_timer timer;
 	zest_command_queue command_queue;
 	zest_command_queue_draw_commands draw_commands;
-	zest_render_graph render_graph;
 	bool sync_refresh;
 	bool request_graph_print;
 };

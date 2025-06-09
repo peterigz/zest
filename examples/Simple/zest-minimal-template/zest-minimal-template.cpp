@@ -10,8 +10,6 @@ void ExampleRenderPassCallback(
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
-	zest_render_graph render_graph = static_cast<zest_render_graph>(user_data);
-
 	/*
 	for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
 		zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
@@ -20,20 +18,20 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	*/
 
 	// 2. Begin Render Graph Definition
-	if (zest_BeginRenderToScreen(render_graph)) {
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource( render_graph, "Swapchain Output" );
-		zest_pass_node clear_pass = zest_AddGraphicBlankScreen(render_graph, "Draw Nothing");
+	if (zest_BeginRenderToScreen("Render Graph")) {
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource( "Swapchain Output" );
+		zest_pass_node clear_pass = zest_AddGraphicBlankScreen("Draw Nothing");
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} }; 
 		zest_ConnectSwapChainOutput( clear_pass, swapchain_output_resource, clear_color);
-		zest_EndRenderGraph(render_graph);
-		zest_ExecuteRenderGraph(render_graph);
+		zest_EndRenderGraph();
+		zest_ExecuteRenderGraph();
 	}
 }
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-int main(void) 
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+//int main(void) 
 {
 	//Make a config struct where you can configure zest with some options
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
@@ -45,9 +43,6 @@ int main(void)
 	//Initialise Zest with the configuration
 	zest_Initialise(&create_info);
 
-	zest_render_graph render_graph = zest_NewRenderGraph("Simple Test", 0, 0);
-
-	zest_SetUserData(render_graph);
     zest_LogFPSToConsole(1);
 	//Set the callback you want to use that will be called each frame.
 	zest_SetUserUpdateCallback(UpdateCallback);

@@ -7,7 +7,6 @@ typedef struct zest_example {
 	zest_layer line_layer;						//The builtin sprite layer that contains the vertex buffer for drawing the sprites
 	zest_descriptor_set line_descriptor;		//Hanlde for the billboard descriptor
 	zest_shader_resources line_resources;
-	zest_render_graph render_graph;
 } zest_example;
 
 void zest_SetShapeDrawing(zest_layer layer, zest_shape_type shape_type, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
@@ -88,8 +87,6 @@ void InitExample(zest_example *example) {
 
 	example->line_resources = zest_CreateShaderResources();
 	zest_AddUniformBufferToResources(example->line_resources, ZestRenderer->uniform_buffer);
-
-	example->render_graph = zest_NewRenderGraph("Lines render graph", 0, 0);
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
@@ -109,16 +106,16 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawRect(example->line_layer, &top_left.x, 30.f, 50.f);
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen(example->render_graph)) {
+	if (zest_BeginRenderToScreen("Lines Render Graph")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(example->render_graph, "Swapchain Output");
-		zest_resource_node line_layer_resources = zest_AddInstanceLayerBufferResource(example->render_graph, example->line_layer);
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
+		zest_resource_node line_layer_resources = zest_AddInstanceLayerBufferResource(example->line_layer);
 
 		//Add passes
-		zest_pass_node graphics_pass = zest_AddRenderPassNode(example->render_graph, "Graphics Pass");
-		zest_pass_node upload_line_data = zest_AddTransferPassNode(example->render_graph, "Upload Line Data");
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node upload_line_data = zest_AddTransferPassNode("Upload Line Data");
 
 		//Connect buffers and textures
 		zest_ConnectTransferBufferOutput(upload_line_data, line_layer_resources);
@@ -128,17 +125,17 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//Add the tasks to run for the passes
 		zest_AddPassTask(upload_line_data, zest_UploadInstanceLayerData, example->line_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->line_layer);
-		zest_EndRenderGraph(example->render_graph);
+		zest_EndRenderGraph();
 
 		//Print the render graph
 		static bool print_render_graph = true;
 		if (print_render_graph) {
-			zest_PrintCompiledRenderGraph(example->render_graph);
+			zest_PrintCompiledRenderGraph();
 			print_render_graph = false;
 		}
 
 		//Execute the render graph
-		zest_ExecuteRenderGraph(example->render_graph);
+		zest_ExecuteRenderGraph();
 	}
 }
 

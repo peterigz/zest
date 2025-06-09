@@ -32,8 +32,6 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->sync_refresh = true;
 
 	app->timer = zest_CreateTimer(60);
-
-	app->render_graph = zest_NewRenderGraph("Implot render graph", zest_GetGlobalBindlessLayout(), 0);
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -57,18 +55,18 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
 //Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 //if the window is resized for example.
-	if (zest_BeginRenderToScreen(app->render_graph)) {
+	if (zest_BeginRenderToScreen("ImGui Plot")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
-		zest_pass_node graphics_pass = zest_AddRenderPassNode(app->render_graph, "Graphics Pass");
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
 		//Import our test texture with the Bunny sprite
-		zest_resource_node test_texture = zest_ImportImageResourceReadOnly(app->render_graph, "test texture", app->test_texture);
+		zest_resource_node test_texture = zest_ImportImageResourceReadOnly("test texture", app->test_texture);
 		//Add the test texture to the imgui render pass
 		zest_ConnectSampledImageInput(graphics_pass, test_texture, zest_pipeline_fragment_stage);
 		//If there's imgui to draw then draw it
-		if (zest_imgui_AddToRenderGraph(app->render_graph, graphics_pass)) {
+		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
 			//Imgui won't draw anything unless we add a callback with zest_AddPassTask. This has to be done manually rather then
 			//taken care of in the zest_imgui_AddToRenderGraph so that you have the flexibility to draw other things to the swap chain
 			//or other render target in the order that you want.
@@ -77,14 +75,14 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		} else {
 			//If there's no ImGui to render then just render a blank screen
-			zest_pass_node blank_pass = zest_AddGraphicBlankScreen(app->render_graph, "Draw Nothing");
+			zest_pass_node blank_pass = zest_AddGraphicBlankScreen("Draw Nothing");
 			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 			zest_ConnectSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
-		zest_EndRenderGraph(app->render_graph);
+		zest_EndRenderGraph();
 		//Execute the render graph. This must come after the EndRenderGraph function
-		zest_ExecuteRenderGraph(app->render_graph);
+		zest_ExecuteRenderGraph();
 	}
 }
 

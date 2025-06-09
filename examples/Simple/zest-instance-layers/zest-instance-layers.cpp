@@ -14,7 +14,6 @@ typedef struct zest_example {
 	zest_command_queue_draw_commands draw_commands;
 	zest_shader billboard_vert_shader;
 	zest_shader billboard_frag_shader;
-	zest_render_graph render_graph;
 	zest_shader_resources billboard_shader_resources;
 	zest_shader_resources sprite_shader_resources;
 } zest_example;
@@ -74,10 +73,10 @@ void InitExample(zest_example *example) {
 	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array)));		// Location 6: texture array index * intensity
 	zest_AddVertexInputDescription(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			        // Location 7: Instance Color
 
-    zest_SetPipelineTemplatePushConstantRange(example->billboard_pipeline, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
+    zest_SetPipelineTemplatePushConstantRange(example->billboard_pipeline, sizeof(zest_push_constants_t), 0, zest_shader_render_stages);
 	zest_SetPipelineTemplateVertShader(example->billboard_pipeline, "billboard_vert.spv", "spv/");
 	zest_SetPipelineTemplateFragShader(example->billboard_pipeline, "billboard_frag.spv", "spv/");
-	zest_AddPipelineTemplateDescriptorLayout(example->billboard_pipeline, zest_GetUniformBufferLayout(example->uniform_buffer_3d));
+	zest_AddPipelineTemplateDescriptorLayout(example->billboard_pipeline, zest_vk_GetDefaultUniformBufferLayout());
 	zest_AddPipelineTemplateDescriptorLayout(example->billboard_pipeline, zest_vk_GetGlobalBindlessLayout());
 	zest_FinalisePipelineTemplate(example->billboard_pipeline);
 	example->billboard_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
@@ -86,8 +85,6 @@ void InitExample(zest_example *example) {
 
 	example->billboard_layer = zest_CreateInstanceLayer("billboards", sizeof(zest_billboard_instance_t));
 	example->sprite_layer = zest_CreateInstanceLayer("sprites", sizeof(zest_sprite_instance_t));
-
-	example->render_graph = zest_NewRenderGraph("Instance sprites example", zest_GetGlobalBindlessLayout(), ZEST_TRUE);
 }
 
 void test_update_callback(zest_microsecs elapsed, void *user_data) {
@@ -105,7 +102,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//you can draw a lot with a single draw call
 	//zest_SetLayerViewPort(example->sprite_layer, 0, 0, 1280, 768, 1280.f, 768.f);
 	//zest_SetLayerDrawingViewport(example->sprite_layer, 0, 0, 1280, 768, 1280.f, 768.f);
-	zest_SetInstanceDrawing(example->sprite_layer, example->sprite_shader_resources, example->texture, example->sprite_pipeline);
+	zest_SetInstanceDrawing(example->sprite_layer, example->sprite_shader_resources, &example->texture, 1, example->sprite_pipeline);
 	//Set the alpha of the sprite layer to 0. This means that the sprites will be additive. 1 = alpha blending and anything imbetween
 	//is a mix between the two.
 	example->sprite_layer->current_color.a = 0;
@@ -123,7 +120,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawTexturedSprite(example->sprite_layer, example->image, 600.f, 100.f, 500.f, 500.f, 1.f, 1.f, 0.f, 0.f);
 
 	//Now lets draw a billboard. Similar to the sprite, we must call this command before any billboard drawing.
-	zest_SetInstanceDrawing(example->billboard_layer, example->billboard_shader_resources, example->texture, example->billboard_pipeline);
+	zest_SetInstanceDrawing(example->billboard_layer, example->billboard_shader_resources, &example->texture, 1, example->billboard_pipeline);
 	//Get a pointer to the uniform buffer data and cast it to the struct that we're storing there
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(example->uniform_buffer_3d);
 	//Use the projection and view matrices in the buffer to project the mouse coordinates into 3d space.
@@ -140,18 +137,18 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	example->last_position = position;
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen(example->render_graph)) {
+	if (zest_BeginRenderToScreen("Sprite Drawing")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(example->render_graph, "Swapchain Output");
-		zest_resource_node texture = zest_ImportImageResourceReadOnly(example->render_graph, "Bunny Texture", example->texture);
-		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource(example->render_graph, example->billboard_layer);
-		zest_resource_node sprite_layer = zest_AddInstanceLayerBufferResource(example->render_graph, example->sprite_layer);
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
+		zest_resource_node texture = zest_ImportImageResourceReadOnly("Bunny Texture", example->texture);
+		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource(example->billboard_layer);
+		zest_resource_node sprite_layer = zest_AddInstanceLayerBufferResource(example->sprite_layer);
 
 		//Add passes
-		zest_pass_node graphics_pass = zest_AddRenderPassNode(example->render_graph, "Graphics Pass");
-		zest_pass_node upload_instance_data = zest_AddTransferPassNode(example->render_graph, "Upload Instance Data");
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
 
 		//Connect buffers and textures
 		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer);
@@ -166,24 +163,26 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, example->sprite_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->billboard_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->sprite_layer);
-	}
-	zest_EndRenderGraph(example->render_graph);
 
-	//Print the render graph
-	static bool print_render_graph = true;
-	if (print_render_graph) {
-		zest_PrintCompiledRenderGraph(example->render_graph);
-		print_render_graph = false;
-	}
+		//Compile the render graph
+		zest_EndRenderGraph();
 
-	//Execute the render graph
-	zest_ExecuteRenderGraph(example->render_graph);
+		//Print the render graph
+		static bool print_render_graph = true;
+		if (print_render_graph) {
+			zest_PrintCompiledRenderGraph();
+			print_render_graph = false;
+		}
+
+		//Execute the render graph
+		zest_ExecuteRenderGraph();
+	}
 }
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-int main(void)
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+//int main(void)
 {
 	zest_example example = { 0 };
 

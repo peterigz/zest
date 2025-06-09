@@ -2659,9 +2659,10 @@ typedef struct zest_submission_batch_t {
     zest_device_queue_type queue_type;
     zest_uint *pass_indices;
     VkCommandBuffer command_buffer;
-    VkSemaphore *internal_signal_semaphore;
+    VkSemaphore internal_signal_semaphore;
     VkSemaphore *wait_semaphores;
     VkPipelineStageFlags *wait_dst_stage_masks;
+    zest_uint output_pass;
 } zest_submission_batch_t;
 
 typedef struct zest_render_graph_t {
@@ -2702,18 +2703,19 @@ ZEST_API zest_bool zest_AcquireSwapChainImage(void);
 
 // --- Internal render graph function ---
 ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(VkPipelineStageFlags stages_to_check, VkQueueFlags queue_family_capabilities);
-ZEST_PRIVATE VkImageLayout zest__determine_final_layout(zest_render_graph render_graph, int start_from_idx, zest_resource_node node, zest_resource_usage_t *current_usage);
+ZEST_PRIVATE VkImageLayout zest__determine_final_layout(int start_from_idx, zest_resource_node node, zest_resource_usage_t *current_usage);
 ZEST_PRIVATE VkImageAspectFlags zest__determine_aspect_flag(VkFormat format);
 ZEST_PRIVATE void zest__deferr_buffer_destruction(zest_buffer storage_buffer);
 ZEST_PRIVATE void zest__deferr_image_destruction(zest_image_buffer_t *image_buffer);
-ZEST_PRIVATE zest_pass_node zest__add_pass_node(zest_render_graph render_graph, const char *name, zest_device_queue_type queue_type);
+ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type);
 ZEST_PRIVATE VkCommandPool zest__create_queue_command_pool(int queue_family_index);
-ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(zest_render_graph render_graph, const char *name, zest_texture texture);
-ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(zest_render_graph render_graph, const char *name, zest_descriptor_buffer buffer);
-ZEST_PRIVATE zest_uint zest__get_image_binding_number(zest_render_graph render_graph, zest_resource_node resource, bool image_view_only);
-ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_render_graph render_graph, zest_resource_node resource);
+ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_texture texture);
+ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_descriptor_buffer buffer);
+ZEST_PRIVATE zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only);
+ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_resource_node resource);
 ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value);
+ZEST_PRIVATE zest_render_graph zest__new_render_graph(const char *name);
 
 // --- Utility callbacks ---
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
@@ -2725,40 +2727,38 @@ ZEST_API zest_buffer zest_GetPassInputBuffer(zest_pass_node pass, const char *na
 ZEST_API zest_buffer zest_GetPassOutputBuffer(zest_pass_node pass, const char *name);
 
 // -- Creating and Executing the render graph
-ZEST_API zest_render_graph zest_NewRenderGraph(const char *name, zest_set_layout set_layout, zest_descriptor_set bindless_set, bool force_on_graphics_queue);
-ZEST_API bool zest_BeginRenderGraph(zest_render_graph render_graph);
-ZEST_API bool zest_BeginRenderToScreen(zest_render_graph render_graph);
-ZEST_API void zest_EndRenderGraph(zest_render_graph render_graph);
-ZEST_API void zest_ExecuteRenderGraph(zest_render_graph render_graph);
-ZEST_API void zest_ResetRenderGraph(zest_render_graph render_graph);
+ZEST_API bool zest_BeginRenderGraph(const char *name);
+ZEST_API bool zest_BeginRenderToScreen(const char *name);
+ZEST_API void zest_EndRenderGraph();
+ZEST_API void zest_ExecuteRenderGraph();
 
 // --- Add pass nodes that execute user commands ---
-ZEST_API zest_pass_node zest_AddGraphicBlankScreen(zest_render_graph render_graph, const char *name);
-ZEST_API zest_pass_node zest_AddRenderPassNode(zest_render_graph render_graph, const char *name);
-ZEST_API zest_pass_node zest_AddComputePassNode(zest_render_graph render_graph, zest_compute compute, const char *name);
-ZEST_API zest_pass_node zest_AddTransferPassNode(zest_render_graph render_graph, const char *name);
+ZEST_API zest_pass_node zest_AddGraphicBlankScreen( const char *name);
+ZEST_API zest_pass_node zest_AddRenderPassNode(const char *name);
+ZEST_API zest_pass_node zest_AddComputePassNode(zest_compute compute, const char *name);
+ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
 // --- Add callback tasks to passes
 ZEST_API void zest_AddPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
 ZEST_API void zest_ClearPassTasks(zest_pass_node pass);
 
 // --- Add Transient resources ---
-ZEST_API zest_resource_node zest_AddTransientImageResource(zest_render_graph render_graph, const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
-ZEST_API zest_resource_node zest_AddTransientBufferResource(zest_render_graph render_graph, const char *name, const zest_buffer_description_t *desc, zest_bool assign_bindless);
-ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(zest_render_graph render_graph, const zest_layer layer);
-ZEST_API zest_resource_node zest_AddFontLayerTextureResource(zest_render_graph render_graph, const zest_font font);
+ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
+ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *desc, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(const zest_layer layer);
+ZEST_API zest_resource_node zest_AddFontLayerTextureResource(const zest_font font);
 
 // --- Helpers for adding various types of ribbon resources
-ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(zest_render_graph render_graph, const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
-ZEST_API zest_resource_node zest_AddTransientIndexBufferResource(zest_render_graph render_graph, const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
-ZEST_API zest_resource_node zest_AddTransientStorageBufferResource(zest_render_graph render_graph, const char *name, zest_size size, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddTransientIndexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddTransientStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless);
 
 // --- Import external resouces into the render graph ---
-ZEST_API zest_resource_node zest_ImportImageResource(zest_render_graph render_graph, const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
-ZEST_API zest_resource_node zest_ImportImageResourceReadOnly(zest_render_graph render_graph, const char *name, zest_texture texture);
-ZEST_API zest_resource_node zest_ImportStorageBufferResource(zest_render_graph render_graph, const char *name, zest_descriptor_buffer buffer);
-ZEST_API zest_resource_node zest_ImportLayerResource(zest_render_graph render_graph, const char *name, zest_layer layer);
-ZEST_API zest_resource_node zest_ImportSwapChainResource(zest_render_graph render_graph, const char *name);
+ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
+ZEST_API zest_resource_node zest_ImportImageResourceReadOnly(const char *name, zest_texture texture);
+ZEST_API zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_descriptor_buffer buffer);
+ZEST_API zest_resource_node zest_ImportLayerResource(const char *name, zest_layer layer);
+ZEST_API zest_resource_node zest_ImportSwapChainResource(const char *name);
 
 // --- Connect Buffer Helpers ---
 ZEST_API void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_node vertex_buffer);
@@ -2782,11 +2782,7 @@ ZEST_PRIVATE zest_text_t zest_vulkan_access_flags_to_string(VkAccessFlags flags)
 ZEST_PRIVATE zest_text_t zest_vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
 
 // --- Render graph debug functions ---
-ZEST_API void zest_PrintCompiledRenderGraph(zest_render_graph render_graph);
-
-//Submit a command queue to be executed on the GPU. Utilise the fence commands to know when the queue has finished executing: zest_CreateFence, zest_CheckFence,
-//zest_WaitForFence and zest_DestoryFence. Pass in a fence which will be signalled once the execution is done.
-ZEST_API void zest_SubmitRenderGraph(zest_render_graph render_graph, VkFence fence);
+ZEST_API void zest_PrintCompiledRenderGraph();
 
 //command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects for a more complex example
 typedef struct zest_command_queue_t {
@@ -3600,6 +3596,8 @@ typedef struct zest_renderer_t {
     VkCommandBuffer utility_command_buffer[ZEST_MAX_FIF];
 
     //Context data
+    zest_render_graph current_render_graph;
+    zest_render_graph *render_graphs;       //All the render graphs used this frame. Gets cleared at the beginning of each frame
     zest_command_queue_draw_commands current_draw_commands;
     zest_command_queue_compute current_compute_routine;
 
@@ -3623,7 +3621,6 @@ typedef struct zest_renderer_t {
     zest_map_computes computes;
     zest_map_shaders shaders;
     zest_map_samplers samplers;
-    zest_map_render_graph render_graphs;
 
     zest_command_queue active_command_queue;
     zest_command_queue_t empty_queue;

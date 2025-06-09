@@ -80,7 +80,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_SetPipelineTemplateVertShader(app->custom_pipeline, "custom_sprite_vert.spv", 0);
 	zest_SetPipelineTemplateFragShader(app->custom_pipeline, "custom_sprite_frag.spv", 0);
 	//We don't need a push constant for this example but we can set the push constants using the standard zest push constant struct
-	zest_SetPipelineTemplatePushConstantRange(app->custom_pipeline, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelineTemplatePushConstantRange(app->custom_pipeline, sizeof(zest_push_constants_t), 0, zest_shader_render_stages);
 
 	//Finalise the pipeline template ready for building the pipeline
 	zest_FinalisePipelineTemplate(app->custom_pipeline);
@@ -101,8 +101,6 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	zest_AcquireGlobalCombinedImageSampler(app->test_texture);
 	zest_AcquireGlobalCombinedImageSampler(app->color_ramps_texture);
-
-	app->render_graph = zest_NewRenderGraph("Custom sprite example", ZestRenderer->global_bindless_set_layout, 0);
 }
 
 void zest_DrawCustomSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_vec2 lerp_values) {
@@ -148,17 +146,17 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_SetInstanceDrawing(app->custom_layer, app->shader_resources, textures, 2, app->custom_pipeline);
 	zest_DrawCustomSprite(app->custom_layer, app->test_image, 800.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f, {app->lerp_value, app->mix_value});
 
-	if (zest_BeginRenderToScreen(app->render_graph)) {
+	if (zest_BeginRenderToScreen("Custom Sprite Render Graph")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
-		zest_resource_node texture = zest_ImportImageResourceReadOnly(app->render_graph, "Test Texture", app->test_texture);
-		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource(app->render_graph, app->custom_layer);
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
+		zest_resource_node texture = zest_ImportImageResourceReadOnly("Test Texture", app->test_texture);
+		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource(app->custom_layer);
 
 		//Add passes
-		zest_pass_node graphics_pass = zest_AddRenderPassNode(app->render_graph, "Graphics Pass");
-		zest_pass_node upload_instance_data = zest_AddTransferPassNode(app->render_graph, "Upload Instance Data");
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
 
 		//Connect buffers and textures
 		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer);
@@ -169,12 +167,12 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Add the tasks to run for the passes
 		zest_AddPassTask(upload_instance_data, zest_UploadInstanceLayerData, app->custom_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, app->custom_layer);
-		if (zest_imgui_AddToRenderGraph(app->render_graph, graphics_pass)) {
+		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
 			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
 		}
+		zest_EndRenderGraph();
+		zest_ExecuteRenderGraph();
 	}
-	zest_EndRenderGraph(app->render_graph);
-	zest_ExecuteRenderGraph(app->render_graph);
 }
 
 #if defined(_WIN32)

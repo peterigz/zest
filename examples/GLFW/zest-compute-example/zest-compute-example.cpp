@@ -110,8 +110,6 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Finally, make the compute shader using the builder
 	app->compute = zest_FinishCompute(&builder, "Particles Compute");
 
-	app->render_graph = zest_NewRenderGraph("Compute Particles", zest_GetGlobalBindlessLayout(), zest_GetGlobalBindlessSet(), false);
-
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);
 }
@@ -210,13 +208,13 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_imgui_UpdateBuffers();
 	} zest_EndTimerLoop(app->loop_timer)
 
-	if (zest_BeginRenderToScreen(app->render_graph)) {
+	if (zest_BeginRenderToScreen("Compute Particles")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(app->render_graph, "Swapchain Output");
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 
-		zest_resource_node particle_buffer = zest_ImportStorageBufferResource(app->render_graph, "particle buffer", app->particle_buffer);
-		zest_pass_node compute_pass = zest_AddComputePassNode(app->render_graph, app->compute, "Compute Particles");
-		zest_pass_node render_pass = zest_AddRenderPassNode(app->render_graph, "Graphics Pass");
+		zest_resource_node particle_buffer = zest_ImportStorageBufferResource("particle buffer", app->particle_buffer);
+		zest_pass_node compute_pass = zest_AddComputePassNode(app->compute, "Compute Particles");
+		zest_pass_node render_pass = zest_AddRenderPassNode("Graphics Pass");
 
 		zest_ConnectStorageBufferOutput(compute_pass, particle_buffer, zest_pipeline_compute_stage);
 		zest_ConnectVertexBufferInput(render_pass, particle_buffer);
@@ -225,16 +223,16 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_AddPassTask(compute_pass, RecordComputeCommands, app);
 		zest_AddPassTask(render_pass, RecordComputeSprites, app);
 
-		if (zest_imgui_AddToRenderGraph(app->render_graph, render_pass)) {
+		if (zest_imgui_AddToRenderGraph(render_pass)) {
 			zest_AddPassTask(render_pass, zest_imgui_DrawImGuiRenderPass, app);
 		}
 
-		zest_EndRenderGraph(app->render_graph);
+		zest_EndRenderGraph();
 		if (app->request_graph_print) {
-			zest_PrintCompiledRenderGraph(app->render_graph);
+			zest_PrintCompiledRenderGraph();
 			app->request_graph_print = false;
 		}
-		zest_ExecuteRenderGraph(app->render_graph);
+		zest_ExecuteRenderGraph();
 	}
 
 }

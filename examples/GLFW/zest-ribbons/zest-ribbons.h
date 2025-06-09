@@ -85,7 +85,6 @@ struct Ribbons {
 	zest_image ribbon_image;
 	zest_uint index_count;
 	float seconds_passed;
-	zest_render_graph render_graph;
 
 	ribbon ribbons[RIBBON_COUNT];
 	ribbon_instance ribbon_instances[RIBBON_COUNT];

@@ -40,8 +40,6 @@ struct ImGuiApp {
 	zest_uniform_buffer compute_uniform_buffer;
 	zest_compute compute;
 
-	zest_render_graph render_graph;
-
 	zest_timer loop_timer;
 
 	float frame_timer;

@@ -33,7 +33,6 @@ struct ImGuiApp {
 	zest_set_layout custom_descriptor_set_layout;
 	zest_descriptor_set_t custom_descriptor_set;
 	zest_shader_resources shader_resources;
-	zest_render_graph render_graph;
 
 	zest_vertex_input_descriptions custom_sprite_vertice_attributes = 0;	//Must be zero'd
 	zest_pipeline_template custom_pipeline;
