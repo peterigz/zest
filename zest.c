@@ -7569,6 +7569,7 @@ Render graph compiler index:
 [Set_producers_and_consumers]
 [Set_adjacency_list]
 [Process_dependency_queue]
+[Resource_journeys]
 [Create_command_batches]
 [Calculate_lifetime_of_resources]
 [Create_resource_barriers]
@@ -7701,29 +7702,21 @@ void zest_EndRenderGraph() {
 
     ZEST_ASSERT(zest_vec_size(render_graph->compiled_execution_order) == zest_vec_size(render_graph->passes));
 
-    // Create_command_batches
-    zest_submission_batch_t current_batch = { 0 }; 
-    int first_pass_index = render_graph->compiled_execution_order[0];
-    zest_pass_node pass_node = &render_graph->passes[first_pass_index];
-
-    current_batch.queue = pass_node->queue; 
-    current_batch.queue_family_index = pass_node->queue_family_index;
-    current_batch.queue_type = pass_node->queue_type;
-    current_batch.output_pass = ZEST_INVALID;
-    
-    zest_uint current_queue_family_index = -1;
-
-    zest_vec_foreach(execution_index, render_graph->compiled_execution_order) { 
+    //[Resource_journeys]
+    zest_vec_foreach(execution_index, render_graph->compiled_execution_order) {
         int current_pass_index = render_graph->compiled_execution_order[execution_index];
         zest_pass_node current_pass = &render_graph->passes[current_pass_index];
         current_pass->execution_order_index = execution_index;
 
-		//Calculate_lifetime_of_resources and also create a state for each resource and plot
+        zest_batch_key batch_key = { 0 };
+        batch_key.current_family_index = current_pass->queue_family_index;
+
+        //Calculate_lifetime_of_resources and also create a state for each resource and plot
         //it's journey through the render graph so that the appropriate barriers and semaphores
         //can be set up
         zest_map_foreach(input_idx, current_pass->inputs) {
             zest_resource_node resource_node = current_pass->inputs.data[input_idx].resource_node;
-            if (resource_node) { 
+            if (resource_node) {
                 resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, (zest_uint)execution_index);
                 resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, (zest_uint)execution_index);
             }
@@ -7738,7 +7731,7 @@ void zest_EndRenderGraph() {
         bool requires_new_batch = false;
         zest_map_foreach(output_idx, current_pass->outputs) {
             zest_resource_node resource_node = current_pass->outputs.data[output_idx].resource_node;
-            if (resource_node) { 
+            if (resource_node) {
                 resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, (zest_uint)execution_index);
                 resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, (zest_uint)execution_index);
             }
@@ -7747,44 +7740,96 @@ void zest_EndRenderGraph() {
             state.queue_family_index = current_pass->queue_family_index;
             state.usage = &current_pass->outputs.data[output_idx];
             zest_vec_linear_push(allocator, resource_node->journey, state);
+            zest_vec_foreach(adjacent_index, adjacency_list[current_pass_index].pass_indices) {
+                zest_uint consumer_pass_index = adjacency_list[current_pass_index].pass_indices[adjacent_index];
+                batch_key.next_pass_indexes |= (1ull << consumer_pass_index);
+                batch_key.next_family_indexes |= (1ull << render_graph->passes[consumer_pass_index].queue_family_index);
+            }
+        }
+    }
+
+    //Create_command_batches
+    //This is the most complicated section IMO. Because we can have 3 separate queues, graphics, compute and transfer, it means
+    //that we need to figure out how to group batches based on which passes are producing for other passes on other queues. To
+    //do this I use a batch key which consists of the current queue index for the curren pass, then 2 bit fields:
+    //next_pass_indexes:    This is a bit field of all the pass indexes that consume the output from the current pass. (yes that
+    //                      means that we have a maximum number of passes per render graph of 64.
+    //next_family_indexes:  A bit field of all the queues that consume the output from this pass.
+    //Once the key has been made it can be used to see if a batch needs to be split into separate batches, and then semaphores
+    //can be set up so that each submission by each batch signals and waits correctly.
+    //If a batch has a pass that produce for multiple queues then that batch will need multiple signal semaphores. In this case
+    //the next_family_indexes will have multiple bits set.
+
+    // --- Bootstrap the first batch from the very first pass ---
+    int first_pass_index = render_graph->compiled_execution_order[0];
+    zest_pass_node first_pass = &render_graph->passes[first_pass_index];
+
+    // Create the first submission batch.
+    zest_submission_batch_t current_batch = { 0 };
+    current_batch.queue = first_pass->queue;
+    current_batch.queue_family_index = first_pass->queue_family_index;
+    current_batch.queue_type = first_pass->queue_type;
+
+    zest_vec_linear_push(allocator, current_batch.pass_indices, first_pass_index);
+    first_pass->batch_index = 0; // The first pass is in the first batch (index 0)
+
+    // Generate the key for the first pass, this key now defines the "signature" of our current_batch.
+    zest_batch_key current_batch_key = { 0 };
+    current_batch_key.current_family_index = first_pass->queue_family_index;
+
+    zest_map_foreach(output_idx, first_pass->outputs) {
+        zest_vec_foreach(adjacent_index, adjacency_list[first_pass_index].pass_indices) {
+            zest_uint consumer_pass_index = adjacency_list[first_pass_index].pass_indices[adjacent_index];
+            zest_pass_node consumer_pass = &render_graph->passes[consumer_pass_index];
+            current_batch_key.next_pass_indexes |= (1ull << consumer_pass_index);
+            current_batch_key.next_family_indexes |= (1ull << consumer_pass->queue_family_index);
+        }
+    }
+
+    for (zest_uint execution_index = 1; execution_index < zest_vec_size(render_graph->compiled_execution_order); ++execution_index) {
+        int current_pass_index = render_graph->compiled_execution_order[execution_index];
+        zest_pass_node current_pass = &render_graph->passes[current_pass_index];
+
+        // Generate the key for the current pass.
+        zest_batch_key batch_key = { 0 };
+
+        batch_key.current_family_index = current_pass->queue_family_index;
+        zest_map_foreach(output_idx, current_pass->outputs) {
+            zest_vec_foreach(adjacent_index, adjacency_list[current_pass_index].pass_indices) {
+                zest_uint consumer_pass_index = adjacency_list[current_pass_index].pass_indices[adjacent_index];
+				zest_pass_node consumer_pass = &render_graph->passes[consumer_pass_index];
+                batch_key.next_pass_indexes |= (1ull << consumer_pass_index);
+				batch_key.next_family_indexes |= (1ull << consumer_pass->queue_family_index);
+            }
         }
 
-        // Condition to start a new batch:
-        // - Different queue family index
-        // - OR Different actual VkQueue handle (even if same family but currently we don't have multi queues)
-        // - OR an explicit dependency that requires a semaphore (more advanced, e.g., a pass flag)
-        if (current_pass->queue_family_index != current_batch.queue_family_index ||
-            current_pass->queue != current_batch.queue ||
-            requires_new_batch 
-            ) {
+        // Compare the pass's key to the current batch's key.
+        if (memcmp(&batch_key, &current_batch_key, sizeof(zest_batch_key)) == 0) {
+            // --- KEYS MATCH: Add this pass to the current batch ---
+            zest_vec_linear_push(allocator, current_batch.pass_indices, current_pass_index);
+        } else {
+            // --- KEYS DIFFER: The current batch must end here. ---
 
-            // Finalize and add the previous batch (current_batch)
-            // We need to create a semaphore for each queue that contains a batch that depends on any of the
-            // outputs from this batch.
-            VkSemaphore semaphore_to_signal = zest__acquire_semaphore();
-            zest_vec_push(ZestRenderer->used_semaphores[ZEST_FIF], semaphore_to_signal);    //For returning to the free list when done with 
-            current_batch.internal_signal_semaphore = semaphore_to_signal;
             zest_vec_linear_push(allocator, render_graph->submissions, current_batch);
 
-            // Start a new batch
-            current_batch = (zest_submission_batch_t){ 0 };
+            current_batch = (zest_submission_batch_t){ 0 }; // Clear it
             current_batch.queue = current_pass->queue;
             current_batch.queue_family_index = current_pass->queue_family_index;
-            current_batch.pass_indices = NULL;
+            current_batch.queue_type = current_pass->queue_type;
+            zest_vec_linear_push(allocator, current_batch.pass_indices, current_pass_index);
+
+            current_batch_key = batch_key;
         }
-        current_pass->batch_index = zest_vec_size(render_graph->submissions);
-        zest_vec_linear_push(allocator, current_batch.pass_indices, current_pass_index);
+		current_pass->batch_index = zest_vec_size(render_graph->submissions);
     }
+
+    zest_vec_linear_push(allocator, render_graph->submissions, current_batch);
 
     zest_vec_foreach(execution_index, render_graph->compiled_execution_order) {
         int current_pass_index = render_graph->compiled_execution_order[execution_index];
         zest_pass_node current_pass = &render_graph->passes[current_pass_index];
         current_pass->execution_order_index = execution_index;
     }
-
-    // Add the very last batch being built
-    current_batch.internal_signal_semaphore = 0; 
-    zest_vec_linear_push(allocator, render_graph->submissions, current_batch);
 
     //Create_semaphores
     //Now that the batches have been created we need to figure out the dependencies and set up the semaphore signalling

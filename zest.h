@@ -2520,6 +2520,12 @@ typedef struct zest_pass_adjacency_list_t {
     int *pass_indices;
 } zest_pass_adjacency_list_t;
 
+typedef struct zest_batch_key {
+	zest_u64 next_pass_indexes;
+	zest_uint current_family_index;
+	zest_u64 next_family_indexes;
+} zest_batch_key;
+
 typedef struct zest_rg_pass_resource_usage_desc_t {
     zest_resource_node resource_node;
     VkImageLayout         image_layout;
@@ -2662,7 +2668,6 @@ typedef struct zest_submission_batch_t {
     VkSemaphore internal_signal_semaphore;
     VkSemaphore *wait_semaphores;
     VkPipelineStageFlags *wait_dst_stage_masks;
-    zest_uint output_pass;
 } zest_submission_batch_t;
 
 typedef struct zest_render_graph_t {
