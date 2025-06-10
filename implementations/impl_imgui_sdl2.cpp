@@ -1,20 +1,62 @@
 #include "impl_imgui_sdl2.h"
 #include "imgui_internal.h"
 
-void zest_imgui_Initialise(zest_imgui_t *imgui_layer_info) {
+zest_imgui zest_imgui_Initialise() {
+	zest_imgui imgui_info = &ZestRenderer->imgui_info;
+	ZEST_ASSERT(!imgui_info->vertex_staging_buffer);	//imgui already initialised!
+	ZEST_ASSERT(!imgui_info->index_staging_buffer);
+	memset(imgui_info, 0, sizeof(zest_imgui_t));
+	imgui_info->magic = zest_INIT_MAGIC;
 	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO();
+	ImGuiIO &io = ImGui::GetIO();
 	io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());
-	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
-	unsigned char* pixels;
+	io.DisplayFramebufferScale = ImVec2(ZestRenderer->dpi_scale, ZestRenderer->dpi_scale);
+	unsigned char *pixels;
 	int width, height;
 	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 	int upload_size = width * height * 4 * sizeof(char);
 
 	zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-	imgui_layer_info->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
-	zest_image font_image = zest_AddTextureImageBitmap(imgui_layer_info->font_texture, &font_bitmap);
-	zest_ProcessTextureImages(imgui_layer_info->font_texture);
-	io.Fonts->SetTexID(font_image);
+	imgui_info->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
+	zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, &font_bitmap);
+	zest_ProcessTextureImages(imgui_info->font_texture);
+
+	//ImGuiPipeline
+	zest_pipeline_template imgui_pipeline = zest_CreatePipelineTemplate("pipeline_imgui");
+	imgui_pipeline->scissor.offset.x = 0;
+	imgui_pipeline->scissor.offset.y = 0;
+	zest_SetPipelineTemplatePushConstantRange(imgui_pipeline, sizeof(zest_push_constants_t), 0, zest_shader_render_stages);
+	zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
+	zest_AddVertexInputDescription(imgui_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos)));    // Location 0: Position
+	zest_AddVertexInputDescription(imgui_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv)));    // Location 1: UV
+	zest_AddVertexInputDescription(imgui_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col)));    // Location 2: Color
+
+	zest_SetText(&imgui_pipeline->vertShaderFile, "imgui_vert.spv");
+	zest_SetText(&imgui_pipeline->fragShaderFile, "imgui_frag.spv");
+
+	imgui_pipeline->scissor.extent = zest_GetSwapChainExtent();
+	imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
+	zest_ClearPipelineTemplateDescriptorLayouts(imgui_pipeline);
+	zest_AddPipelineTemplateDescriptorLayout(imgui_pipeline, ZestRenderer->texture_debug_layout->vk_layout);
+	zest_FinalisePipelineTemplate(imgui_pipeline);
+
+	imgui_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	imgui_pipeline->rasterizer.cullMode = VK_CULL_MODE_NONE;
+	imgui_pipeline->rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	imgui_pipeline->inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+	imgui_pipeline->colorBlendAttachment = zest_ImGuiBlendState();
+	imgui_pipeline->depthStencil.depthTestEnable = VK_FALSE;
+	imgui_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
+
+	io.Fonts->SetTexID((ImTextureID)font_image);
+
+	imgui_info->pipeline = imgui_pipeline;
+
+	imgui_info->vertex_staging_buffer = zest_CreateStagingBuffer(1024 * 1024, 0);
+	imgui_info->index_staging_buffer = zest_CreateStagingBuffer(1024 * 1024, 0);
 	ImGui_ImplSDL2_InitForVulkan((SDL_Window*)ZestApp->window->window_handle);
+
+	return imgui_info;
 }

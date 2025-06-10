@@ -15,6 +15,7 @@ struct ImGuiApp {
 	zest_texture test_texture;
 	zest_image test_image;
 	zest_timer timer;
+	bool request_graph_print;
 };
 
 void InitImGuiApp(ImGuiApp *app);
