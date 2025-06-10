@@ -7835,46 +7835,69 @@ void zest_EndRenderGraph() {
     //Now that the batches have been created we need to figure out the dependencies and set up the semaphore signalling
     //in each batch (if there's more then one render batch)
     if (zest_vec_size(render_graph->submissions) > 1) {
+
+        // A temporary map to track which semaphore we've created for each
+        // dependency between two batches.
+        zest_hash_map(VkSemaphore) dependency_semaphores_map;
+        dependency_semaphores_map dependency_semaphores = { 0 };
+
         zest_vec_foreach(resource_index, render_graph->resources) {
             zest_resource_node resource = &render_graph->resources[resource_index];
             zest_pass_node producer_pass = resource->producer_pass_idx != -1 ? &render_graph->passes[resource->producer_pass_idx] : NULL;
+
             if (producer_pass) {
                 zest_vec_foreach(resource_consumer_index, resource->consumer_pass_indices) {
                     zest_uint consumer_pass_index = resource->consumer_pass_indices[resource_consumer_index];
                     zest_pass_node consumer_pass = &render_graph->passes[consumer_pass_index];
+
                     if (consumer_pass->batch_index != producer_pass->batch_index) {
-                        zest_submission_batch_t *producer_batch = &render_graph->submissions[producer_pass->batch_index];
-                        zest_submission_batch_t *consumer_batch = &render_graph->submissions[consumer_pass->batch_index];
+                        zest_uint producer_idx = producer_pass->batch_index;
+                        zest_uint consumer_idx = consumer_pass->batch_index;
+                        zest_submission_batch_t *producer_batch = &render_graph->submissions[producer_idx];
+                        zest_submission_batch_t *consumer_batch = &render_graph->submissions[consumer_idx];
 
-                        //Create a signal semphore in the producer batch for each pass that has a different queue
-                        //in the consumer batch
-                        if (!producer_batch->internal_signal_semaphore) {
-                            VkSemaphore internal_semaphore = zest__acquire_semaphore();
-                            zest_vec_push(ZestRenderer->used_semaphores[ZEST_FIF], internal_semaphore);
-                            producer_batch->internal_signal_semaphore = internal_semaphore;
-                        }
+                        // Create a unique key for the dependency arc from producer batch to consumer batch.
+                        uint64_t dependency_key = ((uint64_t)producer_idx << 32) | consumer_idx;
 
-                        bool already_waiting = false;
-                        zest_vec_foreach(wait_index, consumer_batch->wait_semaphores) {
-                            VkSemaphore wait_semaphore = consumer_batch->wait_semaphores[wait_index];
-							if (wait_semaphore == producer_batch->internal_signal_semaphore) {
-								already_waiting = true;
-								if (zest_map_valid_name(consumer_pass->inputs, resource->name)) {
-									zest_resource_usage_t *usage = zest_map_at(consumer_pass->inputs, resource->name);
-									consumer_batch->wait_dst_stage_masks[wait_index] |= usage->stage_mask;
-								}
-								break;
-							}
-                        }
-                        if (!already_waiting) {
-							zest_vec_linear_push(allocator, consumer_batch->wait_semaphores, producer_batch->internal_signal_semaphore);
-							if (zest_map_valid_name(consumer_pass->inputs, resource->name)) {
-								zest_resource_usage_t *usage = zest_map_at(consumer_pass->inputs, resource->name);
-								zest_vec_linear_push(allocator, consumer_batch->wait_dst_stage_masks, usage->stage_mask);
-							} else {
-								ZEST_APPEND_LOG(ZestDevice->log_path.str, "Usage not found for resource %s in pass %s when trying to build semaphore signal dependencies!", resource->name, consumer_pass->name);
-								ZEST_ASSERT(0); //Error compiling render graph when trying to create wait semaphore, check log for details
-							}
+                        VkSemaphore semaphore_for_this_dependency = 0;
+
+                        // Have we already created a semaphore for this specific dependency (A->B)?
+                        if (!zest_map_valid_key(dependency_semaphores, dependency_key)) {
+                            // --- First time we see this dependency arc ---
+
+                            // 1. Acquire a new semaphore.
+                            VkSemaphore new_semaphore = zest__acquire_semaphore();
+                            zest_vec_push(ZestRenderer->used_semaphores[ZEST_FIF], new_semaphore);
+                            semaphore_for_this_dependency = new_semaphore;
+
+                            // 2. Log it in our map.
+                            zest_map_insert_linear_key(allocator, dependency_semaphores, dependency_key, new_semaphore);
+
+                            // 3. Add it to the producer's list of semaphores to SIGNAL.
+                            zest_vec_linear_push(allocator, producer_batch->signal_semaphores, new_semaphore);
+
+                            // 4. Add it to the consumer's list of semaphores to WAIT on.
+                            zest_vec_linear_push(allocator, consumer_batch->wait_semaphores, new_semaphore);
+
+                            // 5. Add its corresponding stage mask.
+                            zest_resource_usage_t *usage = zest_map_at(consumer_pass->inputs, resource->name);
+                            zest_vec_linear_push(allocator, consumer_batch->wait_dst_stage_masks, usage->stage_mask);
+
+                        } else {
+                            // --- We already have a semaphore for this dependency arc ---
+                            // This happens if another resource also travels from this same producer batch
+                            // to this same consumer batch. We don't need a new semaphore.
+
+                            semaphore_for_this_dependency = *zest_map_at_key(dependency_semaphores, dependency_key);
+
+                            // We just need to find the existing wait entry and merge the pipeline stage flags.
+                            zest_vec_foreach(wait_index, consumer_batch->wait_semaphores) {
+                                if (consumer_batch->wait_semaphores[wait_index] == semaphore_for_this_dependency) {
+                                    zest_resource_usage_t *usage = zest_map_at(consumer_pass->inputs, resource->name);
+                                    consumer_batch->wait_dst_stage_masks[wait_index] |= usage->stage_mask;
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -7957,8 +7980,8 @@ void zest_EndRenderGraph() {
         zest_submission_batch_t *last_batch = &zest_vec_back(render_graph->submissions);
         // This assumes the last batch's *primary* signal is renderFinished.
         // If it also needs to signal internal semaphores, `signal_semaphore` needs to become a list.
-        if (!last_batch->internal_signal_semaphore) {
-            last_batch->internal_signal_semaphore = ZestRenderer->render_finished_semaphore[ZestRenderer->current_image_frame];
+        if (!last_batch->signal_semaphores) {
+            zest_vec_linear_push(allocator, last_batch->signal_semaphores, ZestRenderer->render_finished_semaphore[ZestRenderer->current_image_frame]);
         } else {
             // This case needs `p_signal_semaphores` to be a list in your batch struct.
             // You would then add ZestRenderer->frame_sync[ZEST_FIF].render_finished_semaphore to that list.
@@ -8653,19 +8676,21 @@ void zest_ExecuteRenderGraph() {
 			submit_info.pWaitDstStageMask = batch->wait_dst_stage_masks; // Needs to be correctly set
         }
 
-        VkSemaphore batch_signal_semaphore = batch->internal_signal_semaphore;
+        VkSemaphore *batch_signal_semaphores = 0;
+        zest_vec_foreach(signal_index, batch->signal_semaphores) {
+            zest_vec_linear_push(allocator, batch_signal_semaphores, batch->signal_semaphores[signal_index]);
+        }
         zest_vec_linear_push(allocator, signal_semaphores, batch->queue->semaphore[ZEST_FIF]);
 
         //If this is the last batch then add the fence that tells the cpu to wait each frame
         VkFence submit_fence = VK_NULL_HANDLE;
         if (batch_index == zest_vec_size(render_graph->submissions) - 1) { 
-            batch_signal_semaphore = ZestRenderer->render_finished_semaphore[ZestRenderer->current_image_frame];
             submit_fence = ZestRenderer->fif_fence[ZEST_FIF];
         }
 
         //If the batch is signalling then add that to the signal semaphores along with the queue timeline semaphore
-        if (batch_signal_semaphore != 0) {
-			zest_vec_linear_push(allocator, signal_semaphores, batch_signal_semaphore);
+        zest_vec_foreach(signal_index, batch_signal_semaphores) {
+			zest_vec_linear_push(allocator, signal_semaphores, batch_signal_semaphores[signal_index]);
 			zest_vec_linear_push(allocator, signal_values, 0);
         }
 
@@ -8963,9 +8988,11 @@ void zest_PrintCompiledRenderGraph() {
         }
 
         // --- Print Signal Semaphores for the Batch ---
-        if (batch->internal_signal_semaphore != 0) {
-            //ZEST_PRINT("  Signals Semaphores:");
-			ZEST_PRINT("  Signals Semaphores: %p", (void *)batch->internal_signal_semaphore);
+        if (batch->signal_semaphores != 0) {
+            ZEST_PRINT("  Signal Semaphores:");
+            zest_vec_foreach(signal_index, batch->signal_semaphores) {
+                ZEST_PRINT("  %p", (void *)batch->signal_semaphores[signal_index]);
+            }
         }
         ZEST_PRINT(""); // End of batch
     }

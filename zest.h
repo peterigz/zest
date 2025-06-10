@@ -2665,7 +2665,7 @@ typedef struct zest_submission_batch_t {
     zest_device_queue_type queue_type;
     zest_uint *pass_indices;
     VkCommandBuffer command_buffer;
-    VkSemaphore internal_signal_semaphore;
+    VkSemaphore *signal_semaphores;
     VkSemaphore *wait_semaphores;
     VkPipelineStageFlags *wait_dst_stage_masks;
 } zest_submission_batch_t;
