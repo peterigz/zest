@@ -1923,6 +1923,7 @@ void zest__create_logical_device() {
     VkPhysicalDeviceFeatures device_features = { 0 };
     device_features.samplerAnisotropy = VK_TRUE;
     device_features.multiDrawIndirect = VK_TRUE;
+    device_features.shaderInt64 = VK_TRUE;
     //device_features.wideLines = VK_TRUE;
     //device_features.dualSrcBlend = VK_TRUE;
     //device_features.vertexPipelineStoresAndAtomics = VK_TRUE;
@@ -1944,6 +1945,7 @@ void zest__create_logical_device() {
     device_features_12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
     device_features_12.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
     device_features_12.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
+    device_features_12.bufferDeviceAddress = VK_TRUE;
     device_features_12.timelineSemaphore = VK_TRUE;
 
     //I put this in when trying to get RenderDoc to work but it turned out to be unrelated
@@ -2636,6 +2638,12 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
     buffer->descriptor.range = buffer->size;
 
     ZEST_VK_CHECK_RESULT(zest__bind_memory(buffer, 0));
+
+    if (ZEST__FLAGGED(usage_flags, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)) {
+        VkBufferDeviceAddressInfo info = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+        info.buffer = buffer->buffer;
+        buffer->base_address = vkGetBufferDeviceAddress(ZestDevice->logical_device, &info);
+    }
 }
 
 void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer) {
@@ -2755,6 +2763,7 @@ void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_de
 void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer_t* buffer, zest_bool is_host_visible) {
     buffer->buffer_allocator = buffer_allocator;
     buffer->memory_in_use = 0;
+    buffer->device_address = buffer->memory_pool->base_address + buffer->memory_offset;
     if (is_host_visible) {
         buffer->data = (void*)((char*)buffer->memory_pool->mapped + buffer->memory_offset);
         buffer->end = (void*)((char*)buffer->data + buffer->size);
@@ -2944,6 +2953,16 @@ zest_buffer zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buff
     return buffer;
 }
 
+zest_buffer zest_CreateCPUStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
+    zest_buffer_info_t buffer_info = zest_CreateCPUVisibleStorageBufferInfo();
+    zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
+    if (staging_buffer) {
+        ZEST_ASSERT(buffer->size >= staging_buffer->size);
+        zest_CopyBufferOneTime(staging_buffer, buffer, size);
+    }
+    return buffer;
+}
+
 zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer) {
     zest_buffer_info_t buffer_info = zest_CreateComputeVertexBufferInfo();
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
@@ -3112,7 +3131,7 @@ zest_buffer_info_t zest_CreateIndexBufferInfo(zest_bool cpu_visible) {
 
 zest_buffer_info_t zest_CreateIndexBufferInfoWithStorage(zest_bool cpu_visible) {
     zest_buffer_info_t buffer_info = { 0 };
-    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     if (cpu_visible) {
         buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
     }
@@ -3136,7 +3155,7 @@ zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible) {
 
 zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible) {
     zest_buffer_info_t buffer_info = { 0 };
-    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     if (cpu_visible) {
         buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
     }
@@ -3148,35 +3167,35 @@ zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible)
 
 zest_buffer_info_t zest_CreateCPUVisibleStorageBufferInfo() {
     zest_buffer_info_t buffer_info = { 0 };
-    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
     return buffer_info;
 }
 
 zest_buffer_info_t zest_CreateStorageBufferInfo() {
     zest_buffer_info_t buffer_info = { 0 };
-    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     return buffer_info;
 }
 
 zest_buffer_info_t zest_CreateStorageBufferInfoWithSrcFlag() {
     zest_buffer_info_t buffer_info = { 0 };
-    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     return buffer_info;
 }
 
 zest_buffer_info_t zest_CreateComputeVertexBufferInfo() {
     zest_buffer_info_t buffer_info = { 0 };
-    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     return buffer_info;
 }
 
 zest_buffer_info_t zest_CreateComputeIndexBufferInfo() {
     zest_buffer_info_t buffer_info = { 0 };
-    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     return buffer_info;
 }
@@ -3362,11 +3381,17 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     //Create a global bindless descriptor set for storage buffers and texture samplers
     zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder();
     zest_AddLayoutBuilderCombinedImageSamplerBindless(&layout_builder, 0, create_info->bindless_combined_sampler_count);
-    zest_AddLayoutBuilderStorageBufferBindless(&layout_builder, 1, create_info->bindless_storage_buffer_count, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    zest_AddLayoutBuilderStorageBufferBindless(&layout_builder, 1, 1, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     zest_AddLayoutBuilderSamplerBindless(&layout_builder, 2, create_info->bindless_sampler_count);
     zest_AddLayoutBuilderSampledImageBindless(&layout_builder, 3, create_info->bindless_sampled_image_count);
     ZestRenderer->global_bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Zest Descriptor Layout");
     ZestRenderer->global_set = zest_CreateBindlessSet(ZestRenderer->global_bindless_set_layout);
+
+    ZestRenderer->global_address_buffer = zest_CreateCPUVisibleStorageDescriptorBuffer(sizeof(uint64_t) * create_info->bindless_storage_buffer_count);
+	VkDescriptorBufferInfo buffer_info = ZestRenderer->global_address_buffer->descriptor_info;
+	VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(ZestRenderer->global_set->vk_descriptor_set, &buffer_info, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+	write.dstArrayElement = 0;
+	vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create pipeline cache");
     zest__create_pipeline_cache();
@@ -7998,6 +8023,7 @@ void zest_EndRenderGraph() {
 
     zest_uint size_of_exe_order = zest_vec_size(render_graph->compiled_execution_order);
     VkWriteDescriptorSet *desriptor_writes = 0;
+
     //Alocate_transient_buffers
     zest_vec_foreach(r, render_graph->resources) {
         zest_resource_node resource = &render_graph->resources[r];
@@ -8033,19 +8059,16 @@ void zest_EndRenderGraph() {
                 resource->last_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
                 if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_is_bindless) && ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
                     resource->bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, resource->binding_number);
-                    VkDescriptorBufferInfo buffer_info;
-                    buffer_info.buffer = resource->storage_buffer->memory_pool->buffer;
-                    buffer_info.offset = resource->storage_buffer->memory_offset;
-                    buffer_info.range = resource->storage_buffer->size;
-					VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(render_graph->bindless_set->vk_descriptor_set, &buffer_info, resource->binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-					write.dstArrayElement = resource->bindless_index;
-					vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
-                    zest_binding_index_for_release_t binding_index = { render_graph->bindless_layout, resource->bindless_index, resource->binding_number };
-                    zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
+                    zest_u64 *addresses = (zest_u64 *)ZestRenderer->global_address_buffer->buffer->data;
+					zest_binding_index_for_release_t binding_index = { render_graph->bindless_layout, resource->bindless_index, resource->binding_number };
+					zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
+                    addresses[binding_index.binding_index] = resource->storage_buffer->device_address;
                 }
             }
         }
     }
+
+    
 
     zest_vec_linear_resize(allocator, render_graph->pass_exec_details_list, zest_vec_size(render_graph->compiled_execution_order));
     memset(render_graph->pass_exec_details_list, 0, zest_vec_size_in_bytes(render_graph->pass_exec_details_list));
@@ -9420,6 +9443,14 @@ void zest_AddPassTask(zest_pass_node pass, zest_rg_execution_callback callback, 
     zest_pass_execution_callback_t callback_data;
     callback_data.execution_callback = callback;
     callback_data.user_data = user_data;
+    zest_vec_linear_push(ZestRenderer->render_graph_allocator, pass->execution_callbacks, callback_data);
+}
+
+void zest_AddPassInstanceLayer(zest_pass_node pass, zest_layer layer) {
+    ZEST_CHECK_HANDLE(pass);        //Not a valid pass node!
+    zest_pass_execution_callback_t callback_data;
+    callback_data.execution_callback = zest_DrawInstanceLayer;
+    callback_data.user_data = layer;
     zest_vec_linear_push(ZestRenderer->render_graph_allocator, pass->execution_callbacks, callback_data);
 }
 
@@ -13867,7 +13898,7 @@ void zest_ResetLayer(zest_layer layer) {
 
 void zest_ResetInstanceLayer(zest_layer layer) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    ZEST_FIF = (ZEST_FIF + 1) % ZEST_MAX_FIF;
+    //ZEST_FIF = (ZEST_FIF + 1) % ZEST_MAX_FIF;
     zest_ResetInstanceLayerDrawing(layer);
 }
 

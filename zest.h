@@ -2266,6 +2266,7 @@ typedef struct zest_device_memory_pool_t {
     int magic;
     VkBuffer buffer;
     VkDeviceMemory memory;
+    VkDeviceAddress base_address;
     VkDeviceSize size;
     VkDeviceSize minimum_allocation_size;
     VkDeviceSize alignment;
@@ -2292,6 +2293,7 @@ typedef struct zest_buffer_t {
     VkDeviceSize size;
     VkDeviceSize memory_offset;
     zest_device_memory_pool memory_pool;
+    VkDeviceAddress device_address;
     zest_buffer_allocator buffer_allocator;
     zest_size memory_in_use;
     void *data;
@@ -2745,6 +2747,7 @@ ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
 // --- Add callback tasks to passes
 ZEST_API void zest_AddPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
+ZEST_API void zest_AddPassInstanceLayer(zest_pass_node pass, zest_layer layer);
 ZEST_API void zest_ClearPassTasks(zest_pass_node pass);
 
 // --- Add Transient resources ---
@@ -3583,6 +3586,7 @@ typedef struct zest_renderer_t {
 
     zest_set_layout global_bindless_set_layout;
     zest_descriptor_set global_set;
+    zest_descriptor_buffer global_address_buffer;
 
     VkImage *swapchain_images;
     VkImageView *swapchain_image_views;
@@ -4308,6 +4312,8 @@ ZEST_API zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer stagi
 ZEST_API zest_buffer zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 //Create a general storage buffer mainly for use in a compute shader
 ZEST_API zest_buffer zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+//Create a general storage buffer that is visible to the CPU for more convenient updating
+ZEST_API zest_buffer zest_CreateCPUStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 //Create a vertex buffer that is flagged for storage so that you can use it in a compute shader
 ZEST_API zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
 //Create an index buffer that is flagged for storage so that you can use it in a compute shader
@@ -4316,6 +4322,7 @@ ZEST_API zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffe
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
+ZEST_API zest_buffer_info_t zest_CreateCPUVisibleStorageBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfoWithSrcFlag(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeIndexBufferInfo(void);

@@ -1,4 +1,5 @@
 #version 450
+#extension GL_EXT_nonuniform_qualifier : require
 //This is an all in one billboard vertex shader which can handle both free align and align to camera.
 //If you have an effect with multiple emitters using both align methods then you can use this shader to 
 //draw the effect with one draw call. Otherwise if your effect only uses one or the other you can optimise by
@@ -48,21 +49,21 @@ layout(set = 0, binding = 0) uniform UboView
     uint millisecs;
 } ub;
 
-layout(set = 1, binding = 0) readonly buffer InImageData {
-	ImageData image_data[];
-};
+layout (std430, set = 1, binding = 1) readonly buffer ImageData {
+	ImageData data[];
+} in_image_data[];
 
-layout(set = 1, binding = 1) readonly buffer InSpriteInstances {
-	BillboardInstance prev_billboards[];
-};
+layout (std430, set = 1, binding = 1) readonly buffer BillboardInstances {
+	BillboardInstance data[];
+} in_prev_billboards[];
 
-layout(push_constant) uniform quad_index
+layout (push_constant) uniform quad_index
 {
-    mat4 model;
     vec4 parameters1;
-    vec4 parameters2;
-    vec4 parameters3;
-    vec4 camera;
+    uint particle_texture_index;
+    uint color_ramp_texture_index;
+    uint image_data_index;
+    uint prev_billboards_index;
 } pc;
 
 //Vertex
@@ -104,27 +105,35 @@ void main() {
     //  It maybe cancelled becuase too much time passed since the last frame
 	float interpolate_is_active = float((texture_indexes & 0x00008000) >> 15);
 
-	uint prev_size_packed = prev_billboards[prev_index].size_handle.x;
+	uint prev_size_packed = in_prev_billboards[pc.prev_billboards_index].data[prev_index].size_handle.x;
 
+    /*
     #ifdef LOW_UPDATE_RATE
     //For updating particles at 30 fps or less you can improve the first frame of particles by doing the following ternary operations to effectively cancel the interpolation:
     //define LOW_UPDATE_RATE to compile with this instead.
 	vec2 lerped_size = interpolate_is_active == 1 ? vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value) : size;
 	lerped_size = mix(lerped_size, size, ub.lerp.x);
-	vec3 lerped_position = interpolate_is_active == 1 ? mix(prev_billboards[prev_index].position.xyz, position.xyz, ub.lerp.x) : position.xyz;
-	vec3 lerped_rotation = interpolate_is_active == 1 ? mix(prev_billboards[prev_index].rotations, rotations, ub.lerp.x) : rotations;
+	vec3 lerped_position = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub.lerp.x) : position.xyz;
+	vec3 lerped_rotation = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.lerp.x) : rotations;
     #else
     //Otherwise just hide the first frame of the particle which is a little more efficient:
 	vec2 lerped_size = vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value);
 	lerped_size = mix(lerped_size, size, ub.lerp.x) * interpolate_is_active;
-	vec3 lerped_position = mix(prev_billboards[prev_index].position.xyz, position.xyz, ub.lerp.x);
-	vec3 lerped_rotation = mix(prev_billboards[prev_index].rotations, rotations, ub.lerp.x);
+	vec3 lerped_position = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub.lerp.x);
+	vec3 lerped_rotation = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.lerp.x);
     #endif
-    vec3 motion = position.xyz - prev_billboards[prev_index].position.xyz;
+    vec3 motion = position.xyz - in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz;
+    */
+
+    vec3 motion = vec3(0.0);
     motion.z += 0.000001;
     float travel_distance = length(motion); // Calculate the actual distance traveled
 	bool has_alignment = dot(alignment, alignment) > 0;
     float stretch_factor = position.w * interpolate_is_active;
+
+    vec3 lerped_position = position;
+    vec3 lerped_rotation = rotations;
+    vec2 lerped_size = size;
 
     motion = normalize(motion); // Normalize for direction
     vec3 final_alignment = has_alignment ? alignment : motion; // Use normalized motion or specified alignment
@@ -151,7 +160,7 @@ void main() {
 
     vec2 uvs[4];
 	uint image_index = texture_indexes & 0x00001FFF;
-	vec4 uv = image_data[image_index].uv;
+	vec4 uv = in_image_data[pc.image_data_index].data[image_index].uv;
     uvs[0].x = uv.x; uvs[0].y = uv.y;
     uvs[1].x = uv.z; uvs[1].y = uv.y;
     uvs[2].x = uv.x; uvs[2].y = uv.w;
