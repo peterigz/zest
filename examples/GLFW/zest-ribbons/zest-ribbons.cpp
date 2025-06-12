@@ -445,10 +445,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		VkClearColorValue clear_color = { {0.f} };
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 
-		zest_resource_node ribbon_segment_buffer = zest_AddTransientStorageBufferResource("Ribbon Segment Buffer", zest_GetFrameStageBufferMemoryInUse(app->ribbon_segment_staging_buffer), true);
-		zest_resource_node ribbon_instance_buffer = zest_AddTransientStorageBufferResource("Ribbon Instance Buffer", zest_GetFrameStageBufferMemoryInUse(app->ribbon_instance_staging_buffer), true);
-		zest_resource_node ribbon_vertex_buffer = zest_AddTransientVertexBufferResource("Ribbon Vertex Buffer", app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex), true, true);
-		zest_resource_node ribbon_index_buffer = zest_AddTransientIndexBufferResource("Ribbon Index Buffer", app->index_count * sizeof(zest_uint), true, true);
+		zest_resource_node ribbon_segment_buffer = zest_AddTransientStorageBufferResource("Ribbon Segment Buffer", zest_GetFrameStageBufferMemoryInUse(app->ribbon_segment_staging_buffer), zest_SSBOBinding("Segment Buffers"));
+		zest_resource_node ribbon_instance_buffer = zest_AddTransientStorageBufferResource("Ribbon Instance Buffer", zest_GetFrameStageBufferMemoryInUse(app->ribbon_instance_staging_buffer), zest_SSBOBinding("Ribbon Instance Buffers"));
+		zest_resource_node ribbon_vertex_buffer = zest_AddTransientVertexBufferResource("Ribbon Vertex Buffer", app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex), true, zest_SSBOBinding("Vertex Buffers"));
+		zest_resource_node ribbon_index_buffer = zest_AddTransientIndexBufferResource("Ribbon Index Buffer", app->index_count * sizeof(zest_uint), true, zest_SSBOBinding("Index Buffers"));
 
 		zest_pass_node compute_pass = zest_AddComputePassNode(app->ribbon_compute, "Compute Ribbons");
 		zest_pass_node transfer_pass = zest_AddTransferPassNode("Transfer Ribbon Data");
@@ -497,6 +497,10 @@ int main(void) {
 	zest_implglfw_SetCallbacks(&create_info);
 
 	Ribbons imgui_app{};
+	zest_RegisterSSBOBuffer(&create_info, "Segment Buffers", 2, zest_shader_compute_stage);
+	zest_RegisterSSBOBuffer(&create_info, "Ribbon Instance Buffers", 2, zest_shader_compute_stage);
+	zest_RegisterSSBOBuffer(&create_info, "Vertex Buffers", 2, zest_shader_compute_stage | zest_shader_vertex_stage);
+	zest_RegisterSSBOBuffer(&create_info, "Index Buffers", 2, zest_shader_compute_stage | zest_shader_vertex_stage);
 
 	//Initialise Zest
 	zest_Initialise(&create_info);

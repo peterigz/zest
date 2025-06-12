@@ -69,7 +69,7 @@ struct Ribbons {
 
 	zest_timer timer;
 	zest_camera_t camera;
-
+	
 	zest_pipeline_template ribbon_pipeline;
 	zest_index compute_pipeline_index;
 	zest_shader ribbon_vert_shader;

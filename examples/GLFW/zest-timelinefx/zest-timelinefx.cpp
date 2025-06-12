@@ -169,9 +169,9 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	render_resources.layer = zest_CreateInstanceLayer("timelinefx draw routine", sizeof(tfx_instance_t));
 	zest_SetLayerToManualFIF(render_resources.layer);
 
-	//Create a buffer to store the image data on the gpu. Note that we don't need this buffer to have multiple frames in flight
+	//Create a buffer to store the image data on the gpu. 
 	render_resources.image_data = zest_CreateStorageDescriptorBuffer(sizeof(tfx_gpu_image_data_t) * 1000);
-	zest_AcquireGlobalStorageBufferIndex(render_resources.image_data);
+	zest_AcquireGlobalStorageBufferIndex(render_resources.image_data, zest_SSBOBinding("Image Data Buffers"));
 
 	//End of render specific code
 }
@@ -202,6 +202,7 @@ void TimelineFXExample::Init() {
 	//Renderer specific
 	//Process the texture with all the particle shapes that we just added to
 	zest_ProcessTextureImages(tfx_rendering.particle_texture);
+	zest_AcquireGlobalCombinedImageSampler(tfx_rendering.particle_texture);
 
 	/*
 	Prepare a tfx_effect_template_t that you can use to customise effects in the library in various ways before adding them into a particle manager for updating and rendering. Using a template like this
@@ -226,6 +227,7 @@ void TimelineFXExample::Init() {
 	}
 	//Process the color ramp texture to upload it all to the gpu
 	zest_ProcessTextureImages(tfx_rendering.color_ramps_texture);
+	zest_AcquireGlobalCombinedImageSampler(tfx_rendering.color_ramps_texture);
 	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
 	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
 	tfx_UpdateLibraryGPUImageData(library);
@@ -351,7 +353,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Import our test texture with the Bunny sprite
 		zest_resource_node particle_texture = zest_ImportImageResourceReadOnly("Particle Texture", game->tfx_rendering.particle_texture);
 		zest_resource_node color_ramps_texture = zest_ImportImageResourceReadOnly("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);
-		zest_resource_node tfx_layer = zest_AddInstanceLayerBufferResource(game->tfx_rendering.layer);
+		zest_resource_node tfx_layer = zest_AddInstanceLayerBufferResource(game->tfx_rendering.layer, zest_SSBOBinding("Billboard Buffers"));
+		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", game->tfx_rendering.image_data, zest_SSBOBinding("Image Data Buffers"));
 
 		//Connect buffers and textures
 		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer);
@@ -387,6 +390,9 @@ int main() {
 	TimelineFXExample game;
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
+
+	zest_RegisterSSBOBuffer(&create_info, "Billboard Buffers", 2, zest_shader_vertex_stage);
+	zest_RegisterSSBOBuffer(&create_info, "Image Data Buffers", 2, zest_shader_vertex_stage);
 
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);

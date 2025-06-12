@@ -49,13 +49,13 @@ layout(set = 0, binding = 0) uniform UboView
     uint millisecs;
 } ub;
 
-layout (std430, set = 1, binding = 1) readonly buffer ImageData {
-	ImageData data[];
-} in_image_data[];
-
-layout (std430, set = 1, binding = 1) readonly buffer BillboardInstances {
+layout (std430, set = 1, binding = 3) readonly buffer InBillboardInstances {
 	BillboardInstance data[];
 } in_prev_billboards[];
+
+layout (std430, set = 1, binding = 4) readonly buffer InImageData {
+	ImageData data[];
+} in_image_data[];
 
 layout (push_constant) uniform quad_index
 {
@@ -131,7 +131,7 @@ void main() {
 	bool has_alignment = dot(alignment, alignment) > 0;
     float stretch_factor = position.w * interpolate_is_active;
 
-    vec3 lerped_position = position;
+    vec3 lerped_position = position.xyz;
     vec3 lerped_rotation = rotations;
     vec2 lerped_size = size;
 
@@ -281,6 +281,6 @@ void main() {
     //----------------
 	int life = int(curved_alpha_life.z * 255);
 	out_texture_indexes = ivec3((texture_indexes & 0xFF000000) >> 24, (texture_indexes & 0x00FF0000) >> 16, life);
-	out_tex_coord = vec3(uvs[index], image_data[image_index].texture_array_index);
+	out_tex_coord = vec3(uvs[index], in_image_data[pc.image_data_index].data[image_index].texture_array_index);
 	out_intensity_curved_alpha_map = vec4(intensity_gradient_map.x * intensity_max_value, curved_alpha_life.x, curved_alpha_life.y, intensity_gradient_map.y * intensity_max_value);
 }
