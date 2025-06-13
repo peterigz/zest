@@ -164,7 +164,6 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	//frame allowing us to dictate when to upload the instance buffer to the gpu as there's no need to do it every frame, only when 
 	//the particle manager is actually updated.
 	render_resources.layer = zest_CreateInstanceLayer("timelinefx draw routine", sizeof(tfx_instance_t));
-	zest_SetLayerToManualFIF(render_resources.layer);
 
 	//Create a buffer to store the image data on the gpu. 
 	render_resources.image_data = zest_CreateStorageDescriptorBuffer(sizeof(tfx_gpu_image_data_t) * 1000);
@@ -332,10 +331,10 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
 	//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
 	//have to upload the latest billboards to the gpu.
-	//if (zest_TimerUpdateWasRun(game->timer)) {
+	if (zest_TimerUpdateWasRun(game->timer)) {
 		//zest_ResetInstanceLayer(game->tfx_rendering.layer);
 		RenderParticles(game->pm, game);
-	//}
+	}
 
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
@@ -361,7 +360,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 
 		//If there's imgui to draw then draw it
-		zest_AddPassTask(upload_tfx_data , zest_UploadInstanceLayerData, game->tfx_rendering.layer);
+		zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
 		zest_AddPassInstanceLayer(graphics_pass, game->tfx_rendering.layer);
 		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
 			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);

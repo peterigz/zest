@@ -2724,7 +2724,8 @@ ZEST_PRIVATE void zest__deferr_image_destruction(zest_image_buffer_t *image_buff
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type);
 ZEST_PRIVATE VkCommandPool zest__create_queue_command_pool(int queue_family_index);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_texture texture);
-ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_descriptor_buffer buffer);
+ZEST_PRIVATE zest_resource_node_t zest__create_import_descriptor_buffer_resource_node(const char *name, zest_descriptor_buffer buffer);
+ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
 ZEST_PRIVATE zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only);
 ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_resource_node resource);
 ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
@@ -2754,6 +2755,7 @@ ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
 // --- Add callback tasks to passes
 ZEST_API void zest_AddPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
+ZEST_API void zest_AddPassInstanceLayerUpload(zest_pass_node pass, zest_layer layer);
 ZEST_API void zest_AddPassInstanceLayer(zest_pass_node pass, zest_layer layer);
 ZEST_API void zest_ClearPassTasks(zest_pass_node pass);
 
@@ -2772,6 +2774,7 @@ ZEST_API zest_resource_node zest_AddTransientStorageBufferResource(const char *n
 ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
 ZEST_API zest_resource_node zest_ImportImageResourceReadOnly(const char *name, zest_texture texture);
 ZEST_API zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_descriptor_buffer buffer);
+ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer);
 ZEST_API zest_resource_node zest_ImportSwapChainResource(const char *name);
 
 // --- Connect Buffer Helpers ---
@@ -3122,12 +3125,15 @@ typedef struct zest_ImDrawVert_t
     zest_uint col;
 } zest_ImDrawVert_t;
 
-typedef struct zest_layer_staging_buffers_t {
+typedef struct zest_layer_buffers_t {
     union {
 		zest_buffer staging_vertex_data;
 		zest_buffer staging_instance_data;
     };
 	zest_buffer staging_index_data;
+
+	zest_buffer device_vertex_data;
+	zest_buffer device_index_data;
 
     union {
         struct { void *instance_ptr; };
@@ -3141,7 +3147,7 @@ typedef struct zest_layer_staging_buffers_t {
     zest_uint index_position;
     zest_uint last_index;
     zest_uint vertex_count;
-} zest_layer_staging_buffers_t;
+} zest_layer_buffers_t;
 
 typedef struct zest_push_constants_t {             //128 bytes seems to be the limit for push constants on AMD cards, NVidia 256 bytes
     zest_uint descriptor_index[4];
@@ -3172,7 +3178,9 @@ typedef struct zest_layer_t {
 
     const char *name;
 
-    zest_layer_staging_buffers_t memory_refs;
+    zest_uint fif;
+
+    zest_layer_buffers_t memory_refs[ZEST_MAX_FIF];
     zest_bool dirty[ZEST_MAX_FIF];
     zest_uint initial_instance_pool_size;
     zest_buffer_uploader_t vertex_upload;
@@ -3202,7 +3210,7 @@ typedef struct zest_layer_t {
     zest_layer_instruction_t *draw_instructions[ZEST_MAX_FIF];
     zest_draw_mode last_draw_mode;
 
-    zest_resource_node vertex_buffer_node;
+    zest_resource_node vertex_buffer_node;  //TODO: this should be an index not a pointer
     zest_resource_node index_buffer_node;
 
     zest_layer_flags flags;
@@ -3223,10 +3231,14 @@ typedef struct zest_layer_builder_t {
 //This struct must be filled and attached to the draw routine that implements imgui as user data
 typedef struct zest_imgui_t {
     int magic;
-	zest_texture font_texture;
-	zest_pipeline_template pipeline;
-    zest_buffer vertex_staging_buffer;
-    zest_buffer index_staging_buffer;
+    zest_texture font_texture;
+    zest_pipeline_template pipeline;
+    zest_frame_staging_buffer vertex_staging_buffer;
+    zest_frame_staging_buffer index_staging_buffer;
+    zest_buffer vertex_device_buffer[ZEST_MAX_FIF];
+    zest_buffer index_device_buffer[ZEST_MAX_FIF];
+    zest_uint fif;
+    zest_uint dirty[ZEST_MAX_FIF];
     zest_push_constants_t push_constants;
     zest_shader_resources shader_resources;
     VkDescriptorSet *draw_sets;
@@ -4300,6 +4312,7 @@ ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 ZEST_API zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *buffer_info, VkImage image);
 //Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
 ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data);
+ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data);
 //Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
 ZEST_API zest_frame_staging_buffer zest_CreateFrameStagingBuffer(VkDeviceSize size);
 ZEST_API zest_buffer zest_GetStagingBuffer(zest_frame_staging_buffer frame_staging_buffer);
@@ -4308,16 +4321,16 @@ ZEST_API void zest_ClearBufferToZero(zest_buffer buffer);
 //Memset a host visible buffer to 0.
 ZEST_API void zest_ClearFrameStagingBufferToZero(zest_frame_staging_buffer buffer);
 //Create an index buffer.
-ZEST_API zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
-ZEST_API zest_buffer zest_CreateVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+ZEST_API zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_uint fif);
+ZEST_API zest_buffer zest_CreateVertexBuffer(VkDeviceSize size, zest_uint fif);
 //Create a general storage buffer mainly for use in a compute shader
-ZEST_API zest_buffer zest_CreateStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+ZEST_API zest_buffer zest_CreateStorageBuffer(VkDeviceSize size, zest_uint fif);
 //Create a general storage buffer that is visible to the CPU for more convenient updating
-ZEST_API zest_buffer zest_CreateCPUStorageBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+ZEST_API zest_buffer zest_CreateCPUStorageBuffer(VkDeviceSize size, zest_uint fif);
 //Create a vertex buffer that is flagged for storage so that you can use it in a compute shader
-ZEST_API zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+ZEST_API zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_uint fif);
 //Create an index buffer that is flagged for storage so that you can use it in a compute shader
-ZEST_API zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_buffer staging_buffer);
+ZEST_API zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_uint fif);
 //The following functions can be used to generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible);
@@ -5059,6 +5072,10 @@ ZEST_API int zest_AlwaysRecordCallback(zest_draw_routine draw_routine);
 //you need to pass in is the size of type used for the instance struct that you'll use with whatever pipeline you setup
 //to use with the layer.
 ZEST_API zest_layer zest_CreateInstanceLayer(const char* name, zest_size type_size);
+//Creates a layer with buffers for each frame in flight located on the device. This means that you can manually decide
+//When to upload to the buffer on the render graph rather then using transient buffers each frame that will be
+//discarded.
+ZEST_API zest_layer zest_CreateFIFInstanceLayer(const char* name, zest_size type_size);
 //Create a new layer builder which you can use to build new custom layers to draw with using instances
 ZEST_API zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_size type_size);
 //Once you have configured your layer you can call this to create the layer ready for adding to a command queue
@@ -5082,8 +5099,6 @@ ZEST_API void zest_ResetLayer(zest_layer layer);
 ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
 //Record the secondary buffers of an instance layer
 ZEST_API void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
-//Flags a layer to manual frame in flight so you can determine when the buffers should be uploaded to the GPU
-ZEST_API void zest_SetLayerToManualFIF(zest_layer layer);
 //End a set of draw instructs for a standard zest_layer
 ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
 //For layers that are manually flipping the frame in flight, we can use this to only end the instructions if the last know fif for the layer

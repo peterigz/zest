@@ -55,8 +55,12 @@ zest_imgui zest_imgui_Initialise() {
 
     imgui_info->pipeline = imgui_pipeline;
 
-	imgui_info->vertex_staging_buffer = zest_CreateStagingBuffer(1024 * 1024, 0);
-	imgui_info->index_staging_buffer = zest_CreateStagingBuffer(1024 * 1024, 0);
+	imgui_info->vertex_staging_buffer = zest_CreateFrameStagingBuffer(1024 * 1024);
+	imgui_info->index_staging_buffer = zest_CreateFrameStagingBuffer(1024 * 1024);
+	zest_ForEachFrameInFlight(fif) {
+		imgui_info->vertex_device_buffer[fif] = zest_CreateVertexBuffer(1024 * 1024, fif);
+		imgui_info->index_device_buffer[fif] = zest_CreateIndexBuffer(1024 * 1024, fif);
+	}
 
 	return imgui_info;
 }
