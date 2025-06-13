@@ -11,11 +11,11 @@ layout(set = 1, binding = 0) uniform sampler2DArray tex_sampler[];
 
 layout(push_constant) uniform quad_index
 {
-    vec4 parameters1;
     uint particle_texture_index;
     uint color_ramp_texture_index;
     uint image_data_index;
     uint prev_billboards_index;
+    vec4 parameters1;
 } pc;
 
 void main() {

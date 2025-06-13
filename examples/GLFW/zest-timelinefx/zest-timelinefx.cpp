@@ -19,11 +19,8 @@ typedef unsigned int u32;
 #define FrameLength 16.66666666667f
 
 struct tfx_push_constants_t {
-	float parameters[4];
-	tfxU32 particle_texture_index;
-	tfxU32 color_ramp_texture_index;
-	tfxU32 image_data_index;
-	tfxU32 prev_billboards_index;
+	tfxU32 indexes[4];
+	tfx_vec4_t parameters;
 };
 
 struct tfx_render_resources_t {
@@ -171,7 +168,7 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 
 	//Create a buffer to store the image data on the gpu. 
 	render_resources.image_data = zest_CreateStorageDescriptorBuffer(sizeof(tfx_gpu_image_data_t) * 1000);
-	zest_AcquireGlobalStorageBufferIndex(render_resources.image_data, zest_SSBOBinding("Image Data Buffers"));
+	zest_AcquireGlobalStorageBufferIndex(render_resources.image_data);
 
 	//End of render specific code
 }
@@ -335,10 +332,10 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
 	//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
 	//have to upload the latest billboards to the gpu.
-	if (zest_TimerUpdateWasRun(game->timer)) {
-		zest_ResetInstanceLayer(game->tfx_rendering.layer);
+	//if (zest_TimerUpdateWasRun(game->timer)) {
+		//zest_ResetInstanceLayer(game->tfx_rendering.layer);
 		RenderParticles(game->pm, game);
-	}
+	//}
 
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
@@ -353,8 +350,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Import our test texture with the Bunny sprite
 		zest_resource_node particle_texture = zest_ImportImageResourceReadOnly("Particle Texture", game->tfx_rendering.particle_texture);
 		zest_resource_node color_ramps_texture = zest_ImportImageResourceReadOnly("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);
-		zest_resource_node tfx_layer = zest_AddInstanceLayerBufferResource(game->tfx_rendering.layer, zest_SSBOBinding("Billboard Buffers"));
-		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", game->tfx_rendering.image_data, zest_SSBOBinding("Image Data Buffers"));
+		zest_resource_node tfx_layer = zest_AddInstanceLayerBufferResource(game->tfx_rendering.layer);
+		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", game->tfx_rendering.image_data);
 
 		//Connect buffers and textures
 		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer);
@@ -383,7 +380,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 int main() {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	zest_implglfw_SetCallbacks(&create_info);
 
@@ -391,11 +388,7 @@ int main() {
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
 
-	zest_RegisterSSBOBuffer(&create_info, "Billboard Buffers", 2, zest_shader_vertex_stage);
-	zest_RegisterSSBOBuffer(&create_info, "Image Data Buffers", 2, zest_shader_vertex_stage);
-
 	zest_Initialise(&create_info);
-	zest_LogFPSToConsole(1);
 	zest_SetUserData(&game);
 	zest_SetUserUpdateCallback(UpdateTfxExample);
 	game.Init();

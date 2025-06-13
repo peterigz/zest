@@ -49,21 +49,21 @@ layout(set = 0, binding = 0) uniform UboView
     uint millisecs;
 } ub;
 
-layout (std430, set = 1, binding = 3) readonly buffer InBillboardInstances {
+layout (std430, set = 1, binding = 1) readonly buffer InBillboardInstances {
 	BillboardInstance data[];
 } in_prev_billboards[];
 
-layout (std430, set = 1, binding = 4) readonly buffer InImageData {
+layout (std430, set = 1, binding = 1) readonly buffer InImageData {
 	ImageData data[];
 } in_image_data[];
 
 layout (push_constant) uniform quad_index
 {
-    vec4 parameters1;
     uint particle_texture_index;
     uint color_ramp_texture_index;
     uint image_data_index;
     uint prev_billboards_index;
+    vec4 parameters1;
 } pc;
 
 //Vertex

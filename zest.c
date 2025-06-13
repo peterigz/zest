@@ -3364,19 +3364,9 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     //Create a global bindless descriptor set for storage buffers and texture samplers
     zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder();
     zest_AddLayoutBuilderCombinedImageSamplerBindless(&layout_builder, 0, create_info->bindless_combined_sampler_count);
-    zest_AddLayoutBuilderSamplerBindless(&layout_builder, 1, create_info->bindless_sampler_count);
-    zest_AddLayoutBuilderSampledImageBindless(&layout_builder, 2, create_info->bindless_sampled_image_count);
-    zest_uint binding_number = 3;
-    for (int i = 0; i != create_info->ssbo_binding_count; ++i) {
-        zest_ssbo_binding user_binding = &create_info->ssbo_bindings[i];
-        zest_ssbo_binding binding = ZEST__NEW(zest_ssbo_binding);
-        *binding = *user_binding;
-        binding->binding_number = binding_number;
-		zest_AddLayoutBuilderStorageBufferBindless(&layout_builder, binding_number, create_info->bindless_combined_sampler_count, binding->shader_stages);
-        zest_map_insert(ZestRenderer->ssbo_bindings, binding->name, binding);
-        ZEST_PRINT("SSBO buffer %s registered at binding number: %u.", binding->name, binding_number);
-        binding_number++;
-    }
+	zest_AddLayoutBuilderStorageBufferBindless(&layout_builder, 1, create_info->bindless_storage_buffer_count, zest_shader_all_stages);
+    zest_AddLayoutBuilderSamplerBindless(&layout_builder, 2, create_info->bindless_sampler_count);
+    zest_AddLayoutBuilderSampledImageBindless(&layout_builder, 3, create_info->bindless_sampled_image_count);
     ZestRenderer->global_bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Zest Descriptor Layout");
     ZestRenderer->global_set = zest_CreateBindlessSet(ZestRenderer->global_bindless_set_layout);
 
@@ -3618,9 +3608,6 @@ void zest__cleanup_textures() {
         if (texture->flags & zest_texture_flag_ready) {
             zest__cleanup_texture(texture);
         }
-        if (texture->sampler->vk_sampler) {
-            vkDestroySampler(ZestDevice->logical_device, texture->sampler->vk_sampler, &ZestDevice->allocation_callbacks);
-        }
     }
 }
 
@@ -3664,6 +3651,15 @@ void zest__cleanup_renderer() {
     zest_map_clear(ZestRenderer->pipelines);
 
     zest__cleanup_textures();
+
+    for (zest_map_foreach_i(ZestRenderer->samplers)) {
+        zest_sampler sampler = *zest_map_at_index(ZestRenderer->samplers, i);
+        if (sampler->vk_sampler) {
+            vkDestroySampler(ZestDevice->logical_device, sampler->vk_sampler, &ZestDevice->allocation_callbacks);
+        }
+        ZEST__FREE(sampler);
+    }
+    zest_map_clear(ZestRenderer->samplers);
 
     for (zest_map_foreach_i(ZestRenderer->render_targets)) {
         zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
@@ -4216,23 +4212,6 @@ zest_buffer zest_GetBufferFromDescriptorBuffer(zest_descriptor_buffer descriptor
 zest_uniform_buffer zest__add_uniform_buffer(zest_uniform_buffer buffer) {
 	zest_vec_push(ZestRenderer->uniform_buffers, buffer);
     return buffer;
-}
-
-void zest_RegisterSSBOBuffer(zest_create_info_t *create_info, const char *name, zest_uint max_buffers, zest_supported_shader_stages shader_stages) {
-    ZEST_ASSERT(!ZestRenderer);    //Renderer is already initialised. You must register your SSBOs before you call zest_Initialise.
-    ZEST_ASSERT(create_info->ssbo_binding_count < 60);  //Maximum number of SSBO buffer bindings has been exceeded!
-    zest_ssbo_binding_t binding = { 0 };
-    binding.magic = zest_INIT_MAGIC;
-    binding.name = name;
-    binding.max_buffers = max_buffers;
-    binding.shader_stages = shader_stages;
-    create_info->ssbo_bindings[create_info->ssbo_binding_count] = binding;
-    create_info->ssbo_binding_count++;
-}
-
-zest_ssbo_binding zest_SSBOBinding(const char *name) {
-    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->ssbo_bindings, name));        //Not a valid ssbo buffer binding
-    return *zest_map_at(ZestRenderer->ssbo_bindings, name);
 }
 
 zest_set_layout_builder_t zest_BeginSetLayoutBuilder() {
@@ -7406,7 +7385,7 @@ zest_create_info_t zest_CreateInfo() {
         .bindless_combined_sampler_count = 256,
         .bindless_sampler_count = 256,
         .bindless_sampled_image_count = 256,
-        .ssbo_binding_count = 0,
+        .bindless_storage_buffer_count = 256,
     };
     return create_info;
 }
@@ -9122,15 +9101,24 @@ zest_uint zest_AcquireBindlessTextureIndex(zest_texture texture, zest_set_layout
     return array_index;
 }
 
-zest_uint zest_AcquireBindlessStorageBufferIndex(zest_descriptor_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_ssbo_binding binding) {
+zest_uint zest_AcquireBindlessStorageBufferIndex(zest_descriptor_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number) {
     ZEST_CHECK_HANDLE(layout);  //Must be a valid handle to a descriptor set layout
-    ZEST_CHECK_HANDLE(binding); //Must be a valid hadnle to an ssbo binding created with zest_RegisterSSBOBuffer
 
-    zest_uint array_index = zest__acquire_bindless_index(layout, binding->binding_number);
-    buffer->binding_number = binding->binding_number;
+    zest_uint binding_number = ZEST_INVALID;
+    zest_vec_foreach(i, layout->layout_bindings) {
+        VkDescriptorSetLayoutBinding *layout_binding = &layout->layout_bindings[i];
+        if (target_binding_number == layout_binding->binding && layout_binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
+            binding_number = layout_binding->binding;
+            break;
+        }
+    }
+
+    ZEST_ASSERT(binding_number != ZEST_INVALID);    //Could not find an appropriate descriptor type in the layout with that target binding number!
+    zest_uint array_index = zest__acquire_bindless_index(layout, binding_number);
+    buffer->binding_number = binding_number;
     buffer->descriptor_set = set;
 
-    VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(buffer->descriptor_set->vk_descriptor_set, &buffer->descriptor_info, binding->binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(buffer->descriptor_set->vk_descriptor_set, &buffer->descriptor_info, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     write.dstArrayElement = array_index;
     vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
 
@@ -9150,8 +9138,8 @@ zest_uint zest_AcquireGlobalSampler(zest_texture texture) {
     return zest_AcquireBindlessTextureIndex(texture, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, 2);
 }
 
-zest_uint zest_AcquireGlobalStorageBufferIndex(zest_descriptor_buffer buffer, zest_ssbo_binding binding) {
-    buffer->descriptor_array_index = zest_AcquireBindlessStorageBufferIndex(buffer, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, binding);
+zest_uint zest_AcquireGlobalStorageBufferIndex(zest_descriptor_buffer buffer) {
+    buffer->descriptor_array_index = zest_AcquireBindlessStorageBufferIndex(buffer, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, 1);
     return buffer->descriptor_array_index;
 }
 
@@ -9228,7 +9216,7 @@ zest_resource_node zest_AddTransientImageResource(const char *name, const zest_i
     return &zest_vec_back(render_graph->resources);
 }
 
-zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_ssbo_binding binding) {
+zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     if (description->size == 0) {
@@ -9244,10 +9232,13 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
     node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     node.magic = zest_INIT_MAGIC;
     node.producer_pass_idx = -1;
-    if (ZEST_VALID_HANDLE(binding)) {
+    if (assign_bindless) {
         ZEST_CHECK_HANDLE(render_graph->bindless_layout);   //Trying to assign bindless index number but the render graph bindless layout is null.
-                                                            //Make sure you assign it when creating the render graph.
-        node.binding_number = binding->binding_number;
+        //Make sure you assign it when creating the render graph.
+        node.binding_number = zest__get_buffer_binding_number(&node);
+        ZEST_ASSERT(node.binding_number != ZEST_INVALID);   //Could not find a valid binding number for the image/texture. Make sure that
+        //the bindless descriptor set layout you assigned to the render graph has the correct
+        //desriptor types set.
         ZEST__FLAG(node.flags, zest_resource_node_flag_is_bindless);
     }
     ZEST__FLAG(node.flags, zest_resource_node_flag_transient);
@@ -9255,14 +9246,14 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
     return &zest_vec_back(render_graph->resources);
 }
 
-zest_resource_node zest_AddInstanceLayerBufferResource(const zest_layer layer, zest_ssbo_binding binding) {
+zest_resource_node zest_AddInstanceLayerBufferResource(const zest_layer layer) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_CHECK_HANDLE(layer);   //Not a valid layer handle
-	zest_buffer_description_t buffer_desc = { 0 };
-	buffer_desc.size = layer->memory_refs.staging_instance_data->size;
-	buffer_desc.buffer_info = zest_CreateVertexBufferInfoWithStorage(0);
-	layer->vertex_buffer_node = zest_AddTransientBufferResource(layer->name, &buffer_desc, binding);
+    zest_buffer_description_t buffer_desc = { 0 };
+    buffer_desc.size = layer->memory_refs.staging_instance_data->size;
+    buffer_desc.buffer_info = zest_CreateVertexBufferInfo(0);
+    layer->vertex_buffer_node = zest_AddTransientBufferResource(layer->name, &buffer_desc, ZEST_FALSE);
     return layer->vertex_buffer_node;
 }
 
@@ -9272,31 +9263,31 @@ zest_resource_node zest_AddFontLayerTextureResource(const zest_font font) {
     return zest_ImportImageResourceReadOnly(font->texture->name.str, font->texture);
 }
 
-zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_ssbo_binding binding) {
+zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
-	zest_buffer_description_t buffer_desc = { 0 };
-	buffer_desc.size = size;
-	buffer_desc.buffer_info = include_storage_flags ? zest_CreateVertexBufferInfoWithStorage(0) : zest_CreateVertexBufferInfo(0);
-	return zest_AddTransientBufferResource(name, &buffer_desc, binding);
+    zest_buffer_description_t buffer_desc = { 0 };
+    buffer_desc.size = size;
+    buffer_desc.buffer_info = include_storage_flags ? zest_CreateVertexBufferInfoWithStorage(0) : zest_CreateVertexBufferInfo(0);
+    return zest_AddTransientBufferResource(name, &buffer_desc, assign_bindless);
 }
 
-zest_resource_node zest_AddTransientIndexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_ssbo_binding binding) {
+zest_resource_node zest_AddTransientIndexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
-	zest_buffer_description_t buffer_desc = { 0 };
-	buffer_desc.size = size;
-	buffer_desc.buffer_info = include_storage_flags ? zest_CreateIndexBufferInfoWithStorage(0) : zest_CreateIndexBufferInfo(0);
-	return zest_AddTransientBufferResource(name, &buffer_desc, binding);
+    zest_buffer_description_t buffer_desc = { 0 };
+    buffer_desc.size = size;
+    buffer_desc.buffer_info = include_storage_flags ? zest_CreateIndexBufferInfoWithStorage(0) : zest_CreateIndexBufferInfo(0);
+    return zest_AddTransientBufferResource(name, &buffer_desc, assign_bindless);
 }
 
-zest_resource_node zest_AddTransientStorageBufferResource(const char *name, zest_size size, zest_ssbo_binding binding) {
+zest_resource_node zest_AddTransientStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
-	zest_buffer_description_t buffer_desc = { 0 };
-	buffer_desc.size = size;
-	buffer_desc.buffer_info = zest_CreateStorageBufferInfo();
-	return zest_AddTransientBufferResource(name, &buffer_desc, binding);
+    zest_buffer_description_t buffer_desc = { 0 };
+    buffer_desc.size = size;
+    buffer_desc.buffer_info = zest_CreateStorageBufferInfo();
+    return zest_AddTransientBufferResource(name, &buffer_desc, assign_bindless);
 }
 
 zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_descriptor_buffer buffer) {
@@ -9359,13 +9350,10 @@ zest_resource_node zest_ImportImageResourceReadOnly(const char *name, zest_textu
     return &zest_vec_back(render_graph->resources);
 }
 
-zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_descriptor_buffer buffer, zest_ssbo_binding binding) {
+zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_descriptor_buffer buffer) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = zest__create_import_buffer_resource_node(name, buffer);
-    if (ZEST_VALID_HANDLE(binding)) {
-        node.binding_number = binding->binding_number;
-    }
     zest_vec_linear_push(ZestRenderer->render_graph_allocator, render_graph->resources, node);
     return &zest_vec_back(render_graph->resources);
 }
@@ -13875,7 +13863,7 @@ void zest_ResetLayer(zest_layer layer) {
 void zest_ResetInstanceLayer(zest_layer layer) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     //ZEST_FIF = (ZEST_FIF + 1) % ZEST_MAX_FIF;
-    zest_ResetInstanceLayerDrawing(layer);
+    //zest_ResetInstanceLayerDrawing(layer);
 }
 
 void zest_SetLayerToManualFIF(zest_layer layer) {
