@@ -19,7 +19,10 @@ typedef unsigned int u32;
 #define FrameLength 16.66666666667f
 
 struct tfx_push_constants_t {
-	tfxU32 indexes[4];
+	tfxU32 particle_texture_index;
+	tfxU32 color_ramp_texture_index;
+    tfxU32 image_data_index;
+    tfxU32 prev_billboards_index;
 	tfx_vec4_t parameters;
 };
 
@@ -163,7 +166,7 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	//This means that we are able to only change the current frame in flight if we actually updated the particle manager in the current
 	//frame allowing us to dictate when to upload the instance buffer to the gpu as there's no need to do it every frame, only when 
 	//the particle manager is actually updated.
-	render_resources.layer = zest_CreateInstanceLayer("timelinefx draw routine", sizeof(tfx_instance_t));
+	render_resources.layer = zest_CreateFIFInstanceLayer("timelinefx draw routine", sizeof(tfx_instance_t));
 
 	//Create a buffer to store the image data on the gpu. 
 	render_resources.image_data = zest_CreateStorageDescriptorBuffer(sizeof(tfx_gpu_image_data_t) * 1000);
@@ -275,7 +278,11 @@ void RenderParticles(tfx_effect_manager pm, TimelineFXExample *game) {
 		game->tfx_rendering.particle_texture,
 		game->tfx_rendering.color_ramps_texture
 	};
-	zest_SetInstanceDrawing(game->tfx_rendering.layer, game->tfx_rendering.shader_resource, textures, 2, game->tfx_rendering.pipeline);
+	zest_SetInstanceDrawing(game->tfx_rendering.layer, game->tfx_rendering.shader_resource, game->tfx_rendering.pipeline);
+	tfx_push_constants_t push;
+	push.particle_texture_index = game->tfx_rendering.particle_texture->descriptor_array_index;
+	push.color_ramp_texture_index = game->tfx_rendering.color_ramps_texture->descriptor_array_index;
+	push.image_data_index = game->tfx_rendering.layer->vertex_buffer_node->bindless_index;
 
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, tfx_GetInstanceCount(pm));
@@ -332,7 +339,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
 	//have to upload the latest billboards to the gpu.
 	if (zest_TimerUpdateWasRun(game->timer)) {
-		//zest_ResetInstanceLayer(game->tfx_rendering.layer);
+		zest_ResetInstanceLayer(game->tfx_rendering.layer);
 		RenderParticles(game->pm, game);
 	}
 

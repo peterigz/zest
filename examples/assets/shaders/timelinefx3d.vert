@@ -107,7 +107,6 @@ void main() {
 
 	uint prev_size_packed = in_prev_billboards[pc.prev_billboards_index].data[prev_index].size_handle.x;
 
-    /*
     #ifdef LOW_UPDATE_RATE
     //For updating particles at 30 fps or less you can improve the first frame of particles by doing the following ternary operations to effectively cancel the interpolation:
     //define LOW_UPDATE_RATE to compile with this instead.
@@ -122,18 +121,12 @@ void main() {
 	vec3 lerped_position = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub.lerp.x);
 	vec3 lerped_rotation = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.lerp.x);
     #endif
-    vec3 motion = position.xyz - in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz;
-    */
 
-    vec3 motion = vec3(0.0);
+    vec3 motion = position.xyz - in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz;
     motion.z += 0.000001;
     float travel_distance = length(motion); // Calculate the actual distance traveled
 	bool has_alignment = dot(alignment, alignment) > 0;
     float stretch_factor = position.w * interpolate_is_active;
-
-    vec3 lerped_position = position.xyz;
-    vec3 lerped_rotation = rotations;
-    vec2 lerped_size = size;
 
     motion = normalize(motion); // Normalize for direction
     vec3 final_alignment = has_alignment ? alignment : motion; // Use normalized motion or specified alignment

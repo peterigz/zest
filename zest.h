@@ -840,14 +840,15 @@ layout(set = 1, binding = 0) uniform sampler2DArray texture_sampler[];
 
 layout(push_constant) uniform quad_index
 {
-    uint font_texture_index;
-    uint index2;
-    uint index3;
-    uint index4;
-    vec4 parameters;
-    vec4 shadow_parameters;
     vec4 shadow_color;
-    vec4 camera;
+    vec2 shadow_vector;
+    float shadow_smoothing;
+    float shadow_clipping;
+    float radius;
+    float bleed;
+    float aa_factor;
+    float thickness;
+    uint font_texture_index;
 } font;
 
 float median(float r, float g, float b) {
@@ -878,16 +879,16 @@ void main() {
     vec4 sampled = texture(texture_sampler[font.font_texture_index], frag_tex_coord);
 
     vec2 texture_size = textureSize(texture_sampler[font.font_texture_index], 0).xy;
-    float scale = get_uv_scale(frag_tex_coord.xy * texture_size) * font.parameters.z;
-    float d = (median(sampled.r, sampled.g, sampled.b) - 0.75) * font.parameters.x;
-    float sdf = (d + font.parameters.w) / scale + 0.5 + font.parameters.y;
+    float scale = get_uv_scale(frag_tex_coord.xy * texture_size) * font.aa_factor;
+    float d = (median(sampled.r, sampled.g, sampled.b) - 0.75) * font.radius;
+    float sdf = (d + font.thickness) / scale + 0.5 + font.bleed;
     float mask = clamp(sdf, 0.0, 1.0);
     glyph = vec4(glyph.rgb, glyph.a * mask);
 
     if (font.shadow_color.a > 0) {
-        float sd = texture(texture_sampler[font.font_texture_index], vec3(frag_tex_coord.xy - font.shadow_parameters.xy / texture_size.xy, 0)).a;
-        float shadowAlpha = linearstep(0.5 - font.shadow_parameters.z, 0.5 + font.shadow_parameters.z, sd) * font.shadow_color.a;
-        shadowAlpha *= 1.0 - mask * font.shadow_parameters.w;
+        float sd = texture(texture_sampler[font.font_texture_index], vec3(frag_tex_coord.xy - font.shadow_vector / texture_size.xy, 0)).a;
+        float shadowAlpha = linearstep(0.5 - font.shadow_smoothing, 0.5 + font.shadow_smoothing, sd) * font.shadow_color.a;
+        shadowAlpha *= 1.0 - mask * font.shadow_clipping;
         vec4 shadow = vec4(font.shadow_color.rgb, shadowAlpha);
         out_color = blend(blend(vec4(0), glyph, 1.0), shadow, frag_color.a);
         out_color.rgb = out_color.rgb * out_color.a;
@@ -3157,8 +3158,20 @@ typedef struct zest_push_constants_t {             //128 bytes seems to be the l
     zest_vec4 global;                              //Can be set every frame for all current draw instructions
 } zest_push_constants_t ZEST_ALIGN_AFFIX(16);
 
+typedef struct zest_font_push_constants_t {             //128 bytes seems to be the limit for push constants on AMD cards, NVidia 256 bytes
+    zest_vec4 shadow_color;
+    zest_vec2 shadow_vector;
+    float shadow_smoothing;
+    float shadow_clipping;
+    float radius;
+    float bleed;
+    float aa_factor;
+    float thickness;
+    zest_uint font_texture_index;
+} zest_font_push_constants_t ZEST_ALIGN_AFFIX(16);
+
 typedef struct zest_layer_instruction_t {
-    zest_push_constants_t push_constants;         //Each draw instruction can have different values in the push constants push_constants
+    char push_constant[128];                      //Each draw instruction can have different values in the push constants push_constants
     VkRect2D scissor;                             //The drawinstruction can also clip whats drawn
     VkViewport viewport;                          //The viewport size of the draw call
     zest_index start_index;                       //The starting index
@@ -3197,8 +3210,6 @@ typedef struct zest_layer_t {
 
     zest_color current_color;
     float intensity;
-    zest_push_constants_t push_constants;
-    zest_vec4 global_push_values;
 
     zest_vec2 layer_size;
     zest_vec2 screen_scale;
@@ -5138,9 +5149,6 @@ ZEST_API void zest_SetLayerDirty(zest_layer layer);
 ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
 //Get the user data from the layer
 #define zest_GetLayerUserData(type, layer) ((type*)layer->user_data)
-//Set the global values of a push constant. This gives you 4 values that you can set for all draw calls in a layer that will immediately 
-//apply to the next frame render.
-ZEST_API void zest_SetLayerGlobalPushConstants(zest_layer layer, float x, float y, float z, float w);
 //Clear the draw sets in a layer. Draw sets are all the descriptor sets used when binding a pipeline. You would generally use zest_GetDescriptorSetsForBinding
 //before binding a pipeline for draw calls and then after you can call this to reset the draw sets list again.
 ZEST_API void zest_ClearLayerDrawSets(zest_layer layer);
@@ -5182,7 +5190,7 @@ ZEST_API void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float 
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture *textures, zest_uint texture_count, zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources,  zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
@@ -5195,6 +5203,8 @@ ZEST_API void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount);
 //Set the viewport and scissors of the next draw instructions for a layer. Otherwise by default it will use either the screen size
 //of or the viewport size you set with zest_SetLayerViewPort
 ZEST_API void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
+//Set the current instruction push contants in the layer
+ZEST_API void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size);
 
 //-----------------------------------------------
 //        Draw_billboard_layers
@@ -5299,7 +5309,7 @@ ZEST_API void zest_GrowMeshVertexBuffers(zest_layer layer);
 //Grow the mesh index buffers. You must update the buffer->memory_in_use so that it can decide if a buffer needs growing
 ZEST_API void zest_GrowMeshIndexBuffers(zest_layer layer);
 //Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
-ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture texture, zest_pipeline_template pipeline);
+ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
 //Helper funciton Push a vertex to the vertex staging buffer. It will automatically grow the buffers if needed
 ZEST_API void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters);
 //Helper funciton Push an index to the index staging buffer. It will automatically grow the buffers if needed

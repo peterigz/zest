@@ -12819,17 +12819,13 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_cont
             continue;
         }
 
-        //The only reason I do this is because of some strange alignment issues on intel macs only. I haven't fully gotten to the bottom of it
-        //but this seems to work for now
-        memcpy(&current->push_constants.global.x, &layer->global_push_values.x, sizeof(zest_vec4));
-
 		vkCmdPushConstants(
 			command_buffer,
 			pipeline->pipeline_layout,
 			zest_PipelinePushConstantStageFlags(pipeline, 0),
 			zest_PipelinePushConstantOffset(pipeline, 0),
 			zest_PipelinePushConstantSize(pipeline, 0),
-			&current->push_constants);
+			&current->push_constant);
 
         vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
 
@@ -13884,7 +13880,6 @@ int zest_AlwaysRecordCallback(zest_draw_routine draw_routine) {
 void zest_StartInstanceInstructions(zest_layer layer) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].instance_count ? layer->memory_refs[layer->fif].instance_count : 0;
-    layer->current_instruction.push_constants = layer->push_constants;
 }
 
 void zest_ResetLayer(zest_layer layer) {
@@ -13904,7 +13899,6 @@ void zest_ResetInstanceLayer(zest_layer layer) {
 void zest__start_mesh_instructions(zest_layer layer) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].index_count ? layer->memory_refs[layer->fif].index_count : 0;
-    layer->current_instruction.push_constants = layer->push_constants;
 }
 
 void zest_EndInstanceInstructions(zest_layer layer) {
@@ -14098,17 +14092,13 @@ void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_gr
             continue;
         }
 
-        //The only reason I do this is because of some strange alignment issues on intel macs only. I haven't fully gotten to the bottom of it
-        //but this seems to work for now
-        memcpy(&current->push_constants.global.x, &layer->global_push_values.x, sizeof(zest_vec4));
-
 		vkCmdPushConstants(
 			command_buffer,
 			pipeline->pipeline_layout,
 			zest_PipelinePushConstantStageFlags(pipeline, 0),
 			zest_PipelinePushConstantOffset(pipeline, 0),
 			zest_PipelinePushConstantSize(pipeline, 0),
-			&current->push_constants);
+			&current->push_constant);
 
         vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
 
@@ -14150,15 +14140,13 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, 0);
         zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
-        memcpy(&current->push_constants.global.x, &layer->global_push_values.x, sizeof(zest_vec4));
-
         vkCmdPushConstants(
             command_buffer,
             pipeline->pipeline_layout,
             zest_PipelinePushConstantStageFlags(pipeline, 0),
             zest_PipelinePushConstantOffset(pipeline, 0),
             zest_PipelinePushConstantSize(pipeline, 0),
-            &current->push_constants);
+            current->push_constant);
 
         vkCmdDrawIndexed(command_buffer, current->total_indexes, 1, current->start_index, 0, 0);
 
@@ -14200,15 +14188,13 @@ void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, 0);
         zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
 
-        memcpy(&current->push_constants.global.x, &layer->global_push_values.x, sizeof(zest_vec4));
-
         vkCmdPushConstants(
             command_buffer,
             pipeline->pipeline_layout,
             zest_PipelinePushConstantStageFlags(pipeline, 0),
             zest_PipelinePushConstantOffset(pipeline, 0),
             zest_PipelinePushConstantSize(pipeline, 0),
-            &current->push_constants);
+            current->push_constant);
 
         vkCmdDrawIndexed(command_buffer, layer->index_count, current->total_instances, 0, 0, current->start_index);
 
@@ -14371,14 +14357,6 @@ void zest_SetLayerUserData(zest_layer layer, void *data) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     layer->user_data = data;
 }
-
-void zest_SetLayerGlobalPushConstants(zest_layer layer, float x, float y, float z, float w) {
-    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    layer->global_push_values.x = x;
-    layer->global_push_values.y = y;
-    layer->global_push_values.z = z;
-    layer->global_push_values.w = w;
-}
 //-- End Draw Layers
 
 //-- Start Instance Drawing API
@@ -14445,11 +14423,6 @@ void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_ui
     layer->current_color.b = 255;
     layer->current_color.a = 255;
     layer->intensity = 1;
-    layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
-    layer->push_constants.parameters2.x = 0.f;
-    layer->push_constants.parameters2.y = 0.f;
-    layer->push_constants.parameters2.z = 0.25f;
-    layer->push_constants.parameters2.w = 0.5f;
     layer->layer_size = zest_Vec2Set1(1.f);
     layer->instance_struct_size = type_size;
 
@@ -14480,16 +14453,6 @@ void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_ui
 zest_layer zest_CreateFontLayer(const char *name) {
     zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(sizeof(zest_sprite_instance_t));
     zest_layer layer = zest_BuildInstanceLayer(name, &builder);
-    layer->push_constants.parameters2.x = 1.f;     //Shadow Vector
-    layer->push_constants.parameters2.y = 1.f;
-    layer->push_constants.parameters2.z = 0.2f;    //Shadow Smoothing
-    layer->push_constants.parameters2.w = 0.f;     //Shadow Clipping
-
-    //Font defaults.
-    layer->push_constants.parameters1.x = 25.f;    //Radius
-    layer->push_constants.parameters1.y = 0.25f;   //Bleed
-    layer->push_constants.parameters1.z = 5.f;     //AA factor
-    layer->push_constants.parameters1.w = 5.5f;    //Thickness
     return layer;
 }
 
@@ -14571,62 +14534,75 @@ void zest_SetMSDFFontDrawing(zest_layer layer, zest_font font) {
 	layer->current_instruction.shader_resources = font->shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_text;
     layer->current_instruction.asset = font;
-    layer->current_instruction.push_constants = layer->push_constants;
-    layer->current_instruction.push_constants.descriptor_index[0] = font->bindless_texture_index;
+    zest_font_push_constants_t push = { 0 };
+
+    //Font defaults.
+    push.shadow_vector.x = 1.f;
+    push.shadow_vector.y = 1.f;
+    push.shadow_smoothing = 0.2f;
+    push.shadow_clipping = 0.f;
+    push.radius = 25.f;
+    push.bleed = 0.25f; 
+    push.aa_factor = 5.f;
+    push.thickness = 5.5f;
+    push.font_texture_index = font->bindless_texture_index;
+
+    (*(zest_font_push_constants_t*)layer->current_instruction.push_constant) = push;
     layer->last_draw_mode = zest_draw_mode_text;
 }
 
 void zest_SetMSDFFontShadow(zest_layer layer, float shadow_length, float shadow_smoothing, float shadow_clipping) {
     zest_vec2 shadow = zest_NormalizeVec2(zest_Vec2Set(1.f, 1.f));
-    layer->push_constants.parameters2.x = shadow.x * shadow_length;
-    layer->push_constants.parameters2.y = shadow.y * shadow_length;
-    layer->push_constants.parameters2.z = shadow_smoothing;
-    layer->push_constants.parameters2.w = shadow_clipping;
-    layer->current_instruction.push_constants.parameters2 = layer->push_constants.parameters2;
+    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
+    push->shadow_vector.x = shadow.x * shadow_length;
+    push->shadow_vector.y = shadow.y * shadow_length;
+    push->shadow_smoothing = shadow_smoothing;
+    push->shadow_clipping = shadow_clipping;
 }
 
 void zest_SetMSDFFontShadowColor(zest_layer layer, float red, float green, float blue, float alpha) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    layer->push_constants.parameters3 = zest_Vec4Set(red, green, blue, alpha);
-    layer->current_instruction.push_constants.parameters3 = layer->push_constants.parameters3;
+    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
+    push->shadow_color = zest_Vec4Set(red, green, blue, alpha);
 }
 
 void zest_TweakMSDFFont(zest_layer layer, float bleed, float thickness, float aa_factor, float radius) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    layer->push_constants.parameters1.x = radius;
-    layer->push_constants.parameters1.y = bleed;
-    layer->push_constants.parameters1.z = aa_factor;
-    layer->push_constants.parameters1.w = thickness;
-    layer->current_instruction.push_constants.parameters1 = layer->push_constants.parameters1;
+    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
+    push->radius = radius;
+    push->bleed = bleed;
+    push->aa_factor = aa_factor;
+    push->thickness = thickness;
 }
 
 void zest_SetMSDFFontBleed(zest_layer layer, float bleed) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    layer->push_constants.parameters1.y = bleed;
+    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
+    push->bleed = bleed;
 }
 
 void zest_SetMSDFFontThickness(zest_layer layer, float thickness) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    layer->push_constants.parameters1.w = thickness;
-    layer->current_instruction.push_constants.parameters1.w = thickness;
+    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
+    push->thickness = thickness;
 }
 
 void zest_SetMSDFFontAAFactor(zest_layer layer, float aa_factor) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    layer->push_constants.parameters1.z = aa_factor;
-    layer->current_instruction.push_constants.parameters1.z = aa_factor;
+    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
+    push->aa_factor = aa_factor;
 }
 
 void zest_SetMSDFFontRadius(zest_layer layer, float radius) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    layer->push_constants.parameters1.x = radius;
-    layer->current_instruction.push_constants.parameters1.x = radius;
+    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
+    push->radius = radius;
 }
 
-void zest_SetMSDFFontDetail(zest_layer layer, float detail) {
+void zest_SetMSDFFontDetail(zest_layer layer, float bleed) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    layer->push_constants.parameters1.y = detail;
-    layer->current_instruction.push_constants.parameters1.y = detail;
+    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
+    push->bleed = bleed;
 }
 
 float zest_DrawMSDFText(zest_layer layer, const char* text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing) {
@@ -14772,7 +14748,7 @@ float zest_TextWidth(zest_font font, const char* text, float font_size, float le
 
 
 //-- Start Instance Drawing API
-void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture *textures, zest_uint texture_count, zest_pipeline_template pipeline) {
+void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     zest_EndInstanceInstructions(layer);
     zest_StartInstanceInstructions(layer);
@@ -14780,11 +14756,6 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_reso
 	ZEST_CHECK_HANDLE(shader_resources);   //You must specifiy the shader resources to draw with
 	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_instance;
-    layer->current_instruction.push_constants = layer->push_constants;
-    for (zest_uint index = 0; index != texture_count; ++index) {
-        ZEST_CHECK_HANDLE(textures[index]); //Not a valid texture handle. Make sure the texture count matches the number of texture in the array.
-        layer->current_instruction.push_constants.descriptor_index[index] = textures[index]->descriptor_array_index;
-    }
     layer->last_draw_mode = zest_draw_mode_instance;
 }
 
@@ -14795,6 +14766,12 @@ void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scis
     layer->current_instruction.scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
     layer->current_instruction.viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
     layer->current_instruction.draw_mode = zest_draw_mode_viewport;
+}
+
+void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size) {
+    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT(size <= 128);    //Push constant size must not exceed 128
+    memcpy(layer->current_instruction.push_constant, push_constants, size);
 }
 
 //-- Start Billboard Drawing API
@@ -14900,11 +14877,6 @@ void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_
     mesh_layer->current_color.b = 255;
     mesh_layer->current_color.a = 255;
     mesh_layer->intensity = 1;
-    mesh_layer->push_constants.parameters1 = zest_Vec4Set1(0.f);
-    mesh_layer->push_constants.parameters2.x = 0.f;
-    mesh_layer->push_constants.parameters2.y = 0.f;
-    mesh_layer->push_constants.parameters2.z = 0.25f;
-    mesh_layer->push_constants.parameters2.w = 0.5f;
     mesh_layer->layer_size = zest_Vec2Set1(1.f);
     mesh_layer->vertex_struct_size = vertex_struct_size;
 
@@ -15044,7 +15016,7 @@ void zest_PushIndex(zest_layer layer, zest_uint offset) {
     layer->memory_refs[layer->fif].index_ptr = index_ptr;
 }
 
-void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_texture texture, zest_pipeline_template pipeline) {
+void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     ZEST_CHECK_HANDLE(shader_resources);	//Not a valid handle!
     ZEST_CHECK_HANDLE(pipeline);	//Not a valid handle!
@@ -15053,7 +15025,6 @@ void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resource
     layer->current_instruction.pipeline_template = pipeline;
 	layer->current_instruction.shader_resources = shader_resources;
     layer->current_instruction.draw_mode = zest_draw_mode_mesh;
-    layer->current_instruction.push_constants.descriptor_index[0] = texture->descriptor_array_index;
     layer->last_draw_mode = zest_draw_mode_mesh;
 }
 
