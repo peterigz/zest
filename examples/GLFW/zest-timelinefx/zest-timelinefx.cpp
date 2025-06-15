@@ -31,7 +31,7 @@ struct tfx_render_resources_t {
 	zest_texture color_ramps_texture;
 	zest_layer layer;
 	zest_uniform_buffer uniform_buffer_3d;
-	zest_descriptor_buffer image_data;
+	zest_buffer image_data;
 	zest_pipeline_template pipeline;
 	zest_shader fragment_shader;
 	zest_shader vertex_shader;
@@ -52,6 +52,8 @@ struct TimelineFXExample {
 
 	tfxEffectID effect_id;
 	zest_imgui_t imgui_layer_info;
+	bool request_graph_print;
+	zest_microsecs relays[10];
 
 	void Init();
 };
@@ -167,9 +169,10 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	//frame allowing us to dictate when to upload the instance buffer to the gpu as there's no need to do it every frame, only when 
 	//the particle manager is actually updated.
 	render_resources.layer = zest_CreateFIFInstanceLayer("timelinefx draw routine", sizeof(tfx_instance_t));
+	zest_AcquireGlobalInstanceLayerBufferIndex(render_resources.layer);
 
 	//Create a buffer to store the image data on the gpu. 
-	render_resources.image_data = zest_CreateStorageDescriptorBuffer(sizeof(tfx_gpu_image_data_t) * 1000);
+	render_resources.image_data = zest_CreateStorageBuffer(sizeof(tfx_gpu_image_data_t) * 1000, 0);
 	zest_AcquireGlobalStorageBufferIndex(render_resources.image_data);
 
 	//End of render specific code
@@ -177,10 +180,10 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 
 void UpdateTimelineFXImageData(tfx_render_resources_t &tfx_rendering, tfx_library library) {
 	//Upload the timelinefx image data to the image data buffer created
-	zest_buffer image_data_buffer = zest_GetBufferFromDescriptorBuffer(tfx_rendering.image_data);
+	zest_buffer image_data_buffer = tfx_rendering.image_data;
 	tfx_gpu_shapes shapes = tfx_GetLibraryGPUShapes(library);
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
-	zest_CopyBufferOneTime(staging_buffer, zest_GetBufferFromDescriptorBuffer(tfx_rendering.image_data), tfx_GetGPUShapesSizeInBytes(shapes));
+	zest_CopyBufferOneTime(staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
 	zest_FreeBuffer(staging_buffer);
 }
 
@@ -265,10 +268,65 @@ void BuildUI(TimelineFXExample *game) {
 	ImGui::Text("Effects: %i", tfx_EffectCount(game->pm));
 	ImGui::Text("Emitters: %i", tfx_EmitterCount(game->pm));
 	ImGui::Text("Free Emitters: %i", game->pm->free_emitters.size());
+	if (ImGui::Button("Print Render Graph")) {
+		game->request_graph_print = true;
+	}
 	ImGui::End();
 
 	ImGui::Render();
 	zest_imgui_UpdateBuffers();
+}
+
+void DrawParticleLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+	tfx_render_resources_t *tfx_resources = (tfx_render_resources_t *)user_data;
+	zest_layer layer = tfx_resources->layer;
+	ZEST_CHECK_HANDLE(layer);	//Not a valid handle! Make sure you pass in the zest_layer in the user data
+
+	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
+	zest_BindVertexBuffer(command_buffer, device_buffer);
+
+	bool has_instruction_view_port = false;
+	for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
+		zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
+
+		if (current->draw_mode == zest_draw_mode_viewport) {
+			vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
+			vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+			has_instruction_view_port = true;
+			continue;
+		} else if (!has_instruction_view_port) {
+			vkCmdSetViewport(command_buffer, 0, 1, &layer->viewport);
+			vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
+		}
+
+		zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
+		if (pipeline && ZEST_VALID_HANDLE(current->shader_resources)) {
+			zest_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
+		} else {
+			continue;
+		}
+
+		tfx_push_constants_t *push_constants = (tfx_push_constants_t*)current->push_constant;
+		push_constants->color_ramp_texture_index = tfx_resources->color_ramps_texture->descriptor_array_index;
+		push_constants->particle_texture_index = tfx_resources->particle_texture->descriptor_array_index;
+		push_constants->image_data_index = tfx_resources->image_data->array_index;
+		push_constants->prev_billboards_index = layer->memory_refs[layer->prev_fif].device_vertex_data->array_index;
+
+		vkCmdPushConstants(
+			command_buffer,
+			pipeline->pipeline_layout,
+			zest_PipelinePushConstantStageFlags(pipeline, 0),
+			zest_PipelinePushConstantOffset(pipeline, 0),
+			zest_PipelinePushConstantSize(pipeline, 0),
+			push_constants);
+
+		vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
+
+		zest_vec_clear(layer->draw_sets);
+	}
+	if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
+		zest_ResetInstanceLayerDrawing(layer);
+	}
 }
 
 //A simple example to render the particles. This is for when the particle manager has one single list of sprites rather than grouped by effect
@@ -279,10 +337,6 @@ void RenderParticles(tfx_effect_manager pm, TimelineFXExample *game) {
 		game->tfx_rendering.color_ramps_texture
 	};
 	zest_SetInstanceDrawing(game->tfx_rendering.layer, game->tfx_rendering.shader_resource, game->tfx_rendering.pipeline);
-	tfx_push_constants_t push;
-	push.particle_texture_index = game->tfx_rendering.particle_texture->descriptor_array_index;
-	push.color_ramp_texture_index = game->tfx_rendering.color_ramps_texture->descriptor_array_index;
-	push.image_data_index = game->tfx_rendering.layer->vertex_buffer_node->bindless_index;
 
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(game->tfx_rendering.layer, billboards, tfx_GetInstanceCount(pm));
@@ -366,16 +420,19 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_ConnectSampledImageInput(graphics_pass, color_ramps_texture, zest_pipeline_fragment_stage);
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 
-		//If there's imgui to draw then draw it
 		zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
-		zest_AddPassInstanceLayer(graphics_pass, game->tfx_rendering.layer);
+		zest_AddPassTask(graphics_pass, DrawParticleLayer, &game->tfx_rendering);
+		//If there's imgui to draw then draw it
 		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
 			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
 		}
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph();
-		//zest_PrintCompiledRenderGraph();
-		//Execute the render graph. This must come after the EndRenderGraph function
+		if (game->request_graph_print) {
+			//You can print out the render graph for debugging purposes
+			zest_PrintCompiledRenderGraph();
+			game->request_graph_print = false;
+		}		//Execute the render graph. This must come after the EndRenderGraph function
 		zest_ExecuteRenderGraph();
 	}
 }
@@ -384,13 +441,13 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfo();
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	zest_implglfw_SetCallbacks(&create_info);
 
-	TimelineFXExample game;
+	TimelineFXExample game = {0};
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
 
