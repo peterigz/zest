@@ -80,6 +80,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
 	if (zest_BeginRenderToScreen("ImGui")) {
+		zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
@@ -120,7 +121,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	//Implement GLFW for window creation

@@ -43,9 +43,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Create a "Descriptor buffer". This is a buffer that will have info necessary for a shader - in this case a compute shader.
 	//Create buffer as a single buffer, no need to have a buffer for each frame in flight as we won't be writing to it while it
 	//might be used in the GPU, it's purely for updating by the compute shader only
-	app->particle_buffer = zest_CreateComputeVertexDescriptorBuffer(storage_buffer_size);
+	app->particle_buffer = zest_CreateVertexStorageBuffer(storage_buffer_size, 0);
 	//Copy the staging buffer to the desciptor buffer
-	zest_CopyBufferOneTime(staging_buffer, zest_GetBufferFromDescriptorBuffer(app->particle_buffer), storage_buffer_size);
+	zest_CopyBufferOneTime(staging_buffer, app->particle_buffer, storage_buffer_size);
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 
@@ -135,7 +135,7 @@ void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_render_grap
 	//Set the viewport with this helper function
 	zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
 	//Bind the vertex buffer with the particle buffer containing the location of all the point sprite particles
-	zest_BindVertexBuffer(command_buffer, app->particle_buffer->buffer);
+	zest_BindVertexBuffer(command_buffer, app->particle_buffer);
 	//Draw the point sprites
 	zest_Draw(command_buffer, PARTICLE_COUNT, 1, 0, 0);
 }
@@ -159,7 +159,7 @@ void UpdateComputeUniformBuffers(ImGuiApp *app) {
 	ComputeUniformBuffer *uniform = (ComputeUniformBuffer*)zest_GetUniformBufferData(app->compute_uniform_buffer);
 	uniform->deltaT = app->frame_timer * 2.5f;
 	uniform->particleCount = PARTICLE_COUNT;
-	uniform->particle_buffer_index = app->particle_buffer->descriptor_array_index;
+	uniform->particle_buffer_index = app->particle_buffer->array_index;
 	if (!app->attach_to_cursor) {
 		uniform->dest_x = sinf(Radians(app->timer * 360.0f)) * 0.75f;
 		uniform->dest_y = 0.0f;
@@ -209,6 +209,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	} zest_EndTimerLoop(app->loop_timer)
 
 	if (zest_BeginRenderToScreen("Compute Particles")) {
+		zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 

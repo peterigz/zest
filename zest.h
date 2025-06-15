@@ -2373,6 +2373,8 @@ typedef struct zest_create_info_t {
     void(*create_window_surface_callback)(zest_window window);
 } zest_create_info_t;
 
+zest_hash_map(zest_u64) zest_map_queue_value;
+
 typedef struct zest_queue_t {
     VkQueue vk_queue;
     VkSemaphore semaphore[ZEST_MAX_FIF];
@@ -2739,6 +2741,7 @@ ZEST_API zest_buffer zest_GetPassOutputBuffer(zest_pass_node pass, const char *n
 // -- Creating and Executing the render graph
 ZEST_API bool zest_BeginRenderGraph(const char *name);
 ZEST_API bool zest_BeginRenderToScreen(const char *name);
+ZEST_API void zest_ForceRenderGraphOnGraphicsQueue();
 ZEST_API void zest_EndRenderGraph();
 ZEST_API void zest_ExecuteRenderGraph();
 
@@ -4411,6 +4414,7 @@ ZEST_API zest_uniform_buffer zest_GetDefaultUniformBuffer();
 ZEST_API void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
 //Bind an index buffer. For use inside a draw routine callback function.
 ZEST_API void zest_BindIndexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
+ZEST_API zest_uint zest_GetBufferDescriptorIndex(zest_buffer buffer);
 //--End Buffer related
 
 //-----------------------------------------------
@@ -4854,6 +4858,7 @@ ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const c
 //just call zest_ScheduleTextureReprocess which will recreate the texture between frames and then schedule a cleanup the next
 //frame after.
 ZEST_API void zest_ProcessTextureImages(zest_texture texture);
+ZEST_API zest_uint zest_GetTextureDescriptorIndex(zest_texture texture);
 //Get the descriptor image info for the texture that you can use to build a descriptor set with
 ZEST_API VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture texture);
 //Create a vulkan frame buffer. Maybe this should be a private function, but leaving API for now. This returns a zest_frame_buffer_t containing the frame buffer attachment and other
@@ -5110,6 +5115,7 @@ ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
 //Clear the draw sets in a layer. Draw sets are all the descriptor sets used when binding a pipeline. You would generally use zest_GetDescriptorSetsForBinding
 //before binding a pipeline for draw calls and then after you can call this to reset the draw sets list again.
 ZEST_API void zest_ClearLayerDrawSets(zest_layer layer);
+ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, bool last_frame);
 //-- End Draw Layers
 
 //-----------------------------------------------
@@ -5487,6 +5493,7 @@ ZEST_API void zest_SendStandardPushConstants(VkCommandBuffer command_buffer, zes
 //Helper function to record the vulkan command vkCmdDraw. Will record with the current command buffer being used in the active command queue. For use inside
 //a draw routine callback function
 ZEST_API void zest_Draw(VkCommandBuffer command_buffer, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
+ZEST_API void zest_DrawLayerInstruction(VkCommandBuffer command_buffer, zest_uint vertex_count, zest_layer_instruction_t *instruction);
 //Helper function to record the vulkan command vkCmdDrawIndexed. Will record with the current command buffer being used in the active command queue. For use inside
 //a draw routine callback function
 ZEST_API void zest_DrawIndexed(VkCommandBuffer command_buffer, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);

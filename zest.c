@@ -5520,6 +5520,11 @@ void zest_ClearLayerDrawSets(zest_layer layer) {
     zest_vec_clear(layer->draw_sets);
 }
 
+zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, bool last_frame) {
+    ZEST_CHECK_HANDLE(layer);       //Not a valid layer handle
+    return layer->memory_refs[last_frame ? layer->prev_fif : layer->fif].device_vertex_data->array_index;
+}
+
 void zest_ClearShaderResourceDescriptorSets(VkDescriptorSet *draw_sets) {
     if (draw_sets) {
         zest_vec_clear(draw_sets);
@@ -5813,6 +5818,11 @@ void zest_BindIndexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer) {
     vkCmdBindIndexBuffer(command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
 }
 
+zest_uint zest_GetBufferDescriptorIndex(zest_buffer buffer) {
+    ZEST_ASSERT(buffer);  //Not a valid buffer handle
+    return buffer->array_index;
+}
+
 void zest_SendPushConstants(VkCommandBuffer command_buffer, zest_pipeline pipeline, void *data) {
     vkCmdPushConstants(command_buffer, pipeline->pipeline_layout, pipeline->pipeline_template->pushConstantRange.stageFlags, pipeline->pipeline_template->pushConstantRange.offset, pipeline->pipeline_template->pushConstantRange.size, data);
 }
@@ -5831,6 +5841,10 @@ void zest_SendStandardPushConstants(VkCommandBuffer command_buffer, zest_pipelin
 
 void zest_Draw(VkCommandBuffer command_buffer, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) {
     vkCmdDraw(command_buffer, vertex_count, instance_count, first_vertex, first_instance);
+}
+
+void zest_DrawLayerInstruction(VkCommandBuffer command_buffer, zest_uint vertex_count, zest_layer_instruction_t *instruction) {
+    vkCmdDraw(command_buffer, vertex_count, instruction->total_indexes, 0, instruction->start_index);
 }
 
 void zest_DrawIndexed(VkCommandBuffer command_buffer, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
@@ -7342,6 +7356,11 @@ bool zest_BeginRenderToScreen(const char *name) {
     return true;
 }
 
+void zest_ForceRenderGraphOnGraphicsQueue() {
+    ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);      //This function should only be called immediately after BeginRenderGraph/BeginRenderToScreen
+    ZEST__FLAG(ZestRenderer->current_render_graph->flags, zest_render_graph_force_on_graphics_queue);
+}
+
 zest_bool zest__is_stage_compatible_with_qfi( VkPipelineStageFlags stages_to_check, VkQueueFlags queue_family_capabilities) {
     if (stages_to_check == VK_PIPELINE_STAGE_NONE_KHR) { // Or just == 0
         return ZEST_TRUE; // No stages specified is trivially compatible
@@ -7657,7 +7676,7 @@ void zest_EndRenderGraph() {
         }
 
         // Compare the pass's key to the current batch's key.
-        if (memcmp(&batch_key, &current_batch_key, sizeof(zest_batch_key)) == 0) {
+        if (ZEST__FLAGGED(render_graph->flags, zest_render_graph_force_on_graphics_queue) || memcmp(&batch_key, &current_batch_key, sizeof(zest_batch_key)) == 0) {
             // --- KEYS MATCH: Add this pass to the current batch ---
             zest_vec_linear_push(allocator, current_batch.pass_indices, current_pass_index);
         } else {
@@ -8378,6 +8397,7 @@ void zest_ExecuteRenderGraph() {
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_CHECK_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zloc_linear_allocator_t *allocator = ZestRenderer->render_graph_allocator;
+    zest_map_queue_value queue_values = { 0 };
     zest_vec_foreach(batch_index, render_graph->submissions) {
         zest_submission_batch_t *batch = &render_graph->submissions[batch_index];
         VkCommandBuffer command_buffer;
@@ -8488,9 +8508,18 @@ void zest_ExecuteRenderGraph() {
         // Set signal semaphores for this batch
         zest_queue queue = batch->queue;
 
-        //Increment the queue count for the timeline semaphores
-        queue->current_count[ZEST_FIF]++;
-        zest_u64 signal_value = queue->current_count[ZEST_FIF];
+        //Increment the queue count for the timeline semaphores if the queue hasn't been used yet this render graph
+        zest_u64 wait_value = 0;
+        if (zest_map_valid_key(queue_values, (zest_key)queue)) {
+            wait_value = *zest_map_at_key(queue_values, (zest_key)queue);
+        } else {
+            wait_value = queue->current_count[ZEST_FIF];
+        }
+
+        zest_u64 signal_value = wait_value + 1;
+
+		zest_map_insert_linear_key(allocator, queue_values, (zest_key)queue, signal_value);
+		queue->current_count[ZEST_FIF] = signal_value;
 
         //We need to mix the binary semaphores in the batches with the timeline semaphores in the queue,
         //so use these arrays for that. Because they're mixed we also need wait values for the binary values
@@ -8501,26 +8530,22 @@ void zest_ExecuteRenderGraph() {
         zest_u64 *signal_values = 0;
 
         zest_vec_linear_push(allocator, signal_values, signal_value);
-        zest_u64 wait_value = 0;
 
         VkTimelineSemaphoreSubmitInfo timeline_info = { 0 };
         timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
 
-        //Get the frame index to wait on which should be the max frames in flight behind the current frame
-        int wait_frame_index = (ZEST_FIF + 1) % ZEST_MAX_FIF;
-		zest_vec_foreach(i, batch->wait_semaphores) {
-			zest_vec_linear_push(allocator, wait_semaphores, batch->wait_semaphores[i]);
-            if (queue->current_count[wait_frame_index] > 0) {
-				zest_vec_linear_push(allocator, wait_values, 0);
+        zest_vec_foreach(i, batch->wait_semaphores) {
+            zest_vec_linear_push(allocator, wait_semaphores, batch->wait_semaphores[i]);
+            if (wait_value > 0) {
+                zest_vec_linear_push(allocator, wait_values, 0);
             }
-		}
+        }
 
         //If there's been enough frames in flight processed then add a timeline wait semphore that waits on the
         //previous frame in flight from max frames in flight ago.
-        if (queue->current_count[wait_frame_index] > 0) {
-            wait_value = queue->current_count[wait_frame_index];
+        if (wait_value > 0) {
             zest_vec_linear_push(allocator, wait_values, wait_value);
-            zest_vec_linear_push(allocator, wait_semaphores, queue->semaphore[wait_frame_index]);
+            zest_vec_linear_push(allocator, wait_semaphores, queue->semaphore[ZEST_FIF]);
             zest_vec_linear_push(allocator, batch->wait_dst_stage_masks, queue->wait_stage_mask);
             timeline_info.waitSemaphoreValueCount = zest_vec_size(wait_values);
             timeline_info.pWaitSemaphoreValues = wait_values;
@@ -8537,7 +8562,7 @@ void zest_ExecuteRenderGraph() {
         zest_vec_foreach(signal_index, batch->signal_semaphores) {
             zest_vec_linear_push(allocator, batch_signal_semaphores, batch->signal_semaphores[signal_index]);
         }
-        zest_vec_linear_push(allocator, signal_semaphores, batch->queue->semaphore[ZEST_FIF]);
+		zest_vec_linear_push(allocator, signal_semaphores, batch->queue->semaphore[ZEST_FIF]);
 
         //If this is the last batch then add the fence that tells the cpu to wait each frame
         VkFence submit_fence = VK_NULL_HANDLE;
@@ -11321,6 +11346,10 @@ void zest__process_texture_images(zest_texture texture, VkCommandBuffer command_
 
 void zest_ProcessTextureImages(zest_texture texture) {
     zest__process_texture_images(texture, 0);
+}
+
+zest_uint zest_GetTextureDescriptorIndex(zest_texture texture) {
+    return texture->descriptor_array_index;
 }
 
 void zest__delete_texture_layers(zest_texture texture) {

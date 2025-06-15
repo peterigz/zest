@@ -35,7 +35,7 @@ struct ImGuiApp {
 	zest_texture particle_texture;
 	zest_texture gradient_texture;
 
-	zest_descriptor_buffer particle_buffer;
+	zest_buffer particle_buffer;
 	zest_pipeline_template particle_pipeline;
 	zest_uniform_buffer compute_uniform_buffer;
 	zest_compute compute;

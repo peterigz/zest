@@ -5,17 +5,8 @@
 #include "impl_imgui_glfw.h"
 #include "timelinefx.h"
 
-#define x_distance 0.078f
-#define y_distance 0.158f
-#define x_spacing 0.040f
-#define y_spacing 0.058f
-
-#define Rad90 1.5708f
-#define Rad270 4.71239f
-
 typedef unsigned int u32;
 
-#define UpdateFrequency 0.016666666666f
 #define FrameLength 16.66666666667f
 
 struct tfx_push_constants_t {
@@ -285,19 +276,10 @@ void DrawParticleLayer(VkCommandBuffer command_buffer, const zest_render_graph_c
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
 	zest_BindVertexBuffer(command_buffer, device_buffer);
 
-	bool has_instruction_view_port = false;
 	for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
 		zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
 
-		if (current->draw_mode == zest_draw_mode_viewport) {
-			vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
-			vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
-			has_instruction_view_port = true;
-			continue;
-		} else if (!has_instruction_view_port) {
-			vkCmdSetViewport(command_buffer, 0, 1, &layer->viewport);
-			vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
-		}
+		zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
 
 		zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
 		if (pipeline && ZEST_VALID_HANDLE(current->shader_resources)) {
@@ -307,25 +289,14 @@ void DrawParticleLayer(VkCommandBuffer command_buffer, const zest_render_graph_c
 		}
 
 		tfx_push_constants_t *push_constants = (tfx_push_constants_t*)current->push_constant;
-		push_constants->color_ramp_texture_index = tfx_resources->color_ramps_texture->descriptor_array_index;
-		push_constants->particle_texture_index = tfx_resources->particle_texture->descriptor_array_index;
-		push_constants->image_data_index = tfx_resources->image_data->array_index;
-		push_constants->prev_billboards_index = layer->memory_refs[layer->prev_fif].device_vertex_data->array_index;
+		push_constants->color_ramp_texture_index = zest_GetTextureDescriptorIndex(tfx_resources->color_ramps_texture);
+		push_constants->particle_texture_index = zest_GetTextureDescriptorIndex(tfx_resources->particle_texture);
+		push_constants->image_data_index = zest_GetBufferDescriptorIndex(tfx_resources->image_data);
+		push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, true);
 
-		vkCmdPushConstants(
-			command_buffer,
-			pipeline->pipeline_layout,
-			zest_PipelinePushConstantStageFlags(pipeline, 0),
-			zest_PipelinePushConstantOffset(pipeline, 0),
-			zest_PipelinePushConstantSize(pipeline, 0),
-			push_constants);
+		zest_SendPushConstants(command_buffer, pipeline, push_constants);
 
-		vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
-
-		zest_vec_clear(layer->draw_sets);
-	}
-	if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-		zest_ResetInstanceLayerDrawing(layer);
+		zest_DrawLayerInstruction(command_buffer, 6, current);
 	}
 }
 
