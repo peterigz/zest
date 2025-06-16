@@ -2373,13 +2373,16 @@ typedef struct zest_create_info_t {
     void(*create_window_surface_callback)(zest_window window);
 } zest_create_info_t;
 
-zest_hash_map(zest_u64) zest_map_queue_value;
+zest_hash_map(zest_queue) zest_map_queue_value;
 
 typedef struct zest_queue_t {
     VkQueue vk_queue;
+    //We decouple the frame in flight on the queue so that the counts don't get out of sync when the swap chain
+    //can't be acquired for whatever reason.
+    zest_uint fif;
     VkSemaphore semaphore[ZEST_MAX_FIF];
     zest_u64 current_count[ZEST_MAX_FIF];
-    VkPipelineStageFlags wait_stage_mask;
+    zest_u64 signal_value;
 } zest_queue_t;
 
 zest_hash_map(const char *) zest_map_queue_names;
@@ -2582,6 +2585,7 @@ typedef struct zest_pass_node_t {
     
     zest_queue queue;
     zest_uint queue_family_index;
+    VkPipelineStageFlags timeline_wait_stage;
     zest_uint batch_index;
     zest_uint execution_order_index;
     zest_device_queue_type queue_type;
@@ -2668,12 +2672,20 @@ typedef struct zest_destruction_queue_t {
 typedef struct zest_submission_batch_t {
     zest_queue queue;
     zest_uint queue_family_index;
+    VkPipelineStageFlags timeline_wait_stage;
     zest_device_queue_type queue_type;
     zest_uint *pass_indices;
     VkCommandBuffer command_buffer;
     VkSemaphore *signal_semaphores;
     VkSemaphore *wait_semaphores;
     VkPipelineStageFlags *wait_dst_stage_masks;
+
+    //References for printing the render graph only
+    VkSemaphore *final_wait_semaphores;
+    VkSemaphore *final_signal_semaphores;
+	VkPipelineStageFlags *wait_stages;
+	zest_u64 *wait_values;
+	zest_u64 *signal_values;
 } zest_submission_batch_t;
 
 typedef struct zest_render_graph_t {
@@ -2708,6 +2720,7 @@ typedef struct zest_render_graph_t {
     zest_gpu_timestamp_info_t *timestamp_infos[ZEST_MAX_FIF];        //The last recorded frame durations for the whole render pipeline
 
     VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
+
 } zest_render_graph_t;
 
 ZEST_API zest_bool zest_AcquireSwapChainImage(void);
@@ -2743,7 +2756,7 @@ ZEST_API bool zest_BeginRenderGraph(const char *name);
 ZEST_API bool zest_BeginRenderToScreen(const char *name);
 ZEST_API void zest_ForceRenderGraphOnGraphicsQueue();
 ZEST_API void zest_EndRenderGraph();
-ZEST_API void zest_ExecuteRenderGraph();
+ZEST_API zest_render_graph zest_ExecuteRenderGraph();
 
 // --- Add pass nodes that execute user commands ---
 ZEST_API zest_pass_node zest_AddGraphicBlankScreen( const char *name);
@@ -2797,7 +2810,7 @@ ZEST_PRIVATE zest_text_t zest_vulkan_access_flags_to_string(VkAccessFlags flags)
 ZEST_PRIVATE zest_text_t zest_vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
 
 // --- Render graph debug functions ---
-ZEST_API void zest_PrintCompiledRenderGraph();
+ZEST_API void zest_PrintCompiledRenderGraph(zest_render_graph render_graph);
 
 //command queues are the main thing you use to draw things to the screen. A simple app will create one for you, or you can create your own. See examples like PostEffects for a more complex example
 typedef struct zest_command_queue_t {

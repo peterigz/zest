@@ -209,7 +209,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	} zest_EndTimerLoop(app->loop_timer)
 
 	if (zest_BeginRenderToScreen("Compute Particles")) {
-		zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 
@@ -229,11 +228,11 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 
 		zest_EndRenderGraph();
+		zest_render_graph render_graph = zest_ExecuteRenderGraph();
 		if (app->request_graph_print) {
-			zest_PrintCompiledRenderGraph();
+			zest_PrintCompiledRenderGraph(render_graph);
 			app->request_graph_print = false;
 		}
-		zest_ExecuteRenderGraph();
 	}
 
 }
