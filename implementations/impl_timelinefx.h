@@ -39,6 +39,8 @@ extern "C" {
 
 void zest_tfx_UpdateUniformBuffer(tfx_render_resources_t *resources);
 void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *resources);
+void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_render_resources_t *resources);
+void zest_tfx_AddPassTask(zest_pass_node pass, tfx_render_resources_t *resources);
 void zest_tfx_DrawParticleLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 void zest_tfx_CreateTimelineFXShaderResources(tfx_render_resources_t *tfx_rendering);
 void zest_tfx_UpdateTimelineFXImageData(tfx_render_resources_t *tfx_rendering, tfx_library library);
