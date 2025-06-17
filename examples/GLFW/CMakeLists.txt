@@ -55,6 +55,7 @@ function(buildExample EXAMPLE_NAME)
 		${IMPLEMENTATIONS}impl_imgui.cpp
 		${IMPLEMENTATIONS}impl_glfw.cpp
 		${IMPLEMENTATIONS}impl_imgui_glfw.cpp
+		${IMPLEMENTATIONS}impl_timelinefx.c
 	)
 
 	if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
@@ -91,6 +92,7 @@ function(buildExample EXAMPLE_NAME)
 
 	# Organize shaders into a source group
 	source_group("Shaders" FILES ${SHADERS})
+
 	source_group("ImGui" FILES ${IMGUI_SOURCE})
 	source_group("Implementations" FILES ${IMPLEMENTATIONS_SOURCE})
 	if(${EXAMPLE_NAME} STREQUAL "zest-imgui-test-suite")

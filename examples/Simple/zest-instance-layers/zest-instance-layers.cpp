@@ -167,15 +167,15 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//Compile the render graph
 		zest_EndRenderGraph();
 
+		//Execute the render graph
+		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+
 		//Print the render graph
 		static bool print_render_graph = true;
 		if (print_render_graph) {
-			zest_PrintCompiledRenderGraph();
+			zest_PrintCompiledRenderGraph(render_graph);
 			print_render_graph = false;
 		}
-
-		//Execute the render graph
-		zest_ExecuteRenderGraph();
 	}
 }
 

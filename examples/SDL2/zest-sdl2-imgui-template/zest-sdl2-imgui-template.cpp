@@ -91,13 +91,13 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph();
+		//Execute the render graph. This must come after the EndRenderGraph function
+		zest_render_graph render_graph = zest_ExecuteRenderGraph();
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
-			zest_PrintCompiledRenderGraph();
+			zest_PrintCompiledRenderGraph(render_graph);
 			app->request_graph_print = false;
 		}
-		//Execute the render graph. This must come after the EndRenderGraph function
-		zest_ExecuteRenderGraph();
 	}
 
 }

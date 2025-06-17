@@ -80,7 +80,6 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
 	if (zest_BeginRenderToScreen("ImGui")) {
-		zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
@@ -106,13 +105,14 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph();
+		//Execute the render graph. This must come after the EndRenderGraph function
+		//It also returns the render graph that was executed which you can use to print out/export the graph for analysis
+		zest_render_graph render_graph = zest_ExecuteRenderGraph();
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
-			zest_PrintCompiledRenderGraph();
+			zest_PrintCompiledRenderGraph(render_graph);
 			app->request_graph_print = false;
 		}
-		//Execute the render graph. This must come after the EndRenderGraph function
-		zest_ExecuteRenderGraph();
 	}
 }
 

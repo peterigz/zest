@@ -476,12 +476,13 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 
 		zest_EndRenderGraph();
+		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+
 		static bool print_graph = true;
 		if (print_graph) {
-			zest_PrintCompiledRenderGraph();
+			zest_PrintCompiledRenderGraph(render_graph);
 			print_graph = false;
 		}
-		zest_ExecuteRenderGraph();
 	}
 }
 

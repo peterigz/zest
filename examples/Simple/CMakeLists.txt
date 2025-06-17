@@ -1,5 +1,10 @@
 function(buildExample EXAMPLE_NAME)
     SET(EXAMPLE_FOLDER ${CMAKE_CURRENT_SOURCE_DIR}/${EXAMPLE_NAME})
+
+	include_directories(${CMAKE_SOURCE_DIR}/implementations) 
+	include_directories(${CMAKE_SOURCE_DIR}/submodules/)
+
+	SET(IMPLEMENTATIONS ${CMAKE_SOURCE_DIR}/implementations/)
     
     # Separate C and C++ source files
     file(GLOB C_SOURCE ${EXAMPLE_FOLDER}/*.c)
@@ -20,10 +25,14 @@ function(buildExample EXAMPLE_NAME)
 			${TIMELINEFX}timelinefx.h
 			${TIMELINEFX}timelinefx.cpp
 		)
+		file(GLOB IMPLEMENTATIONS_SOURCE
+			${IMPLEMENTATIONS}impl_timelinefx.c
+		)
     else()
         SET(MAIN ${EXAMPLE_FOLDER}/${EXAMPLE_NAME}.cpp)
         SET(SOURCE ${C_SOURCE} ${CPP_SOURCE})
 		SET(TIMELINEFX_SOURCE "")
+		SET(IMPLEMENTATIONS_SOURCE "")
     endif()
     
     set(SHADER_DIR "${EXAMPLE_NAME}/shaders")
@@ -31,9 +40,9 @@ function(buildExample EXAMPLE_NAME)
     source_group("Shaders" FILES ${SHADERS})
     
     if(WIN32)
-        add_executable(${EXAMPLE_NAME} WIN32 ${MAIN} ${SOURCE} ${TIMELINEFX_SOURCE} ${MAIN_HEADER} ${SHADERS})
+        add_executable(${EXAMPLE_NAME} WIN32 ${MAIN} ${SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${MAIN_HEADER} ${SHADERS})
     else(WIN32)
-        add_executable(${EXAMPLE_NAME} ${MAIN} ${SOURCE} ${MAIN_HEADER} ${TIMELINEFX_SOURCE} ${SHADERS})
+        add_executable(${EXAMPLE_NAME} ${MAIN} ${SOURCE} ${MAIN_HEADER} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${SHADERS})
     endif(WIN32)
     
     # Set C-specific properties for zest-timelinefx-c

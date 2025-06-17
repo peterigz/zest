@@ -5098,7 +5098,7 @@ ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
 ZEST_API zest_uint zest_GetInstanceLayerCount(zest_layer layer);
 //Get the pointer to the current instance in the layer if it's an instanced based layer (meaning you're drawing instances of sprites, billboards meshes etc.)
 //This will return a void* so you can cast it to whatever struct you're using for the instance data
-#define zest_GetLayerInstance(type, layer, fif) (type*)layer->memory_refs.instance_ptr
+#define zest_GetLayerInstance(type, layer, fif) (type*)layer->memory_refs[fif].instance_ptr
 //Move the pointer in memory to the next instance to write to.
 ZEST_API void zest_NextInstance(zest_layer layer);
 //Allocate a new zest_layer and return it's handle. This is mainly used internally but will leave it in the API for now

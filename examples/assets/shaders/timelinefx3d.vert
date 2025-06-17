@@ -43,10 +43,9 @@ layout(set = 0, binding = 0) uniform UboView
 {
     mat4 view;
     mat4 proj;
-    vec4 lerp;
-    vec4 parameters2;
-    vec2 res;
-    uint millisecs;
+    vec2 screen_size;
+    float timer_lerp;
+    float update_time;
 } ub;
 
 layout (std430, set = 1, binding = 1) readonly buffer InBillboardInstances {
@@ -117,9 +116,9 @@ void main() {
     #else
     //Otherwise just hide the first frame of the particle which is a little more efficient:
 	vec2 lerped_size = vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value);
-	lerped_size = mix(lerped_size, size, ub.lerp.x) * interpolate_is_active;
-	vec3 lerped_position = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub.lerp.x);
-	vec3 lerped_rotation = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.lerp.x);
+	lerped_size = mix(lerped_size, size, ub.timer_lerp) * interpolate_is_active;
+	vec3 lerped_position = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub.timer_lerp);
+	vec3 lerped_rotation = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.timer_lerp);
     #endif
 
     vec3 motion = position.xyz - in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz;

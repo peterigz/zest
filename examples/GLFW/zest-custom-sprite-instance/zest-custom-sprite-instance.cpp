@@ -137,13 +137,11 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 	zest_imgui_UpdateBuffers();
 
-	zest_texture textures[2] = {
-		app->test_texture,
-		app->color_ramps_texture
-	};
-
 	//Set the pipeline and descriptor set to use in the layer for our custom sprite drawing
-	zest_SetInstanceDrawing(app->custom_layer, app->shader_resources, textures, 2, app->custom_pipeline);
+	zest_SetInstanceDrawing(app->custom_layer, app->shader_resources, app->custom_pipeline);
+	zest_push_constants_t *push = (zest_push_constants_t*)app->custom_layer->current_instruction.push_constant;
+	push->descriptor_index[0] = zest_GetTextureDescriptorIndex(app->test_texture);
+	push->descriptor_index[1] = zest_GetTextureDescriptorIndex(app->color_ramps_texture);
 	zest_DrawCustomSprite(app->custom_layer, app->test_image, 800.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f, {app->lerp_value, app->mix_value});
 
 	if (zest_BeginRenderToScreen("Custom Sprite Render Graph")) {

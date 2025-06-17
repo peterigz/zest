@@ -15,7 +15,8 @@ void zest_SetShapeDrawing(zest_layer layer, zest_shape_type shape_type, zest_sha
     zest_StartInstanceInstructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
 	layer->current_instruction.shader_resources = shader_resources;
-    layer->current_instruction.push_constants.parameters1.x = (float)shape_type;
+	zest_push_constants_t *push = (zest_push_constants_t *)layer->current_instruction.push_constant;
+    push->parameters1.x = (float)shape_type;
     layer->current_instruction.draw_mode = (zest_draw_mode)shape_type;
     layer->last_draw_mode = (zest_draw_mode)shape_type;
 }
@@ -24,7 +25,7 @@ void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], f
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_line_instance || layer->current_instruction.draw_mode == zest_draw_mode_dashed_line);    //Call zest_StartSpriteDrawing before calling this function
 
-    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs.instance_ptr;
+    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
     line->rect.x = start_point[0];
     line->rect.y = start_point[1];
@@ -43,7 +44,7 @@ void zest_DrawRect(zest_layer layer, float top_left[2], float width, float heigh
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_rect_instance);    //Call zest_StartSpriteDrawing before calling this function
 
-    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs.instance_ptr;
+    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
 
     line->rect.x = top_left[0];
     line->rect.y = top_left[1];
@@ -127,15 +128,15 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->line_layer);
 		zest_EndRenderGraph();
 
+		//Execute the render graph
+		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+
 		//Print the render graph
 		static bool print_render_graph = true;
 		if (print_render_graph) {
-			zest_PrintCompiledRenderGraph();
+			zest_PrintCompiledRenderGraph(render_graph);
 			print_render_graph = false;
 		}
-
-		//Execute the render graph
-		zest_ExecuteRenderGraph();
 	}
 }
 

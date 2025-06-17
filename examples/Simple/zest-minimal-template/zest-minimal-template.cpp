@@ -10,14 +10,7 @@ void ExampleRenderPassCallback(
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
-	/*
-	for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
-		zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
-		ZEST_PRINT("%i, %i", stats.free_blocks, stats.used_blocks);
-	}
-	*/
-
-	// 2. Begin Render Graph Definition
+	// Begin Render Graph Definition
 	if (zest_BeginRenderToScreen("Render Graph")) {
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource( "Swapchain Output" );
 		zest_pass_node clear_pass = zest_AddGraphicBlankScreen("Draw Nothing");
@@ -34,7 +27,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 //int main(void) 
 {
 	//Make a config struct where you can configure zest with some options
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
+	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = "./";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
