@@ -137,6 +137,10 @@ void zest_tfx_CreateTimelineFXShaderResources(tfx_render_resources_t *tfx_render
 	}
 }
 
+void zest_tfx_AddPassTask(zest_pass_node pass, tfx_render_resources_t *resources) {
+	zest_AddPassTask(pass, zest_tfx_DrawParticleLayer, resources);
+}
+
 void zest_tfx_DrawParticleLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	tfx_render_resources_t *tfx_resources = (tfx_render_resources_t *)user_data;
 	zest_layer layer = tfx_resources->layer;
@@ -176,4 +180,18 @@ void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *res
 
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(resources->layer, billboards, tfx_GetInstanceCount(pm));
+}
+
+void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_render_resources_t *resources) {
+	//Let our renderer know that we want to draw to the timelinefx layer.
+	zest_SetInstanceDrawing(resources->layer, resources->shader_resource, resources->pipeline);
+
+	tfx_instance_t *billboards = NULL;
+	tfx_effect_instance_data_t *instance_data;
+	tfxU32 instance_count = 0;
+	//Loop over the effects to get each instance buffer to render
+	while (tfx_GetNextInstanceBuffer(pm, &billboards, &instance_data, &instance_count)) {
+		zest_draw_buffer_result result = zest_DrawInstanceBuffer(resources->layer, billboards, instance_count);
+	}
+	tfx_ResetInstanceBufferLoopIndex(pm);
 }
