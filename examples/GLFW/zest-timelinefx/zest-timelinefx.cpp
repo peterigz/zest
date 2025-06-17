@@ -29,8 +29,8 @@ struct TimelineFXExample {
 
 //Allows us to cast a ray into the screen from the mouse position to place an effect where we click
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_uniform_buffer buffer) {
-	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
-	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
+	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
+	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &uniform_buffer->proj, &uniform_buffer->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
 	return { pos.x, pos.y, pos.z };
 }
@@ -187,7 +187,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 
 		zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
-		zest_AddPassTask(graphics_pass, zest_tfx_DrawParticleLayer, &game->tfx_rendering);
+		zest_tfx_AddPassTask(graphics_pass, &game->tfx_rendering);
 		//If there's imgui to draw then draw it
 		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
 			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
@@ -205,9 +205,9 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
-	zest_create_info_t create_info = zest_CreateInfo();
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
