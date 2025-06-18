@@ -221,6 +221,8 @@ typedef size_t zest_size;
 typedef unsigned char zest_byte;
 typedef unsigned int zest_bool;
 typedef VkVertexInputAttributeDescription *zest_vertex_input_descriptions;
+typedef zest_uint zest_pass_id;
+typedef zest_uint zest_resource_id;
 
 //Handles. These are pointers that remain stable until the object is freed.
 #define ZEST__MAKE_HANDLE(handle) typedef struct handle##_t* handle;
@@ -1580,7 +1582,7 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_clip(T) zest__vec_header(T)->current_size--
 #define zest_vec_trim(T, amount) zest__vec_header(T)->current_size -= amount;
 #define zest_vec_grow(T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_reserve((T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
-#define zest_vec_linear_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_linear_reserve(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 8)) : 0)
+#define zest_vec_linear_grow(allocator, T) ((!(T) || (zest__vec_header(T)->current_size == zest__vec_header(T)->capacity)) ? T = zest__vec_linear_reserve(allocator, (T), sizeof(*T), (T ? zest__grow_capacity(T, zest__vec_header(T)->current_size) : 16)) : 0)
 #define zest_vec_empty(T) (!T || zest__vec_header(T)->current_size == 0)
 #define zest_vec_size(T) ((T) ? zest__vec_header(T)->current_size : 0)
 #define zest_vec_last_index(T) (zest__vec_header(T)->current_size - 1)
@@ -3227,7 +3229,6 @@ typedef struct zest_layer_t {
 
     zest_layer_flags flags;
     void *user_data;
-    VkDescriptorSet *draw_sets;
 } zest_layer_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_layer_builder_t {
@@ -3276,7 +3277,6 @@ typedef struct zest_font_t {
     zest_texture texture;
     zest_pipeline_template pipeline_template;
     zest_shader_resources shader_resources;
-    zest_uint bindless_texture_index;
     float pixel_range;
     float miter_limit;
     float padding;
@@ -5125,9 +5125,6 @@ ZEST_API void zest_SetLayerDirty(zest_layer layer);
 ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
 //Get the user data from the layer
 #define zest_GetLayerUserData(type, layer) ((type*)layer->user_data)
-//Clear the draw sets in a layer. Draw sets are all the descriptor sets used when binding a pipeline. You would generally use zest_GetDescriptorSetsForBinding
-//before binding a pipeline for draw calls and then after you can call this to reset the draw sets list again.
-ZEST_API void zest_ClearLayerDrawSets(zest_layer layer);
 ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, bool last_frame);
 //-- End Draw Layers
 

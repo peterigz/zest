@@ -11,8 +11,6 @@ void InitExample(zest_example *example) {
 
 	//Load a font and store the handle. MSDF fonts are in the zft format which you can create using zest-msdf-font-maker
 	example->font = zest_LoadMSDFFont("examples/assets/KaushanScript-Regular.zft");
-
-	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Font pipeline");
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {

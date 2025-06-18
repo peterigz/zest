@@ -38,6 +38,8 @@ struct TimelineFXExample {
 	zest_imgui_t imgui_layer_info;
 	tfx_random_t random;
 	tfx_vector_t<tfx_pool_stats_t> memory_stats;
+	bool sync_refresh;
+	bool request_graph_print;
 
 	float test_depth = 1.f;
 
@@ -112,6 +114,7 @@ void TimelineFXExample::Init() {
 //Draw a Dear ImGui window to output some basic stats
 void BuildUI(TimelineFXExample *game) {
 	ImGui_ImplGlfw_NewFrame();
+	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(game->tfx_rendering.uniform_buffer);
 	ImGui::NewFrame();
 	ImGui::Begin("Effects");
 	ImGui::Text("FPS: %i", zest_FPS());
@@ -119,6 +122,22 @@ void BuildUI(TimelineFXExample *game) {
 	ImGui::Text("Effects: %i", tfx_EffectCount(game->pm));
 	ImGui::Text("Emitters: %i", tfx_EmitterCount(game->pm));
 	ImGui::Text("Free Emitters: %i", game->pm->free_emitters.size());
+	ImGui::Text("Lerp: %f", uniform_buffer->timer_lerp);
+	ImGui::Text("Update Time: %f", uniform_buffer->update_time);
+	if (ImGui::Button("Toggle Refresh Rate Sync")) {
+		if (game->sync_refresh) {
+			zest_DisableVSync();
+			game->sync_refresh = false;
+			ZEST_PRINT("Disable VSync");
+		} else {
+			zest_EnableVSync();
+			game->sync_refresh = true;
+			ZEST_PRINT("Enable VSync");
+		}
+	}
+	if (ImGui::Button("Print Render Graph")) {
+		game->request_graph_print = true;
+	}
 	/*
 	int i = 0;
 	for (tfx_effect_index_t effect_index : game->pm.effects_in_use[0][game->pm.current_ebuff]) {
@@ -146,6 +165,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	zest_StartTimerLoop(game->tfx_rendering.timer) {
 		BuildUI(game);
 
+		/*
 		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 			//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 			tfxEffectID effect_id;
@@ -168,6 +188,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 				tfx_SetEffectPositionVec3(game->pm, effect_id, position);
 			}
 		}
+		*/
 
 		for (tfxEffectID &effect_id : game->test_effects) {
 			float chance = tfx_GenerateRandom(&game->random);
@@ -195,6 +216,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
 	//have to upload the latest billboards to the gpu.
 	if (zest_TimerUpdateWasRun(game->tfx_rendering.timer)) {
+		//ZEST_PRINT("Layer flipped: %u / %u", game->tfx_rendering.layer->prev_fif, game->tfx_rendering.layer->fif);
 		zest_ResetInstanceLayer(game->tfx_rendering.layer);
 		zest_tfx_RenderParticlesByEffect(game->pm, &game->tfx_rendering);
 	}
@@ -203,6 +225,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
 	if (zest_BeginRenderToScreen("TimelineFX Render Graphs")) {
+		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
@@ -230,7 +253,12 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		}
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph();
-		zest_ExecuteRenderGraph();
+		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		if (game->request_graph_print) {
+			//You can print out the render graph for debugging purposes
+			zest_PrintCompiledRenderGraph(render_graph);
+			game->request_graph_print = false;
+		}
 	}
 }
 
@@ -240,7 +268,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 int main() {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	create_info.log_path = "./";
-	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	zest_implglfw_SetCallbacks(&create_info);
 

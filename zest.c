@@ -3290,7 +3290,7 @@ void zest_SetDeviceImagePoolSize(const char* name, VkImageUsageFlags image_flags
 
 // --Renderer and related functions
 void zest__initialise_renderer(zest_create_info_t* create_info) {
-    ZestRenderer->flags |= create_info->flags & zest_init_flag_enable_vsync;
+    ZestRenderer->flags |= (create_info->flags & zest_init_flag_enable_vsync) ? zest_renderer_flag_vsync_enabled : 0;
     zest_SetText(&ZestRenderer->shader_path_prefix, create_info->shader_path_prefix);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain");
     zest__create_swapchain();
@@ -5513,10 +5513,6 @@ zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resource
     return zest_vec_size(*draw_sets);
 }
 
-void zest_ClearLayerDrawSets(zest_layer layer) {
-    zest_vec_clear(layer->draw_sets);
-}
-
 zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, bool last_frame) {
     ZEST_CHECK_HANDLE(layer);       //Not a valid layer handle
     return layer->memory_refs[last_frame ? layer->prev_fif : layer->fif].device_vertex_data->array_index;
@@ -6497,7 +6493,7 @@ void zest__present_frame() {
 
     VkResult result = vkQueuePresentKHR(ZestDevice->graphics_queue.vk_queue, &presentInfo);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || ZestApp->window->framebuffer_resized || (ZestRenderer->flags & zest_renderer_flag_schedule_change_vsync)) {
+    if ((ZestRenderer->flags & zest_renderer_flag_schedule_change_vsync) || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || ZestApp->window->framebuffer_resized) {
         ZestApp->window->framebuffer_resized = ZEST_FALSE;
         ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
 
@@ -8015,6 +8011,7 @@ void zest_EndRenderGraph() {
                     case zest_resource_type_buffer:
                         VkBufferMemoryBarrier buffer_barrier = zest__create_buffer_memory_barrier(
                             resource->storage_buffer->memory_pool->buffer,
+                            //VK_ACCESS_NONE
                             prev_usage->access_mask,
                             current_usage->access_mask,
                             resource->storage_buffer->memory_offset,
@@ -8911,9 +8908,9 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
             ZEST_PRINT("  Signal Semaphores:");
             zest_vec_foreach(signal_index, batch->final_signal_semaphores) {
                 if (batch->signal_values[signal_index] > 0) {
-                    ZEST_PRINT("  Binary Semaphore:   %p", (void *)batch->final_signal_semaphores[signal_index]);
+                    ZEST_PRINT("  Timeline Semaphore:   %p", (void *)batch->final_signal_semaphores[signal_index]);
                 } else {
-                    ZEST_PRINT("  Timeline Semaphore: %p, Value: %zu", (void *)batch->final_signal_semaphores[signal_index], batch->signal_values[signal_index]);
+                    ZEST_PRINT("  Binary Semaphore: %p, Value: %zu", (void *)batch->final_signal_semaphores[signal_index], batch->signal_values[signal_index]);
                 }
             }
         }
@@ -12795,8 +12792,6 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_cont
 			&current->push_constant);
 
         vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
-
-        zest_vec_clear(layer->draw_sets);
     }
 	zest_ResetInstanceLayerDrawing(layer);
 }
@@ -14054,16 +14049,11 @@ void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_gr
             vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
         }
 
-        ZEST_ASSERT(current->shader_resources); //Shader resources must be set in the instruction
-        zest_vec_foreach(set_index, current->shader_resources->sets[ZEST_FIF]) {
-            zest_descriptor_set set = current->shader_resources->sets[ZEST_FIF][set_index];
-			ZEST_CHECK_HANDLE(set);     //Not a valid descriptor set in the shader resource. Make sure all frame in flights are set
-            zest_vec_push(layer->draw_sets, set->vk_descriptor_set);
-        }
+        ZEST_CHECK_HANDLE(current->shader_resources); //Shader resources must be set in the instruction
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
         if (pipeline) {
-			zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
+			zest_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
         } else {
             continue;
         }
@@ -14077,8 +14067,6 @@ void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_gr
 			&current->push_constant);
 
         vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
-
-        zest_vec_clear(layer->draw_sets);
     }
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
 		zest_ResetInstanceLayerDrawing(layer);
@@ -14107,14 +14095,10 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
             vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
         }
 
-        zest_vec_foreach(set_index, current->shader_resources->sets[fif]) {
-            zest_descriptor_set set = current->shader_resources->sets[fif][set_index];
-			ZEST_CHECK_HANDLE(set);     //Not a valid descriptor set in the shader resource. Make sure all frame in flights are set
-            zest_vec_push(layer->draw_sets, set->vk_descriptor_set);
-        }
+		ZEST_CHECK_HANDLE(current->shader_resources);     //Not a valid descriptor set in the shader resource. Make sure all frame in flights are set
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, 0);
-        zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
+        zest_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
 
         vkCmdPushConstants(
             command_buffer,
@@ -14125,8 +14109,6 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
             current->push_constant);
 
         vkCmdDrawIndexed(command_buffer, current->total_indexes, 1, current->start_index, 0, 0);
-
-        zest_vec_clear(layer->draw_sets);
     }
     //zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
 }
@@ -14155,14 +14137,10 @@ void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
             vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
         }
 
-        zest_vec_foreach(set_index, current->shader_resources->sets[fif]) {
-            zest_descriptor_set set = current->shader_resources->sets[fif][set_index];
-			ZEST_CHECK_HANDLE(set);     //Not a valid descriptor set in the shader resource. Make sure all frame in flights are set
-            zest_vec_push(layer->draw_sets, set->vk_descriptor_set);
-        }
+        ZEST_CHECK_HANDLE(current->shader_resources);
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, 0);
-        zest_BindPipeline(command_buffer, pipeline, layer->draw_sets, zest_vec_size(layer->draw_sets));
+        zest_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
 
         vkCmdPushConstants(
             command_buffer,
@@ -14173,8 +14151,6 @@ void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
             current->push_constant);
 
         vkCmdDrawIndexed(command_buffer, layer->index_count, current->total_instances, 0, 0, current->start_index);
-
-        zest_vec_clear(layer->draw_sets);
     }
     //zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
 }
@@ -14446,7 +14422,6 @@ void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float
     sprite->color = layer->current_color;
     sprite->intensity_texture_array = image->layer;
     sprite->intensity_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-    layer->current_instruction.total_instances++;
 
     zest_NextInstance(layer);
 }
@@ -14465,7 +14440,6 @@ void zest_DrawSpritePacked(zest_layer layer, zest_image image, float x, float y,
     sprite->color = layer->current_color;
     sprite->intensity_texture_array = image->layer;
     sprite->intensity_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-    layer->current_instruction.total_instances++;
 
     zest_NextInstance(layer);
 }
@@ -14493,7 +14467,6 @@ void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float x, float 
     sprite->color = layer->current_color;
     sprite->intensity_texture_array = (image->layer << 24);
     sprite->intensity_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-    layer->current_instruction.total_instances++;
 
     zest_NextInstance(layer);
 }
@@ -14521,7 +14494,7 @@ void zest_SetMSDFFontDrawing(zest_layer layer, zest_font font) {
     push.bleed = 0.25f; 
     push.aa_factor = 5.f;
     push.thickness = 5.5f;
-    push.font_texture_index = font->bindless_texture_index;
+    push.font_texture_index = font->texture->descriptor_array_index;
 
     (*(zest_font_push_constants_t*)layer->current_instruction.push_constant) = push;
     layer->last_draw_mode = zest_draw_mode_text;
@@ -14624,7 +14597,6 @@ float zest_DrawMSDFText(zest_layer layer, const char* text, float x, float y, fl
         font_instance->color = layer->current_color;
         font_instance->intensity_texture_array = 0;
 		font_instance->intensity_texture_array = (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-        layer->current_instruction.total_instances++;
 
         zest_NextInstance(layer);
 
@@ -14689,7 +14661,6 @@ float zest_DrawMSDFParagraph(zest_layer layer, const char* text, float x, float 
         font_instance->alignment = 1;
         font_instance->color = layer->current_color;
 		font_instance->intensity_texture_array = (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-        layer->current_instruction.total_instances++;
 
         zest_NextInstance(layer);
 
@@ -14765,7 +14736,6 @@ void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], z
     billboard->alignment = alignment;
     billboard->color = layer->current_color;
     billboard->intensity_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-    layer->current_instruction.total_instances++;
 
     zest_NextInstance(layer);
 }
@@ -14784,7 +14754,6 @@ void zest_DrawBillboardPacked(zest_layer layer, zest_image image, float position
     billboard->alignment = alignment;
     billboard->color = layer->current_color;
     billboard->intensity_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-    layer->current_instruction.total_instances++;
 
     zest_NextInstance(layer);
 }
@@ -14803,7 +14772,6 @@ void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position
     billboard->alignment = 16711680;        //x = 0.f, y = 1.f, z = 0.f;
     billboard->color = layer->current_color;
     billboard->intensity_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-    layer->current_instruction.total_instances++;
 
     zest_NextInstance(layer);
 }
@@ -14840,7 +14808,6 @@ void zest_Draw3DLine(zest_layer layer, float start_point[3], float end_point[3],
     line->end.w = width;
     line->start_color = layer->current_color;
     line->end_color = layer->current_color;
-    layer->current_instruction.total_instances++;
 
     zest_NextInstance(layer);
 }
@@ -15185,7 +15152,6 @@ void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float 
     instance->scale = zest_Vec3Set(scale[0], scale[1], scale[2]);
     instance->color = layer->current_color;
     instance->parameters = 0;
-    layer->current_instruction.total_instances++;
 
     zest_NextInstance(layer);
 }

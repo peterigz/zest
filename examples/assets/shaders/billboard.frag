@@ -13,18 +13,11 @@ layout(set = 1, binding = 0) uniform sampler2DArray texture_sampler[];
 
 layout(push_constant) uniform quad_index
 {
-    uint texture_index1;
-    uint texture_index2;
-    uint texture_index3;
-    uint texture_index4;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec4 parameters3;
-    vec4 camera;
+    uint texture_index;
 } pc;
 
 void main() {
-    vec4 texel = texture(texture_sampler[pc.texture_index1], in_tex_coord);
+    vec4 texel = texture(texture_sampler[pc.texture_index], in_tex_coord);
     //Pre multiply alpha
     outColor.rgb = texel.rgb * in_frag_color.rgb * texel.a;
     //If in_frag_color.a is 0 then color will be additive. The higher the value of a the more alpha blended the color will be.

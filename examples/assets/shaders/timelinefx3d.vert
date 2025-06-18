@@ -62,7 +62,7 @@ layout (push_constant) uniform quad_index
     uint color_ramp_texture_index;
     uint image_data_index;
     uint prev_billboards_index;
-    vec4 parameters1;
+    uint index_offset;
 } pc;
 
 //Vertex
@@ -97,7 +97,7 @@ void main() {
     vec2 size = size_handle.xy * size_max_value;
     vec2 handle = size_handle.zw * handle_max_value;
 
-	uint prev_index = (captured_index & 0x0FFFFFFF) + uint(pc.parameters1.x);  //Add on an offset if the are multiple draw instructions
+	uint prev_index = (captured_index & 0x0FFFFFFF) + pc.index_offset;  //Add on an offset if the are multiple draw instructions
     //We won't interpolate the position of the particle for a few possible reasons:
     //  It's the first frame of the particle and there's no previous frame to interpolate with
     //  We're looping back to the start of a path or line

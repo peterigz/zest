@@ -50,13 +50,6 @@ function(buildExample EXAMPLE_NAME)
 		SET(IMGUI_TEST_ENGINE_SOURCE "")
 		SET(IMGUI_TEST_SUITE_SOURCE "")
 	endif()
-	
-	file(GLOB IMPLEMENTATIONS_SOURCE
-		${IMPLEMENTATIONS}impl_imgui.cpp
-		${IMPLEMENTATIONS}impl_glfw.cpp
-		${IMPLEMENTATIONS}impl_imgui_glfw.cpp
-		${IMPLEMENTATIONS}impl_timelinefx.c
-	)
 
 	if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
 		file(GLOB IMGUI_FILE_DIALOG_SOURCE
@@ -86,8 +79,19 @@ function(buildExample EXAMPLE_NAME)
 			${TIMELINEFX}timelinefx.h
 			${TIMELINEFX}timelinefx.cpp
 		)
+		file(GLOB IMPLEMENTATIONS_SOURCE
+			${IMPLEMENTATIONS}impl_imgui.cpp
+			${IMPLEMENTATIONS}impl_glfw.cpp
+			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
+			${IMPLEMENTATIONS}impl_timelinefx.c
+		)
 	else()
 		SET(TIMELINEFX_SOURCE "")
+		file(GLOB IMPLEMENTATIONS_SOURCE
+			${IMPLEMENTATIONS}impl_imgui.cpp
+			${IMPLEMENTATIONS}impl_glfw.cpp
+			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
+		)
 	endif()
 
 	# Organize shaders into a source group

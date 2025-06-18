@@ -22,7 +22,7 @@ struct TimelineFXExample {
 	tfxEffectID effect_id;
 	zest_imgui_t imgui_layer_info;
 	bool request_graph_print;
-	zest_microsecs relays[10];
+	bool sync_refresh;
 
 	void Init();
 };
@@ -102,6 +102,15 @@ void BuildUI(TimelineFXExample *game) {
 	ImGui::Text("Free Emitters: %i", game->pm->free_emitters.size());
 	if (ImGui::Button("Print Render Graph")) {
 		game->request_graph_print = true;
+	}
+	if (ImGui::Button("Toggle Refresh Rate Sync")) {
+		if (game->sync_refresh) {
+			zest_DisableVSync();
+			game->sync_refresh = false;
+		} else {
+			zest_EnableVSync();
+			game->sync_refresh = true;
+		}
 	}
 	ImGui::End();
 

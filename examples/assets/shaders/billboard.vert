@@ -18,22 +18,14 @@ layout(set = 0, binding = 0) uniform UboView
 {
     mat4 view;
     mat4 proj;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec2 res;
-    uint millisecs;
+    vec2 screen_size;
+    float timer_lerp;
+    float update_time;
 } uboView;
 
 layout(push_constant) uniform quad_index
 {
-    uint texture_index1;
-    uint texture_index2;
-    uint texture_index3;
-    uint texture_index4;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec4 parameters3;
-    vec4 camera;
+    uint texture_index;
 } pc;
 
 //Instance

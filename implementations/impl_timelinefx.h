@@ -8,7 +8,7 @@ typedef struct tfx_push_constants_s {
 	tfxU32 color_ramp_texture_index;
 	tfxU32 image_data_index;
 	tfxU32 prev_billboards_index;
-	tfx_vec4_t parameters;
+	tfxU32 index_offset;
 } tfx_push_constants_t;
 
 typedef struct tfx_uniform_buffer_data_t {

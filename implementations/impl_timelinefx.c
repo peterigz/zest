@@ -45,6 +45,7 @@ void zest_tfx_UpdateUniformBuffer(tfx_render_resources_t *resources) {
 	uniform_buffer->screen_size.x = zest_ScreenWidthf();
 	uniform_buffer->screen_size.y = zest_ScreenHeightf();
 	uniform_buffer->timer_lerp = (float)zest_TimerLerp(resources->timer);
+	//uniform_buffer->timer_lerp = 0.f;
 	uniform_buffer->update_time = (float)zest_TimerUpdateTime(resources->timer);
 }
 
@@ -110,7 +111,7 @@ void zest_tfx_InitTimelineFXRenderResources(tfx_render_resources_t *resources, c
 	//This means that we are able to only change the current frame in flight if we actually updated the particle manager in the current
 	//frame allowing us to dictate when to upload the instance buffer to the gpu as there's no need to do it every frame, only when 
 	//the particle manager is actually updated.
-	resources->layer = zest_CreateFIFInstanceLayer("timelinefx draw routine", sizeof(tfx_instance_t));
+	resources->layer = zest_CreateFIFInstanceLayer("TimelineFX Layer", sizeof(tfx_instance_t));
 	zest_AcquireGlobalInstanceLayerBufferIndex(resources->layer);
 
 	//Create a buffer to store the image data on the gpu. 

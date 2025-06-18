@@ -15,7 +15,7 @@ layout(push_constant) uniform quad_index
     uint color_ramp_texture_index;
     uint image_data_index;
     uint prev_billboards_index;
-    vec4 parameters1;
+    uint index_offset;
 } pc;
 
 void main() {
