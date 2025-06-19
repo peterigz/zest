@@ -40,8 +40,10 @@ struct TimelineFXExample {
 	tfx_vector_t<tfx_pool_stats_t> memory_stats;
 	bool sync_refresh;
 	bool request_graph_print;
+	bool pause = false;
 
 	float test_depth = 1.f;
+	float test_lerp = 0;
 
 	void Init();
 };
@@ -67,7 +69,7 @@ void TimelineFXExample::Init() {
 
 	effect_template1 = tfx_CreateEffectTemplate(library, "Star Burst Flash");
 	effect_template2 = tfx_CreateEffectTemplate(library, "Star Burst Flash.1");
-	cube_ordered = tfx_CreateEffectTemplate(library, "Cube Ordered");
+	cube_ordered = tfx_CreateEffectTemplate(library, "Cube Ordered.1");
 
 	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
 	//simply copied to a bitmap for uploading to the texture
@@ -100,7 +102,7 @@ void TimelineFXExample::Init() {
 
 	random = tfx_NewRandom(zest_Millisecs());
 
-	for (int i = 0; i != 10; ++i) {
+	for (int i = 0; i != 3; ++i) {
 		tfxEffectID effect_id;
 		if (tfx_AddEffectTemplateToEffectManager(pm, cube_ordered, &effect_id)) {
 			tfx_vec3_t position = {tfx_RandomRangeZeroToMax(&random, 5.f), tfx_RandomRangeFromTo(&random, -2.f, 2.f), tfx_RandomRangeFromTo(&random, -4.f, 4.f)};
@@ -124,6 +126,7 @@ void BuildUI(TimelineFXExample *game) {
 	ImGui::Text("Free Emitters: %i", game->pm->free_emitters.size());
 	ImGui::Text("Lerp: %f", uniform_buffer->timer_lerp);
 	ImGui::Text("Update Time: %f", uniform_buffer->update_time);
+	ImGui::DragFloat("Lerp", &game->test_lerp, 0.001f, 0.f, 1.f);
 	if (ImGui::Button("Toggle Refresh Rate Sync")) {
 		if (game->sync_refresh) {
 			zest_DisableVSync();
@@ -137,6 +140,9 @@ void BuildUI(TimelineFXExample *game) {
 	}
 	if (ImGui::Button("Print Render Graph")) {
 		game->request_graph_print = true;
+	}
+	if (ImGui::Button("Pause")) {
+		game->pause = game->pause ^ 1;
 	}
 	/*
 	int i = 0;
@@ -156,11 +162,17 @@ void BuildUI(TimelineFXExample *game) {
 	zest_imgui_UpdateBuffers();
 }
 
+void ManualRenderGraph() {
+
+}
+
 //Application specific, this just sets the function to call each render update
 void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	TimelineFXExample *game = static_cast<TimelineFXExample*>(data);
 
 	zest_tfx_UpdateUniformBuffer(&game->tfx_rendering);
+	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(game->tfx_rendering.uniform_buffer);
+	uniform_buffer->timer_lerp = game->test_lerp;
 
 	zest_StartTimerLoop(game->tfx_rendering.timer) {
 		BuildUI(game);
@@ -190,23 +202,27 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		}
 		*/
 
-		for (tfxEffectID &effect_id : game->test_effects) {
-			float chance = tfx_GenerateRandom(&game->random);
-			if (chance < 0.01f) {
-				tfx_SoftExpireEffect(game->pm, effect_id);
-				if (tfx_AddEffectTemplateToEffectManager(game->pm, game->cube_ordered, &effect_id)) {
-					tfx_vec3_t position = {tfx_RandomRangeZeroToMax(&game->random, 5.f), tfx_RandomRangeFromTo(&game->random, -2.f, 2.f), tfx_RandomRangeFromTo(&game->random, -4.f, 4.f)};
-					tfx_SetEffectPositionVec3(game->pm, effect_id, position);
+		/*
+		if (!game->pause) {
+			for (tfxEffectID &effect_id : game->test_effects) {
+				float chance = tfx_GenerateRandom(&game->random);
+				if (chance < 0.01f) {
+					tfx_SoftExpireEffect(game->pm, effect_id);
+					if (tfx_AddEffectTemplateToEffectManager(game->pm, game->cube_ordered, &effect_id)) {
+						tfx_vec3_t position = { tfx_RandomRangeZeroToMax(&game->random, 5.f), tfx_RandomRangeFromTo(&game->random, -2.f, 2.f), tfx_RandomRangeFromTo(&game->random, -4.f, 4.f) };
+						tfx_SetEffectPositionVec3(game->pm, effect_id, position);
+					}
+					game->test_depth++;
 				}
-				game->test_depth++;
 			}
 		}
+		*/
 
 		//Update the particle manager but only if pending ticks is > 0. This means that if we're trying to catch up this frame
 		//then rather then run the update particle manager multiple times, simple run it once but multiply the frame length
 		//instead. This is important in order to keep the billboard buffer on the gpu in sync for interpolating the particles
 		//with the previous frame. It's also just more efficient to do this.
-		if (pending_ticks > 0) {
+		if (pending_ticks > 0 && !game->pause) {
 			tfx_UpdateEffectManager(game->pm, FrameLength * pending_ticks);
 			pending_ticks = 0;
 		}
@@ -217,8 +233,10 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//have to upload the latest billboards to the gpu.
 	if (zest_TimerUpdateWasRun(game->tfx_rendering.timer)) {
 		//ZEST_PRINT("Layer flipped: %u / %u", game->tfx_rendering.layer->prev_fif, game->tfx_rendering.layer->fif);
-		zest_ResetInstanceLayer(game->tfx_rendering.layer);
-		zest_tfx_RenderParticlesByEffect(game->pm, &game->tfx_rendering);
+		if (!game->pause) {
+			zest_ResetInstanceLayer(game->tfx_rendering.layer);
+			zest_tfx_RenderParticlesByEffect(game->pm, &game->tfx_rendering);
+		}
 	}
 
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
@@ -229,30 +247,45 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
-		zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
-		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
 		//Import our test texture with the Bunny sprite
 		zest_resource_node particle_texture = zest_ImportImageResourceReadOnly("Particle Texture", game->tfx_rendering.particle_texture);
 		zest_resource_node color_ramps_texture = zest_ImportImageResourceReadOnly("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);
-		zest_resource_node tfx_layer = zest_AddInstanceLayerBufferResource(game->tfx_rendering.layer);
+		zest_resource_node tfx_layer = zest_AddInstanceLayerBufferResource("current particles", game->tfx_rendering.layer, false);
 		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", game->tfx_rendering.image_data);
+		zest_resource_node tfx_layer_prev = zest_AddInstanceLayerBufferResource("last frame particles", game->tfx_rendering.layer, true);
 
 		//Connect buffers and textures
-		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer);
+
+		//------------------------ Graphics Pass -----------------------------------------------------------
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//Inputs
 		zest_ConnectVertexBufferInput(graphics_pass, tfx_layer);
+		//zest_ConnectStorageBufferInput(graphics_pass, tfx_layer_prev, zest_pipeline_vertex_stage);
 		zest_ConnectSampledImageInput(graphics_pass, particle_texture, zest_pipeline_fragment_stage);
 		zest_ConnectSampledImageInput(graphics_pass, color_ramps_texture, zest_pipeline_fragment_stage);
+		//Outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
-
-		zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
+		//Tasks
 		zest_tfx_AddPassTask(graphics_pass, &game->tfx_rendering);
 		//If there's imgui to draw then draw it
 		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
 			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
 		}
+		//--------------------------------------------------------------------------------------------------
+
+		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
+		//if (zest_TimerUpdateWasRun(game->tfx_rendering.timer) && !game->pause) {
+			zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
+			//Outputs
+			zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer);
+			//Tasks
+			zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
+		//}
+		//--------------------------------------------------------------------------------------------------
+
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph();
+
 		zest_render_graph render_graph = zest_ExecuteRenderGraph();
 		if (game->request_graph_print) {
 			//You can print out the render graph for debugging purposes
@@ -268,6 +301,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 int main() {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	create_info.log_path = "./";
+	create_info.thread_count = 0;
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	zest_implglfw_SetCallbacks(&create_info);

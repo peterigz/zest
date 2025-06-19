@@ -147,7 +147,8 @@ void zest_tfx_DrawParticleLayer(VkCommandBuffer command_buffer, const zest_rende
 	zest_layer layer = tfx_resources->layer;
 	ZEST_CHECK_HANDLE(layer);	//Not a valid handle! Make sure you pass in the zest_layer in the user data
 
-	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
+	zest_buffer device_buffer = layer->memory_refs[layer->fif].device_vertex_data;
+	zest_buffer prev_buffer = layer->memory_refs[layer->prev_fif].device_vertex_data;
 	zest_BindVertexBuffer(command_buffer, device_buffer);
 
 	for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
@@ -180,6 +181,7 @@ void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *res
 	zest_SetInstanceDrawing(resources->layer, resources->shader_resource, resources->pipeline);
 
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
+	int instance_count = tfx_GetInstanceCount(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(resources->layer, billboards, tfx_GetInstanceCount(pm));
 }
 
