@@ -1397,11 +1397,12 @@ typedef enum {
 } zest_resource_type;
 
 typedef enum zest_resource_node_flag_bits {
-    zest_resource_node_flag_none            = 0,
-    zest_resource_node_flag_transient       = 1 << 0,
-    zest_resource_node_flag_imported        = 1 << 1,
-    zest_resource_node_flag_used_in_output  = 1 << 2,
-    zest_resource_node_flag_is_bindless     = 1 << 3,
+    zest_resource_node_flag_none             = 0,
+    zest_resource_node_flag_transient        = 1 << 0,
+    zest_resource_node_flag_imported         = 1 << 1,
+    zest_resource_node_flag_used_in_output   = 1 << 2,
+    zest_resource_node_flag_is_bindless      = 1 << 3,
+    zest_resource_node_flag_first_time_usage = 1 << 4,
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;

@@ -183,6 +183,16 @@ void zest_tfx_RenderParticles(tfx_effect_manager pm, tfx_render_resources_t *res
 	tfx_instance_t *billboards = tfx_GetInstanceBuffer(pm);
 	int instance_count = tfx_GetInstanceCount(pm);
 	zest_draw_buffer_result result = zest_DrawInstanceBuffer(resources->layer, billboards, tfx_GetInstanceCount(pm));
+	/*
+	if (ZestRenderer->total_frame_count >= 200 && ZestRenderer->total_frame_count <= 220) {
+		for (int i = instance_count - 10; i != instance_count; ++i) {
+			tfx_vec4_t position = billboards[i].position;
+			zest_uint captured_index = billboards[i].captured_index & 0x0FFFFFFF;
+			ZEST_PRINT("%i) %f, %f, %f, %u", i, position.x, position.y, position.z, captured_index);
+		}
+		ZEST_PRINT("---------------------------");
+	}
+	*/
 }
 
 void zest_tfx_RenderParticlesByEffect(tfx_effect_manager pm, tfx_render_resources_t *resources) {

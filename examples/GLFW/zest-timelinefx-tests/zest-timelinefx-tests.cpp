@@ -41,6 +41,8 @@ struct TimelineFXExample {
 	bool sync_refresh;
 	bool request_graph_print;
 	bool pause = false;
+	bool advance = false;
+	bool inspect_buffers = false;
 
 	float test_depth = 1.f;
 	float test_lerp = 0;
@@ -69,7 +71,7 @@ void TimelineFXExample::Init() {
 
 	effect_template1 = tfx_CreateEffectTemplate(library, "Star Burst Flash");
 	effect_template2 = tfx_CreateEffectTemplate(library, "Star Burst Flash.1");
-	cube_ordered = tfx_CreateEffectTemplate(library, "Cube Ordered.1");
+	cube_ordered = tfx_CreateEffectTemplate(library, "Cube Ordered");
 
 	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
 	//simply copied to a bitmap for uploading to the texture
@@ -100,12 +102,13 @@ void TimelineFXExample::Init() {
 	pm = tfx_CreateEffectManager(pm_info);
 	tfx_SetPMCamera(pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
 
-	random = tfx_NewRandom(zest_Millisecs());
+	random = tfx_NewRandom(30101);
 
-	for (int i = 0; i != 3; ++i) {
+	for (int i = 0; i != 1; ++i) {
 		tfxEffectID effect_id;
 		if (tfx_AddEffectTemplateToEffectManager(pm, cube_ordered, &effect_id)) {
-			tfx_vec3_t position = {tfx_RandomRangeZeroToMax(&random, 5.f), tfx_RandomRangeFromTo(&random, -2.f, 2.f), tfx_RandomRangeFromTo(&random, -4.f, 4.f)};
+			//tfx_vec3_t position = {tfx_RandomRangeZeroToMax(&random, 5.f), tfx_RandomRangeFromTo(&random, -2.f, 2.f), tfx_RandomRangeFromTo(&random, -4.f, 4.f)};
+			tfx_vec3_t position = {5, 0, 0};
 			tfx_SetEffectPositionVec3(pm, effect_id, position);
 			test_effects.push_back(effect_id);
 		}
@@ -143,6 +146,12 @@ void BuildUI(TimelineFXExample *game) {
 	}
 	if (ImGui::Button("Pause")) {
 		game->pause = game->pause ^ 1;
+	}
+	if (ImGui::Button("Advance")) {
+		game->advance = true;
+	}
+	if (ImGui::Button("Inspect Buffers")) {
+		game->inspect_buffers = true;
 	}
 	/*
 	int i = 0;
@@ -225,7 +234,10 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		if (pending_ticks > 0 && !game->pause) {
 			tfx_UpdateEffectManager(game->pm, FrameLength * pending_ticks);
 			pending_ticks = 0;
+		} else if (pending_ticks > 0 && game->advance) {
+			tfx_UpdateEffectManager(game->pm, FrameLength);
 		}
+		pending_ticks = 0;
 	} zest_EndTimerLoop(game->tfx_rendering.timer);
 
 	//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
@@ -235,8 +247,38 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//ZEST_PRINT("Layer flipped: %u / %u", game->tfx_rendering.layer->prev_fif, game->tfx_rendering.layer->fif);
 		if (!game->pause) {
 			zest_ResetInstanceLayer(game->tfx_rendering.layer);
-			zest_tfx_RenderParticlesByEffect(game->pm, &game->tfx_rendering);
+			zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
+		} else if (game->advance) {
+			game->advance = false;
+			zest_ResetInstanceLayer(game->tfx_rendering.layer);
+			zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
+			int instance_count = tfx_GetInstanceCount(game->pm);
+			tfx_instance_t *billboards = tfx_GetInstanceBuffer(game->pm);
+			for (int i = instance_count - 10; i != instance_count; ++i) {
+				tfx_vec4_t position = billboards[i].position;
+				zest_uint captured_index = billboards[i].captured_index & 0x0FFFFFFF;
+				zest_uint new_particle = (billboards[i].indexes & 0x00008000) >> 15;
+				ZEST_PRINT("%i) %f, %f, %f, %u, %u", i, position.x, position.y, position.z, captured_index, new_particle);
+			}
+			ZEST_PRINT("---------------------------");
+			game->inspect_buffers = true;
 		}
+	}
+
+	if (game->inspect_buffers) {
+		zest_layer layer = game->tfx_rendering.layer;
+		tfx_instance_t *current_billboards = (tfx_instance_t*)game->tfx_rendering.layer->memory_refs[layer->fif].staging_instance_data->data;
+		tfx_instance_t *prev_billboards = (tfx_instance_t*)game->tfx_rendering.layer->memory_refs[layer->prev_fif].staging_instance_data->data;
+		int instance_count = tfx_GetInstanceCount(game->pm);
+		for (int i = instance_count - 10; i != instance_count; ++i) {
+			tfx_vec4_t position = current_billboards[i].position;
+			zest_uint captured_index = current_billboards[i].captured_index & 0x0FFFFFFF;
+			tfx_vec4_t prev_position = prev_billboards[captured_index].position;
+			zest_uint new_particle = (current_billboards[i].indexes & 0x00008000) >> 15;
+			ZEST_PRINT("%i) %f, %f, %f, %u Prev Position: %f, %f, %f, %u", i, position.x, position.y, position.z, captured_index, prev_position.x, prev_position.y, prev_position.z, new_particle);
+		}
+		ZEST_PRINT("---------------------------");
+		game->inspect_buffers = false;
 	}
 
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
@@ -260,7 +302,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//Inputs
 		zest_ConnectVertexBufferInput(graphics_pass, tfx_layer);
-		//zest_ConnectStorageBufferInput(graphics_pass, tfx_layer_prev, zest_pipeline_vertex_stage);
+		zest_ConnectStorageBufferInput(graphics_pass, tfx_layer_prev, zest_pipeline_vertex_stage);
 		zest_ConnectSampledImageInput(graphics_pass, particle_texture, zest_pipeline_fragment_stage);
 		zest_ConnectSampledImageInput(graphics_pass, color_ramps_texture, zest_pipeline_fragment_stage);
 		//Outputs
