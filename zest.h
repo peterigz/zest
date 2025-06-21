@@ -1524,6 +1524,7 @@ typedef struct zest_pass_node_t zest_pass_node_t;
 typedef struct zest_resource_node_t zest_resource_node_t;
 typedef struct zest_imgui_t zest_imgui_t;
 typedef struct zest_queue_t zest_queue_t;
+typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_render_graph)
@@ -1557,6 +1558,7 @@ ZEST__MAKE_HANDLE(zest_shader)
 ZEST__MAKE_HANDLE(zest_recorder)
 ZEST__MAKE_HANDLE(zest_imgui)
 ZEST__MAKE_HANDLE(zest_queue)
+ZEST__MAKE_HANDLE(zest_execution_timeline)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -2648,6 +2650,12 @@ typedef struct zest_execution_barriers_t {
     VkPipelineStageFlags overall_dst_stage_mask_for_release_barriers;
 } zest_execution_barriers_t;
 
+typedef struct zest_execution_timeline_t {
+    int magic;
+    VkSemaphore semaphore;
+    zest_u64 current_value;
+} zest_execution_timeline_t;
+
 typedef struct zest_execution_details_t {
     VkFramebuffer frame_buffer;
     VkRenderPass render_pass;
@@ -2702,6 +2710,9 @@ typedef struct zest_render_graph_t {
 
     zest_pass_node_t *passes; 
     zest_resource_node_t *resources; 
+
+    zest_execution_timeline *wait_on_timelines;
+    zest_execution_timeline *signal_timelines;
 
     zest_uint *compiled_execution_order;            // Execution order after compilation
     zest_execution_details_t *pass_exec_details_list;
@@ -2810,6 +2821,13 @@ ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass, zest_resource_nod
 ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
 ZEST_API void zest_ConnectDepthStencilOutput(zest_pass_node pass_node, zest_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing);
 ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target);
+
+// --- Connect graphs to each other
+ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);
+ZEST_API void zest_SignalTimeline(zest_execution_timeline timeline);
+
+// --- Syncronization Helpers ---
+ZEST_API zest_execution_timeline zest_CreateExecutionTimeline();
 
 // Helper functions to convert enums to strings 
 ZEST_PRIVATE const char *zest_vulkan_image_layout_to_string(VkImageLayout layout);
@@ -3603,6 +3621,8 @@ typedef struct zest_renderer_t {
 
     VkSemaphore *semaphore_pool;
     VkSemaphore *free_semaphores;
+
+    zest_execution_timeline *timeline_semaphores;
 
     zest_u64 total_frame_count;
 

@@ -3666,6 +3666,10 @@ void zest__cleanup_renderer() {
         vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->semaphore_pool[i], &ZestDevice->allocation_callbacks);
     }
 
+    zest_vec_foreach(i, ZestRenderer->timeline_semaphores) {
+        vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->timeline_semaphores[i]->semaphore, &ZestDevice->allocation_callbacks);
+    }
+
     for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
         zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
         for (zest_foreach_j(buffer_allocator->memory_pools)) {
@@ -8122,8 +8126,11 @@ void zest_EndRenderGraph() {
                     barriers->overall_dst_stage_mask_for_release_barriers |= VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
                     current_state->was_released = true;
                 }
-            } /*else if (resource->type == zest_resource_type_buffer && resource->flags & zest_resource_node_flag_imported) {
-                //Maybe release the buffer
+            } else if (resource->type == zest_resource_type_buffer 
+                && resource->flags & zest_resource_node_flag_imported 
+                && current_state->queue_family_index != ZestDevice->transfer_queue_family_index) {
+                //Release the buffer so that it's ready to be acquired by any other queue in the next frame
+                //Release to the transfer queue by default (if it's not already on the transfer queue).
 				VkBufferMemoryBarrier buffer_barrier = zest__create_buffer_memory_barrier(
 					resource->storage_buffer->memory_pool->buffer,
 					current_state->usage.access_mask,
@@ -8131,7 +8138,7 @@ void zest_EndRenderGraph() {
 					resource->storage_buffer->memory_offset,
 					resource->storage_buffer->size);
 				buffer_barrier.srcQueueFamilyIndex = current_state->queue_family_index;
-				buffer_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				buffer_barrier.dstQueueFamilyIndex = ZestDevice->transfer_queue_family_index;
 				zest_vec_linear_push(allocator, barriers->release_buffer_barriers, buffer_barrier);
 				zest_vec_linear_push(allocator, barriers->release_buffer_barrier_nodes, resource);
 				barriers->overall_src_stage_mask_for_release_barriers |= current_state->usage.stage_mask;
@@ -8140,7 +8147,6 @@ void zest_EndRenderGraph() {
                 resource->storage_buffer->last_stage_mask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
                 resource->storage_buffer->last_access_mask = VK_ACCESS_NONE;
             }
-            */
             prev_state = current_state;
             if ((resource->type == zest_resource_type_image || resource->type == zest_resource_type_swap_chain_image) &&
                 current_state->usage.access_mask & zest_access_render_pass_bits) {
@@ -8461,6 +8467,8 @@ zest_render_graph zest_ExecuteRenderGraph() {
 
         ZEST_ASSERT(zest_vec_size(batch->pass_indices));    //A batch was created without any pass indices. Bug in the Compile stage!
 
+        VkPipelineStageFlags timeline_wait_stage;
+
         zest_pass_node first_pass_in_batch = &render_graph->passes[batch->pass_indices[0]];
         // 1. acquire an appropriate command buffer
         switch (render_graph->passes[batch->pass_indices[0]].queue_type) { 
@@ -8468,16 +8476,19 @@ zest_render_graph zest_ExecuteRenderGraph() {
             command_buffer = zest__acquire_graphics_command_buffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 			vkResetCommandBuffer(command_buffer, 0);
 			zest_vec_push(ZestRenderer->used_graphics_command_buffers[ZEST_FIF], command_buffer);
+            timeline_wait_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
             break;
         case zest_queue_compute:
             command_buffer = zest__acquire_compute_command_buffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 			vkResetCommandBuffer(command_buffer, 0);
 			zest_vec_push(ZestRenderer->used_compute_command_buffers[ZEST_FIF], command_buffer);
+            timeline_wait_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
             break;
         case zest_queue_transfer:
             command_buffer = zest__acquire_transfer_command_buffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 			vkResetCommandBuffer(command_buffer, 0);
 			zest_vec_push(ZestRenderer->used_transfer_command_buffers[ZEST_FIF], command_buffer);
+            timeline_wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
             break;
         default:
             ZEST_ASSERT(0); //Unknown queue type for batch. Corrupt memory perhaps?!
@@ -8614,15 +8625,22 @@ zest_render_graph zest_ExecuteRenderGraph() {
         zest_vec_foreach(i, batch->wait_semaphores) {
             zest_vec_linear_push(allocator, wait_semaphores, batch->wait_semaphores[i]);
             zest_vec_linear_push(allocator, wait_stages, batch->wait_dst_stage_masks[i]);
-            if (wait_value > 0) {
-                zest_vec_linear_push(allocator, wait_values, 0);
+			zest_vec_linear_push(allocator, wait_values, 0);
+        }
+
+        if (batch_index == 0 && zest_vec_size(render_graph->wait_on_timelines)) {
+            zest_vec_foreach(timeline_index, render_graph->wait_on_timelines) {
+                zest_execution_timeline timeline = render_graph->wait_on_timelines[timeline_index];
+                if (timeline->current_value > 0) {
+					zest_vec_linear_push(allocator, wait_semaphores, timeline->semaphore);
+					zest_vec_linear_push(allocator, wait_stages, timeline_wait_stage);
+					zest_vec_linear_push(allocator, wait_values, timeline->current_value);
+                }
             }
         }
 
-        if (wait_value > 0) {
-            timeline_info.waitSemaphoreValueCount = zest_vec_size(wait_values);
-            timeline_info.pWaitSemaphoreValues = wait_values;
-        }
+		timeline_info.waitSemaphoreValueCount = zest_vec_size(wait_values);
+		timeline_info.pWaitSemaphoreValues = wait_values;
 
         /*
         if (wait_value > 0 && batch->queue_family_index == 2) {
@@ -8647,6 +8665,15 @@ zest_render_graph zest_ExecuteRenderGraph() {
         VkFence submit_fence = VK_NULL_HANDLE;
         if (batch_index == zest_vec_size(render_graph->submissions) - 1) { 
             submit_fence = ZestRenderer->fif_fence[ZEST_FIF];
+
+			if (zest_vec_size(render_graph->signal_timelines)) {
+				zest_vec_foreach(timeline_index, render_graph->signal_timelines) {
+					zest_execution_timeline timeline = render_graph->signal_timelines[timeline_index];
+					timeline->current_value += 1;
+					zest_vec_linear_push(allocator, signal_semaphores, timeline->semaphore);
+					zest_vec_linear_push(allocator, signal_values, timeline->current_value);
+				}
+			}
         }
 
         //If the batch is signalling then add that to the signal semaphores along with the queue timeline semaphore
@@ -9804,6 +9831,36 @@ void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resour
         VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_DONT_CARE, 
         VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_DONT_CARE,
         (VkClearValue) { 0 }); 
+}
+
+void zest_WaitOnTimeline(zest_execution_timeline timeline) {
+    ZEST_CHECK_HANDLE(timeline);    //Not a valid execution timeline. Use zest_CreateExecutionTimeline to create one
+    ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
+    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_vec_linear_push(ZestRenderer->render_graph_allocator, render_graph->wait_on_timelines, timeline);
+}
+
+void zest_SignalTimeline(zest_execution_timeline timeline) {
+    ZEST_CHECK_HANDLE(timeline);    //Not a valid execution timeline. Use zest_CreateExecutionTimeline to create one
+    ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
+    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_vec_linear_push(ZestRenderer->render_graph_allocator, render_graph->signal_timelines, timeline);
+}
+
+zest_execution_timeline zest_CreateExecutionTimeline() {
+    zest_execution_timeline timeline = ZEST__NEW(zest_execution_timeline);
+    timeline->magic = zest_INIT_MAGIC;
+    VkSemaphoreTypeCreateInfo timeline_create_info = { 0 };
+    timeline_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    timeline_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timeline_create_info.initialValue = 0;
+    VkSemaphoreCreateInfo semaphore_info = { 0 };
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    semaphore_info.pNext = &timeline_create_info;
+    vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &timeline->semaphore);
+    timeline->current_value = 0;
+    zest_vec_push(ZestRenderer->timeline_semaphores, timeline);
+    return timeline;
 }
 
 // --End Render Graph functions

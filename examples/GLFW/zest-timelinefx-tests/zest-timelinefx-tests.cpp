@@ -104,11 +104,11 @@ void TimelineFXExample::Init() {
 
 	random = tfx_NewRandom(30101);
 
-	for (int i = 0; i != 1; ++i) {
+	for (int i = 0; i != 10; ++i) {
 		tfxEffectID effect_id;
 		if (tfx_AddEffectTemplateToEffectManager(pm, cube_ordered, &effect_id)) {
-			//tfx_vec3_t position = {tfx_RandomRangeZeroToMax(&random, 5.f), tfx_RandomRangeFromTo(&random, -2.f, 2.f), tfx_RandomRangeFromTo(&random, -4.f, 4.f)};
-			tfx_vec3_t position = {5, 0, 0};
+			tfx_vec3_t position = {tfx_RandomRangeZeroToMax(&random, 5.f), tfx_RandomRangeFromTo(&random, -2.f, 2.f), tfx_RandomRangeFromTo(&random, -4.f, 4.f)};
+			//tfx_vec3_t position = {5, 0, 0};
 			tfx_SetEffectPositionVec3(pm, effect_id, position);
 			test_effects.push_back(effect_id);
 		}
@@ -153,6 +153,7 @@ void BuildUI(TimelineFXExample *game) {
 	if (ImGui::Button("Inspect Buffers")) {
 		game->inspect_buffers = true;
 	}
+
 	/*
 	int i = 0;
 	for (tfx_effect_index_t effect_index : game->pm.effects_in_use[0][game->pm.current_ebuff]) {
@@ -165,14 +166,11 @@ void BuildUI(TimelineFXExample *game) {
 		ImGui::Text("Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 	}
 	*/
+
 	ImGui::End();
 
 	ImGui::Render();
 	zest_imgui_UpdateBuffers();
-}
-
-void ManualRenderGraph() {
-
 }
 
 //Application specific, this just sets the function to call each render update
@@ -180,13 +178,10 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	TimelineFXExample *game = static_cast<TimelineFXExample*>(data);
 
 	zest_tfx_UpdateUniformBuffer(&game->tfx_rendering);
-	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(game->tfx_rendering.uniform_buffer);
-	uniform_buffer->timer_lerp = game->test_lerp;
 
 	zest_StartTimerLoop(game->tfx_rendering.timer) {
 		BuildUI(game);
 
-		/*
 		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
 			//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
 			tfxEffectID effect_id;
@@ -209,9 +204,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 				tfx_SetEffectPositionVec3(game->pm, effect_id, position);
 			}
 		}
-		*/
 
-		/*
 		if (!game->pause) {
 			for (tfxEffectID &effect_id : game->test_effects) {
 				float chance = tfx_GenerateRandom(&game->random);
@@ -225,7 +218,6 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 				}
 			}
 		}
-		*/
 
 		//Update the particle manager but only if pending ticks is > 0. This means that if we're trying to catch up this frame
 		//then rather then run the update particle manager multiple times, simple run it once but multiply the frame length
@@ -286,6 +278,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//if the window is resized for example.
 	if (zest_BeginRenderToScreen("TimelineFX Render Graphs")) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
+		zest_WaitOnTimeline(game->tfx_rendering.timeline);
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
@@ -325,6 +318,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//}
 		//--------------------------------------------------------------------------------------------------
 
+		zest_SignalTimeline(game->tfx_rendering.timeline);
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph();
 

@@ -45,7 +45,6 @@ void zest_tfx_UpdateUniformBuffer(tfx_render_resources_t *resources) {
 	uniform_buffer->screen_size.x = zest_ScreenWidthf();
 	uniform_buffer->screen_size.y = zest_ScreenHeightf();
 	uniform_buffer->timer_lerp = (float)zest_TimerLerp(resources->timer);
-	//uniform_buffer->timer_lerp = 0.f;
 	uniform_buffer->update_time = (float)zest_TimerUpdateTime(resources->timer);
 }
 
@@ -118,6 +117,7 @@ void zest_tfx_InitTimelineFXRenderResources(tfx_render_resources_t *resources, c
 	resources->image_data = zest_CreateStorageBuffer(sizeof(tfx_gpu_image_data_t) * 1000, 0);
 	zest_AcquireGlobalStorageBufferIndex(resources->image_data);
 
+	resources->timeline = zest_CreateExecutionTimeline();
 	//End of render specific code
 }
 

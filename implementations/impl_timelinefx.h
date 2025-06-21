@@ -31,6 +31,7 @@ typedef struct tfx_render_resources_s {
 	zest_shader_resources shader_resource;
 	zest_camera_t camera;
 	zest_timer timer;
+	zest_execution_timeline timeline;
 } tfx_render_resources_t;
 
 #ifdef __cplusplus
