@@ -94,6 +94,8 @@ void TimelineFXExample::Init() {
 	//Initialise Dear ImGui for Zest
 	zest_imgui_Initialise();
 
+	tfx_rendering.camera.position.x = -2.5f;
+
 	/*
 	Initialise a particle manager. This manages effects, emitters and the particles that they spawn. First call tfx_CreateEffectManagerInfo and pass in a setup mode to create an info object with the config we need.
 	If you need to you can tweak this further before passing into InitializingEffectManager.
@@ -343,7 +345,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = "./";
 	create_info.thread_count = 0;
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
