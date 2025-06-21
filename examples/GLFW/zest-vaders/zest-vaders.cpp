@@ -1038,6 +1038,7 @@ void VadersGame::Update(float ellapsed) {
 	} zest_EndTimerLoop(tfx_rendering.timer);
 
 	if (zest_BeginRenderToScreen("TimelineFX Render Graph")) {
+		zest_WaitOnTimeline(tfx_rendering.timeline);
 
 		//Do all the rendering outside of the update loop
 		//Set the font drawing to the font we loaded in the Init function
@@ -1104,17 +1105,19 @@ void VadersGame::Update(float ellapsed) {
 		zest_resource_node particle_texture = zest_ImportImageResourceReadOnly("Particle Texture", tfx_rendering.particle_texture);
 		zest_resource_node color_ramps_texture = zest_ImportImageResourceReadOnly("Color Ramps Texture", tfx_rendering.color_ramps_texture);
 		zest_resource_node game_sprites_texture = zest_ImportImageResourceReadOnly("Sprites Texture", sprite_texture);
-		zest_resource_node tfx_layer = zest_AddInstanceLayerBufferResource(tfx_rendering.layer);
+		zest_resource_node tfx_write_layer = zest_AddInstanceLayerBufferResource("Write Particle Buffer", tfx_rendering.layer, false);
+		zest_resource_node tfx_read_layer = zest_AddInstanceLayerBufferResource("Read Particle Buffer", tfx_rendering.layer, true);
 		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", tfx_rendering.image_data);
-		zest_resource_node billboard_layer_resource = zest_AddInstanceLayerBufferResource(billboard_layer);
-		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource(font_layer);
+		zest_resource_node billboard_layer_resource = zest_AddInstanceLayerBufferResource("Billboards", billboard_layer, false);
+		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Fonts", font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(font);
 		//--------------------------------------------------------------------------------------------------
 
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
 		zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
 		// Outputs
-		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer);
+		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_read_layer);
+		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_write_layer);
 		// Tasks
 		zest_AddPassInstanceLayerUpload(upload_tfx_data, tfx_rendering.layer);
 		//--------------------------------------------------------------------------------------------------
@@ -1141,7 +1144,8 @@ void VadersGame::Update(float ellapsed) {
 		zest_ConnectSampledImageInput(graphics_pass, game_sprites_texture, zest_pipeline_fragment_stage);
 		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture, zest_pipeline_fragment_stage);
 		zest_ConnectVertexBufferInput(graphics_pass, billboard_layer_resource);
-		zest_ConnectVertexBufferInput(graphics_pass, tfx_layer);
+		zest_ConnectVertexBufferInput(graphics_pass, tfx_write_layer);
+		zest_ConnectVertexBufferInput(graphics_pass, tfx_read_layer);
 		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
 		// Ouputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
@@ -1149,13 +1153,13 @@ void VadersGame::Update(float ellapsed) {
 		zest_tfx_AddPassTask(graphics_pass, &tfx_rendering);
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, billboard_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawFonts, font_layer);
-		//--------------------------------------------------------------------------------------------------
-
 		//If there's imgui to draw then draw it
 		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
 			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
 		}
+		//--------------------------------------------------------------------------------------------------
 
+		zest_SignalTimeline(tfx_rendering.timeline);
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph();
 		zest_render_graph render_graph = zest_ExecuteRenderGraph();

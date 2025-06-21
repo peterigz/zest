@@ -25,12 +25,10 @@ bool zest_imgui_AddToRenderGraph(zest_pass_node imgui_pass) {
         zest_resource_node imgui_font_texture = zest_ImportImageResourceReadOnly("Imgui Font", ZestRenderer->imgui_info.font_texture);
 		zest_resource_node imgui_vertex_buffer = zest_imgui_ImportVertexResources("Imgui Vertex Buffer");
 		zest_resource_node imgui_index_buffer = zest_imgui_ImportIndexResources("Imgui Index Buffer");
-        if (imgui_info->dirty[imgui_info->fif]) {
-            zest_pass_node imgui_upload_pass = zest_AddTransferPassNode("Upload ImGui");
-            zest_AddPassTask(imgui_upload_pass, zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
-            zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_vertex_buffer);
-            zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_index_buffer);
-        }
+		zest_pass_node imgui_upload_pass = zest_AddTransferPassNode("Upload ImGui");
+		zest_AddPassTask(imgui_upload_pass, zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
+		zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_vertex_buffer);
+		zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_index_buffer);
 		zest_ConnectVertexBufferInput(imgui_pass, imgui_vertex_buffer);
 		zest_ConnectIndexBufferInput(imgui_pass, imgui_index_buffer);
 		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture, zest_pipeline_fragment_stage);
@@ -51,6 +49,10 @@ void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_r
 void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
     zest_imgui imgui_info = &ZestRenderer->imgui_info;
 
+    if (!imgui_info->dirty[imgui_info->fif]) {
+        return;
+    }
+
     zest_buffer staging_vertex = imgui_info->vertex_staging_buffer->buffer[imgui_info->fif];
     zest_buffer staging_index = imgui_info->index_staging_buffer->buffer[imgui_info->fif];
     zest_buffer vertex_buffer = zest_GetPassOutputResource(context->pass_node, "Imgui Vertex Buffer")->storage_buffer;
@@ -68,6 +70,8 @@ void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_rende
 
     zest_UploadBuffer(&vertex_upload, command_buffer);
     zest_UploadBuffer(&index_upload, command_buffer);
+
+    imgui_info->dirty[imgui_info->fif] = 0;
 }
 
 void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_buffer vertex_buffer, zest_buffer index_buffer) {

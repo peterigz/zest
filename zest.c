@@ -9259,18 +9259,19 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
     return &zest_vec_back(render_graph->resources);
 }
 
-zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool last_fif) {
+zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_CHECK_HANDLE(layer);   //Not a valid layer handle
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         layer->fif = ZEST_FIF;
+        layer->dirty[ZEST_FIF] = 1;
         zest_buffer_description_t buffer_desc = { 0 };
         buffer_desc.size = layer->memory_refs[layer->fif].staging_instance_data->size;
         buffer_desc.buffer_info = zest_CreateVertexBufferInfo(0);
         layer->vertex_buffer_node = zest_AddTransientBufferResource(name, &buffer_desc, ZEST_FALSE);
     } else {
-        zest_uint fif = last_fif ? layer->prev_fif : layer->fif;
+        zest_uint fif = prev_fif ? layer->prev_fif : layer->fif;
 		zest_resource_node_t node = zest__create_import_buffer_resource_node(name, layer->memory_refs[fif].device_vertex_data);
 		zest_vec_linear_push(ZestRenderer->render_graph_allocator, render_graph->resources, node);
         layer->vertex_buffer_node = &zest_vec_back(render_graph->resources);
@@ -9345,13 +9346,6 @@ zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, 
     node.current_queue_family_index = buffer->owner_queue_family;
     node.current_access_mask = buffer->last_access_mask;
     node.producer_pass_idx = -1;
-    /*if (node.current_access_mask != 0) {
-        zest_resource_state_t state = { 0 };
-        state.queue_family_index = buffer->owner_queue_family;
-        state.usage.access_mask = buffer->last_access_mask;
-        state.usage.stage_mask = buffer->last_stage_mask;
-		zest_vec_linear_push(ZestRenderer->render_graph_allocator, node.journey, state);
-    }*/
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
     return node;
 }
@@ -9410,11 +9404,6 @@ zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffe
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = zest__create_import_buffer_resource_node(name, buffer);
-    zest_resource_state_t state = { 0 };
-    state.queue_family_index = buffer->owner_queue_family;
-    state.usage.access_mask = buffer->last_access_mask;
-    state.usage.stage_mask = buffer->last_stage_mask;
-    //zest_vec_linear_push(ZestRenderer->render_graph_allocator, node.journey, state);
     zest_vec_linear_push(ZestRenderer->render_graph_allocator, render_graph->resources, node);
     return &zest_vec_back(render_graph->resources);
 }
@@ -12858,9 +12847,7 @@ void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_ren
     }
 
 	zest_buffer staging_buffer = layer->memory_refs[layer->fif].staging_instance_data;
-	zest_buffer device_buffer = layer->memory_refs[layer->fif].device_vertex_data;
-
-    ZEST_ASSERT(layer->fif == device_buffer->buffer_allocator->buffer_info.frame_in_flight);
+	zest_buffer device_buffer = ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif) ? layer->memory_refs[layer->fif].device_vertex_data : layer->vertex_buffer_node->storage_buffer;
 
 	zest_buffer_uploader_t instance_upload = { 0, staging_buffer, device_buffer, 0 };
 

@@ -296,14 +296,14 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Connect buffers and textures
 
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-		//if (zest_TimerUpdateWasRun(game->tfx_rendering.timer) && !game->pause) {
-			zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
-			//Outputs
-			zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer);
-			zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer_prev);
-			//Tasks
-			zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
-		//}
+		zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
+		//Outputs
+		//Note, the only reason the prev frame particle data is put as an output here is to make sure that it's
+		//propertly transitioned to the graphics queue (who releases it after each frame)
+		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer_prev);
+		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer);
+		//Tasks
+		zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//------------------------ Graphics Pass -----------------------------------------------------------
