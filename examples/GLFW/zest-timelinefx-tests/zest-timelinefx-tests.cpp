@@ -40,6 +40,7 @@ struct TimelineFXExample {
 	tfx_vector_t<tfx_pool_stats_t> memory_stats;
 	bool sync_refresh;
 	bool request_graph_print;
+	bool request_no_update_graph_print;
 	bool pause = false;
 	bool advance = false;
 	bool inspect_buffers = false;
@@ -143,6 +144,9 @@ void BuildUI(TimelineFXExample *game) {
 	}
 	if (ImGui::Button("Print Render Graph")) {
 		game->request_graph_print = true;
+	}
+	if (ImGui::Button("Print No Update Render Graph")) {
+		game->request_no_update_graph_print = true;
 	}
 	if (ImGui::Button("Pause")) {
 		game->pause = game->pause ^ 1;
@@ -291,6 +295,17 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 		//Connect buffers and textures
 
+		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
+		//if (zest_TimerUpdateWasRun(game->tfx_rendering.timer) && !game->pause) {
+			zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
+			//Outputs
+			zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer);
+			zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer_prev);
+			//Tasks
+			zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
+		//}
+		//--------------------------------------------------------------------------------------------------
+
 		//------------------------ Graphics Pass -----------------------------------------------------------
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//Inputs
@@ -308,16 +323,6 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		}
 		//--------------------------------------------------------------------------------------------------
 
-		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-		//if (zest_TimerUpdateWasRun(game->tfx_rendering.timer) && !game->pause) {
-			zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
-			//Outputs
-			zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_layer);
-			//Tasks
-			zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
-		//}
-		//--------------------------------------------------------------------------------------------------
-
 		zest_SignalTimeline(game->tfx_rendering.timeline);
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph();
@@ -327,6 +332,9 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);
 			game->request_graph_print = false;
+		} else if (game->request_no_update_graph_print && !zest_TimerUpdateWasRun(game->tfx_rendering.timer)) {
+			zest_PrintCompiledRenderGraph(render_graph);
+			game->request_no_update_graph_print = false;
 		}
 	}
 }

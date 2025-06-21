@@ -7935,15 +7935,6 @@ void zest_EndRenderGraph() {
         zest_resource_node resource = &render_graph->resources[resource_index];
         zest_resource_state_t *prev_state = NULL;
         int starting_state_index = 0;
-        /*
-        if (resource->type == zest_resource_type_buffer && 
-            ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported) &&
-            ZEST__FLAGGED(resource->flags, zest_resource_node_flag_first_time_usage) &&
-            zest_vec_size(resource->journey)) {
-            prev_state = &resource->journey[0];
-            starting_state_index = 1;
-        }
-        */
         zest_vec_foreach(state_index, resource->journey) {
             zest_resource_state_t *current_state = &resource->journey[state_index];
             zest_pass_node pass = &render_graph->passes[current_state->pass_index];
@@ -8004,7 +7995,8 @@ void zest_EndRenderGraph() {
                     //That means that if we have to transition we must release and acquire together.
                     ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
 					dst_queue_family_index = current_state->queue_family_index;
-                    if (resource->type == zest_resource_type_buffer && src_queue_family_index != VK_QUEUE_FAMILY_IGNORED && src_queue_family_index != dst_queue_family_index) {
+                    if (resource->type == zest_resource_type_buffer && 
+                        src_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
                         //First release the buffer from its previous state
                         VkBufferMemoryBarrier buffer_barrier = zest__create_buffer_memory_barrier(
                             resource->storage_buffer->memory_pool->buffer,
@@ -8143,7 +8135,7 @@ void zest_EndRenderGraph() {
 				zest_vec_linear_push(allocator, barriers->release_buffer_barrier_nodes, resource);
 				barriers->overall_src_stage_mask_for_release_barriers |= current_state->usage.stage_mask;
 				barriers->overall_dst_stage_mask_for_release_barriers |= VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-                resource->storage_buffer->owner_queue_family = VK_QUEUE_FAMILY_IGNORED;
+                resource->storage_buffer->owner_queue_family = ZestDevice->transfer_queue_family_index;
                 resource->storage_buffer->last_stage_mask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
                 resource->storage_buffer->last_access_mask = VK_ACCESS_NONE;
             }
