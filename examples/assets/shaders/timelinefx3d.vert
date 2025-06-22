@@ -110,9 +110,9 @@ void main() {
     //For updating particles at 30 fps or less you can improve the first frame of particles by doing the following ternary operations to effectively cancel the interpolation:
     //define LOW_UPDATE_RATE to compile with this instead.
 	vec2 lerped_size = interpolate_is_active == 1 ? vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value) : size;
-	lerped_size = mix(lerped_size, size, ub.lerp.x);
-	vec3 lerped_position = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub.lerp.x) : position.xyz;
-	vec3 lerped_rotation = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.lerp.x) : rotations;
+	lerped_size = mix(lerped_size, size, ub.timer_lerp);
+	vec3 lerped_position = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz, position.xyz, ub.timer_lerp) : position.xyz;
+	vec3 lerped_rotation = interpolate_is_active == 1 ? mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.timer_lerp) : rotations;
     #else
     //Otherwise just hide the first frame of the particle which is a little more efficient:
 	vec2 lerped_size = vec2(float(prev_size_packed & 0xFFFF) * size_max_value, float((prev_size_packed & 0xFFFF0000) >> 16) * size_max_value);

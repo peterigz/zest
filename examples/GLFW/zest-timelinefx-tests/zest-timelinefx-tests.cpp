@@ -41,12 +41,6 @@ struct TimelineFXExample {
 	bool sync_refresh;
 	bool request_graph_print;
 	bool request_no_update_graph_print;
-	bool pause = false;
-	bool advance = false;
-	bool inspect_buffers = false;
-
-	float test_depth = 1.f;
-	float test_lerp = 0;
 
 	void Init();
 };
@@ -132,7 +126,6 @@ void BuildUI(TimelineFXExample *game) {
 	ImGui::Text("Free Emitters: %i", game->pm->free_emitters.size());
 	ImGui::Text("Lerp: %f", uniform_buffer->timer_lerp);
 	ImGui::Text("Update Time: %f", uniform_buffer->update_time);
-	ImGui::DragFloat("Lerp", &game->test_lerp, 0.001f, 0.f, 1.f);
 	if (ImGui::Button("Toggle Refresh Rate Sync")) {
 		if (game->sync_refresh) {
 			zest_DisableVSync();
@@ -149,15 +142,6 @@ void BuildUI(TimelineFXExample *game) {
 	}
 	if (ImGui::Button("Print No Update Render Graph")) {
 		game->request_no_update_graph_print = true;
-	}
-	if (ImGui::Button("Pause")) {
-		game->pause = game->pause ^ 1;
-	}
-	if (ImGui::Button("Advance")) {
-		game->advance = true;
-	}
-	if (ImGui::Button("Inspect Buffers")) {
-		game->inspect_buffers = true;
 	}
 
 	/*
@@ -182,8 +166,6 @@ void BuildUI(TimelineFXExample *game) {
 //Application specific, this just sets the function to call each render update
 void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	TimelineFXExample *game = static_cast<TimelineFXExample*>(data);
-
-	zest_tfx_UpdateUniformBuffer(&game->tfx_rendering);
 
 	zest_StartTimerLoop(game->tfx_rendering.timer) {
 		BuildUI(game);
@@ -211,16 +193,13 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 			}
 		}
 
-		if (!game->pause) {
-			for (tfxEffectID &effect_id : game->test_effects) {
-				float chance = tfx_GenerateRandom(&game->random);
-				if (chance < 0.01f) {
-					tfx_SoftExpireEffect(game->pm, effect_id);
-					if (tfx_AddEffectTemplateToEffectManager(game->pm, game->cube_ordered, &effect_id)) {
-						tfx_vec3_t position = { tfx_RandomRangeZeroToMax(&game->random, 5.f), tfx_RandomRangeFromTo(&game->random, -2.f, 2.f), tfx_RandomRangeFromTo(&game->random, -4.f, 4.f) };
-						tfx_SetEffectPositionVec3(game->pm, effect_id, position);
-					}
-					game->test_depth++;
+		for (tfxEffectID &effect_id : game->test_effects) {
+			float chance = tfx_GenerateRandom(&game->random);
+			if (chance < 0.01f) {
+				tfx_SoftExpireEffect(game->pm, effect_id);
+				if (tfx_AddEffectTemplateToEffectManager(game->pm, game->cube_ordered, &effect_id)) {
+					tfx_vec3_t position = { tfx_RandomRangeZeroToMax(&game->random, 5.f), tfx_RandomRangeFromTo(&game->random, -2.f, 2.f), tfx_RandomRangeFromTo(&game->random, -4.f, 4.f) };
+					tfx_SetEffectPositionVec3(game->pm, effect_id, position);
 				}
 			}
 		}
@@ -229,60 +208,28 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//then rather then run the update particle manager multiple times, simple run it once but multiply the frame length
 		//instead. This is important in order to keep the billboard buffer on the gpu in sync for interpolating the particles
 		//with the previous frame. It's also just more efficient to do this.
-		if (pending_ticks > 0 && !game->pause) {
+		if (pending_ticks > 0) {
 			tfx_UpdateEffectManager(game->pm, FrameLength * pending_ticks);
-			pending_ticks = 0;
-		} else if (pending_ticks > 0 && game->advance) {
-			tfx_UpdateEffectManager(game->pm, FrameLength);
 		}
 		pending_ticks = 0;
 	} zest_EndTimerLoop(game->tfx_rendering.timer);
+
+	//Must update the uniform buffer here after the lerp value has been calculated
+	zest_tfx_UpdateUniformBuffer(&game->tfx_rendering);
 
 	//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
 	//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
 	//have to upload the latest billboards to the gpu.
 	if (zest_TimerUpdateWasRun(game->tfx_rendering.timer)) {
-		//ZEST_PRINT("Layer flipped: %u / %u", game->tfx_rendering.layer->prev_fif, game->tfx_rendering.layer->fif);
-		if (!game->pause) {
-			zest_ResetInstanceLayer(game->tfx_rendering.layer);
-			zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
-		} else if (game->advance) {
-			game->advance = false;
-			zest_ResetInstanceLayer(game->tfx_rendering.layer);
-			zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
-			int instance_count = tfx_GetInstanceCount(game->pm);
-			tfx_instance_t *billboards = tfx_GetInstanceBuffer(game->pm);
-			for (int i = instance_count - 10; i != instance_count; ++i) {
-				tfx_vec4_t position = billboards[i].position;
-				zest_uint captured_index = billboards[i].captured_index & 0x0FFFFFFF;
-				zest_uint new_particle = (billboards[i].indexes & 0x00008000) >> 15;
-				ZEST_PRINT("%i) %f, %f, %f, %u, %u", i, position.x, position.y, position.z, captured_index, new_particle);
-			}
-			ZEST_PRINT("---------------------------");
-			game->inspect_buffers = true;
-		}
-	}
-
-	if (game->inspect_buffers) {
-		zest_layer layer = game->tfx_rendering.layer;
-		tfx_instance_t *current_billboards = (tfx_instance_t*)game->tfx_rendering.layer->memory_refs[layer->fif].staging_instance_data->data;
-		tfx_instance_t *prev_billboards = (tfx_instance_t*)game->tfx_rendering.layer->memory_refs[layer->prev_fif].staging_instance_data->data;
-		int instance_count = tfx_GetInstanceCount(game->pm);
-		for (int i = instance_count - 10; i != instance_count; ++i) {
-			tfx_vec4_t position = current_billboards[i].position;
-			zest_uint captured_index = current_billboards[i].captured_index & 0x0FFFFFFF;
-			tfx_vec4_t prev_position = prev_billboards[captured_index].position;
-			zest_uint new_particle = (current_billboards[i].indexes & 0x00008000) >> 15;
-			ZEST_PRINT("%i) %f, %f, %f, %u Prev Position: %f, %f, %f, %u", i, position.x, position.y, position.z, captured_index, prev_position.x, prev_position.y, prev_position.z, new_particle);
-		}
-		ZEST_PRINT("---------------------------");
-		game->inspect_buffers = false;
+		zest_ResetInstanceLayer(game->tfx_rendering.layer);
+		zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
 	}
 
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
 	if (zest_BeginRenderToScreen("TimelineFX Render Graphs")) {
+
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		if (zest_TimerUpdateWasRun(game->tfx_rendering.timer)) {
 			zest_WaitOnTimeline(game->tfx_rendering.timeline);
