@@ -1397,12 +1397,12 @@ typedef enum {
 } zest_resource_type;
 
 typedef enum zest_resource_node_flag_bits {
-    zest_resource_node_flag_none             = 0,
-    zest_resource_node_flag_transient        = 1 << 0,
-    zest_resource_node_flag_imported         = 1 << 1,
-    zest_resource_node_flag_used_in_output   = 1 << 2,
-    zest_resource_node_flag_is_bindless      = 1 << 3,
-    zest_resource_node_flag_first_time_usage = 1 << 4,
+    zest_resource_node_flag_none              = 0,
+    zest_resource_node_flag_transient         = 1 << 0,
+    zest_resource_node_flag_imported          = 1 << 1,
+    zest_resource_node_flag_used_in_output    = 1 << 2,
+    zest_resource_node_flag_is_bindless       = 1 << 3,
+    zest_resource_node_flag_release_after_use = 1 << 4,
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;
@@ -2759,6 +2759,11 @@ ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_resource_node resour
 ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value);
 ZEST_PRIVATE zest_render_graph zest__new_render_graph(const char *name);
+ZEST_PRIVATE void zest__add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access, 
+    VkImageLayout old_layout, VkImageLayout new_layout, zest_uint src_family, zest_uint dst_family, 
+    VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
+ZEST_PRIVATE void zest__add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access, 
+     zest_uint src_family, zest_uint dst_family, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
 
 // --- Utility callbacks ---
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
@@ -2814,6 +2819,9 @@ ZEST_API void zest_ConnectStorageBufferInput(zest_pass_node pass, zest_resource_
 ZEST_API void zest_ConnectTransferBufferInput(zest_pass_node pass, zest_resource_node src_buffer);
 ZEST_API void zest_ConnectStorageBufferOutput(zest_pass_node pass, zest_resource_node storage_buffer, zest_supported_pipeline_stages stages);
 ZEST_API void zest_ConnectTransferBufferOutput(zest_pass_node pass, zest_resource_node dst_buffer);
+
+// --- Manual Barrier Functions
+ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 
 // --- Connect Image Helpers ---
 ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages);
@@ -3905,6 +3913,7 @@ ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_o
 ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount, VkCommandBuffer command_buffer);
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage image, VkAccessFlags from_access, VkAccessFlags to_access, VkImageLayout from_layout, VkImageLayout to_layout, zest_uint target_mip_level, zest_uint mip_count);
+ZEST_PRIVATE VkImageMemoryBarrier zest__create_base_image_memory_barrier(VkImage image);
 ZEST_PRIVATE VkBufferMemoryBarrier zest__create_buffer_memory_barrier( VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkDeviceSize offset, VkDeviceSize size);
 ZEST_PRIVATE void zest__place_fragment_barrier(VkCommandBuffer command_buffer, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier);
@@ -4443,6 +4452,8 @@ ZEST_API zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer buffer)
 //dispatch etc. 
 ZEST_API VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer buffer);
 ZEST_API zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer buffer);
+ZEST_API zest_descriptor_set zest_GetFIFUniformBufferSet(zest_uniform_buffer buffer, zest_uint fif);
+ZEST_API VkDescriptorSet zest_vk_GetFIFUniformBufferSet(zest_uniform_buffer buffer, zest_uint fif);
 ZEST_API zest_descriptor_set zest_GetDefaultUniformBufferSet();
 ZEST_API zest_set_layout zest_GetDefaultUniformBufferLayout();
 ZEST_API VkDescriptorSet zest_vk_GetDefaultUniformBufferSet();

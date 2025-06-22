@@ -284,7 +284,9 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//if the window is resized for example.
 	if (zest_BeginRenderToScreen("TimelineFX Render Graphs")) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
-		zest_WaitOnTimeline(game->tfx_rendering.timeline);
+		if (zest_TimerUpdateWasRun(game->tfx_rendering.timer)) {
+			zest_WaitOnTimeline(game->tfx_rendering.timeline);
+		}
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
@@ -317,6 +319,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_ConnectSampledImageInput(graphics_pass, color_ramps_texture, zest_pipeline_fragment_stage);
 		//Outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		//zest_ReleaseBufferAfterUse(tfx_layer_prev);
 		//Tasks
 		zest_tfx_AddPassTask(graphics_pass, &game->tfx_rendering);
 		//If there's imgui to draw then draw it
@@ -339,14 +342,15 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 			game->request_no_update_graph_print = false;
 		}
 	}
+
 }
 
 #if defined(_WIN32)
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
-	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = "./";
 	create_info.thread_count = 0;
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);

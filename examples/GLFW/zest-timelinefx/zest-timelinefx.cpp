@@ -176,6 +176,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
 	if (zest_BeginRenderToScreen("TimelineFX Render Graphs")) {
+		//zest_ForceRenderGraphOnGraphicsQueue();
 		zest_WaitOnTimeline(game->tfx_rendering.timeline);
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass

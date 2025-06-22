@@ -59,7 +59,7 @@ void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
 }
 
 void zest_tfx_InitTimelineFXRenderResources(tfx_render_resources_t *resources, const char *library_path) {
-	resources->uniform_buffer = zest_CreateUniformBuffer("3d uniform", sizeof(tfx_uniform_buffer_data_t));
+	resources->uniform_buffer = zest_CreateUniformBuffer("tfx uniform", sizeof(tfx_uniform_buffer_data_t));
 
 	resources->timer = zest_CreateTimer(60);
 
@@ -133,7 +133,7 @@ void zest_tfx_UpdateTimelineFXImageData(tfx_render_resources_t *tfx_rendering, t
 void zest_tfx_CreateTimelineFXShaderResources(tfx_render_resources_t *tfx_rendering) {
 	tfx_rendering->shader_resource = zest_CreateShaderResources();
 	zest_ForEachFrameInFlight(fif) {
-		zest_AddDescriptorSetToResources(tfx_rendering->shader_resource, zest_GetUniformBufferSet(tfx_rendering->uniform_buffer), fif);
+		zest_AddDescriptorSetToResources(tfx_rendering->shader_resource, zest_GetFIFUniformBufferSet(tfx_rendering->uniform_buffer, fif), fif);
 		zest_AddDescriptorSetToResources(tfx_rendering->shader_resource, zest_GetGlobalBindlessSet(), fif);
 	}
 }
