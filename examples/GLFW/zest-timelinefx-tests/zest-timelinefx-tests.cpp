@@ -99,7 +99,7 @@ void TimelineFXExample::Init() {
 	pm = tfx_CreateEffectManager(pm_info);
 	tfx_SetPMCamera(pm, &tfx_rendering.camera.front.x, &tfx_rendering.camera.position.x);
 
-	random = tfx_NewRandom(30101);
+	random = tfx_NewRandom(zest_Millisecs());
 
 	for (int i = 0; i != 10; ++i) {
 		tfxEffectID effect_id;
@@ -110,6 +110,8 @@ void TimelineFXExample::Init() {
 			test_effects.push_back(effect_id);
 		}
 	}
+
+	sync_refresh = true;
 
 }
 
@@ -296,8 +298,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	//zest_create_info_t create_info = zest_CreateInfo();
+	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = "./";
 	create_info.thread_count = 0;
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);

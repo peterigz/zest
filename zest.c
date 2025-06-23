@@ -1389,11 +1389,16 @@ zest_bool zest__initialise_device() {
             zest__setup_validation();
         }
         zest__pick_physical_device();
-        zest__create_logical_device();
-        zest__set_limit_data();
-        zest__set_default_pool_sizes();
-        return ZEST_TRUE;
+        if (zest__create_logical_device()) {
+            zest__set_limit_data();
+            zest__set_default_pool_sizes();
+            return ZEST_TRUE;
+        } else {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Unable to create logical device, program will now end.");
+            return ZEST_FALSE;
+        }
     }
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Unable to create Vulkan instance, program will now end.");
     return ZEST_FALSE;
 }
 
@@ -1445,10 +1450,11 @@ zest_bool zest__create_instance() {
              VK_API_VERSION_MINOR(instance_api_version_supported),
              VK_API_VERSION_PATCH(instance_api_version_supported));
         if (instance_api_version_supported < VK_API_VERSION_1_2) {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Zest requires minumum Vulkan version: 1.2+. Version found: %u", instance_api_version_supported);
             return ZEST_FALSE;
         }
     } else {
-        ZEST_PRINT_WARNING("Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requiresVulkan 1.2+.");
+        ZEST_PRINT_WARNING("Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requires Vulkan 1.2+.");
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requiresVulkan 1.2+.")
         return ZEST_FALSE;
     }
@@ -1742,47 +1748,6 @@ zest_bool zest__device_is_discrete_gpu(VkPhysicalDevice physical_device) {
     return properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 }
 
-zest_index zest__get_queue_family_index(VkQueueFlags queue_flags, VkQueueFamilyProperties* queue_families) {
-    // Dedicated queue for compute
-    // Try to find a queue family index that supports compute but not graphics
-    if ((queue_flags & VK_QUEUE_COMPUTE_BIT) == queue_flags)
-    {
-        for (zest_foreach_i(queue_families)) {
-            if ((queue_families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) && ((queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0))
-            {
-                return i;
-            }
-        }
-    }
-
-    // Dedicated queue for transfer
-    // Try to find a queue family index that supports transfer but not graphics and compute
-    if ((queue_flags & VK_QUEUE_TRANSFER_BIT) == queue_flags)
-    {
-        for (zest_foreach_i(queue_families)) {
-            if ((queue_families[i].queueFlags & VK_QUEUE_TRANSFER_BIT) && ((queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0) && ((queue_families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) == 0))
-            {
-                return i;
-            }
-        }
-    }
-
-    // For other queue types or if no separate compute queue is present, return the first one to support the requested flags
-    for (zest_foreach_i(queue_families))
-    {
-        if ((queue_families[i].queueFlags & queue_flags) == queue_flags)
-        {
-            return i;
-        }
-    }
-
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "ERROR: Failed to find any queue index for Flag: %i", queue_flags);
-    return 0;
-}
-
-zest_queue_family_indices zest__find_queue_families(VkPhysicalDevice physical_device, VkDeviceQueueCreateInfo* queue_create_infos) {
-}
-
 zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device) {
     zest_uint extension_count;
     vkEnumerateDeviceExtensionProperties(physical_device, ZEST_NULL, &extension_count, ZEST_NULL);
@@ -1839,7 +1804,7 @@ VkSampleCountFlagBits zest__get_max_useable_sample_count(void) {
     return VK_SAMPLE_COUNT_1_BIT;
 }
 
-void zest__create_logical_device() {
+zest_bool zest__create_logical_device() {
     zest_queue_family_indices indices = { 0 };
 
     zest_uint queue_family_count = 0;
@@ -1849,13 +1814,73 @@ void zest__create_logical_device() {
     //VkQueueFamilyProperties queue_families[10];
     vkGetPhysicalDeviceQueueFamilyProperties(ZestDevice->physical_device, &queue_family_count, ZestDevice->queue_families);
 
+    zest_uint graphics_candidate = ZEST_INVALID;
+    zest_uint compute_candidate = ZEST_INVALID;
+    zest_uint transfer_candidate = ZEST_INVALID;
+
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Iterate available queues:");
+    zest_vec_foreach(i, ZestDevice->queue_families) {
+        VkQueueFamilyProperties properties = ZestDevice->queue_families[i];
+
+        zest_text_t queue_flags = zest__vulkan_queue_flags_to_string(properties.queueFlags);
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Index: %i) %s, Queue count: %i", i, queue_flags.str, properties.queueCount);
+        zest_FreeText(&queue_flags);
+
+        // Is it a dedicated transfer queue?
+        if ((properties.queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+            !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+            !(properties.queueFlags & VK_QUEUE_COMPUTE_BIT)) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found a dedicated transfer queue on index %i", i);
+            transfer_candidate = i;
+        }
+
+        // Is it a dedicated compute queue?
+        if ((properties.queueFlags & VK_QUEUE_COMPUTE_BIT) &&
+            !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found a dedicated compute queue on index %i", i);
+            compute_candidate = i;
+        }
+    }
+
+    zest_vec_foreach(i, ZestDevice->queue_families) {
+        VkQueueFamilyProperties properties = ZestDevice->queue_families[i];
+        // Find the primary graphics queue (must support presentation!)
+        VkBool32 present_support = 0;
+        vkGetPhysicalDeviceSurfaceSupportKHR(ZestDevice->physical_device, i, ZestApp->window->surface, &present_support);
+
+        if ((properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && present_support) {
+            if (graphics_candidate == ZEST_INVALID) {
+                graphics_candidate = i;
+            }
+        }
+
+        if (compute_candidate == ZEST_INVALID) {
+            if (properties.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+				ZEST_APPEND_LOG(ZestDevice->log_path.str, "Set compute queue to index %i", i);
+                compute_candidate = i;
+            }
+        }
+
+        if (transfer_candidate == ZEST_INVALID) {
+            if (properties.queueFlags & VK_QUEUE_TRANSFER_BIT) {
+				ZEST_APPEND_LOG(ZestDevice->log_path.str, "Set transfer queue to index %i", i);
+                transfer_candidate = i;
+            }
+        }
+    }
+
+	if (graphics_candidate == ZEST_INVALID) {
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Fatal Error: Unable to find graphics queue/present support!");
+		return 0;
+	}
+
     float queue_priority = 0.0f;
     VkDeviceQueueCreateInfo queue_create_infos[3];
 
     int queue_create_count = 0;
     // Graphics queue
     {
-        indices.graphics_family_index = zest__get_queue_family_index(VK_QUEUE_GRAPHICS_BIT, ZestDevice->queue_families);
+        indices.graphics_family_index = graphics_candidate;
         VkDeviceQueueCreateInfo queue_info = { 0 };
         queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queue_info.queueFamilyIndex = indices.graphics_family_index;
@@ -1869,7 +1894,7 @@ void zest__create_logical_device() {
 
     // Dedicated compute queue
     {
-        indices.compute_family_index = zest__get_queue_family_index(VK_QUEUE_COMPUTE_BIT, ZestDevice->queue_families);
+        indices.compute_family_index = compute_candidate;
         if (indices.compute_family_index != indices.graphics_family_index)
         {
             // If compute family index differs, we need an additional queue create info for the compute queue
@@ -1887,8 +1912,8 @@ void zest__create_logical_device() {
 
     //Dedicated transfer queue
     {
-        indices.transfer_family_index = zest__get_queue_family_index(VK_QUEUE_TRANSFER_BIT, ZestDevice->queue_families);
-        if ((indices.transfer_family_index != indices.graphics_family_index) && (indices.transfer_family_index != indices.compute_family_index))
+        indices.transfer_family_index = transfer_candidate;
+        if (indices.transfer_family_index != indices.graphics_family_index && indices.transfer_family_index != indices.compute_family_index)
         {
             // If transfer_index family index differs, we need an additional queue create info for the transfer queue
             VkDeviceQueueCreateInfo queue_info = { 0 };
@@ -1916,7 +1941,8 @@ void zest__create_logical_device() {
     if (!descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing ||
         !descriptor_indexing_features.descriptorBindingPartiallyBound ||
         !descriptor_indexing_features.runtimeDescriptorArray) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Required descriptor indexing features not supported by this GPU!");
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Fatal Error: Required descriptor indexing features not supported by this GPU!");
+        return 0;
     }
 
     VkPhysicalDeviceFeatures device_features = { 0 };
@@ -1967,8 +1993,6 @@ void zest__create_logical_device() {
     ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->logical_device));
 
     vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family_index, 0, &ZestDevice->graphics_queue.vk_queue);
-    //There's no real point of a one time graphics queue on the same index. It seems like AMD cards have a queue count of one on the graphics family so you can't
-    //do one off queues while other rendering is going on.
     vkGetDeviceQueue(ZestDevice->logical_device, indices.compute_family_index, 0, &ZestDevice->compute_queue.vk_queue);
     vkGetDeviceQueue(ZestDevice->logical_device, indices.transfer_family_index, 0, &ZestDevice->transfer_queue.vk_queue);
 
@@ -2002,6 +2026,8 @@ void zest__create_logical_device() {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating command pools");
     ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->command_pool));
     ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->one_time_command_pool));
+
+    return 1;
 }
 
 void zest__set_limit_data() {
@@ -7836,7 +7862,7 @@ void zest_EndRenderGraph() {
                     wait_stage_for_acquire_semaphore = first_swapchain_usage_stage_in_this_batch;
                     // Ensure this stage is compatible with the batch's queue
                     if (!zest__is_stage_compatible_with_qfi(wait_stage_for_acquire_semaphore, ZestDevice->queue_families[first_batch_to_wait->queue_family_index].queueFlags)) {
-                        zest_text_t pipeline_stage = zest_vulkan_pipeline_stage_flags_to_string(wait_stage_for_acquire_semaphore);
+                        zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(wait_stage_for_acquire_semaphore);
                         ZEST_PRINT("Swapchain usage stage %s is not compatible with queue family %u for batch %i",
                             pipeline_stage.str,
                             first_batch_to_wait->queue_family_index, pass->batch_index);
@@ -7870,7 +7896,7 @@ void zest_EndRenderGraph() {
 
                 zest_vec_linear_push(allocator, actual_first_batch->wait_semaphores, ZestRenderer->image_available_semaphore[ZEST_FIF]);
                 zest_vec_linear_push(allocator, actual_first_batch->wait_dst_stage_masks, compatible_dummy_wait_stage);
-				zest_text_t pipeline_stage = zest_vulkan_pipeline_stage_flags_to_string(compatible_dummy_wait_stage);
+				zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(compatible_dummy_wait_stage);
                 ZEST_PRINT("RenderGraph: Swapchain image acquired but not used by any pass. First batch (on QFI %u) will wait on imageAvailableSemaphore at stage %s.",
                     actual_first_batch->queue_family_index,
                     pipeline_stage.str);
@@ -8710,7 +8736,7 @@ zest_render_graph zest_ExecuteRenderGraph() {
     return render_graph;
 }
 
-const char *zest_vulkan_image_layout_to_string(VkImageLayout layout) {
+const char *zest__vulkan_image_layout_to_string(VkImageLayout layout) {
     switch (layout) {
     case VK_IMAGE_LAYOUT_UNDEFINED: return "UNDEFINED"; break;
 	case VK_IMAGE_LAYOUT_GENERAL : return "GENERAL"; break;
@@ -8733,7 +8759,7 @@ const char *zest_vulkan_image_layout_to_string(VkImageLayout layout) {
     }
 }
 
-zest_text_t zest_vulkan_access_flags_to_string(VkAccessFlags flags) {
+zest_text_t zest__vulkan_access_flags_to_string(VkAccessFlags flags) {
     zest_text_t string = { 0 };
     if (!flags) {
 		zest_AppendTextf(&string, "%s", "NONE");
@@ -8771,7 +8797,7 @@ zest_text_t zest_vulkan_access_flags_to_string(VkAccessFlags flags) {
     return string;
 }
 
-zest_text_t zest_vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags) {
+zest_text_t zest__vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags) {
     zest_text_t string = { 0 };
     if (!flags) {
 		zest_AppendTextf(&string, "%s", "NONE");
@@ -8809,6 +8835,35 @@ zest_text_t zest_vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flag
     return string;
 }
 
+zest_text_t zest__vulkan_queue_flags_to_string(VkQueueFlags flags) {
+    zest_text_t string = { 0 };
+    if (!flags) {
+        zest_AppendTextf(&string, "%s", "NONE");
+        return string;
+    }
+    zloc_size flags_field = flags;
+    while (flags_field) {
+        if (zest_TextSize(&string)) {
+            zest_AppendTextf(&string, ", ");
+        }
+        zest_uint index = zloc__scan_forward(flags_field);
+        switch (1ull << index) {
+        case VK_QUEUE_GRAPHICS_BIT: zest_AppendTextf(&string, "%s", "GRAPHICS"); break;
+        case VK_QUEUE_COMPUTE_BIT: zest_AppendTextf(&string, "%s", "COMPUTE"); break;
+        case VK_QUEUE_TRANSFER_BIT: zest_AppendTextf(&string, "%s", "TRANSFER"); break;
+        case VK_QUEUE_SPARSE_BINDING_BIT: zest_AppendTextf(&string, "%s", "SPARSE BINDING"); break;
+        case VK_QUEUE_PROTECTED_BIT: zest_AppendTextf(&string, "%s", "PROTECTED"); break;
+        case VK_QUEUE_VIDEO_DECODE_BIT_KHR: zest_AppendTextf(&string, "%s", "VIDEO_DECODE"); break;
+        case VK_QUEUE_VIDEO_ENCODE_BIT_KHR: zest_AppendTextf(&string, "%s", "VIDEO_ENCODE"); break;
+        case VK_QUEUE_OPTICAL_FLOW_BIT_NV: zest_AppendTextf(&string, "%s", "OPTICAL_FLOW"); break;
+        case VK_QUEUE_FLAG_BITS_MAX_ENUM: zest_AppendTextf(&string, "%s", "MAX"); break;
+        default: zest_AppendTextf(&string, "%s", "Unknown Queue Flag"); break;
+        }
+        flags_field &= ~(1ull << index);
+    }
+    return string;
+}
+
 void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
     ZEST_CHECK_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     ZEST_PRINT("--- Render Graph Execution Plan ---");
@@ -8829,8 +8884,8 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
         if (resource->type == zest_resource_type_buffer) {
             ZEST_PRINT("Buffer: %s - VkBuffer: %p, Offset: %zu, Size: %zu", resource->name, resource->storage_buffer->memory_pool->buffer, resource->storage_buffer->memory_offset, resource->storage_buffer->size);
             zest_buffer buffer = resource->storage_buffer;
-			zest_text_t access_mask = zest_vulkan_access_flags_to_string(buffer->last_access_mask);
-			zest_text_t pipeline_stage = zest_vulkan_pipeline_stage_flags_to_string(buffer->last_stage_mask);
+			zest_text_t access_mask = zest__vulkan_access_flags_to_string(buffer->last_access_mask);
+			zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(buffer->last_stage_mask);
             ZEST_PRINT("  -Initial State: Owned by [%s], Last Access: [%s], Last Stage: [%s]",
                 *zest_map_at_key(ZestDevice->queue_names, buffer->owner_queue_family),
                 access_mask.str,
@@ -8839,8 +8894,8 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
 			zest_FreeText(&pipeline_stage);
             zest_vec_foreach(i, resource->journey) {
                 zest_resource_state_t *state = &resource->journey[i];
-				zest_text_t access_mask = zest_vulkan_access_flags_to_string(state->usage.access_mask);
-				zest_text_t pipeline_stage = zest_vulkan_pipeline_stage_flags_to_string(state->usage.stage_mask);
+				zest_text_t access_mask = zest__vulkan_access_flags_to_string(state->usage.access_mask);
+				zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(state->usage.stage_mask);
                 ZEST_PRINT("  -Used in pass [%s on %s]: Access: [%s], Stage: [%s]", 
                     render_graph->passes[state->pass_index].name, 
                     *zest_map_at_key(ZestDevice->queue_names, state->queue_family_index),
@@ -8855,14 +8910,14 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
                 resource->image_buffer.buffer->size);
             zest_vec_foreach(i, resource->journey) {
                 zest_resource_state_t *state = &resource->journey[i];
-                zest_text_t access_mask = zest_vulkan_access_flags_to_string(state->usage.access_mask);
-                zest_text_t pipeline_stage = zest_vulkan_pipeline_stage_flags_to_string(state->usage.stage_mask);
+                zest_text_t access_mask = zest__vulkan_access_flags_to_string(state->usage.access_mask);
+                zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(state->usage.stage_mask);
                 ZEST_PRINT("  -Used in pass [%s on %s]: Access: [%s], Stage: [%s], Layout: [%s]",
                     render_graph->passes[state->pass_index].name,
                     *zest_map_at_key(ZestDevice->queue_names, state->queue_family_index),
                     access_mask.str,
                     pipeline_stage.str,
-                    zest_vulkan_image_layout_to_string(state->usage.image_layout));
+                    zest__vulkan_image_layout_to_string(state->usage.image_layout));
                 zest_FreeText(&access_mask);
                 zest_FreeText(&pipeline_stage);
             }
@@ -8871,14 +8926,14 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
                 resource->name, resource->image_buffer.image);
             zest_vec_foreach(i, resource->journey) {
                 zest_resource_state_t *state = &resource->journey[i];
-                zest_text_t access_mask = zest_vulkan_access_flags_to_string(state->usage.access_mask);
-                zest_text_t pipeline_stage = zest_vulkan_pipeline_stage_flags_to_string(state->usage.stage_mask);
+                zest_text_t access_mask = zest__vulkan_access_flags_to_string(state->usage.access_mask);
+                zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(state->usage.stage_mask);
                 ZEST_PRINT("  -Used in pass [%s on %s]: Access: [%s], Stage: [%s], Layout: [%s]",
                     render_graph->passes[state->pass_index].name,
                     *zest_map_at_key(ZestDevice->queue_names, state->queue_family_index),
                     access_mask.str,
                     pipeline_stage.str,
-                    zest_vulkan_image_layout_to_string(state->usage.image_layout));
+                    zest__vulkan_image_layout_to_string(state->usage.image_layout));
                 zest_FreeText(&access_mask);
                 zest_FreeText(&pipeline_stage);
             }
@@ -8904,7 +8959,7 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
             // This stage should ideally be stored with the batch submission info by EndRenderGraph
             ZEST_PRINT("  Waits on the following Semaphores:");
             zest_vec_foreach(semaphore_index, batch->final_wait_semaphores) {
-                zest_text_t pipeline_stages = zest_vulkan_pipeline_stage_flags_to_string(batch->wait_stages[semaphore_index]);
+                zest_text_t pipeline_stages = zest__vulkan_pipeline_stage_flags_to_string(batch->wait_stages[semaphore_index]);
                 if (zest_vec_size(batch->wait_values) && batch->wait_values[semaphore_index] > 0) {
                     ZEST_PRINT("     Timeline Semaphore: %p, Value: %zu at Stage: %s", (void *)batch->final_wait_semaphores[semaphore_index], batch->wait_values[semaphore_index], pipeline_stages.str);
                 } else {
@@ -8933,8 +8988,8 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
 
             if (zest_vec_size(exe_details->barriers.acquire_buffer_barriers) > 0 ||
                 zest_vec_size(exe_details->barriers.acquire_image_barriers) > 0) {
-				zest_text_t overal_src_pipeline_stages = zest_vulkan_pipeline_stage_flags_to_string(exe_details->barriers.overall_src_stage_mask_for_acquire_barriers);
-				zest_text_t overal_dst_pipeline_stages = zest_vulkan_pipeline_stage_flags_to_string(exe_details->barriers.overall_dst_stage_mask_for_acquire_barriers);
+				zest_text_t overal_src_pipeline_stages = zest__vulkan_pipeline_stage_flags_to_string(exe_details->barriers.overall_src_stage_mask_for_acquire_barriers);
+				zest_text_t overal_dst_pipeline_stages = zest__vulkan_pipeline_stage_flags_to_string(exe_details->barriers.overall_dst_stage_mask_for_acquire_barriers);
                 ZEST_PRINT("      Acquire Barriers (Overall Pipeline Src Stages: %s, Dst Stages: %s):",
                     overal_src_pipeline_stages.str,
                     overal_dst_pipeline_stages.str);
@@ -8945,11 +9000,11 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
                 zest_vec_foreach(barrier_index, exe_details->barriers.acquire_image_barriers) {
                     VkImageMemoryBarrier *imb = &exe_details->barriers.acquire_image_barriers[barrier_index];
                     zest_resource_node image_resource = exe_details->barriers.acquire_image_barrier_nodes[barrier_index];
-                    zest_text_t src_access_mask = zest_vulkan_access_flags_to_string(imb->srcAccessMask);
-                    zest_text_t dst_access_mask = zest_vulkan_access_flags_to_string(imb->dstAccessMask);
+                    zest_text_t src_access_mask = zest__vulkan_access_flags_to_string(imb->srcAccessMask);
+                    zest_text_t dst_access_mask = zest__vulkan_access_flags_to_string(imb->dstAccessMask);
                     ZEST_PRINT("            %s, Layout: %s -> %s, Access: %s -> %s, QFI: %u -> %u",
                         image_resource->name, 
-                        zest_vulkan_image_layout_to_string(imb->oldLayout), zest_vulkan_image_layout_to_string(imb->newLayout),
+                        zest__vulkan_image_layout_to_string(imb->oldLayout), zest__vulkan_image_layout_to_string(imb->newLayout),
                         src_access_mask.str, dst_access_mask.str,
                         imb->srcQueueFamilyIndex, imb->dstQueueFamilyIndex);
                     zest_FreeText(&src_access_mask);
@@ -8961,8 +9016,8 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
                     VkBufferMemoryBarrier *bmb = &exe_details->barriers.acquire_buffer_barriers[barrier_index];
                     zest_resource_node buffer_resource = exe_details->barriers.acquire_buffer_barrier_nodes[barrier_index];
                     // You need a robust way to get resource_name from bmb->image
-                    zest_text_t src_access_mask = zest_vulkan_access_flags_to_string(bmb->srcAccessMask);
-                    zest_text_t dst_access_mask = zest_vulkan_access_flags_to_string(bmb->dstAccessMask);
+                    zest_text_t src_access_mask = zest__vulkan_access_flags_to_string(bmb->srcAccessMask);
+                    zest_text_t dst_access_mask = zest__vulkan_access_flags_to_string(bmb->dstAccessMask);
                     ZEST_PRINT("            %s | %p, Access: %s -> %s, QFI: %u -> %u, Offset: %zu, Size: %zu",
                         buffer_resource->name, buffer_resource->storage_buffer->memory_pool->buffer,
                         src_access_mask.str, dst_access_mask.str,
@@ -8987,8 +9042,8 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
 
             if (zest_vec_size(exe_details->barriers.release_buffer_barriers) > 0 ||
                 zest_vec_size(exe_details->barriers.release_image_barriers) > 0) {
-                zest_text_t overal_src_pipeline_stages = zest_vulkan_pipeline_stage_flags_to_string(exe_details->barriers.overall_src_stage_mask_for_release_barriers);
-                zest_text_t overal_dst_pipeline_stages = zest_vulkan_pipeline_stage_flags_to_string(exe_details->barriers.overall_dst_stage_mask_for_release_barriers);
+                zest_text_t overal_src_pipeline_stages = zest__vulkan_pipeline_stage_flags_to_string(exe_details->barriers.overall_src_stage_mask_for_release_barriers);
+                zest_text_t overal_dst_pipeline_stages = zest__vulkan_pipeline_stage_flags_to_string(exe_details->barriers.overall_dst_stage_mask_for_release_barriers);
                 ZEST_PRINT("      Release Barriers (Overall Pipeline Src Stages: %s, Dst Stages: %s):",
                     overal_src_pipeline_stages.str,
                     overal_dst_pipeline_stages.str);
@@ -8999,11 +9054,11 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
                 zest_vec_foreach(barrier_index, exe_details->barriers.release_image_barriers) {
                     VkImageMemoryBarrier *imb = &exe_details->barriers.release_image_barriers[barrier_index];
                     zest_resource_node image_resource = exe_details->barriers.release_image_barrier_nodes[barrier_index];
-                    zest_text_t src_access_mask = zest_vulkan_access_flags_to_string(imb->srcAccessMask);
-                    zest_text_t dst_access_mask = zest_vulkan_access_flags_to_string(imb->dstAccessMask);
+                    zest_text_t src_access_mask = zest__vulkan_access_flags_to_string(imb->srcAccessMask);
+                    zest_text_t dst_access_mask = zest__vulkan_access_flags_to_string(imb->dstAccessMask);
                     ZEST_PRINT("            %s, Layout: %s -> %s, Access: %s -> %s, QFI: %u -> %u",
                         image_resource->name,
-                        zest_vulkan_image_layout_to_string(imb->oldLayout), zest_vulkan_image_layout_to_string(imb->newLayout),
+                        zest__vulkan_image_layout_to_string(imb->oldLayout), zest__vulkan_image_layout_to_string(imb->newLayout),
                         src_access_mask.str, dst_access_mask.str,
                         imb->srcQueueFamilyIndex, imb->dstQueueFamilyIndex);
                     zest_FreeText(&src_access_mask);
@@ -9015,8 +9070,8 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
                     VkBufferMemoryBarrier *bmb = &exe_details->barriers.release_buffer_barriers[barrier_index];
                     zest_resource_node buffer_resource = exe_details->barriers.release_buffer_barrier_nodes[barrier_index];
                     // You need a robust way to get resource_name from bmb->image
-                    zest_text_t src_access_mask = zest_vulkan_access_flags_to_string(bmb->srcAccessMask);
-                    zest_text_t dst_access_mask = zest_vulkan_access_flags_to_string(bmb->dstAccessMask);
+                    zest_text_t src_access_mask = zest__vulkan_access_flags_to_string(bmb->srcAccessMask);
+                    zest_text_t dst_access_mask = zest__vulkan_access_flags_to_string(bmb->dstAccessMask);
                     ZEST_PRINT("            %s, Access: %s -> %s, QFI: %u -> %u, Offset: %zu, Size: %zu",
                         buffer_resource->name,
                         src_access_mask.str, dst_access_mask.str,

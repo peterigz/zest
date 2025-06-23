@@ -946,7 +946,6 @@ void VadersGame::Update(float ellapsed) {
 	//Accumulate the timer delta
 
 	UpdatePlayerPosition(this, &player);
-	zest_tfx_UpdateUniformBuffer(&tfx_rendering);
 	zest_Update2dUniformBuffer();
 
 	zest_StartTimerLoop(tfx_rendering.timer) {
@@ -1036,6 +1035,8 @@ void VadersGame::Update(float ellapsed) {
 		//Draw the Imgui window
 		BuildUI(this);
 	} zest_EndTimerLoop(tfx_rendering.timer);
+
+	zest_tfx_UpdateUniformBuffer(&tfx_rendering);
 
 	if (zest_BeginRenderToScreen("TimelineFX Render Graph")) {
 		zest_WaitOnTimeline(tfx_rendering.timeline);

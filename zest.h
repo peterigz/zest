@@ -2799,7 +2799,7 @@ ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, co
 ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 ZEST_API zest_resource_node zest_AddFontLayerTextureResource(const zest_font font);
 
-// --- Helpers for adding various types of ribbon resources
+// --- Helpers for adding various types of resources
 ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
 ZEST_API zest_resource_node zest_AddTransientIndexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
 ZEST_API zest_resource_node zest_AddTransientStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless);
@@ -2841,6 +2841,7 @@ ZEST_API zest_execution_timeline zest_CreateExecutionTimeline();
 ZEST_PRIVATE const char *zest_vulkan_image_layout_to_string(VkImageLayout layout);
 ZEST_PRIVATE zest_text_t zest_vulkan_access_flags_to_string(VkAccessFlags flags);
 ZEST_PRIVATE zest_text_t zest_vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
+ZEST_PRIVATE zest_text_t zest_vulkan_queue_flags_to_string(VkQueueFlags flags);
 
 // --- Render graph debug functions ---
 ZEST_API void zest_PrintCompiledRenderGraph(zest_render_graph render_graph);
@@ -3974,7 +3975,7 @@ ZEST_PRIVATE zest_queue_family_indices zest__find_queue_families(VkPhysicalDevic
 ZEST_PRIVATE zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_swapchain_support_details_t zest__query_swapchain_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE VkSampleCountFlagBits zest__get_max_useable_sample_count(void);
-ZEST_PRIVATE void zest__create_logical_device();
+ZEST_PRIVATE zest_bool zest__create_logical_device();
 ZEST_PRIVATE void zest__set_limit_data(void);
 ZEST_PRIVATE zest_bool zest__check_validation_layer_support(void);
 ZEST_PRIVATE void zest__get_required_extensions();

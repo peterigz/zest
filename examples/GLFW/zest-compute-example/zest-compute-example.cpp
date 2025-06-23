@@ -209,6 +209,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	} zest_EndTimerLoop(app->loop_timer)
 
 	if (zest_BeginRenderToScreen("Compute Particles")) {
+		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 
@@ -241,9 +242,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfo();
 	//Disable vsync so we can see how fast it runs
-	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = ".";
 	create_info.color_format = VK_FORMAT_B8G8R8A8_UNORM;

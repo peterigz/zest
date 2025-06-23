@@ -122,8 +122,6 @@ void BuildUI(TimelineFXExample *game) {
 void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	TimelineFXExample *game = static_cast<TimelineFXExample*>(data);
 
-	zest_tfx_UpdateUniformBuffer(&game->tfx_rendering);
-
 	zest_StartTimerLoop(game->tfx_rendering.timer) {
 		BuildUI(game);
 
@@ -163,6 +161,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		}
 
 	} zest_EndTimerLoop(game->tfx_rendering.timer);
+
+	zest_tfx_UpdateUniformBuffer(&game->tfx_rendering);
 
 	//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
 	//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
