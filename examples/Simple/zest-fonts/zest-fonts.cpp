@@ -34,7 +34,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		//Add resources
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
-		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource(example->font_layer);
+		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
 
 		//Add passes
@@ -56,7 +56,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_render_graph render_graph = zest_ExecuteRenderGraph();
 
 		//Print the render graph
-		static bool print_render_graph = true;
+		static bool print_render_graph = false;
 		if (print_render_graph) {
 			zest_PrintCompiledRenderGraph(render_graph);
 			print_render_graph = false;

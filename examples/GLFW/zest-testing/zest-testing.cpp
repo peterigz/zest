@@ -23,7 +23,7 @@ void UpdateUniform3d(ImGuiApp* app) {
 }
 
 //Function to project 2d screen coordinates into 3d space
-zest_vec3 ScreenRay(float x, float y, float depth_offset, zest_vec3& camera_position, zest_descriptor_buffer buffer) {
+zest_vec3 ScreenRay(float x, float y, float depth_offset, zest_vec3& camera_position, zest_uniform_buffer buffer) {
 	zest_uniform_buffer_data_t* buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
@@ -336,7 +336,7 @@ zest_vec3 GetWidgetAxisZ(zest_widget_part* widget) {
 
 void InitImGuiApp(ImGuiApp* app) {
 	//Initialise Dear ImGui
-	zest_imgui_Initialise(&app->imgui_layer_info);
+	zest_imgui_Initialise();
 	//Implement a dark style
 	DarkStyle2();
 
@@ -353,7 +353,7 @@ void InitImGuiApp(ImGuiApp* app) {
 	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 
 	//Rebuild the Zest font texture
-	zest_imgui_RebuildFontTexture(&app->imgui_layer_info, tex_width, tex_height, font_data);
+	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
 
 	app->floor_texture = zest_CreateTexture("Floor texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
 	app->floor_image = zest_AddTextureImageFile(app->floor_texture, "examples/assets/checker.png");
@@ -361,22 +361,15 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->sprite_texture = zest_CreateTexture("Sprite texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
 	app->sprite = zest_AddTextureImageFile(app->sprite_texture, "examples/assets/wabbit_alpha.png");
 	zest_ProcessTextureImages(app->sprite_texture);
-	app->mesh_pipeline = zest_Pipeline("pipeline_mesh");
-	app->line_pipeline = zest_Pipeline("pipeline_line3d_instance");
-	app->line_2d_pipeline = zest_Pipeline("pipeline_line_instance");
-	app->billboard_pipeline = zest_Pipeline("pipeline_billboard");
+	app->mesh_pipeline = zest_PipelineTemplate("pipeline_mesh");
 
-	app->billboard_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, app->sprite_texture);
-	app->floor_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, app->floor_texture);
 	app->mesh_shader_resources = zest_CreateShaderResources();
-	zest_AddDescriptorSetToResources(app->mesh_shader_resources, ZestRenderer->uniform_descriptor_set);
+	zest_AddUniformBufferToResources(app->mesh_shader_resources, ZestRenderer->uniform_buffer);
 
-	zest_pipeline_template_create_info_t custom_mesh_pipeline = zest_CopyTemplateFromPipeline("pipeline_mesh_instance");
-	app->mesh_instance_pipeline = zest_CreatePipelineTemplate("pipeline_mesh_instance_custom");
-	zest_SetPipelineTemplateShader(&custom_mesh_pipeline, "mesh_instance_custom.spv", "examples/assets/spv/");
-	zest_FinalisePipelineTemplate(app->mesh_instance_pipeline, zest_GetStandardRenderPass(), &custom_mesh_pipeline);
-	zest_BuildPipeline(app->mesh_instance_pipeline);
-    zest_MakePipelineDescriptorWrites(app->mesh_instance_pipeline);
+	zest_pipeline_template custom_mesh_pipeline = zest_CopyPipelineTemplate("custom_mesh_instance_pipeline", zest_PipelineTemplate("pipeline_mesh_instance"));
+	app->mesh_instance_pipeline = zest_BeginPipelineTemplate("pipeline_mesh_instance_custom");
+	zest_SetPipelineShader(custom_mesh_pipeline, "mesh_instance_custom.spv", "examples/assets/spv/");
+	zest_EndPipelineTemplate(app->mesh_instance_pipeline);
 
 	app->camera = zest_CreateCamera();
 	zest_CameraPosition(&app->camera, { -10.f, 0.f, 0.f });
@@ -385,23 +378,9 @@ void InitImGuiApp(ImGuiApp* app) {
 	zest_CameraSetPitch(&app->camera, zest_Radians(0.f));
 	zest_CameraUpdateFront(&app->camera);
 
-	zest_ModifyCommandQueue(ZestApp->default_command_queue);
-	{
-		zest_ModifyDrawCommands(ZestApp->default_draw_commands);
-		{
-			//Create a new mesh layer in the command queue to draw the floor plane
-			app->mesh_layer = zest_NewBuiltinLayerSetup("Meshes", zest_builtin_layer_mesh);
-			app->billboard_layer = zest_NewBuiltinLayerSetup("Billboards", zest_builtin_layer_billboards);
-			app->line_layer = zest_NewBuiltinLayerSetup("Lines", zest_builtin_layer_3dlines);
-			app->move_widget_layer = zest_NewBuiltinLayerSetup("Move Widget", zest_builtin_layer_mesh_instance);
-			app->scale_widget_layer = zest_NewBuiltinLayerSetup("Scale Widget", zest_builtin_layer_mesh_instance);
-			app->lines_2d = zest_NewBuiltinLayerSetup("Lines 2d", zest_builtin_layer_lines);
-
-			//Create a Dear ImGui layer
-			zest_imgui_CreateLayer(&app->imgui_layer_info);
-		}
-		zest_FinishQueueSetup();
-	}
+	app->mesh_layer = zest_CreateBuiltinInstanceMeshLayer("Meshes");
+	app->move_widget_layer = zest_CreateBuiltinInstanceMeshLayer("Move Widget");
+	app->scale_widget_layer = zest_CreateBuiltinInstanceMeshLayer("Scale Widget");
 
 	float arrow_radius = 0.01f;
 	float point_radius = 0.05f;
@@ -691,9 +670,14 @@ void HandleWidget(ImGuiApp* app, zest_widget* widget) {
 
 void Draw3dWidgets(ImGuiApp* app) {
 	zest_SetInstanceDrawing(app->scale_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
-	zest_SetLayerGlobalPushConstants(app->scale_widget_layer, app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
+	zest_push_constants_t *scale_push = zest_CastLayerPushConstants(zest_push_constants_t, app->scale_widget_layer);
+	scale_push->global.x = app->camera.position.x;
+	scale_push->global.y = app->camera.position.y;
+	scale_push->global.z = app->camera.position.z;
+	scale_push->global.w = 1.f;
 	zest_SetInstanceDrawing(app->move_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
-	zest_SetLayerGlobalPushConstants(app->move_widget_layer, app->camera.position.x, app->camera.position.y, app->camera.position.z, 1.f);
+	zest_push_constants_t *move_push = zest_CastLayerPushConstants(zest_push_constants_t, app->scale_widget_layer);
+	move_push->global = scale_push->global;
 	zest_SetLayerColor(app->move_widget_layer, 255, 255, 255, 255);
 
 	//X Plane
@@ -703,11 +687,12 @@ void Draw3dWidgets(ImGuiApp* app) {
 	float length = zest_LengthVec(cam_to_instance);
 	float scale = length / 6.f;
 
-	app->scale_widget_layer->current_instruction.push_constants.parameters1.x = (float)app->scale_widget.hovered_group_id;
-	app->move_widget_layer->current_instruction.push_constants.parameters1.x = (float)app->move_widget.hovered_group_id;
+	scale_push->parameters1.x = (float)app->scale_widget.hovered_group_id;
+	move_push->parameters1.x = (float)app->move_widget.hovered_group_id;
 
 	if (app->picked_widget_part && app->picked_widget) {
-		app->picked_widget->layer->current_instruction.push_constants.parameters1.x = (float)app->picked_widget_part->group_id;
+		zest_push_constants_t *picked_push = zest_CastLayerPushConstants(zest_push_constants_t, app->picked_widget->layer);
+		picked_push->parameters1.x = (float)app->picked_widget_part->group_id;
 		zest_Set3DLineDrawing(app->line_layer, app->line_pipeline->shader_resources, app->line_pipeline);
 		zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->uniform_buffer));
 		zest_axis_flags axis = app->current_axis;

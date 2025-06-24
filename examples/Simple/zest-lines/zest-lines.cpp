@@ -71,15 +71,15 @@ void InitExample(zest_example *example) {
 	zest_ClearVertexAttributeDescriptions(example->line_pipeline_template);
 	zest_AddVertexInputBindingDescription(example->line_pipeline_template, 0, sizeof(zest_shape_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 
-	zest_AddVertexInputDescription(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, rect)));        // Location 0: Start Position
-	zest_AddVertexInputDescription(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, parameters)));    // Location 1: End Position
-	zest_AddVertexInputDescription(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, start_color)));        // Location 2: Start Color
+	zest_AddVertexAttribute(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, rect)));        // Location 0: Start Position
+	zest_AddVertexAttribute(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, parameters)));    // Location 1: End Position
+	zest_AddVertexAttribute(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, start_color)));        // Location 2: Start Color
 
 	zest_SetText(&example->line_pipeline_template->vertShaderFile, "shape_vert.spv");
 	zest_SetText(&example->line_pipeline_template->fragShaderFile, "shape_frag.spv");
 	zest_ClearPipelineTemplateDescriptorLayouts(example->line_pipeline_template);
 	zest_AddPipelineTemplateDescriptorLayout(example->line_pipeline_template, zest_GetDefaultUniformBufferLayout()->vk_layout);
-	zest_FinalisePipelineTemplate(example->line_pipeline_template);
+	zest_EndPipelineTemplate(example->line_pipeline_template);
 	example->line_pipeline_template->colorBlendAttachment = zest_PreMultiplyBlendState();
 	example->line_pipeline_template->depthStencil.depthWriteEnable = VK_FALSE;
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF Lines pipeline");

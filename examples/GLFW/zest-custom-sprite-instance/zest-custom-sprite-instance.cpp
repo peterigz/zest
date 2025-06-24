@@ -61,29 +61,29 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	//Create a new pipeline using our custom sprite struct for the binding descriptions
 	//Start with creating a fresh pipeline template
-	app->custom_pipeline = zest_CreatePipelineTemplate("Custom sprite pipeline");
+	app->custom_pipeline = zest_BeginPipelineTemplate("Custom sprite pipeline");
 
 	zest_AddPipelineTemplateDescriptorLayout(app->custom_pipeline, ZestRenderer->uniform_buffer->set_layout->vk_layout);
 	zest_AddPipelineTemplateDescriptorLayout(app->custom_pipeline, zest_vk_GetGlobalBindlessLayout());
 	//Add a vertex input binding description specifying the size of the custom sprite instance struct
 	zest_AddVertexInputBindingDescription(app->custom_pipeline, 0, sizeof(zest_custom_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 	//Add each input description to bind the layout in the shader to the offset in the custom sprite instance struct.
-	zest_AddVertexInputDescription(app->custom_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_custom_sprite_instance_t, position_rotation)));	// Location 0: Postion, rotation and stretch
-	zest_AddVertexInputDescription(app->custom_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_custom_sprite_instance_t, size_handle)));		// Location 1: Size and handle of the sprite
-	zest_AddVertexInputDescription(app->custom_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_custom_sprite_instance_t, uv)));					// Location 2: Instance Position and rotation
-	zest_AddVertexInputDescription(app->custom_pipeline, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, alignment)));				// Location 3: Alignment
-	zest_AddVertexInputDescription(app->custom_pipeline, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(zest_custom_sprite_instance_t, intensity)));				// Location 4: 2 intensities for each color
-	zest_AddVertexInputDescription(app->custom_pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, lerp_values)));				// Location 5: Interpolation values for mixing and sampling the colors
-	zest_AddVertexInputDescription(app->custom_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(zest_custom_sprite_instance_t, texture_indexes))); 				// Location 6: texture indexes to sample the correct texture and 2 color rampls
+	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_custom_sprite_instance_t, position_rotation)));	// Location 0: Postion, rotation and stretch
+	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_custom_sprite_instance_t, size_handle)));		// Location 1: Size and handle of the sprite
+	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_custom_sprite_instance_t, uv)));					// Location 2: Instance Position and rotation
+	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, alignment)));				// Location 3: Alignment
+	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(zest_custom_sprite_instance_t, intensity)));				// Location 4: 2 intensities for each color
+	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, lerp_values)));				// Location 5: Interpolation values for mixing and sampling the colors
+	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(zest_custom_sprite_instance_t, texture_indexes))); 				// Location 6: texture indexes to sample the correct texture and 2 color rampls
 
 	//Specify the custom shaders we made
-	zest_SetPipelineTemplateVertShader(app->custom_pipeline, "custom_sprite_vert.spv", 0);
-	zest_SetPipelineTemplateFragShader(app->custom_pipeline, "custom_sprite_frag.spv", 0);
+	zest_SetPipelineVertShader(app->custom_pipeline, "custom_sprite_vert.spv", 0);
+	zest_SetPipelineFragShader(app->custom_pipeline, "custom_sprite_frag.spv", 0);
 	//We don't need a push constant for this example but we can set the push constants using the standard zest push constant struct
-	zest_SetPipelineTemplatePushConstantRange(app->custom_pipeline, sizeof(zest_push_constants_t), 0, zest_shader_render_stages);
+	zest_SetPipelinePushConstantRange(app->custom_pipeline, sizeof(zest_push_constants_t), 0, zest_shader_render_stages);
 
 	//Finalise the pipeline template ready for building the pipeline
-	zest_FinalisePipelineTemplate(app->custom_pipeline);
+	zest_EndPipelineTemplate(app->custom_pipeline);
 	//Make some final tweaks to the template
 	app->custom_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
 	app->custom_pipeline->depthStencil.depthWriteEnable = VK_FALSE;

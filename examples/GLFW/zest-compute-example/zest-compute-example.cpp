@@ -69,12 +69,12 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Add our own vertex binding description using the Particle struct
 	zest_AddVertexInputBindingDescription(app->particle_pipeline, 0, sizeof(Particle), VK_VERTEX_INPUT_RATE_VERTEX);
 	//Add the descriptions for each type in the Particle struct
-	zest_AddVertexInputDescription(app->particle_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Particle, pos)));
-	zest_AddVertexInputDescription(app->particle_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Particle, gradient_pos)));
+	zest_AddVertexAttribute(app->particle_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Particle, pos)));
+	zest_AddVertexAttribute(app->particle_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Particle, gradient_pos)));
 
 	//Set the shader file to use in the pipeline
-	zest_SetPipelineTemplateFragShader(app->particle_pipeline, "particle_frag.spv", 0);
-	zest_SetPipelineTemplateVertShader(app->particle_pipeline, "particle_vert.spv", 0);
+	zest_SetPipelineFragShader(app->particle_pipeline, "particle_frag.spv", 0);
+	zest_SetPipelineVertShader(app->particle_pipeline, "particle_vert.spv", 0);
 	//We're going to use point sprites so set that
 	app->particle_pipeline->topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 	//Add the descriptor layout we created earlier, but clear the layouts in the template first as a uniform buffer is added
@@ -82,10 +82,10 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_ClearPipelineTemplateDescriptorLayouts(app->particle_pipeline);
 	zest_AddPipelineTemplateDescriptorLayout(app->particle_pipeline, ZestRenderer->global_bindless_set_layout->vk_layout);
 	//Set the push constant we'll be using
-	zest_SetPipelineTemplatePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), 0, zest_shader_fragment_stage);
+	zest_SetPipelinePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), 0, zest_shader_fragment_stage);
 
 	//Using the create_info we prepared build the template for the pipeline
-	zest_FinalisePipelineTemplate(app->particle_pipeline);
+	zest_EndPipelineTemplate(app->particle_pipeline);
 	//Alter a few things in the template to tweak it to how we want
 	app->particle_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	app->particle_pipeline->rasterizer.cullMode = VK_CULL_MODE_NONE;
@@ -211,22 +211,32 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	if (zest_BeginRenderToScreen("Compute Particles")) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
+		//Resources
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
-
 		zest_resource_node particle_buffer = zest_ImportStorageBufferResource("particle buffer", app->particle_buffer);
+
+		//---------------------------------Compute Pass-----------------------------------------------------
 		zest_pass_node compute_pass = zest_AddComputePassNode(app->compute, "Compute Particles");
-		zest_pass_node render_pass = zest_AddRenderPassNode("Graphics Pass");
-
-		zest_ConnectStorageBufferOutput(compute_pass, particle_buffer, zest_pipeline_compute_stage);
-		zest_ConnectVertexBufferInput(render_pass, particle_buffer);
-		zest_ConnectSwapChainOutput(render_pass, swapchain_output_resource, clear_color);
-
+		//inputs
+		zest_ConnectStorageBufferInput(compute_pass, particle_buffer);
+		//outputs
+		zest_ConnectStorageBufferOutput(compute_pass, particle_buffer);
+		//tasks
 		zest_AddPassTask(compute_pass, RecordComputeCommands, app);
-		zest_AddPassTask(render_pass, RecordComputeSprites, app);
+		//--------------------------------------------------------------------------------------------------
 
+		//---------------------------------Render Pass------------------------------------------------------
+		zest_pass_node render_pass = zest_AddRenderPassNode("Graphics Pass");
+		//inputs
+		zest_ConnectVertexBufferInput(render_pass, particle_buffer);
+		//outputs
+		zest_ConnectSwapChainOutput(render_pass, swapchain_output_resource, clear_color);
+		//tasks
+		zest_AddPassTask(render_pass, RecordComputeSprites, app);
 		if (zest_imgui_AddToRenderGraph(render_pass)) {
 			zest_AddPassTask(render_pass, zest_imgui_DrawImGuiRenderPass, app);
 		}
+		//--------------------------------------------------------------------------------------------------
 
 		zest_EndRenderGraph();
 		zest_render_graph render_graph = zest_ExecuteRenderGraph();
@@ -242,8 +252,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
-	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfo();
 	//Disable vsync so we can see how fast it runs
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

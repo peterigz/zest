@@ -320,23 +320,23 @@ void VadersGame::Init() {
 	shaderc_compiler_release(compiler);
 
 	//Create a pipeline that we can use to draw billboards
-	billboard_pipeline = zest_CreatePipelineTemplate("pipeline_billboard");
+	billboard_pipeline = zest_BeginPipelineTemplate("pipeline_billboard");
 	zest_AddVertexInputBindingDescription(billboard_pipeline, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 
-	zest_AddVertexInputDescription(billboard_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));			    // Location 0: Position
-	zest_AddVertexInputDescription(billboard_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));		         	// Location 9: Alignment X, Y and Z
-	zest_AddVertexInputDescription(billboard_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch)));	// Location 2: Rotations + stretch
-	zest_AddVertexInputDescription(billboard_pipeline, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv)));		    		// Location 1: uv_packed
-	zest_AddVertexInputDescription(billboard_pipeline, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle)));		// Location 4: Scale + Handle
-	zest_AddVertexInputDescription(billboard_pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array)));		// Location 6: texture array index * intensity
-	zest_AddVertexInputDescription(billboard_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			        // Location 7: Instance Color
+	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));			    // Location 0: Position
+	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));		         	// Location 9: Alignment X, Y and Z
+	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch)));	// Location 2: Rotations + stretch
+	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv)));		    		// Location 1: uv_packed
+	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle)));		// Location 4: Scale + Handle
+	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array)));		// Location 6: texture array index * intensity
+	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			        // Location 7: Instance Color
 
-	zest_SetPipelineTemplatePushConstantRange(billboard_pipeline, sizeof(billboard_push_constant_t), 0, zest_shader_render_stages);
-	zest_SetPipelineTemplateVertShader(billboard_pipeline, "billboard_vert.spv", "spv/");
-	zest_SetPipelineTemplateFragShader(billboard_pipeline, "billboard_frag.spv", "spv/");
+	zest_SetPipelinePushConstantRange(billboard_pipeline, sizeof(billboard_push_constant_t), 0, zest_shader_render_stages);
+	zest_SetPipelineVertShader(billboard_pipeline, "billboard_vert.spv", "spv/");
+	zest_SetPipelineFragShader(billboard_pipeline, "billboard_frag.spv", "spv/");
 	zest_AddPipelineTemplateDescriptorLayout(billboard_pipeline, zest_vk_GetUniformBufferLayout(tfx_rendering.uniform_buffer));
 	zest_AddPipelineTemplateDescriptorLayout(billboard_pipeline, zest_vk_GetGlobalBindlessLayout());
-	zest_FinalisePipelineTemplate(billboard_pipeline);
+	zest_EndPipelineTemplate(billboard_pipeline);
 	billboard_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
 	billboard_pipeline->depthStencil.depthTestEnable = VK_TRUE;
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard pipeline");

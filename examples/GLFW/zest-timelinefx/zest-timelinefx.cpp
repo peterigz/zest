@@ -208,7 +208,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_ConnectSampledImageInput(graphics_pass, particle_texture, zest_pipeline_fragment_stage);
 		zest_ConnectSampledImageInput(graphics_pass, color_ramps_texture, zest_pipeline_fragment_stage);
 		zest_ConnectVertexBufferInput(graphics_pass, tfx_write_layer);
-		zest_ConnectStorageBufferInput(graphics_pass, tfx_read_layer, zest_pipeline_vertex_stage);
+		zest_ConnectStorageBufferInput(graphics_pass, tfx_read_layer);
 		//Outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//Tasks

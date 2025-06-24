@@ -317,21 +317,21 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	instance_create_info.viewport.extent = zest_GetSwapChainExtent();
 	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_3d_instance_t objects
 	zest_AddVertexInputBindingDescription(&instance_create_info, 0, sizeof(tfx_3d_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(tfx_3d_instance_t, position)));	            // Location 0: Postion and stretch in w
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(tfx_3d_instance_t, rotations)));	            // Location 1: Rotations
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8_SNORM, offsetof(tfx_3d_instance_t, alignment)));					// Location 2: Alignment
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(tfx_3d_instance_t, size_handle)));		    // Location 3: Size and handle of the sprite
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(tfx_3d_instance_t, intensity_gradient_map)));    // Location 4: 2 intensities for each color
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R8G8B8_UNORM, offsetof(tfx_3d_instance_t, curved_alpha_life)));          	// Location 5: Sharpness and mix lerp value
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(tfx_3d_instance_t, indexes)));							// Location 6: texture indexes to sample the correct image and color ramp
-	zest_AddVertexInputDescription(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(tfx_3d_instance_t, captured_index)));   				// Location 7: index of the sprite in the previous buffer when double buffering
+	zest_AddVertexAttribute(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(tfx_3d_instance_t, position)));	            // Location 0: Postion and stretch in w
+	zest_AddVertexAttribute(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(tfx_3d_instance_t, rotations)));	            // Location 1: Rotations
+	zest_AddVertexAttribute(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8_SNORM, offsetof(tfx_3d_instance_t, alignment)));					// Location 2: Alignment
+	zest_AddVertexAttribute(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(tfx_3d_instance_t, size_handle)));		    // Location 3: Size and handle of the sprite
+	zest_AddVertexAttribute(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(tfx_3d_instance_t, intensity_gradient_map)));    // Location 4: 2 intensities for each color
+	zest_AddVertexAttribute(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R8G8B8_UNORM, offsetof(tfx_3d_instance_t, curved_alpha_life)));          	// Location 5: Sharpness and mix lerp value
+	zest_AddVertexAttribute(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(tfx_3d_instance_t, indexes)));							// Location 6: texture indexes to sample the correct image and color ramp
+	zest_AddVertexAttribute(&instance_create_info.attributeDescriptions, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(tfx_3d_instance_t, captured_index)));   				// Location 7: index of the sprite in the previous buffer when double buffering
 	//Set the shaders to our custom timelinefx shaders
-	zest_SetPipelineTemplateVertShader(&instance_create_info, "tfx_vertex3d.spv", 0);
-	zest_SetPipelineTemplateFragShader(&instance_create_info, "tfx_frag.spv", 0);
+	zest_SetPipelineVertShader(&instance_create_info, "tfx_vertex3d.spv", 0);
+	zest_SetPipelineFragShader(&instance_create_info, "tfx_frag.spv", 0);
 	zest_SetPipelineTemplatePushConstant(&instance_create_info, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
 	zest_AddPipelineTemplateDescriptorLayout(&instance_create_info, render_resources.descriptor_layout->vk_layout);
-	render_resources.pipeline = zest_CreatePipelineTemplate("tfx_billboard_pipeline");
-	zest_FinalisePipelineTemplate(render_resources.pipeline, zest_GetStandardRenderPass(), &instance_create_info);
+	render_resources.pipeline = zest_BeginPipelineTemplate("tfx_billboard_pipeline");
+	zest_EndPipelineTemplate(render_resources.pipeline, zest_GetStandardRenderPass(), &instance_create_info);
 	render_resources.pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
 	render_resources.pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	render_resources.pipeline->pipeline_template.depthStencil.depthTestEnable = true;

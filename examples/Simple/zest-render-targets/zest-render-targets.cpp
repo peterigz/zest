@@ -22,12 +22,12 @@ void InitExample(RenderTargetExample *example) {
 	shaderc_compiler_release(compiler);
 
 	//Make a pipeline to handle the blur effect
-	example->downsample_pipeline = zest_CreatePipelineTemplate("downsampler");
+	example->downsample_pipeline = zest_BeginPipelineTemplate("downsampler");
 	//Set the push constant range for the fragment shader 
-	zest_SetPipelineTemplatePushConstantRange(example->downsample_pipeline, sizeof(zest_mip_push_constants_t), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelinePushConstantRange(example->downsample_pipeline, sizeof(zest_mip_push_constants_t), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
 	//Set the vert and frag shaders for the blur effect
-	zest_SetPipelineTemplateVertShader(example->downsample_pipeline, "blur_vert.spv", 0);
-	zest_SetPipelineTemplateFragShader(example->downsample_pipeline, "downsample_frag.spv", 0);
+	zest_SetPipelineVertShader(example->downsample_pipeline, "blur_vert.spv", 0);
+	zest_SetPipelineFragShader(example->downsample_pipeline, "downsample_frag.spv", 0);
 	//Add a descriptor set layout for the pipeline, it only needs a single sampler for the fragment shader.
 	//Clear the current layouts that are in the pipeline.
 	zest_ClearPipelineTemplateDescriptorLayouts(example->downsample_pipeline);
@@ -35,7 +35,7 @@ void InitExample(RenderTargetExample *example) {
 	//Theres no vertex data for the shader so set no_vertex_input to true
 	example->downsample_pipeline->no_vertex_input = true;
 	//Make the pipeline template with the create_info we just set up and specify a standard render pass
-	zest_FinalisePipelineTemplate(example->downsample_pipeline);
+	zest_EndPipelineTemplate(example->downsample_pipeline);
 	//Now the template is built we can tweak it a little bit more:
 	example->downsample_pipeline->depthStencil.depthWriteEnable = false;
 	example->downsample_pipeline->multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
@@ -43,11 +43,11 @@ void InitExample(RenderTargetExample *example) {
 	example->downsample_pipeline->uniforms = 0;
 
     example->upsample_pipeline = zest_CopyPipelineTemplate("up sampler", zest_PipelineTemplate("downsampler"));
-	zest_SetPipelineTemplateVertShader(example->upsample_pipeline, "blur_vert.spv", 0);
-	zest_SetPipelineTemplateFragShader(example->upsample_pipeline, "upsample_frag.spv", 0);
+	zest_SetPipelineVertShader(example->upsample_pipeline, "blur_vert.spv", 0);
+	zest_SetPipelineFragShader(example->upsample_pipeline, "upsample_frag.spv", 0);
     zest_ClearPipelineTemplateDescriptorLayouts(example->upsample_pipeline);
     zest_AddPipelineTemplateDescriptorLayout(example->upsample_pipeline, *zest_GetDescriptorSetLayoutVK("2 sampler"));
-    zest_FinalisePipelineTemplate(example->upsample_pipeline);
+    zest_EndPipelineTemplate(example->upsample_pipeline);
     example->upsample_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
     example->composite_pipeline = zest_CopyPipelineTemplate("pipeline_compositor", zest_PipelineTemplate("pipeline_swap_chain"));
@@ -56,9 +56,9 @@ void InitExample(RenderTargetExample *example) {
 	zest_ClearPipelinePushConstantRanges(example->composite_pipeline);
     zest_ClearPipelineTemplateDescriptorLayouts(example->composite_pipeline);
     zest_AddPipelineTemplateDescriptorLayout(example->composite_pipeline, *zest_GetDescriptorSetLayoutVK("2 sampler"));
-	zest_SetPipelineTemplatePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
-	zest_SetPipelineTemplatePushConstants(example->composite_pipeline, &example->composite_push_constants);
-    zest_FinalisePipelineTemplate(example->composite_pipeline);
+	zest_SetPipelinePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelinePushConstants(example->composite_pipeline, &example->composite_push_constants);
+    zest_EndPipelineTemplate(example->composite_pipeline);
     example->composite_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
     example->bloom_pass_pipeline = zest_CopyPipelineTemplate("pipeline_bloom_pass", zest_PipelineTemplate("downsampler"));
@@ -66,8 +66,8 @@ void InitExample(RenderTargetExample *example) {
     zest_SetText(&example->bloom_pass_pipeline->fragShaderFile, "bloom_pass_frag.spv");
     zest_ClearPipelineTemplateDescriptorLayouts(example->bloom_pass_pipeline);
     zest_AddPipelineTemplateDescriptorLayout(example->bloom_pass_pipeline, *zest_GetDescriptorSetLayoutVK("1 sampler"));
-	zest_SetPipelineTemplatePushConstantRange(example->bloom_pass_pipeline, sizeof(BloomPushConstants), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
-    zest_FinalisePipelineTemplate(example->bloom_pass_pipeline);
+	zest_SetPipelinePushConstantRange(example->bloom_pass_pipeline, sizeof(BloomPushConstants), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
+    zest_EndPipelineTemplate(example->bloom_pass_pipeline);
     example->bloom_pass_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
 	example->downsampler->pipeline_template = example->downsample_pipeline;

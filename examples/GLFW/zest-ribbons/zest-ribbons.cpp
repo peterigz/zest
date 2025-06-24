@@ -52,19 +52,19 @@ void InitImGuiApp(Ribbons *app) {
 	app->compute_pipeline_index = zest_AddComputeShader(&builder, app->ribbon_comp_shader);
 	app->ribbon_compute = zest_FinishCompute(&builder, "Ribbon Compute");
 
-	app->ribbon_pipeline = zest_CreatePipelineTemplate("Ribbon Pipeline");
+	app->ribbon_pipeline = zest_BeginPipelineTemplate("Ribbon Pipeline");
 	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_3d_instance_t objects
 	zest_AddVertexInputBindingDescription(app->ribbon_pipeline, 0, sizeof(ribbon_vertex), VK_VERTEX_INPUT_RATE_VERTEX);
-	zest_AddVertexInputDescription(app->ribbon_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ribbon_vertex, position)));	  
-	zest_AddVertexInputDescription(app->ribbon_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ribbon_vertex, uv)));	
-	zest_AddVertexInputDescription(app->ribbon_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(ribbon_vertex, color)));	
+	zest_AddVertexAttribute(app->ribbon_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ribbon_vertex, position)));	  
+	zest_AddVertexAttribute(app->ribbon_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ribbon_vertex, uv)));	
+	zest_AddVertexAttribute(app->ribbon_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(ribbon_vertex, color)));	
 	//Set the shaders to our custom timelinefx shaders
-	zest_SetPipelineTemplateVertShader(app->ribbon_pipeline, "ribbon_3d_vert.spv", 0);
-	zest_SetPipelineTemplateFragShader(app->ribbon_pipeline, "ribbon_frag.spv", 0);
-	zest_SetPipelineTemplatePushConstantRange(app->ribbon_pipeline, sizeof(ribbon_drawing_push_constants), 0, zest_shader_fragment_stage);
+	zest_SetPipelineVertShader(app->ribbon_pipeline, "ribbon_3d_vert.spv", 0);
+	zest_SetPipelineFragShader(app->ribbon_pipeline, "ribbon_frag.spv", 0);
+	zest_SetPipelinePushConstantRange(app->ribbon_pipeline, sizeof(ribbon_drawing_push_constants), 0, zest_shader_fragment_stage);
 	zest_AddPipelineTemplateDescriptorLayout(app->ribbon_pipeline, zest_vk_GetDefaultUniformBufferLayout());
 	zest_AddPipelineTemplateDescriptorLayout(app->ribbon_pipeline, zest_vk_GetGlobalBindlessLayout());
-	zest_FinalisePipelineTemplate(app->ribbon_pipeline);
+	zest_EndPipelineTemplate(app->ribbon_pipeline);
 	app->ribbon_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
 	app->ribbon_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
 	app->ribbon_pipeline->depthStencil.depthTestEnable = VK_TRUE;
@@ -445,35 +445,46 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		VkClearColorValue clear_color = { {0.f} };
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 
+		//Resources
 		zest_resource_node ribbon_segment_buffer = zest_AddTransientStorageBufferResource("Ribbon Segment Buffer", zest_GetFrameStageBufferMemoryInUse(app->ribbon_segment_staging_buffer), true);
 		zest_resource_node ribbon_instance_buffer = zest_AddTransientStorageBufferResource("Ribbon Instance Buffer", zest_GetFrameStageBufferMemoryInUse(app->ribbon_instance_staging_buffer), true);
 		zest_resource_node ribbon_vertex_buffer = zest_AddTransientVertexBufferResource("Ribbon Vertex Buffer", app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex), true, true);
 		zest_resource_node ribbon_index_buffer = zest_AddTransientIndexBufferResource("Ribbon Index Buffer", app->index_count * sizeof(zest_uint), true, true);
 
+		//-------------------------TimelineFX Compute Pass-------------------------------------------------
 		zest_pass_node compute_pass = zest_AddComputePassNode(app->ribbon_compute, "Compute Ribbons");
-		zest_pass_node transfer_pass = zest_AddTransferPassNode("Transfer Ribbon Data");
-		zest_pass_node render_pass = zest_AddRenderPassNode("Graphics Pass");
+		//inputes
+		zest_ConnectStorageBufferInput(compute_pass, ribbon_segment_buffer);
+		zest_ConnectStorageBufferInput(compute_pass, ribbon_instance_buffer);
+		//outputs
+		zest_ConnectStorageBufferOutput(compute_pass, ribbon_vertex_buffer);
+		zest_ConnectStorageBufferOutput(compute_pass, ribbon_index_buffer);
+		//tasks
+		zest_AddPassTask(compute_pass, RecordComputeCommands, app);
+		//--------------------------------------------------------------------------------------------------
 
+		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
+		zest_pass_node transfer_pass = zest_AddTransferPassNode("Transfer Ribbon Data");
+		//outputs
 		zest_ConnectTransferBufferOutput(transfer_pass, ribbon_segment_buffer);
 		zest_ConnectTransferBufferOutput(transfer_pass, ribbon_instance_buffer);
+		//tasks
+		zest_AddPassTask(transfer_pass, UploadRibbonData, app);
+		//--------------------------------------------------------------------------------------------------
 
-		zest_ConnectStorageBufferInput(compute_pass, ribbon_segment_buffer, zest_pipeline_compute_stage);
-		zest_ConnectStorageBufferInput(compute_pass, ribbon_instance_buffer, zest_pipeline_compute_stage);
-		zest_ConnectStorageBufferOutput(compute_pass, ribbon_vertex_buffer, zest_pipeline_compute_stage);
-		zest_ConnectStorageBufferOutput(compute_pass, ribbon_index_buffer, zest_pipeline_compute_stage);
-
+		//-------------------------TimelineFX Render Pass---------------------------------------------------
+		zest_pass_node render_pass = zest_AddRenderPassNode("Graphics Pass");
+		//inputs
 		zest_ConnectVertexBufferInput(render_pass, ribbon_vertex_buffer);
 		zest_ConnectVertexBufferInput(render_pass, ribbon_index_buffer);
-
+		//outputs
 		zest_ConnectSwapChainOutput(render_pass, swapchain_output_resource, clear_color);
-
-		zest_AddPassTask(transfer_pass, UploadRibbonData, app);
-		zest_AddPassTask(compute_pass, RecordComputeCommands, app);
+		//tasks
 		zest_AddPassTask(render_pass, RecordRibbonDrawing, app);
-
 		if (zest_imgui_AddToRenderGraph(render_pass)) {
 			zest_AddPassTask(render_pass, zest_imgui_DrawImGuiRenderPass, app);
 		}
+		//--------------------------------------------------------------------------------------------------
 
 		zest_EndRenderGraph();
 		zest_render_graph render_graph = zest_ExecuteRenderGraph();

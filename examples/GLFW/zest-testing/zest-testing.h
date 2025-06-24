@@ -447,15 +447,11 @@ struct ImGuiApp {
 	zest_image sprite;
 	zest_timer timer;
 	zest_layer mesh_layer;
-	zest_layer billboard_layer;
 	zest_layer lines_2d;
 	zest_layer line_layer;
-	zest_pipeline mesh_pipeline;
-	zest_pipeline line_pipeline;
-	zest_pipeline line_2d_pipeline;
-	zest_pipeline billboard_pipeline;
+	zest_pipeline_template mesh_pipeline;
+	zest_pipeline_template mesh_instance_pipeline;
 
-	zest_pipeline mesh_instance_pipeline;
 	zest_layer move_widget_layer;
 	zest_layer scale_widget_layer;
 	zest_mesh_t mesh;
@@ -466,7 +462,6 @@ struct ImGuiApp {
 	zest_vec3 first_intersection;
 	zest_vec3 widget_dragged_amount;
 	zest_vec3 clicked_widget_position;
-	zest_shader_resources billboard_shader_resources;
 	zest_shader_resources floor_shader_resources;
 	zest_shader_resources mesh_shader_resources;
 	zest_vec3 plane_normals[6];
