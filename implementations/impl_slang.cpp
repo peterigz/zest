@@ -1,0 +1,146 @@
+#include "impl_slang.h"
+
+zest_slang_info_t *zest_slang_Session() {
+    ZEST_ASSERT(ZestRenderer->slang_info);  //Slang hasn't been initialise, call zest_slang_InitialiseSession
+    return static_cast<zest_slang_info_t *>(ZestRenderer->slang_info);
+}
+
+void zest_slang_InitialiseSession() {
+    void *memory = zest_AllocateMemory(sizeof(zest_slang_info_t));
+    zest_slang_info_t *slang_info = new (memory) zest_slang_info_t();
+    slang::createGlobalSession(slang_info->global_session.writeRef());
+    ZestRenderer->slang_info = slang_info;
+}
+
+void zest_slang_Shutdown() {
+    if (ZestRenderer->slang_info) {
+        zest_slang_info_t *slang_info = static_cast<zest_slang_info_t *>(ZestRenderer->slang_info);
+
+        // Deleting the C++ object will automatically trigger the ComPtr's
+        // destructor, which correctly releases the global session.
+        slang_info->~zest_slang_info_t();
+        zest_FreeMemory(slang_info);
+
+        ZestRenderer->slang_info = 0;
+    }
+}
+
+int zest_slang_Compile( const char *shader_path, const char *entry_point_name, SlangStage stage, zest_slang_compiled_shader &out_compiled_shader, slang::ShaderReflection *&out_reflection) {
+    zest_slang_info_t *slang_info = zest_slang_Session();
+    Slang::ComPtr<slang::IGlobalSession> global_session = slang_info->global_session;
+
+    Slang::ComPtr<slang::ISession> session;
+    slang::SessionDesc sessionDesc = {};
+    slang::TargetDesc targetDesc = {};
+
+    targetDesc.format = SLANG_SPIRV;
+    targetDesc.profile = global_session->findProfile("spirv_1_5");
+    if (targetDesc.profile == SLANG_PROFILE_UNKNOWN) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Slang error: Could not find spirv_1_5 profile.");
+        return -1;
+    }
+    // This flag is recommended for modern Slang versions when targeting Vulkan
+    targetDesc.flags = SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY;
+
+    sessionDesc.targets = &targetDesc;
+    sessionDesc.targetCount = 1;
+    global_session->createSession(sessionDesc, session.writeRef());
+
+    Slang::ComPtr<slang::IBlob> diagnosticBlob;
+    slang::IModule *slangModule = session->loadModule(shader_path, diagnosticBlob.writeRef());
+    diagnoseIfNeeded(diagnosticBlob, "Module Loading");
+    if (!slangModule) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Slang failed to load module: %s", shader_path);
+        return -1;
+    }
+
+    Slang::ComPtr<slang::IEntryPoint> entryPoint;
+    SlangResult findEntryPointResult = slangModule->findEntryPointByName(entry_point_name, entryPoint.writeRef());
+    if (SLANG_FAILED(findEntryPointResult) || !entryPoint) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to find entry point '%s' in '%s'", entry_point_name, shader_path);
+        return -1;
+    }
+
+    // Compose the final program from the module and the entry point
+    slang::IComponentType *componentTypes[] = { slangModule, entryPoint };
+    Slang::ComPtr<slang::IComponentType> composedProgram;
+    {
+        Slang::ComPtr<slang::IBlob> diagnostics;
+        SlangResult result = session->createCompositeComponentType(
+            componentTypes,
+            2,
+            composedProgram.writeRef(),
+            diagnostics.writeRef()
+        );
+        diagnoseIfNeeded(diagnostics, "Program Composition");
+        SLANG_RETURN_ON_FAIL(result);
+    }
+
+    // Now, get the compiled code (SPIR-V)
+    {
+        Slang::ComPtr<slang::IBlob> diagnostics;
+        SlangResult result = composedProgram->getEntryPointCode(0, 0, out_compiled_shader.writeRef(), diagnostics.writeRef());
+        diagnoseIfNeeded(diagnostics, "SPIR-V Generation");
+        SLANG_RETURN_ON_FAIL(result);
+    }
+
+    out_reflection = composedProgram->getLayout();
+
+    return 0;
+}
+
+SlangStage zest__slang_GetStage(shaderc_shader_kind kind) {
+    switch (kind) {
+    case shaderc_vertex_shader:   return SLANG_STAGE_VERTEX;
+    case shaderc_fragment_shader: return SLANG_STAGE_FRAGMENT;
+    case shaderc_compute_shader:  return SLANG_STAGE_COMPUTE;
+    default: return SLANG_STAGE_NONE;
+    }
+}
+
+// --- 3. Updated Shader Creation Function ---
+// This function now acts as the main entry point for users.
+// It determines the entry point name and stage based on the `type` parameter.
+zest_shader zest_slang_CreateShader(const char *shader_path, const char *name, const char *entry_point, shaderc_shader_kind type, bool disable_caching) {
+    zest_slang_compiled_shader compiled_shader;
+    slang::ShaderReflection *reflection_info = nullptr;
+
+    SlangStage slang_stage = zest__slang_GetStage(type);
+    if (slang_stage == SLANG_STAGE_NONE) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Unsupported shader type for Slang compilation.");
+        return nullptr;
+    }
+
+    const char *final_entry_point = entry_point;
+    if (!final_entry_point) {
+        switch (type) {
+        case shaderc_vertex_shader: final_entry_point = "vertexMain"; break;
+        case shaderc_fragment_shader: final_entry_point = "fragmentMain"; break;
+        case shaderc_compute_shader: final_entry_point = "computeMain"; break;
+        default: ZEST_APPEND_LOG(ZestDevice->log_path.str, "No default entry point for shader type."); return nullptr;
+        }
+    }
+
+    int result = zest_slang_Compile(shader_path, final_entry_point, slang_stage, compiled_shader, reflection_info);
+
+    if (result != 0) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Slang compilation failed for %s", shader_path);
+        return nullptr;
+    }
+
+    zest_uint spv_size = (zest_uint)compiled_shader->getBufferSize();
+    const void *spv_binary = compiled_shader->getBufferPointer();
+
+    zest_shader shader = zest_AddShaderFromSPVMemory(name, spv_binary, spv_size, type);
+    if (!shader) {
+        return nullptr;
+    }
+
+    shader->stage = (VkShaderStageFlagBits)slang_stage; // Note: SlangStage maps directly to VkShaderStageFlagBits
+
+    if (!disable_caching && ZestApp->create_info.flags & zest_init_flag_cache_shaders) {
+        zest_CacheShader(shader);
+    }
+
+    return shader;
+}

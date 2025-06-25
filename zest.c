@@ -2529,6 +2529,14 @@ void* zest__allocate(zest_size size) {
     return allocation;
 }
 
+void *zest_AllocateMemory(zest_size size) {
+    return zest__allocate(size);
+}
+
+void zest_FreeMemory(void *allocation) {
+    ZEST__FREE(allocation);
+}
+
 void* zest__reallocate(void* memory, zest_size size) {
     void* allocation = zloc_Reallocate(ZestDevice->allocator, memory, size);
     if (!allocation) {
@@ -5457,19 +5465,23 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compiled shader %s and added to renderer shaders.", name);
     shaderc_result_release(result);
     if (!disable_caching && ZestApp->create_info.flags & zest_init_flag_cache_shaders) {
-        zest__create_folder(ZestRenderer->shader_path_prefix.str);
-        FILE *shader_file = zest__open_file(shader->name.str, "wb");
-        if (shader_file == NULL) {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to open file for writing: %s", shader->name.str);
-        }
-        size_t written = fwrite(shader->spv, 1, spv_size, shader_file);
-        if (written != spv_size) {
-            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to write entire shader to file: %s", shader->name.str);
-            fclose(shader_file);
-        }
-        fclose(shader_file);
+        zest_CacheShader(shader);
     }
     return shader;
+}
+
+void zest_CacheShader(zest_shader shader) {
+    zest__create_folder(ZestRenderer->shader_path_prefix.str);
+    FILE *shader_file = zest__open_file(shader->name.str, "wb");
+    if (shader_file == NULL) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to open file for writing: %s", shader->name.str);
+    }
+    size_t written = fwrite(shader->spv, 1, shader->spv_size, shader_file);
+    if (written != shader->spv_size) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to write entire shader to file: %s", shader->name.str);
+        fclose(shader_file);
+    }
+    fclose(shader_file);
 }
 
 void zest_UpdateShaderSPV(zest_shader shader, shaderc_compilation_result_t result) {

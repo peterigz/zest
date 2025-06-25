@@ -70,6 +70,21 @@ function(buildExample EXAMPLE_NAME)
 		SET(IMPLOT_SOURCE "")
 	endif()
 
+	if(${EXAMPLE_NAME} STREQUAL "zest-compute-example")
+		file(GLOB IMPLEMENTATIONS_SOURCE
+			${IMPLEMENTATIONS}impl_imgui.cpp
+			${IMPLEMENTATIONS}impl_glfw.cpp
+			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
+			${IMPLEMENTATIONS}impl_slang.cpp
+		)
+	else()
+		file(GLOB IMPLEMENTATIONS_SOURCE
+			${IMPLEMENTATIONS}impl_imgui.cpp
+			${IMPLEMENTATIONS}impl_glfw.cpp
+			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
+		)
+	endif()
+
 	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR 
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR 
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR 

@@ -34,15 +34,23 @@ function(buildExample EXAMPLE_NAME)
 		SET(TIMELINEFX_SOURCE "")
 		SET(IMPLEMENTATIONS_SOURCE "")
     endif()
+
+    if(${EXAMPLE_NAME} STREQUAL "zest-slang")
+		file(GLOB SLANG_SOURCE
+			${IMPLEMENTATIONS}impl_slang.cpp
+		)
+    else()
+		SET(SLANG_SOURCE "")
+    endif()
     
     set(SHADER_DIR "${EXAMPLE_NAME}/shaders")
     file(GLOB SHADERS "${SHADER_DIR}/*.vert" "${SHADER_DIR}/*.frag" "${SHADER_DIR}/*.comp")
     source_group("Shaders" FILES ${SHADERS})
     
     if(WIN32)
-        add_executable(${EXAMPLE_NAME} WIN32 ${MAIN} ${SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${MAIN_HEADER} ${SHADERS})
+        add_executable(${EXAMPLE_NAME} WIN32 ${MAIN} ${SOURCE} ${SLANG_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${MAIN_HEADER} ${SHADERS})
     else(WIN32)
-        add_executable(${EXAMPLE_NAME} ${MAIN} ${SOURCE} ${MAIN_HEADER} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${SHADERS})
+        add_executable(${EXAMPLE_NAME} ${MAIN} ${SOURCE} ${MAIN_HEADER} ${SLANG_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${SHADERS})
     endif(WIN32)
     
     # Set C-specific properties for zest-timelinefx-c
@@ -75,6 +83,7 @@ set(EXAMPLES
 	zest-remove-images
 	zest-lines
 	zest-timelinefx-c
+	zest-slang
 )
 
 buildExamples()

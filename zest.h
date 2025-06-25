@@ -3506,6 +3506,7 @@ typedef struct zest_shader_t {
     zest_text_t shader_code;
     zest_text_t name;
     shaderc_shader_kind type;
+    VkShaderStageFlagBits stage;
 } zest_shader_t;
 
 typedef struct zest_render_target_create_info_t {
@@ -3734,9 +3735,6 @@ typedef struct zest_renderer_t {
     //Debugging
     zest_debug_t debug;
 
-    //Imgui
-    zest_imgui_t imgui_info;
-
     //Callbacks for customising window and surface creation
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
     void(*destroy_window_callback)(void *user_data);
@@ -3745,6 +3743,13 @@ typedef struct zest_renderer_t {
     zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
     void(*create_window_surface_callback)(zest_window window);
 
+	//Related to implementations
+
+    //Imgui
+    zest_imgui_t imgui_info;
+
+    //Slang
+    void *slang_info;
 } zest_renderer_t;
 
 extern zest_device_t *ZestDevice;
@@ -4202,6 +4207,9 @@ ZEST_API zest_shader zest_GetShader(const char *name);
 ZEST_API zest_shader zest_CopyShader(const char *name, const char *new_name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader shader);
+//Cache shader, only use from implementation, you shouldn't need to call this directly
+ZEST_API void zest_CacheShader(zest_shader shader);
+
 //Set up shader resources ready to be bound to a pipeline when calling zest_BindPipeline or zest_BindpipelineCB. You should always 
 //pass in an empty array of VkDescriptorSets. Set this array up as simple an 0 pointer and the function will allocate the space for the
 //descriptor sets. This means that it's a good idea to not use a local variable. Call zest_ClearShaderResourceDescriptorSets after you've
@@ -4470,6 +4478,9 @@ ZEST_API void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer 
 //Bind an index buffer. For use inside a draw routine callback function.
 ZEST_API void zest_BindIndexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
 ZEST_API zest_uint zest_GetBufferDescriptorIndex(zest_buffer buffer);
+//Should only be used in zest implementations only
+ZEST_API void *zest_AllocateMemory(zest_size size);
+ZEST_API void zest_FreeMemory(void *allocation);
 //--End Buffer related
 
 //-----------------------------------------------
