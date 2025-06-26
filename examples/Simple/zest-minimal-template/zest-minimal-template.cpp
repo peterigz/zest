@@ -1,14 +1,5 @@
 #include <zest.h>
 
-// This is the function that will be called for your pass.
-void ExampleRenderPassCallback(
-	VkCommandBuffer command_buffer,
-	const zest_render_graph_context_t *context, // Your graph context
-	void *user_data                             // Global or per-pass user data
-) {
-	//Nothing happens here, just clearing the screen as a minimal render graph test
-}
-
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	// Begin Render Graph Definition
 	if (zest_BeginRenderToScreen("Render Graph")) {
@@ -17,7 +8,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} }; 
 		zest_ConnectSwapChainOutput( clear_pass, swapchain_output_resource, clear_color);
 		zest_EndRenderGraph();
-		zest_ExecuteRenderGraph();
 	}
 }
 

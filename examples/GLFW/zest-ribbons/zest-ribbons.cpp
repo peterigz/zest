@@ -55,21 +55,19 @@ void InitImGuiApp(Ribbons *app) {
 	app->ribbon_pipeline = zest_BeginPipelineTemplate("Ribbon Pipeline");
 	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_3d_instance_t objects
 	zest_AddVertexInputBindingDescription(app->ribbon_pipeline, 0, sizeof(ribbon_vertex), VK_VERTEX_INPUT_RATE_VERTEX);
-	zest_AddVertexAttribute(app->ribbon_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ribbon_vertex, position)));	  
-	zest_AddVertexAttribute(app->ribbon_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ribbon_vertex, uv)));	
-	zest_AddVertexAttribute(app->ribbon_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(ribbon_vertex, color)));	
+	zest_AddVertexAttribute(app->ribbon_pipeline, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ribbon_vertex, position));	  
+	zest_AddVertexAttribute(app->ribbon_pipeline, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(ribbon_vertex, uv));	
+	zest_AddVertexAttribute(app->ribbon_pipeline, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(ribbon_vertex, color));	
 	//Set the shaders to our custom timelinefx shaders
 	zest_SetPipelineVertShader(app->ribbon_pipeline, "ribbon_3d_vert.spv", 0);
 	zest_SetPipelineFragShader(app->ribbon_pipeline, "ribbon_frag.spv", 0);
-	zest_SetPipelinePushConstantRange(app->ribbon_pipeline, sizeof(ribbon_drawing_push_constants), 0, zest_shader_fragment_stage);
-	zest_AddPipelineTemplateDescriptorLayout(app->ribbon_pipeline, zest_vk_GetDefaultUniformBufferLayout());
-	zest_AddPipelineTemplateDescriptorLayout(app->ribbon_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelinePushConstantRange(app->ribbon_pipeline, sizeof(ribbon_drawing_push_constants), zest_shader_fragment_stage);
+	zest_AddPipelineDescriptorLayout(app->ribbon_pipeline, zest_vk_GetDefaultUniformBufferLayout());
+	zest_AddPipelineDescriptorLayout(app->ribbon_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelineDepthTest(app->ribbon_pipeline, false, true);
+	zest_SetPipelineBlend(app->ribbon_pipeline, zest_PreMultiplyBlendState());
 	zest_EndPipelineTemplate(app->ribbon_pipeline);
-	app->ribbon_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
-	app->ribbon_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-	app->ribbon_pipeline->depthStencil.depthTestEnable = VK_TRUE;
 	app->ribbon_pipeline->inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-	//app->ribbon_pipeline->pipeline_template.rasterizer.polygonMode = VK_POLYGON_MODE_LINE;
 	app->ribbon_pipeline->rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
 
 	app->ribbon_texture = zest_CreateTextureBank("ribbon texture", zest_texture_format_rgba_unorm);
@@ -486,8 +484,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		//--------------------------------------------------------------------------------------------------
 
-		zest_EndRenderGraph();
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		zest_render_graph render_graph = zest_EndRenderGraph();
 
 		static bool print_graph = true;
 		if (print_graph) {
@@ -499,8 +496,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main(void) {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";

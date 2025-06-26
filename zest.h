@@ -1412,6 +1412,7 @@ typedef enum zest_render_graph_flag_bits {
     zest_render_graph_expecting_swap_chain_usage    = 1 << 0,
     zest_render_graph_force_on_graphics_queue       = 1 << 1,
     zest_render_graph_is_compiled                   = 1 << 2,
+    zest_render_graph_is_executed                   = 1 << 3,
 } zest_render_graph_flag_bits;
 
 typedef zest_uint zest_render_graph_flags;
@@ -2764,6 +2765,7 @@ ZEST_PRIVATE void zest__add_image_barrier(zest_resource_node resource, zest_exec
     VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
 ZEST_PRIVATE void zest__add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access, 
      zest_uint src_family, zest_uint dst_family, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
+ZEST_PRIVATE void zest__execute_render_graph();
 
 // --- Utility callbacks ---
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
@@ -2778,8 +2780,7 @@ ZEST_API zest_buffer zest_GetPassOutputBuffer(zest_pass_node pass, const char *n
 ZEST_API bool zest_BeginRenderGraph(const char *name);
 ZEST_API bool zest_BeginRenderToScreen(const char *name);
 ZEST_API void zest_ForceRenderGraphOnGraphicsQueue();
-ZEST_API void zest_EndRenderGraph();
-ZEST_API zest_render_graph zest_ExecuteRenderGraph();
+ZEST_API zest_render_graph zest_EndRenderGraph();
 
 // --- Add pass nodes that execute user commands ---
 ZEST_API zest_pass_node zest_AddGraphicBlankScreen( const char *name);
@@ -2833,6 +2834,9 @@ ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, ze
 // --- Connect graphs to each other
 ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);
 ZEST_API void zest_SignalTimeline(zest_execution_timeline timeline);
+
+// --- State check functions
+ZEST_API bool zest_RenderGraphWasExecuted(zest_render_graph render_graph);
 
 // --- Syncronization Helpers ---
 ZEST_API zest_execution_timeline zest_CreateExecutionTimeline();
@@ -4286,12 +4290,12 @@ ZEST_API void zest_SetPipelinePushConstantRange(zest_pipeline_template create_in
 //It MUST match the same data layout/size that you set with zest_SetPipelinePushConstantRange and align with the 
 //push constants that you use in the shader. The point you use must be stable! Or update it if it changes for any reason.
 ZEST_API void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, void *push_constants);
-ZEST_API void zest_SetPipelineTemplateBlend(zest_pipeline_template pipeline_template, VkPipelineColorBlendAttachmentState blend_attachment);
+ZEST_API void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, VkPipelineColorBlendAttachmentState blend_attachment);
 ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, bool enable_test, bool write_enable);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest_BuildPipeline
-ZEST_API void zest_AddPipelineTemplateDescriptorLayout(zest_pipeline_template pipeline_template, VkDescriptorSetLayout layout);
+ZEST_API void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, VkDescriptorSetLayout layout);
 //Clear the descriptor layouts in a pipeline template create info
-ZEST_API void zest_ClearPipelineTemplateDescriptorLayouts(zest_pipeline_template pipeline_template);
+ZEST_API void zest_ClearPipelineDescriptorLayouts(zest_pipeline_template pipeline_template);
 //Make a pipeline template ready for building. Pass in the pipeline that you created with zest_BeginPipelineTemplate, the render pass that you want to
 //use for the pipeline and the zest_pipeline_template_create_info_t you have setup to configure the pipeline. After you have called this
 //function you can make a few more alterations to configure the pipeline further if needed before calling zest_BuildPipeline.

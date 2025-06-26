@@ -25,19 +25,19 @@ zest_imgui zest_imgui_Initialise() {
 	zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate("pipeline_imgui");
 	imgui_pipeline->scissor.offset.x = 0;
 	imgui_pipeline->scissor.offset.y = 0;
-	zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_push_constants_t), 0, zest_shader_render_stages);
+	zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_push_constants_t), zest_shader_render_stages);
 	zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
-	zest_AddVertexAttribute(imgui_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos)));    // Location 0: Position
-	zest_AddVertexAttribute(imgui_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv)));    // Location 1: UV
-	zest_AddVertexAttribute(imgui_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col)));    // Location 2: Color
+	zest_AddVertexAttribute(imgui_pipeline, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
+	zest_AddVertexAttribute(imgui_pipeline, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv));     // Location 1: UV
+	zest_AddVertexAttribute(imgui_pipeline, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col));   // Location 2: Color
 
 	zest_SetText(&imgui_pipeline->vertShaderFile, "imgui_vert.spv");
 	zest_SetText(&imgui_pipeline->fragShaderFile, "imgui_frag.spv");
 
 	imgui_pipeline->scissor.extent = zest_GetSwapChainExtent();
 	imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
-	zest_ClearPipelineTemplateDescriptorLayouts(imgui_pipeline);
-	zest_AddPipelineTemplateDescriptorLayout(imgui_pipeline, ZestRenderer->texture_debug_layout->vk_layout);
+	zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
+	zest_AddPipelineDescriptorLayout(imgui_pipeline, ZestRenderer->texture_debug_layout->vk_layout);
 	zest_EndPipelineTemplate(imgui_pipeline);
 
 	imgui_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;

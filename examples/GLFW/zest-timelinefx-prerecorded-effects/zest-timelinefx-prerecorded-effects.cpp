@@ -251,7 +251,7 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	zest_SetPipelineVertShader(&instance_create_info, "tfx_vertex3d.spv", 0);
 	zest_SetPipelineFragShader(&instance_create_info, "tfx_frag.spv", 0);
 	zest_SetPipelineTemplatePushConstant(&instance_create_info, sizeof(zest_push_constants_t), 0, VK_SHADER_STAGE_VERTEX_BIT);
-	zest_AddPipelineTemplateDescriptorLayout(&instance_create_info, render_resources.descriptor_layout->vk_layout);
+	zest_AddPipelineDescriptorLayout(&instance_create_info, render_resources.descriptor_layout->vk_layout);
 	render_resources.pipeline = zest_BeginPipelineTemplate("tfx_billboard_pipeline");
 	zest_EndPipelineTemplate(render_resources.pipeline, zest_GetStandardRenderPass(), &instance_create_info);
 	render_resources.pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();

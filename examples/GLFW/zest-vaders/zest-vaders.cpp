@@ -323,23 +323,21 @@ void VadersGame::Init() {
 	billboard_pipeline = zest_BeginPipelineTemplate("pipeline_billboard");
 	zest_AddVertexInputBindingDescription(billboard_pipeline, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 
-	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));			    // Location 0: Position
-	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));		         	// Location 9: Alignment X, Y and Z
-	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch)));	// Location 2: Rotations + stretch
-	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv)));		    		// Location 1: uv_packed
-	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle)));		// Location 4: Scale + Handle
-	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array)));		// Location 6: texture array index * intensity
-	zest_AddVertexAttribute(billboard_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			        // Location 7: Instance Color
+	zest_AddVertexAttribute(billboard_pipeline, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position));			    // Location 0: Position
+	zest_AddVertexAttribute(billboard_pipeline, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
+	zest_AddVertexAttribute(billboard_pipeline, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
+	zest_AddVertexAttribute(billboard_pipeline, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv));		    		// Location 1: uv_packed
+	zest_AddVertexAttribute(billboard_pipeline, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
+	zest_AddVertexAttribute(billboard_pipeline, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
+	zest_AddVertexAttribute(billboard_pipeline, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color));			        // Location 7: Instance Color
 
-	zest_SetPipelinePushConstantRange(billboard_pipeline, sizeof(billboard_push_constant_t), 0, zest_shader_render_stages);
+	zest_SetPipelinePushConstantRange(billboard_pipeline, sizeof(billboard_push_constant_t), zest_shader_render_stages);
 	zest_SetPipelineVertShader(billboard_pipeline, "billboard_vert.spv", "spv/");
 	zest_SetPipelineFragShader(billboard_pipeline, "billboard_frag.spv", "spv/");
-	zest_AddPipelineTemplateDescriptorLayout(billboard_pipeline, zest_vk_GetUniformBufferLayout(tfx_rendering.uniform_buffer));
-	zest_AddPipelineTemplateDescriptorLayout(billboard_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_vk_GetUniformBufferLayout(tfx_rendering.uniform_buffer));
+	zest_AddPipelineDescriptorLayout(billboard_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelineDepthTest(billboard_pipeline, false, true);
 	zest_EndPipelineTemplate(billboard_pipeline);
-	billboard_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-	billboard_pipeline->depthStencil.depthTestEnable = VK_TRUE;
-	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard pipeline");
 
 	billboard_layer = zest_CreateInstanceLayer("billboards", sizeof(zest_billboard_instance_t));
 	font_layer = zest_CreateFontLayer("Example fonts");
@@ -1122,6 +1120,7 @@ void VadersGame::Update(float ellapsed) {
 		// Tasks
 		zest_AddPassInstanceLayerUpload(upload_tfx_data, tfx_rendering.layer);
 		//--------------------------------------------------------------------------------------------------
+
 		//--------------------------Billboard Transfer Pass-------------------------------------------------
 		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
 		// Outputs
@@ -1129,6 +1128,7 @@ void VadersGame::Update(float ellapsed) {
 		// Taks
 		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, billboard_layer);
 		//--------------------------------------------------------------------------------------------------
+
 		//----------------------------Font Transfer Pass----------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
 		// Outputs
@@ -1161,9 +1161,8 @@ void VadersGame::Update(float ellapsed) {
 		//--------------------------------------------------------------------------------------------------
 
 		zest_SignalTimeline(tfx_rendering.timeline);
-		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
-		zest_EndRenderGraph();
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		//Compile and execute the render graph. 
+		zest_render_graph render_graph = zest_EndRenderGraph();
 		if (request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);
@@ -1180,9 +1179,9 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
+	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = ".";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

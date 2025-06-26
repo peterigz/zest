@@ -263,7 +263,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//Inputs
 		zest_ConnectVertexBufferInput(graphics_pass, tfx_layer);
-		zest_ConnectStorageBufferInput(graphics_pass, tfx_layer_prev, zest_pipeline_vertex_stage);
+		zest_ConnectStorageBufferInput(graphics_pass, tfx_layer_prev);
 		zest_ConnectSampledImageInput(graphics_pass, particle_texture, zest_pipeline_fragment_stage);
 		zest_ConnectSampledImageInput(graphics_pass, color_ramps_texture, zest_pipeline_fragment_stage);
 		//Outputs
@@ -278,10 +278,9 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//--------------------------------------------------------------------------------------------------
 
 		zest_SignalTimeline(game->tfx_rendering.timeline);
-		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
-		zest_EndRenderGraph();
+		//Compile and execute the render graph. This tells Zest that it can now compile the render graph ready for executing.
 
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		zest_render_graph render_graph = zest_EndRenderGraph();
 		if (game->request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);
@@ -296,8 +295,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = "./";

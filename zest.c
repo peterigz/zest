@@ -4910,7 +4910,7 @@ void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, voi
     pipeline_template->push_constants = push_constants;
 }
 
-void zest_SetPipelineTemplateBlend(zest_pipeline_template pipeline_template, VkPipelineColorBlendAttachmentState blend_attachment) {
+void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, VkPipelineColorBlendAttachmentState blend_attachment) {
     pipeline_template->colorBlendAttachment = blend_attachment;
 }
 
@@ -4923,11 +4923,11 @@ void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, bool en
 	pipeline_template->depthStencil.stencilTestEnable = VK_FALSE;
 }
 
-void zest_AddPipelineTemplateDescriptorLayout(zest_pipeline_template pipeline_template, VkDescriptorSetLayout layout) {
+void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, VkDescriptorSetLayout layout) {
     zest_vec_push(pipeline_template->descriptorSetLayouts, layout);
 }
 
-void zest_ClearPipelineTemplateDescriptorLayouts(zest_pipeline_template pipeline_template) {
+void zest_ClearPipelineDescriptorLayouts(zest_pipeline_template pipeline_template) {
     zest_vec_clear(pipeline_template->descriptorSetLayouts);
 }
 
@@ -5172,8 +5172,6 @@ void zest__set_pipeline_template(zest_pipeline_template pipeline_template) {
         pipeline_template->depthStencil.depthBoundsTestEnable = VK_FALSE;
         pipeline_template->depthStencil.stencilTestEnable = VK_FALSE;
     }
-
-    pipeline_template->colorBlendAttachment = zest_AlphaBlendState();
 
     pipeline_template->colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     pipeline_template->colorBlending.logicOpEnable = VK_FALSE;
@@ -5523,6 +5521,7 @@ zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, ze
 		memcpy(shader->spv, buffer, size);
         zest_map_insert(ZestRenderer->shaders, shader->name.str, shader);
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Read shader %s from memory and added to renderer shaders.", name);
+        shader->spv_size = size;
         return shader;
     }
     return 0;
@@ -5729,6 +5728,7 @@ zest_pipeline_template zest_BeginPipelineTemplate(const char* name) {
     pipeline_template->scissor.offset.x = 0;
     pipeline_template->scissor.offset.y = 0;
     pipeline_template->scissor.extent = zest_GetSwapChainExtent();
+    pipeline_template->colorBlendAttachment = zest_AlphaBlendState();
     zest_map_insert(ZestRenderer->pipelines, name, pipeline_template);
     return pipeline_template;
 }
@@ -6632,9 +6632,9 @@ void zest__prepare_standard_pipelines() {
 
     zest_SetPipelineShaders(sprite_instance_pipeline, "sprite_vert.spv", "image_frag.spv", ZestRenderer->shader_path_prefix.str);
     zest_SetPipelinePushConstantRange(sprite_instance_pipeline, sizeof(zest_push_constants_t), VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT);
-	zest_AddPipelineTemplateDescriptorLayout(sprite_instance_pipeline, zest_vk_GetUniformBufferLayout(ZestRenderer->uniform_buffer));
-	zest_AddPipelineTemplateDescriptorLayout(sprite_instance_pipeline, zest_vk_GetGlobalBindlessLayout());
-    zest_SetPipelineTemplateBlend(sprite_instance_pipeline, zest_PreMultiplyBlendState());
+	zest_AddPipelineDescriptorLayout(sprite_instance_pipeline, zest_vk_GetUniformBufferLayout(ZestRenderer->uniform_buffer));
+	zest_AddPipelineDescriptorLayout(sprite_instance_pipeline, zest_vk_GetGlobalBindlessLayout());
+    zest_SetPipelineBlend(sprite_instance_pipeline, zest_PreMultiplyBlendState());
     zest_SetPipelineDepthTest(sprite_instance_pipeline, false, true);
     zest_EndPipelineTemplate(sprite_instance_pipeline);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites pipeline");
@@ -6674,8 +6674,8 @@ void zest__prepare_standard_pipelines() {
     zest_SetPipelinePushConstantRange(font_pipeline, sizeof(zest_push_constants_t), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
     zest_SetText(&font_pipeline->vertShaderFile, "sprite_vert.spv");
     zest_SetText(&font_pipeline->fragShaderFile, "font_frag.spv");
-    zest_AddPipelineTemplateDescriptorLayout(font_pipeline, ZestRenderer->uniform_buffer->set_layout->vk_layout);
-    zest_AddPipelineTemplateDescriptorLayout(font_pipeline, ZestRenderer->global_bindless_set_layout->vk_layout);
+    zest_AddPipelineDescriptorLayout(font_pipeline, ZestRenderer->uniform_buffer->set_layout->vk_layout);
+    zest_AddPipelineDescriptorLayout(font_pipeline, ZestRenderer->global_bindless_set_layout->vk_layout);
     zest_EndPipelineTemplate(font_pipeline);
     font_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
     font_pipeline->depthStencil.depthTestEnable = VK_FALSE;
@@ -6731,7 +6731,7 @@ void zest__prepare_standard_pipelines() {
 
     imesh_pipeline->scissor.extent = zest_GetSwapChainExtent();
     imesh_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
-    zest_ClearPipelineTemplateDescriptorLayouts(imesh_pipeline);
+    zest_ClearPipelineDescriptorLayouts(imesh_pipeline);
     zest_EndPipelineTemplate(imesh_pipeline);
 
     imesh_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
@@ -6754,7 +6754,7 @@ void zest__prepare_standard_pipelines() {
     final_render->uniforms = 0;
     final_render->flags = zest_pipeline_set_flag_is_render_target_pipeline;
 
-    zest_ClearPipelineTemplateDescriptorLayouts(final_render);
+    zest_ClearPipelineDescriptorLayouts(final_render);
     zest_EndPipelineTemplate(final_render);
     final_render->depthStencil.depthWriteEnable = VK_FALSE;
     final_render->depthStencil.depthTestEnable = VK_FALSE;
@@ -7839,7 +7839,7 @@ Render graph compiler index:
 [Create_render_passes]
 [Create_frame_buffers]
 */
-void zest_EndRenderGraph() {
+zest_render_graph zest_EndRenderGraph() {
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_CHECK_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 
@@ -7896,7 +7896,7 @@ void zest_EndRenderGraph() {
     if (!has_execution_callback) {
         ZEST_PRINT("WARNING: No execution callbacks found in render graph %s.", render_graph->name);
         ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
-        return;
+        return render_graph;
     }
 
     // Set_adjacency_list
@@ -7954,7 +7954,7 @@ void zest_EndRenderGraph() {
     }
 
     if (zest_vec_size(render_graph->compiled_execution_order) == 0) {
-        return;
+        return render_graph;
     }
 
     ZEST_ASSERT(zest_vec_size(render_graph->compiled_execution_order) == zest_vec_size(render_graph->passes));
@@ -8747,9 +8747,12 @@ void zest_EndRenderGraph() {
     if (ZEST__FLAGGED(render_graph->flags, zest_render_graph_expecting_swap_chain_usage)) {
         ZEST_ASSERT(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used));    
         //Error: the render graph is trying to render to the screen but no swap chain image was used!
-        //Make sure that you call zest_ImportSwapChainResource and zest_ConnectSwapChainOutput in your render graph setup,
+        //Make sure that you call zest_ImportSwapChainResource and zest_ConnectSwapChainOutput in your render graph setup.
     }
 	ZEST__FLAG(render_graph->flags, zest_render_graph_is_compiled);  
+
+    zest__execute_render_graph();
+    return render_graph;
 }
 
 VkImageAspectFlags zest__determine_aspect_flag(VkFormat format) {
@@ -8813,7 +8816,7 @@ void zest__deferr_image_destruction(zest_image_buffer_t *image_buffer) {
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF], *image_buffer);
 }
 
-zest_render_graph zest_ExecuteRenderGraph() {
+void zest__execute_render_graph() {
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_CHECK_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zloc_linear_allocator_t *allocator = ZestRenderer->render_graph_allocator;
@@ -8922,7 +8925,6 @@ zest_render_graph zest_ExecuteRenderGraph() {
                     exe_details->barriers.release_image_barriers
                 );
             }
-
             //End pass
         }
         vkEndCommandBuffer(command_buffer);
@@ -9064,9 +9066,13 @@ zest_render_graph zest_ExecuteRenderGraph() {
 			}
 		}
 	}
+    ZEST__FLAG(render_graph->flags, zest_render_graph_is_executed);
     ZestRenderer->current_render_graph = 0;
 	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);  
-    return render_graph;
+}
+
+bool zest_RenderGraphWasExecuted(zest_render_graph render_graph) {
+    return ZEST__FLAGGED(render_graph->flags, zest_render_graph_is_executed);
 }
 
 const char *zest__vulkan_image_layout_to_string(VkImageLayout layout) {

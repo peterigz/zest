@@ -71,14 +71,14 @@ void InitExample(zest_example *example) {
 	zest_ClearVertexAttributeDescriptions(example->line_pipeline_template);
 	zest_AddVertexInputBindingDescription(example->line_pipeline_template, 0, sizeof(zest_shape_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 
-	zest_AddVertexAttribute(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, rect)));        // Location 0: Start Position
-	zest_AddVertexAttribute(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, parameters)));    // Location 1: End Position
-	zest_AddVertexAttribute(example->line_pipeline_template, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, start_color)));        // Location 2: Start Color
+	zest_AddVertexAttribute(example->line_pipeline_template, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, rect));        // Location 0: Start Position
+	zest_AddVertexAttribute(example->line_pipeline_template, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_shape_instance_t, parameters));  // Location 1: End Position
+	zest_AddVertexAttribute(example->line_pipeline_template, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_shape_instance_t, start_color));      // Location 2: Start Color
 
 	zest_SetText(&example->line_pipeline_template->vertShaderFile, "shape_vert.spv");
 	zest_SetText(&example->line_pipeline_template->fragShaderFile, "shape_frag.spv");
-	zest_ClearPipelineTemplateDescriptorLayouts(example->line_pipeline_template);
-	zest_AddPipelineTemplateDescriptorLayout(example->line_pipeline_template, zest_GetDefaultUniformBufferLayout()->vk_layout);
+	zest_ClearPipelineDescriptorLayouts(example->line_pipeline_template);
+	zest_AddPipelineDescriptorLayout(example->line_pipeline_template, zest_GetDefaultUniformBufferLayout()->vk_layout);
 	zest_EndPipelineTemplate(example->line_pipeline_template);
 	example->line_pipeline_template->colorBlendAttachment = zest_PreMultiplyBlendState();
 	example->line_pipeline_template->depthStencil.depthWriteEnable = VK_FALSE;
@@ -110,26 +110,31 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	if (zest_BeginRenderToScreen("Lines Render Graph")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
-		//Add resources
+		//Resources
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
-		zest_resource_node line_layer_resources = zest_AddInstanceLayerBufferResource(example->line_layer);
+		zest_resource_node line_layer_resources = zest_AddInstanceLayerBufferResource("Line layer", example->line_layer, false);
+
+		//---------------------------------Transfer Pass----------------------------------------------------
+		zest_pass_node upload_line_data = zest_AddTransferPassNode("Upload Line Data");
+		//outputs
+		zest_ConnectTransferBufferOutput(upload_line_data, line_layer_resources);
+		//tasks
+		zest_AddPassTask(upload_line_data, zest_UploadInstanceLayerData, example->line_layer);
+		//--------------------------------------------------------------------------------------------------
 
 		//Add passes
+		//---------------------------------Render Pass------------------------------------------------------
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
-		zest_pass_node upload_line_data = zest_AddTransferPassNode("Upload Line Data");
-
-		//Connect buffers and textures
-		zest_ConnectTransferBufferOutput(upload_line_data, line_layer_resources);
+		//inputs
 		zest_ConnectVertexBufferInput(graphics_pass, line_layer_resources);
+		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
-
-		//Add the tasks to run for the passes
-		zest_AddPassTask(upload_line_data, zest_UploadInstanceLayerData, example->line_layer);
+		//tasks
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->line_layer);
-		zest_EndRenderGraph();
+		//--------------------------------------------------------------------------------------------------
 
-		//Execute the render graph
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		//Compile and execute the render graph
+		zest_render_graph render_graph = zest_EndRenderGraph();
 
 		//Print the render graph
 		static bool print_render_graph = true;
@@ -142,8 +147,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-int main(void) 
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+//int main(void) 
 {
 	zest_example example = { 0 };
 

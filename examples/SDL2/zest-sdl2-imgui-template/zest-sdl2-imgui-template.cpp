@@ -89,10 +89,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 			zest_ConnectSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
-		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
-		zest_EndRenderGraph();
-		//Execute the render graph. This must come after the EndRenderGraph function
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		//Compile and execute the render graph. T
+		zest_render_graph render_graph = zest_EndRenderGraph();
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);

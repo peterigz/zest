@@ -63,31 +63,30 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Start with creating a fresh pipeline template
 	app->custom_pipeline = zest_BeginPipelineTemplate("Custom sprite pipeline");
 
-	zest_AddPipelineTemplateDescriptorLayout(app->custom_pipeline, ZestRenderer->uniform_buffer->set_layout->vk_layout);
-	zest_AddPipelineTemplateDescriptorLayout(app->custom_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_AddPipelineDescriptorLayout(app->custom_pipeline, ZestRenderer->uniform_buffer->set_layout->vk_layout);
+	zest_AddPipelineDescriptorLayout(app->custom_pipeline, zest_vk_GetGlobalBindlessLayout());
 	//Add a vertex input binding description specifying the size of the custom sprite instance struct
 	zest_AddVertexInputBindingDescription(app->custom_pipeline, 0, sizeof(zest_custom_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 	//Add each input description to bind the layout in the shader to the offset in the custom sprite instance struct.
-	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_custom_sprite_instance_t, position_rotation)));	// Location 0: Postion, rotation and stretch
-	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_custom_sprite_instance_t, size_handle)));		// Location 1: Size and handle of the sprite
-	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_custom_sprite_instance_t, uv)));					// Location 2: Instance Position and rotation
-	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, alignment)));				// Location 3: Alignment
-	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(zest_custom_sprite_instance_t, intensity)));				// Location 4: 2 intensities for each color
-	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, lerp_values)));				// Location 5: Interpolation values for mixing and sampling the colors
-	zest_AddVertexAttribute(app->custom_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(zest_custom_sprite_instance_t, texture_indexes))); 				// Location 6: texture indexes to sample the correct texture and 2 color rampls
+	zest_AddVertexAttribute(app->custom_pipeline, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_custom_sprite_instance_t, position_rotation));	// Location 0: Postion, rotation and stretch
+	zest_AddVertexAttribute(app->custom_pipeline, 1, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_custom_sprite_instance_t, size_handle));			// Location 1: Size and handle of the sprite
+	zest_AddVertexAttribute(app->custom_pipeline, 2, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_custom_sprite_instance_t, uv));					// Location 2: Instance Position and rotation
+	zest_AddVertexAttribute(app->custom_pipeline, 3, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, alignment));					// Location 3: Alignment
+	zest_AddVertexAttribute(app->custom_pipeline, 4, VK_FORMAT_R16G16_SSCALED, offsetof(zest_custom_sprite_instance_t, intensity));					// Location 4: 2 intensities for each color
+	zest_AddVertexAttribute(app->custom_pipeline, 5, VK_FORMAT_R16G16_SNORM, offsetof(zest_custom_sprite_instance_t, lerp_values));					// Location 5: Interpolation values for mixing and sampling the colors
+	zest_AddVertexAttribute(app->custom_pipeline, 6, VK_FORMAT_R32_UINT, offsetof(zest_custom_sprite_instance_t, texture_indexes)); 				// Location 6: texture indexes to sample the correct texture and 2 color rampls
 
 	//Specify the custom shaders we made
 	zest_SetPipelineVertShader(app->custom_pipeline, "custom_sprite_vert.spv", 0);
 	zest_SetPipelineFragShader(app->custom_pipeline, "custom_sprite_frag.spv", 0);
 	//We don't need a push constant for this example but we can set the push constants using the standard zest push constant struct
-	zest_SetPipelinePushConstantRange(app->custom_pipeline, sizeof(zest_push_constants_t), 0, zest_shader_render_stages);
+	zest_SetPipelinePushConstantRange(app->custom_pipeline, sizeof(zest_push_constants_t), zest_shader_render_stages);
+
+	zest_SetPipelineBlend(app->custom_pipeline, zest_PreMultiplyBlendState());
+	zest_SetPipelineDepthTest(app->custom_pipeline, false, false);
 
 	//Finalise the pipeline template ready for building the pipeline
 	zest_EndPipelineTemplate(app->custom_pipeline);
-	//Make some final tweaks to the template
-	app->custom_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
-	app->custom_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-	app->custom_pipeline->depthStencil.depthTestEnable = VK_FALSE;
 	//------------------------------------------
 
 	app->layer_data = {};
@@ -150,33 +149,38 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Add resources
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		zest_resource_node texture = zest_ImportImageResourceReadOnly("Test Texture", app->test_texture);
-		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource(app->custom_layer);
+		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource("Billboard layer", app->custom_layer, false);
 
-		//Add passes
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
-
-		//Connect buffers and textures
+		//Outputs
 		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer);
+		//Tasks
+		zest_AddPassTask(upload_instance_data, zest_UploadInstanceLayerData, app->custom_layer);
+		//--------------------------------------------------------------------------------------------------
+
+		//---------------------------------Render Pass------------------------------------------------------
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//Inputs
 		zest_ConnectVertexBufferInput(graphics_pass, billboard_layer);
 		zest_ConnectSampledImageInput(graphics_pass, texture, zest_pipeline_fragment_stage);
+		//Outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
-
-		//Add the tasks to run for the passes
-		zest_AddPassTask(upload_instance_data, zest_UploadInstanceLayerData, app->custom_layer);
+		//Tasks
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, app->custom_layer);
 		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
 			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
 		}
+		//--------------------------------------------------------------------------------------------------
+
 		zest_EndRenderGraph();
-		zest_ExecuteRenderGraph();
 	}
 }
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main(void) {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate

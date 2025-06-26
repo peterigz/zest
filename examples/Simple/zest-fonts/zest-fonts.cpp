@@ -37,30 +37,27 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
 
-		//Add passes
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//---------------------------------Transfer Pass------------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
-
-		//Connect buffers and textures
+		//outputs
 		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
+		//tasks
+		zest_AddPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
+		//--------------------------------------------------------------------------------------------------
+
+		//---------------------------------Render Pass------------------------------------------------------
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//inputes
 		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
 		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture, zest_pipeline_fragment_stage);
+		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
-
-		//Add the tasks to run for the passes
-		zest_AddPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
+		//tasks
 		zest_AddPassTask(graphics_pass, zest_DrawFonts, example->font_layer);
+		//--------------------------------------------------------------------------------------------------
+
+		//End and execute the render graph
 		zest_EndRenderGraph();
-
-		//Execute the render graph
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
-
-		//Print the render graph
-		static bool print_render_graph = false;
-		if (print_render_graph) {
-			zest_PrintCompiledRenderGraph(render_graph);
-			print_render_graph = false;
-		}
 	}
 }
 

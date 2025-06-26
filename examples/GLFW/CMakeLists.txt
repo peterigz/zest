@@ -32,7 +32,7 @@ function(buildExample EXAMPLE_NAME)
 	include_directories(${GLFW3_INCLUDE_DIR})
 
 	# Collect shader files
-	file(GLOB SHADERS "${SHADER_DIR}/*.vert" "${SHADER_DIR}/*.frag" "${SHADER_DIR}/*.comp")
+	file(GLOB SHADERS "${SHADER_DIR}/*.vert" "${SHADER_DIR}/*.frag" "${SHADER_DIR}/*.comp" "${SHADER_DIR}/*.slang")
 	file(GLOB IMGUI_SOURCE
 		${IMGUI}*.cpp 
 		${IMGUI}backends/imgui_impl_glfw.cpp
@@ -75,7 +75,6 @@ function(buildExample EXAMPLE_NAME)
 			${IMPLEMENTATIONS}impl_imgui.cpp
 			${IMPLEMENTATIONS}impl_glfw.cpp
 			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
-			${IMPLEMENTATIONS}impl_slang.cpp
 		)
 	else()
 		file(GLOB IMPLEMENTATIONS_SOURCE
@@ -100,8 +99,15 @@ function(buildExample EXAMPLE_NAME)
 			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
 			${IMPLEMENTATIONS}impl_timelinefx.c
 		)
-	else()
+	elseif(${EXAMPLE_NAME} STREQUAL "zest-compute-example")
 		SET(TIMELINEFX_SOURCE "")
+		file(GLOB IMPLEMENTATIONS_SOURCE
+			${IMPLEMENTATIONS}impl_imgui.cpp
+			${IMPLEMENTATIONS}impl_glfw.cpp
+			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
+			${IMPLEMENTATIONS}impl_slang.cpp
+		)
+	else()
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp
 			${IMPLEMENTATIONS}impl_glfw.cpp

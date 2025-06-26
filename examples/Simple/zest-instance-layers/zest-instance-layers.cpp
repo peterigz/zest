@@ -65,23 +65,21 @@ void InitExample(zest_example *example) {
 	example->billboard_pipeline = zest_BeginPipelineTemplate("pipeline_billboard");
 	zest_AddVertexInputBindingDescription(example->billboard_pipeline, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 
-	zest_AddVertexAttribute(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position)));			    // Location 0: Position
-	zest_AddVertexAttribute(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment)));		         	// Location 9: Alignment X, Y and Z
-	zest_AddVertexAttribute(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch)));	// Location 2: Rotations + stretch
-	zest_AddVertexAttribute(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv)));		    		// Location 1: uv_packed
-	zest_AddVertexAttribute(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle)));		// Location 4: Scale + Handle
-	zest_AddVertexAttribute(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array)));		// Location 6: texture array index * intensity
-	zest_AddVertexAttribute(example->billboard_pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color)));			        // Location 7: Instance Color
+	zest_AddVertexAttribute(example->billboard_pipeline, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position));			    // Location 0: Position
+	zest_AddVertexAttribute(example->billboard_pipeline, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment));	         	// Location 1: Alignment X, Y and Z
+	zest_AddVertexAttribute(example->billboard_pipeline, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
+	zest_AddVertexAttribute(example->billboard_pipeline, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv));		    		// Location 3: uv_packed
+	zest_AddVertexAttribute(example->billboard_pipeline, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
+	zest_AddVertexAttribute(example->billboard_pipeline, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array));		// Location 5: texture array index * intensity
+	zest_AddVertexAttribute(example->billboard_pipeline, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color));			        // Location 6: Instance Color
 
-    zest_SetPipelinePushConstantRange(example->billboard_pipeline, sizeof(zest_push_constants_t), 0, zest_shader_render_stages);
+    zest_SetPipelinePushConstantRange(example->billboard_pipeline, sizeof(zest_push_constants_t), zest_shader_render_stages);
 	zest_SetPipelineVertShader(example->billboard_pipeline, "billboard_vert.spv", "spv/");
 	zest_SetPipelineFragShader(example->billboard_pipeline, "billboard_frag.spv", "spv/");
-	zest_AddPipelineTemplateDescriptorLayout(example->billboard_pipeline, zest_vk_GetDefaultUniformBufferLayout());
-	zest_AddPipelineTemplateDescriptorLayout(example->billboard_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_AddPipelineDescriptorLayout(example->billboard_pipeline, zest_vk_GetDefaultUniformBufferLayout());
+	zest_AddPipelineDescriptorLayout(example->billboard_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelineDepthTest(example->billboard_pipeline, false, true);
 	zest_EndPipelineTemplate(example->billboard_pipeline);
-	example->billboard_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-	example->billboard_pipeline->depthStencil.depthTestEnable = VK_TRUE;
-	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Billboard pipeline");
 
 	example->billboard_layer = zest_CreateInstanceLayer("billboards", sizeof(zest_billboard_instance_t));
 	example->sprite_layer = zest_CreateInstanceLayer("sprites", sizeof(zest_sprite_instance_t));
@@ -143,32 +141,34 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//Add resources
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		zest_resource_node texture = zest_ImportImageResourceReadOnly("Bunny Texture", example->texture);
-		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource(example->billboard_layer);
-		zest_resource_node sprite_layer = zest_AddInstanceLayerBufferResource(example->sprite_layer);
+		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource("Billboard Layer", example->billboard_layer, false);
+		zest_resource_node sprite_layer = zest_AddInstanceLayerBufferResource("Sprite Layer", example->sprite_layer, false);
 
-		//Add passes
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
-
-		//Connect buffers and textures
+		//outputs
 		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer);
 		zest_ConnectTransferBufferOutput(upload_instance_data, sprite_layer);
+		//tasks
+		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, example->billboard_layer);
+		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, example->sprite_layer);
+		//--------------------------------------------------------------------------------------------------
+
+		//---------------------------------Render Pass------------------------------------------------------
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//inputs
 		zest_ConnectVertexBufferInput(graphics_pass, billboard_layer);
 		zest_ConnectVertexBufferInput(graphics_pass, sprite_layer);
 		zest_ConnectSampledImageInput(graphics_pass, texture, zest_pipeline_fragment_stage);
+		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
-
-		//Add the tasks to run for the passes
-		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, example->billboard_layer);
-		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, example->sprite_layer);
+		//tasks
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->billboard_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->sprite_layer);
+		//--------------------------------------------------------------------------------------------------
 
-		//Compile the render graph
-		zest_EndRenderGraph();
-
-		//Execute the render graph
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		//Compile and execute the render graph
+		zest_render_graph render_graph = zest_EndRenderGraph();
 
 		//Print the render graph
 		static bool print_render_graph = true;
@@ -181,8 +181,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-int main(void)
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+//int main(void)
 {
 	zest_example example = { 0 };
 

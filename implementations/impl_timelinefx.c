@@ -87,24 +87,22 @@ void zest_tfx_InitTimelineFXRenderResources(tfx_render_resources_t *resources, c
 	resources->pipeline = zest_BeginPipelineTemplate("Timelinefx pipeline");
 	//Set up the vertex attributes that will take in all of the billboard data stored in tfx_instance_t objects
 	zest_AddVertexInputBindingDescription(resources->pipeline, 0, sizeof(tfx_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
-	zest_AddVertexAttribute(resources->pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(tfx_instance_t, position)));	            // Location 0: Postion and stretch in w
-	zest_AddVertexAttribute(resources->pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(tfx_instance_t, rotations)));	                // Location 1: Rotations
-	zest_AddVertexAttribute(resources->pipeline, zest_CreateVertexInputDescription(0, 2, VK_FORMAT_R8G8B8_SNORM, offsetof(tfx_instance_t, alignment)));					    // Location 2: Alignment
-	zest_AddVertexAttribute(resources->pipeline, zest_CreateVertexInputDescription(0, 3, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(tfx_instance_t, size_handle)));		    // Location 3: Size and handle of the sprite
-	zest_AddVertexAttribute(resources->pipeline, zest_CreateVertexInputDescription(0, 4, VK_FORMAT_R16G16_SSCALED, offsetof(tfx_instance_t, intensity_gradient_map)));       // Location 4: 2 intensities for each color
-	zest_AddVertexAttribute(resources->pipeline, zest_CreateVertexInputDescription(0, 5, VK_FORMAT_R8G8B8_UNORM, offsetof(tfx_instance_t, curved_alpha_life)));          	// Location 5: Sharpness and mix lerp value
-	zest_AddVertexAttribute(resources->pipeline, zest_CreateVertexInputDescription(0, 6, VK_FORMAT_R32_UINT, offsetof(tfx_instance_t, indexes)));							// Location 6: texture indexes to sample the correct image and color ramp
-	zest_AddVertexAttribute(resources->pipeline, zest_CreateVertexInputDescription(0, 7, VK_FORMAT_R32_UINT, offsetof(tfx_instance_t, captured_index)));   				    // Location 7: index of the sprite in the previous buffer when double buffering
+	zest_AddVertexAttribute(resources->pipeline, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(tfx_instance_t, position));	            // Location 0: Postion and stretch in w
+	zest_AddVertexAttribute(resources->pipeline, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(tfx_instance_t, rotations));	                // Location 1: Rotations
+	zest_AddVertexAttribute(resources->pipeline, 2, VK_FORMAT_R8G8B8_SNORM, offsetof(tfx_instance_t, alignment));					    // Location 2: Alignment
+	zest_AddVertexAttribute(resources->pipeline, 3, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(tfx_instance_t, size_handle));		    // Location 3: Size and handle of the sprite
+	zest_AddVertexAttribute(resources->pipeline, 4, VK_FORMAT_R16G16_SSCALED, offsetof(tfx_instance_t, intensity_gradient_map));       // Location 4: 2 intensities for each color
+	zest_AddVertexAttribute(resources->pipeline, 5, VK_FORMAT_R8G8B8_UNORM, offsetof(tfx_instance_t, curved_alpha_life));          	// Location 5: Sharpness and mix lerp value
+	zest_AddVertexAttribute(resources->pipeline, 6, VK_FORMAT_R32_UINT, offsetof(tfx_instance_t, indexes));							// Location 6: texture indexes to sample the correct image and color ramp
+	zest_AddVertexAttribute(resources->pipeline, 7, VK_FORMAT_R32_UINT, offsetof(tfx_instance_t, captured_index));   				    // Location 7: index of the sprite in the previous buffer when double buffering
 	//Set the shaders to our custom timelinefx shaders
-	zest_SetPipelineVertShader(resources->pipeline, "tfx_vertex.spv", 0);
-	zest_SetPipelineFragShader(resources->pipeline, "tfx_frag.spv", 0);
-	zest_SetPipelinePushConstantRange(resources->pipeline, sizeof(tfx_push_constants_t), 0, zest_shader_render_stages);
-	zest_AddPipelineTemplateDescriptorLayout(resources->pipeline, zest_vk_GetUniformBufferLayout(resources->uniform_buffer));
-	zest_AddPipelineTemplateDescriptorLayout(resources->pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelineShaders(resources->pipeline, "tfx_vertex.spv", "tfx_frag.spv", 0);
+	zest_SetPipelinePushConstantRange(resources->pipeline, sizeof(tfx_push_constants_t), zest_shader_render_stages);
+	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_vk_GetUniformBufferLayout(resources->uniform_buffer));
+	zest_AddPipelineDescriptorLayout(resources->pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelineDepthTest(resources->pipeline, false, true);
+	zest_SetPipelineBlend(resources->pipeline, zest_PreMultiplyBlendState());
 	zest_EndPipelineTemplate(resources->pipeline);
-	resources->pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
-	resources->pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-	resources->pipeline->depthStencil.depthTestEnable = true;
 
 	//We want to be able to manually change the current frame in flight in the layer that we use to draw all the billboards.
 	//This means that we are able to only change the current frame in flight if we actually updated the particle manager in the current

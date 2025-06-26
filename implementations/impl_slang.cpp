@@ -86,6 +86,46 @@ int zest_slang_Compile( const char *shader_path, const char *entry_point_name, S
 
     out_reflection = composedProgram->getLayout();
 
+    /*
+    if (out_reflection && stage == SLANG_STAGE_VERTEX) {
+        ZEST_PRINT("--- Vertex Attributes for %s ---", shader_path);
+
+        slang::ShaderReflection *layout = out_reflection;
+        slang::EntryPointReflection *entryPointReflection = layout->getEntryPointByIndex(0);
+        ZEST_PRINT("Entry point name: %s", entryPointReflection->getName());
+        if (!entryPointReflection) {
+            ZEST_PRINT("Could not get entry point reflection for %s", shader_path);
+        } else {
+            unsigned parameterCount = entryPointReflection->getParameterCount();
+
+            for (unsigned i = 0; i < parameterCount; ++i) {
+                slang::VariableLayoutReflection *param = entryPointReflection->getParameterByIndex(i);
+                slang::VariableReflection *variable = param->getVariable();
+                slang::TypeReflection *type = param->getType();
+
+                ZEST_PRINT("Parameter name: %s", param->getName());
+                ZEST_PRINT("Variable name: %s", variable->getName());
+                ZEST_PRINT("Type name: %s", type->getName());
+
+                zest_uint field_count = type->getFieldCount();
+
+                for (int k = 0; k != type->getFieldCount(); ++k) {
+                    slang::VariableReflection *field = type->getFieldByIndex(k);
+					ZEST_PRINT("    %s", field->getName());
+                    slang::Attribute *attribute = field->findUserAttributeByName(global_session, "vk_format");
+                    for (int l = 0; l != field->getUserAttributeCount(); ++l) {
+                        slang::Attribute *attribute = field->getUserAttributeByIndex(l);
+                        zest_size out_size;
+                        ZEST_PRINT("Attribute: %s, %s", attribute->getName(), attribute->getArgumentValueString(0, &out_size));
+                    }
+                }
+
+            }
+        }
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "------------------------------------");
+    }
+    */
+
     return 0;
 }
 
@@ -98,9 +138,6 @@ SlangStage zest__slang_GetStage(shaderc_shader_kind kind) {
     }
 }
 
-// --- 3. Updated Shader Creation Function ---
-// This function now acts as the main entry point for users.
-// It determines the entry point name and stage based on the `type` parameter.
 zest_shader zest_slang_CreateShader(const char *shader_path, const char *name, const char *entry_point, shaderc_shader_kind type, bool disable_caching) {
     zest_slang_compiled_shader compiled_shader;
     slang::ShaderReflection *reflection_info = nullptr;

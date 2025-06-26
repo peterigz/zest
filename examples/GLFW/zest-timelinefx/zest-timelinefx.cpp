@@ -220,9 +220,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//--------------------------------------------------------------------------------------------------
 
 		zest_SignalTimeline(game->tfx_rendering.timeline);
-		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
-		zest_EndRenderGraph();
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		//Compile and execute the render graph. 
+		zest_render_graph render_graph = zest_EndRenderGraph();
 		if (game->request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);
@@ -233,8 +232,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main() {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main() {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);

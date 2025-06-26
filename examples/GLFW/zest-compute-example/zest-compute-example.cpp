@@ -1,5 +1,6 @@
 #include "zest-compute-example.h"
 #include "imgui_internal.h"
+#include "impl_slang.h"
 #include <random>
 
 void InitImGuiApp(ImGuiApp *app) {
@@ -56,11 +57,18 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Create a new pipeline in the renderer based on an existing default one
 	app->particle_pipeline = zest_CopyPipelineTemplate("particles", zest_PipelineTemplate("pipeline_2d_sprites"));
 
+	/*
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	zest_shader frag_shader = zest_CreateShaderFromFile("examples/GLFW/zest-compute-example/shaders/particle.frag", "particle_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
 	zest_shader vert_shader = zest_CreateShaderFromFile("examples/GLFW/zest-compute-example/shaders/particle.vert", "particle_vert.spv", shaderc_vertex_shader, 1, compiler, 0);
 	zest_shader comp_shader = zest_CreateShaderFromFile("examples/GLFW/zest-compute-example/shaders/particle.comp", "particle_comp.spv", shaderc_compute_shader, 1, compiler, 0);
 	shaderc_compiler_release(compiler);
+	*/
+	zest_slang_InitialiseSession();
+	const char *path = "examples/GLFW/zest-compute-example/shaders/particle.slang";
+	zest_shader frag_shader = zest_slang_CreateShader(path, "particle_frag.spv", "fragmentMain", shaderc_fragment_shader, false);
+	zest_shader vert_shader = zest_slang_CreateShader(path, "particle_vert.spv", "vertexMain", shaderc_vertex_shader, false);
+	zest_shader comp_shader = zest_slang_CreateShader(path, "particle_comp.spv", "computeMain", shaderc_compute_shader, false);
 
 	//Change some things in the create info to set up our own pipeline
 	//Clear the current vertex input binding descriptions and attribute descriptions
@@ -69,8 +77,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Add our own vertex binding description using the Particle struct
 	zest_AddVertexInputBindingDescription(app->particle_pipeline, 0, sizeof(Particle), VK_VERTEX_INPUT_RATE_VERTEX);
 	//Add the descriptions for each type in the Particle struct
-	zest_AddVertexAttribute(app->particle_pipeline, zest_CreateVertexInputDescription(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Particle, pos)));
-	zest_AddVertexAttribute(app->particle_pipeline, zest_CreateVertexInputDescription(0, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Particle, gradient_pos)));
+	zest_AddVertexAttribute(app->particle_pipeline, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Particle, pos));
+	zest_AddVertexAttribute(app->particle_pipeline, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Particle, gradient_pos));
 
 	//Set the shader file to use in the pipeline
 	zest_SetPipelineFragShader(app->particle_pipeline, "particle_frag.spv", 0);
@@ -79,20 +87,20 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->particle_pipeline->topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
 	//Add the descriptor layout we created earlier, but clear the layouts in the template first as a uniform buffer is added
 	//by default.
-	zest_ClearPipelineTemplateDescriptorLayouts(app->particle_pipeline);
-	zest_AddPipelineTemplateDescriptorLayout(app->particle_pipeline, ZestRenderer->global_bindless_set_layout->vk_layout);
+	zest_ClearPipelineDescriptorLayouts(app->particle_pipeline);
+	zest_AddPipelineDescriptorLayout(app->particle_pipeline, ZestRenderer->global_bindless_set_layout->vk_layout);
 	//Set the push constant we'll be using
-	zest_SetPipelinePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), 0, zest_shader_fragment_stage);
+	zest_SetPipelinePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), zest_shader_fragment_stage);
+	//Switch off any depth testing
+	zest_SetPipelineDepthTest(app->particle_pipeline, false, false);
+	zest_SetPipelineBlend(app->particle_pipeline, zest_AdditiveBlendState2());
 
 	//Using the create_info we prepared build the template for the pipeline
 	zest_EndPipelineTemplate(app->particle_pipeline);
-	//Alter a few things in the template to tweak it to how we want
+	//Your can alter a few things in the template to tweak it to how we want 
 	app->particle_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 	app->particle_pipeline->rasterizer.cullMode = VK_CULL_MODE_NONE;
 	app->particle_pipeline->rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	app->particle_pipeline->colorBlendAttachment = zest_AdditiveBlendState2();
-	app->particle_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-	app->particle_pipeline->depthStencil.depthTestEnable = VK_FALSE;
 
 	//Setup a uniform buffer
 	app->compute_uniform_buffer = zest_CreateUniformBuffer("Compute Uniform", sizeof(ComputeUniformBuffer));
@@ -238,8 +246,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 		//--------------------------------------------------------------------------------------------------
 
-		zest_EndRenderGraph();
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		zest_render_graph render_graph = zest_EndRenderGraph();
 		if (app->request_graph_print) {
 			zest_PrintCompiledRenderGraph(render_graph);
 			app->request_graph_print = false;
