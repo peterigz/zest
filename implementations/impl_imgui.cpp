@@ -203,8 +203,8 @@ void zest_imgui_UpdateBuffers() {
         imgui_info->dirty[imgui_info->fif] = 1;
 		zest_buffer vertex_buffer = imgui_info->vertex_staging_buffer->buffer[imgui_info->fif];
 		zest_buffer index_buffer = imgui_info->index_staging_buffer->buffer[imgui_info->fif];
-		zest_buffer device_vertex_buffer = imgui_info->index_device_buffer[imgui_info->fif];
-		zest_buffer device_index_buffer = imgui_info->vertex_device_buffer[imgui_info->fif];
+		zest_buffer device_vertex_buffer = imgui_info->vertex_device_buffer[imgui_info->fif];
+		zest_buffer device_index_buffer = imgui_info->index_device_buffer[imgui_info->fif];
         ZEST_ASSERT(vertex_buffer); //Make sure you call zest_imgui_Initialise first!
         ZEST_ASSERT(index_buffer);	//Make sure you call zest_imgui_Initialise first!
 
@@ -217,13 +217,17 @@ void zest_imgui_UpdateBuffers() {
         if (index_buffer->memory_in_use > index_buffer->size) {
 			zest_size memory_in_use = index_buffer->memory_in_use;
 			zest_GrowBuffer(&index_buffer, sizeof(ImDrawIdx), memory_in_use);
-			zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), memory_in_use);
+            if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), memory_in_use)) {
+				imgui_info->index_device_buffer[imgui_info->fif] = device_index_buffer;
+            }
             imgui_info->index_staging_buffer->buffer[imgui_info->fif] = index_buffer;
         }
         if (vertex_buffer->memory_in_use > vertex_buffer->size) {
 			zest_size memory_in_use = vertex_buffer->memory_in_use;
 			zest_GrowBuffer(&vertex_buffer, sizeof(ImDrawVert), memory_in_use);
-			zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawIdx), memory_in_use);
+            if (zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawVert), memory_in_use)) {
+				imgui_info->vertex_device_buffer[imgui_info->fif] = device_vertex_buffer;
+            }
             imgui_info->vertex_staging_buffer->buffer[imgui_info->fif] = vertex_buffer;
         }
         ImDrawIdx *idxDst = (ImDrawIdx *)index_buffer->data;
