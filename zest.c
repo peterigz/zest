@@ -6062,7 +6062,7 @@ zest_pipeline_template zest_PipelineTemplate(const char *name) {
 zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template template, VkRenderPass render_pass) {
     ZEST_CHECK_HANDLE(template);        //Not a valid pipeline template!
     if (zest_vec_size(template->descriptorSetLayouts) == 0) {
-        ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has not descriptor set layouts configured. You can add descriptor layouts when building the pipeline with zest_AddPipelineTemplateDescriptorLayout.", template->name.str);
+        ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has no descriptor set layouts configured. You can add descriptor layouts when building the pipeline with zest_AddPipelineTemplateDescriptorLayout.", template->name.str);
         return NULL;
     }
     zest_key pipeline_key = zest_Hash(template->name.str, zest_TextLength(&template->name), ZEST_HASH_SEED);
@@ -14706,7 +14706,11 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
 		ZEST_CHECK_HANDLE(current->shader_resources);     //Not a valid descriptor set in the shader resource. Make sure all frame in flights are set
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, 0);
-        zest_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
+        if (pipeline) {
+			zest_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
+        } else {
+            continue;
+        }
 
         vkCmdPushConstants(
             command_buffer,
@@ -14721,15 +14725,20 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
     //zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
 }
 
-void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
-    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    //VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
-    VkCommandBuffer command_buffer = 0;
-    //VkDeviceSize instance_data_offsets[] = { layer->memory_refs[layer->fif].device_instance_data->memory_offset };
-    //zest_BindMeshVertexBuffer(command_buffer, layer);
-    //zest_BindMeshIndexBuffer(command_buffer, layer);
+void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+    zest_layer layer = (zest_layer)user_data;
+    ZEST_CHECK_HANDLE(layer);	//Not a valid handle! Make sure you pass in the zest_layer in the user data
+    if (layer->vertex_data && layer->index_data) {
+        zest_BindMeshVertexBuffer(command_buffer, layer);
+        zest_BindMeshIndexBuffer(command_buffer, layer);
+    } else {
+        ZEST_PRINT("No Vertex/Index data found in mesh layer!");
+        return;
+    }
 
-	//vkCmdBindVertexBuffers(command_buffer, 1, 1, zest_GetBufferDeviceBuffer(layer->memory_refs[layer->fif].device_instance_data), instance_data_offsets);
+	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
+	VkDeviceSize instance_data_offsets[] = { device_buffer->memory_offset };
+	vkCmdBindVertexBuffers(command_buffer, 1, 1, &device_buffer->memory_pool->buffer, instance_data_offsets);
 
     bool has_instruction_view_port = false;
     for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
@@ -14747,8 +14756,12 @@ void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
 
         ZEST_CHECK_HANDLE(current->shader_resources);
 
-        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, 0);
-        zest_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
+        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
+        if (pipeline) {
+			zest_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
+        } else {
+            continue;
+        }
 
         vkCmdPushConstants(
             command_buffer,
@@ -14760,7 +14773,9 @@ void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif) {
 
         vkCmdDrawIndexed(command_buffer, layer->index_count, current->total_instances, 0, 0, current->start_index);
     }
-    //zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
+    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
+		zest_ResetInstanceLayerDrawing(layer);
+    }
 }
 
 //Start general instance layer functionality -----
@@ -14855,7 +14870,7 @@ void zest__draw_instance_mesh_layer_callback(struct zest_work_queue_t *queue, vo
     zest_draw_routine draw_routine = (zest_draw_routine)data;
     zest_layer layer = (zest_layer)draw_routine->draw_data;
     if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
-        zest_RecordInstanceMeshLayer(layer, ZEST_FIF);
+        //zest_DrawInstanceMeshLayer(layer, ZEST_FIF);
     }
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest_ResetInstanceLayerDrawing(layer);
@@ -15423,6 +15438,7 @@ void zest_Draw3DLine(zest_layer layer, float start_point[3], float end_point[3],
 //-- End Line Drawing API
 
 //-- Start Mesh Drawing API
+
 void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity) {
     mesh_layer->current_color.r = 255;
     mesh_layer->current_color.g = 255;
@@ -15467,6 +15483,21 @@ void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_
         mesh_layer->memory_refs[fif].vertex_ptr = mesh_layer->memory_refs[fif].staging_vertex_data->data;
         mesh_layer->memory_refs[fif].index_ptr = mesh_layer->memory_refs[fif].staging_index_data->data;
     }
+}
+
+void zest_BindMeshVertexBuffer(VkCommandBuffer command_buffer, zest_layer layer) {
+    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT(layer->vertex_data);    //There's no vertex data in the buffer. Did you call zest_AddMeshToLayer?
+    zest_buffer_t *buffer = layer->vertex_data;
+    VkDeviceSize offsets[] = { buffer->memory_offset };
+    vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(buffer), offsets);
+}
+
+void zest_BindMeshIndexBuffer(VkCommandBuffer command_buffer, zest_layer layer) {
+    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT(layer->index_data);    //There's no index data in the buffer. Did you call zest_AddMeshToLayer?
+    zest_buffer_t *buffer = layer->index_data;
+    vkCmdBindIndexBuffer(command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
 }
 
 zest_buffer zest_GetVertexWriteBuffer(zest_layer layer) {
@@ -15746,6 +15777,12 @@ void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t* src_mesh) {
     zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(zest_MeshVertexDataSize(src_mesh), src_mesh->vertices);
     zest_buffer index_staging_buffer = zest_CreateStagingBuffer(zest_MeshIndexDataSize(src_mesh), src_mesh->indexes);
     layer->index_count = zest_vec_size(src_mesh->indexes);
+	zest_FreeBuffer(layer->vertex_data);
+	zest_FreeBuffer(layer->index_data);
+	layer->vertex_data = zest_CreateVertexBuffer(vertex_staging_buffer->size, 0);
+	layer->index_data = zest_CreateIndexBuffer(index_staging_buffer->size, 0);
+    zest_CopyBufferOneTime(vertex_staging_buffer, layer->vertex_data, vertex_staging_buffer->size);
+    zest_CopyBufferOneTime(index_staging_buffer, layer->index_data, index_staging_buffer->size);
     zest_FreeBuffer(vertex_staging_buffer);
     zest_FreeBuffer(index_staging_buffer);
 }

@@ -337,8 +337,6 @@ zest_vec3 GetWidgetAxisZ(zest_widget_part* widget) {
 void InitImGuiApp(ImGuiApp* app) {
 	//Initialise Dear ImGui
 	zest_imgui_Initialise();
-	//Implement a dark style
-	DarkStyle2();
 
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO& io = ImGui::GetIO();
@@ -366,9 +364,31 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->mesh_shader_resources = zest_CreateShaderResources();
 	zest_AddUniformBufferToResources(app->mesh_shader_resources, ZestRenderer->uniform_buffer);
 
-	zest_pipeline_template custom_mesh_pipeline = zest_CopyPipelineTemplate("custom_mesh_instance_pipeline", zest_PipelineTemplate("pipeline_mesh_instance"));
-	app->mesh_instance_pipeline = zest_BeginPipelineTemplate("pipeline_mesh_instance_custom");
-	zest_SetPipelineShader(custom_mesh_pipeline, "mesh_instance_custom.spv", "examples/assets/spv/");
+	app->line_3d_pipeline = zest_CopyPipelineTemplate("pipeline_line3d_instance", zest_PipelineTemplate("pipeline_2d_sprites"));
+
+	zest_ClearVertexInputBindingDescriptions(app->line_3d_pipeline);
+	zest_ClearVertexAttributeDescriptions(app->line_3d_pipeline);
+	zest_AddVertexInputBindingDescription(app->line_3d_pipeline, 0, sizeof(zest_line_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+	zest_AddVertexAttribute(app->line_3d_pipeline, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_line_instance_t, start));        // Location 0: Start Position
+	zest_AddVertexAttribute(app->line_3d_pipeline, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_line_instance_t, end));			// Location 1: End Position
+	zest_AddVertexAttribute(app->line_3d_pipeline, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_line_instance_t, start_color));       // Location 2: Start Color
+
+	zest_AddPipelineDescriptorLayout(app->line_3d_pipeline, zest_vk_GetDefaultUniformBufferLayout());
+
+	zest_SetPipelineShaders(app->line_3d_pipeline, "3d_lines_vert.spv", "3d_lines_frag.spv", 0);
+	zest_SetPipelineBlend(app->line_3d_pipeline, zest_PreMultiplyBlendState());
+	zest_SetPipelineDepthTest(app->line_3d_pipeline, false, true);
+	zest_EndPipelineTemplate(app->line_3d_pipeline);
+
+	//Compile the shaders we will use to render the particles
+	shaderc_compiler_t compiler = shaderc_compiler_initialize();
+	zest_CreateShaderFromFile("examples/assets/shaders/mesh_instance_custom.vert", "mesh_instance_custom_vert.spv", shaderc_vertex_shader, true, compiler, 0);
+	zest_CreateShaderFromFile("examples/assets/shaders/mesh_instance_custom.frag", "mesh_instance_custom_frag.spv", shaderc_fragment_shader, true, compiler, 0);
+	shaderc_compiler_release(compiler);
+
+	app->mesh_instance_pipeline = zest_CopyPipelineTemplate("custom_mesh_instance_pipeline", zest_PipelineTemplate("pipeline_mesh_instance"));
+	zest_AddPipelineDescriptorLayout(app->mesh_instance_pipeline, zest_vk_GetDefaultUniformBufferLayout());
+	zest_SetPipelineShaders(app->mesh_instance_pipeline, "mesh_instance_custom_vert.spv", "mesh_instance_custom_frag.spv", 0);
 	zest_EndPipelineTemplate(app->mesh_instance_pipeline);
 
 	app->camera = zest_CreateCamera();
@@ -381,6 +401,7 @@ void InitImGuiApp(ImGuiApp* app) {
 	app->mesh_layer = zest_CreateBuiltinInstanceMeshLayer("Meshes");
 	app->move_widget_layer = zest_CreateBuiltinInstanceMeshLayer("Move Widget");
 	app->scale_widget_layer = zest_CreateBuiltinInstanceMeshLayer("Scale Widget");
+	app->line_layer = zest_CreateInstanceLayer("3d lines", sizeof(zest_line_instance_t));
 
 	float arrow_radius = 0.01f;
 	float point_radius = 0.05f;
@@ -693,7 +714,7 @@ void Draw3dWidgets(ImGuiApp* app) {
 	if (app->picked_widget_part && app->picked_widget) {
 		zest_push_constants_t *picked_push = zest_CastLayerPushConstants(zest_push_constants_t, app->picked_widget->layer);
 		picked_push->parameters1.x = (float)app->picked_widget_part->group_id;
-		zest_Set3DLineDrawing(app->line_layer, app->line_pipeline->shader_resources, app->line_pipeline);
+		zest_Set3DLineDrawing(app->line_layer, app->mesh_shader_resources, app->line_3d_pipeline);
 		zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->uniform_buffer));
 		zest_axis_flags axis = app->current_axis;
 		for (int i = 0; i != 2; ++i) {
@@ -834,7 +855,6 @@ void UpdateVelocity2D(particle2d* particle, float time, float delta_time, float 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Don't forget to update the uniform buffer!
 	//Set the active command queue to the default one that was created when Zest was initialised
-	zest_SetActiveCommandQueue(ZestApp->default_command_queue);
 	ImGuiApp* app = (ImGuiApp*)user_data;
 	UpdateUniform3d(app);
 
@@ -861,8 +881,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
 	}
 
-	zest_TimerAccumulate(app->timer);
-	while (zest_TimerDoUpdate(app->timer)) {
+	zest_StartTimerLoop(app->timer) {
 		//Must call the imgui GLFW implementation function
 		ImGui_ImplGlfw_NewFrame();
 		//Draw our imgui stuff
@@ -934,8 +953,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		ImGui::End();
 		ImGui::Render();
+
 		//Let the layer know that it needs to reupload the imgui mesh data to the GPU
-		zest_ResetLayer(app->imgui_layer_info.mesh_layer);
+		zest_imgui_UpdateBuffers();
 
 		float speed = 5.f * (float)app->timer->update_time;
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
@@ -982,15 +1002,16 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 
 		zest_TimerUnAccumulate(app->timer);
-	}
-	zest_TimerSet(app->timer);
+	} zest_EndTimerLoop(app->timer);
 
+	/*
 	zest_SetMeshDrawing(app->mesh_layer, app->floor_shader_resources, app->mesh_pipeline);
 	zest_DrawTexturedPlane(app->mesh_layer, app->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
+	*/
 
-	zest_SetInstanceDrawing(app->billboard_layer, app->billboard_shader_resources, app->billboard_pipeline);
+	//zest_SetInstanceDrawing(app->billboard_layer, app->billboard_shader_resources, app->billboard_pipeline);
 
-	zest_Set3DLineDrawing(app->line_layer, app->line_pipeline->shader_resources, app->line_pipeline);
+	zest_Set3DLineDrawing(app->line_layer, app->mesh_shader_resources, app->line_3d_pipeline);
 	/*
 	bool start_drawing = false;
 	zest_vec3 p2;
@@ -1151,31 +1172,6 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_Draw3DLine(app->line_layer, &tform_cube[7].x, &tform_cube[3].x, 3.f);
 	zest_Draw3DLine(app->line_layer, &tform_cube[5].x, &tform_cube[1].x, 3.f);
 
-	float delta_time = (float)elapsed / 1000000;
-	app->time += delta_time;
-	for (int i = 0; i != 100; ++i) {
-		UpdateVelocity3D(&app->particles[i], app->time, delta_time, app->noise_influence);
-		zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &app->particles[i].position.x, 0.f, 0.2f, 0.2f);
-		app->particles[i].age += (float)elapsed / 1000;
-		if (app->particles[i].age > 4000.f) {
-			app->particles[i].speed = app->speed;
-			app->particles[i].position = { 0 };
-			app->particles[i].velocity = randomVectorInCone({ 1.f, 0.f, 0.f }, zest_Degrees(app->emission_range));
-			app->particles[i].age = i * 20.f;
-		}
-
-		UpdateVelocity2D(&app->particles2d[i], app->time, delta_time, app->noise_influence);
-		//zest_DrawBillboardSimple(app->billboard_layer, app->sprite, &app->particles2d[i].position.x, 0.f, 0.2f, 0.2f);
-		app->particles2d[i].age += (float)elapsed / 1000;
-		if (app->particles2d[i].age > 4000.f) {
-			app->particles2d[i].speed = app->speed;
-			app->particles2d[i].position = { 3.f, 0.f, 0.f };
-			float direction = randomFloat(-app->emission_range, app->emission_range) + app->emission_direction;
-			app->particles2d[i].velocity = { sinf(direction), cosf(direction) };
-			app->particles2d[i].age = i * 20.f;
-		}
-	}
-
 	if (ImGui::IsKeyDown(ImGuiKey_Space)) {
 		for (int i = 0; i != 100; ++i) {
 			app->particles[i].position = { 0 };
@@ -1189,18 +1185,71 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			app->particles2d[i].speed = app->speed;
 		}
 	}
-
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-	zest_imgui_UpdateBuffers(app->imgui_layer_info.mesh_layer);
+
+	//Create the render graph
+	if (zest_BeginRenderToScreen("Test Render Graph")) {
+		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
+
+		//Resources
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
+		//zest_resource_node mesh_layer_resources = zest_AddInstanceLayerBufferResource("Mesh layer", app->mesh_layer, false);
+		zest_resource_node scale_widget_layer_resources = zest_AddInstanceLayerBufferResource("Scale widget layer", app->scale_widget_layer, false);
+		zest_resource_node move_widget_layer_resources = zest_AddInstanceLayerBufferResource("Move widget layer", app->move_widget_layer, false);
+
+		//---------------------------------Transfer Pass----------------------------------------------------
+		zest_pass_node upload_mesh_data = zest_AddTransferPassNode("Upload Mesh Data");
+		zest_pass_node upload_scale_data = zest_AddTransferPassNode("Upload Scale Data");
+		zest_pass_node upload_move_data = zest_AddTransferPassNode("Upload Move Data");
+		//outputs
+		//zest_ConnectTransferBufferOutput(upload_mesh_data, mesh_layer_resources);
+		zest_ConnectTransferBufferOutput(upload_scale_data, scale_widget_layer_resources);
+		zest_ConnectTransferBufferOutput(upload_move_data, move_widget_layer_resources);
+		//tasks
+		//zest_AddPassTask(upload_mesh_data, zest_UploadInstanceLayerData, app->mesh_layer);
+		zest_AddPassTask(upload_scale_data, zest_UploadInstanceLayerData, app->scale_widget_layer);
+		zest_AddPassTask(upload_move_data, zest_UploadInstanceLayerData, app->move_widget_layer);
+		//--------------------------------------------------------------------------------------------------
+
+		//Add passes
+		//---------------------------------Render Pass------------------------------------------------------
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//inputs
+		//zest_ConnectVertexBufferInput(graphics_pass, mesh_layer_resources);
+		zest_ConnectVertexBufferInput(graphics_pass, scale_widget_layer_resources);
+		zest_ConnectVertexBufferInput(graphics_pass, move_widget_layer_resources);
+		//outputs
+		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		//tasks
+		//zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->mesh_layer);
+		zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->scale_widget_layer);
+		zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->move_widget_layer);
+		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
+			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
+		}
+		//--------------------------------------------------------------------------------------------------
+
+		//Compile and execute the render graph
+		zest_render_graph render_graph = zest_EndRenderGraph();
+
+		//Print the render graph
+		static bool print_render_graph = true;
+		if (print_render_graph) {
+			zest_PrintCompiledRenderGraph(render_graph);
+			print_render_graph = false;
+		}
+	}
 }
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
+    create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
+	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//Implement GLFW for window creation

@@ -3172,7 +3172,6 @@ typedef struct zest_layer_buffers_t {
 	zest_buffer staging_index_data;
 
 	zest_buffer device_vertex_data;
-	zest_buffer device_index_data;
 
     union {
         struct { void *instance_ptr; };
@@ -3238,6 +3237,9 @@ typedef struct zest_layer_t {
     zest_buffer_uploader_t vertex_upload;
     zest_buffer_uploader_t index_upload;
     zest_descriptor_set bindless_set;
+
+    zest_buffer vertex_data;
+    zest_buffer index_data;
 
     zest_layer_instruction_t current_instruction;
 
@@ -5333,6 +5335,8 @@ ZEST_API float zest_TextWidth(zest_font font, const char *text, float font_size,
 //You don't really need to call this manually as it's a callback that's assigned in the draw routine when you call zest_CreateBuiltinMeshLayer or zest_NewMeshLayer.
 ZEST_API void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer);
 //Get the vertex staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
+void zest_BindMeshVertexBuffer(VkCommandBuffer command_buffer, zest_layer layer);
+void zest_BindMeshIndexBuffer(VkCommandBuffer command_buffer, zest_layer layer);
 ZEST_API zest_buffer zest_GetVertexWriteBuffer(zest_layer layer);
 //Get the index staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
 ZEST_API zest_buffer zest_GetIndexWriteBuffer(zest_layer layer);
@@ -5362,7 +5366,7 @@ ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
-ZEST_API void zest_RecordInstanceMeshLayer(zest_layer layer, zest_uint fif);
+ZEST_API void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
 ZEST_API void zest_PushMeshVertex(zest_mesh_t *mesh, float pos_x, float pos_y, float pos_z, zest_color color);

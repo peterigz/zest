@@ -11,13 +11,16 @@ layout (binding = 0) uniform ubo_view
 	uint millisecs;
 } uboView;
 
-layout(push_constant) uniform parameters
+layout(push_constant) uniform quad_index
 {
-    mat4 model;
+    uint index1;
+    uint index2;
+    uint index3;
+    uint index4;
     vec4 parameters1;
-	vec4 parameters2;
-	vec4 parameters3;
-	vec4 camera;
+    vec4 parameters2;
+    vec4 parameters3;
+    vec4 camera;
 } pc;
 
 layout(location = 0) in vec3 vertex_position;
@@ -63,7 +66,7 @@ void main() {
 	
 	mat3 rotation_matrix = mz * my * mx;
 	vec3 position = vertex_position * instance_scale * rotation_matrix + instance_position;
-	gl_Position = (uboView.proj * uboView.view * pc.model * vec4(position, 1.0));
+	gl_Position = (uboView.proj * uboView.view * vec4(position, 1.0));
 
 	vec4 color = vertex_color * instance_color;
 	vec4 highlight_color = mix(vec4(1, 1, 1, 1), color, (sin(float(uboView.millisecs) / 300 * 6.28319) + 1) * .5);
