@@ -601,6 +601,8 @@ void InitImGuiApp(ImGuiApp* app) {
 		app->particles2d[i].speed = app->speed;
 		app->particles2d[i].id = i * 10000;
 	}
+
+	zest_PrintReports();
 }
 
 void HandleWidget(ImGuiApp* app, zest_widget* widget) {

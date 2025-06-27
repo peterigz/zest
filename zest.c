@@ -2198,6 +2198,7 @@ void zest__end_thread(zest_work_queue_t *queue, void *data) {
 }
 
 void zest__destroy(void) {
+    zest_PrintReports();
     zest_WaitForIdleDevice();
     zest__globals->thread_queues.end_all_threads = true;
     zest_work_queue_t end_queue = { 0 };
@@ -3388,9 +3389,11 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     alloc_info.commandPool = ZestDevice->command_pool;
     ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, ZestRenderer->utility_command_buffer));
 
-    void *linear_memory = ZEST__ALLOCATE(zloc__MEGABYTE(1));
+    void *render_graph_linear_memory = ZEST__ALLOCATE(zloc__MEGABYTE(1));
+    ZestRenderer->render_graph_allocator = zloc_InitialiseLinearAllocator(render_graph_linear_memory, zloc__MEGABYTE(1));
 
-    ZestRenderer->render_graph_allocator = zloc_InitialiseLinearAllocator(linear_memory, zloc__MEGABYTE(1));
+    void *utility_linear_memory = ZEST__ALLOCATE(zloc__MEGABYTE(1));
+    ZestRenderer->utility_allocator = zloc_InitialiseLinearAllocator(utility_linear_memory, zloc__MEGABYTE(1));
 
     ZEST_ASSERT(ZestRenderer->render_graph_allocator);    //Unabable to allocate the render graph allocator, 
 
@@ -6480,6 +6483,25 @@ void zest__log_entry_v(char *str, const char *text, va_list args)
     ZEST_ASSERT(str);
 }
 
+void zest__add_report(zest_report_category category, const char *entry, ...) {
+    zest_text_t message = { 0 };
+    va_list args;
+    va_start(args, entry);
+    zest_SetTextfv(&message, entry, args);
+    va_end(args);
+    zest_key report_hash = zest_Hash(message.str, zest_TextSize(&message), 0);
+    if (zest_map_valid_key(ZestRenderer->reports, report_hash)) {
+        zest_report_t *report = zest_map_at_key(ZestRenderer->reports, report_hash);
+        report->count++;
+    } else {
+        zest_report_t report = { 0 };
+        report.count = 1;
+        report.message = message;
+        report.category = category;
+        zest_map_insert_key(ZestRenderer->reports, report_hash, report);
+    }
+}
+
 void zest__log_entry(const char *text, ...) {
     va_list args;
     va_start(args, text);
@@ -7831,7 +7853,7 @@ Render graph compiler index:
 [Calculate_lifetime_of_resources]
 [Create_resource_barriers]
 [Create_semaphores]
-[Cull_unused_resources_and_passes]
+[Check_unused_resources_and_passes]
 [Alocate_transient_buffers]
 [Process_compiled_execution_order]
 [Create_memory_barriers_for_inputs]
@@ -8252,9 +8274,40 @@ zest_render_graph zest_EndRenderGraph() {
         }
     }
 
-    //Cull_unused_resources_and_passes
+    //Check_unused_resources_and_passes
     //--------------------------------------------------------
-    //Potentially cull unused resources and render passes here. TBA.
+	zest_vec_foreach(i, render_graph->passes) {
+		zest_pass_node pass_node = &render_graph->passes[i];
+		zest_bool is_used = ZEST_FALSE;
+		zest_vec_foreach(j, render_graph->compiled_execution_order) {
+			if (render_graph->compiled_execution_order[j] == i) {
+				is_used = ZEST_TRUE;
+				break;
+			}
+		}
+
+		if (!is_used) {
+			zest__add_report(zest_report_unused_pass, "Unused pass '%s' in render graph '%s'", pass_node->name, render_graph->name);
+		}
+        
+        if (zest_vec_size(pass_node->execution_callbacks) == 0) {
+			zest__add_report(zest_report_taskless_pass, "Pass '%s' in render graph '%s' has no tasks. Add tasks with zest_AddPassTask.", pass_node->name, render_graph->name);
+        }
+	}
+
+	zest_vec_foreach(i, render_graph->resources) {
+		zest_resource_node resource = &render_graph->resources[i];
+        bool is_imported = ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported);
+		if (resource->producer_pass_idx == -1 && zest_vec_size(resource->consumer_pass_indices) > 0 && !is_imported) {
+			zest__add_report(zest_report_unconnected_resource, "Resource '%s' is consumed but never produced in render graph '%s'. Check that you have properly connected all your resources to your passes using the zest_ConnectInput functions. If you don't do this then it can result in validation errors and unexpected behaviour.", resource->name, render_graph->name);
+		}
+		if (resource->producer_pass_idx != -1 && zest_vec_size(resource->consumer_pass_indices) == 0 && resource->type != zest_resource_type_swap_chain_image) {
+			zest__add_report(zest_report_unconnected_resource, "Resource '%s' is produced but never consumed in render graph '%s. Check that you have properly connected all your resources to your passes using the zest_ConnectOutput functions. If you don't do this then it can result in validation errors and unexpected behaviour.'", resource->name, render_graph->name);
+		}
+		if (resource->first_usage_pass_idx == UINT_MAX) {
+			zest__add_report(zest_report_unconnected_resource, "Unused resource '%s' in render graph '%s'. Make sure to connect resources to passes using the zest_ConnectInput/Output functions.", resource->name, render_graph->name);
+		}
+	}
     //--------------------------------------------------------
 
     zest_uint size_of_exe_order = zest_vec_size(render_graph->compiled_execution_order);
@@ -9221,16 +9274,18 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
     zest_vec_foreach(resource_index, render_graph->resources) {
         zest_resource_node resource = &render_graph->resources[resource_index];
         if (resource->type == zest_resource_type_buffer) {
-            ZEST_PRINT("Buffer: %s - VkBuffer: %p, Offset: %zu, Size: %zu", resource->name, resource->storage_buffer->memory_pool->buffer, resource->storage_buffer->memory_offset, resource->storage_buffer->size);
             zest_buffer buffer = resource->storage_buffer;
-			zest_text_t access_mask = zest__vulkan_access_flags_to_string(buffer->last_access_mask);
-			zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(buffer->last_stage_mask);
-            ZEST_PRINT("  -Initial State: Owned by [%s], Last Access: [%s], Last Stage: [%s]",
-                *zest_map_at_key(ZestDevice->queue_names, buffer->owner_queue_family),
-                access_mask.str,
-                pipeline_stage.str);
-			zest_FreeText(&access_mask);
-			zest_FreeText(&pipeline_stage);
+            if (buffer) {
+                ZEST_PRINT("Buffer: %s - VkBuffer: %p, Offset: %zu, Size: %zu", resource->name, resource->storage_buffer->memory_pool->buffer, resource->storage_buffer->memory_offset, resource->storage_buffer->size);
+                zest_text_t access_mask = zest__vulkan_access_flags_to_string(buffer->last_access_mask);
+                zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(buffer->last_stage_mask);
+                ZEST_PRINT("  -Initial State: Owned by [%s], Last Access: [%s], Last Stage: [%s]",
+                    *zest_map_at_key(ZestDevice->queue_names, buffer->owner_queue_family),
+                    access_mask.str,
+                    pipeline_stage.str);
+                zest_FreeText(&access_mask);
+                zest_FreeText(&pipeline_stage);
+            }
             zest_vec_foreach(i, resource->journey) {
                 zest_resource_state_t *state = &resource->journey[i];
 				zest_text_t access_mask = zest__vulkan_access_flags_to_string(state->usage.access_mask);
@@ -16415,6 +16470,23 @@ void zest_OutputMemoryUsage() {
     printf("\n");
     printf("\t\t\t\t-- * --\n");
     printf("\n");
+}
+
+void zest_PrintReports() {
+	ZEST_PRINT("--- Zest Reports ---");
+    if (zest_map_size(ZestRenderer->reports)) {
+        ZEST_PRINT("");
+        zest_map_foreach(i, ZestRenderer->reports) {
+            zest_report_t *report = &ZestRenderer->reports.data[i];
+            ZEST_PRINT("Count: %i. Message: %s", report->count, report->message.str);
+            ZEST_PRINT("-------------------------------------------------");
+        }
+        ZEST_PRINT("");
+    } else {
+        ZEST_PRINT("");
+        ZEST_PRINT("Nothing to report");
+        ZEST_PRINT("");
+    }
 }
 
 zest_bool zest_SetErrorLogPath(const char* path) {

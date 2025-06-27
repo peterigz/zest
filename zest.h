@@ -1472,6 +1472,12 @@ typedef enum zest_supported_shader_stage_bits {
     zest_shader_all_stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 } zest_supported_shader_stage_bits;
 
+typedef enum zest_report_category {
+    zest_report_unused_pass,
+    zest_report_taskless_pass,
+    zest_report_unconnected_resource,
+} zest_report_category;
+
 typedef zest_uint zest_supported_shader_stages;		//zest_shader_stage_bits
 typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
 typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
@@ -1810,6 +1816,8 @@ typedef struct zest_log_entry_t {
 ZEST_PRIVATE void zest__log_entry(const char *entry, ...);
 ZEST_PRIVATE void zest__log_entry_v(char *str, const char *entry, ...);
 ZEST_PRIVATE void zest__reset_frame_log(char *str, const char *entry, ...);
+
+ZEST_PRIVATE void zest__add_report(zest_report_category category, const char *entry, ...);
 
 #ifdef ZEST_DEBUGGING
 #define ZEST_FRAME_LOG(message_f, ...) zest__log_entry(message_f, ##__VA_ARGS__)
@@ -3598,6 +3606,12 @@ typedef struct zest_debug_t {
     zest_log_entry_t *frame_log;
 } zest_debug_t;
 
+typedef struct zest_report_t {
+    zest_text_t message;
+    zest_report_category category;
+    int count;
+} zest_report_t;
+
 zest_hash_map(zest_command_queue) zest_map_command_queues;
 zest_hash_map(VkRenderPass) zest_map_render_passes;
 zest_hash_map(zest_set_layout) zest_map_descriptor_layouts;
@@ -3618,6 +3632,7 @@ zest_hash_map(zest_render_target) zest_map_rt_refresh_queue;
 zest_hash_map(zest_render_target) zest_map_rt_recreate_queue;
 zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
 zest_hash_map(zest_render_graph) zest_map_render_graph;
+zest_hash_map(zest_report_t) zest_map_reports;
 
 typedef struct zest_command_buffer_pools_t {
     VkCommandPool graphics_command_pool;
@@ -3679,8 +3694,11 @@ typedef struct zest_renderer_t {
     zest_command_queue_draw_commands current_draw_commands;
     zest_command_queue_compute current_compute_routine;
 
-    //Linear allocators for building the render graph each frame
+    //Linear allocator for building the render graph each frame
     zloc_linear_allocator_t *render_graph_allocator;
+
+    //Small utility allocator for per function tempory allocations
+    zloc_linear_allocator_t *utility_allocator;
 
     //General Storage
     zest_map_command_queues command_queues;
@@ -3740,6 +3758,7 @@ typedef struct zest_renderer_t {
 
     //Debugging
     zest_debug_t debug;
+    zest_map_reports reports;
 
     //Callbacks for customising window and surface creation
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
@@ -5615,6 +5634,8 @@ ZEST_API void zest_OutputMemoryUsage();
 //Set the path to the log where vulkan validation messages and other log messages can be output to. If this is not set and ZEST_VALIDATION_LAYER is 1 then validation messages and other log
 //messages will be output to the console if it's available.
 ZEST_API zest_bool zest_SetErrorLogPath(const char *path);
+//Print out any reports that have been collected to the console
+ZEST_API void zest_PrintReports();
 //--End Debug Helpers
 
 #ifdef __cplusplus
