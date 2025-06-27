@@ -690,14 +690,14 @@ void HandleWidget(ImGuiApp* app, zest_widget* widget) {
 }
 
 void Draw3dWidgets(ImGuiApp* app) {
-	zest_SetInstanceDrawing(app->scale_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
+		zest_SetInstanceDrawing(app->scale_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
 	zest_push_constants_t *scale_push = zest_CastLayerPushConstants(zest_push_constants_t, app->scale_widget_layer);
 	scale_push->global.x = app->camera.position.x;
 	scale_push->global.y = app->camera.position.y;
 	scale_push->global.z = app->camera.position.z;
 	scale_push->global.w = 1.f;
 	zest_SetInstanceDrawing(app->move_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
-	zest_push_constants_t *move_push = zest_CastLayerPushConstants(zest_push_constants_t, app->scale_widget_layer);
+	zest_push_constants_t *move_push = zest_CastLayerPushConstants(zest_push_constants_t, app->move_widget_layer);
 	move_push->global = scale_push->global;
 	zest_SetLayerColor(app->move_widget_layer, 255, 255, 255, 255);
 
@@ -948,9 +948,6 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		app->point.direction_normal = zest_NormalizeVec3({ result.x, result.y, result.z });
 		//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
 
-		HandleWidget(app, &app->move_widget);
-		HandleWidget(app, &app->scale_widget);
-
 		ImGui::End();
 		ImGui::Render();
 
@@ -1003,6 +1000,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		zest_TimerUnAccumulate(app->timer);
 	} zest_EndTimerLoop(app->timer);
+
+
+	HandleWidget(app, &app->move_widget);
+	HandleWidget(app, &app->scale_widget);
 
 	/*
 	zest_SetMeshDrawing(app->mesh_layer, app->floor_shader_resources, app->mesh_pipeline);
