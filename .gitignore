@@ -415,3 +415,4 @@ zest_log.txt
 spv/
 /build
 /.vscode
+/.gemini
