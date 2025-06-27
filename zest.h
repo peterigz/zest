@@ -8,6 +8,7 @@
     Sections in this header file, you can search for the following keywords to jump to that section :
 
     [Macro_Defines]                     Just a bunch of typedefs and macro definitions
+    [Typedefs_for_numbers]          
     [Platform_specific_code]            Windows/Mac specific, no linux yet
     [Shader_code]                       glsl shader code for all the built in shaders
     [Enums_and_flags]                   Enums and bit flag definitions
@@ -206,6 +207,8 @@ extern "C" {
     }
 
 const char *zest__vulkan_error(VkResult errorCode);
+
+//Typedefs_for_numbers
 
 typedef unsigned int zest_uint;
 typedef int zest_index;

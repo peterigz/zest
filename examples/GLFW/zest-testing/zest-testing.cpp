@@ -949,6 +949,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_vec4 result = zest_MatrixTransformVector(&mat, direction);
 		app->point.direction_normal = zest_NormalizeVec3({ result.x, result.y, result.z });
 		//zest_imgui_DrawImage(app->test_image, 50.f, 50.f);
+		if (ImGui::Button("Print Render Graph")) {
+			app->print_render_graph = true;
+		}
+
 
 		ImGui::End();
 		ImGui::Render();
@@ -1242,10 +1246,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_render_graph render_graph = zest_EndRenderGraph();
 
 		//Print the render graph
-		static bool print_render_graph = true;
-		if (print_render_graph) {
+		if (app->print_render_graph) {
 			zest_PrintCompiledRenderGraph(render_graph);
-			print_render_graph = false;
+			app->print_render_graph = false;
 		}
 	}
 }
@@ -1255,7 +1258,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
@@ -1263,6 +1266,8 @@ int main(void) {
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
+
+	ZEST_PRINT("%zu", sizeof(zest_resource_node_t));
 
 	ImGuiApp imgui_app;
 

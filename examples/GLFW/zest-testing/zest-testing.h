@@ -484,6 +484,7 @@ struct ImGuiApp {
 	surface_point point;
 	bool repoint = true;
 	bool orthagonal = false;
+	bool print_render_graph = false;
 	zest_vec3 cross_plane;
 	zest_vec3 cube[8];
 

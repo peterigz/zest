@@ -7851,10 +7851,10 @@ Render graph compiler index:
 [Resource_journeys]
 [Create_command_batches]
 [Calculate_lifetime_of_resources]
+[Alocate_transient_buffers]
 [Create_resource_barriers]
 [Create_semaphores]
 [Check_unused_resources_and_passes]
-[Alocate_transient_buffers]
 [Process_compiled_execution_order]
 [Create_memory_barriers_for_inputs]
 [Create_memory_barriers_for_outputs]
@@ -8920,6 +8920,20 @@ void zest__execute_render_graph() {
             //Batch execute acquire barriers for images and buffers
             if (zest_vec_size(exe_details->barriers.acquire_buffer_barriers) > 0 ||
                 zest_vec_size(exe_details->barriers.acquire_image_barriers) > 0) {
+                zest_vec_foreach(rindex, exe_details->barriers.acquire_buffer_barriers) {
+                    VkBufferMemoryBarrier *barrier = &exe_details->barriers.acquire_buffer_barriers[rindex];
+                    zest_resource_node resource = exe_details->barriers.acquire_buffer_barrier_nodes[rindex];
+                    zest_buffer buffer = resource->storage_buffer;
+                    barrier->buffer = buffer->memory_pool->buffer;
+                    barrier->size = buffer->size;
+                    barrier->offset = buffer->memory_offset;
+                }
+                zest_vec_foreach(rindex, exe_details->barriers.acquire_image_barriers) {
+                    VkImageMemoryBarrier *barrier = &exe_details->barriers.acquire_image_barriers[rindex];
+                    zest_resource_node resource = exe_details->barriers.acquire_image_barrier_nodes[rindex];
+                    barrier->image = resource->image_buffer.image;
+                    barrier->subresourceRange.levelCount = resource->image_desc.mip_levels;
+                }
                 zest_uint buffer_count = zest_vec_size(exe_details->barriers.acquire_buffer_barriers);
                 zest_uint image_count = zest_vec_size(exe_details->barriers.acquire_image_barriers);
                 vkCmdPipelineBarrier(
@@ -8966,6 +8980,21 @@ void zest__execute_render_graph() {
             //Batch execute release barriers for images and buffers
             if (zest_vec_size(exe_details->barriers.release_buffer_barriers) > 0 ||
                 zest_vec_size(exe_details->barriers.release_image_barriers) > 0) {
+                zest_vec_foreach(rindex, exe_details->barriers.release_buffer_barriers) {
+                    VkBufferMemoryBarrier *barrier = &exe_details->barriers.release_buffer_barriers[rindex];
+                    zest_resource_node resource = exe_details->barriers.release_buffer_barrier_nodes[rindex];
+                    zest_buffer buffer = resource->storage_buffer;
+                    barrier->buffer = buffer->memory_pool->buffer;
+                    barrier->size = buffer->size;
+                    barrier->offset = buffer->memory_offset;
+                }
+                zest_vec_foreach(rindex, exe_details->barriers.release_image_barriers) {
+                    VkImageMemoryBarrier *barrier = &exe_details->barriers.release_image_barriers[rindex];
+                    zest_resource_node resource = exe_details->barriers.release_image_barrier_nodes[rindex];
+                    barrier->image = resource->image_buffer.image;
+                    barrier->subresourceRange.levelCount = resource->image_desc.mip_levels;
+                }
+
                 vkCmdPipelineBarrier(
                     command_buffer,
                     exe_details->barriers.overall_src_stage_mask_for_release_barriers, // Single mask for all barriers in this batch
@@ -10097,12 +10126,12 @@ void zest__add_image_barrier(zest_resource_node resource, zest_execution_barrier
     VkAccessFlags dst_access, VkImageLayout old_layout, VkImageLayout new_layout, zest_uint src_family, zest_uint dst_family, 
     VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage) {
     VkImageMemoryBarrier image_barrier = zest__create_image_memory_barrier(
-        resource->image_buffer.image,
+        VK_NULL_HANDLE,
         src_access,
         dst_access,
         old_layout,
         new_layout,
-        0, resource->image_desc.mip_levels);
+        0, 0);
     image_barrier.srcQueueFamilyIndex = src_family;
     image_barrier.dstQueueFamilyIndex = dst_family;
     if (acquire) {
@@ -10121,10 +10150,10 @@ void zest__add_image_barrier(zest_resource_node resource, zest_execution_barrier
 ZEST_PRIVATE void zest__add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access,
     zest_uint src_family, zest_uint dst_family, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage) {
     VkBufferMemoryBarrier buffer_barrier = zest__create_buffer_memory_barrier(
-        resource->storage_buffer->memory_pool->buffer,
+        VK_NULL_HANDLE,
         src_access,
         dst_access,
-        resource->storage_buffer->memory_offset, resource->storage_buffer->size);
+        0, 0);
     buffer_barrier.srcQueueFamilyIndex = src_family;
     buffer_barrier.dstQueueFamilyIndex = dst_family;
     if (acquire) {
