@@ -690,7 +690,7 @@ void HandleWidget(ImGuiApp* app, zest_widget* widget) {
 }
 
 void Draw3dWidgets(ImGuiApp* app) {
-		zest_SetInstanceDrawing(app->scale_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
+	zest_SetInstanceDrawing(app->scale_widget_layer, app->mesh_shader_resources, app->mesh_instance_pipeline);
 	zest_push_constants_t *scale_push = zest_CastLayerPushConstants(zest_push_constants_t, app->scale_widget_layer);
 	scale_push->global.x = app->camera.position.x;
 	scale_push->global.y = app->camera.position.y;
@@ -1197,19 +1197,23 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//zest_resource_node mesh_layer_resources = zest_AddInstanceLayerBufferResource("Mesh layer", app->mesh_layer, false);
 		zest_resource_node scale_widget_layer_resources = zest_AddInstanceLayerBufferResource("Scale widget layer", app->scale_widget_layer, false);
 		zest_resource_node move_widget_layer_resources = zest_AddInstanceLayerBufferResource("Move widget layer", app->move_widget_layer, false);
+		zest_resource_node line_layer_resources = zest_AddInstanceLayerBufferResource("Line layer", app->line_layer, false);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
-		zest_pass_node upload_mesh_data = zest_AddTransferPassNode("Upload Mesh Data");
+		//zest_pass_node upload_mesh_data = zest_AddTransferPassNode("Upload Mesh Data");
 		zest_pass_node upload_scale_data = zest_AddTransferPassNode("Upload Scale Data");
 		zest_pass_node upload_move_data = zest_AddTransferPassNode("Upload Move Data");
+		zest_pass_node upload_line_data = zest_AddTransferPassNode("Upload Line Data");
 		//outputs
 		//zest_ConnectTransferBufferOutput(upload_mesh_data, mesh_layer_resources);
 		zest_ConnectTransferBufferOutput(upload_scale_data, scale_widget_layer_resources);
 		zest_ConnectTransferBufferOutput(upload_move_data, move_widget_layer_resources);
+		zest_ConnectTransferBufferOutput(upload_line_data, line_layer_resources);
 		//tasks
 		//zest_AddPassTask(upload_mesh_data, zest_UploadInstanceLayerData, app->mesh_layer);
 		zest_AddPassTask(upload_scale_data, zest_UploadInstanceLayerData, app->scale_widget_layer);
 		zest_AddPassTask(upload_move_data, zest_UploadInstanceLayerData, app->move_widget_layer);
+		zest_AddPassTask(upload_line_data, zest_UploadInstanceLayerData, app->line_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//Add passes
@@ -1219,12 +1223,14 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//zest_ConnectVertexBufferInput(graphics_pass, mesh_layer_resources);
 		zest_ConnectVertexBufferInput(graphics_pass, scale_widget_layer_resources);
 		zest_ConnectVertexBufferInput(graphics_pass, move_widget_layer_resources);
+		zest_ConnectVertexBufferInput(graphics_pass, line_layer_resources);
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//tasks
 		//zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->mesh_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->scale_widget_layer);
 		zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->move_widget_layer);
+		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, app->line_layer);
 		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
 			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
 		}
