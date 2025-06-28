@@ -39,7 +39,7 @@ struct TimelineFXExample {
 	tfx_random_t random;
 	tfx_vector_t<tfx_pool_stats_t> memory_stats;
 	bool sync_refresh;
-	bool request_graph_print;
+	bool request_graph_print = true;
 	bool request_no_update_graph_print;
 
 	void Init();
@@ -268,7 +268,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_ConnectSampledImageInput(graphics_pass, color_ramps_texture, zest_pipeline_fragment_stage);
 		//Outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
-		//zest_ReleaseBufferAfterUse(tfx_layer_prev);
+		zest_ReleaseBufferAfterUse(tfx_layer_prev);
 		//Tasks
 		zest_tfx_AddPassTask(graphics_pass, &game->tfx_rendering);
 		//If there's imgui to draw then draw it
@@ -295,10 +295,10 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main() {
-	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	zest_create_info_t create_info = zest_CreateInfo();
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main() {
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = "./";
 	create_info.thread_count = 0;
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);

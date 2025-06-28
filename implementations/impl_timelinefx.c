@@ -108,7 +108,7 @@ void zest_tfx_InitTimelineFXRenderResources(tfx_render_resources_t *resources, c
 	//This means that we are able to only change the current frame in flight if we actually updated the particle manager in the current
 	//frame allowing us to dictate when to upload the instance buffer to the gpu as there's no need to do it every frame, only when 
 	//the particle manager is actually updated.
-	resources->layer = zest_CreateFIFInstanceLayer("TimelineFX Layer", sizeof(tfx_instance_t));
+	resources->layer = zest_CreateFIFInstanceLayer("TimelineFX Layer", sizeof(tfx_instance_t), ZEST_FIXED_LOOP_BUFFER);
 	zest_AcquireGlobalInstanceLayerBufferIndex(resources->layer);
 
 	//Create a buffer to store the image data on the gpu. 

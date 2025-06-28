@@ -8618,8 +8618,8 @@ zest_render_graph zest_EndRenderGraph() {
                     //Release to the transfer queue by default (if it's not already on the transfer queue).
 					zest__add_memory_buffer_barrier(resource, barriers, false,
 						current_usage->access_mask, VK_ACCESS_NONE,
-						current_state->queue_family_index, current_state->queue_family_index,
-						current_state->usage.stage_mask, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+                        current_state->queue_family_index, ZestDevice->transfer_queue_family_index,
+                        current_state->usage.stage_mask, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
                 }
                 prev_state = current_state;
             }
