@@ -10093,7 +10093,7 @@ zest_pass_node zest_AddGraphicBlankScreen(const char *name) {
 zest_pass_node zest_AddRenderPassNode(const char *name) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_pass_node node = zest__add_pass_node(name, zest_queue_graphics);
-    node->timeline_wait_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+    node->timeline_wait_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
     return node;
 }
 

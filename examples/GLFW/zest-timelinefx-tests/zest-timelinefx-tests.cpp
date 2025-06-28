@@ -39,7 +39,7 @@ struct TimelineFXExample {
 	tfx_random_t random;
 	tfx_vector_t<tfx_pool_stats_t> memory_stats;
 	bool sync_refresh;
-	bool request_graph_print = true;
+	bool request_graph_print;
 	bool request_no_update_graph_print;
 
 	void Init();
