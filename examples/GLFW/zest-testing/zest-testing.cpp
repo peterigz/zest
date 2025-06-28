@@ -602,7 +602,7 @@ void InitImGuiApp(ImGuiApp* app) {
 		app->particles2d[i].id = i * 10000;
 	}
 
-	zest_PrintReports();
+	app->timeline = zest_CreateExecutionTimeline();
 }
 
 void HandleWidget(ImGuiApp* app, zest_widget* widget) {
@@ -665,9 +665,6 @@ void HandleWidget(ImGuiApp* app, zest_widget* widget) {
 				}
 			}
 			else {
-				if (ImGui::IsKeyDown(ImGuiKey_Space)) {
-					int d = 0;
-				}
 				switch (app->picked_widget_part->group_id) {
 				case zest_x_rail:
 					app->widget_dragged_amount = zest_Vec3Set(0.f, 0.f, intersection.z - app->first_intersection.z);
@@ -716,7 +713,7 @@ void Draw3dWidgets(ImGuiApp* app) {
 	if (app->picked_widget_part && app->picked_widget) {
 		zest_push_constants_t *picked_push = zest_CastLayerPushConstants(zest_push_constants_t, app->picked_widget->layer);
 		picked_push->parameters1.x = (float)app->picked_widget_part->group_id;
-		zest_Set3DLineDrawing(app->line_layer, app->mesh_shader_resources, app->line_3d_pipeline);
+		//zest_Set3DLineDrawing(app->line_layer, app->mesh_shader_resources, app->line_3d_pipeline);
 		zest_uniform_buffer_data_t* ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->uniform_buffer));
 		zest_axis_flags axis = app->current_axis;
 		for (int i = 0; i != 2; ++i) {
@@ -883,6 +880,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
 	}
 
+	HandleWidget(app, &app->move_widget);
+	HandleWidget(app, &app->scale_widget);
+
 	zest_StartTimerLoop(app->timer) {
 		//Must call the imgui GLFW implementation function
 		ImGui_ImplGlfw_NewFrame();
@@ -1006,10 +1006,6 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		zest_TimerUnAccumulate(app->timer);
 	} zest_EndTimerLoop(app->timer);
-
-
-	HandleWidget(app, &app->move_widget);
-	HandleWidget(app, &app->scale_widget);
 
 	/*
 	zest_SetMeshDrawing(app->mesh_layer, app->floor_shader_resources, app->mesh_pipeline);
@@ -1202,6 +1198,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		//zest_resource_node mesh_layer_resources = zest_AddInstanceLayerBufferResource("Mesh layer", app->mesh_layer, false);
 		zest_resource_node scale_widget_layer_resources = zest_AddInstanceLayerBufferResource("Scale widget layer", app->scale_widget_layer, false);
+		zest_resource_node scale_mesh_data_index = zest_ImportBufferResource("Scale Mesh Index", app->scale_widget_layer->index_data);
+		zest_resource_node scale_mesh_data_vertex = zest_ImportBufferResource("Scale Mesh Vertex", app->scale_widget_layer->vertex_data);
+		zest_resource_node move_mesh_data_index = zest_ImportBufferResource("Move Mesh Index", app->move_widget_layer->index_data);
+		zest_resource_node move_mesh_data_vertex = zest_ImportBufferResource("Move Mesh Vertex", app->move_widget_layer->vertex_data);
 		zest_resource_node move_widget_layer_resources = zest_AddInstanceLayerBufferResource("Move widget layer", app->move_widget_layer, false);
 		zest_resource_node line_layer_resources = zest_AddInstanceLayerBufferResource("Line layer", app->line_layer, false);
 
@@ -1228,7 +1228,11 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//inputs
 		//zest_ConnectVertexBufferInput(graphics_pass, mesh_layer_resources);
 		zest_ConnectVertexBufferInput(graphics_pass, scale_widget_layer_resources);
+		zest_ConnectVertexBufferInput(graphics_pass, scale_mesh_data_index);
+		zest_ConnectVertexBufferInput(graphics_pass, scale_mesh_data_vertex);
 		zest_ConnectVertexBufferInput(graphics_pass, move_widget_layer_resources);
+		zest_ConnectVertexBufferInput(graphics_pass, move_mesh_data_index);
+		zest_ConnectVertexBufferInput(graphics_pass, move_mesh_data_vertex);
 		zest_ConnectVertexBufferInput(graphics_pass, line_layer_resources);
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
@@ -1251,6 +1255,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			app->print_render_graph = false;
 		}
 	}
+
 }
 
 #if defined(_WIN32)
@@ -1266,8 +1271,6 @@ int main(void) {
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
-
-	ZEST_PRINT("%zu", sizeof(zest_resource_node_t));
 
 	ImGuiApp imgui_app;
 

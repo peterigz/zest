@@ -452,6 +452,7 @@ struct ImGuiApp {
 	zest_pipeline_template line_3d_pipeline;
 	zest_pipeline_template mesh_pipeline;
 	zest_pipeline_template mesh_instance_pipeline;
+	zest_execution_timeline timeline;
 
 	zest_layer move_widget_layer;
 	zest_layer scale_widget_layer;

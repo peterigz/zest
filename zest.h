@@ -329,6 +329,7 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_FALSE 0
 #define ZEST_INVALID 0xFFFFFFFF
 #define ZEST_NOT_BINDLESS 0xFFFFFFFF
+#define ZEST_PERSISTENT 0xFFFFFFFF
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
 
 //Shader_code
@@ -1147,12 +1148,6 @@ enum zest__constants {
     zest__required_extension_names_count = 1,
 #endif
 };
-
-typedef enum {
-    zest_buffer_flag_none =      0,
-    zest_buffer_flag_read_only = 1 << 0,
-    zest_buffer_flag_is_fif =    1 << 1
-} zest_buffer_flags_e;
 
 typedef zest_uint zest_buffer_flags;
 
@@ -2260,10 +2255,20 @@ typedef struct zest_buffer_info_t {
     VkImageUsageFlags image_usage_flags;
     VkBufferUsageFlags usage_flags;                    //The usage state_flags of the memory block.
     VkMemoryPropertyFlags property_flags;
-    zest_buffer_flags flags;
     zest_uint memory_type_bits;
     VkDeviceSize alignment;
     zest_uint frame_in_flight;
+    //This is an important field to avoid race conditions. Sometimes you may want to only update a buffer
+    //when data has changed, like a ui buffer or any buffer that's only updated inside a fixed time loop.
+    //This means that the frame in flight index for those buffers is decoupled from the main render loop 
+    //frame in flight (ZEST_FIF). This can create a situation where a decoupled buffer has the same VkBuffer
+    //as a transient buffer that's not decoupled. So what can happen is that a vkCmdDraw can use the same
+    //VkBuffer that was used in the last frame. This should never be possible. A VkBuffer that's used in one
+    //frame - it's last usage should be a minimum of 2 frames ago which means that the frame in flight fence
+    //can properly act as syncronization. Therefore you can add this flag to any buffer that needs to be
+    //decoupled from the main frame in flight index which will force a unique VkBuffer to be created that's 
+    //separate from other buffer pools.
+    zest_uint unique_id;
 } zest_buffer_info_t;
 
 typedef struct zest_buffer_pool_size_t {
@@ -3698,7 +3703,7 @@ typedef struct zest_renderer_t {
     zest_command_queue_compute current_compute_routine;
 
     //Linear allocator for building the render graph each frame
-    zloc_linear_allocator_t *render_graph_allocator;
+    zloc_linear_allocator_t *render_graph_allocator[ZEST_MAX_FIF];
 
     //Small utility allocator for per function tempory allocations
     zloc_linear_allocator_t *utility_allocator;
@@ -4408,6 +4413,7 @@ ZEST_API zest_buffer zest_GetStagingBuffer(zest_frame_staging_buffer frame_stagi
 ZEST_API void zest_ClearBufferToZero(zest_buffer buffer);
 //Memset a host visible buffer to 0.
 ZEST_API void zest_ClearFrameStagingBufferToZero(zest_frame_staging_buffer buffer);
+//Helper functions to create buffers. 
 //Create an index buffer.
 ZEST_API zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_uint fif);
 ZEST_API zest_buffer zest_CreateVertexBuffer(VkDeviceSize size, zest_uint fif);
@@ -4420,6 +4426,26 @@ ZEST_API zest_buffer zest_CreateCPUStorageBuffer(VkDeviceSize size, zest_uint fi
 ZEST_API zest_buffer zest_CreateComputeVertexBuffer(VkDeviceSize size, zest_uint fif);
 //Create an index buffer that is flagged for storage so that you can use it in a compute shader
 ZEST_API zest_buffer zest_CreateComputeIndexBuffer(VkDeviceSize size, zest_uint fif);
+//Create unique buffers for use when using buffers that are decoupled from the main frame in flight
+// Only use unique_id when you need to decouple the frame in flight for the buffer from the main frame in flight.
+// For example, imgui can it's own frame in flight because the buffers only need to be updated when the 
+// zest_impl_UpdateBuffers() function is called which may only be run whenever the data changes or as in most
+// examples, when the fixed update loop is run. In this situation for the sake of maintaining correct 
+// syncronization the unique_id forces the buffer to use a unique VkBuffer so that it doesn't clash with other
+// VkBuffers that are synced up with the main frame in flight index. 
+// So basically if you intend your buffer to be updated everyframe (which will be in most cases) just use 0 for
+// the id
+ZEST_API zest_buffer zest_CreateUniqueIndexBuffer(VkDeviceSize size, zest_uint fif, zest_uint unique_id);
+ZEST_API zest_buffer zest_CreateUniqueVertexBuffer(VkDeviceSize size, zest_uint fif, zest_uint unique_id);
+ZEST_API zest_buffer zest_CreateUniqueVertexStorageBuffer(VkDeviceSize size, zest_uint fif, zest_uint unique_id);
+//Create a general storage buffer mainly for use in a compute shader
+ZEST_API zest_buffer zest_CreateUniqueStorageBuffer(VkDeviceSize size, zest_uint fif, zest_uint unique_id);
+//Create a general storage buffer that is visible to the CPU for more convenient updating
+ZEST_API zest_buffer zest_CreateUniqueCPUStorageBuffer(VkDeviceSize size, zest_uint fif, zest_uint unique_id);
+//Create a vertex buffer that is flagged for storage so that you can use it in a compute shader
+ZEST_API zest_buffer zest_CreateUniqueComputeVertexBuffer(VkDeviceSize size, zest_uint fif, zest_uint unique_id);
+//Create an index buffer that is flagged for storage so that you can use it in a compute shader
+ZEST_API zest_buffer zest_CreateUniqueComputeIndexBuffer(VkDeviceSize size, zest_uint fif, zest_uint unique_id);
 //The following functions can be used to generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible);
@@ -5142,8 +5168,10 @@ ZEST_API int zest_AlwaysRecordCallback(zest_draw_routine draw_routine);
 ZEST_API zest_layer zest_CreateInstanceLayer(const char* name, zest_size type_size);
 //Creates a layer with buffers for each frame in flight located on the device. This means that you can manually decide
 //When to upload to the buffer on the render graph rather then using transient buffers each frame that will be
-//discarded.
-ZEST_API zest_layer zest_CreateFIFInstanceLayer(const char* name, zest_size type_size);
+//discarded. In order to avoid syncing issues on the GPU, pass a unique id to generate a unique VkBuffer. This
+//id can be shared with any other frame in flight layer that will flip their frame in flight index at the same
+//time, like when ever the update loop is run.
+ZEST_API zest_layer zest_CreateFIFInstanceLayer(const char *name, zest_size type_size, zest_uint id);
 //Create a new layer builder which you can use to build new custom layers to draw with using instances
 ZEST_API zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_size type_size);
 //Once you have configured your layer you can call this to create the layer ready for adding to a command queue
