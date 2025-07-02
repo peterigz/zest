@@ -43,8 +43,7 @@ int main(int argc, char **argv) {
     srand(9874925);
 
     void *test_memory = malloc(zloc__MEGABYTE(2));
-    zloc_allocator *test_allocator =
-        zloc_InitialiseAllocatorWithPool(test_memory, zloc__MEGABYTE(2));
+    zloc_allocator *test_allocator = zloc_InitialiseAllocatorWithPool(test_memory, zloc__MEGABYTE(2));
 
     buffer_t buffers[BUFFERS];
     pass_t passes[PASSES];
@@ -93,8 +92,10 @@ int main(int argc, char **argv) {
                 passes[i].num_inputs--;
             }
         }
-
     }
+
+    zloc_InitialiseAllocatorForRemote(zloc_Allocate(test_allocator, zloc__MEGABYTE(64)));
+
 
     size_t current_buffer_size = 0;
     size_t peak_buffer_size = 0;

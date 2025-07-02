@@ -2289,14 +2289,13 @@ zest_hash_map(zest_buffer_pool_size_t) zest_map_buffer_pool_sizes;
 //A simple buffer struct for creating and mapping GPU memory
 typedef struct zest_device_memory_pool_t {
     int magic;
-    VkBuffer buffer;
+    VkBufferCreateInfo buffer_info;
     VkDeviceMemory memory;
     VkDeviceSize size;
     VkDeviceSize minimum_allocation_size;
     VkDeviceSize alignment;
     VkImageUsageFlags usage_flags;
     VkMemoryPropertyFlags property_flags;
-    VkDescriptorBufferInfo descriptor;
     zest_uint memory_type_index;
     void* mapped;
     const char *name;
@@ -2313,9 +2312,18 @@ typedef struct zest_buffer_allocator_t {
     zest_pool_range *range_pools;
 } zest_buffer_allocator_t;
 
+typedef struct zest_buffer_details_t {
+    VkDeviceSize size;
+    VkDeviceSize memory_offset;
+    zest_device_memory_pool memory_pool;
+    zest_buffer_allocator buffer_allocator;
+    zest_size memory_in_use;
+} zest_buffer_details_t;
+
 typedef struct zest_buffer_t {
     VkDeviceSize size;
     VkDeviceSize memory_offset;
+    VkBuffer vk_buffer;
     zest_device_memory_pool memory_pool;
     zest_buffer_allocator buffer_allocator;
     zest_size memory_in_use;
@@ -2327,6 +2335,14 @@ typedef struct zest_buffer_t {
     VkPipelineStageFlags last_stage_mask;
     VkAccessFlags last_access_mask;
 } zest_buffer_t;
+
+typedef struct zest_image_buffer_t {
+    VkImage image;
+    zest_buffer buffer;
+    VkImageView base_view;
+    VkImageView *mip_views;
+    VkFormat format;
+} zest_image_buffer_t;
 
 //Simple stuct for uploading buffers from the staging buffer to the device local buffers
 typedef struct zest_buffer_uploader_t {
@@ -2482,14 +2498,6 @@ typedef struct zest_app_t {
 
     zest_app_flags flags;
 } zest_app_t;
-
-typedef struct zest_image_buffer_t {
-    VkImage image;
-    zest_buffer buffer;
-    VkImageView base_view;
-    VkImageView *mip_views;
-    VkFormat format;
-} zest_image_buffer_t;
 
 typedef struct zest_frame_buffer_t {
     zest_uint width, height;
@@ -3823,15 +3831,14 @@ ZEST_PRIVATE void zest__add_host_memory_pool(zest_size size);
 ZEST_PRIVATE void *zest__allocate(zest_size size);
 ZEST_PRIVATE void *zest__allocate_aligned(zest_size size, zest_size alignment);
 ZEST_PRIVATE void *zest__reallocate(void *memory, zest_size size);
-ZEST_PRIVATE VkResult zest__bind_memory(zest_device_memory_pool memory_allocation, VkDeviceSize offset);
+ZEST_PRIVATE VkResult zest__bind_buffer_memory(zest_buffer buffer, VkDeviceSize offset);
 ZEST_PRIVATE VkResult zest__map_memory(zest_device_memory_pool memory_allocation, VkDeviceSize size, VkDeviceSize offset);
 ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE VkResult zest__flush_memory(zest_device_memory_pool memory_allocation, VkDeviceSize size, VkDeviceSize offset);
 ZEST_PRIVATE zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_key key, zest_size size);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
-ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer_t *buffer, zest_bool is_host_visible);
-ZEST_PRIVATE void zest__buffer_write_barrier(VkCommandBuffer command_buffer, zest_buffer buffer);
+ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer buffer, zest_bool is_host_visible);
 //End Buffer Management
 
 //Renderer_functions
