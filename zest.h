@@ -187,6 +187,10 @@ extern "C" {
 #define ZEST_PI 3.14159265359f
 #define ZEST_FIXED_LOOP_BUFFER 0xF18
 
+#ifndef ZEST_MAX_GPU_ALLOCATIONS_PER_BUFFER
+#define ZEST_MAX_GPU_ALLOCATIONS_PER_BUFFER 64
+#endif
+
 #ifndef ZEST_MAX_DEVICE_MEMORY_POOLS
 #define ZEST_MAX_DEVICE_MEMORY_POOLS 64
 #endif
@@ -1333,7 +1337,18 @@ typedef enum zest_texture_format {
     zest_texture_format_bgra_unorm = VK_FORMAT_B8G8R8A8_UNORM,
     zest_texture_format_rgba_srgb = VK_FORMAT_R8G8B8A8_SRGB,
     zest_texture_format_bgra_srgb = VK_FORMAT_B8G8R8A8_SRGB,
+    zest_texture_format_hdr = VK_FORMAT_R16G16B16A16_SFLOAT,
+    zest_texture_format_depth_stencil = VK_FORMAT_D32_SFLOAT,
 } zest_texture_format;
+
+typedef enum zest_image_memory_group {
+    zest_memory_group_color_rgba8,        // RGBA8, BGRA8, RGB8 variants
+    zest_memory_group_color_hdr,          // RGBA16F, RGBA32F, RGB10A2
+    zest_memory_group_depth_stencil,      // D32_SFLOAT, D24_UNORM_S8_UINT, D16_UNORM
+    zest_memory_group_compress_bc,        // BC1-BC7 (desktop)
+    zest_memory_group_compute,            // Formats used primarily for compute/storage
+    zest_memory_group_swapchain           // Whatever format the swapchain uses
+} zest_image_memory_group;
 
 typedef enum zest_character_flag_bits {
     zest_character_flag_none                              = 0,
@@ -2250,10 +2265,10 @@ typedef struct zest_camera_t {
 typedef struct zest_buffer_type_t {
     VkDeviceSize alignment;
     zest_uint memory_type_index;
+    VkMemoryRequirements requirements;
 } zest_buffer_type_t;
 
 typedef struct zest_buffer_info_t {
-    VkImageUsageFlags image_usage_flags;
     VkBufferUsageFlags usage_flags;                    //The usage state_flags of the memory block.
     VkMemoryPropertyFlags property_flags;
     zest_uint memory_type_bits;
@@ -2272,6 +2287,11 @@ typedef struct zest_buffer_info_t {
     zest_uint unique_id;
 } zest_buffer_info_t;
 
+typedef struct zest_image_info_t {
+    VkImageUsageFlags image_usage_flags;
+    VkFormat format;
+} zest_image_info_t;
+
 typedef struct zest_buffer_pool_size_t {
     const char *name;
     zest_size pool_size;
@@ -2285,10 +2305,12 @@ typedef struct zest_buffer_usage_t {
 } zest_buffer_usage_t;
 
 zest_hash_map(zest_buffer_pool_size_t) zest_map_buffer_pool_sizes;
+zest_hash_map(zest_device_memory_pool) zest_map_memory_pool;
 
 //A simple buffer struct for creating and mapping GPU memory
 typedef struct zest_device_memory_pool_t {
     int magic;
+    zloc_gpu_allocator_t *allocator;
     VkBuffer buffer;
     VkDeviceMemory memory;
     VkDeviceSize size;
@@ -2296,21 +2318,16 @@ typedef struct zest_device_memory_pool_t {
     VkDeviceSize alignment;
     VkImageUsageFlags usage_flags;
     VkMemoryPropertyFlags property_flags;
-    VkDescriptorBufferInfo descriptor;
     zest_uint memory_type_index;
     void* mapped;
     const char *name;
 } zest_device_memory_pool_t;
 
-typedef void* zest_pool_range;
-
 typedef struct zest_buffer_allocator_t {
     int magic;
     zest_buffer_info_t buffer_info;
-    zloc_allocator *allocator;
     zest_size alignment;
-    zest_device_memory_pool *memory_pools;
-    zest_pool_range *range_pools;
+    zest_device_memory_pool memory_pool;
 } zest_buffer_allocator_t;
 
 typedef struct zest_buffer_t {
@@ -3694,6 +3711,7 @@ typedef struct zest_renderer_t {
     VkPipelineCache pipeline_cache;
 
     zest_map_buffer_allocators buffer_allocators;
+    zest_map_memory_pool memory_pools;
 
     VkCommandBuffer utility_command_buffer[ZEST_MAX_FIF];
 
@@ -3829,8 +3847,7 @@ ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE VkResult zest__flush_memory(zest_device_memory_pool memory_allocation, VkDeviceSize size, VkDeviceSize offset);
 ZEST_PRIVATE zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_key key, zest_size size);
-ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
-ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer_t *buffer, zest_bool is_host_visible);
+ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zloc_gpu_allocation_t allocation, zest_buffer buffer, zest_bool is_host_visible);
 ZEST_PRIVATE void zest__buffer_write_barrier(VkCommandBuffer command_buffer, zest_buffer buffer);
 //End Buffer Management
 
@@ -4019,8 +4036,10 @@ ZEST_PRIVATE zest_bool zest__create_logical_device();
 ZEST_PRIVATE void zest__set_limit_data(void);
 ZEST_PRIVATE zest_bool zest__check_validation_layer_support(void);
 ZEST_PRIVATE void zest__get_required_extensions();
-ZEST_PRIVATE zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
+ZEST_PRIVATE zest_uint zest__find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
 ZEST_PRIVATE zest_buffer_type_t zest__get_buffer_memory_type(VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_size size);
+ZEST_PRIVATE zest_buffer_type_t zest__get_image_memory_type(VkBufferUsageFlags usage_flags, VkFormat format, VkSampleCountFlagBits num_samples);
+ZEST_PRIVATE zest_image_info_t zest__get_image_buffer_info(zest_image_memory_group group);
 ZEST_PRIVATE void zest__set_default_pool_sizes(void);
 ZEST_PRIVATE void *zest_vk_allocate_callback(void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
 ZEST_PRIVATE void *zest_vk_reallocate_callback(void* pUserData, void *memory, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
@@ -4399,6 +4418,8 @@ ZEST_API zloc__error_codes zloc_VerifyRemoteBlocks(zloc_header *first_block, zlo
 ZEST_API zloc__error_codes zloc_VerifyBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
 ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 //---------
+ZEST_API zest_device_memory_pool zest_CreateBufferMemoryPool(const char *name, zest_buffer_info_t *buffer_info, VkDeviceSize size, zest_uint max_allocations);
+ZEST_API zest_device_memory_pool zest_CreateImageMemoryPool(const char *name, zest_image_memory_group memory_group, VkDeviceSize pool_size, zest_uint max_allocations);
 //Create a new buffer configured with the zest_buffer_info_t that you pass into the function. If you're creating a buffer to store
 //and image then pass in the VkImage as well, otherwise just pass in 0.
 //You can use helper functions to create commonly used buffer types such as zest_CreateVertexBufferInfo below, and you can just use
