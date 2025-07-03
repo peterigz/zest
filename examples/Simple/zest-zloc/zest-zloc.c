@@ -94,8 +94,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    zloc_InitialiseAllocatorForRemote(zloc_Allocate(test_allocator, zloc__MEGABYTE(64)));
-
+    zloc_allocator *allocator = zloc_InitialiseAllocatorForRemote(zloc_Allocate(test_allocator, zloc__MEGABYTE(64)));
 
     size_t current_buffer_size = 0;
     size_t peak_buffer_size = 0;
@@ -130,7 +129,7 @@ int main(int argc, char **argv) {
 
     printf("Peak usage: %zu, Total buffer size: %zu\n", peak_buffer_size, total_buffer_size);
 
-     /*
+    /*
     // --- Phase 2: Real allocation replay and verification ---
     printf("\n--- Phase 2: Real Allocation Replay & Verification ---\n");
 

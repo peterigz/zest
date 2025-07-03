@@ -59,6 +59,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		if (ImGui::Button("Print Render Graph")) {
 			app->request_graph_print = true;
+			zloc_VerifyAllRemoteBlocks(0, 0);
 		}
 		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
 		/*

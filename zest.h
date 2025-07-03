@@ -1150,8 +1150,6 @@ enum zest__constants {
 #endif
 };
 
-typedef zest_uint zest_buffer_flags;
-
 typedef enum {
     zest_left_mouse =       1,
     zest_right_mouse =       1 << 1,
@@ -1241,6 +1239,13 @@ typedef enum zest_buffer_upload_flag_bits {
 } zest_buffer_upload_flag_bits;
 
 typedef zest_uint zest_buffer_upload_flags;
+
+typedef enum zest_memory_pool_flags {
+    zest_memory_pool_flag_none,
+    zest_memory_pool_flag_single_buffer,
+} zest_memory_pool_flags;
+
+typedef zest_uint zest_buffer_flags;
 
 typedef enum zest_command_buffer_flag_bits {
     zest_command_buffer_flag_none                               = 0,
@@ -1514,7 +1519,6 @@ typedef struct zest_descriptor_set_t zest_descriptor_set_t;
 typedef struct zest_descriptor_pool_t zest_descriptor_pool_t;
 typedef struct zest_shader_resources_t zest_shader_resources_t;
 typedef struct zest_uniform_buffer_t zest_uniform_buffer_t;
-typedef struct zest_frame_staging_buffer_t zest_frame_staging_buffer_t;
 typedef struct zest_render_target_t zest_render_target_t;
 typedef struct zest_buffer_allocator_t zest_buffer_allocator_t;
 typedef struct zest_compute_t zest_compute_t;
@@ -1551,7 +1555,6 @@ ZEST__MAKE_HANDLE(zest_set_layout)
 ZEST__MAKE_HANDLE(zest_descriptor_set)
 ZEST__MAKE_HANDLE(zest_shader_resources)
 ZEST__MAKE_HANDLE(zest_uniform_buffer)
-ZEST__MAKE_HANDLE(zest_frame_staging_buffer)
 ZEST__MAKE_HANDLE(zest_render_target)
 ZEST__MAKE_HANDLE(zest_buffer_allocator)
 ZEST__MAKE_HANDLE(zest_descriptor_pool)
@@ -2259,6 +2262,7 @@ typedef struct zest_buffer_info_t {
     zest_uint memory_type_bits;
     VkDeviceSize alignment;
     zest_uint frame_in_flight;
+    zest_memory_pool_flags flags;
     //This is an important field to avoid race conditions. Sometimes you may want to only update a buffer
     //when data has changed, like a ui buffer or any buffer that's only updated inside a fixed time loop.
     //This means that the frame in flight index for those buffers is decoupled from the main render loop 
@@ -2290,6 +2294,8 @@ zest_hash_map(zest_buffer_pool_size_t) zest_map_buffer_pool_sizes;
 typedef struct zest_device_memory_pool_t {
     int magic;
     VkBufferCreateInfo buffer_info;
+    zest_memory_pool_flags flags;
+    VkBuffer vk_buffer;
     VkDeviceMemory memory;
     VkDeviceSize size;
     VkDeviceSize minimum_allocation_size;
@@ -2323,6 +2329,8 @@ typedef struct zest_buffer_details_t {
 typedef struct zest_buffer_t {
     VkDeviceSize size;
     VkDeviceSize memory_offset;
+    VkDeviceSize buffer_offset;
+    int magic;
     VkBuffer vk_buffer;
     zest_device_memory_pool memory_pool;
     zest_buffer_allocator buffer_allocator;
@@ -2955,11 +2963,6 @@ typedef struct zest_uniform_buffer_t {
     zest_set_layout set_layout;
 } zest_uniform_buffer_t;
 
-typedef struct zest_frame_staging_buffer_t {
-    int magic;
-    zest_buffer buffer[ZEST_MAX_FIF];
-} zest_frame_staging_buffer_t;
-
 typedef struct zest_descriptor_infos_for_binding_t {
     VkDescriptorBufferInfo descriptor_buffer_info;
     VkDescriptorImageInfo descriptor_image_info;
@@ -3308,8 +3311,8 @@ typedef struct zest_imgui_t {
     int magic;
     zest_texture font_texture;
     zest_pipeline_template pipeline;
-    zest_frame_staging_buffer vertex_staging_buffer;
-    zest_frame_staging_buffer index_staging_buffer;
+    zest_buffer vertex_staging_buffer[ZEST_MAX_FIF];
+    zest_buffer index_staging_buffer[ZEST_MAX_FIF];
     zest_buffer vertex_device_buffer[ZEST_MAX_FIF];
     zest_buffer index_device_buffer[ZEST_MAX_FIF];
     zest_uint fif;
@@ -3702,6 +3705,7 @@ typedef struct zest_renderer_t {
     VkPipelineCache pipeline_cache;
 
     zest_map_buffer_allocators buffer_allocators;
+    VkBuffer *used_buffers_ready_for_freeing;
 
     VkCommandBuffer utility_command_buffer[ZEST_MAX_FIF];
 
@@ -3839,6 +3843,7 @@ ZEST_PRIVATE VkResult zest__flush_memory(zest_device_memory_pool memory_allocati
 ZEST_PRIVATE zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t *buffer_info, VkImage image, zest_key key, zest_size size);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer buffer, zest_bool is_host_visible);
+ZEST_PRIVATE void zest__cleanup_buffers_in_allocators();
 //End Buffer Management
 
 //Renderer_functions
@@ -4403,6 +4408,7 @@ ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_c
 //Debug functions, will output info about the buffer to the console and also verify the integrity of host and device memory blocks
 ZEST_API void zloc__output_buffer_info(void* ptr, size_t size, int free, void* user, int count);
 ZEST_API zloc__error_codes zloc_VerifyRemoteBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
+ZEST_API zloc__error_codes zloc_VerifyAllRemoteBlocks(zloc__block_output output_function, void *user_data);
 ZEST_API zloc__error_codes zloc_VerifyBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
 ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 //---------
@@ -4414,13 +4420,8 @@ ZEST_API zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *bu
 //Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
 ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data);
 ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data);
-//Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
-ZEST_API zest_frame_staging_buffer zest_CreateFrameStagingBuffer(VkDeviceSize size);
-ZEST_API zest_buffer zest_GetStagingBuffer(zest_frame_staging_buffer frame_staging_buffer);
 //Memset a host visible buffer to 0.
 ZEST_API void zest_ClearBufferToZero(zest_buffer buffer);
-//Memset a host visible buffer to 0.
-ZEST_API void zest_ClearFrameStagingBufferToZero(zest_frame_staging_buffer buffer);
 //Helper functions to create buffers. 
 //Create an index buffer.
 ZEST_API zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_uint fif);
@@ -4476,11 +4477,8 @@ ZEST_API void zest_CopyBufferOneTime(zest_buffer src_buffer, zest_buffer dst_buf
 //Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
 //one off copy with a separate command buffer
 ZEST_API void zest_CopyBuffer(VkCommandBuffer command_buffer, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
-//Helper function that will upload a frame staging buffer to a GPU buffer like a vertex or storage buffer. The amount
-//copied will be whatever is in use in the staging buffer
-ZEST_API void zest_CopyFrameStagingBuffer(VkCommandBuffer command_buffer, zest_frame_staging_buffer staging_buffer, zest_buffer device_buffer);
-ZEST_API void zest_StageFrameData(void *src_data, zest_frame_staging_buffer dst_staging_buffer, zest_size size);
-ZEST_API zest_size zest_GetFrameStageBufferMemoryInUse(zest_frame_staging_buffer staging_buffer);
+//Copy data to a staging buffer
+void zest_StageData(void *src_data, zest_buffer dst_staging_buffer, zest_size size);
 //Flush the memory of - in most cases - a staging buffer so that it's memory is made available immediately to the device
 ZEST_API VkResult zest_FlushBuffer(zest_buffer buffer);
 //Free a zest_buffer and return it's memory to the pool
@@ -4543,6 +4541,9 @@ ZEST_API zest_uint zest_GetBufferDescriptorIndex(zest_buffer buffer);
 //Should only be used in zest implementations only
 ZEST_API void *zest_AllocateMemory(zest_size size);
 ZEST_API void zest_FreeMemory(void *allocation);
+//When you free buffers the Vulkan buffer is added to a list that is either freed at the end of the program
+//or you can call this to free them whenever you want.
+ZEST_API void zest_FlushUsedBuffers();
 //--End Buffer related
 
 //-----------------------------------------------
@@ -5209,6 +5210,8 @@ ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
 //is not equal to the current one. Returns true if the instructions were ended false if not. If true then you can assume that the staging
 //buffer for the layer can then be uploaded to the gpu. This should be called in an upload buffer callback in any custom draw routine/layer.
 ZEST_API zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer);
+//Get the current size in bytes of all instances being drawn in the layer
+ZEST_API zest_size zest_GetLayerInstanceSize(zest_layer layer);
 //Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
 ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
 //Get the current amount of instances being drawn in the layer

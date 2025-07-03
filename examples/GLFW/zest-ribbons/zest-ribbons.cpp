@@ -29,9 +29,10 @@ void InitImGuiApp(Ribbons *app) {
 	app->ribbon_buffer_info = GenerateRibbonInfo(tessellation, SEGMENT_COUNT * 10, 10);
 	app->ribbon_count = RIBBON_COUNT;
 
-	app->ribbon_segment_staging_buffer = zest_CreateFrameStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_segment) * 10);
-	app->ribbon_instance_staging_buffer = zest_CreateFrameStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_instance) * 10);
-	zest_ClearFrameStagingBufferToZero(app->ribbon_segment_staging_buffer);
+	zest_ForEachFrameInFlight(fif) {
+		app->ribbon_segment_staging_buffer[fif] = zest_CreateStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_segment) * 10, 0);
+		app->ribbon_instance_staging_buffer[fif] = zest_CreateStagingBuffer(SEGMENT_COUNT * sizeof(ribbon_instance) * 10, 0);
+	}
 	//A builder is used to simplify the compute shader setup process
 	zest_compute_builder_t builder = zest_BeginComputeBuilder();
 	//Declare the bindings we want in the shader
@@ -116,8 +117,8 @@ void UploadRibbonData(VkCommandBuffer command_buffer, const zest_render_graph_co
     zest_resource_node segment_buffer = zest_GetPassOutputResource(context->pass_node, "Ribbon Segment Buffer");
     zest_resource_node ribbon_instance_buffer = zest_GetPassOutputResource(context->pass_node, "Ribbon Instance Buffer");
 
-	zest_CopyFrameStagingBuffer(command_buffer, app->ribbon_segment_staging_buffer, segment_buffer->storage_buffer);
-	zest_CopyFrameStagingBuffer(command_buffer, app->ribbon_instance_staging_buffer, ribbon_instance_buffer->storage_buffer);
+	zest_CopyBuffer(command_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF], segment_buffer->storage_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF]->memory_in_use);
+	zest_CopyBuffer(command_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF], ribbon_instance_buffer->storage_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF]->memory_in_use);
 }
 
 void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
@@ -435,17 +436,17 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	app->camera_push.ribbon_count = app->ribbon_count;
 	zest_uint total_segments = SEGMENT_COUNT * app->ribbon_count;
 	app->index_count = 0;
-	zest_StageFrameData(app->ribbon_segments, app->ribbon_segment_staging_buffer, SEGMENT_COUNT * RIBBON_COUNT * sizeof(ribbon_segment));
+	zest_StageData(app->ribbon_segments, app->ribbon_segment_staging_buffer[ZEST_FIF], SEGMENT_COUNT *RIBBON_COUNT * sizeof(ribbon_segment));
 	app->index_count += (SEGMENT_COUNT * RIBBON_COUNT) * app->ribbon_buffer_info.indicesPerSegment;
-	zest_StageFrameData(app->ribbon_instances, app->ribbon_instance_staging_buffer, app->ribbon_count * sizeof(ribbon_instance));
+	zest_StageData(app->ribbon_instances, app->ribbon_instance_staging_buffer[ZEST_FIF], app->ribbon_count * sizeof(ribbon_instance));
 
 	if (zest_BeginRenderToScreen("Ribbons render graph")) {
 		VkClearColorValue clear_color = { {0.f} };
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 
 		//Resources
-		zest_resource_node ribbon_segment_buffer = zest_AddTransientStorageBufferResource("Ribbon Segment Buffer", zest_GetFrameStageBufferMemoryInUse(app->ribbon_segment_staging_buffer), true);
-		zest_resource_node ribbon_instance_buffer = zest_AddTransientStorageBufferResource("Ribbon Instance Buffer", zest_GetFrameStageBufferMemoryInUse(app->ribbon_instance_staging_buffer), true);
+		zest_resource_node ribbon_segment_buffer = zest_AddTransientStorageBufferResource("Ribbon Segment Buffer", app->ribbon_segment_staging_buffer[ZEST_FIF]->memory_in_use, true);
+		zest_resource_node ribbon_instance_buffer = zest_AddTransientStorageBufferResource("Ribbon Instance Buffer", app->ribbon_instance_staging_buffer[ZEST_FIF]->memory_in_use, true);
 		zest_resource_node ribbon_vertex_buffer = zest_AddTransientVertexBufferResource("Ribbon Vertex Buffer", app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex), true, true);
 		zest_resource_node ribbon_index_buffer = zest_AddTransientIndexBufferResource("Ribbon Index Buffer", app->index_count * sizeof(zest_uint), true, true);
 
@@ -496,8 +497,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";

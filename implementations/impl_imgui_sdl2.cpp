@@ -3,8 +3,8 @@
 
 zest_imgui zest_imgui_Initialise() {
 	zest_imgui imgui_info = &ZestRenderer->imgui_info;
-	ZEST_ASSERT(!imgui_info->vertex_staging_buffer);	//imgui already initialised!
-	ZEST_ASSERT(!imgui_info->index_staging_buffer);
+	ZEST_ASSERT(!imgui_info->vertex_staging_buffer[0]);	//imgui already initialised!
+	ZEST_ASSERT(!imgui_info->index_staging_buffer[0]);
 	memset(imgui_info, 0, sizeof(zest_imgui_t));
 	imgui_info->magic = zest_INIT_MAGIC;
 	ImGui::CreateContext();
@@ -54,8 +54,6 @@ zest_imgui zest_imgui_Initialise() {
 
 	imgui_info->pipeline = imgui_pipeline;
 
-	imgui_info->vertex_staging_buffer = zest_CreateFrameStagingBuffer(1024 * 1024);
-	imgui_info->index_staging_buffer = zest_CreateFrameStagingBuffer(1024 * 1024);
 	zest_ForEachFrameInFlight(fif) {
 		imgui_info->vertex_device_buffer[fif] = zest_CreateVertexBuffer(1024 * 1024, fif);
 		imgui_info->index_device_buffer[fif] = zest_CreateIndexBuffer(1024 * 1024, fif);
