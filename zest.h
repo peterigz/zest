@@ -2631,6 +2631,8 @@ typedef struct zest_pass_node_t {
     VkPipelineStageFlags timeline_wait_stage;
     zest_uint batch_index;
     zest_uint execution_order_index;
+    zest_uint *transient_resources_to_create;
+    zest_uint *transient_resources_to_free;
     zest_device_queue_type queue_type;
     zest_map_resource_usages inputs;
     zest_map_resource_usages outputs;
@@ -2790,6 +2792,8 @@ ZEST_PRIVATE zest_resource_node_t zest__create_import_descriptor_buffer_resource
 ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
 ZEST_PRIVATE zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only);
 ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_resource_node resource);
+ZEST_PRIVATE void zest__create_transient_resource(zest_render_graph render_graph, zest_resource_node resource);
+ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
 ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value);
 ZEST_PRIVATE zest_render_graph zest__new_render_graph(const char *name);
