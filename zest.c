@@ -6592,6 +6592,7 @@ void zest__add_report(zest_report_category category, const char *entry, ...) {
     if (zest_map_valid_key(ZestRenderer->reports, report_hash)) {
         zest_report_t *report = zest_map_at_key(ZestRenderer->reports, report_hash);
         report->count++;
+        zest_FreeText(&message);
     } else {
         zest_report_t report = { 0 };
         report.count = 1;
@@ -7986,9 +7987,6 @@ zest_render_graph zest_EndRenderGraph() {
         case zest_queue_graphics: 
             pass_node->queue = &ZestDevice->graphics_queue; 
             pass_node->queue_family_index = ZestDevice->graphics_queue_family_index; 
-            if (pass_node->execution_callbacks) {
-                has_execution_callback = true;
-            }
             break;
         case zest_queue_compute: 
             pass_node->queue = &ZestDevice->compute_queue; 
@@ -7999,6 +7997,10 @@ zest_render_graph zest_EndRenderGraph() {
             pass_node->queue_family_index = ZestDevice->transfer_queue_family_index; 
             break;
         }
+
+		if (pass_node->execution_callbacks) {
+			has_execution_callback = true;
+		}
 
         zest_map_foreach(j, pass_node->outputs) {
             zest_resource_usage_t *output_usage = &pass_node->outputs.data[j];
@@ -8056,13 +8058,13 @@ zest_render_graph zest_EndRenderGraph() {
 
     //Process_dependency_queue
     //Now we loop through the dependency_queue, all of which will have the dependency count (in degrees) set to 0.
-    int index = 0;
-    while (index != zest_vec_size(dependency_queue)) {
-        int pass_index = dependency_queue[index++];
+    zest_vec_foreach (index, dependency_queue) {
+        int pass_index = dependency_queue[index];
         //Make the pass aware of the execution order index, this is used later when we link up the barriers that need
         //to be executed for resource transitioning and acquiring.
         //Add the pass index to the compiled_execution_order list;
         zest_vec_linear_push(allocator, render_graph->compiled_execution_order, pass_index);
+
         //Check it's adjacency list and for those adjacent passes, reduce their dependency count by one.
         zest_vec_foreach(i, adjacency_list[pass_index].pass_indices) {
             int adj_index = adjacency_list[pass_index].pass_indices[i];
@@ -8375,6 +8377,7 @@ zest_render_graph zest_EndRenderGraph() {
 
     //Check_unused_resources_and_passes
     //--------------------------------------------------------
+    /*
 	zest_vec_foreach(i, render_graph->passes) {
 		zest_pass_node pass_node = &render_graph->passes[i];
 		zest_bool is_used = ZEST_FALSE;
@@ -8390,7 +8393,7 @@ zest_render_graph zest_EndRenderGraph() {
 		}
         
         if (zest_vec_size(pass_node->execution_callbacks) == 0) {
-			zest__add_report(zest_report_taskless_pass, "Pass '%s' in render graph '%s' has no tasks. Add tasks with zest_AddPassTask.", pass_node->name, render_graph->name);
+			zest__add_report(zest_report_taskless_pass, "Pass '%s' in render graph '%s' has no tasks. Add tasks with zest_AddPassTask, or it could be that you tried to add a pass but it was determined that there was no work to do. For example calling zest_AddPassInstanceLayerUpload but there are no instances to upload.", pass_node->name, render_graph->name);
         }
 	}
 
@@ -8407,6 +8410,7 @@ zest_render_graph zest_EndRenderGraph() {
 			zest__add_report(zest_report_unconnected_resource, "Unused resource '%s' in render graph '%s'. Make sure to connect resources to passes using the zest_ConnectInput/Output functions.", resource->name, render_graph->name);
 		}
 	}
+    */
     //--------------------------------------------------------
 
     zest_uint size_of_exe_order = zest_vec_size(render_graph->compiled_execution_order);
@@ -9855,9 +9859,6 @@ zest_resource_node zest_AddTransientImageResource(const char *name, const zest_i
 zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    if (description->size == 0) {
-        return NULL;
-    }
     zest_resource_node_t node = { 0 };
     node.name = name;
     node.id = render_graph->id_counter++;
@@ -9869,7 +9870,7 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
     node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     node.magic = zest_INIT_MAGIC;
     node.producer_pass_idx = -1;
-    if (assign_bindless) {
+    if (assign_bindless && description->size > 0) {
         ZEST_CHECK_HANDLE(render_graph->bindless_layout);   //Trying to assign bindless index number but the render graph bindless layout is null.
         //Make sure you assign it when creating the render graph.
         node.binding_number = zest__get_buffer_binding_number(&node);
@@ -10407,35 +10408,33 @@ void zest__add_pass_image_usage( zest_pass_node pass_node,zest_resource_node ima
 }
 
 void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_node vertex_buffer) {
-    if (ZEST_VALID_HANDLE(vertex_buffer)) {
-        zest__add_pass_buffer_usage(pass, vertex_buffer, zest_purpose_vertex_buffer, 0, ZEST_FALSE);
-    }
+    ZEST_CHECK_HANDLE(vertex_buffer);   //Not a valid resource handle. 
+	zest__add_pass_buffer_usage(pass, vertex_buffer, zest_purpose_vertex_buffer, 0, ZEST_FALSE);
 }
 
 void zest_ConnectIndexBufferInput(zest_pass_node pass, zest_resource_node index_buffer) {
-    ZEST_CHECK_HANDLE(index_buffer);
+    ZEST_CHECK_HANDLE(index_buffer);	//Not a valid resource handle. 
     zest__add_pass_buffer_usage(pass, index_buffer, zest_purpose_index_buffer, 0, ZEST_FALSE);
 }
 
 void zest_ConnectUniformBufferInput(zest_pass_node pass, zest_resource_node uniform_buffer) {
-    ZEST_CHECK_HANDLE(uniform_buffer);
+    ZEST_CHECK_HANDLE(uniform_buffer);	//Not a valid resource handle. 
     zest__add_pass_buffer_usage(pass, uniform_buffer, zest_purpose_uniform_buffer, pass->timeline_wait_stage, ZEST_FALSE);
 }
 
 void zest_ConnectStorageBufferInput(zest_pass_node pass, zest_resource_node storage_buffer) {
-    ZEST_CHECK_HANDLE(storage_buffer);
+    ZEST_CHECK_HANDLE(storage_buffer);	//Not a valid resource handle. 
     zest__add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_read, pass->timeline_wait_stage, ZEST_FALSE);
 }
 
 void zest_ConnectStorageBufferOutput(zest_pass_node pass, zest_resource_node storage_buffer) {
-    ZEST_CHECK_HANDLE(storage_buffer);
+    ZEST_CHECK_HANDLE(storage_buffer);	//Not a valid resource handle. 
     zest__add_pass_buffer_usage(pass, storage_buffer, zest_purpose_storage_buffer_write, pass->timeline_wait_stage, ZEST_TRUE);
 }
 
 void zest_ConnectTransferBufferOutput(zest_pass_node pass, zest_resource_node dst_buffer) {
-    if (ZEST_VALID_HANDLE(dst_buffer)) {
-        zest__add_pass_buffer_usage(pass, dst_buffer, zest_purpose_transfer_dst_buffer, pass->timeline_wait_stage, ZEST_TRUE);
-    }
+    ZEST_CHECK_HANDLE(dst_buffer);	//Not a valid resource handle. 
+	zest__add_pass_buffer_usage(pass, dst_buffer, zest_purpose_transfer_dst_buffer, pass->timeline_wait_stage, ZEST_TRUE);
 }
 
 void zest_ConnectTransferBufferInput(zest_pass_node pass, zest_resource_node src_buffer) {
@@ -14591,6 +14590,7 @@ void zest_ResetInstanceLayerDrawing(zest_layer layer) {
     layer->current_instruction = zest__layer_instruction();
     layer->memory_refs[layer->fif].instance_count = 0;
     layer->memory_refs[layer->fif].instance_ptr = layer->memory_refs[layer->fif].staging_instance_data->data;
+    layer->memory_refs[layer->fif].staging_instance_data->memory_in_use = 0;
 }
 
 zest_uint zest_GetInstanceLayerCount(zest_layer layer) {
@@ -14682,6 +14682,7 @@ void zest_EndInstanceInstructions(zest_layer layer) {
         zest_vec_push(layer->draw_instructions[layer->fif], layer->current_instruction);
         layer->last_draw_mode = zest_draw_mode_none;
     }
+    layer->memory_refs[layer->fif].staging_instance_data->memory_in_use = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
 }
 
 zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer) {
