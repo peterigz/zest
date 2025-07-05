@@ -1405,8 +1405,9 @@ typedef enum zest_resource_node_flag_bits {
     zest_resource_node_flag_transient         = 1 << 0,
     zest_resource_node_flag_imported          = 1 << 1,
     zest_resource_node_flag_used_in_output    = 1 << 2,
-    zest_resource_node_flag_is_bindless       = 1 << 3,
+	zest_resource_node_flag_is_bindless       = 1 << 3,
     zest_resource_node_flag_release_after_use = 1 << 4,
+    zest_resource_node_flag_essential_output  = 1 << 5,
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;
@@ -1460,6 +1461,13 @@ typedef enum zest_connection_type {
     zest_output
 } zest_connection_type;
 
+typedef enum zest_pass_flag_bits {
+    zest_pass_flag_none         = 0,
+    zest_pass_flag_disabled     = 1,
+    zest_pass_flag_do_not_cull  = 1 << 1,
+    zest_pass_flag_culled       = 1 << 2,
+} zest_pass_flag_bits;
+
 typedef enum zest_supported_pipeline_stages {
     zest_pipeline_vertex_input_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
     zest_pipeline_vertex_stage = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
@@ -1485,6 +1493,7 @@ typedef enum zest_report_category {
 typedef zest_uint zest_supported_shader_stages;		//zest_shader_stage_bits
 typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
 typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
+typedef zest_uint zest_pass_flags;          //zest_layer_flag_bits
 
 typedef enum zest_global_binding_numbers {
     zest_combined_image_sampler_binding = 0,
@@ -2639,6 +2648,7 @@ typedef struct zest_pass_node_t {
     zest_pass_execution_callback_t *execution_callbacks;
     zest_render_graph render_graph;
     zest_compute compute;
+    zest_pass_flags flags;
 } zest_pass_node_t;
 
 typedef struct zest_resource_node_t {
@@ -2656,6 +2666,8 @@ typedef struct zest_resource_node_t {
     zest_buffer storage_buffer;
     zest_uint binding_number;
     zest_uint bindless_index;               //The index to use in the shader
+
+    zest_uint reference_count;
 
     zest_uint current_queue_family_index;
     VkAccessFlags current_access_mask;
@@ -2744,7 +2756,8 @@ typedef struct zest_render_graph_t {
     zest_render_graph_flags flags;
     const char *name;
 
-    zest_pass_node_t *passes; 
+    zest_pass_node_t *potential_passes; 
+    zest_pass_node *final_passes; 
     zest_resource_node_t *resources; 
 
     zest_execution_timeline *wait_on_timelines;
