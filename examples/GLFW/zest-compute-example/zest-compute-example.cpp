@@ -230,7 +230,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//outputs
 		zest_ConnectStorageBufferOutput(compute_pass, particle_buffer);
 		//tasks
-		zest_AddPassTask(compute_pass, RecordComputeCommands, app);
+		zest_SetPassTask(compute_pass, RecordComputeCommands, app);
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
@@ -240,11 +240,16 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//outputs
 		zest_ConnectSwapChainOutput(render_pass, swapchain_output_resource, clear_color);
 		//tasks
-		zest_AddPassTask(render_pass, RecordComputeSprites, app);
-		if (zest_imgui_AddToRenderGraph(render_pass)) {
-			zest_AddPassTask(render_pass, zest_imgui_DrawImGuiRenderPass, app);
-		}
+		zest_SetPassTask(render_pass, RecordComputeSprites, app);
 		//--------------------------------------------------------------------------------------------------
+
+		//------------------------ ImGui Pass ----------------------------------------------------------------
+		//If there's imgui to draw then draw it
+		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		if (imgui_pass) {
+			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+		}
+		//----------------------------------------------------------------------------------------------------
 
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		if (app->request_graph_print) {
