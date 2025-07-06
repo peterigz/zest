@@ -137,7 +137,7 @@ void zest_tfx_CreateTimelineFXShaderResources(tfx_render_resources_t *tfx_render
 }
 
 void zest_tfx_AddPassTask(zest_pass_node pass, tfx_render_resources_t *resources) {
-	zest_AddPassTask(pass, zest_tfx_DrawParticleLayer, resources);
+	zest_SetPassTask(pass, zest_tfx_DrawParticleLayer, resources);
 }
 
 void zest_tfx_DrawParticleLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {

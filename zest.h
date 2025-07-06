@@ -2619,7 +2619,7 @@ typedef struct zest_resource_usage_t {
 zest_hash_map(zest_resource_usage_t) zest_map_resource_usages;
 
 typedef struct zest_pass_execution_callback_t {
-    zest_rg_execution_callback execution_callback;
+    zest_rg_execution_callback callback;
     void *user_data;
 } zest_pass_execution_callback_t;
 
@@ -2630,26 +2630,38 @@ typedef struct zest_resource_state_t {
     bool was_released;
 } zest_resource_state_t;
 
+typedef struct zest_pass_queue_info_t {
+    zest_queue queue;
+    zest_uint queue_family_index;
+    VkPipelineStageFlags timeline_wait_stage;
+    zest_device_queue_type queue_type;
+}zest_pass_queue_info_t;
+
 typedef struct zest_pass_node_t {
     int magic;
     zest_id id;
     const char *name;
+
+    zest_pass_queue_info_t queue_info;
     
-    zest_queue queue;
-    zest_uint queue_family_index;
-    VkPipelineStageFlags timeline_wait_stage;
-    zest_uint batch_index;
-    zest_uint execution_order_index;
-    zest_uint *transient_resources_to_create;
-    zest_uint *transient_resources_to_free;
-    zest_device_queue_type queue_type;
     zest_map_resource_usages inputs;
     zest_map_resource_usages outputs;
-    zest_pass_execution_callback_t *execution_callbacks;
-    zest_render_graph render_graph;
+    zest_key output_key;
+    zest_pass_execution_callback_t execution_callback;
     zest_compute compute;
     zest_pass_flags flags;
 } zest_pass_node_t;
+
+typedef struct zest_pass_group_t {
+    zest_pass_queue_info_t queue_info;
+    zest_map_resource_usages inputs;
+    zest_map_resource_usages outputs;
+    zest_uint *transient_resources_to_create;
+    zest_uint *transient_resources_to_free;
+    zest_uint batch_index;
+    zest_uint execution_order_index;
+    zest_pass_node *passes;
+} zest_pass_group_t;
 
 typedef struct zest_resource_node_t {
     int magic;
@@ -2751,13 +2763,15 @@ typedef struct zest_submission_batch_t {
 	zest_u64 *signal_values;
 } zest_submission_batch_t;
 
+zest_hash_map(zest_pass_group_t) zest_map_passes;
+
 typedef struct zest_render_graph_t {
     int magic;
     zest_render_graph_flags flags;
     const char *name;
 
     zest_pass_node_t *potential_passes; 
-    zest_pass_node *final_passes; 
+    zest_map_passes final_passes; 
     zest_resource_node_t *resources; 
 
     zest_execution_timeline *wait_on_timelines;
@@ -2839,10 +2853,9 @@ ZEST_API zest_pass_node zest_AddComputePassNode(zest_compute compute, const char
 ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
 // --- Add callback tasks to passes
-ZEST_API void zest_AddPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
-ZEST_API void zest_AddPassInstanceLayerUpload(zest_pass_node pass, zest_layer layer);
-ZEST_API void zest_AddPassInstanceLayer(zest_pass_node pass, zest_layer layer);
-ZEST_API void zest_ClearPassTasks(zest_pass_node pass);
+ZEST_API void zest_SetPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
+ZEST_API void zest_SetPassInstanceLayerUpload(zest_pass_node pass, zest_layer layer);
+ZEST_API void zest_SetPassInstanceLayer(zest_pass_node pass, zest_layer layer);
 
 // --- Add Transient resources ---
 ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);

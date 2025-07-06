@@ -1118,7 +1118,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_read_layer);
 		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_write_layer);
 		// Tasks
-		zest_AddPassInstanceLayerUpload(upload_tfx_data, tfx_rendering.layer);
+		zest_SetPassInstanceLayerUpload(upload_tfx_data, tfx_rendering.layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//--------------------------Billboard Transfer Pass-------------------------------------------------
@@ -1126,7 +1126,7 @@ void VadersGame::Update(float ellapsed) {
 		// Outputs
 		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer_resource);
 		// Taks
-		zest_AddPassTask(upload_instance_data, zest_UploadInstanceLayerData, billboard_layer);
+		zest_SetPassTask(upload_instance_data, zest_UploadInstanceLayerData, billboard_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//----------------------------Font Transfer Pass----------------------------------------------------
@@ -1134,32 +1134,50 @@ void VadersGame::Update(float ellapsed) {
 		// Outputs
 		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
 		// Tasks
-		zest_AddPassTask(upload_font_data, zest_UploadInstanceLayerData, font_layer);
+		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, font_layer);
 		//--------------------------------------------------------------------------------------------------
 
-		//------------------------ Graphics Pass -----------------------------------------------------------
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
-		// Inputs
-		zest_ConnectSampledImageInput(graphics_pass, particle_texture, zest_pipeline_fragment_stage);
-		zest_ConnectSampledImageInput(graphics_pass, tfx_image_data, zest_pipeline_fragment_stage);
-		zest_ConnectSampledImageInput(graphics_pass, color_ramps_texture, zest_pipeline_fragment_stage);
-		zest_ConnectSampledImageInput(graphics_pass, game_sprites_texture, zest_pipeline_fragment_stage);
-		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture, zest_pipeline_fragment_stage);
-		zest_ConnectVertexBufferInput(graphics_pass, billboard_layer_resource);
-		zest_ConnectVertexBufferInput(graphics_pass, tfx_write_layer);
-		zest_ConnectVertexBufferInput(graphics_pass, tfx_read_layer);
-		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
-		// Ouputs
-		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
-		// Tasks
-		zest_tfx_AddPassTask(graphics_pass, &tfx_rendering);
-		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, billboard_layer);
-		zest_AddPassTask(graphics_pass, zest_DrawFonts, font_layer);
+		//------------------------ Particles Pass -----------------------------------------------------------
+		zest_pass_node particles_pass = zest_AddRenderPassNode("Particles Pass");
+		//inputs
+		zest_ConnectSampledImageInput(particles_pass, particle_texture, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(particles_pass, tfx_image_data, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(particles_pass, color_ramps_texture, zest_pipeline_fragment_stage);
+		zest_ConnectVertexBufferInput(particles_pass, tfx_write_layer);
+		zest_ConnectVertexBufferInput(particles_pass, tfx_read_layer);
+		//outputs
+		zest_ConnectSwapChainOutput(particles_pass, swapchain_output_resource, clear_color);
+		//Task
+		zest_tfx_AddPassTask(particles_pass, &tfx_rendering);
+
+		//------------------------ Billboards Pass -----------------------------------------------------------
+		zest_pass_node billboards_pass = zest_AddRenderPassNode("Billboards Pass");
+		//inputs
+		zest_ConnectSampledImageInput(billboards_pass, game_sprites_texture, zest_pipeline_fragment_stage);
+		zest_ConnectVertexBufferInput(billboards_pass, billboard_layer_resource);
+		//outputs
+		zest_ConnectSwapChainOutput(billboards_pass, swapchain_output_resource, clear_color);
+		//Task
+		zest_SetPassTask(billboards_pass, zest_DrawInstanceLayer, billboard_layer);
+
+		//------------------------ Fonts Pass ----------------------------------------------------------------
+		zest_pass_node fonts_pass = zest_AddRenderPassNode("Fonts Pass");
+		//inputs
+		zest_ConnectSampledImageInput(fonts_pass, font_layer_texture, zest_pipeline_fragment_stage);
+		zest_ConnectVertexBufferInput(fonts_pass, font_layer_resources);
+		//outputs
+		zest_ConnectSwapChainOutput(fonts_pass, swapchain_output_resource, clear_color);
+		//Task
+		zest_SetPassTask(fonts_pass, zest_DrawFonts, font_layer);
+		//----------------------------------------------------------------------------------------------------
+
+		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
-		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
-			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
+		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		if (imgui_pass) {
+			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		}
-		//--------------------------------------------------------------------------------------------------
+		//----------------------------------------------------------------------------------------------------
 
 		zest_SignalTimeline(tfx_rendering.timeline);
 		//Compile and execute the render graph. 
@@ -1182,8 +1200,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
-	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = ".";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

@@ -16,27 +16,32 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     io.Fonts->SetTexID((ImTextureID)font_image);
 }
 
-bool zest_imgui_AddToRenderGraph(zest_pass_node imgui_pass) {
+zest_pass_node zest_imgui_AddToRenderGraph() {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
-    ZEST_ASSERT(imgui_pass->queue_type == zest_queue_graphics); //The pass must be a graphics pass for imagui to draw on 
     
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
         zest_imgui imgui_info = &ZestRenderer->imgui_info;
+        //Declare resources
         zest_resource_node imgui_font_texture = zest_ImportImageResourceReadOnly("Imgui Font", ZestRenderer->imgui_info.font_texture);
 		zest_resource_node imgui_vertex_buffer = zest_imgui_ImportVertexResources("Imgui Vertex Buffer");
 		zest_resource_node imgui_index_buffer = zest_imgui_ImportIndexResources("Imgui Index Buffer");
+        //Transfer Pass
 		zest_pass_node imgui_upload_pass = zest_AddTransferPassNode("Upload ImGui");
-		zest_AddPassTask(imgui_upload_pass, zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
 		zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_vertex_buffer);
 		zest_ConnectTransferBufferOutput(imgui_upload_pass, imgui_index_buffer);
+        //task
+		zest_SetPassTask(imgui_upload_pass, zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
+        //Graphics Pass for ImGui outputting to the output passed in to this function
+		zest_pass_node imgui_pass = zest_AddRenderPassNode("Dear ImGui Pass");
+        //inputs
+		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture, zest_pipeline_fragment_stage);
 		zest_ConnectVertexBufferInput(imgui_pass, imgui_vertex_buffer);
 		zest_ConnectIndexBufferInput(imgui_pass, imgui_index_buffer);
-        zest_ReleaseBufferAfterUse(imgui_vertex_buffer);
-        zest_ReleaseBufferAfterUse(imgui_index_buffer);
-		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture, zest_pipeline_fragment_stage);
-        return true;
+        //Task
+		zest_SetPassTask(imgui_pass, zest_imgui_DrawImGuiRenderPass, NULL);
+        return imgui_pass;
     }
-    return false;
+    return 0;
 }
 
 // This is the function that will be called for your pass.
