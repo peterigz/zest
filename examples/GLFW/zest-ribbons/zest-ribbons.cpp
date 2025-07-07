@@ -459,7 +459,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_ConnectStorageBufferOutput(compute_pass, ribbon_vertex_buffer);
 		zest_ConnectStorageBufferOutput(compute_pass, ribbon_index_buffer);
 		//tasks
-		zest_AddPassTask(compute_pass, RecordComputeCommands, app);
+		zest_SetPassTask(compute_pass, RecordComputeCommands, app);
 		//--------------------------------------------------------------------------------------------------
 
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
@@ -468,7 +468,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_ConnectTransferBufferOutput(transfer_pass, ribbon_segment_buffer);
 		zest_ConnectTransferBufferOutput(transfer_pass, ribbon_instance_buffer);
 		//tasks
-		zest_AddPassTask(transfer_pass, UploadRibbonData, app);
+		zest_SetPassTask(transfer_pass, UploadRibbonData, app);
 		//--------------------------------------------------------------------------------------------------
 
 		//-------------------------TimelineFX Render Pass---------------------------------------------------
@@ -479,11 +479,16 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//outputs
 		zest_ConnectSwapChainOutput(render_pass, swapchain_output_resource, clear_color);
 		//tasks
-		zest_AddPassTask(render_pass, RecordRibbonDrawing, app);
-		if (zest_imgui_AddToRenderGraph(render_pass)) {
-			zest_AddPassTask(render_pass, zest_imgui_DrawImGuiRenderPass, app);
-		}
+		zest_SetPassTask(render_pass, RecordRibbonDrawing, app);
 		//--------------------------------------------------------------------------------------------------
+
+		//------------------------ ImGui Pass ----------------------------------------------------------------
+		//If there's imgui to draw then draw it
+		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		if (imgui_pass) {
+			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+		}
+		//----------------------------------------------------------------------------------------------------
 
 		zest_render_graph render_graph = zest_EndRenderGraph();
 
@@ -497,8 +502,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main(void) {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";

@@ -5,13 +5,15 @@ void InitExample(RenderTargetExample *example) {
 
 	//Create the render targets that we will draw the layers to. The Base render target will be where we draw the images, The top render target
 	//will be where we draw the result of the the blur effect.
-	example->top_target = zest_CreateSimpleRenderTarget("Top render target");
+	/*
+	example->top_target = zest_CreateTextureStorage("Top render target");
 	example->base_target = zest_CreateHDRRenderTarget("Base render target");
 	example->compositor = zest_CreateHDRRenderTarget("Compositor render target");
 	example->tonemap = zest_CreateSimpleRenderTarget("Tone map render target");
 	example->downsampler = zest_CreateMippedHDRRenderTarget("Bloom pass downsampler", 8);
 	example->upsampler = zest_CreateMippedHDRRenderTarget("Bloom pass upsampler", 8);
 	example->downsampler->input_source = example->base_target;
+	*/
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/downsample.frag", "downsample_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
@@ -24,14 +26,14 @@ void InitExample(RenderTargetExample *example) {
 	//Make a pipeline to handle the blur effect
 	example->downsample_pipeline = zest_BeginPipelineTemplate("downsampler");
 	//Set the push constant range for the fragment shader 
-	zest_SetPipelinePushConstantRange(example->downsample_pipeline, sizeof(zest_mip_push_constants_t), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelinePushConstantRange(example->downsample_pipeline, sizeof(zest_mip_push_constants_t), zest_shader_fragment_stage);
 	//Set the vert and frag shaders for the blur effect
 	zest_SetPipelineVertShader(example->downsample_pipeline, "blur_vert.spv", 0);
 	zest_SetPipelineFragShader(example->downsample_pipeline, "downsample_frag.spv", 0);
 	//Add a descriptor set layout for the pipeline, it only needs a single sampler for the fragment shader.
 	//Clear the current layouts that are in the pipeline.
 	zest_ClearPipelineDescriptorLayouts(example->downsample_pipeline);
-    zest_AddPipelineDescriptorLayout(example->downsample_pipeline, *zest_GetDescriptorSetLayoutVK("1 sampler"));
+	zest_AddPipelineDescriptorLayout(example->downsample_pipeline, zest_vk_GetGlobalBindlessLayout());
 	//Theres no vertex data for the shader so set no_vertex_input to true
 	example->downsample_pipeline->no_vertex_input = true;
 	//Make the pipeline template with the create_info we just set up and specify a standard render pass
@@ -46,7 +48,7 @@ void InitExample(RenderTargetExample *example) {
 	zest_SetPipelineVertShader(example->upsample_pipeline, "blur_vert.spv", 0);
 	zest_SetPipelineFragShader(example->upsample_pipeline, "upsample_frag.spv", 0);
     zest_ClearPipelineDescriptorLayouts(example->upsample_pipeline);
-    zest_AddPipelineDescriptorLayout(example->upsample_pipeline, *zest_GetDescriptorSetLayoutVK("2 sampler"));
+	zest_AddPipelineDescriptorLayout(example->upsample_pipeline, zest_vk_GetGlobalBindlessLayout());
     zest_EndPipelineTemplate(example->upsample_pipeline);
     example->upsample_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
@@ -55,8 +57,8 @@ void InitExample(RenderTargetExample *example) {
     zest_SetText(&example->composite_pipeline->fragShaderFile, "composite_frag.spv");
 	zest_ClearPipelinePushConstantRanges(example->composite_pipeline);
     zest_ClearPipelineDescriptorLayouts(example->composite_pipeline);
-    zest_AddPipelineDescriptorLayout(example->composite_pipeline, *zest_GetDescriptorSetLayoutVK("2 sampler"));
-	zest_SetPipelinePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_AddPipelineDescriptorLayout(example->composite_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelinePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), zest_shader_fragment_stage);
 	zest_SetPipelinePushConstants(example->composite_pipeline, &example->composite_push_constants);
     zest_EndPipelineTemplate(example->composite_pipeline);
     example->composite_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
@@ -65,11 +67,12 @@ void InitExample(RenderTargetExample *example) {
     zest_SetText(&example->bloom_pass_pipeline->vertShaderFile, "blur_vert.spv");
     zest_SetText(&example->bloom_pass_pipeline->fragShaderFile, "bloom_pass_frag.spv");
     zest_ClearPipelineDescriptorLayouts(example->bloom_pass_pipeline);
-    zest_AddPipelineDescriptorLayout(example->bloom_pass_pipeline, *zest_GetDescriptorSetLayoutVK("1 sampler"));
-	zest_SetPipelinePushConstantRange(example->bloom_pass_pipeline, sizeof(BloomPushConstants), 0, VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_AddPipelineDescriptorLayout(example->bloom_pass_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelinePushConstantRange(example->bloom_pass_pipeline, sizeof(BloomPushConstants), zest_shader_fragment_stage);
     zest_EndPipelineTemplate(example->bloom_pass_pipeline);
     example->bloom_pass_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
+	/*
 	example->downsampler->pipeline_template = example->downsample_pipeline;
 	//Create the render queue
 	//For a bloom effect we will have a base render target where we can render the scene. 
@@ -89,9 +92,9 @@ void InitExample(RenderTargetExample *example) {
 		{
 			//base target needs a layer that we can use to draw to so we just use a built in one but you could use
 			//your own custom layer and draw routine
-			example->base_layer = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
+			//example->base_layer = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
 			//Create a font layer to draw to it
-			example->font_layer = zest_NewBuiltinLayerSetup("Fonts", zest_builtin_layer_fonts);
+			//example->font_layer = zest_NewBuiltinLayerSetup("Fonts", zest_builtin_layer_fonts);
 		}
 		//Create draw commands that downsamples the base render target in a mip chain applying blur as it goes
 		//We can use the bloom_pass_pipeline to filter the input first, for example filter out all the dark colors.
@@ -127,7 +130,10 @@ void InitExample(RenderTargetExample *example) {
 		zest_FinishQueueSetup();
 	}
 
-	zest_OutputQueues();
+	//zest_OutputQueues();
+	*/
+
+	example->font_layer = zest_CreateFontLayer("Example fonts");
 
 	//Load the images into a texture
 	example->texture = zest_CreateTexturePacked("Statue texture", zest_texture_format_rgba_srgb);
@@ -136,9 +142,6 @@ void InitExample(RenderTargetExample *example) {
 	zest_SetTextureLayerSize(example->texture, 2048);
 	//Process the images so the texture is ready to use
 	zest_ProcessTextureImages(example->texture);
-	//Create the shader resources for the texture and sprite drawing. This will take in a builtin uniform buffer descriptor set
-	//and the texture containing the sprites and create the shader resources for them.
-	example->sprite_shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, example->texture);
 	//Load a font
 	example->font = zest_LoadMSDFFont("examples/assets/SourceSansPro-Regular.zft");
 	//Set an initial position for the rabbit.
@@ -153,26 +156,24 @@ void InitExample(RenderTargetExample *example) {
 	example->composite_push_constants.tonemapping.w = 1.f;
 	example->composite_push_constants.composting.x = 0.1f;
 
-	example->downsampler->push_constants = &example->bloom_constants;
+	//example->downsampler->push_constants = &example->bloom_constants;
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(user_data);
 
-	//Set the active command queue to our custom command queue that we created
-	zest_SetActiveCommandQueue(example->command_queue);
 	//Update the standard 2d uniform buffer
 	zest_Update2dUniformBuffer();
 	//Set the color to draw with on the base layer
-	zest_SetLayerColor(example->base_layer, 255, 255, 255, 255);
+	//zest_SetLayerColor(example->base_layer, 255, 255, 255, 255);
 
 	//delta time for calculating the speed of the rabbit
 	float delta = (float)elapsed / ZEST_MICROSECS_SECOND;
 
 	//Set the sprite drawing to use the shader resources we created earlier
-	zest_SetInstanceDrawing(example->base_layer, example->sprite_shader_resources, zest_PipelineTemplate("pipeline_2d_sprites"));
+	//zest_SetInstanceDrawing(example->base_layer, example->sprite_shader_resources, zest_PipelineTemplate("pipeline_2d_sprites"));
 	//Set the layer intensity
-	zest_SetLayerIntensity(example->base_layer, 1.f);
+	//zest_SetLayerIntensity(example->base_layer, 1.f);
 	//Draw the statue sprite to cover the screen
 	//zest_DrawSprite(example->base_layer, example->image, 0.f, 0.f, 0.f, zest_ScreenWidthf(), zest_ScreenHeightf(), 0.f, 0.f, 0, 0.f);
 	//bounce the rabbit if it hits the screen edge
@@ -195,7 +196,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	example->composite_push_constants.composting.x = threshold;
 	example->bloom_constants.settings.x = threshold;
 	example->bloom_constants.settings.y = knee;
-	example->downsampler->recorder->outdated[ZEST_FIF] = 1;
+	//example->downsampler->recorder->outdated[ZEST_FIF] = 1;
 
 	//Set the font to use for the font layer
 	zest_SetMSDFFontDrawing(example->font_layer, example->font);
@@ -216,6 +217,39 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		int d = 0;
 		//zest_ScheduleRenderTargetRefresh(example->final_blur);
 	}
+
+	//Create the render graph
+	if (zest_BeginRenderToScreen("Fonts Example Render Graph")) {
+		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
+
+		//Add resources
+		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
+		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
+		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
+
+		//---------------------------------Transfer Pass------------------------------------------------------
+		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
+		//outputs
+		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
+		//tasks
+		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
+		//--------------------------------------------------------------------------------------------------
+
+		//---------------------------------Render Pass------------------------------------------------------
+		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//inputes
+		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
+		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture, zest_pipeline_fragment_stage);
+		//outputs
+		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		//tasks
+		zest_SetPassTask(graphics_pass, zest_DrawFonts, example->font_layer);
+		//--------------------------------------------------------------------------------------------------
+
+		//End and execute the render graph
+		zest_EndRenderGraph();
+	}
+
 }
 
 #if defined(_WIN32)
@@ -223,14 +257,14 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main()
 {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	create_info.log_path = "./";
 	create_info.thread_count = 0;
-	zest_SetDescriptorPoolCount(&create_info, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 200);
+	//zest_SetDescriptorPoolCount(&create_info, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 200);
 	zest_Initialise(&create_info);
 	zest_LogFPSToConsole(1);
 

@@ -136,6 +136,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 	//Create the render graph
 	if (zest_BeginRenderToScreen("Sprite Drawing")) {
+		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
@@ -145,26 +146,41 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node sprite_layer = zest_AddInstanceLayerBufferResource("Sprite Layer", example->sprite_layer, false);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
-		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
+		zest_pass_node upload_billboard_data = zest_AddTransferPassNode("Upload Billboard Data");
 		//outputs
-		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer);
-		zest_ConnectTransferBufferOutput(upload_instance_data, sprite_layer);
+		zest_ConnectTransferBufferOutput(upload_billboard_data, billboard_layer);
 		//tasks
-		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, example->billboard_layer);
-		zest_AddPassTask(upload_instance_data , zest_UploadInstanceLayerData, example->sprite_layer);
+		zest_SetPassTask(upload_billboard_data , zest_UploadInstanceLayerData, example->billboard_layer);
+		//--------------------------------------------------------------------------------------------------
+
+		//---------------------------------Transfer Pass----------------------------------------------------
+		zest_pass_node upload_sprite_data = zest_AddTransferPassNode("Upload Sprite Data");
+		//outputs
+		zest_ConnectTransferBufferOutput(upload_sprite_data, sprite_layer);
+		//tasks
+		zest_SetPassTask(upload_sprite_data , zest_UploadInstanceLayerData, example->sprite_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node billboard_pass = zest_AddRenderPassNode("Billboard Pass");
 		//inputs
-		zest_ConnectVertexBufferInput(graphics_pass, billboard_layer);
-		zest_ConnectVertexBufferInput(graphics_pass, sprite_layer);
-		zest_ConnectSampledImageInput(graphics_pass, texture, zest_pipeline_fragment_stage);
+		zest_ConnectVertexBufferInput(billboard_pass, billboard_layer);
+		zest_ConnectSampledImageInput(billboard_pass, texture, zest_pipeline_fragment_stage);
 		//outputs
-		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(billboard_pass, swapchain_output_resource, clear_color);
 		//tasks
-		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->billboard_layer);
-		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->sprite_layer);
+		zest_SetPassTask(billboard_pass, zest_DrawInstanceLayer, example->billboard_layer);
+		//--------------------------------------------------------------------------------------------------
+
+		//---------------------------------Render Pass------------------------------------------------------
+		zest_pass_node sprite_pass = zest_AddRenderPassNode("Sprite Pass");
+		//inputs
+		zest_ConnectVertexBufferInput(sprite_pass, sprite_layer);
+		zest_ConnectSampledImageInput(sprite_pass, texture, zest_pipeline_fragment_stage);
+		//outputs
+		zest_ConnectSwapChainOutput(sprite_pass, swapchain_output_resource, clear_color);
+		//tasks
+		zest_SetPassTask(sprite_pass, zest_DrawInstanceLayer, example->sprite_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//Compile and execute the render graph

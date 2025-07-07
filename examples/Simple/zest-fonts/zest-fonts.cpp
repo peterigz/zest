@@ -42,7 +42,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//outputs
 		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
 		//tasks
-		zest_AddPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
+		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
@@ -53,7 +53,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//tasks
-		zest_AddPassTask(graphics_pass, zest_DrawFonts, example->font_layer);
+		zest_SetPassTask(graphics_pass, zest_DrawFonts, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//End and execute the render graph
@@ -63,8 +63,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-int main(void) {
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+//int main(void) {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	create_info.log_path = "./";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

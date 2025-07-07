@@ -156,7 +156,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Outputs
 		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer);
 		//Tasks
-		zest_AddPassTask(upload_instance_data, zest_UploadInstanceLayerData, app->custom_layer);
+		zest_SetPassTask(upload_instance_data, zest_UploadInstanceLayerData, app->custom_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
@@ -167,11 +167,16 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//Tasks
-		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, app->custom_layer);
-		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
-			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
-		}
+		zest_SetPassTask(graphics_pass, zest_DrawInstanceLayer, app->custom_layer);
 		//--------------------------------------------------------------------------------------------------
+
+		//------------------------ ImGui Pass ----------------------------------------------------------------
+		//If there's imgui to draw then draw it
+		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		if (imgui_pass) {
+			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+		}
+		//----------------------------------------------------------------------------------------------------
 
 		zest_EndRenderGraph();
 	}

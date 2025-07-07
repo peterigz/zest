@@ -19,13 +19,13 @@ struct RenderTargetExample {
 	zest_pipeline_template upsample_pipeline;	    //Handle to the pipeline template we will use for the upsampling part of the blur effect
 	zest_pipeline_template composite_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
 	zest_pipeline_template bloom_pass_pipeline;		//Handle to the pipeline template we will use filter the base target to pick out a color threshold
-	zest_render_target top_target;		            //Render target to draw the result of the blur effect on top of the other layers
-	zest_render_target base_target;		            //The base target to draw the initial images that will be blurred
-	zest_render_target final_blur;		            //Render target where the final blur effect happens
-	zest_render_target downsampler;		            //Render target where the bloom pass happens to filter out dark colors
-	zest_render_target upsampler;		            //Render target where the bloom pass happens to filter out dark colors
-	zest_render_target compositor;		            //Render target to combine the base target with the final blur
-	zest_render_target tonemap;			            //Render target to tonemap the composted base and blur/bloom layers
+	zest_texture top_target;						//Render target to draw the result of the blur effect on top of the other layers
+	zest_texture base_target;						//The base target to draw the initial images that will be blurred
+	zest_texture final_blur;						//Render target where the final blur effect happens
+	zest_texture downsampler;						//Render target where the bloom pass happens to filter out dark colors
+	zest_texture upsampler;							//Render target where the bloom pass happens to filter out dark colors
+	zest_texture compositor;						//Render target to combine the base target with the final blur
+	zest_texture tonemap;							//Render target to tonemap the composted base and blur/bloom layers
 	zest_command_queue command_queue;	            //Custom command queue that we'll build from scratch
 	zest_layer base_layer;				            //Base layer for drawing to the base render target
 	zest_layer top_layer;				            //Top layer for drawing to the top render target

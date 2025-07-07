@@ -1513,6 +1513,7 @@ static const int zest_INIT_MAGIC = 0x4E57;
 
 // --Forward_declarations
 typedef struct zest_texture_t zest_texture_t;
+typedef struct zest_image_collection_t zest_image_collection_t;
 typedef struct zest_image_t zest_image_t;
 typedef struct zest_sampler_t zest_sampler_t;
 typedef struct zest_draw_routine_t zest_draw_routine_t;
@@ -1550,6 +1551,7 @@ ZEST__MAKE_HANDLE(zest_render_graph)
 ZEST__MAKE_HANDLE(zest_pass_node)
 ZEST__MAKE_HANDLE(zest_resource_node)
 ZEST__MAKE_HANDLE(zest_texture)
+ZEST__MAKE_HANDLE(zest_image_collection)
 ZEST__MAKE_HANDLE(zest_image)
 ZEST__MAKE_HANDLE(zest_sampler)
 ZEST__MAKE_HANDLE(zest_draw_routine)
@@ -3528,9 +3530,9 @@ typedef struct zest_texture_t {
 
     zest_imgui_blendtype imgui_blend_type;
     zest_index image_index;                                    //Tracks the UID of image indexes in the list
-    zest_uint packed_border_size;
 
-    zest_uint texture_layer_size;
+    zest_uint width;
+    zest_uint height;
     zest_image_t texture;
     zest_bitmap_t texture_bitmap;
 
@@ -3544,23 +3546,28 @@ typedef struct zest_texture_t {
     zest_uint binding_number;
     // --- 
 
-    //Todo: option to not keep the images in memory after they're uploaded to the graphics card
-    zest_bitmap_t *image_bitmaps;
-    zest_image *images;
-    zest_bitmap_t *layers;
-    zest_bitmap_array_t bitmap_array;
+    //Bitmap data for loading in from disk
+    zest_image_collection image_collection;
     zest_uint layer_count;
-    VkBufferImageCopy *buffer_copy_regions;
-    zest_texture_storage_type storage_type;
 
     zest_uint color_channels;
 
+    zest_texture_storage_type storage_type;
     zest_texture_flags flags;
     zest_thread_access lock;
     void *user_data;
     void(*reprocess_callback)(zest_texture texture, void *user_data);
     void(*cleanup_callback)(zest_texture texture, void *user_data);
 } zest_texture_t;
+
+typedef struct zest_image_collection_t {
+    zest_bitmap_t *image_bitmaps;
+    zest_image *images;
+    zest_bitmap_t *layers;
+    zest_bitmap_array_t bitmap_array;
+    VkBufferImageCopy *buffer_copy_regions;
+    zest_uint packed_border_size;
+} zest_image_collection_t;
 
 typedef struct zest_shader_t {
     int magic;
@@ -3962,9 +3969,10 @@ ZEST_PRIVATE void zest__update_texture_single_image_meta(zest_texture texture, z
 ZEST_PRIVATE void zest__create_texture_image_view(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
 ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__create_texture_debug_set(zest_texture texture);
+ZEST_PRIVATE void zest__maybe_create_image_collection(zest_texture texture);
 
 // --Render_target_internal_functions
-ZEST_PRIVATE void zest__initialise_render_target(zest_render_target render_target, zest_render_target_create_info_t *info);
+ZEST_PRIVATE void zest__initialise_render_target(zest_texture render_target, zest_render_target_create_info_t *info);
 ZEST_PRIVATE void zest__create_render_target_sampler(zest_render_target render_target);
 ZEST_PRIVATE void zest__create_mip_level_render_target_samplers(zest_render_target render_target);
 ZEST_PRIVATE void zest__refresh_render_target_sampler(zest_render_target render_target);
@@ -4913,6 +4921,7 @@ ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_textu
 ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureStorage(const char *name, int width, int height, zest_texture_format format, VkImageViewType view_type);
+ZEST_API zest_texture zest_CreateTextureTarget(const char *name, int width, int height, zest_texture_format format, VkImageViewType view_type);
 //Delete a texture from the renderer and free its resources. You must ensure that you don't try writing to the texture while deleting.
 ZEST_API void zest_DeleteTexture(zest_texture texture);
 //Resetting a texture will remove all it's images and reset it back to it's "just created" status
