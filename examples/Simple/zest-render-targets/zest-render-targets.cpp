@@ -226,6 +226,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
+		zest_resource_node render_target_texture = zest_AddRenderTarget("Render Target", zest_texture_format_rgba_unorm);
 
 		//---------------------------------Transfer Pass------------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
@@ -235,19 +236,32 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
 
+		//---------------------------------Target Pass------------------------------------------------------
+		zest_pass_node render_target_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_ConnectVertexBufferInput(render_target_pass, font_layer_resources);
+		zest_ConnectSampledImageInput(render_target_pass, font_layer_texture, zest_pipeline_fragment_stage);
+		zest_ConnectRenderTargetOutput(render_target_pass, render_target_texture);
+		//tasks
+		zest_SetPassTask(render_target_pass, zest_DrawFonts, example->font_layer);
+		//--------------------------------------------------------------------------------------------------
+
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
-		//inputes
-		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
-		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture, zest_pipeline_fragment_stage);
+		//zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node graphics_pass = zest_AddGraphicBlankScreen("Blank Screen");
+		//inputs
+		zest_ConnectSampledImageInput(graphics_pass, render_target_texture, zest_pipeline_fragment_stage);
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//tasks
-		zest_SetPassTask(graphics_pass, zest_DrawFonts, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//End and execute the render graph
-		zest_EndRenderGraph();
+		zest_render_graph render_graph = zest_EndRenderGraph();
+		static bool print_render_graph = true;
+		if (print_render_graph) {
+			zest_PrintCompiledRenderGraph(render_graph);
+			print_render_graph = false;
+		}
 	}
 
 }

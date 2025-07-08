@@ -1293,6 +1293,7 @@ typedef enum zest_texture_flag_bits {
     zest_texture_flag_ready                               = 1 << 3,
     zest_texture_flag_dirty                               = 1 << 4,
     zest_texture_flag_descriptor_sets_created             = 1 << 5,
+    zest_texture_flag_is_fif                              = 1 << 6,
 } zest_texture_flag_bits;
 
 typedef zest_uint zest_texture_flags;
@@ -1338,6 +1339,7 @@ typedef enum zest_texture_format {
     zest_texture_format_bgra_unorm = VK_FORMAT_B8G8R8A8_UNORM,
     zest_texture_format_rgba_srgb = VK_FORMAT_R8G8B8A8_SRGB,
     zest_texture_format_bgra_srgb = VK_FORMAT_B8G8R8A8_SRGB,
+    zest_texture_format_rgba_hdr = VK_FORMAT_R16G16B16A16_SFLOAT
 } zest_texture_format;
 
 typedef enum zest_character_flag_bits {
@@ -2610,6 +2612,7 @@ typedef struct zest_resource_usage_t {
     VkAccessFlags access_mask;       // Vulkan access mask for barriers
     VkImageLayout image_layout;      // Required VkImageLayout if it's an image
     VkImageAspectFlags    aspect_flags; 
+    zest_resource_purpose purpose;
     // For framebuffer attachments
     VkAttachmentLoadOp load_op;
     VkAttachmentStoreOp store_op;
@@ -2626,7 +2629,7 @@ typedef struct zest_pass_execution_callback_t {
 } zest_pass_execution_callback_t;
 
 typedef struct zest_resource_state_t {
-    zest_uint pass_index;
+    zest_uint final_pass_index;
     zest_resource_usage_t usage;
     zest_uint queue_family_index;
     bool was_released;
@@ -2718,20 +2721,27 @@ typedef struct zest_execution_timeline_t {
     zest_u64 current_value;
 } zest_execution_timeline_t;
 
-typedef struct zest_execution_details_t {
-    VkFramebuffer frame_buffer;
-    VkRenderPass render_pass;
-    VkRect2D render_area;
-    VkClearValue *clear_values;
-    zest_execution_barriers_t barriers;
-    bool requires_dynamic_render_pass;
-} zest_execution_details_t;
+zest_hash_map(zest_uint) attachment_idx;
 
 typedef struct zest_temp_attachment_info_t { 
     zest_resource_node resource_node; 
     zest_resource_usage_t *usage_info; 
     zest_uint attachment_slot;
 } zest_temp_attachment_info_t;
+
+typedef struct zest_execution_details_t {
+    VkFramebuffer frame_buffer;
+	attachment_idx attachment_indexes;
+	zest_temp_attachment_info_t *color_attachment_info;
+	zest_temp_attachment_info_t depth_attachment_info;
+	zest_resource_node *attachment_resource_nodes;
+    VkRenderPass render_pass;
+    VkRect2D render_area;
+    VkClearValue *clear_values;
+
+    zest_execution_barriers_t barriers;
+    bool requires_dynamic_render_pass;
+} zest_execution_details_t;
 
 typedef struct zest_binding_index_for_release_t {
     zest_set_layout layout;
@@ -2831,6 +2841,7 @@ ZEST_PRIVATE void zest__add_image_barrier(zest_resource_node resource, zest_exec
     VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
 ZEST_PRIVATE void zest__add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access, 
      zest_uint src_family, zest_uint dst_family, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
+ZEST_PRIVATE void zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint k_global);
 ZEST_PRIVATE void zest__execute_render_graph();
 
 // --- Utility callbacks ---
@@ -2864,6 +2875,7 @@ ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, con
 ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless);
 ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 ZEST_API zest_resource_node zest_AddFontLayerTextureResource(const zest_font font);
+ZEST_API zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format);
 
 // --- Helpers for adding various types of resources
 ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
@@ -2893,6 +2905,7 @@ ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages);
 ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass, zest_resource_node swapchain_resource, VkClearColorValue clear_color_on_load);
 ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
+ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target);
 ZEST_API void zest_ConnectDepthStencilOutput(zest_pass_node pass_node, zest_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing);
 ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target);
 
@@ -3537,8 +3550,9 @@ typedef struct zest_texture_t {
     zest_bitmap_t texture_bitmap;
 
     // --- GPU data. When changing a texture that is in use, we double buffer then flip when ready
-    zest_image_buffer_t image_buffer;
-    VkDescriptorImageInfo descriptor_image_info;
+    zest_image_buffer_t image_buffer[ZEST_MAX_FIF];
+    VkDescriptorImageInfo descriptor_image_info[ZEST_MAX_FIF];
+    zest_uint fif;
     zest_descriptor_set debug_set;          //A descriptor set for simply sampling the texture
     zest_descriptor_set bindless_set;       //A descriptor set for a bindless layout
     zest_sampler sampler;
@@ -4644,9 +4658,6 @@ ZEST_API zest_command_queue zest_NewFloatingCommandQueue(const char *name);
     //and then down/upsample the image for blur/bloom or other effects that require this
     ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupDownSampler(const char *name, zest_render_target render_target, zest_render_target input_source, zest_pipeline_template pipeline_template);
     ZEST_API zest_command_queue_draw_commands zest_NewDrawCommandSetupUpSampler(const char *name, zest_render_target render_target, zest_render_target downsampler_render_target, zest_pipeline_template pipeline_template);
-        //Add a render target to the render pass within a zest_NewDrawCommandSetupRenderTargetSwap
-        //Context:    Must be called after zest_NewDrawCommandSetupRenderTargetSwap when the context will be zest_setup_context_type_render_pass
-        ZEST_API void zest_AddRenderTarget(zest_render_target render_target);
         //Add a render target layer to the compositor. You can set the type of blend mode that you want to use
         //and an alpha level.
         ZEST_API void zest_AddCompositeLayer(zest_render_target render_target);
