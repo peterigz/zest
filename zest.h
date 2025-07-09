@@ -1118,6 +1118,7 @@ void main(void)
 }
 );
 
+
 //Enums_and_flags
 typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
 
@@ -2286,6 +2287,7 @@ typedef struct zest_buffer_info_t {
     //can properly act as syncronization. Therefore you can add this flag to any buffer that needs to be
     //decoupled from the main frame in flight index which will force a unique VkBuffer to be created that's 
     //separate from other buffer pools.
+    //Note: I don't like this at all. Find another way.
     zest_uint unique_id;
 } zest_buffer_info_t;
 
@@ -2344,7 +2346,10 @@ typedef struct zest_buffer_t {
     VkDeviceSize memory_offset;
     VkDeviceSize buffer_offset;
     int magic;
-    VkBuffer vk_buffer;
+    union {
+        VkBuffer vk_buffer;
+        VkImage vk_image;
+    };
     zest_device_memory_pool memory_pool;
     zest_buffer_allocator buffer_allocator;
     zest_size memory_in_use;
@@ -2555,6 +2560,14 @@ typedef struct zest_timestamp_duration_s {
 
 //Render_graph_types
 
+typedef struct zest_render_target_composite_t {
+    zest_resource_node resource;
+    zest_pipeline pipeline;
+    zest_sampler sampler;
+    void *push_constant;
+    zest_uint push_constant_size;
+}zest_render_target_composite_t;
+
 typedef struct zest_render_graph_context_t {
     VkCommandBuffer command_buffer;
     VkRenderPass render_pass;
@@ -2683,6 +2696,7 @@ typedef struct zest_resource_node_t {
     zest_buffer storage_buffer;
     zest_uint binding_number;
     zest_uint bindless_index;               //The index to use in the shader
+    zest_sampler sampler;
 
     zest_uint reference_count;
 
@@ -2875,7 +2889,7 @@ ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, con
 ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless);
 ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 ZEST_API zest_resource_node zest_AddFontLayerTextureResource(const zest_font font);
-ZEST_API zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format);
+ZEST_API zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler);
 
 // --- Helpers for adding various types of resources
 ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
@@ -2888,6 +2902,8 @@ ZEST_API zest_resource_node zest_ImportImageResourceReadOnly(const char *name, z
 ZEST_API zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_buffer buffer);
 ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer);
 ZEST_API zest_resource_node zest_ImportSwapChainResource(const char *name);
+
+ZEST_API zest_render_target_composite_t zest_CreateRenderTargetComposite(zest_resource_node resource, void *push_constant, zest_uint push_constant_size, zest_pipeline_template pipeline, zest_sampler sampler);
 
 // --- Connect Buffer Helpers ---
 ZEST_API void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_node vertex_buffer);
@@ -2988,7 +3004,6 @@ typedef struct zest_shader_resources_t {
     int magic;
     zest_descriptor_set *sets[ZEST_MAX_FIF];
     VkDescriptorSet *binding_sets;
-    VkCommandBuffer *command_buffers;
 } zest_shader_resources_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_descriptor_set_builder_t {
@@ -4042,8 +4057,8 @@ ZEST_PRIVATE int zest__compare_interface_variables(const void *a, const void *b)
 // --End Pipeline Helper Functions
 
 // --Buffer_allocation_funcitons
-ZEST_PRIVATE void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer, const char *name);
-ZEST_PRIVATE void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer);
+ZEST_PRIVATE void zest__create_device_memory_pool(VkDeviceSize size, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer, const char *name);
+ZEST_PRIVATE void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
 ZEST_PRIVATE zest_size zest__get_minimum_block_size(zest_size pool_size);
 ZEST_PRIVATE void zest__on_add_pool(void *user_data, void *block);
 ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc_header *trimmed_block, zest_size remote_size);
@@ -5104,6 +5119,7 @@ ZEST_API void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *im
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
 //then a new one will be created.
 ZEST_API zest_sampler zest_GetSampler(VkSamplerCreateInfo *info);
+ZEST_API VkSamplerCreateInfo zest_CreateSamplerInfo();
 //-- End Images and textures
 
 //-----------------------------------------------

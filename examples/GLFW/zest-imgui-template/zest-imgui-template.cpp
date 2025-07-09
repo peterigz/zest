@@ -84,26 +84,22 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
 		//Import our test texture with the Bunny sprite
 		zest_resource_node test_texture = zest_ImportImageResourceReadOnly("test texture", app->test_texture);
-		//Add the test texture to the imgui render pass
-		zest_ConnectSampledImageInput(graphics_pass, test_texture, zest_pipeline_fragment_stage);
+		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
-		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
-			//Imgui won't draw anything unless we add a callback with zest_AddPassTask. This has to be done manually rather then
-			//taken care of in the zest_imgui_AddToRenderGraph so that you have the flexibility to draw other things to the swap chain
-			//or other render target in the order that you want.
-			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, app);
-			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-			zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		if (imgui_pass) {
+			zest_ConnectSampledImageInput(imgui_pass, test_texture, zest_pipeline_fragment_stage);
+			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
 		} else {
 			//If there's no ImGui to render then just render a blank screen
 			zest_pass_node blank_pass = zest_AddGraphicBlankScreen("Draw Nothing");
 			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 			zest_ConnectSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
+		//----------------------------------------------------------------------------------------------------
 		//End the render graph and execute it. This will submit it to the GPU.
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		if (app->request_graph_print) {

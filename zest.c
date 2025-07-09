@@ -2592,16 +2592,16 @@ VkResult zest__flush_memory(zest_device_memory_pool memory_allocation, VkDeviceS
     return vkFlushMappedMemoryRanges(ZestDevice->logical_device, 1, &mappedRange);
 }
 
-void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage_flags, VkMemoryPropertyFlags property_flags, zest_device_memory_pool memory_pool, const char* name) {
-    VkBufferCreateInfo buffer_info = { 0 };
-    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buffer_info.size = size;
-    buffer_info.usage = usage_flags;
-    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    buffer_info.flags = 0;
+void zest__create_device_memory_pool(VkDeviceSize size, zest_buffer_info_t *buffer_info, zest_device_memory_pool memory_pool, const char* name) {
+    VkBufferCreateInfo create_buffer_info = { 0 };
+    create_buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    create_buffer_info.size = size;
+    create_buffer_info.usage = buffer_info->usage_flags;
+    create_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    create_buffer_info.flags = 0;
 
     VkBuffer temp_buffer;
-    ZEST_VK_CHECK_RESULT(vkCreateBuffer(ZestDevice->logical_device, &buffer_info, &ZestDevice->allocation_callbacks, &temp_buffer));
+    ZEST_VK_CHECK_RESULT(vkCreateBuffer(ZestDevice->logical_device, &create_buffer_info, &ZestDevice->allocation_callbacks, &temp_buffer));
 
     VkMemoryRequirements memory_requirements;
     vkGetBufferMemoryRequirements(ZestDevice->logical_device, temp_buffer, &memory_requirements);
@@ -2615,7 +2615,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
     VkMemoryAllocateInfo alloc_info = { 0 };
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc_info.allocationSize = memory_requirements.size;
-    alloc_info.memoryTypeIndex = zest_find_memory_type(memory_requirements.memoryTypeBits, property_flags);
+    alloc_info.memoryTypeIndex = zest_find_memory_type(memory_requirements.memoryTypeBits, buffer_info->property_flags);
     ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
     if (zest__validation_layers_are_enabled() && ZestDevice->api_version == VK_API_VERSION_1_2) {
         alloc_info.pNext = &flags;
@@ -2627,11 +2627,11 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
     memory_pool->alignment = memory_requirements.alignment;
     memory_pool->minimum_allocation_size = ZEST__MAX(memory_pool->alignment, memory_pool->minimum_allocation_size);
     memory_pool->memory_type_index = alloc_info.memoryTypeIndex;
-    memory_pool->property_flags = property_flags;
-    memory_pool->usage_flags = usage_flags;
-    memory_pool->buffer_info = buffer_info;
+    memory_pool->property_flags = buffer_info->property_flags;
+    memory_pool->usage_flags = buffer_info->usage_flags;
+    memory_pool->buffer_info = create_buffer_info;
 
-    if (ZEST__FLAGGED(buffer_info.flags, zest_memory_pool_flag_single_buffer)) {
+    if (ZEST__FLAGGED(create_buffer_info.flags, zest_memory_pool_flag_single_buffer)) {
         vkDestroyBuffer(ZestDevice->logical_device, temp_buffer, &ZestDevice->allocation_callbacks);
     } else {
         memory_pool->vk_buffer = temp_buffer;
@@ -2639,24 +2639,21 @@ void zest__create_device_memory_pool(VkDeviceSize size, VkBufferUsageFlags usage
     }
 }
 
-void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, VkMemoryPropertyFlags property_flags, zest_device_memory_pool buffer) {
-    VkMemoryRequirements memory_requirements;
-    vkGetImageMemoryRequirements(ZestDevice->logical_device, image, &memory_requirements);
-
+void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer) {
     VkMemoryAllocateInfo alloc_info = { 0 };
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc_info.allocationSize = size_in_bytes;
-    alloc_info.memoryTypeIndex = zest_find_memory_type(memory_requirements.memoryTypeBits, property_flags);
+    alloc_info.memoryTypeIndex = zest_find_memory_type(buffer_info->memory_type_bits, buffer_info->property_flags);
     ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
 
     buffer->size = size_in_bytes;
-    buffer->alignment = memory_requirements.alignment;
+    buffer->alignment = buffer_info->alignment;
     buffer->minimum_allocation_size = ZEST__MAX(buffer->alignment, buffer->minimum_allocation_size);
     buffer->memory_type_index = alloc_info.memoryTypeIndex;
-    buffer->property_flags = property_flags;
+    buffer->property_flags = buffer_info->property_flags;
     buffer->usage_flags = 0;
 
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, buffer_info->alignment, buffer_info->memory_type_bits);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 }
 
@@ -2742,38 +2739,28 @@ zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t* buffer_i
     *buffer_pool = blank_buffer_pool;
     buffer_pool->magic = zest_INIT_MAGIC;
     buffer_pool->flags = buffer_info->flags;
-    if (image == VK_NULL_HANDLE) {
-        zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDeviceBufferPoolSize(buffer_info->usage_flags, buffer_info->property_flags, buffer_info->image_usage_flags);
-        if (pre_defined_pool_size.pool_size > 0) {
-            buffer_pool->name = pre_defined_pool_size.name;
-            buffer_pool->size = pre_defined_pool_size.pool_size > minimum_size ? pre_defined_pool_size.pool_size : zest_GetNextPower(minimum_size + minimum_size / 2);
-            buffer_pool->minimum_allocation_size = pre_defined_pool_size.minimum_allocation_size;
-        }
-        else {
-            ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating memory where no default pool size was found for usage flags: %i and property flags: %i. Defaulting to next power from size + size / 2",
-                buffer_info->usage_flags, buffer_info->property_flags);
-            buffer_pool->size = zest_GetNextPower(minimum_size + minimum_size / 2);
-            buffer_pool->name = "Unknown";
-            buffer_pool->minimum_allocation_size = zest__get_minimum_block_size(buffer_pool->size);
-        }
-        zest__create_device_memory_pool(buffer_pool->size, buffer_info->usage_flags, buffer_info->property_flags, buffer_pool, "");
-    }
-    else {
-        //zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDevicePoolSize(key);
-        zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDeviceBufferPoolSize(buffer_info->usage_flags, buffer_info->property_flags, buffer_info->image_usage_flags);
-        if (pre_defined_pool_size.pool_size > 0) {
-            buffer_pool->name = pre_defined_pool_size.name;
-            buffer_pool->size = pre_defined_pool_size.pool_size > minimum_size ? pre_defined_pool_size.pool_size : zest_GetNextPower(minimum_size + minimum_size / 2);
-            buffer_pool->minimum_allocation_size = pre_defined_pool_size.minimum_allocation_size;
-        }
-        else {
+	zest_buffer_pool_size_t pre_defined_pool_size = zest_GetDeviceBufferPoolSize(buffer_info->usage_flags, buffer_info->property_flags, buffer_info->image_usage_flags);
+    if (pre_defined_pool_size.pool_size > 0) {
+        buffer_pool->name = pre_defined_pool_size.name;
+        buffer_pool->size = pre_defined_pool_size.pool_size > minimum_size ? pre_defined_pool_size.pool_size : zest_GetNextPower(minimum_size + minimum_size / 2);
+        buffer_pool->minimum_allocation_size = pre_defined_pool_size.minimum_allocation_size;
+    } else {
+        if (image) {
             ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating image memory where no default pool size was found for image usage flags: %i, and property flags: %i. Defaulting to next power from size + size / 2",
                 buffer_info->image_usage_flags, buffer_info->property_flags);
-            buffer_pool->size = zest_GetNextPower(minimum_size + minimum_size / 2);
-            buffer_pool->name = "Unknown";
-            buffer_pool->minimum_allocation_size = zest__get_minimum_block_size(buffer_pool->size);
+        } else {
+            ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating memory where no default pool size was found for usage flags: %i and property flags: %i. Defaulting to next power from size + size / 2",
+                buffer_info->usage_flags, buffer_info->property_flags);
         }
-        zest__create_image_memory_pool(buffer_pool->size, image, buffer_info->property_flags, buffer_pool);
+        buffer_pool->size = zest_GetNextPower(minimum_size + minimum_size / 2);
+        buffer_pool->name = "Unknown";
+        buffer_pool->minimum_allocation_size = zest__get_minimum_block_size(buffer_pool->size);
+    }
+    if (image == VK_NULL_HANDLE) {
+        zest__create_device_memory_pool(buffer_pool->size, buffer_info, buffer_pool, "");
+    }
+    else {
+        zest__create_image_memory_pool(buffer_pool->size, image, buffer_info, buffer_pool);
     }
     if (buffer_info->property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
         zest__map_memory(buffer_pool, VK_WHOLE_SIZE, 0);
@@ -2925,13 +2912,6 @@ zest_uint zloc_CountBlocks(zloc_header* first_block) {
 }
 
 zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t* buffer_info, VkImage image) {
-    if (image != VK_NULL_HANDLE) {
-        VkMemoryRequirements memory_requirements;
-        vkGetImageMemoryRequirements(ZestDevice->logical_device, image, &memory_requirements);
-        buffer_info->memory_type_bits = memory_requirements.memoryTypeBits;
-        buffer_info->alignment = memory_requirements.alignment;
-    }
-
     zest_key key = zest_map_hash_ptr(ZestRenderer->buffer_allocators, buffer_info, sizeof(zest_buffer_info_t));
     if (!zest_map_valid_key(ZestRenderer->buffer_allocators, key)) {
         //If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
@@ -3834,6 +3814,25 @@ void zest__cleanup_renderer() {
 	vkDestroyCommandPool(ZestDevice->logical_device, ZestRenderer->command_buffers.transfer_command_pool, &ZestDevice->allocation_callbacks);
 
     zest_FlushUsedBuffers();
+
+    zest_ForEachFrameInFlight(fif) {
+        if (zest_vec_size(ZestRenderer->deferred_resource_freeing_list.images[fif])) {
+            zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.images[fif]) {
+                zest_image_buffer_t *image_buffer = &ZestRenderer->deferred_resource_freeing_list.images[fif][i];
+                zest_FreeBuffer(image_buffer->buffer);
+                vkDestroyImage(ZestDevice->logical_device, image_buffer->image, &ZestDevice->allocation_callbacks);
+                vkDestroyImageView(ZestDevice->logical_device, image_buffer->base_view, &ZestDevice->allocation_callbacks);
+                if (zest_vec_size(image_buffer->mip_views)) {
+                    zest_vec_foreach(j, image_buffer->mip_views) {
+                        vkDestroyImageView(ZestDevice->logical_device, image_buffer->mip_views[j], &ZestDevice->allocation_callbacks);
+                    }
+                    zest_vec_free(image_buffer->mip_views);
+                }
+            }
+            zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.images[fif]);
+        }
+    }
+
 }
 
 void zest__recreate_swapchain() {
@@ -6732,6 +6731,29 @@ zest_sampler zest_GetSampler(VkSamplerCreateInfo *info) {
     return sampler;
 }
 
+VkSamplerCreateInfo zest_CreateSamplerInfo() {
+    VkSamplerCreateInfo sampler_info = { 0 };
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter = VK_FILTER_LINEAR;
+    sampler_info.minFilter = VK_FILTER_LINEAR;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.anisotropyEnable = VK_FALSE;
+    sampler_info.maxAnisotropy = 1.f;
+    sampler_info.unnormalizedCoordinates = VK_FALSE;
+    sampler_info.compareEnable = VK_FALSE;
+    sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    sampler_info.mipLodBias = 0.f;
+    sampler_info.minLod = 0.0f;
+    sampler_info.maxLod = 1.0f;
+    sampler_info.pNext = VK_NULL_HANDLE;
+    sampler_info.flags = 0;
+    return sampler_info;
+}
+
 void zest__create_debug_layout_and_pool(zest_uint max_texture_count) {
 	zest_set_layout_builder_t builder = zest_BeginSetLayoutBuilder();
 	zest_AddLayoutBuilderCombinedImageSampler(&builder, 0, 1);
@@ -7230,6 +7252,9 @@ void zest__create_transient_image(zest_resource_node node) {
     zest_buffer_info_t buffer_info = { 0 };
     buffer_info.image_usage_flags = node->image_desc.usage;
     buffer_info.property_flags = node->image_desc.properties;
+	buffer_info.memory_type_bits = memory_requirements.memoryTypeBits;
+	buffer_info.alignment = memory_requirements.alignment;
+    buffer_info.frame_in_flight = ZEST_FIF;
     node->image_buffer.buffer = zest_CreateBuffer(memory_requirements.size, &buffer_info, node->image_buffer.image);
     node->image_buffer.format = image_info.format;
 
@@ -7291,6 +7316,8 @@ zest_buffer zest__create_image(zest_uint width, zest_uint height, zest_uint mip_
     zest_buffer_info_t buffer_info = { 0 };
     buffer_info.image_usage_flags = usage;
     buffer_info.property_flags = properties;
+	buffer_info.memory_type_bits = memory_requirements.memoryTypeBits;
+	buffer_info.alignment = memory_requirements.alignment;
     zest_buffer_t* buffer = zest_CreateBuffer(memory_requirements.size, &buffer_info, *image);
 
     vkBindImageMemory(ZestDevice->logical_device, *image, zest_GetBufferDeviceMemory(buffer), buffer->memory_offset);
@@ -7322,6 +7349,8 @@ zest_buffer zest__create_image_array(zest_uint width, zest_uint height, zest_uin
     zest_buffer_info_t buffer_info = { 0 };
     buffer_info.image_usage_flags = usage;
     buffer_info.property_flags = properties;
+	buffer_info.memory_type_bits = memory_requirements.memoryTypeBits;
+	buffer_info.alignment = memory_requirements.alignment;
     zest_buffer_t* buffer = zest_CreateBuffer(memory_requirements.size, &buffer_info, *image);
 
     vkBindImageMemory(ZestDevice->logical_device, *image, zest_GetBufferDeviceMemory(buffer), buffer->memory_offset);
@@ -7945,9 +7974,12 @@ zest_bool zest__is_stage_compatible_with_qfi( VkPipelineStageFlags stages_to_che
 }
 
 void zest__free_transient_resource(zest_resource_node resource) {
-    if (resource->storage_buffer) {
+    if (resource->type == zest_resource_type_buffer) {
         zest_FreeBuffer(resource->storage_buffer);
         resource->storage_buffer = 0;
+    } else if (resource->type == zest_resource_type_image) {
+        zest_FreeBuffer(resource->image_buffer.buffer);
+        resource->image_buffer.buffer = 0;
     }
 }
 
@@ -7968,6 +8000,15 @@ void zest__create_transient_resource(zest_render_graph render_graph, zest_resour
         resource->last_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_is_bindless) && ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
             resource->bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, resource->binding_number);
+            VkDescriptorImageInfo image_buffer_info;
+            image_buffer_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_buffer_info.imageView = resource->image_buffer.base_view;
+            image_buffer_info.sampler = resource->sampler->vk_sampler;
+
+            VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(render_graph->bindless_set->vk_descriptor_set, &image_buffer_info, resource->binding_number, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+            write.dstArrayElement = resource->bindless_index;
+            vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
+
             zest_binding_index_for_release_t binding_index = { render_graph->bindless_layout, resource->bindless_index, resource->binding_number };
             zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
         }
@@ -7986,6 +8027,7 @@ void zest__create_transient_resource(zest_render_graph render_graph, zest_resour
             VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(render_graph->bindless_set->vk_descriptor_set, &buffer_info, resource->binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
             write.dstArrayElement = resource->bindless_index;
             vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
+
             zest_binding_index_for_release_t binding_index = { render_graph->bindless_layout, resource->bindless_index, resource->binding_number };
             zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
         }
@@ -9362,9 +9404,9 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
         if (resource->type == zest_resource_type_buffer) {
 			ZEST_PRINT("Buffer: %s - Size: %zu", resource->name, resource->buffer_desc.size);
         } else if (resource->type == zest_resource_type_image) {
-            ZEST_PRINT("Image: %s - VkImage: %p, Offset: %zu, Size: %zu", 
-                resource->name, resource->image_buffer.image, resource->image_buffer.buffer->buffer_offset, 
-                resource->image_buffer.buffer->size);
+            ZEST_PRINT("Image: %s - VkImage: %p, Size: %u x %u", 
+                resource->name, resource->image_buffer.image,  
+                resource->image_desc.width, resource->image_desc.height);
         } else if (resource->type == zest_resource_type_swap_chain_image) {
             ZEST_PRINT("Image: %s - VkImage: %p", 
                 resource->name, resource->image_buffer.image);
@@ -9536,6 +9578,8 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
     //Nothing here to render, it's just for render graphs that have nothing to render
 }
+
+
 
 // --Command Queue functions
 zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only) {
@@ -9764,7 +9808,7 @@ zest_resource_node zest_AddTransientImageResource(const char *name, const zest_i
     return &zest_vec_back(render_graph->resources);
 }
 
-zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format) {
+zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler) {
     zest_image_description_t description = { 0 };
     description.format = format;
     description.width = zest_ScreenWidth();
@@ -9773,7 +9817,9 @@ zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format fo
 	description.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 	description.tiling = VK_IMAGE_TILING_OPTIMAL;
 	description.mip_levels = 1;
-	return zest_AddTransientImageResource(name, &description, ZEST_TRUE, ZEST_TRUE);
+	zest_resource_node resource = zest_AddTransientImageResource(name, &description, ZEST_TRUE, ZEST_TRUE);
+    resource->sampler = sampler;
+    return resource;
 }
 
 zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless) {
@@ -9971,6 +10017,16 @@ zest_bool zest_AcquireSwapChainImage() {
     ZEST_VK_CHECK_RESULT(result);
     ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired);
     return ZEST_TRUE;
+}
+
+zest_render_target_composite_t zest_CreateRenderTargetComposite(zest_resource_node resource, void *push_constant, zest_uint push_constant_size, zest_pipeline_template pipeline, zest_sampler sampler) {
+    zest_render_target_composite_t composite = { 0 };
+    composite.resource = resource;
+    composite.push_constant = push_constant;
+    composite.push_constant_size = push_constant_size;
+    composite.pipeline = pipeline;
+    composite.sampler = sampler;
+    return composite;
 }
 
 zest_resource_node zest_ImportSwapChainResource(const char *name) {
@@ -12938,6 +12994,7 @@ zest_texture zest_ReplaceTexture(zest_texture texture, zest_texture_storage_type
         zest_SetTextureWrappingRepeat(new_texture);
     }
     if (reserve_images) {
+        zest__maybe_create_image_collection(new_texture);
         zest_vec_reserve(new_texture->image_collection->images, reserve_images);
     }        
     zest_map_insert(ZestRenderer->textures, texture->name.str, new_texture);
@@ -13778,13 +13835,15 @@ void zest__initialise_render_target(zest_texture render_target, zest_render_targ
     render_target->sampler_info.maxLod = (float)render_target->mip_levels - 1.f;
     render_target->sampler_info.pNext = VK_NULL_HANDLE;
     render_target->sampler_info.flags = 0;
-	render_target->sampler = zest__create_sampler(render_target->sampler_info);
+	//render_target->sampler = zest__create_sampler(render_target->sampler_info);
 
-	zest__create_render_target_sampler(render_target);
+	//zest__create_render_target_sampler(render_target);
 
+    /*
     if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_multi_mip)) {
         zest__create_mip_level_render_target_samplers(render_target);
     }
+    */
 
     ZEST__FLAG(render_target->flags, zest_render_target_flag_initialised);
 }

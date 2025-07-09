@@ -19,6 +19,11 @@ struct RenderTargetExample {
 	zest_pipeline_template upsample_pipeline;	    //Handle to the pipeline template we will use for the upsampling part of the blur effect
 	zest_pipeline_template composite_pipeline;		//Handle to the pipeline template we will use to composite the base and blur render targets
 	zest_pipeline_template bloom_pass_pipeline;		//Handle to the pipeline template we will use filter the base target to pick out a color threshold
+	zest_pipeline_template pass_through_pipeline;	
+	zest_resource_node render_target;
+	zest_shader_resources render_target_resources;	//Shader resources for drawing the render target to the screen
+	zest_uint render_target_push;
+	zest_sampler pass_through_sampler;
 	zest_texture top_target;						//Render target to draw the result of the blur effect on top of the other layers
 	zest_texture base_target;						//The base target to draw the initial images that will be blurred
 	zest_texture final_blur;						//Render target where the final blur effect happens
