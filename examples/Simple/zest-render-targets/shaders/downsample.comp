@@ -1,0 +1,71 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Bindless descriptor sets
+layout (set = 0, binding = 0) uniform sampler2D u_textures[];
+layout (set = 0, binding = 4, rgba8) uniform image2D u_storage_images[];
+
+layout(push_constant) uniform PushConstants
+{
+	uint storage_image_index;
+	uint src_mip_index;
+	uint dst_mip_index;
+} pc;
+
+void main(void)
+{
+	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+
+    // Get the dimensions of the image we are writing to
+    ivec2 image_dims = imageSize(u_storage_images[nonuniformEXT(pc.storage_image_index)]);
+    image_dims = image_dims >> pc.dst_mip_index;
+
+    // Bounds check to terminate extra threads
+    if (pixel_coords.x >= image_dims.x || pixel_coords.y >= image_dims.y) {
+        return;
+    }
+
+    // Calculate the UV coordinate and texel size for the SOURCE texture.
+    // The source mip is one level larger than the destination.
+    ivec2 src_dims = imageSize(u_storage_images[nonuniformEXT(pc.storage_image_index)]) >> (pc.dst_mip_index - 1);
+	vec2 src_texel_size = 1.0 / vec2(src_dims);
+	float x = src_texel_size.x;
+	float y = src_texel_size.y;
+
+    // Calculate the UV in the source texture that corresponds to the current pixel in the destination texture
+    vec2 uv = (vec2(pixel_coords) + 0.5) / vec2(image_dims);
+
+	// Take 13 samples from the source texture around the calculated UV
+	vec3 a = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x - 2*x, uv.y + 2*y)).rgb;
+	vec3 b = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x,       uv.y + 2*y)).rgb;
+	vec3 c = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x + 2*x, uv.y + 2*y)).rgb;
+
+	vec3 d = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x - 2*x, uv.y)).rgb;
+	vec3 e = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x,       uv.y)).rgb;
+	vec3 f = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x + 2*x, uv.y)).rgb;
+
+	vec3 g = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x - 2*x, uv.y - 2*y)).rgb;
+	vec3 h = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x,       uv.y - 2*y)).rgb;
+	vec3 i = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x + 2*x, uv.y - 2*y)).rgb;
+
+	vec3 j = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x - x, uv.y + y)).rgb;
+	vec3 k = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x + x, uv.y + y)).rgb;
+	vec3 l = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x - x, uv.y - y)).rgb;
+	vec3 m = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x + x, uv.y - y)).rgb;
+
+	// Apply weighted distribution for a high-quality downsample.
+	// The weights are distributed to be energy-preserving.
+	// The sum of weights is: 0.125*5 + 0.03125*4 + 0.0625*4 = 1
+	vec3 downsample = e*0.125;
+	downsample += (a+c+g+i)*0.03125;
+	downsample += (b+d+f+h)*0.0625;
+	downsample += (j+k+l+m)*0.125;
+
+    // Write the final color to the destination mip level
+	imageStore(u_storage_images[nonuniformEXT(pc.storage_image_index)], pixel_coords, vec4(downsample, 1.0));
+}
+
+
+

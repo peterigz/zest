@@ -1411,6 +1411,7 @@ typedef enum zest_resource_node_flag_bits {
 	zest_resource_node_flag_is_bindless       = 1 << 3,
     zest_resource_node_flag_release_after_use = 1 << 4,
     zest_resource_node_flag_essential_output  = 1 << 5,
+    zest_resource_node_flag_requires_storage  = 1 << 6,
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;
@@ -1503,6 +1504,7 @@ typedef enum zest_global_binding_numbers {
     zest_storage_buffer_binding,
     zest_sampler_binding,
     zest_sampled_image_binding,
+    zest_storage_image_binding,
 } zest_global_binding_numbers;
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
@@ -2366,6 +2368,7 @@ typedef struct zest_image_buffer_t {
     VkImage image;
     zest_buffer buffer;
     VkImageView base_view;
+    VkImageView multi_mip_view;
     VkImageView *mip_views;
     VkFormat format;
 } zest_image_buffer_t;
@@ -2432,6 +2435,7 @@ typedef struct zest_create_info_t {
     zest_uint bindless_sampler_count;
     zest_uint bindless_sampled_image_count;
     zest_uint bindless_storage_buffer_count;
+    zest_uint bindless_storage_image_count;
 
     //Callbacks: use these to implement your own preferred window creation functionality
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
@@ -2696,10 +2700,12 @@ typedef struct zest_resource_node_t {
     zest_buffer storage_buffer;
     zest_uint binding_number;
     zest_uint bindless_index;               //The index to use in the shader
+    zest_uint *mip_level_bindless_indexes;  //The index to use in the shader
     zest_sampler sampler;
 
     zest_uint reference_count;
 
+    zest_uint current_state_index;
     zest_uint current_queue_family_index;
     VkAccessFlags current_access_mask;
     VkPipelineStageFlags last_stage_mask;
@@ -2879,6 +2885,13 @@ ZEST_API zest_pass_node zest_AddRenderPassNode(const char *name);
 ZEST_API zest_pass_node zest_AddComputePassNode(zest_compute compute, const char *name);
 ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
+// --- Helper functions for acquiring bindless desriptor array indexes---
+ZEST_API zest_uint zest_AcquireTransientTextureIndex(const zest_render_graph_context_t *context, zest_resource_node resource);
+ZEST_API zest_uint *zest_AcquireTransientMipIndexes(const zest_render_graph_context_t *context, zest_resource_node resource);
+ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
+ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
+ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
+
 // --- Add callback tasks to passes
 ZEST_API void zest_SetPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
 ZEST_API void zest_SetPassInstanceLayerUpload(zest_pass_node pass, zest_layer layer);
@@ -2919,6 +2932,8 @@ ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 
 // --- Connect Image Helpers ---
 ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages);
+ZEST_API void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages);
+ZEST_API void zest_ConnectStorageImageOutput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages, zest_bool write_only);
 ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass, zest_resource_node swapchain_resource, VkClearColorValue clear_color_on_load);
 ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
 ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target);
@@ -4173,6 +4188,8 @@ ZEST_API void zest_AddLayoutBuilderCombinedImageSamplerBindless(zest_set_layout_
 ZEST_API void zest_AddLayoutBuilderUniformBufferBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count, zest_supported_shader_stages shader_stages);
 //Add a descriptor set layout binding to a layout builder for a sampled image in the fragment shader.
 ZEST_API void zest_AddLayoutBuilderStorageBufferBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count, zest_supported_shader_stages shader_stages);
+//Add a descriptor set layout binding to a layout builder for a sampled image in the fragment shader.
+ZEST_API void zest_AddLayoutBuilderStorageImageBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count);
 
 ZEST_API void zest_AddLayoutBuilderBinding(zest_set_layout_builder_t *builder, zest_uint binding_number, VkDescriptorType descriptor_type, zest_uint descriptor_count, zest_supported_shader_stages stage_flags, const VkSampler *p_immutable_samplers);
 //Add a descriptor set layout binding to a layout builder for a sampler in the fragment shader.
@@ -5120,6 +5137,7 @@ ZEST_API void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *im
 //then a new one will be created.
 ZEST_API zest_sampler zest_GetSampler(VkSamplerCreateInfo *info);
 ZEST_API VkSamplerCreateInfo zest_CreateSamplerInfo();
+ZEST_API VkSamplerCreateInfo zest_CreateMippedSamplerInfo(zest_uint mip_levels);
 //-- End Images and textures
 
 //-----------------------------------------------

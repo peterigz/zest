@@ -2265,6 +2265,7 @@ void zest__do_scheduled_tasks(void) {
             vkDestroyImage(ZestDevice->logical_device, image_buffer->image, &ZestDevice->allocation_callbacks);
             vkDestroyImageView(ZestDevice->logical_device, image_buffer->base_view, &ZestDevice->allocation_callbacks);
             if (zest_vec_size(image_buffer->mip_views)) {
+				vkDestroyImageView(ZestDevice->logical_device, image_buffer->multi_mip_view, &ZestDevice->allocation_callbacks);
                 zest_vec_foreach(j, image_buffer->mip_views) {
 					vkDestroyImageView(ZestDevice->logical_device, image_buffer->mip_views[j], &ZestDevice->allocation_callbacks);
                 }
@@ -3434,6 +3435,7 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
 	zest_AddLayoutBuilderStorageBufferBindless(&layout_builder, zest_storage_buffer_binding, create_info->bindless_storage_buffer_count, zest_shader_all_stages);
     zest_AddLayoutBuilderSamplerBindless(&layout_builder, zest_sampler_binding, create_info->bindless_sampler_count);
     zest_AddLayoutBuilderSampledImageBindless(&layout_builder, zest_sampled_image_binding, create_info->bindless_sampled_image_count);
+	zest_AddLayoutBuilderStorageImageBindless(&layout_builder, zest_storage_image_binding, create_info->bindless_storage_image_count);
     ZestRenderer->global_bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Zest Descriptor Layout");
     ZestRenderer->global_set = zest_CreateBindlessSet(ZestRenderer->global_bindless_set_layout);
 
@@ -3823,6 +3825,7 @@ void zest__cleanup_renderer() {
                 vkDestroyImage(ZestDevice->logical_device, image_buffer->image, &ZestDevice->allocation_callbacks);
                 vkDestroyImageView(ZestDevice->logical_device, image_buffer->base_view, &ZestDevice->allocation_callbacks);
                 if (zest_vec_size(image_buffer->mip_views)) {
+					vkDestroyImageView(ZestDevice->logical_device, image_buffer->multi_mip_view, &ZestDevice->allocation_callbacks);
                     zest_vec_foreach(j, image_buffer->mip_views) {
                         vkDestroyImageView(ZestDevice->logical_device, image_buffer->mip_views[j], &ZestDevice->allocation_callbacks);
                     }
@@ -4280,7 +4283,12 @@ void zest_AddLayoutBuilderSampledImageBindless(zest_set_layout_builder_t *builde
 
 void zest_AddLayoutBuilderCombinedImageSamplerBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_texture_count) {
     VkDescriptorBindingFlags binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
-    zest_AddLayoutBuilderBindingBindless(builder, binding_number, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, max_texture_count, VK_SHADER_STAGE_FRAGMENT_BIT, binding_flags, 0);
+    zest_AddLayoutBuilderBindingBindless(builder, binding_number, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, max_texture_count, VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, binding_flags, 0);
+}
+
+void zest_AddLayoutBuilderStorageImageBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_texture_count) {
+    VkDescriptorBindingFlags binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+    zest_AddLayoutBuilderBindingBindless(builder, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, max_texture_count, VK_SHADER_STAGE_COMPUTE_BIT, binding_flags, 0);
 }
 
 void zest_AddLayoutBuilderUniformBufferBindless(zest_set_layout_builder_t *builder, zest_uint binding_number, zest_uint max_buffer_count, zest_supported_shader_stages shader_stages) {
@@ -6754,6 +6762,13 @@ VkSamplerCreateInfo zest_CreateSamplerInfo() {
     return sampler_info;
 }
 
+VkSamplerCreateInfo zest_CreateMippedSamplerInfo(zest_uint mip_levels) {
+    VkSamplerCreateInfo sampler_info = zest_CreateSamplerInfo();
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sampler_info.maxLod = (float)mip_levels - 1.f;
+    return sampler_info;
+}
+
 void zest__create_debug_layout_and_pool(zest_uint max_texture_count) {
 	zest_set_layout_builder_t builder = zest_BeginSetLayoutBuilder();
 	zest_AddLayoutBuilderCombinedImageSampler(&builder, 0, 1);
@@ -7789,6 +7804,7 @@ zest_create_info_t zest_CreateInfo() {
         .bindless_sampler_count = 256,
         .bindless_sampled_image_count = 256,
         .bindless_storage_buffer_count = 256,
+        .bindless_storage_image_count = 256,
     };
     return create_info;
 }
@@ -7990,7 +8006,7 @@ void zest__create_transient_resource(zest_render_graph render_graph, zest_resour
             resource->image_buffer.image,
             resource->image_desc.format,
             zest__determine_aspect_flag(resource->image_desc.format),
-            resource->image_desc.mip_levels,
+            1,
             0,
             VK_IMAGE_VIEW_TYPE_2D,
             1
@@ -7998,21 +8014,6 @@ void zest__create_transient_resource(zest_render_graph render_graph, zest_resour
         resource->current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
         resource->current_access_mask = 0;
         resource->last_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_is_bindless) && ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
-            resource->bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, resource->binding_number);
-            VkDescriptorImageInfo image_buffer_info;
-            image_buffer_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            image_buffer_info.imageView = resource->image_buffer.base_view;
-            image_buffer_info.sampler = resource->sampler->vk_sampler;
-
-            VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(render_graph->bindless_set->vk_descriptor_set, &image_buffer_info, resource->binding_number, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-            write.dstArrayElement = resource->bindless_index;
-            vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
-
-            zest_binding_index_for_release_t binding_index = { render_graph->bindless_layout, resource->bindless_index, resource->binding_number };
-            zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
-        }
-
     } else if (resource->type == zest_resource_type_buffer && resource->storage_buffer == NULL) {
         zest__create_transient_buffer(resource);
         resource->current_access_mask = 0;
@@ -8067,8 +8068,8 @@ zest_render_graph zest_EndRenderGraph() {
             zest_map_foreach(j, pass_node->inputs) {
                 pass_node->inputs.data[j].resource_node->reference_count--;
             }
-			ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
-			a_pass_was_culled = true;
+            ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
+            a_pass_was_culled = true;
         }
     }
 
@@ -8079,18 +8080,18 @@ zest_render_graph zest_EndRenderGraph() {
             zest_pass_node pass_node = &render_graph->potential_passes[i];
             if (ZEST__NOT_FLAGGED(pass_node->flags, zest_pass_flag_culled) && ZEST__NOT_FLAGGED(pass_node->flags, zest_pass_flag_do_not_cull)) {
                 bool all_outputs_non_referenced = true;
-				zest_map_foreach(j, pass_node->outputs) {
+                zest_map_foreach(j, pass_node->outputs) {
                     if (pass_node->outputs.data[j].resource_node->reference_count > 0) {
                         all_outputs_non_referenced = false;
                         break;
                     }
-				}
+                }
                 if (all_outputs_non_referenced) {
-					ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
-					a_pass_was_culled = true;
+                    ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
+                    a_pass_was_culled = true;
                     zest_map_foreach(j, pass_node->inputs) {
                         ZEST_ASSERT(pass_node->inputs.data[j].resource_node->reference_count);  //Reference counts should never go below 0
-						pass_node->inputs.data[j].resource_node->reference_count--;
+                        pass_node->inputs.data[j].resource_node->reference_count--;
                     }
                 }
             }
@@ -8102,41 +8103,9 @@ zest_render_graph zest_EndRenderGraph() {
     zest_vec_foreach(i, render_graph->potential_passes) {
         zest_pass_node pass_node = &render_graph->potential_passes[i];
         if (ZEST__NOT_FLAGGED(pass_node->flags, zest_pass_flag_culled)) {
-            if (!zest_map_valid_key(render_graph->final_passes, pass_node->output_key)) {
-                zest_pass_group_t pass_group = { 0 };
-                pass_group.queue_info = pass_node->queue_info;
-                zest_map_foreach(output_index, pass_node->outputs) {
-                    zest_map_insert_linear_key(allocator, pass_group.outputs, pass_node->outputs.map[output_index].key, pass_node->outputs.data[output_index]);
-                }
-                zest_map_foreach(input_index, pass_node->inputs) {
-                    zest_hash_pair pair = pass_node->inputs.map[input_index];
-                    zest_resource_usage_t *usage = &pass_node->inputs.data[pair.index];
-                    zest_map_insert_linear_key(allocator, pass_group.inputs, pair.key, *usage);
-                }
-                if (pass_node->execution_callback.callback) {
-                    has_execution_callback = true;
-                }
-                zest_vec_linear_push(allocator, pass_group.passes, pass_node);
-				zest_map_insert_linear_key(allocator, render_graph->final_passes, pass_node->output_key, pass_group);
-            } else {
-                zest_pass_group_t *pass_group = zest_map_at_key(render_graph->final_passes, pass_node->output_key);
-                ZEST_ASSERT(pass_group->queue_info.queue_family_index == pass_node->queue_info.queue_family_index);
-                ZEST_ASSERT(pass_group->queue_info.timeline_wait_stage == pass_node->queue_info.timeline_wait_stage);
-                if (pass_node->execution_callback.callback) {
-                    has_execution_callback = true;
-                }
-                zest_vec_linear_push(allocator, pass_group->passes, pass_node);
-                zest_map_foreach(input_index, pass_node->inputs) {
-                    zest_hash_pair pair = pass_node->inputs.map[input_index];
-                    zest_resource_usage_t *usage = &pass_node->inputs.data[pair.index];
-                    zest_map_insert_linear_key(allocator, pass_group->inputs, pair.key, *usage);
-                }
-            }
+            zest_vec_linear_push(allocator, render_graph->ungrouped_passes, pass_node);
         }
     }
-
-    zest_uint potential_passes = zest_vec_size(render_graph->potential_passes);
-    zest_uint final_passes = zest_map_size(render_graph->final_passes);
 
     if (!has_execution_callback) {
         ZEST_PRINT("WARNING: No execution callbacks found in render graph %s.", render_graph->name);
@@ -8146,41 +8115,35 @@ zest_render_graph zest_EndRenderGraph() {
 
     zest_pass_adjacency_list_t *adjacency_list = { 0 };
     zest_uint *dependency_count = 0;
-    zest_vec_linear_resize(allocator, adjacency_list, zest_map_size(render_graph->final_passes));
-    zest_vec_linear_resize(allocator, dependency_count, zest_map_size(render_graph->final_passes));
+    zest_vec_linear_resize(allocator, adjacency_list, zest_vec_size(render_graph->ungrouped_passes));
+    zest_vec_linear_resize(allocator, dependency_count, zest_vec_size(render_graph->ungrouped_passes));
 
     // Set_producers_and_consumers:
     // For each output in a pass, we set it's producer_pass_idx - the pass that writes the output
     // and for each input in a pass we add all of the comuser_pass_idx's that read the inputs
-    zest_map_foreach(i, render_graph->final_passes) { 
-        zest_pass_group_t *pass_node = &render_graph->final_passes.data[i];
+    zest_vec_foreach(i, render_graph->ungrouped_passes) {
+        zest_pass_node pass_node = &render_graph->ungrouped_passes[i];
         dependency_count[i] = 0; // Initialize in-degree
         zest_pass_adjacency_list_t adj_list = { 0 };
         adjacency_list[i] = adj_list;
 
         switch (pass_node->queue_info.queue_type) {
-        case zest_queue_graphics: 
-            pass_node->queue_info.queue = &ZestDevice->graphics_queue; 
-            pass_node->queue_info.queue_family_index = ZestDevice->graphics_queue_family_index; 
+        case zest_queue_graphics:
+            pass_node->queue_info.queue = &ZestDevice->graphics_queue;
+            pass_node->queue_info.queue_family_index = ZestDevice->graphics_queue_family_index;
             break;
-        case zest_queue_compute: 
-            pass_node->queue_info.queue = &ZestDevice->compute_queue; 
-            pass_node->queue_info.queue_family_index = ZestDevice->compute_queue_family_index; 
+        case zest_queue_compute:
+            pass_node->queue_info.queue = &ZestDevice->compute_queue;
+            pass_node->queue_info.queue_family_index = ZestDevice->compute_queue_family_index;
             break;
-        case zest_queue_transfer: 
-            pass_node->queue_info.queue = &ZestDevice->transfer_queue; 
-            pass_node->queue_info.queue_family_index = ZestDevice->transfer_queue_family_index; 
+        case zest_queue_transfer:
+            pass_node->queue_info.queue = &ZestDevice->transfer_queue;
+            pass_node->queue_info.queue_family_index = ZestDevice->transfer_queue_family_index;
             break;
         }
 
         zest_map_foreach(j, pass_node->outputs) {
             zest_resource_usage_t *output_usage = &pass_node->outputs.data[j];
-            //A resource should only have one producer in a valid graph.
-            zest_uint pass_size = zest_vec_size(pass_node->passes);
-            if (output_usage->resource_node->producer_pass_idx != -1) {
-                zest_pass_group_t *pass = &render_graph->final_passes.data[output_usage->resource_node->producer_pass_idx];
-                int d = 0;
-            }
             //Check to make sure you haven't added the same output to a pass more than once
             ZEST_ASSERT(output_usage->resource_node->producer_pass_idx == -1 || output_usage->resource_node->producer_pass_idx == i);
             output_usage->resource_node->producer_pass_idx = i;
@@ -8194,10 +8157,10 @@ zest_render_graph zest_EndRenderGraph() {
     }
 
     // Set_adjacency_list
-    zest_map_foreach(consumer_idx, render_graph->final_passes) {
-        zest_pass_group_t *consumer_pass = &render_graph->final_passes.data[consumer_idx];
+    zest_vec_foreach(consumer_idx, render_graph->ungrouped_passes) {
+        zest_pass_node consumer_pass = &render_graph->ungrouped_passes[consumer_idx];
         zest_map_foreach(j, consumer_pass->inputs) {
-            zest_resource_usage_t *input_usage = &consumer_pass->inputs.data[j];
+            zest_resource_usage_t* input_usage = &consumer_pass->inputs.data[j];
             zest_resource_node resource = input_usage->resource_node;
 
             int producer_idx = resource->producer_pass_idx;
@@ -8229,7 +8192,7 @@ zest_render_graph zest_EndRenderGraph() {
 
     //Process_dependency_queue
     //Now we loop through the dependency_queue, all of which will have the dependency count (in degrees) set to 0.
-    zest_vec_foreach (index, dependency_queue) {
+    zest_vec_foreach(index, dependency_queue) {
         int pass_index = dependency_queue[index];
         //Make the pass aware of the execution order index, this is used later when we link up the barriers that need
         //to be executed for resource transitioning and acquiring.
@@ -8251,7 +8214,68 @@ zest_render_graph zest_EndRenderGraph() {
         return render_graph;
     }
 
-    ZEST_ASSERT(zest_vec_size(render_graph->compiled_execution_order) == zest_map_size(render_graph->final_passes));
+    // Group the passes based on the compiled execution order
+    if (zest_vec_size(render_graph->compiled_execution_order) > 0) {
+        zest_pass_node first_pass_in_group = &render_graph->ungrouped_passes[render_graph->compiled_execution_order[0]];
+        zest_pass_group_t pass_group = { 0 };
+        pass_group.queue_info = first_pass_in_group->queue_info;
+        zest_map_foreach(output_index, first_pass_in_group->outputs) {
+            zest_map_insert_linear_key(allocator, pass_group.outputs, first_pass_in_group->outputs.map[output_index].key, first_pass_in_group->outputs.data[output_index]);
+        }
+        zest_map_foreach(input_index, first_pass_in_group->inputs) {
+            zest_hash_pair pair = first_pass_in_group->inputs.map[input_index];
+            zest_resource_usage_t* usage = &first_pass_in_group->inputs.data[pair.index];
+            zest_map_insert_linear_key(allocator, pass_group.inputs, pair.key, *usage);
+        }
+        if (first_pass_in_group->execution_callback.callback) {
+            has_execution_callback = true;
+        }
+        zest_vec_linear_push(allocator, pass_group.passes, first_pass_in_group);
+
+        for (zest_uint i = 1; i < zest_vec_size(render_graph->compiled_execution_order); ++i) {
+            zest_pass_node current_pass = &render_graph->ungrouped_passes[render_graph->compiled_execution_order[i]];
+            zest_pass_node previous_pass = &render_graph->ungrouped_passes[render_graph->compiled_execution_order[i - 1]];
+
+            // Group if the output key, queue family, and wait stage are the same
+            if (current_pass->output_key == previous_pass->output_key &&
+                current_pass->queue_info.queue_family_index == previous_pass->queue_info.queue_family_index &&
+                current_pass->queue_info.timeline_wait_stage == previous_pass->queue_info.timeline_wait_stage) {
+                // Add to the current group
+                zest_vec_linear_push(allocator, pass_group.passes, current_pass);
+                zest_map_foreach(input_index, current_pass->inputs) {
+                    zest_hash_pair pair = current_pass->inputs.map[input_index];
+                    zest_resource_usage_t* usage = &current_pass->inputs.data[pair.index];
+                    zest_map_insert_linear_key(allocator, pass_group.inputs, pair.key, *usage);
+                }
+            } else {
+                // Finalize the current group and start a new one
+                zest_map_insert_linear_key(allocator, render_graph->final_passes, previous_pass->output_key, pass_group);
+
+                pass_group = (zest_pass_group_t){ 0 };
+                pass_group.queue_info = current_pass->queue_info;
+                zest_map_foreach(output_index, current_pass->outputs) {
+                    zest_map_insert_linear_key(allocator, pass_group.outputs, current_pass->outputs.map[output_index].key, current_pass->outputs.data[output_index]);
+                }
+                zest_map_foreach(input_index, current_pass->inputs) {
+                    zest_hash_pair pair = current_pass->inputs.map[input_index];
+                    zest_resource_usage_t* usage = &current_pass->inputs.data[pair.index];
+                    zest_map_insert_linear_key(allocator, pass_group.inputs, pair.key, *usage);
+                }
+                if (current_pass->execution_callback.callback) {
+                    has_execution_callback = true;
+                }
+                zest_vec_linear_push(allocator, pass_group.passes, current_pass);
+            }
+        }
+        // Add the last group
+        zest_map_insert_linear_key(allocator, render_graph->final_passes, zest_vec_back(pass_group.passes)->output_key, pass_group);
+    }
+
+    zest_uint total_passes_in_groups = 0;
+    zest_map_foreach(i, render_graph->final_passes) {
+        total_passes_in_groups += zest_vec_size(render_graph->final_passes.data[i].passes);
+    }
+    ZEST_ASSERT(zest_vec_size(render_graph->compiled_execution_order) == total_passes_in_groups);
 
     //[Resource_journeys]
     zest_vec_foreach(execution_index, render_graph->compiled_execution_order) {
@@ -9064,6 +9088,16 @@ void zest__execute_render_graph() {
                 pass->execution_callback.callback(command_buffer, &render_graph->context, pass->execution_callback.user_data);
             }
 
+            zest_map_foreach(pass_input_index, grouped_pass->inputs) {
+                zest_resource_node resource = grouped_pass->inputs.data[pass_input_index].resource_node;
+                resource->current_state_index++;
+            }
+
+            zest_map_foreach(pass_outpu_index, grouped_pass->outputs) {
+                zest_resource_node resource = grouped_pass->outputs.data[pass_outpu_index].resource_node;
+                resource->current_state_index++;
+            }
+
             if (exe_details->render_pass != VK_NULL_HANDLE) {
                 vkCmdEndRenderPass(command_buffer);
             }
@@ -9816,7 +9850,7 @@ zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format fo
     description.numSamples = VK_SAMPLE_COUNT_1_BIT;
 	description.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 	description.tiling = VK_IMAGE_TILING_OPTIMAL;
-	description.mip_levels = 1;
+	description.mip_levels = sampler->create_info.maxLod > 1.f ? (zest_uint)sampler->create_info.maxLod - 1 : 1;
 	zest_resource_node resource = zest_AddTransientImageResource(name, &description, ZEST_TRUE, ZEST_TRUE);
     resource->sampler = sampler;
     return resource;
@@ -10153,8 +10187,86 @@ zest_resource_node zest_GetPassOutputResource(zest_pass_node pass, const char *n
     return usage->resource_node;
 }
 
+zest_uint zest_AcquireTransientTextureIndex(const zest_render_graph_context_t *context, zest_resource_node resource) {
+    ZEST_CHECK_HANDLE(resource);            // Not a valid resource handle
+    zest_render_graph render_graph = context->render_graph;
+    zest_uint bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, resource->binding_number);
+    VkDescriptorImageInfo image_buffer_info = { 0 };
+    ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
+    if (resource->image_desc.mip_levels == 1) {
+        image_buffer_info.imageLayout = resource->journey[resource->current_state_index].usage.image_layout;
+        image_buffer_info.imageView = resource->image_buffer.base_view;
+        image_buffer_info.sampler = resource->sampler->vk_sampler;
+    } else {
+        resource->image_buffer.multi_mip_view = zest__create_image_view(
+            resource->image_buffer.image,
+            resource->image_desc.format,
+            zest__determine_aspect_flag(resource->image_desc.format),
+            resource->image_desc.mip_levels,
+            0,
+            VK_IMAGE_VIEW_TYPE_2D,
+            1
+        );
+        image_buffer_info.imageLayout = resource->journey[resource->current_state_index].usage.image_layout;
+        image_buffer_info.imageView = resource->image_buffer.multi_mip_view;
+        image_buffer_info.sampler = resource->sampler->vk_sampler;
+    }
+
+    VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(render_graph->bindless_set->vk_descriptor_set, &image_buffer_info, resource->binding_number, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    write.dstArrayElement = resource->bindless_index;
+    vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
+
+    zest_binding_index_for_release_t binding_index = { render_graph->bindless_layout, resource->bindless_index, resource->binding_number };
+    zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
+
+    return bindless_index;
+}
+
+zest_uint *zest_AcquireTransientMipIndexes(const zest_render_graph_context_t *context, zest_resource_node resource) {
+    ZEST_CHECK_HANDLE(context->render_graph->bindless_layout);  //No bindless layout has been set in the render graph
+    ZEST_ASSERT(resource->image_desc.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the render graph
+    ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
+    zest_render_graph render_graph = context->render_graph;
+    zest_uint *mip_indexes = 0;
+	for (int mip_index = 0; mip_index != resource->image_desc.mip_levels; ++mip_index) {
+		VkImageView mip_view = zest__create_image_view(resource->image_buffer.image, resource->image_desc.format, VK_IMAGE_ASPECT_COLOR_BIT, 1, mip_index, VK_IMAGE_VIEW_TYPE_2D, 1);
+		zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], resource->image_buffer.mip_views, mip_view);
+		zest_uint bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, resource->binding_number);
+		zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], resource->mip_level_bindless_indexes, bindless_index);
+
+		VkDescriptorImageInfo mip_buffer_info;
+		mip_buffer_info.imageLayout = resource->journey[resource->current_state_index].usage.image_layout;
+		mip_buffer_info.imageView = resource->image_buffer.mip_views[mip_index - 1];
+		mip_buffer_info.sampler = resource->sampler->vk_sampler;
+
+		VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(render_graph->bindless_set->vk_descriptor_set, &mip_buffer_info, resource->binding_number, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+		write.dstArrayElement = bindless_index;
+		vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
+
+		zest_binding_index_for_release_t mip_binding_index = { render_graph->bindless_layout, bindless_index, resource->binding_number };
+		zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], mip_binding_index);
+        zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], mip_indexes, bindless_index);
+	}
+    return mip_indexes;
+}
+
+zest_uint zest_GetResourceMipLevels(zest_resource_node resource) {
+    ZEST_CHECK_HANDLE(resource);
+    return resource->image_desc.mip_levels;
+}
+
+zest_uint zest_GetResourceWidth(zest_resource_node resource) {
+    ZEST_CHECK_HANDLE(resource);
+    return resource->image_desc.width;
+}
+
+zest_uint zest_GetResourceHeight(zest_resource_node resource) {
+    ZEST_CHECK_HANDLE(resource);
+    return resource->image_desc.height;
+}
+
 void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output) {
-    zest_resource_usage_t usage = { 0 }; // Your internal struct to store resolved flags
+    zest_resource_usage_t usage = { 0 };    
     usage.resource_node = buffer_resource;
     usage.purpose = purpose;
 
@@ -10192,7 +10304,7 @@ void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node bu
         usage.stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
         break;
     default:
-        ZEST_ASSERT(0);     //Unhandled buffer access purpose!
+        ZEST_ASSERT(0);     //Unhandled buffer access purpose! Make sure you pass in a valid zest_resource_purpose
         return;
     }
     usage.image_layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -10606,6 +10718,18 @@ void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node textu
         VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue){0});
 }
 
+void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages) {
+    ZEST_CHECK_HANDLE(texture);  //Not a valid texture resource
+    zest__add_pass_image_usage(pass, texture, zest_purpose_storage_image_read, stages, ZEST_FALSE,
+        VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue){0});
+}
+
+void zest_ConnectStorageImageOutput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages, zest_bool write_only) {
+    ZEST_CHECK_HANDLE(texture);  //Not a valid texture resource
+    zest__add_pass_image_usage(pass, texture, write_only ? zest_purpose_storage_image_write : zest_purpose_storage_image_read_write, stages, ZEST_FALSE,
+        VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue){0});
+}
+
 void zest_ConnectSwapChainOutput( zest_pass_node pass, zest_resource_node swapchain_resource, VkClearColorValue clear_color_on_load) {
     ZEST_CHECK_HANDLE(swapchain_resource);  //Not a valid swapchain resource
     VkClearValue cv; cv.color = clear_color_on_load;
@@ -10630,6 +10754,8 @@ void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_n
 }
 
 void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target) {
+    ZEST_CHECK_HANDLE(pass_node);
+    ZEST_CHECK_HANDLE(color_target);
     VkClearValue cv = { 0 }; 
     zest__add_pass_image_usage(pass_node, color_target, zest_purpose_color_attachment_write,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, ZEST_TRUE,

@@ -1,6 +1,7 @@
 #version 450
+#extension GL_EXT_nonuniform_qualifier : require
 
-layout (set = 0, binding = 0) uniform sampler2D sampler_color;	//this will be the mip_level - 1
+layout (set = 0, binding = 0) uniform sampler2D sampler_color[];	//this will be the mip_level - 1
 
 layout (location = 0) in vec2 uv;
 
@@ -10,7 +11,7 @@ layout(push_constant) uniform frag_pushes
 {
 	vec4 settings;
 	vec2 texture_size;
-	vec2 padding;
+	int texture_index;
 } pc;
 
 void main(void)
@@ -26,22 +27,22 @@ void main(void)
 	// - l - m -
 	// g - h - i
 	// === ('e' is the current texel) ===
-	vec3 a = texture(sampler_color, vec2(uv.x - 2*x, uv.y + 2*y)).rgb;
-	vec3 b = texture(sampler_color, vec2(uv.x,       uv.y + 2*y)).rgb;
-	vec3 c = texture(sampler_color, vec2(uv.x + 2*x, uv.y + 2*y)).rgb;
+	vec3 a = texture(sampler_color[pc.texture_index], vec2(uv.x - 2*x, uv.y + 2*y)).rgb;
+	vec3 b = texture(sampler_color[pc.texture_index], vec2(uv.x,       uv.y + 2*y)).rgb;
+	vec3 c = texture(sampler_color[pc.texture_index], vec2(uv.x + 2*x, uv.y + 2*y)).rgb;
 
-	vec3 d = texture(sampler_color, vec2(uv.x - 2*x, uv.y)).rgb;
-	vec3 e = texture(sampler_color, vec2(uv.x,       uv.y)).rgb;
-	vec3 f = texture(sampler_color, vec2(uv.x + 2*x, uv.y)).rgb;
+	vec3 d = texture(sampler_color[pc.texture_index], vec2(uv.x - 2*x, uv.y)).rgb;
+	vec3 e = texture(sampler_color[pc.texture_index], vec2(uv.x,       uv.y)).rgb;
+	vec3 f = texture(sampler_color[pc.texture_index], vec2(uv.x + 2*x, uv.y)).rgb;
 
-	vec3 g = texture(sampler_color, vec2(uv.x - 2*x, uv.y - 2*y)).rgb;
-	vec3 h = texture(sampler_color, vec2(uv.x,       uv.y - 2*y)).rgb;
-	vec3 i = texture(sampler_color, vec2(uv.x + 2*x, uv.y - 2*y)).rgb;
+	vec3 g = texture(sampler_color[pc.texture_index], vec2(uv.x - 2*x, uv.y - 2*y)).rgb;
+	vec3 h = texture(sampler_color[pc.texture_index], vec2(uv.x,       uv.y - 2*y)).rgb;
+	vec3 i = texture(sampler_color[pc.texture_index], vec2(uv.x + 2*x, uv.y - 2*y)).rgb;
 
-	vec3 j = texture(sampler_color, vec2(uv.x - x, uv.y + y)).rgb;
-	vec3 k = texture(sampler_color, vec2(uv.x + x, uv.y + y)).rgb;
-	vec3 l = texture(sampler_color, vec2(uv.x - x, uv.y - y)).rgb;
-	vec3 m = texture(sampler_color, vec2(uv.x + x, uv.y - y)).rgb;
+	vec3 j = texture(sampler_color[pc.texture_index], vec2(uv.x - x, uv.y + y)).rgb;
+	vec3 k = texture(sampler_color[pc.texture_index], vec2(uv.x + x, uv.y + y)).rgb;
+	vec3 l = texture(sampler_color[pc.texture_index], vec2(uv.x - x, uv.y - y)).rgb;
+	vec3 m = texture(sampler_color[pc.texture_index], vec2(uv.x + x, uv.y - y)).rgb;
 
 	// Apply weighted distribution:
 	// 0.5 + 0.125 + 0.125 + 0.125 + 0.125 = 1
