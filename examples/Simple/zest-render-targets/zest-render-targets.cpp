@@ -192,7 +192,7 @@ void InitExample(RenderTargetExample *example) {
 
 void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
     RenderTargetExample *example = (RenderTargetExample*)user_data;
-	zest_resource_node render_target = zest_GetPassInputResource(context->pass_node, "Downsampler");
+	zest_resource_node render_target = zest_GetPassInputResource(context->pass_node, "Downsampler Alias");
 
 	zest_uint bindless_index = zest_AcquireTransientTextureIndex(context, render_target);
 
@@ -323,6 +323,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
 		//zest_resource_node render_target = zest_AddRenderTarget("Render Target", zest_texture_format_rgba_unorm, example->pass_through_sampler);
 		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_unorm, example->mipped_sampler);
+		zest_resource_node downsampler_alias = zest_AliasResource("Downsampler Alias", downsampler);
 		//zest_resource_node upsampler = zest_AddRenderTarget("Upsampler", zest_texture_format_rgba_unorm, example->mipped_sampler);
 
 		//---------------------------------Transfer Pass------------------------------------------------------
@@ -345,7 +346,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Target Pass------------------------------------------------------
 		zest_pass_node downsampler_pass = zest_AddComputePassNode(example->downsampler_compute, "Downsampler Pass");
 		zest_ConnectStorageImageInput(downsampler_pass, downsampler, zest_pipeline_compute_stage);
-		zest_ConnectStorageImageOutput(downsampler_pass, downsampler, zest_pipeline_compute_stage, ZEST_FALSE);
+		zest_ConnectStorageImageOutput(downsampler_pass, downsampler_alias, zest_pipeline_compute_stage, ZEST_FALSE);
 		//tasks
 		zest_SetPassTask(downsampler_pass, zest_DownsampleCompute, example);
 		//--------------------------------------------------------------------------------------------------
@@ -354,7 +355,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		zest_pass_node graphics_pass = zest_AddGraphicBlankScreen("Blank Screen");
 		//inputs
-		zest_ConnectSampledImageInput(graphics_pass, downsampler, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(graphics_pass, downsampler_alias, zest_pipeline_fragment_stage);
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//tasks
