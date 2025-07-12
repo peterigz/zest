@@ -1412,6 +1412,7 @@ typedef enum zest_resource_node_flag_bits {
     zest_resource_node_flag_release_after_use = 1 << 4,
     zest_resource_node_flag_essential_output  = 1 << 5,
     zest_resource_node_flag_requires_storage  = 1 << 6,
+    zest_resource_node_flag_aliased           = 1 << 7,
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;
@@ -1544,6 +1545,7 @@ typedef struct zest_window_t zest_window_t;
 typedef struct zest_shader_t zest_shader_t;
 typedef struct zest_recorder_t zest_recorder_t;
 typedef struct zest_debug_t zest_debug_t;
+
 typedef struct zest_render_graph_t zest_render_graph_t;
 typedef struct zest_pass_node_t zest_pass_node_t;
 typedef struct zest_resource_node_t zest_resource_node_t;
@@ -1552,9 +1554,6 @@ typedef struct zest_queue_t zest_queue_t;
 typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
-ZEST__MAKE_HANDLE(zest_render_graph)
-ZEST__MAKE_HANDLE(zest_pass_node)
-ZEST__MAKE_HANDLE(zest_resource_node)
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image_collection)
 ZEST__MAKE_HANDLE(zest_image)
@@ -1584,6 +1583,10 @@ ZEST__MAKE_HANDLE(zest_recorder)
 ZEST__MAKE_HANDLE(zest_imgui)
 ZEST__MAKE_HANDLE(zest_queue)
 ZEST__MAKE_HANDLE(zest_execution_timeline)
+
+ZEST__MAKE_HANDLE(zest_render_graph)
+ZEST__MAKE_HANDLE(zest_pass_node)
+ZEST__MAKE_HANDLE(zest_resource_node)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -2370,6 +2373,7 @@ typedef struct zest_image_buffer_t {
     VkImageView base_view;
     VkImageView multi_mip_view;
     VkImageView *mip_views;
+    zest_uint *mip_indexes;
     VkFormat format;
 } zest_image_buffer_t;
 
@@ -2456,6 +2460,7 @@ typedef struct zest_queue_t {
     VkSemaphore semaphore[ZEST_MAX_FIF];
     zest_u64 current_count[ZEST_MAX_FIF];
     zest_u64 signal_value;
+    zest_bool has_waited;
 } zest_queue_t;
 
 zest_hash_map(const char *) zest_map_queue_names;
@@ -2672,6 +2677,9 @@ typedef struct zest_pass_node_t {
     zest_pass_execution_callback_t execution_callback;
     zest_compute compute;
     zest_pass_flags flags;
+
+    zest_pass_node prev;
+    zest_pass_node next;
 } zest_pass_node_t;
 
 typedef struct zest_pass_group_t {
@@ -2690,8 +2698,8 @@ typedef struct zest_resource_node_t {
     const char *name;
     zest_resource_type type;
     zest_id id;                                     // Unique identifier within the graph
-    zest_resource_handle *resource;
     zest_render_graph render_graph;
+    zest_resource_node aliased_resource;
 
 	zest_image_description_t image_desc;   // Used if transient image
 	zest_buffer_description_t buffer_desc; // Used if transient buffer
@@ -2718,6 +2726,9 @@ typedef struct zest_resource_node_t {
     zest_resource_node_flags flags;                 // Imported/Transient Etc.
     zest_uint first_usage_pass_idx;                 // For lifetime tracking
     zest_uint last_usage_pass_idx;                  // For lifetime tracking
+
+    zest_resource_node prev;
+    zest_resource_node next;
 } zest_resource_node_t;
 
 typedef struct zest_execution_barriers_t {
@@ -2793,6 +2804,7 @@ typedef struct zest_submission_batch_t {
 	VkPipelineStageFlags *wait_stages;
 	zest_u64 *wait_values;
 	zest_u64 *signal_values;
+    zest_bool need_timeline_wait;
 } zest_submission_batch_t;
 
 zest_hash_map(zest_pass_group_t) zest_map_passes;
@@ -2872,6 +2884,9 @@ ZEST_API zest_resource_node zest_GetPassInputResource(zest_pass_node pass, const
 ZEST_API zest_resource_node zest_GetPassOutputResource(zest_pass_node pass, const char *name);
 ZEST_API zest_buffer zest_GetPassInputBuffer(zest_pass_node pass, const char *name);
 ZEST_API zest_buffer zest_GetPassOutputBuffer(zest_pass_node pass, const char *name);
+ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
+ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
+ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
 
 // -- Creating and Executing the render graph
 ZEST_API bool zest_BeginRenderGraph(const char *name);
@@ -2886,11 +2901,8 @@ ZEST_API zest_pass_node zest_AddComputePassNode(zest_compute compute, const char
 ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_AcquireTransientTextureIndex(const zest_render_graph_context_t *context, zest_resource_node resource);
-ZEST_API zest_uint *zest_AcquireTransientMipIndexes(const zest_render_graph_context_t *context, zest_resource_node resource);
-ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
-ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
-ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
+ZEST_API zest_uint zest_AcquireTransientTextureIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_uint binding_number);
+ZEST_API zest_uint *zest_AcquireTransientMipIndexes(const zest_render_graph_context_t *context, zest_resource_node resource, zest_uint binding_number);
 
 // --- Add callback tasks to passes
 ZEST_API void zest_SetPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
@@ -2902,7 +2914,8 @@ ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, con
 ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless);
 ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 ZEST_API zest_resource_node zest_AddFontLayerTextureResource(const zest_font font);
-ZEST_API zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler);
+ZEST_API zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler, zest_bool with_storage_flag);
+ZEST_API zest_resource_node zest_AliasResource(const char *name, zest_resource_node resource);
 
 // --- Helpers for adding various types of resources
 ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
@@ -2932,7 +2945,7 @@ ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 
 // --- Connect Image Helpers ---
 ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages);
-ZEST_API void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages);
+ZEST_API void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages, zest_bool read_only);
 ZEST_API void zest_ConnectStorageImageOutput(zest_pass_node pass, zest_resource_node texture, zest_supported_pipeline_stages stages, zest_bool write_only);
 ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass, zest_resource_node swapchain_resource, VkClearColorValue clear_color_on_load);
 ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);

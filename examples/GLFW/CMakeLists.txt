@@ -157,6 +157,7 @@ endfunction(buildExample)
 set(EXAMPLES
 	zest-compute-example
 	zest-imgui-template
+	zest-render-graph-tests
 	zest-vaders
 	zest-timelinefx
 	zest-timelinefx-instanced-effects

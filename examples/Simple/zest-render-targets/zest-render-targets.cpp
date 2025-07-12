@@ -194,7 +194,7 @@ void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_rend
     RenderTargetExample *example = (RenderTargetExample*)user_data;
 	zest_resource_node render_target = zest_GetPassInputResource(context->pass_node, "Downsampler Alias");
 
-	zest_uint bindless_index = zest_AcquireTransientTextureIndex(context, render_target);
+	zest_uint bindless_index = zest_AcquireTransientTextureIndex(context, render_target, zest_combined_image_sampler_binding);
 
 	zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
 
@@ -217,8 +217,8 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_gr
     RenderTargetExample *example = (RenderTargetExample*)user_data;
 	zest_resource_node downsampler_target = zest_GetPassInputResource(context->pass_node, "Downsampler");
 
-	zest_uint bindless_storage_index = zest_AcquireTransientTextureIndex(context, downsampler_target);
-	zest_uint *mip_indexes = zest_AcquireTransientMipIndexes(context, downsampler_target);
+	zest_uint bindless_storage_index = zest_AcquireTransientTextureIndex(context, downsampler_target, zest_storage_image_binding);
+	zest_uint *mip_indexes = zest_AcquireTransientMipIndexes(context, downsampler_target, zest_storage_image_binding);
 
 	BlurPushConstants push = { 0 };
 
@@ -322,7 +322,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
 		//zest_resource_node render_target = zest_AddRenderTarget("Render Target", zest_texture_format_rgba_unorm, example->pass_through_sampler);
-		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_unorm, example->mipped_sampler);
+		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_unorm, example->mipped_sampler, true);
 		zest_resource_node downsampler_alias = zest_AliasResource("Downsampler Alias", downsampler);
 		//zest_resource_node upsampler = zest_AddRenderTarget("Upsampler", zest_texture_format_rgba_unorm, example->mipped_sampler);
 
@@ -345,7 +345,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		//---------------------------------Target Pass------------------------------------------------------
 		zest_pass_node downsampler_pass = zest_AddComputePassNode(example->downsampler_compute, "Downsampler Pass");
-		zest_ConnectStorageImageInput(downsampler_pass, downsampler, zest_pipeline_compute_stage);
+		zest_ConnectStorageImageInput(downsampler_pass, downsampler, zest_pipeline_compute_stage, ZEST_TRUE);
 		zest_ConnectStorageImageOutput(downsampler_pass, downsampler_alias, zest_pipeline_compute_stage, ZEST_FALSE);
 		//tasks
 		zest_SetPassTask(downsampler_pass, zest_DownsampleCompute, example);
