@@ -9839,7 +9839,7 @@ zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format fo
     description.numSamples = VK_SAMPLE_COUNT_1_BIT;
 	description.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
 	description.tiling = VK_IMAGE_TILING_OPTIMAL;
-	description.mip_levels = sampler->create_info.maxLod > 1.f ? (zest_uint)sampler->create_info.maxLod - 1 : 1;
+	description.mip_levels = sampler->create_info.maxLod > 1.f ? (zest_uint)sampler->create_info.maxLod + 1 : 1;
 	zest_resource_node resource = zest_AddTransientImageResource(name, &description, ZEST_TRUE, ZEST_TRUE);
     resource->sampler = sampler;
     return resource;
