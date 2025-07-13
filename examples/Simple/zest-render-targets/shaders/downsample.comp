@@ -11,25 +11,22 @@ layout(push_constant) uniform PushConstants
 {
 	uint storage_image_index;
 	uint src_mip_index;
-	uint dst_mip_index;
 } pc;
 
 void main(void)
 {
 	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
 
-    // Get the dimensions of the image we are writing to
+    // Get the dimensions of the image we are writing to (the destination mip)
     ivec2 image_dims = imageSize(u_storage_images[nonuniformEXT(pc.storage_image_index)]);
-    image_dims = image_dims >> pc.dst_mip_index;
 
     // Bounds check to terminate extra threads
     if (pixel_coords.x >= image_dims.x || pixel_coords.y >= image_dims.y) {
         return;
     }
 
-    // Calculate the UV coordinate and texel size for the SOURCE texture.
     // The source mip is one level larger than the destination.
-    ivec2 src_dims = imageSize(u_storage_images[nonuniformEXT(pc.storage_image_index)]) >> (pc.dst_mip_index - 1);
+    ivec2 src_dims = image_dims * 2;
 	vec2 src_texel_size = 1.0 / vec2(src_dims);
 	float x = src_texel_size.x;
 	float y = src_texel_size.y;

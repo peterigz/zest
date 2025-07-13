@@ -3,7 +3,7 @@
 struct BlurPushConstants {
 	zest_uint storage_image_index;
 	zest_uint src_mip_index;
-	zest_uint dst_mip_index;
+	zest_uint downsampler_mip_index;
 };
 
 struct CompositePushConstants {
@@ -23,6 +23,7 @@ struct RenderTargetExample {
 	zest_pipeline_template pass_through_pipeline;	
 	zest_shader_resources render_target_resources;	//Shader resources for drawing the render target to the screen
 	zest_compute downsampler_compute;
+	zest_compute upsampler_compute;
 	zest_uint render_target_push;
 	zest_sampler pass_through_sampler;
 	zest_sampler mipped_sampler;

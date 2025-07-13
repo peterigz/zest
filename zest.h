@@ -1122,6 +1122,10 @@ void main(void)
 //Enums_and_flags
 typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
 
+typedef enum {
+    ZEST_ALL_MIPS = 0xffffffff
+} zest_constants;
+
 typedef enum zest_struct_type {
     zest_struct_type_texture = VK_STRUCTURE_TYPE_MAX_ENUM - 1,
     zest_struct_type_image = VK_STRUCTURE_TYPE_MAX_ENUM - 2,
@@ -2367,13 +2371,19 @@ typedef struct zest_buffer_t {
     VkAccessFlags last_access_mask;
 } zest_buffer_t;
 
+typedef struct zest_mip_index_collection {
+    zest_uint *mip_indexes;
+} zest_mip_index_collection;
+
+zest_hash_map(zest_mip_index_collection) zest_map_mip_indexes;
+
 typedef struct zest_image_buffer_t {
     VkImage image;
     zest_buffer buffer;
     VkImageView base_view;
     VkImageView multi_mip_view;
     VkImageView *mip_views;
-    zest_uint *mip_indexes;
+    zest_map_mip_indexes mip_indexes;
     VkFormat format;
 } zest_image_buffer_t;
 
@@ -2571,7 +2581,7 @@ typedef struct zest_timestamp_duration_s {
 
 typedef struct zest_render_target_composite_t {
     zest_resource_node resource;
-    zest_pipeline pipeline;
+    zest_pipeline_template pipeline;
     zest_sampler sampler;
     void *push_constant;
     zest_uint push_constant_size;
@@ -2887,6 +2897,11 @@ ZEST_API zest_buffer zest_GetPassOutputBuffer(zest_pass_node pass, const char *n
 ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
+ZEST_API VkImage zest_GetResourceImage(zest_resource_node resource_node);
+ZEST_API void zest_BlitImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit);
+
+// -- Helper functions to insert barrier functions within pass callbacks
+ZEST_API void zest_InsertComputeImageBarrier(VkCommandBuffer command_buffer, zest_resource_node resource, zest_uint base_mip);
 
 // -- Creating and Executing the render graph
 ZEST_API bool zest_BeginRenderGraph(const char *name);
@@ -2901,7 +2916,7 @@ ZEST_API zest_pass_node zest_AddComputePassNode(zest_compute compute, const char
 ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_AcquireTransientTextureIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_uint binding_number);
+ZEST_API zest_uint zest_AcquireTransientTextureIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_bool base_mip_only, zest_uint binding_number);
 ZEST_API zest_uint *zest_AcquireTransientMipIndexes(const zest_render_graph_context_t *context, zest_resource_node resource, zest_uint binding_number);
 
 // --- Add callback tasks to passes

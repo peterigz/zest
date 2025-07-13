@@ -22,6 +22,7 @@ void InitExample(RenderTargetExample *example) {
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	zest_shader downsampler_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", shaderc_compute_shader, 1, compiler, 0);
+	zest_shader upsampler_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", shaderc_compute_shader, 1, compiler, 0);
 	zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/upsample.frag", "upsample_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
 	zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.vert", "blur_vert.spv", shaderc_vertex_shader, 1, compiler, 0);
 	zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/composite.frag", "composite_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
@@ -174,27 +175,40 @@ void InitExample(RenderTargetExample *example) {
 	example->composite_push_constants.tonemapping.w = 1.f;
 	example->composite_push_constants.composting.x = 0.1f;
 
-	//Set up the compute shader
+	//Set up the compute shader for downsampling
 	//A builder is used to simplify the compute shader setup process
-	zest_compute_builder_t builder = zest_BeginComputeBuilder();
+	zest_compute_builder_t downsampler_builder = zest_BeginComputeBuilder();
 	//Declare the bindings we want in the shader
-	zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
+	zest_SetComputeBindlessLayout(&downsampler_builder, ZestRenderer->global_bindless_set_layout);
 	//Set the user data so that we can use it in the callback funcitons
-	zest_SetComputeUserData(&builder, example);
-	zest_SetComputePushConstantSize(&builder, sizeof(BlurPushConstants));
+	zest_SetComputeUserData(&downsampler_builder, example);
+	zest_SetComputePushConstantSize(&downsampler_builder, sizeof(BlurPushConstants));
 	//Declare the actual shader to use
-	zest_AddComputeShader(&builder, downsampler_shader);
+	zest_AddComputeShader(&downsampler_builder, downsampler_shader);
+	//Finally, make the compute shader using the downsampler_builder
+	example->downsampler_compute = zest_FinishCompute(&downsampler_builder, "Downsampler Compute");
+
+	//Set up the compute shader for up sampling
+	//A builder is used to simplify the compute shader setup process
+	zest_compute_builder_t upsampler_builder = zest_BeginComputeBuilder();
+	//Declare the bindings we want in the shader
+	zest_SetComputeBindlessLayout(&upsampler_builder, ZestRenderer->global_bindless_set_layout);
+	//Set the user data so that we can use it in the callback funcitons
+	zest_SetComputeUserData(&upsampler_builder, example);
+	zest_SetComputePushConstantSize(&upsampler_builder, sizeof(BlurPushConstants));
+	//Declare the actual shader to use
+	zest_AddComputeShader(&upsampler_builder, upsampler_shader);
 	//Finally, make the compute shader using the builder
-	example->downsampler_compute = zest_FinishCompute(&builder, "Downsampler Compute");
+	example->upsampler_compute = zest_FinishCompute(&upsampler_builder, "Upsampler Compute");
 
 	//example->downsampler->push_constants = &example->bloom_constants;
 }
 
 void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
     RenderTargetExample *example = (RenderTargetExample*)user_data;
-	zest_resource_node render_target = zest_GetPassInputResource(context->pass_node, "Downsampler Alias");
+	zest_resource_node render_target = zest_GetPassInputResource(context->pass_node, "Upsampler");
 
-	zest_uint bindless_index = zest_AcquireTransientTextureIndex(context, render_target, zest_combined_image_sampler_binding);
+	zest_uint bindless_index = zest_AcquireTransientTextureIndex(context, render_target, ZEST_TRUE, zest_combined_image_sampler_binding);
 
 	zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
 
@@ -213,12 +227,13 @@ void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_rend
 
 }
 
-void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
-    RenderTargetExample *example = (RenderTargetExample*)user_data;
+void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t* context, void* user_data) {
+	RenderTargetExample* example = (RenderTargetExample*)user_data;
 	zest_resource_node downsampler_target = zest_GetPassInputResource(context->pass_node, "Downsampler");
 
-	zest_uint bindless_storage_index = zest_AcquireTransientTextureIndex(context, downsampler_target, zest_storage_image_binding);
-	zest_uint *mip_indexes = zest_AcquireTransientMipIndexes(context, downsampler_target, zest_storage_image_binding);
+	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
+	zest_uint* sampler_mip_indices = zest_AcquireTransientMipIndexes(context, downsampler_target, zest_combined_image_sampler_binding);
+	zest_uint* storage_mip_indices = zest_AcquireTransientMipIndexes(context, downsampler_target, zest_storage_image_binding);
 
 	BlurPushConstants push = { 0 };
 
@@ -228,14 +243,19 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_gr
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
 
-	for (int mip_index = 1; mip_index != zest_GetResourceMipLevels(downsampler_target); ++mip_index) {
-		//Mix the bindless descriptor set with the uniform buffer descriptor set
-		VkDescriptorSet sets[] = {
-			ZestRenderer->global_set->vk_descriptor_set,
-		};
-		push.storage_image_index = bindless_storage_index;
-		push.src_mip_index = mip_indexes[mip_index - 1];
-		push.dst_mip_index = mip_indexes[mip_index];
+	VkDescriptorSet sets[] = {
+		ZestRenderer->global_set->vk_descriptor_set,
+	};
+
+	// Bind the pipeline once before the loop
+	zest_BindComputePipeline(command_buffer, example->downsampler_compute, sets, 1);
+
+	zest_uint mip_levels = zest_GetResourceMipLevels(downsampler_target);
+	for (zest_uint mip_index = 1; mip_index != mip_levels; ++mip_index) {
+		// Update push constants for the current dispatch
+		// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
+		push.src_mip_index = sampler_mip_indices[mip_index - 1];
+		push.storage_image_index = storage_mip_indices[mip_index];
 
 		// Apply ceiling division to get the workgroup count
 		zest_uint group_count_x = (current_width + local_size_x - 1) / local_size_x;
@@ -246,13 +266,67 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_gr
 
 		zest_SendCustomComputePushConstants(command_buffer, example->downsampler_compute, &push);
 
-		//Bind the compute pipeline
-		zest_BindComputePipeline(command_buffer, example->downsampler_compute, sets, 1);
 		//Dispatch the compute shader
 		zest_DispatchCompute(command_buffer, example->downsampler_compute, group_count_x, group_count_y, 1);
+		if (mip_index < mip_levels - 1) {
+			zest_InsertComputeImageBarrier(command_buffer, downsampler_target, mip_index);
+		}
 	}
-
 }
+
+void zest_UpsampleCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+	RenderTargetExample *example = (RenderTargetExample *)user_data;
+	zest_resource_node upsampler_target = zest_GetPassOutputResource(context->pass_node, "Upsampler");
+	zest_resource_node downsampler_target = zest_GetPassInputResource(context->pass_node, "Downsampler");
+
+	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
+	zest_uint *sampler_mip_indices = zest_AcquireTransientMipIndexes(context, upsampler_target, zest_combined_image_sampler_binding);
+	zest_uint *storage_mip_indices = zest_AcquireTransientMipIndexes(context, upsampler_target, zest_storage_image_binding);
+	zest_uint *downsampler_mip_indices = zest_AcquireTransientMipIndexes(context, downsampler_target, zest_combined_image_sampler_binding);
+
+	BlurPushConstants push = { 0 };
+
+	const zest_uint local_size_x = 8;
+	const zest_uint local_size_y = 8;
+
+	VkDescriptorSet sets[] = {
+		ZestRenderer->global_set->vk_descriptor_set,
+	};
+
+	zest_uint mip_levels = zest_GetResourceMipLevels(upsampler_target);
+	zest_uint mip_to_blit = mip_levels - 1;
+
+	zest_BlitImageMip(command_buffer, downsampler_target, upsampler_target, mip_to_blit);
+
+	// Bind the pipeline once before the loop
+	zest_BindComputePipeline(command_buffer, example->upsampler_compute, sets, 1);
+
+	zest_uint resource_width = zest_GetResourceWidth(upsampler_target);
+	zest_uint resource_height = zest_GetResourceHeight(upsampler_target);
+
+	for (int mip_index = mip_levels - 2; mip_index >= 0; --mip_index) {
+		zest_uint current_width = ZEST__MAX(1u, resource_width >> mip_index);
+		zest_uint current_height = ZEST__MAX(1u, resource_height >> mip_index);
+		// Update push constants for the current dispatch
+		// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
+		push.src_mip_index = sampler_mip_indices[mip_index + 1];
+		push.storage_image_index = storage_mip_indices[mip_index];
+		push.downsampler_mip_index = downsampler_mip_indices[mip_index + 1];
+
+		// Apply ceiling division to get the workgroup count
+		zest_uint group_count_x = (current_width + local_size_x - 1) / local_size_x;
+		zest_uint group_count_y = (current_height + local_size_y - 1) / local_size_y;
+
+		zest_SendCustomComputePushConstants(command_buffer, example->upsampler_compute, &push);
+
+		//Dispatch the compute shader
+		zest_DispatchCompute(command_buffer, example->upsampler_compute, group_count_x, group_count_y, 1);
+		if (mip_index > 0) {
+			zest_InsertComputeImageBarrier(command_buffer, upsampler_target, mip_index);
+		}
+	}
+}
+
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	RenderTargetExample *example = static_cast<RenderTargetExample*>(user_data);
@@ -315,16 +389,16 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	//Create the render graph
 	if (zest_BeginRenderToScreen("Fonts Example Render Graph")) {
+		zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
-		//zest_resource_node render_target = zest_AddRenderTarget("Render Target", zest_texture_format_rgba_unorm, example->pass_through_sampler);
 		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_unorm, example->mipped_sampler, true);
+		zest_resource_node upsampler = zest_AddRenderTarget("Upsampler", zest_texture_format_rgba_unorm, example->mipped_sampler, true);
 		zest_resource_node downsampler_alias = zest_AliasResource("Downsampler Alias", downsampler);
-		//zest_resource_node upsampler = zest_AddRenderTarget("Upsampler", zest_texture_format_rgba_unorm, example->mipped_sampler);
 
 		//---------------------------------Transfer Pass------------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
@@ -343,19 +417,29 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_SetPassTask(render_target_pass, zest_DrawFonts, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
 
-		//---------------------------------Target Pass------------------------------------------------------
+		//---------------------------------Downsample Pass------------------------------------------------------
 		zest_pass_node downsampler_pass = zest_AddComputePassNode(example->downsampler_compute, "Downsampler Pass");
+		//The stage should be assumed based on the pass queue type.
 		zest_ConnectStorageImageInput(downsampler_pass, downsampler, zest_pipeline_compute_stage, ZEST_TRUE);
 		zest_ConnectStorageImageOutput(downsampler_pass, downsampler_alias, zest_pipeline_compute_stage, ZEST_FALSE);
 		//tasks
 		zest_SetPassTask(downsampler_pass, zest_DownsampleCompute, example);
 		//--------------------------------------------------------------------------------------------------
 
+		//---------------------------------Upsample Pass------------------------------------------------------
+		zest_pass_node upsampler_pass = zest_AddComputePassNode(example->upsampler_compute, "Upsampler Pass");
+		//The stage should be assumed based on the pass queue type.
+		zest_ConnectStorageImageInput(upsampler_pass, downsampler, zest_pipeline_compute_stage, ZEST_TRUE);
+		zest_ConnectStorageImageOutput(upsampler_pass, upsampler, zest_pipeline_compute_stage, ZEST_FALSE);
+		//tasks
+		zest_SetPassTask(upsampler_pass, zest_UpsampleCompute, example);
+		//--------------------------------------------------------------------------------------------------
+
 		//---------------------------------Render Pass------------------------------------------------------
 		//zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		zest_pass_node graphics_pass = zest_AddGraphicBlankScreen("Blank Screen");
 		//inputs
-		zest_ConnectSampledImageInput(graphics_pass, downsampler_alias, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(graphics_pass, upsampler, zest_pipeline_fragment_stage);
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//tasks
@@ -378,7 +462,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main()
 {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfo();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);
