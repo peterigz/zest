@@ -59,17 +59,6 @@ void InitExample(RenderTargetExample *example) {
     zest_EndPipelineTemplate(example->upsample_pipeline);
     example->upsample_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
-    example->composite_pipeline = zest_CopyPipelineTemplate("pipeline_compositor", zest_PipelineTemplate("pipeline_swap_chain"));
-    zest_SetText(&example->composite_pipeline->vertShaderFile, "blur_vert.spv");
-    zest_SetText(&example->composite_pipeline->fragShaderFile, "composite_frag.spv");
-	zest_ClearPipelinePushConstantRanges(example->composite_pipeline);
-    zest_ClearPipelineDescriptorLayouts(example->composite_pipeline);
-	zest_AddPipelineDescriptorLayout(example->composite_pipeline, zest_vk_GetGlobalBindlessLayout());
-	zest_SetPipelinePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), zest_shader_fragment_stage);
-	zest_SetPipelinePushConstants(example->composite_pipeline, &example->composite_push_constants);
-    zest_EndPipelineTemplate(example->composite_pipeline);
-    example->composite_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
-
     example->bloom_pass_pipeline = zest_CopyPipelineTemplate("pipeline_bloom_pass", zest_PipelineTemplate("downsampler"));
     zest_SetText(&example->bloom_pass_pipeline->vertShaderFile, "blur_vert.spv");
     zest_SetText(&example->bloom_pass_pipeline->fragShaderFile, "bloom_pass_frag.spv");
@@ -79,14 +68,14 @@ void InitExample(RenderTargetExample *example) {
     zest_EndPipelineTemplate(example->bloom_pass_pipeline);
     example->bloom_pass_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
-    example->pass_through_pipeline = zest_CopyPipelineTemplate("pipeline_pass_through", zest_PipelineTemplate("pipeline_swap_chain"));
-    zest_SetText(&example->pass_through_pipeline->vertShaderFile, "blur_vert.spv");
-    zest_SetText(&example->pass_through_pipeline->fragShaderFile, "pass_frag.spv");
-    zest_ClearPipelineDescriptorLayouts(example->pass_through_pipeline);
-	zest_AddPipelineDescriptorLayout(example->pass_through_pipeline, zest_vk_GetGlobalBindlessLayout());
-	zest_SetPipelinePushConstantRange(example->pass_through_pipeline, sizeof(zest_uint), zest_shader_fragment_stage);
-    zest_EndPipelineTemplate(example->pass_through_pipeline);
-    example->pass_through_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
+    example->composite_pipeline = zest_CopyPipelineTemplate("pipeline_pass_through", zest_PipelineTemplate("pipeline_swap_chain"));
+    zest_SetText(&example->composite_pipeline->vertShaderFile, "blur_vert.spv");
+    zest_SetText(&example->composite_pipeline->fragShaderFile, "pass_frag.spv");
+    zest_ClearPipelineDescriptorLayouts(example->composite_pipeline);
+	zest_AddPipelineDescriptorLayout(example->composite_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_SetPipelinePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), zest_shader_fragment_stage);
+    zest_EndPipelineTemplate(example->composite_pipeline);
+    example->composite_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
 	/*
 	example->downsampler->pipeline_template = example->downsample_pipeline;
@@ -169,11 +158,13 @@ void InitExample(RenderTargetExample *example) {
 	example->wabbit_pos.vx = 200.f;
 	example->wabbit_pos.vy = 200.f;
 
+	/*
 	example->composite_push_constants.tonemapping.x = 1.f;
 	example->composite_push_constants.tonemapping.y = 1.f;
 	example->composite_push_constants.tonemapping.z = 0.f;
 	example->composite_push_constants.tonemapping.w = 1.f;
 	example->composite_push_constants.composting.x = 0.1f;
+	*/
 
 	//Set up the compute shader for downsampling
 	//A builder is used to simplify the compute shader setup process
@@ -206,22 +197,29 @@ void InitExample(RenderTargetExample *example) {
 
 void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
     RenderTargetExample *example = (RenderTargetExample*)user_data;
+	zest_resource_node downsampler = zest_GetPassInputResource(context->pass_node, "Downsampler");
 	zest_resource_node render_target = zest_GetPassInputResource(context->pass_node, "Upsampler");
 
-	zest_uint bindless_index = zest_AcquireTransientTextureIndex(context, render_target, ZEST_TRUE, zest_combined_image_sampler_binding);
+	zest_uint up_bindless_index = zest_AcquireTransientTextureIndex(context, render_target, ZEST_TRUE, zest_combined_image_sampler_binding);
+	zest_uint down_bindless_index = zest_AcquireTransientTextureIndex(context, downsampler, ZEST_TRUE, zest_combined_image_sampler_binding);
 
 	zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
 
-	zest_pipeline pipeline = zest_PipelineWithTemplate(example->pass_through_pipeline, context->render_pass);
+	zest_pipeline pipeline = zest_PipelineWithTemplate(example->composite_pipeline, context->render_pass);
 	zest_BindPipelineShaderResource(context->command_buffer, pipeline, example->render_target_resources);
+
+	CompositePushConstants push;
+	push.base_index = down_bindless_index;
+	push.bloom_index = up_bindless_index;
+	push.bloom_alpha = example->bloom_constants.settings.x;
 
 	vkCmdPushConstants(
 		command_buffer,
 		pipeline->pipeline_layout,
 		VK_SHADER_STAGE_FRAGMENT_BIT,
 		0,
-		sizeof(zest_uint),
-		&bindless_index);
+		sizeof(CompositePushConstants),
+		&push);
 
 	vkCmdDraw(command_buffer, 3, 1, 0, 0);
 
@@ -362,7 +360,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	knee = ZEST__CLAMP(knee, 0.f, 1.f) * .5f;
 	threshold = ZEST__CLAMP(threshold, 0.f, 2.f);
 
-	example->composite_push_constants.composting.x = threshold;
+	//example->composite_push_constants.composting.x = threshold;
 	example->bloom_constants.settings.x = threshold;
 	example->bloom_constants.settings.y = knee;
 	//example->downsampler->recorder->outdated[ZEST_FIF] = 1;
@@ -396,8 +394,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
-		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_unorm, example->mipped_sampler, true);
-		zest_resource_node upsampler = zest_AddRenderTarget("Upsampler", zest_texture_format_rgba_unorm, example->mipped_sampler, true);
+		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_hdr, example->mipped_sampler, true);
+		zest_resource_node upsampler = zest_AddRenderTarget("Upsampler", zest_texture_format_rgba_hdr, example->mipped_sampler, true);
 		zest_resource_node downsampler_alias = zest_AliasResource("Downsampler Alias", downsampler);
 
 		//---------------------------------Transfer Pass------------------------------------------------------
@@ -408,7 +406,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
 
-		//---------------------------------Target Pass------------------------------------------------------
+		//---------------------------------Draw Base Pass---------------------------------------------------
 		zest_pass_node render_target_pass = zest_AddRenderPassNode("Graphics Pass");
 		zest_ConnectVertexBufferInput(render_target_pass, font_layer_resources);
 		zest_ConnectSampledImageInput(render_target_pass, font_layer_texture, zest_pipeline_fragment_stage);
@@ -440,6 +438,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_pass_node graphics_pass = zest_AddGraphicBlankScreen("Blank Screen");
 		//inputs
 		zest_ConnectSampledImageInput(graphics_pass, upsampler, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(graphics_pass, downsampler, zest_pipeline_fragment_stage);
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//tasks

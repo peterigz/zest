@@ -7,10 +7,14 @@ layout(location = 0) out vec4 outFragColor;
 
 layout(push_constant) uniform texture_indexes
 {
-    uint index1;
+    uint base_index;
+    uint bloom_index;
+    float bloom_alpha;
 } pc;
 
 void main(void)
 {
-    outFragColor = texture(samplerColor[pc.index1], inUV);
+    vec4 base_color = texture(samplerColor[pc.base_index], inUV);
+    vec4 bloom_color = texture(samplerColor[pc.bloom_index], inUV) * pc.bloom_alpha;
+    outFragColor = base_color + bloom_color;
 }
