@@ -396,7 +396,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
 		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_hdr, example->mipped_sampler, true);
 		zest_resource_node upsampler = zest_AddRenderTarget("Upsampler", zest_texture_format_rgba_hdr, example->mipped_sampler, true);
-		//zest_resource_node downsampler_alias = zest_AliasResource("Downsampler Alias", downsampler);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");

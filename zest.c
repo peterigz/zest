@@ -10158,6 +10158,7 @@ zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node re
 		new_resource.id = render_graph->id_counter++;
         new_resource.version = last_version->version + 1;
         new_resource.original_id = last_version->original_id;
+        new_resource.producer_pass_idx = -1;
 		ZEST__FLAG(new_resource.flags, zest_resource_node_flag_aliased);
         ZEST__FLAG(new_resource.flags, zest_resource_node_flag_has_producer);
 		zloc_linear_allocator_t *allocator = ZestRenderer->render_graph_allocator[ZEST_FIF];
@@ -10851,9 +10852,9 @@ void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node ima
 		zest_resource_node latest_version = zest_vec_back(versions->resources);
         if (latest_version->id == image_resource->id) {
             //This is the first time this resource has been used as output
+            usage.resource_node = image_resource;
             zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->outputs, image_resource->name, usage);
             pass_node->output_key += image_resource->id + zest_Hash(&usage, sizeof(zest_resource_usage_t), 0);
-            usage.resource_node = image_resource;
         } else {
             //Add the versioned alias to the outputs instead
             usage.resource_node = latest_version;
