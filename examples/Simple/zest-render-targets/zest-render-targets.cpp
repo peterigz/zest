@@ -396,9 +396,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
 		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_hdr, example->mipped_sampler, true);
 		zest_resource_node upsampler = zest_AddRenderTarget("Upsampler", zest_texture_format_rgba_hdr, example->mipped_sampler, true);
-		zest_resource_node downsampler_alias = zest_AliasResource("Downsampler Alias", downsampler);
+		//zest_resource_node downsampler_alias = zest_AliasResource("Downsampler Alias", downsampler);
 
-		//---------------------------------Transfer Pass------------------------------------------------------
+		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
 		//outputs
 		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
@@ -409,26 +409,26 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Draw Base Pass---------------------------------------------------
 		zest_pass_node render_target_pass = zest_AddRenderPassNode("Graphics Pass");
 		zest_ConnectVertexBufferInput(render_target_pass, font_layer_resources);
-		zest_ConnectSampledImageInput(render_target_pass, font_layer_texture, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(render_target_pass, font_layer_texture);
 		zest_ConnectRenderTargetOutput(render_target_pass, downsampler);
 		//tasks
 		zest_SetPassTask(render_target_pass, zest_DrawFonts, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
 
-		//---------------------------------Downsample Pass------------------------------------------------------
+		//---------------------------------Downsample Pass--------------------------------------------------
 		zest_pass_node downsampler_pass = zest_AddComputePassNode(example->downsampler_compute, "Downsampler Pass");
 		//The stage should be assumed based on the pass queue type.
-		zest_ConnectStorageImageInput(downsampler_pass, downsampler, zest_pipeline_compute_stage, ZEST_TRUE);
-		zest_ConnectStorageImageOutput(downsampler_pass, downsampler_alias, zest_pipeline_compute_stage, ZEST_FALSE);
+		zest_ConnectStorageImageInput(downsampler_pass, downsampler, ZEST_TRUE);
+		zest_ConnectStorageImageOutput(downsampler_pass, downsampler, ZEST_FALSE);
 		//tasks
 		zest_SetPassTask(downsampler_pass, zest_DownsampleCompute, example);
 		//--------------------------------------------------------------------------------------------------
 
-		//---------------------------------Upsample Pass------------------------------------------------------
+		//---------------------------------Upsample Pass----------------------------------------------------
 		zest_pass_node upsampler_pass = zest_AddComputePassNode(example->upsampler_compute, "Upsampler Pass");
 		//The stage should be assumed based on the pass queue type.
-		zest_ConnectStorageImageInput(upsampler_pass, downsampler, zest_pipeline_compute_stage, ZEST_TRUE);
-		zest_ConnectStorageImageOutput(upsampler_pass, upsampler, zest_pipeline_compute_stage, ZEST_FALSE);
+		zest_ConnectStorageImageInput(upsampler_pass, downsampler, ZEST_TRUE);
+		zest_ConnectStorageImageOutput(upsampler_pass, upsampler, ZEST_FALSE);
 		//tasks
 		zest_SetPassTask(upsampler_pass, zest_UpsampleCompute, example);
 		//--------------------------------------------------------------------------------------------------
@@ -437,8 +437,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		zest_pass_node graphics_pass = zest_AddGraphicBlankScreen("Blank Screen");
 		//inputs
-		zest_ConnectSampledImageInput(graphics_pass, upsampler, zest_pipeline_fragment_stage);
-		zest_ConnectSampledImageInput(graphics_pass, downsampler, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(graphics_pass, upsampler);
+		zest_ConnectSampledImageInput(graphics_pass, downsampler);
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//tasks
