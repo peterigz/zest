@@ -1123,7 +1123,8 @@ void main(void)
 typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
 
 typedef enum {
-    ZEST_ALL_MIPS = 0xffffffff
+    ZEST_ALL_MIPS = 0xffffffff,
+    ZEST_QUEUE_COUNT = 3
 } zest_constants;
 
 typedef enum zest_struct_type {
@@ -1396,9 +1397,9 @@ typedef enum {
 } zest_resource_access_type;
 
 typedef enum {
-    zest_queue_graphics,
-    zest_queue_compute,
-    zest_queue_transfer
+    zest_queue_graphics = 1,
+    zest_queue_compute = 1 << 1,
+    zest_queue_transfer = 1 << 2
 } zest_device_queue_type;
 
 typedef enum {
@@ -2626,6 +2627,7 @@ typedef struct zest_pass_adjacency_list_t {
 
 typedef struct zest_execution_wave_t {
     zest_uint level;
+    zest_uint queue_bits;
     int *pass_indices;
 } zest_execution_wave_t;
 
@@ -2815,6 +2817,7 @@ typedef struct zest_destruction_queue_t {
 } zest_destruction_queue_t;
 
 typedef struct zest_submission_batch_t {
+    zest_uint magic;
     zest_queue queue;
     zest_uint queue_family_index;
     VkPipelineStageFlags timeline_wait_stage;
@@ -2833,6 +2836,11 @@ typedef struct zest_submission_batch_t {
 	zest_u64 *signal_values;
     zest_bool need_timeline_wait;
 } zest_submission_batch_t;
+
+typedef struct zest_wave_submission_t {
+    zest_uint queue_bits;
+    zest_submission_batch_t batches[ZEST_QUEUE_COUNT];
+} zest_wave_submission_t;
 
 typedef struct zest_resource_versions_t {
     zest_resource_node *resources;
@@ -2854,7 +2862,9 @@ typedef struct zest_render_graph_t {
     zest_execution_timeline *wait_on_timelines;
     zest_execution_timeline *signal_timelines;
 
-    zest_uint *compiled_execution_order;            // Execution order after compilation
+    VkSemaphore queue_semaphores[ZEST_QUEUE_COUNT];
+    zest_size queue_semaphore_values[ZEST_QUEUE_COUNT];
+    zest_execution_wave_t *execution_waves;            // Execution order after compilation
     zest_execution_details_t *pass_exec_details_list;
 
     zest_resource_handle swapchain_resource_handle; // Handle to the current swapchain image resource
@@ -2866,7 +2876,7 @@ typedef struct zest_render_graph_t {
     zest_set_layout bindless_layout;
     zest_descriptor_set bindless_set;
 
-    zest_submission_batch_t *submissions;
+    zest_wave_submission_t *submissions;
 
     void *user_data;
     zest_render_graph_context_t context;

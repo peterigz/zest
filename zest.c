@@ -8236,194 +8236,168 @@ zest_render_graph zest_EndRenderGraph() {
         }
     }
     
-    zest_execution_wave_t *waves = 0;
-    zest_execution_wave_t current_wave = { 0 };
+    zest_execution_wave_t first_wave = { 0 };
+    zest_uint pass_count = 0;
 
     int *dependency_queue = 0;
     zest_vec_foreach(i, dependency_count) {
         if (dependency_count[i] == 0) {
+            zest_pass_group_t *pass = &render_graph->final_passes.data[i];
+            first_wave.queue_bits |= pass->queue_info.queue_type;
             zest_vec_linear_push(allocator, dependency_queue, i);
-            zest_vec_linear_push(allocator, current_wave.pass_indices, i);
+            zest_vec_linear_push(allocator, first_wave.pass_indices, i);
+            pass_count++;
         }
     }
-    zest_vec_linear_push(allocator, waves, current_wave);
-	current_wave.level++;
+    zest_vec_linear_push(allocator, render_graph->execution_waves, first_wave);
 
-    //Process_dependency_queue
-    //Now we loop through the dependency_queue, all of which will have the dependency count (in degrees) set to 0.
-    zest_vec_foreach(index, dependency_queue) {
-        int pass_index = dependency_queue[index];
-
-        //Add the pass index to the compiled_execution_order list;
-        zest_vec_linear_push(allocator, render_graph->compiled_execution_order, pass_index);
-
-        //Check it's adjacency list and for those adjacent passes, reduce their dependency count by one.
-        zest_vec_foreach(i, adjacency_list[pass_index].pass_indices) {
-            int consumer_index = adjacency_list[pass_index].pass_indices[i];
-            dependency_count[consumer_index]--;
-            //If the dependency count becomes 0 then we can add the pass to the dependency queue
-            if (dependency_count[consumer_index] == 0) {
-                zest_vec_linear_push(allocator, dependency_queue, consumer_index);
+    int current_wave_index = 0;
+    while (current_wave_index < zest_vec_size(render_graph->execution_waves)) {
+        zest_execution_wave_t next_wave = { 0 };
+        zest_execution_wave_t *current_wave = &render_graph->execution_waves[current_wave_index];
+        next_wave.level = current_wave->level + 1;
+        zest_vec_foreach(i, current_wave->pass_indices) {
+            int finished_pass_index = current_wave->pass_indices[i];
+            zest_vec_foreach(j, adjacency_list[finished_pass_index].pass_indices) {
+                int dependent_pass_index = adjacency_list[finished_pass_index].pass_indices[j];
+                dependency_count[dependent_pass_index]--;
+                if (dependency_count[dependent_pass_index] == 0) {
+					zest_pass_group_t *pass = &render_graph->final_passes.data[dependent_pass_index];
+                    next_wave.queue_bits |= pass->queue_info.queue_type;
+                    zest_vec_linear_push(allocator, next_wave.pass_indices, dependent_pass_index);
+                    pass_count++;
+                }
             }
         }
+        if (zest_vec_size(next_wave.pass_indices) > 0) {
+            zest_vec_push(render_graph->execution_waves, next_wave);
+        }
+        current_wave_index++;
     }
 
-    if (zest_vec_size(render_graph->compiled_execution_order) == 0) {
+    if (zest_vec_size(render_graph->execution_waves) == 0) {
+        //Nothing to send to the GPU!
         return render_graph;
     }
 
-    ZEST_ASSERT(zest_vec_size(render_graph->compiled_execution_order) == zest_map_size(render_graph->final_passes));
+    ZEST_ASSERT(pass_count == zest_map_size(render_graph->final_passes));
 
     //[Resource_journeys]
-    zest_vec_foreach(execution_index, render_graph->compiled_execution_order) {
-        int current_pass_index = render_graph->compiled_execution_order[execution_index];
-        zest_pass_group_t *current_pass = &render_graph->final_passes.data[current_pass_index];
-        current_pass->execution_order_index = execution_index;
+    zest_vec_foreach(wave_index, render_graph->execution_waves) {
+        zest_execution_wave_t *current_wave = &render_graph->execution_waves[wave_index];
+        zest_vec_foreach(execution_index, current_wave->pass_indices) {
+            int current_pass_index = current_wave->pass_indices[execution_index];
+            zest_pass_group_t *current_pass = &render_graph->final_passes.data[current_pass_index];
+            current_pass->execution_order_index = execution_index;
 
-        zest_batch_key batch_key = { 0 };
-        batch_key.current_family_index = current_pass->queue_info.queue_family_index;
+            zest_batch_key batch_key = { 0 };
+            batch_key.current_family_index = current_pass->queue_info.queue_family_index;
 
-        //Calculate_lifetime_of_resources and also create a state for each resource and plot
-        //it's journey through the render graph so that the appropriate barriers and semaphores
-        //can be set up
-        zest_map_foreach(input_idx, current_pass->inputs) {
-            zest_resource_node resource_node = current_pass->inputs.data[input_idx].resource_node;
-            if (resource_node->aliased_resource) resource_node = resource_node->aliased_resource;
-            if (resource_node) {
-                resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, (zest_uint)execution_index);
-                resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, (zest_uint)execution_index);
+            //Calculate_lifetime_of_resources and also create a state for each resource and plot
+            //it's journey through the render graph so that the appropriate barriers and semaphores
+            //can be set up
+            zest_map_foreach(input_idx, current_pass->inputs) {
+                zest_resource_node resource_node = current_pass->inputs.data[input_idx].resource_node;
+                if (resource_node->aliased_resource) resource_node = resource_node->aliased_resource;
+                if (resource_node) {
+                    resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, (zest_uint)wave_index);
+                    resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, (zest_uint)wave_index);
+                }
+                zest_resource_state_t state = { 0 };
+                state.final_pass_index = current_pass_index;
+                state.queue_family_index = current_pass->queue_info.queue_family_index;
+                state.usage = current_pass->inputs.data[input_idx];
+                zest_vec_linear_push(allocator, resource_node->journey, state);
             }
-            zest_resource_state_t state = { 0 };
-            state.final_pass_index = current_pass_index;
-            state.queue_family_index = current_pass->queue_info.queue_family_index;
-            state.usage = current_pass->inputs.data[input_idx];
-            zest_vec_linear_push(allocator, resource_node->journey, state);
-        }
 
-        // Check OUTPUTS of the current pass
-        bool requires_new_batch = false;
-        zest_map_foreach(output_idx, current_pass->outputs) {
-            zest_resource_node resource_node = current_pass->outputs.data[output_idx].resource_node;
-            if (resource_node->aliased_resource) resource_node = resource_node->aliased_resource;
-            if (resource_node) {
-                resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, (zest_uint)execution_index);
-                resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, (zest_uint)execution_index);
-            }
-            zest_resource_state_t state = { 0 };
-            state.final_pass_index = current_pass_index;
-            state.queue_family_index = current_pass->queue_info.queue_family_index;
-            state.usage = current_pass->outputs.data[output_idx];
-            zest_vec_linear_push(allocator, resource_node->journey, state);
-            zest_vec_foreach(adjacent_index, adjacency_list[current_pass_index].pass_indices) {
-                zest_uint consumer_pass_index = adjacency_list[current_pass_index].pass_indices[adjacent_index];
-                batch_key.next_pass_indexes |= (1ull << consumer_pass_index);
-                batch_key.next_family_indexes |= (1ull << render_graph->final_passes.data[consumer_pass_index].queue_info.queue_family_index);
+            // Check OUTPUTS of the current pass
+            bool requires_new_batch = false;
+            zest_map_foreach(output_idx, current_pass->outputs) {
+                zest_resource_node resource_node = current_pass->outputs.data[output_idx].resource_node;
+                if (resource_node->aliased_resource) resource_node = resource_node->aliased_resource;
+                if (resource_node) {
+                    resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, (zest_uint)wave_index);
+                    resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, (zest_uint)wave_index);
+                }
+                zest_resource_state_t state = { 0 };
+                state.final_pass_index = current_pass_index;
+                state.queue_family_index = current_pass->queue_info.queue_family_index;
+                state.usage = current_pass->outputs.data[output_idx];
+                zest_vec_linear_push(allocator, resource_node->journey, state);
+                zest_vec_foreach(adjacent_index, adjacency_list[current_pass_index].pass_indices) {
+                    zest_uint consumer_pass_index = adjacency_list[current_pass_index].pass_indices[adjacent_index];
+                    batch_key.next_pass_indexes |= (1ull << consumer_pass_index);
+                    batch_key.next_family_indexes |= (1ull << render_graph->final_passes.data[consumer_pass_index].queue_info.queue_family_index);
+                }
             }
         }
     }
 
     //Create_command_batches
-    //This is the most complicated section IMO. Because we can have 3 separate queues, graphics, compute and transfer, it means
-    //that we need to figure out how to group batches based on which passes are producing for other passes on other queues. To
-    //do this I use a batch key which consists of the current queue index for the curren pass, then 2 bit fields:
-    //next_pass_indexes:    This is a bit field of all the pass indexes that consume the output from the current pass. (yes that
-    //                      means that we have a maximum number of passes per render graph of 64.
-    //next_family_indexes:  A bit field of all the queues that consume the output from this pass.
-    //Once the key has been made it can be used to see if a batch needs to be split into separate batches, and then semaphores
-    //can be set up so that each submission by each batch signals and waits correctly.
-    //If a batch has a pass that produce for multiple queues then that batch will need multiple signal semaphores. In this case
-    //the next_family_indexes will have multiple bits set.
+    //We take the waves that we created that identified passes that can run in parallel on separate queues and 
+    //organise them into wave submission batches:
+    zest_wave_submission_t current_submission = { 0 };
 
-    // --- Bootstrap the first batch from the very first pass ---
-    int first_pass_index = render_graph->compiled_execution_order[0];
-    zest_pass_group_t *first_pass = &render_graph->final_passes.data[first_pass_index];
+    zest_bool graphics_has_waited = 0;
+    zest_bool compute_has_waited = 0;
+    zest_bool transfer_has_waited = 0;
 
-    // Create the first submission batch.
-    zest_submission_batch_t current_batch = { 0 };
-    current_batch.queue = first_pass->queue_info.queue;
-    current_batch.queue_family_index = first_pass->queue_info.queue_family_index;
-    current_batch.timeline_wait_stage = first_pass->queue_info.timeline_wait_stage;
-    current_batch.queue_type = first_pass->queue_info.queue_type;
-    current_batch.need_timeline_wait = ZEST_TRUE;
-
-    zest_vec_linear_push(allocator, current_batch.pass_indices, first_pass_index);
-    first_pass->batch_index = 0; // The first pass is in the first batch (index 0)
-
-    // Generate the key for the first pass, this key now defines the "signature" of our current_batch.
-    zest_batch_key current_batch_key = { 0 };
-    current_batch_key.current_family_index = first_pass->queue_info.queue_family_index;
-
-    zest_bool graphics_has_waited = current_batch.queue_type == zest_queue_graphics ? 1 : 0;
-    zest_bool compute_has_waited = current_batch.queue_type == zest_queue_compute ? 1 : 0;
-    zest_bool transfer_has_waited = current_batch.queue_type == zest_queue_transfer ? 1 : 0;
-
-    zest_map_foreach(output_idx, first_pass->outputs) {
-        zest_vec_foreach(adjacent_index, adjacency_list[first_pass_index].pass_indices) {
-            zest_uint consumer_pass_index = adjacency_list[first_pass_index].pass_indices[adjacent_index];
-            zest_pass_group_t *consumer_pass = &render_graph->final_passes.data[consumer_pass_index];
-            current_batch_key.next_pass_indexes |= (1ull << consumer_pass_index);
-            current_batch_key.next_family_indexes |= (1ull << consumer_pass->queue_info.queue_family_index);
-        }
-    }
-
-    //Todo: clean up the batch key, queue family is possibly sufficient enough but pipeline barriers probably need to be setup
-    for (zest_uint execution_index = 1; execution_index < zest_vec_size(render_graph->compiled_execution_order); ++execution_index) {
-        int current_pass_index = render_graph->compiled_execution_order[execution_index];
-        zest_pass_group_t *current_pass = &render_graph->final_passes.data[current_pass_index];
-
-        // Generate the key for the current pass.
-        zest_batch_key batch_key = { 0 };
-
-        batch_key.current_family_index = current_pass->queue_info.queue_family_index;
-        zest_map_foreach(output_idx, current_pass->outputs) {
-            zest_vec_foreach(adjacent_index, adjacency_list[current_pass_index].pass_indices) {
-                zest_uint consumer_pass_index = adjacency_list[current_pass_index].pass_indices[adjacent_index];
-				zest_pass_group_t *consumer_pass = &render_graph->final_passes.data[consumer_pass_index];
-                batch_key.next_pass_indexes |= (1ull << consumer_pass_index);
-				batch_key.next_family_indexes |= (1ull << consumer_pass->queue_info.queue_family_index);
+    zest_vec_foreach(wave_index, render_graph->execution_waves) {
+        zest_execution_wave_t *wave = &render_graph->execution_waves[wave_index];
+        //If the wave has more than one queue then the passes can run in parallel in separate submission batches
+        zest_uint queue_type_count = zloc__count_bits(wave->queue_bits);
+        ZEST_ASSERT(queue_type_count);  //Must be using at lease 1 queue
+        if (queue_type_count > 1) {
+            if (current_submission.batches[0].magic || current_submission.batches[1].magic || current_submission.batches[2].magic) {
+				zest_vec_linear_push(allocator, render_graph->submissions, current_submission);
+				current_submission = (zest_wave_submission_t){ 0 };
             }
-        }
-
-        // Compare the pass's key to the current batch's key.
-        if (ZEST__FLAGGED(render_graph->flags, zest_render_graph_force_on_graphics_queue) || batch_key.current_family_index == current_batch_key.current_family_index) {
-        //if (memcmp(&batch_key, &current_batch_key, sizeof(zest_batch_key)) == 0) {
-            // --- KEYS MATCH: Add this pass to the current batch ---
-			current_batch.timeline_wait_stage |= current_pass->queue_info.timeline_wait_stage;
-            zest_vec_linear_push(allocator, current_batch.pass_indices, current_pass_index);
+            //Create parallel batches
+            zest_vec_foreach(pass_index, wave->pass_indices) {
+                zest_uint current_pass_index = wave->pass_indices[pass_index];
+                zest_pass_group_t *pass = &render_graph->final_passes.data[current_pass_index];
+                zest_uint qi = zloc__scan_reverse(pass->queue_info.queue_type);
+                if (!current_submission.batches[qi].magic) {
+                    current_submission.batches[qi].magic = zest_INIT_MAGIC;
+                    current_submission.batches[qi].queue = pass->queue_info.queue;
+                    current_submission.batches[qi].queue_family_index = pass->queue_info.queue_family_index;
+                    current_submission.batches[qi].timeline_wait_stage = pass->queue_info.timeline_wait_stage;
+                    current_submission.batches[qi].queue_type = pass->queue_info.queue_type;
+                    current_submission.batches[qi].need_timeline_wait = ZEST_TRUE;
+                }
+				current_submission.queue_bits |= pass->queue_info.queue_type;
+                zest_vec_linear_push(allocator, current_submission.batches[qi].pass_indices, current_pass_index);
+            }
+            zest_vec_linear_push(allocator, render_graph->submissions, current_submission);
+            current_submission = (zest_wave_submission_t){ 0 };
         } else {
-            // --- KEYS DIFFER: The current batch must end here. ---
-            zest_vec_linear_push(allocator, render_graph->submissions, current_batch);
-
-            current_batch = (zest_submission_batch_t){ 0 }; // Clear it
-			current_batch.timeline_wait_stage = current_pass->queue_info.timeline_wait_stage;
-            current_batch.queue = current_pass->queue_info.queue;
-            current_batch.queue_family_index = current_pass->queue_info.queue_family_index;
-            current_batch.queue_type = current_pass->queue_info.queue_type;
-            zest_vec_linear_push(allocator, current_batch.pass_indices, current_pass_index);
-
-            switch (current_batch.queue_type) {
-            case zest_queue_graphics: 
-                current_batch.need_timeline_wait = graphics_has_waited ? 0 : 1;
-                graphics_has_waited = 1; break;
-            case zest_queue_compute: 
-                current_batch.need_timeline_wait = compute_has_waited ? 0 : 1;
-                compute_has_waited = 1; break;
-            case zest_queue_transfer: 
-                current_batch.need_timeline_wait = transfer_has_waited ? 0 : 1;
-                transfer_has_waited = 1; break;
+            //Waves that have no parallel submissions 
+			zest_uint qi = zloc__scan_reverse(wave->queue_bits);
+            if (!current_submission.batches[qi].magic && (current_submission.batches[0].magic || current_submission.batches[1].magic || current_submission.batches[2].magic)) {
+                //The queue is different from the last wave, finalise this submission
+				zest_vec_linear_push(allocator, render_graph->submissions, current_submission);
+				current_submission = (zest_wave_submission_t){ 0 };
             }
-
-            current_batch_key = batch_key;
+            zest_vec_foreach(pass_index, wave->pass_indices) {
+                zest_uint current_pass_index = wave->pass_indices[pass_index];
+                zest_pass_group_t *pass = &render_graph->final_passes.data[current_pass_index];
+                if (!current_submission.batches[qi].magic) {
+                    current_submission.batches[qi].magic = zest_INIT_MAGIC;
+                    current_submission.batches[qi].queue = pass->queue_info.queue;
+                    current_submission.batches[qi].queue_family_index = pass->queue_info.queue_family_index;
+                    current_submission.batches[qi].timeline_wait_stage = pass->queue_info.timeline_wait_stage;
+                    current_submission.batches[qi].queue_type = pass->queue_info.queue_type;
+                    current_submission.batches[qi].need_timeline_wait = ZEST_TRUE;
+                }
+				current_submission.queue_bits = pass->queue_info.queue_type;
+                zest_vec_linear_push(allocator, current_submission.batches[qi].pass_indices, current_pass_index);
+            }
         }
-		current_pass->batch_index = zest_vec_size(render_graph->submissions);
     }
 
-    zest_vec_linear_push(allocator, render_graph->submissions, current_batch);
-
-    zest_vec_foreach(execution_index, render_graph->compiled_execution_order) {
-        int current_pass_index = render_graph->compiled_execution_order[execution_index];
-        zest_pass_group_t *current_pass = &render_graph->final_passes.data[current_pass_index];
-        current_pass->execution_order_index = execution_index;
+    //Add the last batch that was being processed if it was a sequential one.
+    if (current_submission.batches[0].magic || current_submission.batches[1].magic || current_submission.batches[2].magic) {
+        zest_vec_linear_push(allocator, render_graph->submissions, current_submission);
     }
 
     //Create_semaphores

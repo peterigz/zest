@@ -229,6 +229,10 @@ extern "C" {
 #endif
 	}
 
+    static inline zloc__count_bits(unsigned int number) {
+        return __popcnt(number);
+    }
+
 	static inline int zloc__scan_forward(zloc_size bitmap)
 	{
 		unsigned long index;
@@ -259,6 +263,10 @@ extern "C" {
 #endif
 	}
 
+    static inline zloc__count_bits(unsigned int number) {
+        return __builtin_popcount(number);
+    }
+
 	static inline int zloc__scan_forward(zloc_size bitmap)
 	{
 #if defined(zloc__64BIT)
@@ -271,6 +279,16 @@ extern "C" {
 	static inline zloc_thread_access zloc__compare_and_exchange(volatile zloc_thread_access* target, zloc_thread_access value, zloc_thread_access original) {
 		return __sync_val_compare_and_swap(target, original, value);
 	}
+#elif
+
+static inline int zloc__count_bits(unsigned int n) {
+    int count = 0;
+    while (n > 0) {
+        n &= (n - 1); 
+        count++;
+    }
+    return count;
+}
 
 #endif
 
