@@ -8197,10 +8197,6 @@ zest_render_graph zest_EndRenderGraph() {
             zest_resource_usage_t *output_usage = &pass_node->outputs.data[j];
             //A resource should only have one producer in a valid graph.
             zest_uint pass_size = zest_vec_size(pass_node->passes);
-            if (output_usage->resource_node->producer_pass_idx != -1) {
-                zest_pass_group_t *pass = &render_graph->final_passes.data[output_usage->resource_node->producer_pass_idx];
-                int d = 0;
-            }
             //Check to make sure you haven't added the same output to a pass more than once
             ZEST_ASSERT(output_usage->resource_node->producer_pass_idx == -1 || output_usage->resource_node->producer_pass_idx == i);
             output_usage->resource_node->producer_pass_idx = i;
@@ -8239,30 +8235,35 @@ zest_render_graph zest_EndRenderGraph() {
             }
         }
     }
+    
+    zest_execution_wave_t *waves = 0;
+    zest_execution_wave_t current_wave = { 0 };
 
     int *dependency_queue = 0;
     zest_vec_foreach(i, dependency_count) {
         if (dependency_count[i] == 0) {
             zest_vec_linear_push(allocator, dependency_queue, i);
+            zest_vec_linear_push(allocator, current_wave.pass_indices, i);
         }
     }
+    zest_vec_linear_push(allocator, waves, current_wave);
+	current_wave.level++;
 
     //Process_dependency_queue
     //Now we loop through the dependency_queue, all of which will have the dependency count (in degrees) set to 0.
     zest_vec_foreach(index, dependency_queue) {
         int pass_index = dependency_queue[index];
-        //Make the pass aware of the execution order index, this is used later when we link up the barriers that need
-        //to be executed for resource transitioning and acquiring.
+
         //Add the pass index to the compiled_execution_order list;
         zest_vec_linear_push(allocator, render_graph->compiled_execution_order, pass_index);
 
         //Check it's adjacency list and for those adjacent passes, reduce their dependency count by one.
         zest_vec_foreach(i, adjacency_list[pass_index].pass_indices) {
-            int adj_index = adjacency_list[pass_index].pass_indices[i];
-            dependency_count[adj_index]--;
+            int consumer_index = adjacency_list[pass_index].pass_indices[i];
+            dependency_count[consumer_index]--;
             //If the dependency count becomes 0 then we can add the pass to the dependency queue
-            if (dependency_count[adj_index] == 0) {
-                zest_vec_linear_push(allocator, dependency_queue, adj_index);
+            if (dependency_count[consumer_index] == 0) {
+                zest_vec_linear_push(allocator, dependency_queue, consumer_index);
             }
         }
     }
@@ -9832,7 +9833,7 @@ zest_resource_node zest_AddTransientImageResource(const char *name, const zest_i
 
 zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler, zest_bool with_storage_flag) {
     zest_image_description_t description = { 0 };
-    description.format = format;
+    description.format = (VkFormat)format;
     description.width = zest_ScreenWidth();
     description.height = zest_ScreenHeight();
     description.numSamples = VK_SAMPLE_COUNT_1_BIT;
@@ -13434,16 +13435,16 @@ void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format
     if (texture->image_collection) {
 		ZEST_ASSERT(zest_vec_size(texture->image_collection->images) == 0);    //You cannot change the image format of a texture that already has images
     }
-    texture->image_format = format;
+    texture->image_format = (VkFormat)format;
     switch (format) {
-    case VK_FORMAT_R8G8B8A8_UNORM:
-    case VK_FORMAT_B8G8R8A8_UNORM:
-    case VK_FORMAT_R8G8B8A8_SRGB:
-    case VK_FORMAT_B8G8R8A8_SRGB: 
-    case VK_FORMAT_R16G16B16A16_SFLOAT: {
+    case zest_texture_format_rgba_unorm:
+    case zest_texture_format_bgra_unorm:
+    case zest_texture_format_rgba_srgb:
+    case zest_texture_format_bgra_srgb: 
+    case zest_texture_format_rgba_hdr: {
         texture->color_channels = 4;
     } break;
-    case VK_FORMAT_R8_UNORM: {
+    case zest_texture_format_alpha: {
         texture->color_channels = 1;
     } break;
     default: {

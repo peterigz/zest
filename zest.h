@@ -2624,6 +2624,11 @@ typedef struct zest_pass_adjacency_list_t {
     int *pass_indices;
 } zest_pass_adjacency_list_t;
 
+typedef struct zest_execution_wave_t {
+    zest_uint level;
+    int *pass_indices;
+} zest_execution_wave_t;
+
 typedef struct zest_batch_key {
 	zest_u64 next_pass_indexes;
 	zest_uint current_family_index;
@@ -2696,9 +2701,6 @@ typedef struct zest_pass_node_t {
     zest_compute compute;
     zest_pass_flags flags;
     zest_pass_type type;
-
-    zest_pass_node prev;
-    zest_pass_node next;
 } zest_pass_node_t;
 
 typedef struct zest_pass_group_t {
@@ -2710,6 +2712,10 @@ typedef struct zest_pass_group_t {
     zest_uint batch_index;
     zest_uint execution_order_index;
     zest_pass_node *passes;
+    struct {
+        zest_uint start_index;
+        zest_uint end_index;
+    } execution_range;
 } zest_pass_group_t;
 
 typedef struct zest_resource_node_t {
