@@ -229,7 +229,7 @@ extern "C" {
 #endif
 	}
 
-    static inline zloc__count_bits(unsigned int number) {
+    static inline unsigned int zloc__count_bits(unsigned int number) {
         return __popcnt(number);
     }
 
@@ -263,7 +263,7 @@ extern "C" {
 #endif
 	}
 
-    static inline zloc__count_bits(unsigned int number) {
+    static inline unsigned int zloc__count_bits(unsigned int number) {
         return __builtin_popcount(number);
     }
 
@@ -281,8 +281,8 @@ extern "C" {
 	}
 #elif
 
-static inline int zloc__count_bits(unsigned int n) {
-    int count = 0;
+static inline unsigned int zloc__count_bits(unsigned int n) {
+    unsigned int count = 0;
     while (n > 0) {
         n &= (n - 1); 
         count++;
