@@ -10351,6 +10351,81 @@ void zest_BlitImageMip(VkCommandBuffer command_buffer, zest_resource_node src, z
     zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_dst_barrier);
 }
 
+void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy) {
+    ZEST_CHECK_HANDLE(src);
+    ZEST_CHECK_HANDLE(dst);
+    ZEST_ASSERT(src->type == zest_resource_type_image && dst->type == zest_resource_type_image);
+    //Source and destination images must be the same width/height and have the same number of mip levels
+    ZEST_ASSERT(src->image_buffer.image);
+    ZEST_ASSERT(dst->image_buffer.image);
+    ZEST_ASSERT(src->image_desc.width == dst->image_desc.width);
+    ZEST_ASSERT(src->image_desc.height == dst->image_desc.height);
+    ZEST_ASSERT(src->image_desc.mip_levels == dst->image_desc.mip_levels);
+
+    VkImage src_image = src->image_buffer.image;
+    VkImage dst_image = dst->image_buffer.image;
+
+    zest_uint mip_width = ZEST__MAX(1u, src->image_desc.width >> mip_to_copy);
+    zest_uint mip_height = ZEST__MAX(1u, src->image_desc.height >> mip_to_copy);
+
+    VkImageLayout src_current_layout = src->journey[src->current_state_index].usage.image_layout;
+    VkImageLayout dst_current_layout = dst->journey[dst->current_state_index].usage.image_layout;
+
+    //Blit the smallest mip level from the downsampled render target first
+    VkImageMemoryBarrier blit_src_barrier = zest__create_image_memory_barrier(src_image,
+        0,
+        VK_ACCESS_TRANSFER_READ_BIT,
+        src_current_layout,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        mip_to_copy, 1);
+    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_src_barrier);
+
+    VkImageMemoryBarrier blit_dst_barrier = zest__create_image_memory_barrier(dst_image,
+        0,
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        dst_current_layout,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        mip_to_copy, 1);
+    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_dst_barrier);
+
+    VkOffset3D base_offset = { 0 };
+    VkImageCopy image_copy = { 0 };
+    image_copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_copy.srcSubresource.layerCount = 1;
+    image_copy.srcSubresource.mipLevel = mip_to_copy;
+    image_copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_copy.dstSubresource.layerCount = 1;
+    image_copy.dstSubresource.mipLevel = mip_to_copy;
+    image_copy.srcOffset = base_offset;
+    image_copy.dstOffset = base_offset;
+    image_copy.extent.width = mip_width;
+    image_copy.extent.height = mip_height;
+    image_copy.extent.depth = 1;
+
+    vkCmdCopyImage(
+        command_buffer,
+        src_image,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        dst_image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_copy);
+
+    blit_src_barrier = zest__create_image_memory_barrier(src_image,
+        VK_ACCESS_TRANSFER_READ_BIT,
+        VK_ACCESS_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        src_current_layout,
+        mip_to_copy, 1);
+    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_src_barrier);
+
+    blit_dst_barrier = zest__create_image_memory_barrier(dst_image,
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_ACCESS_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        dst_current_layout,
+        mip_to_copy, 1);
+    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_dst_barrier);
+}
+
 void zest_InsertComputeImageBarrier(VkCommandBuffer command_buffer, zest_resource_node resource, zest_uint base_mip) {
     ZEST_CHECK_HANDLE(resource);    //Not a valid resource handle!
     ZEST_ASSERT(resource->type == zest_resource_type_image);    //resource type must be an image
