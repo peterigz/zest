@@ -294,7 +294,7 @@ void zest_UpsampleCompute(VkCommandBuffer command_buffer, const zest_render_grap
 	zest_uint mip_levels = zest_GetResourceMipLevels(upsampler_target);
 	zest_uint mip_to_blit = mip_levels - 1;
 
-	zest_CopyImageMip(command_buffer, downsampler_target, upsampler_target, mip_to_blit);
+	zest_CopyImageMip(command_buffer, downsampler_target, upsampler_target, mip_to_blit, zest_pipeline_compute_stage);
 
 	// Bind the pipeline once before the loop
 	zest_BindComputePipeline(command_buffer, example->upsampler_compute, sets, 1);

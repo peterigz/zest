@@ -2825,6 +2825,7 @@ typedef struct zest_submission_batch_t {
     zest_queue queue;
     zest_uint queue_family_index;
     VkPipelineStageFlags timeline_wait_stage;
+    VkPipelineStageFlags queue_wait_stages;
     zest_device_queue_type queue_type;
     zest_uint *pass_indices;
     VkCommandBuffer command_buffer;
@@ -2944,8 +2945,8 @@ ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
 ZEST_API VkImage zest_GetResourceImage(zest_resource_node resource_node);
-ZEST_API void zest_BlitImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit);
-ZEST_API void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit);
+ZEST_API void zest_BlitImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
+ZEST_API void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 
 // -- Helper functions to insert barrier functions within pass callbacks
 ZEST_API void zest_InsertComputeImageBarrier(VkCommandBuffer command_buffer, zest_resource_node resource, zest_uint base_mip);

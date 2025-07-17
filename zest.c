@@ -8362,13 +8362,13 @@ zest_render_graph zest_EndRenderGraph() {
     //first and last usage index for each resource.
     zest_vec_foreach(submission_index, render_graph->submissions) {
         zest_wave_submission_t *current_wave = &render_graph->submissions[submission_index];
-        for (zest_uint queue_id = 0; queue_id != ZEST_QUEUE_COUNT; ++queue_id) {
-            if (!current_wave->batches[queue_id].magic) continue;
-            zest_submission_batch_t *batch = &current_wave->batches[queue_id];
+        for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
+            if (!current_wave->batches[queue_index].magic) continue;
+            zest_submission_batch_t *batch = &current_wave->batches[queue_index];
             zest_vec_foreach(execution_index, batch->pass_indices) {
                 zest_uint current_pass_index = batch->pass_indices[execution_index];
                 zest_pass_group_t *current_pass = &render_graph->final_passes.data[current_pass_index];
-                current_pass->submission_id = ZEST__MAKE_SUBMISSION_ID(submission_index, execution_index, queue_id);
+                current_pass->submission_id = ZEST__MAKE_SUBMISSION_ID(submission_index, execution_index, queue_index);
 
                 zest_batch_key batch_key = { 0 };
                 batch_key.current_family_index = current_pass->queue_info.queue_family_index;
@@ -8382,6 +8382,13 @@ zest_render_graph zest_EndRenderGraph() {
                     if (resource_node) {
                         resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, current_pass_index);
                         resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, current_pass_index);
+                    }
+                    if (resource_node->producer_pass_idx != -1) {
+                        zest_pass_group_t *producer_pass = &render_graph->final_passes.data[resource_node->producer_pass_idx];
+                        zest_uint producer_queue_index = ZEST__QUEUE_INDEX(producer_pass->submission_id);
+                        if (queue_index != producer_queue_index) {
+                            batch->queue_wait_stages |= current_pass->inputs.data[input_idx].stage_mask;
+                        }
                     }
                     zest_resource_state_t state = { 0 };
                     state.pass_index = current_pass_index;
@@ -9112,7 +9119,7 @@ void zest__execute_render_graph() {
             //Wait on the semaphores from the previous wave
             zest_vec_foreach(semaphore_index, wave_wait_semaphores) {
                 zest_vec_linear_push(allocator, wait_semaphores, wave_wait_semaphores[semaphore_index]);
-                zest_vec_linear_push(allocator, wait_stages, wave_wait_stages[semaphore_index]);
+                zest_vec_linear_push(allocator, wait_stages, batch->queue_wait_stages);
                 zest_vec_linear_push(allocator, wait_values, wave_wait_values[semaphore_index]);
             }
 
@@ -9191,7 +9198,6 @@ void zest__execute_render_graph() {
         for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
             if (wave_submission->batches[queue_index].magic) {
                 zest_vec_linear_push(allocator, wave_wait_semaphores, render_graph->queue_semaphores[queue_index]);
-                zest_vec_linear_push(allocator, wave_wait_stages, zest__queue_semaphore_wait_stages[queue_index]);
                 zest_vec_linear_push(allocator, wave_wait_values, render_graph->queue_semaphore_values[queue_index]);
             }
 		}
@@ -9390,9 +9396,9 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
             zest_submission_batch_t *batch = &wave_submission->batches[queue_index];
             if (!batch->magic) continue;
             if (zest_map_valid_key(ZestDevice->queue_names, batch->queue_family_index)) {
-                ZEST_PRINT("  Target Queue Family: %s - index: %u (VkQueue: %p)", *zest_map_at_key(ZestDevice->queue_names, batch->queue_family_index), batch->queue_family_index, (void *)batch->queue);
+                ZEST_PRINT("  Target Queue Family: %s - index: %u (VkQueue: %p)", *zest_map_at_key(ZestDevice->queue_names, batch->queue_family_index), batch->queue_family_index, (void *)batch->queue->vk_queue);
             } else {
-                ZEST_PRINT("  Target Queue Family: %s - index: %u (VkQueue: %p)", "Ignored", batch->queue_family_index, (void *)batch->queue);
+                ZEST_PRINT("  Target Queue Family: %s - index: %u (VkQueue: %p)", "Ignored", batch->queue_family_index, (void *)batch->queue->vk_queue);
             }
 
             // --- Print Wait Semaphores for the Batch ---
@@ -10351,7 +10357,7 @@ void zest_BlitImageMip(VkCommandBuffer command_buffer, zest_resource_node src, z
     zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_dst_barrier);
 }
 
-void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy) {
+void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_supported_pipeline_stages pipeline_stage) {
     ZEST_CHECK_HANDLE(src);
     ZEST_CHECK_HANDLE(dst);
     ZEST_ASSERT(src->type == zest_resource_type_image && dst->type == zest_resource_type_image);
@@ -10415,7 +10421,7 @@ void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, z
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src_current_layout,
         mip_to_copy, 1);
-    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_src_barrier);
+    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, pipeline_stage, &blit_src_barrier);
 
     blit_dst_barrier = zest__create_image_memory_barrier(dst_image,
         VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -10423,7 +10429,7 @@ void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, z
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst_current_layout,
         mip_to_copy, 1);
-    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_dst_barrier);
+    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, pipeline_stage, &blit_dst_barrier);
 }
 
 void zest_InsertComputeImageBarrier(VkCommandBuffer command_buffer, zest_resource_node resource, zest_uint base_mip) {
