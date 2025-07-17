@@ -2687,6 +2687,7 @@ typedef struct zest_resource_state_t {
     zest_uint pass_index;
     zest_resource_usage_t usage;
     zest_uint queue_family_index;
+    zest_uint submission_id;
     bool was_released;
 } zest_resource_state_t;
 
@@ -2841,6 +2842,7 @@ typedef struct zest_submission_batch_t {
 	zest_u64 *wait_values;
 	zest_u64 *signal_values;
     zest_bool need_timeline_wait;
+    zest_bool need_timeline_signal;
 } zest_submission_batch_t;
 
 typedef struct zest_wave_submission_t {
@@ -2874,8 +2876,6 @@ typedef struct zest_render_graph_t {
     zest_execution_timeline *wait_on_timelines;
     zest_execution_timeline *signal_timelines;
 
-    VkSemaphore queue_semaphores[ZEST_QUEUE_COUNT];
-    zest_size queue_semaphore_values[ZEST_QUEUE_COUNT];
     zest_execution_wave_t *execution_waves;            // Execution order after compilation
 
     zest_resource_handle swapchain_resource_handle; // Handle to the current swapchain image resource
@@ -2932,6 +2932,7 @@ ZEST_PRIVATE void zest__add_memory_buffer_barrier(zest_resource_node resource, z
 ZEST_PRIVATE void zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
 ZEST_PRIVATE void zest__execute_render_graph();
 ZEST_PRIVATE zest_resource_usage_t zest__get_image_usage(zest_resource_purpose purpose, VkFormat format, VkAttachmentLoadOp load_op, VkAttachmentLoadOp stencil_load_op, VkPipelineStageFlags relevant_pipeline_stages);
+ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
 
 // --- Utility callbacks ---
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
@@ -3832,6 +3833,9 @@ typedef struct zest_renderer_t {
     VkSemaphore *semaphore_pool;
     VkSemaphore *free_semaphores;
 
+    VkSemaphore render_graph_timeline_semaphores[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
+    zest_size render_graph_timeline_values[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
+
     zest_execution_timeline *timeline_semaphores;
 
     zest_u64 total_frame_count;
@@ -3917,7 +3921,6 @@ typedef struct zest_renderer_t {
     zest_destruction_queue_t deferred_resource_freeing_list;
 	VkFramebuffer *old_frame_buffers[ZEST_MAX_FIF];             //For clearing up frame buffers from previous frames that aren't needed anymore
     VkSemaphore *used_semaphores[ZEST_MAX_FIF];                 //For returning to the semaphore pool after a render graph is finished with them from the previous frame
-    VkSemaphore *used_timeline_semaphores[ZEST_MAX_FIF];        //For returning to the semaphore pool after a render graph is finished with them from the previous frame
     VkCommandBuffer *used_graphics_command_buffers[ZEST_MAX_FIF];
     VkCommandBuffer *used_compute_command_buffers[ZEST_MAX_FIF];
     VkCommandBuffer *used_transfer_command_buffers[ZEST_MAX_FIF];

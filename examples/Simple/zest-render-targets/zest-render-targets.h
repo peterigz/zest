@@ -46,6 +46,7 @@ struct RenderTargetExample {
 	BlurPushConstants blur_push_constants;	        //The push constants containing the texture size and the direction of the blur
 	BloomPushConstants bloom_constants;		        //The push constants containing the bloom thresholds
 	CompositePushConstants composite_push_constants;//The push constants used with compositing the render targets to the swap chain
+	zest_execution_timeline timeline;
 
 	struct wabbit_pos {
 		float x, y;						            //Some variables to help bounce the rabbit around
