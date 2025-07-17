@@ -1509,12 +1509,6 @@ typedef enum zest_report_category {
     zest_report_unconnected_resource,
 } zest_report_category;
 
-typedef enum zest_pass_type {
-    zest_pass_type_graphics,
-    zest_pass_type_compute,
-    zest_pass_type_transfer,
-} zest_pass_type;
-
 typedef zest_uint zest_supported_shader_stages;		//zest_shader_stage_bits
 typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
 typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
@@ -2711,7 +2705,6 @@ typedef struct zest_pass_node_t {
     zest_pass_execution_callback_t execution_callback;
     zest_compute compute;
     zest_pass_flags flags;
-    zest_pass_type type;
 } zest_pass_node_t;
 
 typedef struct zest_execution_barriers_t {

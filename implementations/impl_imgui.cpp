@@ -34,7 +34,7 @@ zest_pass_node zest_imgui_AddToRenderGraph() {
         //Graphics Pass for ImGui outputting to the output passed in to this function
 		zest_pass_node imgui_pass = zest_AddRenderPassNode("Dear ImGui Pass");
         //inputs
-		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(imgui_pass, imgui_font_texture);
 		zest_ConnectVertexBufferInput(imgui_pass, imgui_vertex_buffer);
 		zest_ConnectIndexBufferInput(imgui_pass, imgui_index_buffer);
         //Task

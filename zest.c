@@ -8069,6 +8069,7 @@ void zest__create_transient_resource(zest_render_graph render_graph, zest_resour
 /*
 Render graph compiler index:
 [Check_unused_resources_and_passes]
+[Version_control_resources]
 [Set_producers_and_consumers]
 [Set_adjacency_list]
 [Process_dependency_queue]
@@ -8155,11 +8156,14 @@ zest_render_graph zest_EndRenderGraph() {
                 zest_pass_group_t pass_group = { 0 };
                 pass_group.queue_info = pass_node->queue_info;
                 zest_map_foreach(output_index, pass_node->outputs) {
-                    zest_map_insert_linear_key(allocator, pass_group.outputs, pass_node->outputs.map[output_index].key, pass_node->outputs.data[output_index]);
+                    zest_hash_pair pair = pass_node->outputs.map[output_index];
+                    zest_resource_usage_t *usage = &pass_node->outputs.data[pair.index];
+                    zest_map_insert_linear_key(allocator, pass_group.outputs, pass_node->outputs.map[output_index].key, *usage);
                 }
                 zest_map_foreach(input_index, pass_node->inputs) {
                     zest_hash_pair pair = pass_node->inputs.map[input_index];
                     zest_resource_usage_t *usage = &pass_node->inputs.data[pair.index];
+                    ZEST_ASSERT(usage->resource_node);
                     zest_map_insert_linear_key(allocator, pass_group.inputs, pair.key, *usage);
                 }
                 if (pass_node->execution_callback.callback) {
@@ -8178,11 +8182,15 @@ zest_render_graph zest_EndRenderGraph() {
                 zest_map_foreach(input_index, pass_node->inputs) {
                     zest_hash_pair pair = pass_node->inputs.map[input_index];
                     zest_resource_usage_t *usage = &pass_node->inputs.data[pair.index];
+                    ZEST_ASSERT(usage->resource_node);
                     zest_map_insert_linear_key(allocator, pass_group->inputs, pair.key, *usage);
                 }
             }
         }
     }
+
+    //Alias resources that are written to multiple times in different passes
+    //[Version_control_resources]
 
     zest_uint potential_passes = zest_vec_size(render_graph->potential_passes);
     zest_uint final_passes = zest_map_size(render_graph->final_passes);
@@ -8222,20 +8230,58 @@ zest_render_graph zest_EndRenderGraph() {
             break;
         }
 
+        zest_map_foreach(j, pass_node->inputs) {
+            zest_resource_usage_t *input_usage = &pass_node->inputs.data[j];
+            zest_resource_node resource = input_usage->resource_node;
+            zest_resource_versions_t *versions = zest_map_at_key(render_graph->resource_versions, resource->original_id);
+            ZEST_ASSERT(versions);
+            zest_resource_node latest_version = zest_vec_back(versions->resources);
+            if (!zest_map_valid_name(pass_node->inputs, latest_version->name)) {
+                latest_version->reference_count++;
+            }
+            input_usage->resource_node = latest_version;
+
+            zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->inputs, latest_version->name, *input_usage);
+            zest_vec_linear_push(allocator, resource->consumer_pass_indices, i); // pass 'i' consumes this
+        }
+
         zest_map_foreach(j, pass_node->outputs) {
             zest_resource_usage_t *output_usage = &pass_node->outputs.data[j];
+            zest_resource_node resource = output_usage->resource_node;
+            zest_resource_versions_t *versions = zest__maybe_add_resource_version(resource);
+            zest_resource_node latest_version = zest_vec_back(versions->resources);
+            if (latest_version->id != resource->id) {
+                //Add the versioned alias to the outputs instead
+                output_usage->resource_node = latest_version;
+                zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->outputs, latest_version->name, *output_usage);
+                //Check if the user already added this as input:
+                if (!zest_map_valid_name(pass_node->inputs, resource->name)) {
+                    //If not then add the resource as input for correct dependency chain with default usages
+                    zest_resource_usage_t input_usage = { 0 };
+                    switch (pass_node->queue_info.queue_type) {
+                    case zest_queue_graphics:
+                        input_usage = zest__get_image_usage(zest_purpose_color_attachment_read, resource->image_desc.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
+                        break;
+                    case zest_queue_compute:
+                    case zest_queue_transfer:
+                        input_usage = zest__get_image_usage(zest_purpose_storage_image_read, resource->image_desc.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
+                        break;
+                    }
+                    input_usage.store_op = output_usage->store_op;
+                    input_usage.stencil_store_op = output_usage->stencil_store_op;
+                    input_usage.clear_value = output_usage->clear_value;
+                    input_usage.purpose = output_usage->purpose;
+                    resource->reference_count++;
+                    zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->inputs, resource->name, input_usage);
+                }
+            }
+
             //A resource should only have one producer in a valid graph.
-            zest_uint pass_size = zest_vec_size(pass_node->passes);
             //Check to make sure you haven't added the same output to a pass more than once
             ZEST_ASSERT(output_usage->resource_node->producer_pass_idx == -1 || output_usage->resource_node->producer_pass_idx == i);
             output_usage->resource_node->producer_pass_idx = i;
         }
 
-        zest_map_foreach(j, pass_node->inputs) {
-            zest_resource_usage_t *input_usage = &pass_node->inputs.data[j];
-            zest_resource_node resource = input_usage->resource_node;
-            zest_vec_linear_push(allocator, resource->consumer_pass_indices, i); // pass 'i' consumes this
-        }
     }
 
     // Set_adjacency_list
@@ -9072,7 +9118,6 @@ void zest__execute_render_graph() {
                         zest_vec_size(exe_details->barriers.release_image_barriers),
                         exe_details->barriers.release_image_barriers
                     );
-
                 }
 
                 zest_vec_foreach(r, grouped_pass->transient_resources_to_free) {
@@ -10146,7 +10191,6 @@ zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node re
 zest_pass_node zest_AddGraphicBlankScreen(const char *name) {
     zest_pass_node pass = zest__add_pass_node(name, zest_queue_graphics);
     zest_SetPassTask(pass, zest_EmptyRenderPass, 0);
-    pass->type = zest_pass_type_graphics;
     return pass;
 }
 
@@ -10154,7 +10198,6 @@ zest_pass_node zest_AddRenderPassNode(const char *name) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_pass_node node = zest__add_pass_node(name, zest_queue_graphics);
     node->queue_info.timeline_wait_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
-    node->type = zest_pass_type_graphics;
     return node;
 }
 
@@ -10163,7 +10206,6 @@ zest_pass_node zest_AddComputePassNode(zest_compute compute, const char *name) {
     zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_compute);
     node->compute = compute;
     node->queue_info.timeline_wait_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-    node->type = zest_pass_type_compute;
     return node;
 }
 
@@ -10171,7 +10213,6 @@ zest_pass_node zest_AddTransferPassNode(const char *name) {
     bool force_graphics_queue = (ZestRenderer->current_render_graph->flags & zest_render_graph_force_on_graphics_queue) > 0;
     zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_transfer);
     node->queue_info.timeline_wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    node->type = zest_pass_type_transfer;
     return node;
 }
 
@@ -10905,49 +10946,15 @@ void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node ima
     usage.purpose = purpose;
   
     if (usage.is_output) {
-		zest_resource_versions_t *versions = zest__maybe_add_resource_version(image_resource);
-		zest_resource_node latest_version = zest_vec_back(versions->resources);
-        if (latest_version->id == image_resource->id) {
-            //This is the first time this resource has been used as output
-            usage.resource_node = image_resource;
-            zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->outputs, image_resource->name, usage);
-            pass_node->output_key += image_resource->id + zest_Hash(&usage, sizeof(zest_resource_usage_t), 0);
-        } else {
-            //Add the versioned alias to the outputs instead
-            usage.resource_node = latest_version;
-            zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->outputs, latest_version->name, usage);
-            pass_node->output_key += image_resource->id + zest_Hash(&usage, sizeof(zest_resource_usage_t), 0);
-            //Check if the user already added this as input:
-            if (!zest_map_valid_name(pass_node->inputs, image_resource->name)) {
-                //If not then add the resource as input for correct dependency chain with default usages
-                zest_resource_usage_t input_usage = { 0 };
-                switch (pass_node->type) {
-                case zest_pass_type_graphics: 
-                    input_usage = zest__get_image_usage(zest_purpose_color_attachment_read, image_resource->image_desc.format, load_op, stencil_load_op, relevant_pipeline_stages); 
-                    break;
-                case zest_pass_type_compute: 
-                case zest_pass_type_transfer: 
-                    input_usage = zest__get_image_usage(zest_purpose_storage_image_read, image_resource->image_desc.format, load_op, stencil_load_op, relevant_pipeline_stages); 
-                    break;
-                }
-                usage.store_op = store_op;
-                usage.stencil_store_op = stencil_store_op;
-                usage.clear_value = clear_value;
-                usage.purpose = purpose;
-				image_resource->reference_count++;
-				zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->inputs, image_resource->name, input_usage);
-            }
-        }
+		//This is the first time this resource has been used as output
+		usage.resource_node = image_resource;
+		zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->outputs, image_resource->name, usage);
+		pass_node->output_key += image_resource->id + zest_Hash(&usage, sizeof(zest_resource_usage_t), 0);
     } else {
-		zest_render_graph render_graph = ZestRenderer->current_render_graph;
-		ZEST_CHECK_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-		zest_resource_versions_t *versions = zest_map_at_key(render_graph->resource_versions, image_resource->original_id);
-		zest_resource_node latest_version = zest_vec_back(versions->resources);
-        if (!zest_map_valid_name(pass_node->inputs, latest_version->name)) {
-			latest_version->reference_count++;
-        }
-        usage.resource_node = latest_version;
-		zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->inputs, latest_version->name, usage);
+        usage.resource_node = image_resource;
+        ZEST_ASSERT(usage.resource_node);
+		image_resource->reference_count++;
+		zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->inputs, image_resource->name, usage);
     }
 }
 
@@ -11001,10 +11008,10 @@ void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node textu
 void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_node texture, zest_bool read_only) {
     ZEST_CHECK_HANDLE(texture);  //Not a valid texture resource
     zest_supported_pipeline_stages stages = 0;
-    switch (pass->type) {
-    case zest_pass_type_graphics: stages = zest_pipeline_fragment_stage; break;
-    case zest_pass_type_compute: stages = zest_pipeline_compute_stage; break;
-    case zest_pass_type_transfer: stages = zest_pipeline_transfer_stage; break;
+    switch (pass->queue_info.queue_type) {
+    case zest_queue_graphics: stages = zest_pipeline_fragment_stage; break;
+    case zest_queue_compute: stages = zest_pipeline_compute_stage; break;
+    case zest_queue_transfer: stages = zest_pipeline_transfer_stage; break;
     }
     zest__add_pass_image_usage(pass, texture, read_only ? zest_purpose_storage_image_read : zest_purpose_storage_image_read_write, stages, ZEST_FALSE,
         VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue){0});
@@ -11013,10 +11020,10 @@ void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_node textu
 void zest_ConnectStorageImageOutput(zest_pass_node pass, zest_resource_node resource, zest_bool write_only) {
     ZEST_CHECK_HANDLE(resource);  //Not a valid resource handle
     zest_supported_pipeline_stages stages = 0;
-    switch (pass->type) {
-    case zest_pass_type_graphics: stages = zest_pipeline_fragment_stage; break;
-    case zest_pass_type_compute: stages = zest_pipeline_compute_stage; break;
-    case zest_pass_type_transfer: stages = zest_pipeline_transfer_stage; break;
+    switch (pass->queue_info.queue_type) {
+    case zest_queue_graphics: stages = zest_pipeline_fragment_stage; break;
+    case zest_queue_compute: stages = zest_pipeline_compute_stage; break;
+    case zest_queue_transfer: stages = zest_pipeline_transfer_stage; break;
     }
     zest__add_pass_image_usage(pass, resource, write_only ? zest_purpose_storage_image_write : zest_purpose_storage_image_read_write, stages, ZEST_FALSE,
         VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue){0});

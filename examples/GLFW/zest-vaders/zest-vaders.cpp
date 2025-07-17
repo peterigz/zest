@@ -1140,9 +1140,9 @@ void VadersGame::Update(float ellapsed) {
 		//------------------------ Particles Pass -----------------------------------------------------------
 		zest_pass_node particles_pass = zest_AddRenderPassNode("Particles Pass");
 		//inputs
-		zest_ConnectSampledImageInput(particles_pass, particle_texture, zest_pipeline_fragment_stage);
-		zest_ConnectSampledImageInput(particles_pass, tfx_image_data, zest_pipeline_fragment_stage);
-		zest_ConnectSampledImageInput(particles_pass, color_ramps_texture, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(particles_pass, particle_texture);
+		zest_ConnectSampledImageInput(particles_pass, tfx_image_data);
+		zest_ConnectSampledImageInput(particles_pass, color_ramps_texture);
 		zest_ConnectVertexBufferInput(particles_pass, tfx_write_layer);
 		zest_ConnectVertexBufferInput(particles_pass, tfx_read_layer);
 		//outputs
@@ -1153,7 +1153,7 @@ void VadersGame::Update(float ellapsed) {
 		//------------------------ Billboards Pass -----------------------------------------------------------
 		zest_pass_node billboards_pass = zest_AddRenderPassNode("Billboards Pass");
 		//inputs
-		zest_ConnectSampledImageInput(billboards_pass, game_sprites_texture, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(billboards_pass, game_sprites_texture);
 		zest_ConnectVertexBufferInput(billboards_pass, billboard_layer_resource);
 		//outputs
 		zest_ConnectSwapChainOutput(billboards_pass, swapchain_output_resource, clear_color);
@@ -1163,7 +1163,7 @@ void VadersGame::Update(float ellapsed) {
 		//------------------------ Fonts Pass ----------------------------------------------------------------
 		zest_pass_node fonts_pass = zest_AddRenderPassNode("Fonts Pass");
 		//inputs
-		zest_ConnectSampledImageInput(fonts_pass, font_layer_texture, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(fonts_pass, font_layer_texture);
 		zest_ConnectVertexBufferInput(fonts_pass, font_layer_resources);
 		//outputs
 		zest_ConnectSwapChainOutput(fonts_pass, swapchain_output_resource, clear_color);

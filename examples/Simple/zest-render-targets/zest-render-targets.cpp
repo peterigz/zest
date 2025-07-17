@@ -388,7 +388,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	//Create the render graph
 	if (zest_BeginRenderToScreen("Fonts Example Render Graph")) {
-		//zest_WaitOnTimeline(example->timeline);
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
@@ -446,11 +445,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_SetPassTask(graphics_pass, zest_DrawRenderTargetSimple, example);
 		//--------------------------------------------------------------------------------------------------
 
-		//zest_SignalTimeline(example->timeline);
 		//End and execute the render graph
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		static int print_render_graph = 0;
-		if (print_render_graph < 3) {
+		if (print_render_graph < 1) {
 			zest_PrintCompiledRenderGraph(render_graph);
 			print_render_graph++;
 		}
