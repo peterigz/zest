@@ -387,7 +387,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	}
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen("Fonts Example Render Graph")) {
+	if (zest_BeginRenderToScreen("Bloom Example Render Graph")) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 

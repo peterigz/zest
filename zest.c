@@ -1411,12 +1411,6 @@ void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*)) {
     ZestApp->update_callback = callback;
 }
 
-void zest_SetActiveCommandQueue(zest_command_queue command_queue) {
-    ZEST_ASSERT(!ZestRenderer->active_command_queue);                                            //You already have an active queue for this frame.
-    ZEST_ASSERT(ZEST__FLAGGED(command_queue->flags, zest_command_queue_flag_validated));        //Make sure that the command queue creation ended with the command: zest_FinishQueueSetup
-    ZestRenderer->active_command_queue = command_queue;
-}
-
 void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void* user_data)) {
     ZestRenderer->destroy_window_callback = destroy_window_callback;
 }
@@ -2340,51 +2334,6 @@ void zest__do_scheduled_tasks(void) {
         zest_vec_clear(ZestRenderer->pipeline_recreate_queue);
     }
 
-    if (zest_map_size(ZestRenderer->render_target_recreate_queue)) {
-        bool complete = true;
-        for (zest_map_foreach_i(ZestRenderer->render_target_recreate_queue)) {
-            zest_render_target render_target = ZestRenderer->render_target_recreate_queue.data[i];
-            if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_single_frame_buffer_only)) {
-                if (render_target->frame_buffer_dirty[0]) {
-                    zest_RecreateRenderTargetResources(render_target, 0);
-                    zest__refresh_render_target_sampler(render_target);
-					if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_multi_mip)) {
-						zest__refresh_render_target_mip_samplers(render_target);
-					}
-                    render_target->recorder->outdated[0] = 1;
-                    render_target->frame_buffer_dirty[0] = 0;
-                    complete = false;
-                }
-            } else {
-                if (render_target->frame_buffer_dirty[ZEST_FIF]) {
-                    zest_RecreateRenderTargetResources(render_target, ZEST_FIF);
-                    zest__refresh_render_target_sampler(render_target);
-					if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_multi_mip)) {
-						zest__refresh_render_target_mip_samplers(render_target);
-					}
-                    render_target->recorder->outdated[ZEST_FIF] = 1;
-                    render_target->frame_buffer_dirty[ZEST_FIF] = 0;
-                    complete = false;
-                }
-            }
-        }
-		zest__update_command_queue_viewports();
-        if (complete) {
-            zest_map_clear(ZestRenderer->render_target_recreate_queue);
-        }
-    }
-
-    if (zest_map_size(ZestRenderer->rt_sampler_refresh_queue)) {
-        for (zest_map_foreach_i(ZestRenderer->rt_sampler_refresh_queue)) {
-            zest_render_target render_target = ZestRenderer->rt_sampler_refresh_queue.data[i];
-            zest_ForEachFrameInFlight(fif) {
-				render_target->recorder->outdated[fif] = 1;
-            }
-			zest__refresh_render_target_sampler(render_target);
-        }
-        zest_map_clear(ZestRenderer->rt_sampler_refresh_queue);
-    }
-
     zest_vec_foreach(i, ZestRenderer->staging_buffers) {
         zest_buffer staging_buffer = ZestRenderer->staging_buffers[i];
 		zloc_FreeRemote(staging_buffer->buffer_allocator->allocator, staging_buffer);
@@ -2416,8 +2365,6 @@ void zest__main_loop(void) {
 
         ZestApp->update_callback(ZestApp->current_elapsed, ZestApp->user_data);
 
-        zest__render_target_maintennance();
-
         //zest__draw_renderer_frame();
 
         //Cover some cases where a render graph wasn't created or it was but there was nothing render etc., to make sure
@@ -2446,7 +2393,6 @@ void zest__main_loop(void) {
             }
         }
 
-        ZestRenderer->active_command_queue = ZEST_NULL;
     }
 }
 
@@ -3422,8 +3368,8 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create sync objects");
     zest__create_sync_objects();
     zest__create_command_buffer_pools();
-    ZestRenderer->push_constants.screen_resolution.x = 1.f / ZestRenderer->swapchain_extent.width;
-    ZestRenderer->push_constants.screen_resolution.y = 1.f / ZestRenderer->swapchain_extent.height;
+    ZestRenderer->screen_resolution_push.x = 1.f / ZestRenderer->swapchain_extent.width;
+    ZestRenderer->screen_resolution_push.y = 1.f / ZestRenderer->swapchain_extent.height;
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
 
@@ -3705,15 +3651,6 @@ void zest__cleanup_framebuffer(zest_frame_buffer_t* frame_buffer) {
     zest_vec_clear(frame_buffer->color_buffer.mip_views);
 }
 
-void zest__cleanup_draw_routines(void) {
-    zest_map_foreach(i, ZestRenderer->draw_routines) {
-        zest_draw_routine draw_routine = ZestRenderer->draw_routines.data[i];
-        if (draw_routine->recorder) {
-            zest_FreeRecorder(draw_routine->recorder);
-        }
-    }
-}
-
 void zest__cleanup_device(void) {
     zest_ForEachFrameInFlight(fif) {
         vkDestroySemaphore(ZestDevice->logical_device, ZestDevice->graphics_queue.semaphore[fif], &ZestDevice->allocation_callbacks);
@@ -3739,28 +3676,11 @@ void zest__cleanup_renderer() {
     }
     zest_map_clear(ZestRenderer->samplers);
 
-    for (zest_map_foreach_i(ZestRenderer->render_targets)) {
-        zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
-		zest_CleanUpRenderTarget(render_target);
-        zest_FreeRecorder(render_target->recorder);
-    }
-    zest_map_clear(ZestRenderer->render_targets);
-
     for (zest_map_foreach_i(ZestRenderer->render_passes)) {
         VkRenderPass render_pass = *zest_map_at_index(ZestRenderer->render_passes, i);
         vkDestroyRenderPass(ZestDevice->logical_device, render_pass, &ZestDevice->allocation_callbacks);
     }
     zest_map_clear(ZestRenderer->render_passes);
-
-    zest__cleanup_draw_routines();
-    for (zest_map_foreach_i(ZestRenderer->draw_routines)) {
-        zest_draw_routine routine = *zest_map_at_index(ZestRenderer->draw_routines, i);
-        if (routine->clean_up_callback) {
-            routine->clean_up_callback(routine);
-        }
-    }
-
-    zest_map_clear(ZestRenderer->draw_routines);
 
     for (zest_map_foreach_i(ZestRenderer->descriptor_layouts)) {
         zest_set_layout layout = *zest_map_at_index(ZestRenderer->descriptor_layouts, i);
@@ -3803,11 +3723,6 @@ void zest__cleanup_renderer() {
         for (zest_foreach_j(buffer_allocator->memory_pools)) {
             zest__destroy_memory(buffer_allocator->memory_pools[j]);
         }
-    }
-
-    for (zest_map_foreach_i(ZestRenderer->command_queues)) {
-        zest_command_queue command_queue = *zest_map_at_index(ZestRenderer->command_queues, i);
-        zest__cleanup_command_queue(command_queue);
     }
 
     for (zest_map_foreach_i(ZestRenderer->computes)) {
@@ -3860,8 +3775,8 @@ void zest__recreate_swapchain() {
     }
 
     zest__update_window_size(ZestApp->window, window_width, window_height);
-    ZestRenderer->push_constants.screen_resolution.x = 1.f / fb_width;
-    ZestRenderer->push_constants.screen_resolution.y = 1.f / fb_height;
+    ZestRenderer->screen_resolution_push.x = 1.f / fb_width;
+    ZestRenderer->screen_resolution_push.y = 1.f / fb_height;
 
     zest_WaitForIdleDevice();
 
@@ -3886,17 +3801,6 @@ void zest__recreate_swapchain() {
     }
 
     zest__create_swap_chain_frame_buffers(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer));
-    for (zest_map_foreach_i(ZestRenderer->render_targets)) {
-        zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
-		zest_CleanUpRenderTarget(render_target);
-        for (int fif = 0; fif != render_target->frames_in_flight; ++fif) {
-            zest_RecreateRenderTargetResources(render_target, fif);
-        }
-		zest__refresh_render_target_sampler(render_target);
-        if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_multi_mip)) {
-			zest__refresh_render_target_mip_samplers(render_target);
-        }
-    }
 
     VkExtent2D extent;
     extent.width = fb_width;
@@ -3913,70 +3817,6 @@ void zest__recreate_swapchain() {
         else {
             pipeline->rebuild_pipeline_function(pipeline);
         }
-    }
-
-    for (zest_map_foreach_i(ZestRenderer->draw_routines)) {
-        zest_draw_routine draw_routine = *zest_map_at_index(ZestRenderer->draw_routines, i);
-        if (!draw_routine->update_resolution_callback && draw_routine->draw_data != ZEST_NULL) {
-            zest_layer layer = (zest_layer)draw_routine->draw_data;
-            zest__update_instance_layer_resolution(layer);
-        }
-        else if (draw_routine->update_resolution_callback) {
-            draw_routine->update_resolution_callback(draw_routine);
-        }
-        for (ZEST_EACH_FIF_i) {
-            draw_routine->recorder->outdated[i] = 1;
-        }
-    }
-
-    for (zest_map_foreach_j(ZestRenderer->command_queues)) {
-        zest_command_queue command_queue = *zest_map_at_index(ZestRenderer->command_queues, j);
-        for (ZEST_EACH_FIF_i) {
-            zest_vec_clear(command_queue->fif_wait_stage_flags[i]);
-        }
-        for (zest_foreach_k(command_queue->draw_commands)) {
-            zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[k];
-            if (draw_commands->render_target) {
-                draw_commands->viewport = draw_commands->render_target->viewport;
-            }
-            else {
-                if (draw_commands->viewport_type == zest_render_viewport_type_scale_with_window) {
-                    draw_commands->viewport.extent.width = (zest_uint)((float)fb_width * draw_commands->viewport_scale.x);
-                    draw_commands->viewport.extent.height = (zest_uint)((float)fb_height * draw_commands->viewport_scale.y);
-                }
-            }
-            if (draw_commands->composite_pipeline) {
-                zest_uint layer_count = zest_vec_size(draw_commands->render_targets);
-				zest_ResetDescriptorPool(draw_commands->descriptor_pool);
-				zest_ForEachFrameInFlight(fif) {
-					zest_descriptor_set_builder_t set_builder = zest_BeginDescriptorSetBuilder(draw_commands->composite_descriptor_layout);
-					zest_vec_foreach(c, draw_commands->render_targets) {
-						zest_render_target layer = draw_commands->render_targets[c];
-                        zest_AddSetBuilderDirectImageWrite(&set_builder, c, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &layer->image_info[fif]);
-                    }
-					zest_FinishDescriptorSet(draw_commands->descriptor_pool, &set_builder, &draw_commands->composite_descriptor_set[fif]);
-                }
-                zest_ForEachFrameInFlight(fif) {
-                    if (!ZEST_VALID_HANDLE(draw_commands->composite_shader_resources)) {
-                        draw_commands->composite_shader_resources = zest_CreateShaderResources();
-                        zest_AddDescriptorSetToResources(draw_commands->composite_shader_resources, &draw_commands->composite_descriptor_set[fif], fif);
-                    } else {
-                        zest_UpdateShaderResources(draw_commands->composite_shader_resources, &draw_commands->composite_descriptor_set[fif], 0, fif);
-                    }
-                }
-            }
-
-        }
-    }
-
-    for (ZEST_EACH_FIF_i) {
-        zest_vec_clear(ZestRenderer->empty_queue.fif_wait_stage_flags[i]);
-    }
-
-    for (zest_foreach_i(ZestRenderer->empty_queue.draw_commands)) {
-        zest_command_queue_draw_commands draw_commands = ZestRenderer->empty_queue.draw_commands[i];
-        draw_commands->viewport.extent.width = fb_width;
-        draw_commands->viewport.extent.height = fb_height;
     }
 
 }
@@ -5751,98 +5591,6 @@ VkCommandPool zest__create_queue_command_pool(int queue_family_index) {
     return command_pool;
 }
 
-zest_recorder zest_CreatePrimaryRecorderWithPool(int queue_family_index) {
-    zest_recorder recorder = ZEST__NEW(zest_recorder);
-    recorder->magic = zest_INIT_MAGIC;
-    recorder->flags = zest_command_buffer_flag_primary;
-    for (ZEST_EACH_FIF_i) {
-        recorder->outdated[i] = 1;
-    }
-
-    recorder->command_pool = zest__create_queue_command_pool(queue_family_index);
-
-    VkCommandBufferAllocateInfo alloc_info = { 0 };
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = ZEST_MAX_FIF;
-    alloc_info.commandPool = recorder->command_pool;
-    ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, recorder->command_buffer));
-    return recorder;
-}
-
-zest_recorder zest_CreatePrimaryRecorder() {
-    zest_recorder recorder = ZEST__NEW(zest_recorder);
-    recorder->magic = zest_INIT_MAGIC;
-    recorder->flags = zest_command_buffer_flag_primary;
-    recorder->command_pool = 0;
-    for (ZEST_EACH_FIF_i) {
-        recorder->outdated[i] = 1;
-    }
-    VkCommandBufferAllocateInfo alloc_info = { 0 };
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = ZEST_MAX_FIF;
-    alloc_info.commandPool = ZestDevice->command_pool;
-    ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, recorder->command_buffer));
-    return recorder;
-}
-
-zest_recorder zest_CreateSecondaryRecorder() {
-    zest_recorder recorder = ZEST__NEW(zest_recorder);
-    recorder->command_pool = 0;
-    recorder->magic = zest_INIT_MAGIC;
-    recorder->flags = zest_command_buffer_flag_secondary;
-    for (ZEST_EACH_FIF_i) {
-        recorder->outdated[i] = 1;
-    }
-
-    //Each recorder gets it's own command pool for multithreading purposes
-    VkCommandPoolCreateInfo cmd_info_pool = { 0 };
-    cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    cmd_info_pool.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
-    cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating command pools");
-    ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &recorder->command_pool));
-
-    VkCommandBufferAllocateInfo alloc_info = { 0 };
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-    alloc_info.commandBufferCount = ZEST_MAX_FIF;
-    alloc_info.commandPool = recorder->command_pool;
-    ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, recorder->command_buffer));
-    return recorder;
-}
-
-void zest_FreeCommandBuffers(zest_recorder recorder) {
-    if (ZEST__FLAGGED(recorder->flags, zest_command_buffer_flag_primary)) {
-        vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->command_pool, ZEST_MAX_FIF, recorder->command_buffer);
-    } else {
-        vkFreeCommandBuffers(ZestDevice->logical_device, recorder->command_pool, ZEST_MAX_FIF, recorder->command_buffer);
-    }
-    for (ZEST_EACH_FIF_i) {
-        recorder->command_buffer[i] = VK_NULL_HANDLE;
-    }
-}
-
-void zest_FreeRecorder(zest_recorder recorder) {
-    if (ZEST__FLAGGED(recorder->flags, zest_command_buffer_flag_primary)) {
-        if (recorder->command_buffer) {
-            vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->command_pool, 2, recorder->command_buffer);
-            vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->command_pool, &ZestDevice->allocation_callbacks);
-        } else if (recorder->command_pool) {
-            vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->command_pool, &ZestDevice->allocation_callbacks);
-        }
-    } else {
-        if (recorder->command_buffer) {
-            vkFreeCommandBuffers(ZestDevice->logical_device, recorder->command_pool, 2, recorder->command_buffer);
-            vkDestroyCommandPool(ZestDevice->logical_device, recorder->command_pool, &ZestDevice->allocation_callbacks);
-        } else if (recorder->command_pool) {
-            vkDestroyCommandPool(ZestDevice->logical_device, recorder->command_pool, &ZestDevice->allocation_callbacks);
-        }
-    }
-    ZEST__FREE(recorder);
-}
-
 zest_pipeline_template zest_BeginPipelineTemplate(const char* name) {
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->pipelines, name));    //That pipeline name already exists!
     zest_pipeline_template_t blank = { 0 };
@@ -6174,9 +5922,7 @@ zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) {
     zest__hasher_add(&hasher, input, length); 
     return (zest_key)zest__get_hash(&hasher); 
 }
-VkFramebuffer zest_GetRendererFrameBuffer(zest_command_queue_draw_commands item) { 
-    return ZestRenderer->swapchain_frame_buffers[ZestRenderer->current_image_frame]; 
-}
+
 VkDescriptorSetLayout *zest_GetDescriptorSetLayoutVK(const char* name) { 
     ZEST_ASSERT(zest_map_valid_name(ZestRenderer->descriptor_layouts, name));   //Must be a valid descriptor set layout, check the name is correct
     return zest_map_at(ZestRenderer->descriptor_layouts, name)->vk_layout; 
@@ -6370,11 +6116,7 @@ void zest_DispatchCompute(VkCommandBuffer command_buffer, zest_compute compute, 
 
 void zest_ResetCompute(zest_compute compute) {
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
-    compute->compute_commands->last_fif = compute->fif;
     compute->fif = (compute->fif + 1) % ZEST_MAX_FIF;
-    for (ZEST_EACH_FIF_i) {
-        compute->recorder->outdated[i] = 1;
-    }
 }
 
 int zest_ComputeConditionAlwaysTrue(zest_compute layer) {
@@ -6931,7 +6673,7 @@ void zest__prepare_standard_pipelines() {
     //Final Render Pipelines
     zest_pipeline_template final_render = zest_BeginPipelineTemplate("pipeline_swap_chain");
     final_render->scissor.extent = zest_GetSwapChainExtent();
-    zest_SetPipelinePushConstantRange(final_render, sizeof(zest_render_target_push_constants_t), VK_SHADER_STAGE_VERTEX_BIT);
+    zest_SetPipelinePushConstantRange(final_render, sizeof(zest_vec2), VK_SHADER_STAGE_VERTEX_BIT);
     final_render->no_vertex_input = ZEST_TRUE;
     zest_SetText(&final_render->vertShaderFile, "swap_vert.spv");
     zest_SetText(&final_render->fragShaderFile, "swap_frag.spv");
@@ -6969,78 +6711,6 @@ void zest__update_pipeline_template(zest_pipeline_template pipeline_template) {
         pipeline_template->pipelineLayoutInfo.pPushConstantRanges = &pipeline_template->pushConstantRange;
         pipeline_template->pipelineLayoutInfo.pushConstantRangeCount = 1;
     }
-}
-
-void zest__create_empty_command_queue(zest_command_queue command_queue) {
-    command_queue->recorder = zest_CreatePrimaryRecorder();
-
-    for (ZEST_EACH_FIF_i) {
-        zest_vec_push(command_queue->fif_wait_stage_flags[i], VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    }
-    zest_command_queue_draw_commands_t blank_draw_commands = { 0 };
-    zest_command_queue_draw_commands draw_commands = ZEST__NEW_ALIGNED(zest_command_queue_draw_commands, 16);
-    memcpy(draw_commands, &blank_draw_commands, sizeof(zest_command_queue_draw_commands_t));
-    //*draw_commands = blank_draw_commands;
-    zest_bool is_aligned = zest__is_aligned(draw_commands, 16);
-    draw_commands->magic = zest_INIT_MAGIC;
-    draw_commands->render_pass = ZestRenderer->final_render_pass;
-    draw_commands->get_frame_buffer = zest_GetRendererFrameBuffer;
-    draw_commands->render_pass_function = zest__render_blank;
-    draw_commands->viewport.extent = zest_GetSwapChainExtent();
-    draw_commands->viewport.offset.x = draw_commands->viewport.offset.y = 0;
-    draw_commands->viewport_scale.x = 1.f;
-    draw_commands->viewport_scale.y = 1.f;
-    zest_map_insert(ZestRenderer->command_queue_draw_commands, "Blank Screen", draw_commands);
-    zest_vec_push(command_queue->draw_commands, draw_commands);
-}
-
-void zest__render_blank(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer) {
-    VkRenderPassBeginInfo render_pass_info = { 0 };
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    render_pass_info.renderPass = render_pass;
-    render_pass_info.framebuffer = framebuffer;
-    render_pass_info.renderArea = item->viewport;
-
-    VkClearValue clear_values[2] = {
-        [0] .color = {.float32[0] = 0.1f, .float32[1] = 0.0f, .float32[2] = 0.1f, .float32[3] = 1.f },
-        [1].depthStencil = {.depth = 1.0f, .stencil = 0 }
-    };
-
-    render_pass_info.clearValueCount = 2;
-    render_pass_info.pClearValues = clear_values;
-
-    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdEndRenderPass(command_buffer);
-}
-
-void zest__add_draw_routine(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine) {
-    zest_vec_push(draw_commands->draw_routines, draw_routine);
-}
-
-void zest__draw_renderer_frame() {
-
-    ZestRenderer->flags |= zest_renderer_flag_drawing_loop_running;
-    ZestRenderer->flags &= ~zest_renderer_flag_swapchain_was_recreated;
-
-    if (!zest_AcquireSwapChainImage()) {
-        return;
-    }
-
-    if (!ZestRenderer->active_command_queue) {
-        //if there's no render queues at all, then we can draw this blank one to prevent errors when presenting the frame
-        zest_StartCommandQueue(&ZestRenderer->empty_queue, ZEST_FIF);
-        zest_RecordCommandQueue(&ZestRenderer->empty_queue, ZEST_FIF);
-        zest_EndCommandQueue(&ZestRenderer->empty_queue, ZEST_FIF);
-        zest_SubmitCommandQueue(&ZestRenderer->empty_queue, *ZestRenderer->fif_fence[ZEST_FIF]);
-    }
-    else {
-        zest_StartCommandQueue(ZestRenderer->active_command_queue, ZEST_FIF);
-        zest_RecordCommandQueue(ZestRenderer->active_command_queue, ZEST_FIF);
-        zest_EndCommandQueue(ZestRenderer->active_command_queue, ZEST_FIF);
-        zest_SubmitCommandQueue(ZestRenderer->active_command_queue, *ZestRenderer->fif_fence[ZEST_FIF]);
-    }
-
-    zest__present_frame();
 }
 
 void zest__present_frame() {
@@ -7139,70 +6809,7 @@ void zest__dummy_submit_for_present_only(void) {
     ZestRenderer->fence_count[ZEST_FIF] = 1;
     ZEST_VK_CHECK_RESULT(vkQueueSubmit(ZestDevice->graphics_queue.vk_queue, 1, &submit_info, fence));
 }
-
-void zest_RenderDrawRoutinesCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer) {
-    VkRenderPassBeginInfo render_pass_info = { 0 };
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    render_pass_info.renderPass = render_pass;
-    render_pass_info.framebuffer = framebuffer;
-    render_pass_info.renderArea = item->viewport;
-    VkClearValue clear_values[2] = {
-        [0] .color = {.float32[0] = item->cls_color.x,.float32[1] = item->cls_color.y,.float32[2] = item->cls_color.z,.float32[3] = item->cls_color.w},
-        [1].depthStencil = {.depth = 1.0f,.stencil = 0 }
-    };
-
-    render_pass_info.clearValueCount = 2;
-    render_pass_info.pClearValues = clear_values;
-
-    //Copy the buffers
-
-    for (zest_foreach_i(item->draw_routines)) {
-        zest_draw_routine draw_routine = item->draw_routines[i];
-        if (draw_routine->update_buffers_callback) {
-            draw_routine->update_buffers_callback(draw_routine, command_buffer);
-        }
-    }
-
-    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-    
-    for (zest_foreach_i(item->draw_routines)) {
-        zest_draw_routine draw_routine = item->draw_routines[i];
-		ZEST_ASSERT(draw_routine->condition_callback);  //You must set the condition callback for the draw routine
-														//to determine if there's anything to record
-
-		if(draw_routine->condition_callback(draw_routine)) {
-			if (draw_routine->record_callback) {
-				zest__add_work_queue_entry(&ZestRenderer->work_queue, draw_routine, draw_routine->record_callback);
-				zest_vec_push(item->secondary_command_buffers, draw_routine->recorder->command_buffer[ZEST_FIF]);
-			}
-		}
-    }
-
-    zest__complete_all_work(&ZestRenderer->work_queue);
-
-    zest_uint command_buffer_count = zest_vec_size(item->secondary_command_buffers);
-    if (command_buffer_count > 0) {
-        //Note: If you get a validation error here about an empty command queue being executed then make sure that
-        //the condition callback for the draw routine is returning the correct value when there's nothing to record.
-        vkCmdExecuteCommands(command_buffer, command_buffer_count, item->secondary_command_buffers);
-		zest_vec_clear(item->secondary_command_buffers);
-    }
-
-    vkCmdEndRenderPass(command_buffer);
-}
-
-zest_command_queue_draw_commands zest_GetDrawCommands(const char* name) {
-    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));    //That name could not be found in the storage
-    return *zest_map_at(ZestRenderer->command_queue_draw_commands, name);
-}
 // --End Renderer functions
-
-// --Command Queue functions
-void zest__cleanup_command_queue(zest_command_queue command_queue) {
-    zest_FreeCommandBuffers(command_queue->recorder);
-    vkDestroyQueryPool(ZestDevice->logical_device, command_queue->query_pool, &ZestDevice->allocation_callbacks);
-}
-// --Command Queue functions
 
 // --General Helper Functions
 VkViewport zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth) {
@@ -10066,16 +9673,6 @@ zest_bool zest_AcquireSwapChainImage() {
     return ZEST_TRUE;
 }
 
-zest_render_target_composite_t zest_CreateRenderTargetComposite(zest_resource_node resource, void *push_constant, zest_uint push_constant_size, zest_pipeline_template pipeline, zest_sampler sampler) {
-    zest_render_target_composite_t composite = { 0 };
-    composite.resource = resource;
-    composite.push_constant = push_constant;
-    composite.push_constant_size = push_constant_size;
-    composite.pipeline = pipeline;
-    composite.sampler = sampler;
-    return composite;
-}
-
 zest_resource_node zest_ImportSwapChainResource(const char *name) {
     ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
@@ -11116,407 +10713,6 @@ zest_execution_timeline zest_CreateExecutionTimeline() {
 
 // --End Render Graph functions
 
-// --Command queue setup and modify functions
-void zest__set_queue_context(zest_setup_context_type context) {
-    ZestRenderer->setup_context.type = context;
-    if (ZestRenderer->setup_context.type == zest_setup_context_type_command_queue) {
-        ZestRenderer->setup_context.draw_commands = ZEST_NULL;
-        ZestRenderer->setup_context.layer = ZEST_NULL;
-        ZestRenderer->setup_context.draw_routine = ZEST_NULL;
-        ZestRenderer->setup_context.compute_index = -1;
-    } else if (ZestRenderer->setup_context.type == zest_setup_context_type_render_pass) {
-        ZestRenderer->setup_context.layer = ZEST_NULL;
-        ZestRenderer->setup_context.compute_index = -1;
-        ZestRenderer->setup_context.draw_routine = ZEST_NULL;
-    } else if (ZestRenderer->setup_context.type == zest_setup_context_type_composite_render_pass) {
-        ZestRenderer->setup_context.layer = ZEST_NULL;
-        ZestRenderer->setup_context.compute_index = -1;
-        ZestRenderer->setup_context.draw_routine = ZEST_NULL;
-    }
-}
-
-zest_command_queue zest_NewCommandQueue(const char* name) {
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_none);    //Current setup context must be none. You can't setup a new command queue within another one
-    zest__set_queue_context(zest_setup_context_type_command_queue);
-    zest_command_queue command_queue = zest__create_command_queue(name);
-    command_queue->flags = zest_command_queue_flag_present_dependency;
-    ZestRenderer->setup_context.command_queue = command_queue;
-    ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
-    return command_queue;
-}
-
-zest_command_queue zest_NewFloatingCommandQueue(const char* name) {
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_none);    //Current setup context must be none. You can't setup a new command queue within another one
-    zest__set_queue_context(zest_setup_context_type_command_queue);
-    zest_command_queue command_queue = zest__create_command_queue(name);
-    command_queue->flags = 0;
-    ZestRenderer->setup_context.command_queue = command_queue;
-    ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
-    return command_queue;
-}
-
-zest_command_queue zest__create_command_queue(const char* name) {
-    zest_command_queue_t blank_command_queue = { 0 };
-    zest_command_queue command_queue = ZEST__NEW(zest_command_queue);
-    *command_queue = blank_command_queue;
-    command_queue->magic = zest_INIT_MAGIC;
-    command_queue->name = name;
-
-    for (ZEST_EACH_FIF_i) {
-        command_queue->present_semaphore_index[i] = -1;
-    }
-
-    command_queue->recorder = zest_CreatePrimaryRecorder();
-
-    zest_map_insert(ZestRenderer->command_queues, name, command_queue);
-    return command_queue;
-}
-
-zest_command_queue zest_GetCommandQueue(const char* name) {
-    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->command_queues, name)); //Not a valid command queue index
-    return *zest_map_at(ZestRenderer->command_queues, name);
-}
-
-zest_command_queue_draw_commands zest_GetCommandQueueDrawCommands(const char* name) {
-    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));    //name of command queue draw commands not found
-    return *zest_map_at(ZestRenderer->command_queue_draw_commands, name);
-}
-
-void zest_SetDrawCommandsClsColor(zest_command_queue_draw_commands draw_commands, float r, float g, float b, float a) {
-    draw_commands->cls_color = zest_Vec4Set(r, g, b, a);
-}
-
-void zest_ModifyCommandQueue(zest_command_queue command_queue) {
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_none);    //Current setup context must be none.
-    zest__set_queue_context(zest_setup_context_type_command_queue);
-    ZestRenderer->setup_context.command_queue = command_queue;
-    ZestRenderer->setup_context.type = zest_setup_context_type_command_queue;
-}
-
-void zest_ModifyDrawCommands(zest_command_queue_draw_commands draw_commands) {
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_command_queue);    //Current setup context must be a command queue.
-    int draw_commands_found = 0;
-    for (zest_foreach_i(ZestRenderer->setup_context.command_queue->draw_commands)) {
-        if (ZestRenderer->setup_context.command_queue->draw_commands[i] == draw_commands) {
-            draw_commands_found = 1;
-        }
-    }
-    ZEST_ASSERT(draw_commands_found);    //The draw commands that you're editing must exist within the command queue context. Call zest_ModifyCommandQueue with
-    //the appropriate zest_command_queue
-    zest__set_queue_context(zest_setup_context_type_render_pass);
-    ZestRenderer->setup_context.draw_commands = draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
-}
-
-zest_draw_routine zest_ContextDrawRoutine() {
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_draw_routine || ZestRenderer->setup_context.type == zest_setup_context_type_layer);
-    return ZestRenderer->setup_context.draw_routine;
-}
-
-void zest_ContextSetClsColor(float r, float g, float b, float a) {
-    assert(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_draw_routine || ZestRenderer->setup_context.type == zest_setup_context_type_layer);    //The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderItemSC
-    ZestRenderer->setup_context.draw_commands->cls_color = zest_Vec4Set(r, g, b, a);
-}
-
-void zest_FinishQueueSetup() {
-    zest__connect_command_queue_to_present();
-    ZEST_ASSERT(ZestRenderer->setup_context.command_queue != ZEST_NULL);        //Trying to validate a queue that has no context. Finish queue setup must me run at the end of a queue setup
-    zest_ValidateQueue(ZestRenderer->setup_context.command_queue);
-    //Finish setting up any composite render_targets
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    /*
-    zest_vec_foreach(i, command_queue->draw_commands) {
-        zest_command_queue_draw_commands draw_command = ZestRenderer->setup_context.command_queue->draw_commands[i];
-        if (ZEST_VALID_HANDLE(draw_command->composite_pipeline) && !zest_vec_empty(draw_command->render_targets)) {
-            zest_uint layer_count = zest_vec_size(draw_command->render_targets);
-            zest_text_t layout_name = {0};
-            zest_SetTextf(&layout_name, "%i samplers", layer_count);
-            if (draw_command->composite_descriptor_layout) {
-                vkDestroyDescriptorSetLayout(ZestDevice->logical_device, draw_command->composite_descriptor_layout->vk_layout, &ZestDevice->allocation_callbacks);
-            }
-            zest_ResetDescriptorPool(draw_command->descriptor_pool);
-            zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder();
-            for (int c = 0; c != layer_count; ++c) {
-                zest_AddLayoutBuilderCombinedImageSampler(&layout_builder, c, 1);
-            }
-            draw_command->composite_descriptor_layout = zest_FinishDescriptorSetLayout(&layout_builder, "set_layout_for_%s", draw_command->name);
-			draw_command->composite_shader_resources = zest_CreateShaderResources();
-			zest_ForEachFrameInFlight(fif) {
-				zest_descriptor_set_builder_t set_builder = zest_BeginDescriptorSetBuilder(draw_command->composite_descriptor_layout);
-				zest_vec_foreach(c, draw_command->render_targets) {
-					zest_render_target layer = draw_command->render_targets[c];
-                    zest_AddSetBuilderDirectImageWrite(&set_builder, c, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &layer->image_info[fif]);
-                }
-				draw_command->composite_descriptor_set[fif].vk_descriptor_set = zest_FinishDescriptorSet(draw_command->descriptor_pool, &set_builder, draw_command->composite_descriptor_set[fif].vk_descriptor_set);
-				zest_AddDescriptorSetToResources(draw_command->composite_shader_resources, &draw_command->composite_descriptor_set[fif], fif);
-            }
-            zest_FreeText(&layout_name);
-        }
-    }
-    */
-    command_queue->timestamp_count = zest_vec_size(command_queue->draw_commands) * 2;
-    if (!command_queue->query_pool) {
-        command_queue->query_pool = zest__create_query_pool(command_queue->timestamp_count);
-    }
-    zest_vec_resize(command_queue->timestamps[0], command_queue->timestamp_count / 2);
-    zest_vec_resize(command_queue->timestamps[1], command_queue->timestamp_count / 2);
-    ZestRenderer->setup_context.command_queue = ZEST_NULL;
-    ZestRenderer->setup_context.draw_commands = ZEST_NULL;
-    ZestRenderer->setup_context.draw_routine = ZEST_NULL;
-    ZestRenderer->setup_context.layer = ZEST_NULL;
-    ZestRenderer->setup_context.composite_render_target = ZEST_NULL;
-    ZestRenderer->setup_context.type = zest_setup_context_type_none;
-}
-
-void zest_ValidateQueue(zest_command_queue command_queue) {
-    if (command_queue->flags & zest_command_queue_flag_present_dependency) {
-        zest_bool present_found = 0;
-        zest_bool present_flags_found = 0;
-        for (ZEST_EACH_FIF_i) {
-            for (zest_foreach_j(command_queue->fif_wait_stage_flags[i])) {
-                present_flags_found += (command_queue->fif_wait_stage_flags[i][j] == VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-            }
-        }
-        ZEST_ASSERT(present_found == ZEST_MAX_FIF);                //The command queue was created with zest_command_queue_flag_present_dependency but no semaphore was found to connect the two
-        ZEST_ASSERT(present_flags_found == ZEST_MAX_FIF);        //The command queue was created with zest_command_queue_flag_present_dependency but the stage flags should be set to VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-    }
-    command_queue->flags |= zest_command_queue_flag_validated;
-}
-
-zest_command_queue zest_CurrentCommandQueue() {
-    return ZestRenderer->active_command_queue;
-}
-
-zest_command_queue_draw_commands_t* zest_CurrentRenderPass() {
-    return ZestRenderer->current_draw_commands;
-}
-
-zest_command_queue_draw_commands zest_NewDrawCommandSetupSwap(const char* name) {
-    zest__set_queue_context(zest_setup_context_type_render_pass);
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
-    zest_vec_push(command_queue->draw_commands, draw_commands);
-    draw_commands->name = name;
-    draw_commands->render_pass = ZestRenderer->final_render_pass;
-    draw_commands->get_frame_buffer = zest_GetRendererFrameBuffer;
-    draw_commands->render_pass_function = zest_RenderDrawRoutinesCallback;
-    draw_commands->viewport.extent = zest_GetSwapChainExtent();
-    draw_commands->viewport.offset.x = draw_commands->viewport.offset.y = 0;
-    ZestRenderer->setup_context.draw_commands = draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
-    return draw_commands;
-}
-
-zest_command_queue_draw_commands zest_NewDrawCommandSetupRenderTargetSwap(const char* name, zest_render_target render_target) {
-    ZEST_ASSERT(render_target);    //render_target must be valid
-    zest__set_queue_context(zest_setup_context_type_render_pass);
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
-    zest_vec_push(command_queue->draw_commands, draw_commands);
-    draw_commands->name = name;
-    draw_commands->render_pass = ZestRenderer->final_render_pass;
-    draw_commands->get_frame_buffer = zest_GetRendererFrameBuffer;
-    draw_commands->render_pass_function = zest_DrawRenderTargetsToSwapchain;
-    draw_commands->render_target = render_target;
-    zest_vec_push(draw_commands->render_targets, render_target);
-    draw_commands->viewport.extent = zest_GetSwapChainExtent();
-    draw_commands->viewport.offset.x = draw_commands->viewport.offset.y = 0;
-    ZestRenderer->setup_context.draw_commands = draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
-    return draw_commands;
-}
-
-zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositeToSwap(const char* name, zest_pipeline_template composite_pipeline) {
-    zest__set_queue_context(zest_setup_context_type_render_pass);
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
-    zest_vec_push(command_queue->draw_commands, draw_commands);
-    draw_commands->name = name;
-    draw_commands->render_pass = ZestRenderer->final_render_pass;
-    draw_commands->get_frame_buffer = zest_GetRendererFrameBuffer;
-    draw_commands->render_pass_function = zest_CompositeRenderTargets;
-    draw_commands->composite_pipeline = composite_pipeline;
-    draw_commands->viewport.extent = zest_GetSwapChainExtent();
-    draw_commands->viewport.offset.x = draw_commands->viewport.offset.y = 0;
-    ZestRenderer->setup_context.draw_commands = draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
-    return draw_commands;
-}
-
-zest_command_queue_draw_commands zest_NewDrawCommandSetupCompositor(const char* name, zest_render_target render_target, zest_pipeline_template pipeline_template) {
-    ZEST_ASSERT(render_target);        //render_target must be a valid index to a render target
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));        //There are already draw commands with that name
-    zest__set_queue_context(zest_setup_context_type_composite_render_pass);
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
-    zest_vec_push(command_queue->draw_commands, draw_commands);
-    render_target->filter_pipeline_template = pipeline_template;
-    draw_commands->name = name;
-    draw_commands->render_pass = render_target->render_pass;
-    draw_commands->get_frame_buffer = zest_GetRenderTargetFrameBufferCallback;
-    draw_commands->render_pass_function = zest_CompositeRenderTargets;
-    draw_commands->viewport = render_target->viewport;
-    draw_commands->render_target = render_target;
-    if (zest_Vec2Length2(render_target->create_info.ratio_of_screen_size)) {
-        draw_commands->viewport_scale = render_target->create_info.ratio_of_screen_size;
-        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-    } else if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_fixed_size)) {
-        draw_commands->viewport_type = zest_render_viewport_type_fixed;
-    } else {
-        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-        draw_commands->viewport_scale = zest_Vec2Set(1.f, 1.f);
-    }
-    ZestRenderer->setup_context.draw_commands = draw_commands;
-    ZestRenderer->setup_context.composite_render_target = render_target;
-    return draw_commands;
-}
-
-void zest_AddCompositeLayer(zest_render_target render_target) {
-    ZEST_ASSERT(render_target);        //render_target must be a valid render target
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_composite_render_pass);    //The current setup context must be a composite render pass 
-    zest_vec_push(ZestRenderer->setup_context.composite_render_target->composite_layers, render_target);
-}
-
-zest_command_queue_draw_commands zest_NewDrawCommandSetup(const char* name, zest_render_target render_target) {
-    ZEST_ASSERT(render_target);        //render_target must be a valid index to a render target
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));        //There are already draw commands with that name
-    zest__set_queue_context(zest_setup_context_type_render_pass);
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
-    zest_vec_push(command_queue->draw_commands, draw_commands);
-    draw_commands->name = name;
-    draw_commands->render_pass = render_target->render_pass;
-    draw_commands->get_frame_buffer = zest_GetRenderTargetFrameBufferCallback;
-    draw_commands->render_pass_function = zest_RenderDrawRoutinesCallback;
-    draw_commands->viewport = render_target->viewport;
-    draw_commands->render_target = render_target;
-    if (zest_Vec2Length2(render_target->create_info.ratio_of_screen_size)) {
-        draw_commands->viewport_scale = render_target->create_info.ratio_of_screen_size;
-        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-    }
-    else if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_fixed_size)) {
-        draw_commands->viewport_type = zest_render_viewport_type_fixed;
-    }
-    else {
-        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-        draw_commands->viewport_scale = zest_Vec2Set(1.f, 1.f);
-    }
-    ZestRenderer->setup_context.draw_commands = draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
-    return draw_commands;
-}
-
-zest_command_queue_draw_commands zest_NewDrawCommandSetupDownSampler(const char *name, zest_render_target render_target, zest_render_target input_source, zest_pipeline_template filter_pipeline) {
-    ZEST_ASSERT(render_target);        //render_target must be a valid index to a render target
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));        //There are already draw commands with that name
-    zest__set_queue_context(zest_setup_context_type_render_pass);
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
-    zest_vec_push(command_queue->draw_commands, draw_commands);
-    draw_commands->name = name;
-    draw_commands->render_pass = render_target->render_pass;
-    draw_commands->get_frame_buffer = zest_GetRenderTargetFrameBufferCallback;
-    draw_commands->render_pass_function = zest_RenderDrawRoutinesCallback;
-    draw_commands->viewport = render_target->viewport;
-    draw_commands->render_target = render_target;
-    render_target->input_source = input_source;
-    render_target->filter_pipeline_template = filter_pipeline;
-    if (zest_Vec2Length2(render_target->create_info.ratio_of_screen_size)) {
-        draw_commands->viewport_scale = render_target->create_info.ratio_of_screen_size;
-        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-    } else if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_fixed_size)) {
-        draw_commands->viewport_type = zest_render_viewport_type_fixed;
-    } else {
-        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-        draw_commands->viewport_scale = zest_Vec2Set(1.f, 1.f);
-    }
-    ZestRenderer->setup_context.draw_commands = draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
-    return draw_commands;
-}
-
-zest_command_queue_draw_commands zest_NewDrawCommandSetupUpSampler(const char *name, zest_render_target render_target, zest_render_target downsampler, zest_pipeline_template pipeline) { ZEST_CHECK_HANDLE(render_target);  //render_target must be a valid handle to a render target
-	ZEST_CHECK_HANDLE(downsampler);    //Must be a valid downsampler render target if you're specifying one
-	ZEST_ASSERT(ZEST__FLAGGED(downsampler->flags, zest_render_target_flag_initialised));   //Down sampler source must be an initialised render target
-	ZEST_ASSERT(downsampler->mip_levels == render_target->mip_levels);    //Down sampler mip levels must be the same as the upsampler you're creating
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->command_queue_draw_commands, name));        //There are already draw commands with that name
-    zest__set_queue_context(zest_setup_context_type_render_pass);
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    zest_command_queue_draw_commands draw_commands = zest__create_command_queue_draw_commands(name);
-    zest_vec_push(command_queue->draw_commands, draw_commands);
-    draw_commands->name = name;
-    draw_commands->render_pass = render_target->render_pass;
-    draw_commands->get_frame_buffer = zest_GetRenderTargetFrameBufferCallback;
-    draw_commands->render_pass_function = zest_RenderDrawRoutinesCallback;
-    draw_commands->viewport = render_target->viewport;
-    draw_commands->render_target = render_target;
-    render_target->input_source = downsampler;
-    render_target->pipeline_template = pipeline;
-    ZEST__FLAG(render_target->flags, zest_render_target_flag_upsampler);
-    zest_CreateDescriptorPoolForLayout(zest_GetDescriptorSetLayout("2 sampler"), render_target->mip_levels * 2 * ZEST_MAX_FIF + 4, 0);
-    zest_ForEachFrameInFlight(fif) {
-		zest_vec_resize(render_target->mip_level_descriptor_sets[render_target->current_index][fif], (zest_uint)render_target->mip_levels);
-    }
-    for (int mip_level = 0; mip_level != render_target->mip_levels; ++mip_level) {
-        zest_ForEachFrameInFlight(fif) {
-			zest_descriptor_set_builder_t builder = zest_BeginDescriptorSetBuilder(zest_GetDescriptorSetLayout("2 sampler"));
-            zest_AddSetBuilderDirectImageWrite(&builder, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &render_target->mip_level_image_infos[fif][mip_level]);
-            zest_AddSetBuilderDirectImageWrite(&builder, 1, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &downsampler->image_info[fif]);
-            zest_FinishDescriptorSet(draw_commands->descriptor_pool,&builder, &render_target->mip_level_descriptor_sets[render_target->current_index][fif][mip_level]);
-        }
-    }
-    if (zest_Vec2Length2(render_target->create_info.ratio_of_screen_size)) {
-        draw_commands->viewport_scale = render_target->create_info.ratio_of_screen_size;
-        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-    } else if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_fixed_size)) {
-        draw_commands->viewport_type = zest_render_viewport_type_fixed;
-    } else {
-        draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-        draw_commands->viewport_scale = zest_Vec2Set(1.f, 1.f);
-    }
-    ZestRenderer->setup_context.draw_commands = draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_render_pass;
-    return draw_commands;
-}
-
-void zest_SetDrawCommandsCallback(void(*render_pass_function)(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer)) {
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass);    //The current setup context must be a render pass using BeginRenderPassSetup or BeginRenderPassSetupSC
-    ZestRenderer->setup_context.draw_commands->render_pass_function = render_pass_function;
-}
-
-zest_draw_routine zest_GetDrawRoutine(const char* name) {
-    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->draw_routines, name));
-    return *zest_map_at(ZestRenderer->draw_routines, name);
-}
-
-zest_command_queue_draw_commands zest__create_command_queue_draw_commands(const char* name) {
-    zest_command_queue_draw_commands_t blank_draw_commands = { 0 };
-    zest_command_queue_draw_commands draw_commands = ZEST__NEW_ALIGNED(zest_command_queue_draw_commands, 16);
-    *draw_commands = blank_draw_commands;
-    draw_commands->magic = zest_INIT_MAGIC;
-    draw_commands->name = name;
-    draw_commands->viewport_scale.x = 1.f;
-    draw_commands->viewport_scale.y = 1.f;
-    draw_commands->render_target = ZEST_NULL;
-    draw_commands->viewport_type = zest_render_viewport_type_scale_with_window;
-
-    //draw_commands.command_queue_index = command_queue.index_in_renderer;
-    zest_map_insert(ZestRenderer->command_queue_draw_commands, name, draw_commands);
-    return draw_commands;
-}
-
-zest_layer zest_NewMeshLayer(const char* name, zest_size vertex_struct_size) {
-    ZEST_ASSERT(strlen(name) <= 50);    //Layer name must be less then 50 characters
-    zest_draw_routine_t* draw_routine = { 0 };
-    draw_routine = zest__create_draw_routine_with_mesh_layer(name);
-    zest_layer layer = (zest_layer)draw_routine->draw_data;
-    zest__initialise_mesh_layer(layer, vertex_struct_size, zloc__MEGABYTE(1));
-    ZestRenderer->setup_context.layer = (zest_layer)draw_routine->draw_data;
-    layer->name = name;
-    zest_SetLayerSize(layer, (float)ZestRenderer->swapchain_extent.width, (float)ZestRenderer->swapchain_extent.height);
-    return layer;
-}
-
 zest_layer zest__create_instance_layer(const char *name, zest_size instance_type_size, zest_uint initial_instance_count) {
     zest_layer layer = zest_NewLayer();
     layer->name = name;
@@ -11551,26 +10747,11 @@ zest_layer zest_CreateBuiltinBillboardLayer(const char* name) {
 
 zest_layer zest_CreateMeshLayer(const char* name, zest_size vertex_type_size) {
     ZEST_ASSERT(ZestRenderer);  //Initialise Zest first!
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));   //A draw routine with that name already exists
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->layers, name));          //A layer with that name already exists
     zest_layer layer = zest_NewLayer();
     layer->name = name;
     zest__initialise_mesh_layer(layer, sizeof(zest_textured_vertex_t), 1000);
     if(ZestRenderer && ZestRenderer->layers.map) zest_map_insert(ZestRenderer->layers, name, layer);
-    zest_draw_routine_t blank_draw_routine = { 0 };
-    zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
-    *draw_routine = blank_draw_routine;
-    draw_routine->magic = zest_INIT_MAGIC;
-    draw_routine->last_fif = -1;
-    draw_routine->fif = ZEST_FIF;
-    draw_routine->name = layer->name;
-    draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
-    draw_routine->recorder = zest_CreateSecondaryRecorder();
-    draw_routine->draw_data = layer;
-    draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
-    draw_routine->record_callback = zest__draw_mesh_layer_callback;
-    draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-    zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
     return layer;
 }
 
@@ -11584,82 +10765,6 @@ zest_layer zest_CreateBuiltinInstanceMeshLayer(const char* name) {
 
 void zest_InsertLayer(zest_layer layer) {
     zest_map_insert(ZestRenderer->layers, layer->name, layer);
-}
-
-void zest_AddLayer(zest_layer layer) {
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);    //The current setup context must be a render pass, layer or compute
-    zest__set_queue_context(zest_setup_context_type_layer);
-    zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
-    ZestRenderer->setup_context.layer = layer;
-    ZestRenderer->setup_context.type = zest_setup_context_type_layer;
-    zest_SetLayerSize(layer, (float)draw_commands->viewport.extent.width, (float)draw_commands->viewport.extent.height);
-}
-
-zest_command_queue_compute zest_CreateComputeItem(const char* name, zest_command_queue command_queue) {
-    zest_command_queue_compute_t blank_compute_item = { 0 };
-    zest_command_queue_compute compute_commands = ZEST__NEW(zest_command_queue_compute);
-    *compute_commands = blank_compute_item;
-    compute_commands->magic = zest_INIT_MAGIC;
-    zest_map_insert(ZestRenderer->command_queue_computes, name, compute_commands);
-    zest_vec_push(command_queue->compute_commands, compute_commands);
-    return compute_commands;
-}
-
-zest_command_queue_compute zest_NewComputeSetup(const char* name, zest_compute compute_shader, void(*compute_function)(zest_compute compute), int(*condition_function)(zest_compute compute)) {
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_command_queue);                //Current setup context must be command_queue. Add your compute shaders first before
-    //adding any other draw routines. Also make sure that you call zest_FinishQueueSetup everytime
-    //everytime you create or modify a queue
-
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
-    zest_command_queue_compute compute_commands = zest_CreateComputeItem(name, command_queue);
-    compute_commands->compute_function = compute_function;
-    compute_commands->condition_function = condition_function ? condition_function : zest_ComputeConditionAlwaysTrue;
-    compute_shader->compute_commands = compute_commands;
-    compute_commands->compute = compute_shader;
-    return compute_commands;
-}
-
-zest_draw_routine zest__create_draw_routine_with_mesh_layer(const char* name) {
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));    //A draw routine with that name already exists
-
-    zest_draw_routine_t blank_draw_routine = { 0 };
-    zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
-    *draw_routine = blank_draw_routine;
-    draw_routine->magic = zest_INIT_MAGIC;
-    draw_routine->recorder = zest_CreateSecondaryRecorder();
-	draw_routine->last_fif = -1;
-	draw_routine->fif = ZEST_FIF;
-
-    zest_layer layer = 0;
-	layer = zest_CreateMeshLayer(name, sizeof(zest_textured_vertex_t));
-	draw_routine->draw_data = layer;
-	draw_routine->update_buffers_callback = zest_UploadMeshBuffersCallback;
-	draw_routine->record_callback = zest__draw_mesh_layer_callback;
-	draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-    draw_routine->name = name;
-    draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
-
-    zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
-    ZestRenderer->setup_context.draw_routine = draw_routine;
-
-    return draw_routine;
-}
-
-void zest__update_command_queue_viewports(void) {
-    for (zest_map_foreach_i(ZestRenderer->command_queues)) {
-        zest_command_queue queue = *zest_map_at_index(ZestRenderer->command_queues, i);
-        for (zest_foreach_j(queue->draw_commands)) {
-            zest_command_queue_draw_commands draw_commands = queue->draw_commands[j];
-            if (draw_commands->render_target != 0) {
-                draw_commands->viewport = draw_commands->render_target->viewport;
-            }
-        }
-    }
-}
-
-void zest__connect_command_queue_to_present() {
-    ZEST_ASSERT(ZestRenderer->setup_context.type != zest_setup_context_type_none);    //Must be within a command queue setup context
-    zest_command_queue command_queue = ZestRenderer->setup_context.command_queue;
 }
 
 void zest__reset_query_pool(VkCommandBuffer command_buffer, VkQueryPool query_pool, zest_uint count) {
@@ -11678,208 +10783,10 @@ VkQueryPool zest__create_query_pool(zest_uint timestamp_count) {
     return query_pool;
 }
 
-zest_timestamp_duration_t zest_CommandQueueRenderTimes(zest_command_queue command_queue) {
-    zest_uint index = ZestDevice->previous_fif;
-    zest_gpu_timestamp_t *ts = command_queue->timestamps[index];
-    zest_timestamp_duration_t duration;
-    duration.nanoseconds = (double)(ts->start - ts->end) * ZestDevice->properties.limits.timestampPeriod;
-    duration.microseconds = duration.nanoseconds / 1000.0;
-    duration.milliseconds = duration.microseconds / 1000.0;
-    return duration;
-}
-
-zest_draw_routine zest_CreateDrawRoutine(const char* name) {
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));    //A draw routine with that name already exists
-
-    zest_draw_routine_t blank_draw_routine = { 0 };
-    zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
-    *draw_routine = blank_draw_routine;
-    draw_routine->magic = zest_INIT_MAGIC;
-    draw_routine->last_fif = -1;
-	draw_routine->fif = ZEST_FIF;
-    draw_routine->recorder = zest_CreateSecondaryRecorder();
-
-    draw_routine->name = name;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Created %s draw routine", name);
-    zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
-    return draw_routine;
-}
-
-zest_draw_routine zest_CreateInstanceDrawRoutine(const char *name, zest_size instance_size, zest_uint reserve_amount) {
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));    //A draw routine with that name already exists
-    ZEST_ASSERT(instance_size > 0); //Must be an instace size greater than 0. You should just use sizeof(your_instance_struct)
-
-    zest_draw_routine_t blank_draw_routine = { 0 };
-    zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
-    *draw_routine = blank_draw_routine;
-    draw_routine->magic = zest_INIT_MAGIC;
-    draw_routine->last_fif = -1;
-	draw_routine->fif = ZEST_FIF;
-    zest_layer layer = zest_NewLayer();
-    layer->name = name;
-    zest_InitialiseInstanceLayer(layer, instance_size, reserve_amount);
-    zest_map_insert(ZestRenderer->layers, name, layer);
-    draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-    draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-    draw_routine->draw_data = layer;
-    draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-    draw_routine->recorder = zest_CreateSecondaryRecorder();
-
-    draw_routine->name = name;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Created %s instanced draw routine", name);
-    zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
-    return draw_routine;
-}
-
-void zest_AddDrawRoutine(zest_draw_routine draw_routine) {
-    ZEST_CHECK_HANDLE(draw_routine);  //Must be valid draw_rouine, use zest_CreateDrawRoutine or zest_CreateInstanceDrawRoutine
-    zest__set_queue_context(zest_setup_context_type_layer);
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);    //The current setup context must be a render pass, layer or compute
-    zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_layer;
-    ZestRenderer->setup_context.draw_routine = draw_routine;
-    draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
-    draw_routine->draw_commands = draw_commands;
-    zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
-}
-
-zest_layer zest_AddInstanceDrawRoutine(zest_draw_routine draw_routine) {
-    zest__set_queue_context(zest_setup_context_type_layer);
-    ZEST_CHECK_HANDLE(draw_routine);  //Must be valid draw_rouine, use zest_CreateDrawRoutine or zest_CreateInstanceDrawRoutine
-    ZEST_ASSERT(ZestRenderer->setup_context.type == zest_setup_context_type_render_pass || ZestRenderer->setup_context.type == zest_setup_context_type_layer);    //The current setup context must be a render pass, layer or compute
-    ZEST_ASSERT(draw_routine->draw_data);   //Draw data must have been set and should be a zest_layer handle
-    zest_command_queue_draw_commands draw_commands = ZestRenderer->setup_context.draw_commands;
-    ZestRenderer->setup_context.type = zest_setup_context_type_layer;
-    ZestRenderer->setup_context.draw_routine = draw_routine;
-    draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
-    zest_AddDrawRoutineToDrawCommands(draw_commands, draw_routine);
-    zest_layer layer = (zest_layer)draw_routine->draw_data;
-    draw_routine->draw_commands = draw_commands;
-    return layer;
-}
-
-void zest_AddDrawRoutineToDrawCommands(zest_command_queue_draw_commands draw_commands, zest_draw_routine draw_routine) {
-    ZEST_CHECK_HANDLE(draw_routine);  //Must be valid draw_rouine, use zest_CreateDrawRoutine or zest_CreateInstanceDrawRoutine
-    zest_vec_push(draw_commands->draw_routines, draw_routine);
-}
-
-void zest_ExecuteRecorderCommands(VkCommandBuffer primary_command_buffer, zest_recorder recorder, zest_uint fif) {
-	vkCmdExecuteCommands(primary_command_buffer, 1, &recorder->command_buffer[fif]);
-}
-
 zest_layer zest_GetLayer(const char* name) {
     ZEST_ASSERT(zest_map_valid_name(ZestRenderer->layers, name));        //That index could not be found in the storage
     return *zest_map_at(ZestRenderer->layers, name);
 }
-
-void zest_ResetComputeRoutinesIndex(zest_command_queue_compute compute_queue) {
-    compute_queue->shader_index = 0;
-}
-
-void zest_RecordCommandQueue(zest_command_queue command_queue, zest_index fif) {
-    for (zest_foreach_i(command_queue->compute_commands)) {
-        zest_command_queue_compute compute_commands = command_queue->compute_commands[i];
-        ZEST_ASSERT(compute_commands->compute_function);        //Compute item must have its compute function callback set
-        ZEST_ASSERT(compute_commands->condition_function);      //Compute item must have its condition function callback set. 
-        compute_commands->shader_index = 0;
-        ZestRenderer->current_compute_routine = compute_commands;
-        zest_compute compute = compute_commands->compute;
-        ZEST_CHECK_HANDLE(compute); //Not a valid compute handle, was the compute shader for this item setup?
-        ZEST_ASSERT(ZEST__NOT_FLAGGED(compute->flags, zest_compute_flag_primary_recorder));
-        if (compute_commands->condition_function(compute)) {
-            if (compute->recorder->outdated[ZEST_FIF] != 0) {
-                compute_commands->compute_function(compute);
-            }
-            if (ZEST__NOT_FLAGGED(compute->flags, zest_compute_flag_manual_fif)) {
-                zest_MarkOutdated(compute->recorder);
-                compute_commands->last_fif = compute->fif;
-                compute->fif = (compute->fif + 1) % ZEST_MAX_FIF;
-            }
-            zest_vec_push(command_queue->secondary_compute_command_buffers, compute->recorder->command_buffer[ZEST_FIF]);
-        }
-    }
-
-    zest_uint command_buffer_count = zest_vec_size(command_queue->secondary_compute_command_buffers);
-    if (command_buffer_count > 0) {
-        //Note: If you get a validation error here about an empty command queue being executed then make sure that
-        //the condition callback for the compute routine is returning the correct value when there's nothing to record.
-        //vkCmdExecuteCommands(ZestRenderer->current_command_buffer, command_buffer_count, command_queue->secondary_compute_command_buffers);
-		zest_vec_clear(command_queue->secondary_compute_command_buffers);
-    }
-
-    //Insert any texture reprocessing in to the command queue
-    if (zest_map_size(ZestRenderer->texture_reprocess_queue)) {
-        zest_map_foreach(i, ZestRenderer->texture_reprocess_queue) {
-            zest_texture texture = *zest_map_at_index(ZestRenderer->texture_reprocess_queue, i);
-            zest__process_texture_images(texture, command_queue->recorder->command_buffer[fif]);
-            if (texture->reprocess_callback) {
-                texture->reprocess_callback(texture, texture->user_data);
-                texture->reprocess_callback = 0;
-            }
-        }
-        zest_map_clear(ZestRenderer->texture_reprocess_queue);
-    }
-
-    zest_uint current_timestamp = 0;
-    for (zest_foreach_i(command_queue->draw_commands)) {
-        zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[i];
-        ZestRenderer->current_draw_commands = draw_commands;
-
-        if (command_queue->timestamp_count) {
-            //vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * command_queue->timestamp_count + current_timestamp++);
-        }
-        draw_commands->render_pass_function(draw_commands, command_queue->recorder->command_buffer[fif], draw_commands->render_pass, draw_commands->get_frame_buffer(draw_commands));
-        if (command_queue->timestamp_count) {
-            //vkCmdWriteTimestamp(ZestRenderer->current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, command_queue->query_pool, ZEST_FIF * command_queue->timestamp_count + current_timestamp++);
-        }
-    }
-}
-
-void zest_StartCommandQueue(zest_command_queue command_queue, zest_index fif) {
-    if (command_queue->query_state[ZestDevice->previous_fif] == zest_query_state_ready) {
-        VkResult result = vkGetQueryPoolResults(ZestDevice->logical_device,
-            command_queue->query_pool,
-            ZestDevice->previous_fif * command_queue->timestamp_count,
-            command_queue->timestamp_count,
-            sizeof(zest_u64) * command_queue->timestamp_count,
-            command_queue->timestamps[ZEST_FIF],
-            sizeof(zest_u64),
-            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT); // Wait ensures results are ready
-    }
-
-    VkCommandBufferBeginInfo begin_info = { 0 };
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(command_queue->recorder->command_buffer[fif], &begin_info));
-    //ZestRenderer->current_command_buffer = command_queue->recorder->command_buffer[fif];
-    if (command_queue->timestamp_count) {
-        zest__reset_query_pool(command_queue->recorder->command_buffer[ZEST_FIF], command_queue->query_pool, command_queue->timestamp_count);
-    }
-}
-
-void zest_EndCommandQueue(zest_command_queue command_queue, zest_index fif) {
-    if (command_queue->timestamp_count) {
-        command_queue->query_state[fif] = zest_query_state_ready;
-    }
-    ZEST_VK_CHECK_RESULT(vkEndCommandBuffer(command_queue->recorder->command_buffer[fif]));
-    ZestRenderer->current_compute_routine = ZEST_NULL;
-    ZestRenderer->current_draw_commands = ZEST_NULL;
-}
-
-void zest_SubmitCommandQueue(zest_command_queue command_queue, VkFence fence) {
-    VkSubmitInfo submit_info = { 0 };
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submit_info.pWaitSemaphores = &ZestRenderer->image_available_semaphore[ZEST_FIF];
-	submit_info.waitSemaphoreCount = 1;
-	submit_info.pWaitDstStageMask = command_queue->fif_wait_stage_flags[ZEST_FIF];
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &ZestRenderer->render_finished_semaphore[ZestRenderer->current_image_frame];
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_queue->recorder->command_buffer[ZEST_FIF];
-
-    vkResetFences(ZestDevice->logical_device, 1, &fence);
-    ZEST_VK_CHECK_RESULT(vkQueueSubmit(ZestDevice->graphics_queue.vk_queue, 1, &submit_info, fence));
-}
-// --End Command queue setup and modify functions
 
 // --Texture and Image functions
 zest_map_textures* zest_GetTextures() {
@@ -14215,924 +13122,6 @@ void zest__setup_font_texture(zest_font font) {
 }
 //-- End Fonts
 
-//Render Targets
-void zest__initialise_render_target(zest_texture render_target, zest_render_target_create_info_t* info) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-
-    ZEST_ASSERT(info->viewport.extent.width != 0 && info->viewport.extent.height != 0); //You must define a viewport width and height before initialising the drawing operations
-    //render_target->viewport = info->viewport;
-    render_target->width = info->viewport.extent.width;
-    render_target->height = info->viewport.extent.height;
-    render_target->mip_levels = info->mip_levels;
-
-    render_target->image_format = info->render_format;
-
-    zest_image_t image = zest_NewImage();
-    image.width = render_target->width;
-    image.height = render_target->width;
-    zest__update_image_vertices(&image);
-    image.uv.x = 0.f;
-    image.uv.y = 0.f;
-    image.uv.z = 1.f;
-    image.uv.w = 1.f;
-	image.uv_packed = zest_Pack16bit4SNorm(image.uv.x, image.uv.y, image.uv.z, image.uv.w);
-    image.texture = 0;
-    image.layer = 0;
-	render_target->sampler_info.addressModeU = info->sampler_address_mode_u;
-	render_target->sampler_info.addressModeV = info->sampler_address_mode_v;
-	render_target->sampler_info.addressModeW = info->sampler_address_mode_w;
-    render_target->sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    render_target->sampler_info.magFilter = VK_FILTER_LINEAR;
-    render_target->sampler_info.minFilter = VK_FILTER_LINEAR;
-    render_target->sampler_info.anisotropyEnable = VK_FALSE;
-    render_target->sampler_info.maxAnisotropy = 1.f;
-    render_target->sampler_info.unnormalizedCoordinates = VK_FALSE;
-    render_target->sampler_info.compareEnable = VK_FALSE;
-    render_target->sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
-    render_target->sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-    render_target->sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-    render_target->sampler_info.mipLodBias = 0.f;
-    render_target->sampler_info.minLod = 0.0f;
-    render_target->sampler_info.maxLod = (float)render_target->mip_levels - 1.f;
-    render_target->sampler_info.pNext = VK_NULL_HANDLE;
-    render_target->sampler_info.flags = 0;
-	//render_target->sampler = zest__create_sampler(render_target->sampler_info);
-
-	//zest__create_render_target_sampler(render_target);
-
-    /*
-    if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_multi_mip)) {
-        zest__create_mip_level_render_target_samplers(render_target);
-    }
-    */
-
-    ZEST__FLAG(render_target->flags, zest_render_target_flag_initialised);
-}
-
-void zest__create_render_target_sampler(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    int index = render_target->current_index;
-    zest_ForEachFrameInFlight(fif) {
-		zest_descriptor_set set = &render_target->sampler_descriptor_set[index][fif];
-        if (ZEST__FLAGGED(render_target->create_info.flags, zest_render_target_flag_sampler_size_match_texture)) {
-            render_target->sampler_image.width = render_target->create_info.viewport.extent.width;
-            render_target->sampler_image.height = render_target->create_info.viewport.extent.height;
-        } else {
-            render_target->sampler_image.width = zest_GetSwapChainExtent().width;
-            render_target->sampler_image.height = zest_GetSwapChainExtent().height;
-        }
-
-        render_target->image_info[fif].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        render_target->image_info[fif].imageView = render_target->framebuffers[fif].color_buffer.base_view;
-        render_target->image_info[fif].sampler = render_target->sampler[index];
-
-        zest_descriptor_set_builder_t builder = zest_BeginDescriptorSetBuilder(zest_GetDescriptorSetLayout("1 sampler"));
-        zest_AddSetBuilderDirectImageWrite(&builder, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &render_target->image_info[fif]);
-        set = zest_FinishDescriptorSet(render_target->descriptor_pool[index], &builder, set);
-    }
-}
-
-void zest__create_mip_level_render_target_samplers(zest_render_target render_target) {
-    //When downsampling and writing from one mip to the next, we need a descriptor set for each
-    //mip level image view otherwise the validation layer will complain that image layout is incorrect
-    //because the layer that's being written to is in the wrong layout even though we're not actually 
-    //reading from it.
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    int index = render_target->current_index;
-
-    zest_ForEachFrameInFlight(fif) {
-		zest_vec_resize(render_target->mip_level_samplers[index][fif], (zest_uint)render_target->mip_levels);
-        zest_vec_resize(render_target->mip_level_image_infos[fif], (zest_uint)render_target->mip_levels);
-    }
-
-	zest_uint current_mip_width = render_target->render_width; 
-	zest_uint current_mip_height = render_target->render_height; 
-
-    for (zest_index mip_level = 0; mip_level != render_target->mip_levels; ++mip_level) {
-		if (mip_level > 0) { 
-			current_mip_width = ZEST__MAX(1u, current_mip_width / 2);
-			current_mip_height = ZEST__MAX(1u, current_mip_height / 2);
-		}
-
-		VkRect2D mip_size = { 0 };
-		mip_size.extent.width = current_mip_width;
-		mip_size.extent.height = current_mip_height;
-		zest_vec_push(render_target->mip_level_sizes, mip_size);
-
-		zest_ForEachFrameInFlight(fif) {
-			zest_descriptor_set_t blank = { 0 };
-			zest_descriptor_set set = &render_target->mip_level_samplers[index][fif][mip_level];
-			*set = blank;
-			set->magic = zest_INIT_MAGIC;
-            VkDescriptorImageInfo *image_info = &render_target->mip_level_image_infos[fif][mip_level];
-
-            image_info->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            image_info->imageView = render_target->framebuffers[fif].color_buffer.mip_views[mip_level];
-            image_info->sampler = render_target->sampler[index];
-
-            zest_descriptor_set_builder_t builder = zest_BeginDescriptorSetBuilder(zest_GetDescriptorSetLayout("1 sampler"));
-            zest_AddSetBuilderDirectImageWrite(&builder, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &render_target->image_info[fif]);
-            set = zest_FinishDescriptorSet(render_target->descriptor_pool[index], &builder, set);
-        }
-    }
-}
-
-zest_render_target zest_NewRenderTarget() {
-    zest_render_target_t blank_render_target = { 0 };
-    zest_render_target render_target = ZEST__NEW_ALIGNED(zest_render_target, 16);
-    *render_target = blank_render_target;
-    render_target->magic = zest_INIT_MAGIC;
-    render_target->render_width = 0;
-    render_target->render_height = 0;
-    render_target->flags = zest_render_target_flag_render_to_swap_chain;
-    render_target->post_process_record_callback = 0;
-    render_target->post_process_user_data = 0;
-    render_target->frames_in_flight = ZEST_MAX_FIF;
-    render_target->mip_levels = 1;
-    return render_target;
-}
-
-zest_render_target_create_info_t zest_RenderTargetCreateInfo() {
-    zest_render_target_create_info_t create_info = {
-        .ratio_of_screen_size = zest_Vec2Set1(0.f),
-        .imgui_blend_type = zest_imgui_blendtype_pass,
-        .sampler_address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-        .flags = zest_render_target_flag_is_src | zest_render_target_flag_sampler_size_match_texture,
-        .input_source = 0,
-        .render_format = VK_FORMAT_B8G8R8A8_UNORM,
-        .viewport = {0},
-        .pipeline = 0,
-        .mip_levels = 1
-    };
-    if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {
-        create_info.flags |= zest_render_target_flag_use_depth_buffer;
-    }
-    return create_info;
-}
-
-zest_render_target zest_CreateSimpleRenderTarget(const char* name) {
-    zest_render_target_create_info_t info = zest_RenderTargetCreateInfo();
-    return zest_CreateRenderTarget(name, info);
-}
-
-zest_render_target zest_CreateHDRRenderTarget(const char* name) {
-    zest_render_target_create_info_t info = zest_RenderTargetCreateInfo();
-    info.render_format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    return zest_CreateRenderTarget(name, info);
-}
-
-zest_render_target zest_CreateScaledHDRRenderTarget(const char* name, float scale) {
-    zest_render_target_create_info_t info = zest_RenderTargetCreateInfo();
-    info.render_format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    info.ratio_of_screen_size.x = scale;
-    info.ratio_of_screen_size.y = scale;
-    return zest_CreateRenderTarget(name, info);
-}
-
-zest_render_target zest_CreateMippedHDRRenderTarget(const char *name, int mip_levels) {
-    ZEST_ASSERT(mip_levels > 1);        //If you're creating a mipped render target then 2 is the mimimum number of mip levels
-    zest_render_target_create_info_t info = zest_RenderTargetCreateInfo();
-    info.render_format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    info.mip_levels = mip_levels;
-    return zest_CreateRenderTarget(name, info);
-}
-
-zest_render_target zest_CreateRenderTarget(const char* name, zest_render_target_create_info_t create_info) {
-    if (zest_map_valid_name(ZestRenderer->render_targets, name)) {
-        ZEST_PRINT_WARNING("%s - %s", name, "This render target name already exists, existing render target will be overwritten.");
-    }
-    zest_render_target render_target = zest_NewRenderTarget();
-    render_target->name = name;
-    if (create_info.viewport.extent.width == 0 || create_info.viewport.extent.height == 0) {
-        create_info.viewport.extent = ZestRenderer->swapchain_extent;
-        ZEST__UNFLAG(create_info.flags, zest_render_target_flag_fixed_size);
-    }
-    else if (!zest_Vec2Length2(create_info.ratio_of_screen_size)) {
-        ZEST__FLAG(create_info.flags, zest_render_target_flag_fixed_size);
-    }
-
-    ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_schedule_rerecord_final_render_buffer);
-
-    render_target->create_info = create_info;
-    render_target->input_source = create_info.input_source;
-    ZEST__FLAG(render_target->flags, create_info.flags);
-
-    zest_map_insert(ZestRenderer->render_targets, name, render_target);
-
-    //zest__initialise_render_target(render_target, &render_target->create_info);
-
-    return render_target;
-}
-
-zest_render_target zest_AddPostProcessRenderTarget(const char* name, float width_ratio_of_input, float height_ration_of_input, zest_render_target input_source, void* user_data, void(*render_callback)(zest_render_target target, void* user_data, zest_uint fif)) {
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->render_targets, name));    //That render target name already exists!
-    zest_render_target_create_info_t create_info = { 0 };
-    create_info.ratio_of_screen_size = zest_Vec2Set(width_ratio_of_input, height_ration_of_input);
-    create_info.viewport.extent.width = (zest_uint)((float)input_source->render_width * width_ratio_of_input);
-    create_info.viewport.extent.height = (zest_uint)((float)input_source->render_height * height_ration_of_input);
-    create_info.input_source = input_source;
-    create_info.render_format = input_source->render_format;
-    create_info.sampler_address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    create_info.sampler_address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    create_info.sampler_address_mode_w = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    create_info.mip_levels = 1;
-    ZEST__UNFLAG(create_info.flags, zest_render_target_flag_sampler_size_match_texture);
-    zest_render_target target = zest_CreateRenderTarget(name, create_info);
-    zest_SetRenderTargetPostProcessCallback(target, render_callback);
-    zest_SetRenderTargetPostProcessUserData(target, user_data);
-    if (!render_callback) {
-        for (ZEST_EACH_FIF_i) {
-            zest__record_render_target_commands(target, i);
-        }
-    } else {
-        for (ZEST_EACH_FIF_i) {
-            target->recorder->outdated[i] = 1;
-        }
-    }
-    return target;
-}
-
-void zest_SetRenderTargetPostProcessCallback(zest_render_target render_target, void(*render_callback)(zest_render_target target, void* user_data, zest_uint fif)) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    render_target->post_process_record_callback = render_callback;
-}
-
-void zest_SetRenderTargetPostProcessUserData(zest_render_target render_target, void* user_data) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    render_target->post_process_user_data = user_data;
-}
-
-VkDescriptorSet* zest_GetRenderTargetSamplerDescriptorSetVK(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return &render_target->sampler_descriptor_set[render_target->current_index][ZEST_FIF].vk_descriptor_set;
-}
-
-zest_descriptor_set zest_GetRenderTargetSamplerDescriptorSet(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return render_target->sampler_descriptor_set[render_target->current_index];
-}
-
-VkDescriptorSet* zest_GetRenderTargetSourceDescriptorSet(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return zest_GetRenderTargetSamplerDescriptorSetVK(render_target->input_source);
-}
-
-zest_image zest_GetRenderTargetImage(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return &render_target->sampler_image;
-}
-
-zest_frame_buffer_t* zest_RenderTargetFramebuffer(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return &render_target->framebuffers[ZEST_FIF];
-}
-
-zest_frame_buffer_t* zest_RenderTargetFramebufferByFIF(zest_render_target render_target, zest_index fif) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return &render_target->framebuffers[fif];
-}
-
-zest_render_target zest_GetRenderTarget(const char* name) {
-    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->render_targets, name));    //No render target found with that index
-    return *zest_map_at(ZestRenderer->render_targets, name);
-}
-
-VkFramebuffer zest_GetRendererFrameBufferCallback(zest_command_queue_draw_commands item) {
-    return ZestRenderer->swapchain_frame_buffers[ZestRenderer->current_image_frame];
-}
-
-VkFramebuffer zest_GetRenderTargetFrameBufferCallback(zest_command_queue_draw_commands item) {
-    zest_index fif = ZEST__FLAGGED(item->render_target->flags, zest_render_target_flag_single_frame_buffer_only) ? 0 : ZEST_FIF;
-    ZEST_ASSERT(zest_vec_size(item->render_target->framebuffers[fif].framebuffers));
-    return item->render_target->framebuffers[fif].framebuffers[0];
-}
-
-void zest_RecreateRenderTargetResources(zest_render_target render_target, zest_index fif) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    int width, height;
-    if (render_target->create_info.input_source && zest_Vec2Length(render_target->create_info.ratio_of_screen_size)) {
-        width = (zest_uint)((float)render_target->create_info.input_source->render_width * render_target->create_info.ratio_of_screen_size.x);
-        height = (zest_uint)((float)render_target->create_info.input_source->render_height * render_target->create_info.ratio_of_screen_size.y);
-    } else if (zest_Vec2Length(render_target->create_info.ratio_of_screen_size)) {
-        width = (zest_uint)((float)ZestApp->window->window_width * render_target->create_info.ratio_of_screen_size.x);
-        height = (zest_uint)((float)ZestApp->window->window_height * render_target->create_info.ratio_of_screen_size.y);
-    }
-    else if (ZEST__NOT_FLAGGED(render_target->create_info.flags, zest_render_target_flag_fixed_size)) {
-        width = zest_SwapChainWidth();
-        height = zest_SwapChainHeight();
-    }
-    else {
-        width = render_target->create_info.viewport.extent.width;
-        height = render_target->create_info.viewport.extent.height;
-    }
-
-    render_target->viewport.extent.width = width;
-    render_target->viewport.extent.height = height;
-    render_target->pipeline_template->scissor.extent = render_target->viewport.extent;
-    render_target->pipeline_template->scissor.offset = render_target->viewport.offset;
-    render_target->render_width = width;
-    render_target->render_height = height;
-    render_target->create_info.viewport.extent.width = width;
-    render_target->create_info.viewport.extent.height = height;
-    render_target->recorder->outdated[fif] = 1;
-
-    if (ZEST_VALID_HANDLE(render_target->filter_pipeline_template)) {
-		render_target->filter_pipeline_template->scissor.extent = render_target->viewport.extent;
-		render_target->filter_pipeline_template->scissor.offset = render_target->viewport.offset;
-    }
-
-    zest_FreeBuffer(render_target->framebuffers[fif].color_buffer.buffer);
-    if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer)) {
-        zest_FreeBuffer(render_target->framebuffers[fif].depth_buffer.buffer);
-    }
-    render_target->framebuffers[fif] = zest_CreateFrameBuffer(
-        render_target->render_pass, 
-        render_target->mip_levels,
-        render_target->render_width, 
-        render_target->render_height,
-        render_target->render_format,
-        ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer),
-        ZEST__FLAGGED(render_target->flags, zest_render_target_flag_is_src));
-
-    if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_sampler_size_match_texture)) {
-        render_target->sampler_image.width = width;
-        render_target->sampler_image.height = height;
-    }
-    else {
-        render_target->sampler_image.width = zest_GetSwapChainExtent().width;
-        render_target->sampler_image.height = zest_GetSwapChainExtent().height;
-    }
-	ZEST__FLAG(render_target->flags, zest_render_target_flag_was_changed);
-}
-
-void zest__refresh_render_target_sampler(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    render_target->current_index ^= 1;
-    int index = render_target->current_index;
-    if (render_target->sampler[index]) vkDestroySampler(ZestDevice->logical_device, render_target->sampler[index], &ZestDevice->allocation_callbacks);
-    zest__update_image_vertices(&render_target->sampler_image);
-	render_target->sampler[render_target->current_index] = zest__create_sampler(render_target->sampler_info);
-
-    zest_ResetDescriptorPool(render_target->descriptor_pool[index]);
-	zest_ForEachFrameInFlight(fif) {
-		zest_descriptor_set set = &render_target->sampler_descriptor_set[index][fif];
-        render_target->image_info[fif].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        render_target->image_info[fif].imageView = render_target->framebuffers[fif].color_buffer.base_view;
-        render_target->image_info[fif].sampler = render_target->sampler[index];
-
-        zest_descriptor_set_builder_t builder = zest_BeginDescriptorSetBuilder(zest_GetDescriptorSetLayout("1 sampler"));
-        zest_AddSetBuilderDirectImageWrite(&builder, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &render_target->image_info[fif]);
-        set = zest_FinishDescriptorSet(render_target->descriptor_pool[index], &builder, set);
-    }
-}
-
-void zest__refresh_render_target_mip_samplers(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    int index = render_target->current_index;
-
-    zest_ForEachFrameInFlight(fif) {
-        zest_vec_resize(render_target->mip_level_samplers[index][fif], (zest_uint)render_target->mip_levels);
-		zest_vec_resize(render_target->mip_level_descriptor_sets[index][fif], (zest_uint)render_target->mip_levels);
-    }
-    zest_uint mip_descriptor_size = zest_vec_size(render_target->mip_level_image_infos);
-
-	zest_uint current_mip_width = render_target->render_width; 
-	zest_uint current_mip_height = render_target->render_height; 
-
-    zest_vec_clear(render_target->mip_level_sizes);
-
-    zest_ResetDescriptorPool(render_target->descriptor_pool[index]);
-
-    for (zest_index mip_level = 0; mip_level != render_target->mip_levels; ++mip_level) {
-		zest_ForEachFrameInFlight(fif) {
-			zest_descriptor_set set = &render_target->mip_level_samplers[index][fif][mip_level];
-			zest_descriptor_set_t blank = { 0 };
-			*set = blank;
-			set->magic = zest_INIT_MAGIC;
-			VkDescriptorImageInfo *image_info = &render_target->mip_level_image_infos[fif][mip_level];
-			image_info->imageView = render_target->framebuffers[fif].color_buffer.mip_views[mip_level];
-			image_info->sampler = render_target->sampler[index];
-
-			zest_descriptor_set_builder_t builder = zest_BeginDescriptorSetBuilder(zest_GetDescriptorSetLayout("1 sampler"));
-			zest_AddSetBuilderDirectImageWrite(&builder, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &render_target->image_info[fif]);
-			set = zest_FinishDescriptorSet(render_target->descriptor_pool[index], &builder, set);
-        }
-
-		VkRect2D mip_size = { 0 };
-		mip_size.extent.width = current_mip_width;
-		mip_size.extent.height = current_mip_height;
-		zest_vec_push(render_target->mip_level_sizes, mip_size);
-
-		current_mip_width = ZEST__MAX(1u, current_mip_width / 2);
-		current_mip_height = ZEST__MAX(1u, current_mip_height / 2);
-
-        if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_upsampler)) {
-            zest_ForEachFrameInFlight(fif) {
-				zest_descriptor_set_builder_t builder = zest_BeginDescriptorSetBuilder(zest_GetDescriptorSetLayout("2 sampler"));
-				VkDescriptorImageInfo *image_info = &render_target->mip_level_image_infos[fif][mip_level];
-                zest_AddSetBuilderDirectImageWrite(&builder, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, image_info);
-                zest_AddSetBuilderDirectImageWrite(&builder, 1, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &render_target->input_source->image_info[fif]);
-				zest_FinishDescriptorSet(render_target->descriptor_pool[index], &builder, &render_target->mip_level_descriptor_sets[index][fif][mip_level]);
-            }
-        }
-    }
-}
-
-void zest__render_target_maintennance() {
-    for (zest_map_foreach_i(ZestRenderer->render_targets)) {
-        zest_render_target render_target = *zest_map_at_index(ZestRenderer->render_targets, i);
-        ZEST__UNFLAG(render_target->flags, zest_render_target_flag_was_changed);
-    }
-}
-
-void zest__record_render_target_commands(zest_render_target render_target, zest_index fif) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    VkCommandBuffer command_buffer = zest_BeginRecording(render_target->recorder, render_target->render_pass, fif);
-    VkViewport view = zest_CreateViewport(0.f, 0.f, (float)render_target->viewport.extent.width, (float)render_target->viewport.extent.height, 0.f, 1.f);
-    VkRect2D scissor = zest_CreateRect2D(render_target->viewport.extent.width, render_target->viewport.extent.height, 0, 0);
-    vkCmdSetViewport(command_buffer, 0, 1, &view);
-    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-
-    zest_pipeline pipeline = zest_PipelineWithTemplate(render_target->pipeline_template, render_target->render_pass);
-	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSetVK(render_target), 0, NULL);
-	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
-
-	vkCmdPushConstants(
-		command_buffer,
-		pipeline->pipeline_layout,
-		VK_SHADER_STAGE_VERTEX_BIT,
-		0,
-		sizeof(zest_render_target_push_constants_t),
-		&render_target->push_constants);
-
-	vkCmdDraw(command_buffer, 3, 1, 0, 0);
-    zest_EndRecording(render_target->recorder, fif);
-}
-
-void zest_DrawToRenderTargetCallback(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer) {
-    VkRenderPassBeginInfo render_pass_info = { 0 };
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    render_pass_info.renderPass = render_pass;
-    render_pass_info.framebuffer = framebuffer;
-    render_pass_info.renderArea = item->viewport;
-
-    VkClearValue clear_values[2] = {
-        [0] .color = {.float32[0] = item->cls_color.x, .float32[1] = item->cls_color.y, .float32[2] = item->cls_color.y, .float32[3] = item->cls_color.w },
-        [1].depthStencil = {.depth = 1.0f, .stencil = 0 }
-    };
-
-    render_pass_info.clearValueCount = 2;
-    render_pass_info.pClearValues = clear_values;
-    zest_render_target target = item->render_target;
-
-    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
-
-    if (target->post_process_record_callback && target->recorder->outdated[ZEST_FIF] != 0) {
-        target->post_process_record_callback(target, target->post_process_user_data, ZEST_FIF);
-    }
-    
-    zest_ExecuteRecorderCommands(command_buffer, target->recorder, ZEST_FIF);
-
-    vkCmdEndRenderPass(command_buffer);
-}
-
-void zest_DrawRenderTargetsToSwapchain(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer) {
-    VkRenderPassBeginInfo render_pass_info = { 0 };
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    render_pass_info.renderPass = render_pass;
-    render_pass_info.framebuffer = framebuffer;
-    render_pass_info.renderArea = item->viewport;
-
-    VkClearValue clear_values[2] = {
-        [0] .color = {.float32[0] = item->cls_color.x, .float32[1] = item->cls_color.y, .float32[2] = item->cls_color.z, .float32[3] = item->cls_color.w },
-        [1].depthStencil = {.depth = 1.0f, .stencil = 0 }
-    };
-
-    render_pass_info.clearValueCount = 2;
-    render_pass_info.pClearValues = clear_values;
-
-    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-
-    VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->render_target->viewport.extent.width, (float)item->render_target->viewport.extent.height, 0.f, 1.f);
-    VkRect2D scissor = zest_CreateRect2D(item->render_target->viewport.extent.width, item->render_target->viewport.extent.height, 0, 0);
-    vkCmdSetViewport(command_buffer, 0, 1, &view);
-    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-
-    for (zest_foreach_i(item->render_targets)) {
-        zest_render_target layer = item->render_targets[i];
-
-        zest_pipeline pipeline = zest_PipelineWithTemplate(layer->pipeline_template, render_pass);
-        vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSetVK(layer), 0, NULL);
-        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
-
-        vkCmdPushConstants(
-            command_buffer,
-            pipeline->pipeline_layout,
-            VK_SHADER_STAGE_VERTEX_BIT,
-            0,
-            sizeof(zest_render_target_push_constants_t),
-            &layer->push_constants);
-
-        vkCmdDraw(command_buffer, 3, 1, 0, 0);
-    }
-
-    vkCmdEndRenderPass(command_buffer);
-}
-
-void zest_CompositeRenderTargets(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer framebuffer) {
-    VkRenderPassBeginInfo render_pass_info = { 0 };
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    render_pass_info.renderPass = render_pass;
-    render_pass_info.framebuffer = framebuffer;
-    render_pass_info.renderArea = item->viewport;
-
-    VkClearValue clear_values[2] = {
-        [0] .color = {.float32[0] = item->cls_color.x, .float32[1] = item->cls_color.y, .float32[2] = item->cls_color.z, .float32[3] = item->cls_color.w },
-        [1].depthStencil = {.depth = 1.0f, .stencil = 0 }
-    };
-
-    render_pass_info.clearValueCount = 2;
-    render_pass_info.pClearValues = clear_values;
-
-    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-
-	VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->viewport.extent.width, (float)item->viewport.extent.height, 0.f, 1.f);
-	VkRect2D scissor = zest_CreateRect2D(item->viewport.extent.width, item->viewport.extent.height, 0, 0);
-	vkCmdSetViewport(command_buffer, 0, 1, &view);
-	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-
-    ZEST_ASSERT(item->composite_pipeline);  //The composite_pipeline must have been set in the draw commands. Use zest_NewDrawCommandSetupCompositeToSwap to set this up.
-	zest_pipeline pipeline = zest_PipelineWithTemplate(item->composite_pipeline, render_pass);
-    zest_BindPipelineShaderResource(command_buffer, pipeline, item->composite_shader_resources);
-
-    if (pipeline->pipeline_template->pushConstantRange.size > 0) {
-        ZEST_ASSERT(item->composite_pipeline->push_constants);   //You must specify the push constants for the composite shader when setting up the draw commands (zest_NewDrawCommandSetupCompositeToSwap)
-        //You must also ensure that the push_constants pointer points to the correct place in memory or you'll just send
-        //pushConstantRange.size worth of garbage to the shader.
-        vkCmdPushConstants(
-            command_buffer,
-            pipeline->pipeline_layout,
-            pipeline->pipeline_template->pushConstantRange.stageFlags,
-            pipeline->pipeline_template->pushConstantRange.offset,
-            pipeline->pipeline_template->pushConstantRange.size,
-            item->composite_pipeline->push_constants);
-    }
-
-	vkCmdDraw(command_buffer, 3, 1, 0, 0);
-
-    vkCmdEndRenderPass(command_buffer);
-}
-
-void zest_DownSampleRenderTarget(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer unused) {
-    ZEST_ASSERT(item->render_target->input_source); //You must assign an input source for the down sampler. This will be the image that is downsampled
-	zest_frame_buffer_t *frame_buffer = &item->render_target->framebuffers[ZEST_FIF];
-
-    VkImageMemoryBarrier input_source_barrier = zest__create_image_memory_barrier(
-        item->render_target->input_source->framebuffers[ZEST_FIF].color_buffer.image,
-        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        0, 1);
-    zest__place_fragment_barrier(command_buffer, &input_source_barrier);
-
-    //First render the input source in the render target to the render taget and apply the filter pipeline
-    VkRenderPassBeginInfo render_pass_info = { 0 };
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    render_pass_info.renderPass = render_pass;
-    render_pass_info.framebuffer = frame_buffer->framebuffers[0];
-    render_pass_info.renderArea = item->viewport;
-
-	VkClearValue clear_value = {
-		.color = {.float32[0] = item->cls_color.x, .float32[1] = item->cls_color.y, .float32[2] = item->cls_color.z, .float32[3] = item->cls_color.w },
-	};
-
-    render_pass_info.clearValueCount = 1;
-    render_pass_info.pClearValues = &clear_value;
-
-    vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-
-    VkViewport view = zest_CreateViewport(0.f, 0.f, (float)item->render_target->viewport.extent.width, (float)item->render_target->viewport.extent.height, 0.f, 1.f);
-    VkRect2D scissor = zest_CreateRect2D(item->render_target->viewport.extent.width, item->render_target->viewport.extent.height, 0, 0);
-    vkCmdSetViewport(command_buffer, 0, 1, &view);
-    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-
-	zest_pipeline pipeline = zest_PipelineWithTemplate(item->render_target->filter_pipeline_template, render_pass);
-	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, zest_GetRenderTargetSamplerDescriptorSetVK(item->render_target->input_source), 0, NULL);
-	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
-
-    if (pipeline->pipeline_template->pushConstantRange.size > 0) {
-        ZEST_ASSERT(item->render_target->push_constants);   //You must the point the push content data in the render target
-        vkCmdPushConstants(
-            command_buffer,
-            pipeline->pipeline_layout,
-            pipeline->pipeline_template->pushConstantRange.stageFlags,
-            pipeline->pipeline_template->pushConstantRange.offset,
-            pipeline->pipeline_template->pushConstantRange.size,
-            item->render_target->push_constants);
-    }
-
-	vkCmdDraw(command_buffer, 3, 1, 0, 0);
-
-    vkCmdEndRenderPass(command_buffer);
-
-	VkImageMemoryBarrier barrier = zest__create_image_memory_barrier(item->render_target->framebuffers[ZEST_FIF].color_buffer.image,
-		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		VK_ACCESS_SHADER_READ_BIT,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		0, 1);
-	zest__place_fragment_barrier(command_buffer, &barrier);
-
-    VkRect2D current_viewport = { 0 };
-    current_viewport.extent = item->viewport.extent;
-
-    for (int mip_level = 1; mip_level != item->render_target->mip_levels; ++mip_level) {
-        item->render_target->mip_push_constants.settings.w = (float)mip_level - 1.f;
-        item->render_target->mip_push_constants.source_resolution.x = (float)current_viewport.extent.width;
-        item->render_target->mip_push_constants.source_resolution.y = (float)current_viewport.extent.height;
-
-		current_viewport.extent.width = ZEST__MAX(1u, current_viewport.extent.width / 2);
-		current_viewport.extent.height = ZEST__MAX(1u, current_viewport.extent.height / 2);
-
-        VkRenderPassBeginInfo render_pass_info = { 0 };
-        render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        render_pass_info.renderPass = render_pass;
-        render_pass_info.framebuffer = frame_buffer->framebuffers[mip_level];
-        render_pass_info.renderArea = current_viewport;
-
-        render_pass_info.clearValueCount = 1;
-        render_pass_info.pClearValues = &clear_value;
-
-        vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-
-        VkViewport view = zest_CreateViewport(0.f, 0.f, (float)current_viewport.extent.width, (float)current_viewport.extent.height, 0.f, 1.f);
-        VkRect2D scissor = zest_CreateRect2D(current_viewport.extent.width, current_viewport.extent.height, 0, 0);
-        vkCmdSetViewport(command_buffer, 0, 1, &view);
-        vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-
-        zest_pipeline pipeline = zest_PipelineWithTemplate(item->render_target->pipeline_template, render_pass);
-        VkDescriptorSet mip_level_set = item->render_target->mip_level_samplers[item->render_target->current_index][ZEST_FIF][mip_level - 1].vk_descriptor_set;
-		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, 1, &mip_level_set, 0, NULL);
-		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
-
-        if (pipeline->pipeline_template->pushConstantRange.size > 0) {
-            ZEST_ASSERT(item->render_target->push_constants);   //You must the point the push content data in the render target
-            vkCmdPushConstants(
-                command_buffer,
-                pipeline->pipeline_layout,
-                VK_SHADER_STAGE_FRAGMENT_BIT,
-                0,
-                sizeof(zest_mip_push_constants_t),
-                &item->render_target->mip_push_constants);
-        }
-
-        vkCmdDraw(command_buffer, 3, 1, 0, 0);
-
-        vkCmdEndRenderPass(command_buffer);
-
-		VkImageMemoryBarrier barrier = zest__create_image_memory_barrier(item->render_target->framebuffers[ZEST_FIF].color_buffer.image,
-			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			VK_ACCESS_SHADER_READ_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			mip_level, 1);
-		zest__place_fragment_barrier(command_buffer, &barrier);
-    }
-
-    item->render_target->recorder->outdated[ZEST_FIF] = 1;
-}
-
-void zest_UpSampleRenderTarget(zest_command_queue_draw_commands item, VkCommandBuffer command_buffer, VkRenderPass render_pass, VkFramebuffer unused) {
-    ZEST_ASSERT(item->render_target->input_source); //You must assign an input source for the up sampler.
-    ZEST_ASSERT(ZEST__FLAGGED(item->render_target->input_source->flags, zest_render_target_flag_multi_mip)); //Input source must be a multi mip, ie a downsampler that you now want to upscale
-    ZEST_ASSERT(item->render_target->input_source->mip_levels == item->render_target->mip_levels);  //input source must have the same number of mip levels 
-	zest_frame_buffer_t *frame_buffer = &item->render_target->framebuffers[ZEST_FIF];
-
-    zest_uint mip_to_blit = item->render_target->mip_levels - 1;
-
-    //Blit the smallest mip level from the downsampled render target first
-    VkImageMemoryBarrier blit_src_barrier = zest__create_image_memory_barrier(item->render_target->input_source->framebuffers[ZEST_FIF].color_buffer.image,
-        0,
-        VK_ACCESS_TRANSFER_READ_BIT,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        mip_to_blit, 1);
-    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_src_barrier);
-
-    VkImageMemoryBarrier blit_dst_barrier = zest__create_image_memory_barrier(item->render_target->framebuffers[ZEST_FIF].color_buffer.image,
-        0,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        mip_to_blit, 1);
-    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_dst_barrier);
-
-    VkOffset3D base_offset = { 0 };
-    VkImageBlit blit = { 0 };
-    blit.srcSubresource.mipLevel = mip_to_blit;
-    blit.srcSubresource.layerCount = 1;
-    blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blit.dstSubresource.mipLevel = mip_to_blit;
-    blit.dstSubresource.layerCount = 1;
-    blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    blit.dstOffsets[0] = base_offset;
-    blit.srcOffsets[0] = base_offset;
-    blit.dstOffsets[1].x = item->render_target->mip_level_sizes[mip_to_blit].extent.width;
-    blit.dstOffsets[1].y = item->render_target->mip_level_sizes[mip_to_blit].extent.height;
-    blit.dstOffsets[1].z = 1;
-    blit.srcOffsets[1].x = item->render_target->input_source->mip_level_sizes[mip_to_blit].extent.width;
-    blit.srcOffsets[1].y = item->render_target->input_source->mip_level_sizes[mip_to_blit].extent.height;
-    blit.srcOffsets[1].z = 1;
-
-    bool same_size = (blit.srcOffsets[1].x == blit.dstOffsets[1].x && blit.srcOffsets[1].y == blit.dstOffsets[1].y);
-
-    vkCmdBlitImage(
-        command_buffer,
-        item->render_target->input_source->framebuffers[ZEST_FIF].color_buffer.image,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        item->render_target->framebuffers[ZEST_FIF].color_buffer.image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, same_size ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
-
-    blit_src_barrier = zest__create_image_memory_barrier(item->render_target->input_source->framebuffers[ZEST_FIF].color_buffer.image,
-        VK_ACCESS_TRANSFER_READ_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        mip_to_blit, 1);
-    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_src_barrier);
-
-    blit_dst_barrier = zest__create_image_memory_barrier(item->render_target->framebuffers[ZEST_FIF].color_buffer.image,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        mip_to_blit, 1);
-    zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_dst_barrier);
-
-    
-    VkRect2D current_viewport = { 0 };
-    current_viewport.extent = item->viewport.extent;
-
-	VkClearValue clear_value = {
-		.color = {.float32[0] = item->cls_color.x, .float32[1] = item->cls_color.y, .float32[2] = item->cls_color.z, .float32[3] = item->cls_color.w },
-	};
-
-    //We've already blitted the smallest mip, so start from the next level up in resolution
-    for (int mip_level = mip_to_blit - 1; mip_level >= 0; --mip_level) {
-		current_viewport.extent = item->render_target->mip_level_sizes[mip_level].extent;
-        item->render_target->mip_push_constants.settings.w = (float)mip_level + 1.f;
-        item->render_target->mip_push_constants.source_resolution.x = (float)current_viewport.extent.width;
-        item->render_target->mip_push_constants.source_resolution.y = (float)current_viewport.extent.height;
-
-        VkRenderPassBeginInfo render_pass_info = { 0 };
-        render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        render_pass_info.renderPass = render_pass;
-        render_pass_info.framebuffer = frame_buffer->framebuffers[mip_level];
-        render_pass_info.renderArea = current_viewport;
-
-        render_pass_info.clearValueCount = 1;
-        render_pass_info.pClearValues = &clear_value;
-
-        vkCmdBeginRenderPass(command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-
-        VkViewport view = zest_CreateViewport(0.f, 0.f, (float)current_viewport.extent.width, (float)current_viewport.extent.height, 0.f, 1.f);
-        VkRect2D scissor = zest_CreateRect2D(current_viewport.extent.width, current_viewport.extent.height, 0, 0);
-        vkCmdSetViewport(command_buffer, 0, 1, &view);
-        vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-
-        zest_pipeline pipeline = zest_PipelineWithTemplate(item->render_target->pipeline_template, render_pass);
-        zest_BindPipeline(command_buffer, pipeline, &item->render_target->mip_level_descriptor_sets[item->render_target->current_index][ZEST_FIF][mip_level + 1].vk_descriptor_set, 1);
-
-        if (pipeline->pipeline_template->pushConstantRange.size > 0) {
-            ZEST_ASSERT(sizeof(zest_mip_push_constants_t) == pipeline->pipeline_template->pushConstantRange.size);   //pipeline push constant range must mathc the mip push constants in the render target
-            vkCmdPushConstants(
-                command_buffer,
-                pipeline->pipeline_layout,
-                VK_SHADER_STAGE_FRAGMENT_BIT,
-                0,
-                sizeof(zest_mip_push_constants_t),
-                &item->render_target->mip_push_constants);
-        }
-
-        vkCmdDraw(command_buffer, 3, 1, 0, 0);
-
-        vkCmdEndRenderPass(command_buffer);
-
-		VkImageMemoryBarrier barrier = zest__create_image_memory_barrier(item->render_target->framebuffers[ZEST_FIF].color_buffer.image,
-			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			VK_ACCESS_SHADER_READ_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			mip_level, 1);
-		zest__place_fragment_barrier(command_buffer, &barrier);
-    }
-
-    item->render_target->recorder->outdated[ZEST_FIF] = 1;
-}
-
-void zest_CleanUpRenderTarget(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    zest_ForEachFrameInFlight(fif) {
-        zest__cleanup_framebuffer(&render_target->framebuffers[fif]);
-    }
-    for (int i = 0; i != 2; ++i) {
-        if(render_target->sampler[i]) vkDestroySampler(ZestDevice->logical_device, render_target->sampler[i], &ZestDevice->allocation_callbacks);
-        render_target->sampler[i] = 0;
-    }
-}
-
-void zest_PreserveRenderTargetFrames(zest_render_target render_target, zest_bool yesno) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    if (ZEST__FLAGGED(render_target->flags, zest_render_target_flag_use_depth_buffer)) {
-        render_target->render_pass = (yesno != 0 ? zest__get_render_pass(render_target->render_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ATTACHMENT_LOAD_OP_CLEAR, 1) 
-            : zest__get_render_pass(render_target->render_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ATTACHMENT_LOAD_OP_CLEAR, 1));
-    }
-    else {
-        render_target->render_pass = (yesno != 0 ? zest__get_render_pass(render_target->render_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ATTACHMENT_LOAD_OP_CLEAR, 0) 
-            : zest__get_render_pass(render_target->render_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ATTACHMENT_LOAD_OP_CLEAR, 0));
-    }
-}
-
-void zest_ResizeRenderTarget(zest_render_target render_target, zest_uint width, zest_uint height) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    render_target->create_info.viewport.extent.width = width;
-    render_target->create_info.viewport.extent.height = height;
-    ZEST__FLAG(render_target->create_info.flags, zest_render_target_flag_fixed_size);
-    zest_ScheduleRenderTargetRefresh(render_target);
-}
-
-int zest_RenderTargetWasChanged(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    return ZEST__FLAGGED(render_target->flags, zest_render_target_flag_was_changed) > 0;
-}
-
-void zest_ScheduleRenderTargetRefresh(zest_render_target render_target) {
-    zest_ForEachFrameInFlight(fif) {
-        render_target->frame_buffer_dirty[fif] = 1;
-    }
-	zest_map_insert(ZestRenderer->render_target_recreate_queue, render_target->name, render_target);
-}
-
-void zest_SetRenderTargetSamplerToClamp(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    render_target->sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    render_target->sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    render_target->sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	zest_map_insert(ZestRenderer->rt_sampler_refresh_queue, render_target->name, render_target);
-}
-
-void zest_SetRenderTargetSamplerToRepeat(zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    render_target->sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    render_target->sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    render_target->sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	zest_map_insert(ZestRenderer->rt_sampler_refresh_queue, render_target->name, render_target);
-}
-
-void zest_RenderTargetClear(zest_render_target render_target, zest_uint fif) {
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    VkCommandBuffer command_buffer = zest__begin_single_time_commands();
-
-    VkImageSubresourceRange image_sub_resource_range;
-    image_sub_resource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    image_sub_resource_range.baseMipLevel = 0;
-    image_sub_resource_range.levelCount = 1;
-    image_sub_resource_range.baseArrayLayer = 0;
-    image_sub_resource_range.layerCount = 1;
-
-    VkClearColorValue ClearColorValue = { 0.f, 0.f, 0.f, 0.f };
-
-    zest__insert_image_memory_barrier(
-        command_buffer,
-        render_target->framebuffers[fif].color_buffer.image,
-        0,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        image_sub_resource_range);
-
-    vkCmdClearColorImage(command_buffer, render_target->framebuffers[fif].color_buffer.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &ClearColorValue, 1, &image_sub_resource_range);
-
-    zest__insert_image_memory_barrier(
-        command_buffer,
-        render_target->framebuffers[fif].color_buffer.image,
-        0,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        image_sub_resource_range);
-
-    zest__end_single_time_commands(command_buffer);
-}
-//--End Render Targets
-
 //-- Draw Layers
 //-- internal
 zest_layer_instruction_t zest__layer_instruction() {
@@ -15187,17 +13176,6 @@ void zest__reset_mesh_layer_drawing(zest_layer layer) {
     layer->memory_refs[layer->fif].vertex_count = 0;
     layer->memory_refs[layer->fif].vertex_ptr = layer->memory_refs[layer->fif].staging_vertex_data->data;
     layer->memory_refs[layer->fif].index_ptr = layer->memory_refs[layer->fif].staging_index_data->data;
-}
-
-int zest_LayerHasInstructionsCallback(zest_draw_routine draw_routine) {
-    ZEST_CHECK_HANDLE(draw_routine);	//Not a valid handle!
-    ZEST_ASSERT(draw_routine->draw_data);
-    zest_layer layer = (zest_layer)draw_routine->draw_data;
-    return zest_vec_size(layer->draw_instructions[layer->fif]) > 0;
-}
-
-int zest_AlwaysRecordCallback(zest_draw_routine draw_routine) {
-    return 1;
 }
 
 void zest_StartInstanceInstructions(zest_layer layer) {
@@ -15280,20 +13258,6 @@ void zest__end_mesh_instructions(zest_layer layer) {
     }
 }
 
-void zest__update_instance_layer_buffers_callback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
-    ZEST_CHECK_HANDLE(draw_routine);	//Not a valid handle!
-    zest_layer layer = (zest_layer)draw_routine->draw_data;
-    if(!zest_MaybeEndInstanceInstructions(layer)) return;
-
-    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
-        if (!zest_vec_empty(layer->draw_instructions[layer->fif])) {
-            //zest_AddCopyCommand(&layer->vertex_upload, layer->memory_refs[layer->fif].staging_instance_data, layer->memory_refs[layer->fif].device_instance_data, layer->memory_refs[layer->fif].device_instance_data->buffer_offset);
-        }
-
-        zest_UploadBuffer(&layer->vertex_upload, command_buffer);
-    }
-}
-
 void zest__update_instance_layer_resolution(zest_layer layer) {
     layer->viewport.width = (float)zest_GetSwapChainExtent().width;
     layer->viewport.height = (float)zest_GetSwapChainExtent().height;
@@ -15301,86 +13265,6 @@ void zest__update_instance_layer_resolution(zest_layer layer) {
     layer->screen_scale.y = layer->viewport.height / layer->layer_size.y;
     layer->scissor.extent.width = (zest_uint)layer->viewport.width;
     layer->scissor.extent.height = (zest_uint)layer->viewport.height;
-}
-
-VkCommandBuffer zest_BeginRecording(zest_recorder recorder, VkRenderPass render_pass, zest_uint fif) {
-    ZEST_CHECK_HANDLE(recorder);	//Not a valid handle!
-    VkCommandBuffer command_buffer = recorder->command_buffer[fif];
-    ZEST_ASSERT(ZEST__NOT_FLAGGED(recorder->flags, zest_command_buffer_flag_recording));    //Must not be in a recording state. Did you call end recording?
-    ZEST__FLAG(recorder->flags, zest_command_buffer_flag_recording);
-
-    VkCommandBufferInheritanceInfo inheritance_info = { 0 };
-    inheritance_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
-    inheritance_info.renderPass = render_pass;  
-    inheritance_info.subpass = 0;                      
-    inheritance_info.framebuffer = VK_NULL_HANDLE;     
-    inheritance_info.occlusionQueryEnable = VK_FALSE;   
-    inheritance_info.queryFlags = 0;                    
-    inheritance_info.pipelineStatistics = 0;            
-
-    VkCommandBufferBeginInfo begin_info = { 0 };
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;  
-    begin_info.pInheritanceInfo = &inheritance_info;
-
-	vkBeginCommandBuffer(command_buffer, &begin_info);
-
-    return command_buffer;
-}
-
-VkCommandBuffer zest_BeginComputeRecording(zest_recorder recorder, zest_uint fif) {
-    ZEST_CHECK_HANDLE(recorder);	//Not a valid handle!
-    VkCommandBuffer command_buffer = recorder->command_buffer[fif];
-    ZEST_ASSERT(ZEST__NOT_FLAGGED(recorder->flags, zest_command_buffer_flag_recording));    //Must not be in a recording state. Did you call end recording?
-    ZEST__FLAG(recorder->flags, zest_command_buffer_flag_recording);
-
-    VkCommandBufferInheritanceInfo inheritance_info = { 0 };
-    inheritance_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
-    inheritance_info.renderPass = VK_NULL_HANDLE;  
-    inheritance_info.subpass = 0;                      
-    inheritance_info.framebuffer = VK_NULL_HANDLE;     
-    inheritance_info.occlusionQueryEnable = VK_FALSE;   
-    inheritance_info.queryFlags = 0;                    
-    inheritance_info.pipelineStatistics = 0;            
-
-    VkCommandBufferBeginInfo begin_info = { 0 };
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-    begin_info.pInheritanceInfo = &inheritance_info;
-
-	vkBeginCommandBuffer(command_buffer, &begin_info);
-    return command_buffer;
-}
-
-void zest_EndRecording(zest_recorder recorder, zest_uint fif) {
-    ZEST_CHECK_HANDLE(recorder);	//Not a valid handle!
-    VkCommandBuffer command_buffer = recorder->command_buffer[fif];
-    ZEST_ASSERT(ZEST__FLAGGED(recorder->flags, zest_command_buffer_flag_recording));    //Must be in a recording state! Did you call zest_BeingRecording?
-    ZEST__UNFLAG(recorder->flags, zest_command_buffer_flag_recording);
-    recorder->outdated[fif] = 0;
-    vkEndCommandBuffer(command_buffer);
-}
-
-void zest_MarkOutdated(zest_recorder recorder) {
-    ZEST_CHECK_HANDLE(recorder);	//Not a valid handle!
-    for (ZEST_EACH_FIF_i) {
-        recorder->outdated[i] = 1;
-    }
-}
-
-void zest_ResetDrawRoutine(zest_draw_routine draw_routine) {
-    ZEST_CHECK_HANDLE(draw_routine);	//Not a valid handle!
-    for (ZEST_EACH_FIF_i) {
-        draw_routine->recorder->outdated[i] = 1;
-    }
-}
-
-void zest_SetViewport(VkCommandBuffer command_buffer, zest_draw_routine draw_routine) {
-    ZEST_CHECK_HANDLE(draw_routine);	//Not a valid handle!
-    VkViewport view = zest_CreateViewport(0.f, 0.f, (float)draw_routine->draw_commands->viewport.extent.width, (float)draw_routine->draw_commands->viewport.extent.height, 0.f, 1.f);
-    VkRect2D scissor = zest_CreateRect2D(draw_routine->draw_commands->viewport.extent.width, draw_routine->draw_commands->viewport.extent.height, 0, 0);
-    vkCmdSetViewport(command_buffer, 0, 1, &view);
-    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 }
 
 void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
@@ -15434,10 +13318,6 @@ void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_gr
 void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     VkCommandBuffer command_buffer = 0;
-    //VkCommandBuffer command_buffer = zest_BeginRecording(layer->draw_routine->recorder, layer->draw_routine->draw_commands->render_pass, ZEST_FIF);
-
-    //zest_BindMeshIndexBuffer(command_buffer, layer);
-    //zest_BindMeshVertexBuffer(command_buffer, layer);
 
     bool has_instruction_view_port = false;
     for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
@@ -15472,7 +13352,6 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
 
         vkCmdDrawIndexed(command_buffer, current->total_indexes, 1, current->start_index, 0, 0);
     }
-    //zest_EndRecording(layer->draw_routine->recorder, ZEST_FIF);
 }
 
 void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
@@ -15529,18 +13408,6 @@ void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_rende
 }
 
 //Start general instance layer functionality -----
-void zest_RecordInstanceLayerCallback(struct zest_work_queue_t *queue, void *data) {
-    zest_draw_routine draw_routine = (zest_draw_routine)data;
-    zest_layer layer = (zest_layer)draw_routine->draw_data;
-    if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
-        //zest_DrawInstanceLayer(layer, ZEST_FIF);
-    }
-    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-        zest_ResetInstanceLayerDrawing(layer);
-        zest_MarkOutdated(draw_routine->recorder);
-    }
-}
-
 void zest_NextInstance(zest_layer layer) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     zest_byte* instance_ptr = (zest_byte*)layer->memory_refs[layer->fif].instance_ptr + layer->instance_struct_size;
@@ -15602,32 +13469,6 @@ void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
 }
 
 // End general instance layer functionality -----
-
-//Start internal mesh layer functionality -----
-void zest__draw_mesh_layer_callback(struct zest_work_queue_t *queue, void *data) {
-    zest_draw_routine draw_routine = (zest_draw_routine)data;
-    zest_layer layer = (zest_layer)draw_routine->draw_data;
-    if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
-        zest__record_mesh_layer(layer, ZEST_FIF);
-    }
-    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-        zest__reset_mesh_layer_drawing(layer);
-        zest_MarkOutdated(draw_routine->recorder);
-    }
-}
-
-void zest__draw_instance_mesh_layer_callback(struct zest_work_queue_t *queue, void *data) {
-    zest_draw_routine draw_routine = (zest_draw_routine)data;
-    zest_layer layer = (zest_layer)draw_routine->draw_data;
-    if (draw_routine->recorder->outdated[ZEST_FIF] != 0) {
-        //zest_DrawInstanceMeshLayer(layer, ZEST_FIF);
-    }
-    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-        zest_ResetInstanceLayerDrawing(layer);
-        zest_MarkOutdated(draw_routine->recorder);
-    }
-}
-// End internal mesh layer functionality -----
 
 //-- Draw Layers API
 zest_layer zest_NewLayer() {
@@ -15705,39 +13546,14 @@ zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_size type_size) {
     zest_layer_builder_t builder = {
         .initial_count = 1000,
         .type_size = type_size,
-		.record_callback = zest_RecordInstanceLayerCallback,
-        .condition_callback = zest_LayerHasInstructionsCallback,
-        .update_buffers_callback = zest__update_instance_layer_buffers_callback,
-        .update_resolution_callback = 0,
-        .clean_up_callback = 0,
     };
     return builder;
 }
 
 zest_layer zest_BuildInstanceLayer(const char *name, zest_layer_builder_t *builder) {
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->draw_routines, name));   //A draw routine with that name already exists
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->layers, name));          //A layer with that name already exists
 
-    zest_draw_routine_t blank_draw_routine = { 0 };
-    zest_draw_routine draw_routine = ZEST__NEW(zest_draw_routine);
-    *draw_routine = blank_draw_routine;
-    draw_routine->magic = zest_INIT_MAGIC;
-    draw_routine->recorder = zest_CreateSecondaryRecorder();
-	draw_routine->last_fif = -1;
-	draw_routine->fif = ZEST_FIF;
-
     zest_layer layer = zest__create_instance_layer(name, builder->type_size, builder->initial_count);
-	draw_routine->draw_data = layer;
-	draw_routine->record_callback = zest_RecordInstanceLayerCallback;
-	draw_routine->condition_callback = zest_LayerHasInstructionsCallback;
-	draw_routine->update_buffers_callback = zest__update_instance_layer_buffers_callback;
-    draw_routine->clean_up_callback = builder->clean_up_callback;
-    draw_routine->update_resolution_callback = builder->update_resolution_callback;
-    draw_routine->name = name;
-    draw_routine->command_queue = ZestRenderer->setup_context.command_queue;
-
-    zest_map_insert(ZestRenderer->draw_routines, name, draw_routine);
-    ZestRenderer->setup_context.draw_routine = draw_routine;
 
     return layer;
 }
@@ -16272,24 +14088,6 @@ void zest_GrowMeshIndexBuffers(zest_layer layer) {
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_index_data, sizeof(zest_uint), memory_in_use);
 }
 
-void zest_UploadMeshBuffersCallback(zest_draw_routine draw_routine, VkCommandBuffer command_buffer) {
-    zest_layer layer = (zest_layer)draw_routine->draw_data;
-    zest__end_mesh_instructions(layer);
-
-    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_device_local_direct)) {
-        zest_buffer staging_vertex = layer->memory_refs[layer->fif].staging_vertex_data;
-        zest_buffer staging_index = layer->memory_refs[layer->fif].staging_index_data;
-
-        if (staging_vertex->memory_in_use && staging_index->memory_in_use) {
-            //zest_AddCopyCommand(&layer->vertex_upload, staging_vertex, device_vertex, device_vertex->buffer_offset);
-            //zest_AddCopyCommand(&layer->index_upload, staging_index, device_index, device_index->buffer_offset);
-        }
-
-        zest_UploadBuffer(&layer->vertex_upload, command_buffer);
-        zest_UploadBuffer(&layer->index_upload, command_buffer);
-    }
-}
-
 void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     zest_textured_vertex_t vertex = { 0 };
@@ -16816,7 +14614,6 @@ zest_compute zest__create_compute(const char* name) {
     compute->group_count_x = 1;
     compute->group_count_y = 1;
     compute->group_count_z = 1;
-    compute->render_target = 0;
     compute->extra_cleanup_callback = ZEST_NULL;
     compute->push_constants.parameters.x = 0.f;
     compute->push_constants.parameters.y = 0.f;
@@ -16952,12 +14749,6 @@ zest_compute zest_FinishCompute(zest_compute_builder_t *builder, const char *nam
         vkDestroyShaderModule(ZestDevice->logical_device, shader_module, &ZestDevice->allocation_callbacks);
     }
 
-    if (ZEST__FLAGGED(compute->flags, zest_compute_flag_primary_recorder)) {
-        compute->recorder = zest_CreatePrimaryRecorderWithPool(ZestDevice->compute_queue_family_index);
-    } else {
-        compute->recorder = zest_CreateSecondaryRecorder();
-    }
-
     // Fence for compute CB sync
     VkFenceCreateInfo fence_create_info = { 0 };
     fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -17003,18 +14794,14 @@ void zest_RunCompute(zest_compute compute) {
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-        ZEST_VK_CHECK_RESULT(vkBeginCommandBuffer(compute->recorder->command_buffer[ZEST_FIF], &begin_info));
+        ZEST_ASSERT(0); //Need to re-do this.. or not...
         ZEST_ASSERT(compute->command_buffer_update_callback);        //You must set a call back for command_buffer_update_callback so that you can build the command buffer for the compute shader
-        //if you're going to run the compute shader via this function. See zest_SetComputeCommandBufferUpdateCallback when building your
-        //compute shader
-        compute->command_buffer_update_callback(compute, compute->recorder->command_buffer[ZEST_FIF]);
-        vkEndCommandBuffer(compute->recorder->command_buffer[ZEST_FIF]);
     }
 
     VkSubmitInfo compute_submit_info = { 0 };
     compute_submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     compute_submit_info.commandBufferCount = 1;
-    compute_submit_info.pCommandBuffers = &compute->recorder->command_buffer[ZEST_FIF];
+    //compute_submit_info.pCommandBuffers = &compute->recorder->command_buffer[ZEST_FIF];
 
     //Make sure you're ending the command buffer at the end of your command_buffer_update_callback before calling this. Use vkEndCommandBuffer
     ZEST_VK_CHECK_RESULT(vkQueueSubmit(compute->queue, 1, &compute_submit_info, compute->fence[ZEST_FIF]));
@@ -17023,13 +14810,6 @@ void zest_RunCompute(zest_compute compute) {
 void zest_WaitForCompute(zest_compute compute) {
     ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
     vkWaitForFences(ZestDevice->logical_device, 1, &compute->fence[ZEST_FIF], VK_TRUE, UINT64_MAX);
-}
-
-void zest_ComputeAttachRenderTarget(zest_compute compute, zest_render_target render_target) {
-    ZEST_CHECK_HANDLE(compute);	//Not a valid handle!
-    ZEST_CHECK_HANDLE(render_target);	//Not a valid handle!
-    compute->render_target = render_target;
-    ZEST__FLAG(compute->flags, zest_compute_flag_has_render_target);
 }
 
 void zest_UpdateComputeDescriptors(zest_compute compute, zest_uint fif) {
@@ -17048,7 +14828,6 @@ void zest__clean_up_compute(zest_compute compute) {
     }
 	vkDestroyPipeline(ZestDevice->logical_device, compute->pipeline, &ZestDevice->allocation_callbacks);
     vkDestroyPipelineLayout(ZestDevice->logical_device, compute->pipeline_layout, &ZestDevice->allocation_callbacks);
-    vkDestroyCommandPool(ZestDevice->logical_device, compute->recorder->command_pool, &ZestDevice->allocation_callbacks);
     if (ZEST__FLAGGED(compute->flags, zest_compute_flag_sync_required)) {
         for (ZEST_EACH_FIF_i) {
             if (compute->fif_outgoing_semaphore[i])
@@ -17063,77 +14842,6 @@ void zest__clean_up_compute(zest_compute compute) {
 //--End Compute shaders
 
 //-- Start debug helpers
-const char* zest_DrawFunctionToString(void* function) {
-    if (function == zest_RenderDrawRoutinesCallback) {
-        return "zest_RenderDrawRoutinesCallback";
-    }
-    else if (function == zest__render_blank) {
-        return "zest__render_blank";
-    }
-    else if (function == zest_DrawToRenderTargetCallback) {
-        return "zest_DrawToRenderTargetCallback";
-    }
-    else if (function == zest_DrawRenderTargetsToSwapchain) {
-        return "zest_DrawRenderTargetsToSwapchain";
-    }
-    else {
-        return "Custom draw function";
-    }
-}
-
-void zest_OutputQueues() {
-    for (zest_map_foreach_i(ZestRenderer->command_queues)) {
-        zest_index draw_order = 1;
-        zest_command_queue command_queue = *zest_map_at_index(ZestRenderer->command_queues, i);
-        printf("Command Queue: %s\n", command_queue->name);
-        if (!zest_vec_empty(command_queue->draw_commands)) {
-            printf("\tDraw Commands\n");
-            for (zest_foreach_j(command_queue->draw_commands)) {
-                zest_command_queue_draw_commands draw_commands = command_queue->draw_commands[j];
-                printf("\t%i) %s\n", draw_order++, draw_commands->name);
-                if (!zest_vec_empty(draw_commands->draw_routines)) {
-                    for (zest_foreach_k(draw_commands->draw_routines)) {
-                        zest_draw_routine draw_routine = draw_commands->draw_routines[k];
-                        printf("\t\t-Draw Routine: %s\n", draw_routine->name);
-                    }
-                }
-                else {
-                    printf("\t\t(No draw routines)\n");
-                }
-                if (draw_commands->render_target != ZEST_NULL && zest_vec_empty(draw_commands->render_targets)) {
-                    zest_render_target render_target = draw_commands->render_target;
-                    printf("\t\t-Render target: %s\n", render_target->name);
-                    if (render_target->post_process_record_callback) {
-                        printf("\t\t\t-Has custom draw commands to render target\n");
-                    }
-                }
-                if (draw_commands->render_pass_function) {
-                    printf("\t\t-Draw function: %s\n", zest_DrawFunctionToString(draw_commands->render_pass_function));
-                }
-                if (!zest_vec_empty(draw_commands->render_targets)) {
-                    for (zest_foreach_k(draw_commands->render_targets)) {
-                        zest_render_target render_target = draw_commands->render_targets[k];
-                        printf("\t\t-Render Target: %s\n", render_target->name);
-                    }
-                }
-            }
-        }
-        else {
-            printf("\t(No draw commands in queue)\n");
-        }
-        if (!zest_vec_empty(command_queue->compute_commands)) {
-            for (zest_foreach_j(command_queue->compute_commands)) {
-            }
-        }
-        else {
-            printf("\t(No compute commands in queue)\n");
-        }
-        printf("\n");
-        printf("\t\t\t\t-- * --\n");
-        printf("\n");
-    }
-}
-
 void zest_OutputMemoryUsage() {
     printf("Host Memory Pools\n");
     zest_size total_host_memory = 0;

@@ -115,8 +115,7 @@ void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_buf
                 if (!current_image) {
                     //This means we're trying to draw a render target
                     assert(pcmd->UserCallbackData);
-                    zest_render_target render_target = static_cast<zest_render_target>(pcmd->UserCallbackData);
-                    current_image = zest_GetRenderTargetImage(render_target);
+                    ZEST_ASSERT(0); //Needs reimplementing
                 }
 
                 zest_push_constants_t *push_constants = &imgui_info->push_constants;
@@ -252,14 +251,6 @@ void zest_imgui_UpdateBuffers() {
     }
 }
 
-int zest_imgui_RecordCondition(zest_draw_routine draw_routine) {
-    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
-    if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
-        return 1;
-    }
-    return 0;
-}
-
 void zest_imgui_DrawImage(zest_image image, VkDescriptorSet set, float width, float height) {
     using namespace ImGui;
 
@@ -300,42 +291,6 @@ void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bo
     }
 
     ImGui::Image((ImTextureID)image, ImVec2(width, height), ImVec2(uv.x, uv.y), zw);
-}
-
-void zest_imgui_DrawTexturedRectRT(zest_render_target render_target, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y) {
-    zest_vec4 uv = { 0.f, 0.f, 1.f, 1.f };
-    ImVec2 zw(1.f, 1.f);
-    if (tile) {
-        if (offset_x || offset_y) {
-            offset_x = offset_x / float(render_target->viewport.extent.width);
-            offset_y = offset_y / float(render_target->viewport.extent.height);
-            offset_x *= scale_x;
-            offset_y *= scale_y;
-        }
-        scale_x *= width / float(render_target->viewport.extent.width);
-        scale_y *= height / float(render_target->viewport.extent.height);
-        zw.x = (uv.z * scale_x) - offset_x;
-        zw.y = (uv.w * scale_y) - offset_y;
-        uv.x -= offset_x;
-        uv.y -= offset_y;
-    }
-    ImGuiWindow *window = ImGui::GetCurrentWindow();
-    if (window->SkipItems)
-        return;
-
-    window->DrawList->PushTextureID(0);
-    ImRect bb(window->DC.CursorPos, window->DC.CursorPos + ImVec2(width, height));
-    ImGui::ItemSize(bb);
-    if (!ImGui::ItemAdd(bb, 0))
-        return;
-
-    window->DrawList->PrimReserve(6, 4);
-    window->DrawList->PrimRectUV(bb.Min, bb.Max, ImVec2(uv.x, uv.y), zw, IM_COL32_WHITE);
-    IM_ASSERT_PARANOID(window->DrawList->CmdBuffer.Size > 0);
-    ImDrawCmd *curr_cmd = &window->DrawList->CmdBuffer.Data[window->DrawList->CmdBuffer.Size - 1];
-    curr_cmd->UserCallbackData = render_target;
-
-    window->DrawList->PopTextureID();
 }
 
 bool zest_imgui_DrawButton(zest_image image, const char *user_texture_id, float width, float height, int frame_padding) {
