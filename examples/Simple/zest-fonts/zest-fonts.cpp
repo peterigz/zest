@@ -28,11 +28,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawMSDFText(example->font_layer, "(This should be centered)", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 50.f, 0.f);
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen("Fonts Example Render Graph")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Fonts Example Render Graph")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
 
@@ -50,7 +49,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
 		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture);
 		//outputs
-		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(graphics_pass, clear_color);
 		//tasks
 		zest_SetPassTask(graphics_pass, zest_DrawFonts, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
