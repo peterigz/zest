@@ -1505,7 +1505,7 @@ typedef struct zest_timer_t zest_timer_t;
 typedef struct zest_window_t zest_window_t;
 typedef struct zest_shader_t zest_shader_t;
 typedef struct zest_debug_t zest_debug_t;
-
+typedef struct zest_render_graph_semaphores_t zest_render_graph_semaphores_t;
 typedef struct zest_render_graph_t zest_render_graph_t;
 typedef struct zest_pass_node_t zest_pass_node_t;
 typedef struct zest_resource_node_t zest_resource_node_t;
@@ -1537,6 +1537,7 @@ ZEST__MAKE_HANDLE(zest_shader)
 ZEST__MAKE_HANDLE(zest_imgui)
 ZEST__MAKE_HANDLE(zest_queue)
 ZEST__MAKE_HANDLE(zest_execution_timeline)
+ZEST__MAKE_HANDLE(zest_render_graph_semaphores)
 
 ZEST__MAKE_HANDLE(zest_render_graph)
 ZEST__MAKE_HANDLE(zest_pass_node)
@@ -2770,14 +2771,14 @@ typedef struct zest_resource_versions_t {
     zest_resource_node *resources;
 }zest_resource_versions_t;
 
-zest_hash_map(zest_pass_group_t) zest_map_passes;
-zest_hash_map(zest_resource_versions_t) zest_map_resource_versions;
-
 static const VkPipelineStageFlags zest__queue_semaphore_wait_stages[ZEST_QUEUE_COUNT] = {
 	VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
 	VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 	VK_PIPELINE_STAGE_TRANSFER_BIT
 };
+
+zest_hash_map(zest_pass_group_t) zest_map_passes;
+zest_hash_map(zest_resource_versions_t) zest_map_resource_versions;
 
 typedef struct zest_render_graph_t {
     int magic;
@@ -2791,6 +2792,7 @@ typedef struct zest_render_graph_t {
 
     zest_execution_timeline *wait_on_timelines;
     zest_execution_timeline *signal_timelines;
+    zest_render_graph_semaphores semaphores;
 
     zest_execution_wave_t *execution_waves;            // Execution order after compilation
 
@@ -3519,6 +3521,12 @@ typedef struct zest_report_t {
     int count;
 } zest_report_t;
 
+typedef struct zest_render_graph_semaphores_t {
+    VkSemaphore vk_semaphores[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
+    zest_size values[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
+} zest_render_graph_semaphores_t;
+
+zest_hash_map(zest_render_graph_semaphores) zest_map_rg_semaphores;
 zest_hash_map(VkRenderPass) zest_map_render_passes;
 zest_hash_map(zest_set_layout) zest_map_descriptor_layouts;
 zest_hash_map(zest_pipeline_template) zest_map_pipelines;
@@ -3554,9 +3562,6 @@ typedef struct zest_renderer_t {
 
     VkSemaphore *semaphore_pool;
     VkSemaphore *free_semaphores;
-
-    VkSemaphore render_graph_timeline_semaphores[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
-    zest_size render_graph_timeline_values[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
 
     zest_execution_timeline *timeline_semaphores;
 
@@ -3615,6 +3620,7 @@ typedef struct zest_renderer_t {
     zest_map_computes computes;
     zest_map_shaders shaders;
     zest_map_samplers samplers;
+    zest_map_rg_semaphores render_graph_semaphores;
 
     //For scheduled tasks
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
@@ -3734,6 +3740,7 @@ ZEST_PRIVATE zest_buffer_t *zest__create_depth_resources(void);
 ZEST_PRIVATE void zest__create_swap_chain_frame_buffers(zest_bool depth_buffer);
 ZEST_PRIVATE void zest__create_sync_objects(void);
 ZEST_PRIVATE void zest__create_command_buffer_pools(void);
+ZEST_PRIVATE zest_render_graph_semaphores zest__get_render_graph_semaphores(const char *name);
 ZEST_PRIVATE VkSemaphore zest__acquire_semaphore(void);
 ZEST_PRIVATE VkCommandBuffer zest__acquire_graphics_command_buffer(VkCommandBufferLevel level);
 ZEST_PRIVATE VkCommandBuffer zest__acquire_compute_command_buffer(VkCommandBufferLevel level);
@@ -3752,7 +3759,6 @@ ZEST_PRIVATE void zest__rebuild_pipeline(zest_pipeline pipeline);
 ZEST_PRIVATE void zest__present_frame(void);
 ZEST_PRIVATE void zest__dummy_submit_fence_only(void);
 ZEST_PRIVATE void zest__dummy_submit_for_present_only(void);
-ZEST_PRIVATE void zest__draw_renderer_frame(void);
 // --End Renderer functions
 
 // --Draw_layer_internal_functions

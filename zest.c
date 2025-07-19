@@ -2365,8 +2365,6 @@ void zest__main_loop(void) {
 
         ZestApp->update_callback(ZestApp->current_elapsed, ZestApp->user_data);
 
-        //zest__draw_renderer_frame();
-
         //Cover some cases where a render graph wasn't created or it was but there was nothing render etc., to make sure
         //that the fence is always signalled and another frame can happen
         if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired) && ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used)) {
@@ -3710,9 +3708,12 @@ void zest__cleanup_renderer() {
         vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->timeline_semaphores[i]->semaphore, &ZestDevice->allocation_callbacks);
     }
 
-    zest_ForEachFrameInFlight(fif) {
-        for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
-			vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->render_graph_timeline_semaphores[fif][queue_index], &ZestDevice->allocation_callbacks);
+    zest_map_foreach(i, ZestRenderer->render_graph_semaphores) {
+        zest_render_graph_semaphores semaphores = ZestRenderer->render_graph_semaphores.data[i];
+        zest_ForEachFrameInFlight(fif) {
+            for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
+                vkDestroySemaphore(ZestDevice->logical_device, semaphores->vk_semaphores[fif][queue_index], &ZestDevice->allocation_callbacks);
+            }
         }
     }
 
@@ -3913,21 +3914,34 @@ void zest__create_sync_objects() {
         zest_vec_push(ZestRenderer->semaphore_pool, semaphore);
         zest_vec_push(ZestRenderer->free_semaphores, semaphore);
     }
+}
 
-    VkSemaphoreTypeCreateInfo timeline_create_info = { 0 };
-    timeline_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-    timeline_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    timeline_create_info.initialValue = 0;
-    semaphore_info.pNext = &timeline_create_info;
+zest_render_graph_semaphores zest__get_render_graph_semaphores(const char *name) {
+    if (!zest_map_valid_name(ZestRenderer->render_graph_semaphores, name)) {
 
-    zest_ForEachFrameInFlight(fif) {
-        for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
-			VkSemaphore semaphore;
-			vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &semaphore);
-            ZestRenderer->render_graph_timeline_semaphores[fif][queue_index] = semaphore;
+        VkSemaphoreCreateInfo semaphore_info = { 0 };
+        semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        VkSemaphoreTypeCreateInfo timeline_create_info = { 0 };
+        timeline_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+        timeline_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+        timeline_create_info.initialValue = 0;
+        semaphore_info.pNext = &timeline_create_info;
+
+        zest_render_graph_semaphores semaphores = ZEST__NEW(zest_render_graph_semaphores);
+        *semaphores = (zest_render_graph_semaphores_t){ 0 };
+
+        zest_ForEachFrameInFlight(fif) {
+            for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
+                VkSemaphore semaphore;
+                vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &semaphore);
+                semaphores->vk_semaphores[fif][queue_index] = semaphore;
+            }
         }
-    }
 
+        zest_map_insert(ZestRenderer->render_graph_semaphores, name, semaphores);
+        return semaphores;
+    }
+	return *zest_map_at(ZestRenderer->render_graph_semaphores, name);
 }
 
 void zest__create_command_buffer_pools() {
@@ -7526,6 +7540,8 @@ bool zest_BeginRenderGraph(const char *name) {
 
     zest_render_graph render_graph = zest__new_render_graph(name);
 
+    render_graph->semaphores = zest__get_render_graph_semaphores(name);
+
 	ZEST__UNFLAG(render_graph->flags, zest_render_graph_expecting_swap_chain_usage);
 	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
     ZestRenderer->current_render_graph = render_graph;
@@ -8567,8 +8583,8 @@ void zest__execute_render_graph() {
             default:
                 ZEST_ASSERT(0); //Unknown queue type for batch. Corrupt memory perhaps?!
             }
-			VkSemaphore batch_semaphore = ZestRenderer->render_graph_timeline_semaphores[ZEST_FIF][queue_index];
-			zest_size *batch_value = &ZestRenderer->render_graph_timeline_values[ZEST_FIF][queue_index];
+			VkSemaphore batch_semaphore = render_graph->semaphores->vk_semaphores[ZEST_FIF][queue_index];
+			zest_size *batch_value = &render_graph->semaphores->values[ZEST_FIF][queue_index];
 
             VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
             begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -8875,8 +8891,8 @@ void zest__execute_render_graph() {
         zest_vec_clear(wave_wait_values);
         for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
             if (wave_submission->batches[queue_index].magic) {
-                zest_vec_linear_push(allocator, wave_wait_semaphores, ZestRenderer->render_graph_timeline_semaphores[ZEST_FIF][queue_index]);
-                zest_vec_linear_push(allocator, wave_wait_values, ZestRenderer->render_graph_timeline_values[ZEST_FIF][queue_index]);
+                zest_vec_linear_push(allocator, wave_wait_semaphores, render_graph->semaphores->vk_semaphores[ZEST_FIF][queue_index]);
+                zest_vec_linear_push(allocator, wave_wait_values, render_graph->semaphores->values[ZEST_FIF][queue_index]);
             }
 		}
     }   //Wave 

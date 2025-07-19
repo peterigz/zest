@@ -3,7 +3,6 @@
 typedef struct zest_example {
 	zest_font font;
 	zest_layer font_layer;
-	zest_draw_routine draw_routine;
 } zest_example;
 
 void InitExample(zest_example *example) {
@@ -49,7 +48,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//inputes
 		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
-		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture);
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//tasks
@@ -63,8 +62,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	create_info.log_path = "./";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

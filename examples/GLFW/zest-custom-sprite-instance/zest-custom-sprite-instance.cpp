@@ -163,7 +163,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//Inputs
 		zest_ConnectVertexBufferInput(graphics_pass, billboard_layer);
-		zest_ConnectSampledImageInput(graphics_pass, texture, zest_pipeline_fragment_stage);
+		zest_ConnectSampledImageInput(graphics_pass, texture);
 		//Outputs
 		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
 		//Tasks
@@ -184,8 +184,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
