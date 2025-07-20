@@ -38,6 +38,25 @@ void zest_implsdl2_CreateWindowSurfaceCallback(zest_window_t* window) {
 	}
 }
 
+void zest_implsdl2_SetWindowMode(zest_window_t *window, zest_window_mode mode) {
+	SDL_Window *handle = (SDL_Window *)window->window_handle;
+	switch (mode) {
+	case zest_window_mode_fullscreen:
+		SDL_SetWindowFullscreen(handle, SDL_WINDOW_FULLSCREEN_DESKTOP);
+		break;
+	case zest_window_mode_bordered:
+		SDL_SetWindowFullscreen(handle, 0);
+		SDL_SetWindowBordered(handle, SDL_TRUE);
+		break;
+	case zest_window_mode_borderless:
+		SDL_SetWindowFullscreen(handle, 0);
+		SDL_SetWindowBordered(handle, SDL_FALSE);
+		break;
+	}
+	window->mode = mode;
+}
+
+
 void zest_implsdl2_PollEventsCallback(void) {
 	int mouse_x, mouse_y;
 	SDL_GetMouseState(&mouse_x, &mouse_y);
@@ -77,4 +96,5 @@ void zest_implsdl2_SetCallbacks(zest_create_info_t *create_info) {
 	create_info->get_window_size_callback = zest_implsdl2_GetWindowSizeCallback;
 	create_info->destroy_window_callback = zest_implsdl2_DestroyWindowCallback;
 	create_info->create_window_surface_callback = zest_implsdl2_CreateWindowSurfaceCallback;
+	create_info->set_window_mode_callback = zest_implsdl2_SetWindowMode;
 }
