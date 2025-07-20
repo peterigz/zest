@@ -37,7 +37,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	while (SDL_PollEvent(&event)) {
 		ImGui_ImplSDL2_ProcessEvent(&event);
 		zest_MaybeQuit(event.type == SDL_QUIT);
-		zest_MaybeQuit(event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID((SDL_Window*)ZestApp->window->window_handle));
+		zest_MaybeQuit(event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID((SDL_Window*)ZestApp->current_window->window_handle));
 	}
 	//Don't forget to update the uniform buffer!
 	zest_Update2dUniformBuffer();

@@ -1146,6 +1146,13 @@ typedef enum zest_app_flag_bits {
     zest_app_flag_output_fps =               1 << 7
 } zest_app_flag_bits;
 
+typedef enum zest_window_mode {
+    zest_window_mode_bordered,
+    zest_window_mode_borderless,
+    zest_window_mode_fullscreen,
+    zest_window_mode_fullscreen_borderless,
+}zest_window_mode;
+
 typedef zest_uint zest_app_flags;
 
 enum zest__constants {
@@ -1189,6 +1196,14 @@ typedef enum zest_renderer_flag_bits {
 } zest_renderer_flag_bits;
 
 typedef zest_uint zest_renderer_flags;
+
+typedef enum zest_swapchain_flag_bits {
+    zest_swapchain_flag_none             = 0,
+    zest_swapchain_flag_has_depth_buffer = 1 << 0,
+    zest_swapchain_flag_has_msaa         = 1 << 1,
+}zest_swapchain_flag_bits;
+
+typedef zest_swapchain_flag_bits zest_swapchain_flags;
 
 typedef enum zest_pipeline_set_flag_bits {
     zest_pipeline_set_flag_none                                   = 0,
@@ -2366,13 +2381,36 @@ typedef struct zest_swapchain_support_details_t {
 
 typedef struct zest_swapchain_t {
     int magic;
+    zest_window window;
     const char *name;
-    VkImage *swapchain_images;
-    VkImageView *swapchain_image_views;
-    VkFramebuffer *swapchain_frame_buffers;
-    zest_buffer_t *depth_resource_buffer;
-    zest_vec2 screen_resolution_push;
+
     VkSwapchainKHR vk_swapchain;
+    VkFormat vk_format;
+    VkExtent2D vk_extent;
+
+    VkImage *vk_images;
+    VkImageView *vk_image_views;
+    VkFramebuffer *vk_frame_buffers;
+
+    zest_buffer depth_resource_buffer;
+    VkImageView vk_depth_image_view;
+    VkImage vk_depth_image;
+    zest_vec2 screen_resolution_push;
+
+    //MSAA resources
+    zest_bool has_msaa;
+	VkSampleCountFlagBits msaa_samples;
+	VkImage color_image;
+	VkImageView color_image_view;
+	zest_buffer color_image_memory;
+
+    //Syncronization
+    VkSemaphore *vk_render_finished_semaphore;
+    VkSemaphore vk_image_available_semaphore[ZEST_MAX_FIF];
+    zest_uint current_image_frame;
+    zest_uint image_count;
+
+    zest_swapchain_flags flags;
 } zest_swapchain_t;
 
 typedef struct zest_window_t {
@@ -2383,6 +2421,7 @@ typedef struct zest_window_t {
     zest_uint window_width;
     zest_uint window_height;
     zest_bool framebuffer_resized;
+    zest_window_mode mode;
 } zest_window_t;
 
 zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
@@ -2421,6 +2460,7 @@ typedef struct zest_create_info_t {
     void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
     zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
     void(*create_window_surface_callback)(zest_window window);
+    void(*set_window_mode_callback)(zest_window window, zest_window_mode mode);
 } zest_create_info_t;
 
 zest_hash_map(zest_queue) zest_map_queue_value;
@@ -2480,13 +2520,16 @@ typedef struct zest_device_t {
     zest_create_info_t setup_info;
 } zest_device_t;
 
+zest_hash_map(zest_window) zest_map_windows;
+
 typedef struct zest_app_t {
     zest_create_info_t create_info;
 
     void(*update_callback)(zest_microsecs, void*);
     void *user_data;
 
-    zest_window window;
+    zest_map_windows windows;
+    zest_window current_window;
 
     zest_microsecs current_elapsed;
     zest_microsecs current_elapsed_time;
@@ -2810,6 +2853,7 @@ typedef struct zest_render_graph_t {
     zest_execution_wave_t *execution_waves;            // Execution order after compilation
 
     zest_resource_node swapchain_resource; // Handle to the current swapchain image resource
+    zest_swapchain swapchain; // Handle to the current swapchain image resource
     VkImage current_swapchain_image;
     VkImageView current_swapchain_image_view;
     zest_uint current_swapchain_image_index;
@@ -3573,8 +3617,6 @@ typedef struct zest_command_buffer_pools_t {
 } zest_command_buffer_pools_t;
 
 typedef struct zest_renderer_t {
-    VkSemaphore *render_finished_semaphore;
-    VkSemaphore image_available_semaphore[ZEST_MAX_FIF];
     VkFence fif_fence[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
     zest_uint fence_count[ZEST_MAX_FIF];
 
@@ -3587,9 +3629,6 @@ typedef struct zest_renderer_t {
 
     zest_command_buffer_pools_t command_buffers;
     
-    zest_uint swapchain_image_count;
-    VkFormat swapchain_image_format;
-    VkExtent2D swapchain_extent;
     VkExtent2D window_extent;
     float dpi_scale;
 
@@ -3599,8 +3638,6 @@ typedef struct zest_renderer_t {
     zest_descriptor_set global_set;
 
     VkRenderPass final_render_pass;
-    zest_image_buffer_t final_render_pass_depth_attachment;
-    VkDescriptorBufferInfo view_buffer_info[ZEST_MAX_FIF];
 
     VkPipelineCache pipeline_cache;
 
@@ -3643,7 +3680,6 @@ typedef struct zest_renderer_t {
     zest_texture *texture_cleanup_queue;
     zest_pipeline *pipeline_recreate_queue;
     zest_pipeline_handles_t *pipeline_destroy_queue;
-    zest_uint current_image_frame;
     zest_destruction_queue_t deferred_resource_freeing_list;
 	VkFramebuffer *old_frame_buffers[ZEST_MAX_FIF];             //For clearing up frame buffers from previous frames that aren't needed anymore
     VkSemaphore *used_semaphores[ZEST_MAX_FIF];                 //For returning to the semaphore pool after a render graph is finished with them from the previous frame
@@ -3675,6 +3711,7 @@ typedef struct zest_renderer_t {
     void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
     zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
     void(*create_window_surface_callback)(zest_window window);
+    void(*set_window_mode_callback)(zest_window window, zest_window_mode mode);
 
 	//Related to implementations
 
@@ -3707,6 +3744,7 @@ ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_
 //See definitions at the top of zest.c
 ZEST_PRIVATE zest_window zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
 ZEST_PRIVATE void zest__os_create_window_surface(zest_window window);
+ZEST_PRIVATE void zest__os_set_window_mode(zest_window window, zest_window_mode mode);
 ZEST_PRIVATE void zest__os_poll_events(ZEST_PROTOTYPE);
 ZEST_PRIVATE void zest__os_add_platform_extensions(ZEST_PROTOTYPE);
 ZEST_PRIVATE void zest__os_set_window_title(const char *title);
@@ -3736,7 +3774,7 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators();
 //Renderer_functions
 ZEST_PRIVATE void zest__initialise_renderer(zest_create_info_t *create_info);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(const char *name);
-ZEST_PRIVATE void zest__initialise_swapchain(zest_swapchain swapchain);
+ZEST_PRIVATE void zest__initialise_swapchain(zest_swapchain swapchain, zest_window window);
 ZEST_PRIVATE VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *availableFormats);
 ZEST_PRIVATE VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_modes, zest_bool use_vsync);
 ZEST_PRIVATE VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
@@ -3751,12 +3789,9 @@ ZEST_PRIVATE void zest__recreate_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__create_swapchain_image_views(zest_swapchain swapchain);
 ZEST_PRIVATE VkRenderPass zest__get_render_pass_with_info(zest_render_pass_info_t info);
 ZEST_PRIVATE VkRenderPass zest__get_render_pass(VkFormat render_format, VkImageLayout initial_layout, VkImageLayout final_layout, VkAttachmentLoadOp load_op, zest_bool depth_buffer);
-ZEST_PRIVATE zest_buffer_t *zest__create_depth_resources();
-ZEST_PRIVATE void zest__create_swap_chain_frame_buffers(zest_swapchain swapchain, zest_bool depth_buffer);
-ZEST_PRIVATE void zest__create_sync_objects(void);
+ZEST_PRIVATE void zest__initialise_swapchain_depth_resources(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__create_command_buffer_pools(void);
 ZEST_PRIVATE zest_render_graph_semaphores zest__get_render_graph_semaphores(const char *name);
-ZEST_PRIVATE VkSemaphore zest__acquire_semaphore(void);
 ZEST_PRIVATE VkCommandBuffer zest__acquire_graphics_command_buffer(VkCommandBufferLevel level);
 ZEST_PRIVATE VkCommandBuffer zest__acquire_compute_command_buffer(VkCommandBufferLevel level);
 ZEST_PRIVATE VkCommandBuffer zest__acquire_transfer_command_buffer(VkCommandBufferLevel level);
@@ -4081,7 +4116,7 @@ ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float hei
 //Create a VkRect2D, generally used when building a render pass.
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 //Set a screen sized viewport and scissor command in the render pass
-ZEST_API void zest_SetScreenSizedViewport(VkCommandBuffer command_buffer, float min_depth, float max_depth);
+ZEST_API void zest_SetScreenSizedViewport(zest_render_graph_context_t *context, float min_depth, float max_depth);
 //Create a scissor and view port command. Must be called within a command buffer
 ZEST_API void zest_Clip(VkCommandBuffer command_buffer, float x, float y, float width, float height, float minDepth, float maxDepth);
 //Create a new shader handle
@@ -4231,6 +4266,7 @@ ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void 
 ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height));
 ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
 ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
+ZEST_API void zest_SetPlatformWindowModeCallback(void(*set_window_mode_callback)(zest_window window, zest_window_mode mode));
 
 //-----------------------------------------------
 //        Buffer_functions.
@@ -5171,6 +5207,11 @@ ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer timer);                    
 	} \
 	zest_TimerSet(timer);
 //--End Timer Functions
+
+//-----------------------------------------------
+//        Window_functions
+//-----------------------------------------------
+ZEST_API void zest_SetWindowMode(zest_window window, zest_window_mode mode);
 
 //-----------------------------------------------
 //        General_Helper_functions
