@@ -191,7 +191,6 @@ extern "C" {
 
 #define ZEST_NULL 0
 //For each frame in flight macro
-#define ZEST_EACH_FIF_i unsigned int i = 0; i != ZEST_MAX_FIF; ++i
 #define zest_ForEachFrameInFlight(index) for(unsigned int index = 0; index != ZEST_MAX_FIF; ++index)
 
 //For error checking vulkan commands
@@ -1608,9 +1607,6 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_erase_range(T, it, it_last) { ZEST_ASSERT(T && it >= T && it < zest_vec_end(T)); const ptrdiff_t count = it_last - it; const ptrdiff_t off = it - T; memmove(T + off, T + off + count, ((size_t)zest_vec_size(T) - (size_t)off - count) * sizeof(*T)); zest_vec_trim(T, (zest_uint)count); }
 #define zest_vec_set(T, index, value) ZEST_ASSERT((zest_uint)index < zest__vec_header(T)->current_size); T[index] = value;
 #define zest_vec_foreach(index, T) for(int index = 0; index != zest_vec_size(T); ++index)
-#define zest_foreach_i(T) int i = 0; i != zest_vec_size(T); ++i
-#define zest_foreach_j(T) int j = 0; j != zest_vec_size(T); ++j
-#define zest_foreach_k(T) int k = 0; k != zest_vec_size(T); ++k
 // --end of pocket dynamic array
 
 // --Pocket_Hasher, converted to c from Stephen Brumme's XXHash code (https://github.com/stbrumme/xxhash) by Peter Rigby
@@ -1749,7 +1745,7 @@ typedef struct {
 #define ZEST_HASH_SEED 0xABCDEF99
 #endif
 ZEST_PRIVATE zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key) { zest_hash_pair *first = map; zest_hash_pair *last = map ? zest_vec_end(map) : 0; size_t count = (size_t)(last - first); while (count > 0) { size_t count2 = count >> 1; zest_hash_pair* mid = first + count2; if (mid->key < key) { first = ++mid; count -= count2 + 1; } else { count = count2; } } return first; }
-ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { for (zest_foreach_i(map)) { if (map[i].index < index) continue; map[i].index--; } }
+ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { zest_vec_foreach(i, map) { if (map[i].index < index) continue; map[i].index--; } }
 ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
 #define zest_map_hash(hash_map, name) zest_Hash(name, strlen(name), ZEST_HASH_SEED)
 #define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ptr, size, ZEST_HASH_SEED)
@@ -1778,8 +1774,6 @@ ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) {
 //Use inside a for loop to iterate over the map. The loop index should be be the index into the map array, to get the index into the data array.
 #define zest_map_index(hash_map, i) (hash_map.map[i].index)
 #define zest_map_foreach(index, hash_map) zest_vec_foreach(index, hash_map.map)
-#define zest_map_foreach_i(hash_map) zest_foreach_i(hash_map.map)
-#define zest_map_foreach_j(hash_map) zest_foreach_j(hash_map.map)
 // --End pocket hash map
 
 // --Begin Pocket_text_buffer
@@ -4119,7 +4113,7 @@ ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float hei
 //Create a VkRect2D, generally used when building a render pass.
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 //Set a screen sized viewport and scissor command in the render pass
-ZEST_API void zest_SetScreenSizedViewport(zest_render_graph_context_t *context, float min_depth, float max_depth);
+ZEST_API void zest_SetScreenSizedViewport(const zest_render_graph_context_t *context, float min_depth, float max_depth);
 //Create a scissor and view port command. Must be called within a command buffer
 ZEST_API void zest_Clip(VkCommandBuffer command_buffer, float x, float y, float width, float height, float minDepth, float maxDepth);
 //Create a new shader handle

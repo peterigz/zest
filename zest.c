@@ -1595,7 +1595,7 @@ zest_bool zest__create_instance() {
 
     vkEnumerateInstanceExtensionProperties(ZEST_NULL, &extension_property_count, available_extensions);
 
-    for (zest_foreach_i(ZestDevice->extensions)) {
+    zest_vec_foreach(i, ZestDevice->extensions) {
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Extension: %s\n", ZestDevice->extensions[i]);
     }
 
@@ -2401,7 +2401,7 @@ void zest__do_scheduled_tasks(void) {
     zest_vec_clear(ZestRenderer->used_transfer_command_buffers[ZEST_FIF]);
 
     if (zest_vec_size(ZestRenderer->pipeline_destroy_queue)) {
-        for (zest_foreach_i(ZestRenderer->pipeline_destroy_queue)) {
+        zest_vec_foreach(i, ZestRenderer->pipeline_destroy_queue) {
             zest_pipeline_handles_t handles = ZestRenderer->pipeline_destroy_queue[i];
 			vkDestroyPipeline(ZestDevice->logical_device, handles.pipeline, &ZestDevice->allocation_callbacks);
 			vkDestroyPipelineLayout(ZestDevice->logical_device, handles.pipeline_layout, &ZestDevice->allocation_callbacks);
@@ -2410,7 +2410,7 @@ void zest__do_scheduled_tasks(void) {
     }
 
     if (zest_vec_size(ZestRenderer->pipeline_recreate_queue)) {
-        for (zest_foreach_i(ZestRenderer->pipeline_recreate_queue)) {
+        zest_vec_foreach(i, ZestRenderer->pipeline_recreate_queue) {
             zest_pipeline pipeline = ZestRenderer->pipeline_recreate_queue[i];
             zest_pipeline_handles_t handles = {0};
             handles.pipeline = pipeline->pipeline;
@@ -3481,7 +3481,7 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     VkFenceCreateInfo fence_info = { 0 };
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    for (ZEST_EACH_FIF_i) {
+    zest_ForEachFrameInFlight(i) {
         for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
             ZEST_VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_info, &ZestDevice->allocation_callbacks, &ZestRenderer->fif_fence[i][queue_index]));
         }
@@ -3571,7 +3571,7 @@ void zest__initialise_swapchain(zest_swapchain swapchain, zest_window window) {
     VkSemaphoreCreateInfo semaphore_info = { 0 };
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-    for (ZEST_EACH_FIF_i) {
+    zest_ForEachFrameInFlight(i) {
         ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &swapchain->vk_image_available_semaphore[i]));
     }
 
@@ -3590,7 +3590,7 @@ VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR* available_present_mo
         return best_mode;
     }
 
-    for (zest_foreach_i(available_present_modes)) {
+    zest_vec_foreach(i, available_present_modes) {
         if (available_present_modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
             return available_present_modes[i];
         }
@@ -3714,11 +3714,11 @@ void zest__cleanup_swapchain(zest_swapchain swapchain) {
     vkDestroyImageView(ZestDevice->logical_device, swapchain->vk_depth_image_view, &ZestDevice->allocation_callbacks);
     vkDestroyImage(ZestDevice->logical_device, swapchain->vk_depth_image, &ZestDevice->allocation_callbacks);
 
-    for (zest_foreach_i(swapchain->vk_frame_buffers)) {
+    zest_vec_foreach(i, swapchain->vk_frame_buffers) {
         vkDestroyFramebuffer(ZestDevice->logical_device, swapchain->vk_frame_buffers[i], &ZestDevice->allocation_callbacks);
     }
 
-    for (zest_foreach_i(swapchain->vk_image_views)) {
+    zest_vec_foreach(i, swapchain->vk_image_views) {
         vkDestroyImageView(ZestDevice->logical_device, swapchain->vk_image_views[i], &ZestDevice->allocation_callbacks);
     }
 
@@ -3739,14 +3739,14 @@ void zest__destroy_pipeline_set(zest_pipeline p) {
 }
 
 void zest__cleanup_pipelines() {
-    for (zest_map_foreach_i(ZestRenderer->cached_pipelines)) {
+    zest_map_foreach(i, ZestRenderer->cached_pipelines) {
         zest_pipeline pipeline = *zest_map_at_index(ZestRenderer->cached_pipelines, i);
         zest__destroy_pipeline_set(pipeline);
     }
 }
 
 void zest__cleanup_textures() {
-    for (zest_map_foreach_i(ZestRenderer->textures)) {
+    zest_map_foreach(i, ZestRenderer->textures) {
         zest_texture texture = *zest_map_at_index(ZestRenderer->textures, i);
         if (texture->flags & zest_texture_flag_ready) {
             zest__cleanup_texture(texture);
@@ -3788,7 +3788,7 @@ void zest__cleanup_renderer() {
 
     zest__cleanup_textures();
 
-    for (zest_map_foreach_i(ZestRenderer->samplers)) {
+    zest_map_foreach(i, ZestRenderer->samplers) {
         zest_sampler sampler = *zest_map_at_index(ZestRenderer->samplers, i);
         if (sampler->vk_sampler) {
             vkDestroySampler(ZestDevice->logical_device, sampler->vk_sampler, &ZestDevice->allocation_callbacks);
@@ -3797,13 +3797,13 @@ void zest__cleanup_renderer() {
     }
     zest_map_clear(ZestRenderer->samplers);
 
-    for (zest_map_foreach_i(ZestRenderer->render_passes)) {
+    zest_map_foreach(i, ZestRenderer->render_passes) {
         VkRenderPass render_pass = *zest_map_at_index(ZestRenderer->render_passes, i);
         vkDestroyRenderPass(ZestDevice->logical_device, render_pass, &ZestDevice->allocation_callbacks);
     }
     zest_map_clear(ZestRenderer->render_passes);
 
-    for (zest_map_foreach_i(ZestRenderer->descriptor_layouts)) {
+    zest_map_foreach(i, ZestRenderer->descriptor_layouts) {
         zest_set_layout layout = *zest_map_at_index(ZestRenderer->descriptor_layouts, i);
 		vkDestroyDescriptorSetLayout(ZestDevice->logical_device, layout->vk_layout, &ZestDevice->allocation_callbacks);
         if (layout->pool) {
@@ -3812,7 +3812,7 @@ void zest__cleanup_renderer() {
     }
     zest_map_clear(ZestRenderer->descriptor_layouts);
 
-    for (ZEST_EACH_FIF_i) {
+    zest_ForEachFrameInFlight(i) {
         for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
             vkDestroyFence(ZestDevice->logical_device, ZestRenderer->fif_fence[i][queue_index], &ZestDevice->allocation_callbacks);
         }
@@ -3837,14 +3837,14 @@ void zest__cleanup_renderer() {
 
     zest__cleanup_buffers_in_allocators();
 
-    for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
+    zest_map_foreach(i, ZestRenderer->buffer_allocators) {
         zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
-        for (zest_foreach_j(buffer_allocator->memory_pools)) {
+        zest_vec_foreach(j, buffer_allocator->memory_pools) {
             zest__destroy_memory(buffer_allocator->memory_pools[j]);
         }
     }
 
-    for (zest_map_foreach_i(ZestRenderer->computes)) {
+    zest_map_foreach(i, ZestRenderer->computes) {
         zest_compute compute = *zest_map_at_index(ZestRenderer->computes, i);
         zest__clean_up_compute(compute);
     }
@@ -3913,11 +3913,11 @@ void zest__recreate_swapchain(zest_swapchain swapchain) {
     VkExtent2D extent;
     extent.width = fb_width;
     extent.height = fb_height;
-    for (zest_map_foreach_i(ZestRenderer->cached_pipelines)) {
+    zest_map_foreach(i, ZestRenderer->cached_pipelines) {
         zest_pipeline_template pipeline_template = *zest_map_at_index(ZestRenderer->pipelines, i);
         zest__refresh_pipeline_template(pipeline_template);
     }
-    for (zest_map_foreach_i(ZestRenderer->cached_pipelines)) {
+    zest_map_foreach(i, ZestRenderer->cached_pipelines) {
         zest_pipeline pipeline = *zest_map_at_index(ZestRenderer->cached_pipelines, i);
         if (!pipeline->rebuild_pipeline_function) {
             zest__rebuild_pipeline(pipeline);
@@ -3932,7 +3932,7 @@ void zest__recreate_swapchain(zest_swapchain swapchain) {
 void zest__create_swapchain_image_views(zest_swapchain swapchain) {
     zest_vec_resize(swapchain->vk_image_views, zest_vec_size(swapchain->vk_images));
 
-    for (zest_foreach_i(swapchain->vk_images)) {
+    zest_vec_foreach(i, swapchain->vk_images) {
         zest_vec_set(swapchain->vk_image_views, i, zest__create_image_view(swapchain->vk_images[i], swapchain->vk_format, VK_IMAGE_ASPECT_COLOR_BIT, 1, 0, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 1));
     }
 }
@@ -4978,7 +4978,7 @@ zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint inde
 }
 
 VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate) {
-    for (zest_foreach_i(pipeline_template->bindingDescriptions)) {
+    zest_vec_foreach(i, pipeline_template->bindingDescriptions) {
         //You already have a binding with that index in the bindindDescriptions array
         //Maybe you copied a template with zest_CopyPipelineTemplate but didn't call zest_ClearVertexInputBindingDescriptions on the copy before
         //adding your own
@@ -6879,7 +6879,7 @@ VkViewport zest_CreateViewport(float x, float y, float width, float height, floa
     return viewport;
 }
 
-void zest_SetScreenSizedViewport(zest_render_graph_context_t *context, float min_depth, float max_depth) {
+void zest_SetScreenSizedViewport(const zest_render_graph_context_t *context, float min_depth, float max_depth) {
     //This function must be called within a render graph execution pass callback
     ZEST_ASSERT(context);    //Must be a valid command buffer
     ZEST_ASSERT(context->command_buffer);    //Must be a valid command buffer
@@ -7102,7 +7102,7 @@ void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImag
 void zest__copy_buffer_regions_to_image(VkBufferImageCopy* regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image, VkCommandBuffer cb) {
     VkCommandBuffer command_buffer = cb ? cb : zest__begin_single_time_commands();
 
-    for (zest_foreach_i(regions)) {
+    zest_vec_foreach(i, regions) {
         regions[i].bufferOffset += src_offset;
     }
 
@@ -11615,7 +11615,7 @@ float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t* spriteshe
 void zest__free_all_texture_images(zest_texture texture) {
     int count = 0;
     if (!texture->image_collection) return;
-    for (zest_foreach_i(texture->image_collection->image_bitmaps)) {
+    zest_vec_foreach(i, texture->image_collection->image_bitmaps) {
         zest_FreeBitmap(&texture->image_collection->image_bitmaps[i]);
         count++;
     }
@@ -11666,7 +11666,7 @@ void zest__cleanup_texture(zest_texture texture) {
 
 void zest__reindex_texture_images(zest_texture texture) {
     zest_index index = 0;
-    for (zest_foreach_i(texture->image_collection->images)) {
+    zest_vec_foreach(i, texture->image_collection->images) {
         texture->image_collection->images[i]->index = index++;
     }
     texture->image_index = index;
@@ -11800,7 +11800,7 @@ zest_uint zest_GetTextureDescriptorIndex(zest_texture texture) {
 }
 
 void zest__delete_texture_layers(zest_texture texture) {
-    for (zest_foreach_i(texture->image_collection->layers)) {
+    zest_vec_foreach(i, texture->image_collection->layers) {
         zest_FreeBitmap(&texture->image_collection->layers[i]);
     }
     zest_vec_free(texture->image_collection->layers);
@@ -11995,13 +11995,13 @@ zest_byte zest__calculate_texture_layers(stbrp_rect* rects, zest_uint size, cons
         stbrp_init_target(&context, size, size, nodes, node_count);
         stbrp_pack_rects(&context, rects_copy, (int)zest_vec_size(rects_copy));
 
-        for (zest_foreach_i(rects_copy)) {
+        zest_vec_foreach(i, rects_copy) {
             zest_vec_push(current_rects, rects_copy[i]);
         }
 
         zest_vec_clear(rects_copy);
 
-        for (zest_foreach_i(current_rects)) {
+        zest_vec_foreach(i, current_rects) {
             if (!rects_copy[i].was_packed) {
                 zest_vec_push(rects_copy, rects_copy[i]);
             }
@@ -12048,7 +12048,7 @@ void zest__make_image_bank(zest_texture texture, zest_uint size) {
 
     zest_uint id = 0;
 
-    for (zest_foreach_i(texture->image_collection->images)) {
+    zest_vec_foreach(i, texture->image_collection->images) {
         zest_image image = texture->image_collection->images[i];
 
         image->uv.x = 0;
@@ -12113,7 +12113,7 @@ void zest__make_sprite_sheet(zest_texture texture) {
 
     zest_uint id = 0;
     zest_uint max_width = 0, max_height = 0;
-    for (zest_foreach_i(texture->image_collection->images)) {
+    zest_vec_foreach(i, texture->image_collection->images) {
         zest_image image = texture->image_collection->images[i];
 		ZEST_ASSERT(image->width <= texture->width && image->height <= texture->height);   //This image will not pack into the texture because it's bigger then the texture layer size.
 																													//Use zest_SetTextureLayerSize to set a bigger layer size after creating the texture.
@@ -12151,7 +12151,7 @@ void zest__make_sprite_sheet(zest_texture texture) {
 
     zest_byte current_layer = 0;
 
-    for (zest_foreach_i(texture->image_collection->layers)) {
+    zest_vec_foreach(i, texture->image_collection->layers) {
         zest_FreeBitmap(&texture->image_collection->layers[i]);
     }
     zest_vec_clear(texture->image_collection->layers);
@@ -12161,7 +12161,7 @@ void zest__make_sprite_sheet(zest_texture texture) {
     stbrp_pack_rects(&context, rects, (int)zest_vec_size(rects));
 
     stbrp_rect* current_rects = 0;
-    for (zest_foreach_i(rects)) {
+    zest_vec_foreach(i, rects) {
         zest_vec_push(current_rects, rects[i]);
     }
 
@@ -12172,7 +12172,7 @@ void zest__make_sprite_sheet(zest_texture texture) {
     texture->texture.width = size;
     texture->texture.height = size;
 
-    for (zest_foreach_i(current_rects)) {
+    zest_vec_foreach(i, current_rects) {
         stbrp_rect* rect = &current_rects[i];
 
         if (rect->was_packed) {
@@ -12210,7 +12210,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
 
     zest_uint max_width = 0;
     int max_size = texture->width;
-    for (zest_foreach_i(texture->image_collection->images)) {
+    zest_vec_foreach(i, texture->image_collection->images) {
         zest_image image = texture->image_collection->images[i];
         stbrp_rect rect;
 		ZEST_ASSERT(image->width <= texture->width && image->height <= texture->height);   //This image will not pack into the texture because it's bigger then the texture layer size.
@@ -12255,7 +12255,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
 
     zest_byte current_layer = 0;
 
-    for (zest_foreach_i(texture->image_collection->layers)) {
+    zest_vec_foreach(i, texture->image_collection->layers) {
         zest_FreeBitmap(&texture->image_collection->layers[i]);
     }
     zest_vec_clear(texture->image_collection->layers);
@@ -12272,7 +12272,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
         stbrp_init_target(&context, size, size, nodes, node_count);
         stbrp_pack_rects(&context, rects, (int)zest_vec_size(rects));
 
-        for (zest_foreach_i(rects)) {
+        zest_vec_foreach(i, rects) {
             zest_vec_push(current_rects, rects[i]);
         }
 
@@ -12282,7 +12282,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
         zest_AllocateBitmap(&tmp_image, size, size, texture->color_channels, zest_ColorSet1(0));
         int count = 0;
 
-        for (zest_foreach_i(current_rects)) {
+        zest_vec_foreach(i, current_rects) {
             stbrp_rect* rect = &current_rects[i];
 
             if (rect->was_packed) {
@@ -13174,7 +13174,7 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_cont
 		zest_vk_GetGlobalBindlessSet()
 	};
 
-    for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
+    zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
 
         if (current->draw_mode == zest_draw_mode_viewport) {
@@ -13384,7 +13384,7 @@ void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_gr
 	vkCmdBindVertexBuffers(command_buffer, 0, 1, &device_buffer->vk_buffer, instance_data_offsets);
 
     bool has_instruction_view_port = false;
-    for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
+    zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
 
         if (current->draw_mode == zest_draw_mode_viewport) {
@@ -13426,7 +13426,7 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
     VkCommandBuffer command_buffer = 0;
 
     bool has_instruction_view_port = false;
-    for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
+    zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
 
         if (current->draw_mode == zest_draw_mode_viewport) {
@@ -13476,7 +13476,7 @@ void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_rende
 	vkCmdBindVertexBuffers(command_buffer, 1, 1, &device_buffer->vk_buffer, instance_data_offsets);
 
     bool has_instruction_view_port = false;
-    for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
+    zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
         zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
 
         if (current->draw_mode == zest_draw_mode_viewport) {
@@ -13620,7 +13620,7 @@ void zest_SetLayerIntensity(zest_layer layer, float value) {
 
 void zest_SetLayerDirty(zest_layer layer) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
-    for (ZEST_EACH_FIF_i) {
+    zest_ForEachFrameInFlight(i) {
         layer->dirty[i] = 1;
     }
 }
@@ -14337,7 +14337,7 @@ void zest_FreeMesh(zest_mesh_t* mesh) {
 }
 
 void zest_PositionMesh(zest_mesh_t* mesh, zest_vec3 position) {
-    for (zest_foreach_i(mesh->vertices)) {
+    zest_vec_foreach(i, mesh->vertices) {
         mesh->vertices[i].pos.x += position.x;
         mesh->vertices[i].pos.y += position.y;
         mesh->vertices[i].pos.z += position.z;
@@ -14350,7 +14350,7 @@ zest_matrix4 zest_RotateMesh(zest_mesh_t* mesh, float pitch, float yaw, float ro
     zest_matrix4 yaw_mat = zest_Matrix4RotateY(yaw);
     zest_matrix4 rotate_mat = zest_MatrixTransform(&yaw_mat, &pitch_mat);
     rotate_mat = zest_MatrixTransform(&rotate_mat, &roll_mat);
-    for (zest_foreach_i(mesh->vertices)) {
+    zest_vec_foreach(i, mesh->vertices) {
         zest_vec4 pos = { mesh->vertices[i].pos.x, mesh->vertices[i].pos.y, mesh->vertices[i].pos.z, 1.f };
         pos = zest_MatrixTransformVector(&rotate_mat, pos);
         mesh->vertices[i].pos = zest_Vec3Set(pos.x, pos.y, pos.z);
@@ -14370,7 +14370,7 @@ zest_matrix4 zest_TransformMesh(zest_mesh_t* mesh, float pitch, float yaw, float
     rotate_mat.v[3].x = sx;
     rotate_mat.v[3].y = sy;
     rotate_mat.v[3].z = sz;
-    for (zest_foreach_i(mesh->vertices)) {
+    zest_vec_foreach(i, mesh->vertices) {
         zest_vec4 pos = { mesh->vertices[i].pos.x, mesh->vertices[i].pos.y, mesh->vertices[i].pos.z, 1.f };
         pos = zest_MatrixTransformVector(&rotate_mat, pos);
         mesh->vertices[i].pos = zest_Vec3Set(pos.x, pos.y, pos.z);
@@ -14387,7 +14387,7 @@ zest_bounding_box_t zest_NewBoundingBox() {
 
 zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh_t* mesh) {
     zest_bounding_box_t bb = zest_NewBoundingBox();
-    for (zest_foreach_i(mesh->vertices)) {
+    zest_vec_foreach(i, mesh->vertices) {
         bb.max_bounds.x = ZEST__MAX(mesh->vertices[i].pos.x, bb.max_bounds.x);
         bb.max_bounds.y = ZEST__MAX(mesh->vertices[i].pos.y, bb.max_bounds.y);
         bb.max_bounds.z = ZEST__MAX(mesh->vertices[i].pos.z, bb.max_bounds.z);
@@ -14399,7 +14399,7 @@ zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh_t* mesh) {
 }
 
 void zest_SetMeshGroupID(zest_mesh_t* mesh, zest_uint group_id) {
-    for (zest_foreach_i(mesh->vertices)) {
+    zest_vec_foreach(i, mesh->vertices) {
         mesh->vertices[i].group = group_id;
     }
 }
@@ -14725,7 +14725,7 @@ zest_compute zest__create_compute(const char* name) {
     compute->push_constants.parameters.y = 0.f;
     compute->push_constants.parameters.z = 0.f;
     compute->push_constants.parameters.w = 0.f;
-    for (ZEST_EACH_FIF_i) {
+    zest_ForEachFrameInFlight(i) {
         compute->fence[i] = VK_NULL_HANDLE;
         compute->fif_incoming_semaphore[i] = VK_NULL_HANDLE;
         compute->fif_outgoing_semaphore[i] = VK_NULL_HANDLE;
@@ -14833,7 +14833,7 @@ zest_compute zest_FinishCompute(zest_compute_builder_t *builder, const char *nam
     ZEST_ASSERT(zest_vec_size(builder->shaders));
     compute->shaders = builder->shaders;
     VkShaderModule shader_module = { 0 };
-    for (zest_foreach_i(compute->shaders)) {
+    zest_vec_foreach(i, compute->shaders) {
         zest_shader shader = compute->shaders[i];
 
         ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
@@ -14859,7 +14859,7 @@ zest_compute zest_FinishCompute(zest_compute_builder_t *builder, const char *nam
     VkFenceCreateInfo fence_create_info = { 0 };
     fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    for (ZEST_EACH_FIF_i) {
+    zest_ForEachFrameInFlight(i) {
         ZEST_VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_create_info, &ZestDevice->allocation_callbacks, &compute->fence[i]));
     }
 
@@ -14872,7 +14872,7 @@ zest_compute zest_FinishCompute(zest_compute_builder_t *builder, const char *nam
     VkSemaphoreCreateInfo semaphore_info = { 0 };
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-    for (ZEST_EACH_FIF_i) {
+    zest_ForEachFrameInFlight(i) {
         compute->fif_outgoing_semaphore[i] = VK_NULL_HANDLE;
         ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &compute->fif_outgoing_semaphore[i]))
     }
@@ -14927,7 +14927,7 @@ void zest__clean_up_compute(zest_compute compute) {
     if (ZEST__NOT_FLAGGED(compute->flags, zest_compute_flag_is_active)) {
         return;
     }
-    for (ZEST_EACH_FIF_i) {
+    zest_ForEachFrameInFlight(i) {
         if (compute->fence[i]) {
             vkDestroyFence(ZestDevice->logical_device, compute->fence[i], &ZestDevice->allocation_callbacks);
         }
@@ -14935,7 +14935,7 @@ void zest__clean_up_compute(zest_compute compute) {
 	vkDestroyPipeline(ZestDevice->logical_device, compute->pipeline, &ZestDevice->allocation_callbacks);
     vkDestroyPipelineLayout(ZestDevice->logical_device, compute->pipeline_layout, &ZestDevice->allocation_callbacks);
     if (ZEST__FLAGGED(compute->flags, zest_compute_flag_sync_required)) {
-        for (ZEST_EACH_FIF_i) {
+        zest_ForEachFrameInFlight(i) {
             if (compute->fif_outgoing_semaphore[i])
                 vkDestroySemaphore(ZestDevice->logical_device, compute->fif_outgoing_semaphore[i], &ZestDevice->allocation_callbacks);
         }
@@ -14957,7 +14957,7 @@ void zest_OutputMemoryUsage() {
         total_host_memory += ZestDevice->memory_pool_sizes[i];
     }
     printf("Device Memory Pools\n");
-    for (zest_map_foreach_i(ZestRenderer->buffer_allocators)) {
+    zest_map_foreach(i, ZestRenderer->buffer_allocators) {
         zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
         zest_buffer_usage_t usage = { buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.property_flags, buffer_allocator->buffer_info.image_usage_flags };
         zest_key usage_key = zest_map_hash_ptr(ZestDevice->pool_sizes, &usage, sizeof(zest_buffer_usage_t));
@@ -14968,7 +14968,7 @@ void zest_OutputMemoryUsage() {
         else {
             printf("\t%s (%s), Usage: %u, Properties: %u\n", "Buffer", pool_size.name, buffer_allocator->buffer_info.usage_flags, buffer_allocator->buffer_info.property_flags);
         }
-        for (zest_foreach_j(buffer_allocator->memory_pools)) {
+        zest_vec_foreach(j, buffer_allocator->memory_pools) {
             zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];
             printf("\t\tMemory Pool Size: %llu\n", memory_pool->size);
             total_device_memory += memory_pool->size;
