@@ -332,6 +332,40 @@ void zest__os_poll_events(void) {
     }
 }
 
+void zest__os_set_window_mode(zest_window window, zest_window_mode mode) {
+    GLFWwindow *handle = (GLFWwindow *)window->window_handle;
+    static int last_x, last_y, last_width, last_height;
+
+    switch (mode) {
+    case zest_window_mode_fullscreen:
+    {
+        if (!glfwGetWindowMonitor(handle)) {
+            glfwGetWindowPos(handle, &last_x, &last_y);
+            glfwGetWindowSize(handle, &last_width, &last_height);
+        }
+
+        GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode *vidmode = glfwGetVideoMode(monitor);
+        glfwSetWindowMonitor(handle, monitor, 0, 0, vidmode->width, vidmode->height, vidmode->refreshRate);
+        break;
+    }
+    case zest_window_mode_bordered:
+        if (glfwGetWindowMonitor(handle)) {
+            glfwSetWindowMonitor(handle, NULL, last_x, last_y, last_width, last_height, 0);
+        }
+        glfwSetWindowAttrib(handle, GLFW_DECORATED, GLFW_TRUE);
+        break;
+    case zest_window_mode_borderless:
+        if (glfwGetWindowMonitor(handle)) {
+            glfwSetWindowMonitor(handle, NULL, last_x, last_y, last_width, last_height, 0);
+        }
+        glfwSetWindowAttrib(handle, GLFW_DECORATED, GLFW_FALSE);
+        break;
+    }
+    window->mode = mode;
+}
+
+
 void zest__os_add_platform_extensions(void) {
     zest_uint count;
     const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
