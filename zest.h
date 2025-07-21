@@ -2461,6 +2461,7 @@ typedef struct zest_create_info_t {
     zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
     void(*create_window_surface_callback)(zest_window window);
     void(*set_window_mode_callback)(zest_window window, zest_window_mode mode);
+    void(*set_window_size_callback)(zest_window window, int width, int height);
 } zest_create_info_t;
 
 zest_hash_map(zest_queue) zest_map_queue_value;
@@ -3712,6 +3713,7 @@ typedef struct zest_renderer_t {
     zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
     void(*create_window_surface_callback)(zest_window window);
     void(*set_window_mode_callback)(zest_window window, zest_window_mode mode);
+    void(*set_window_size_callback)(zest_window window, int width, int height);
 
 	//Related to implementations
 
@@ -3745,6 +3747,7 @@ ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_
 ZEST_PRIVATE zest_window zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
 ZEST_PRIVATE void zest__os_create_window_surface(zest_window window);
 ZEST_PRIVATE void zest__os_set_window_mode(zest_window window, zest_window_mode mode);
+ZEST_PRIVATE void zest__os_set_window_size(zest_window window, int width, int height);
 ZEST_PRIVATE void zest__os_poll_events(ZEST_PROTOTYPE);
 ZEST_PRIVATE void zest__os_add_platform_extensions(ZEST_PROTOTYPE);
 ZEST_PRIVATE void zest__os_set_window_title(const char *title);
@@ -4267,6 +4270,7 @@ ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void
 ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
 ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
 ZEST_API void zest_SetPlatformWindowModeCallback(void(*set_window_mode_callback)(zest_window window, zest_window_mode mode));
+ZEST_API void zest_SetPlatformWindowSizeCallback(void(*set_window_size_callback)(zest_window window, int width, int height));
 
 //-----------------------------------------------
 //        Buffer_functions.
@@ -5212,6 +5216,7 @@ ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer timer);                    
 //        Window_functions
 //-----------------------------------------------
 ZEST_API void zest_SetWindowMode(zest_window window, zest_window_mode mode);
+ZEST_API void zest_SetWindowSize(zest_window window, zest_uint width, zest_uint height);
 
 //-----------------------------------------------
 //        General_Helper_functions

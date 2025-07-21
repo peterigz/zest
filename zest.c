@@ -206,6 +206,19 @@ zest_window zest__os_create_window(int x, int y, int width, int height, zest_boo
     return window;
 }
 
+void zest__os_set_window_size(zest_window window, int width, int height) {
+	HWND handle = (HWND)window->window_handle;
+	DWORD style = GetWindowLong(handle, GWL_STYLE);
+	DWORD ex_style = GetWindowLong(handle, GWL_EXSTYLE);
+
+	RECT rect = { 0, 0, width, height };
+	AdjustWindowRectEx(&rect, style, FALSE, ex_style);
+
+	SetWindowPos(handle, NULL, 0, 0, rect.right - rect.left, rect.bottom - rect.top, SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
+	window->window_width = width;
+	window->window_height = height;
+}
+
 void zest__os_set_window_mode(zest_window window, zest_window_mode mode) {
 	window->mode = mode;
 	HWND handle = (HWND)window->window_handle;
@@ -1435,6 +1448,7 @@ zest_bool zest_Initialise(zest_create_info_t* info) {
     ZestRenderer->create_window_callback = info->create_window_callback;
     ZestRenderer->create_window_surface_callback = info->create_window_surface_callback;
     ZestRenderer->set_window_mode_callback = info->set_window_mode_callback;
+    ZestRenderer->set_window_size_callback = info->set_window_size_callback;
 	zest__initialise_app(info);
     if (zest__initialise_device(info)) {
         zest__initialise_renderer(info);
@@ -1493,6 +1507,10 @@ void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(
 
 void zest_SetPlatformWindowModeCallback(void(*set_window_mode_callback)(zest_window window, zest_window_mode mode)) {
     ZestRenderer->set_window_mode_callback = set_window_mode_callback;
+}
+
+void zest_SetPlatformWindowSizeCallback(void(*set_window_size_callback)(zest_window window, int width, int height)) {
+    ZestRenderer->set_window_size_callback = set_window_size_callback;
 }
 //-- End Initialisation and destruction
 
@@ -7485,6 +7503,7 @@ zest_create_info_t zest_CreateInfo() {
         .create_window_callback = zest__os_create_window,
         .create_window_surface_callback = zest__os_create_window_surface,
         .set_window_mode_callback = zest__os_set_window_mode,
+        .set_window_size_callback = zest__os_set_window_size,
         .maximum_textures = 1024,
         .bindless_combined_sampler_count = 256,
         .bindless_sampler_count = 256,
@@ -7507,6 +7526,11 @@ zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags fla
  void zest_SetWindowMode(zest_window window, zest_window_mode mode) {
     ZEST_CHECK_HANDLE(window);  //Not a valid window handle.
     ZestRenderer->set_window_mode_callback(window, mode);
+}
+
+ void zest_SetWindowSize(zest_window window, zest_uint width, zest_uint height) {
+    ZEST_CHECK_HANDLE(window);  //Not a valid window handle.
+    ZestRenderer->set_window_size_callback(window, width, height);
 }
 
 char* zest_ReadEntireFile(const char* file_name, zest_bool terminate) {

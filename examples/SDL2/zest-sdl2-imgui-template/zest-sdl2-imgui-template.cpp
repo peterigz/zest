@@ -65,6 +65,12 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		if (ImGui::Button("Full Screen")) {
 			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_fullscreen);
 		}
+		if (ImGui::Button("Full Screen Borderless")) {
+			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_fullscreen_borderless);
+		}
+		if (ImGui::Button("Set window size to 1000 x 750")) {
+			zest_SetWindowSize(ZestApp->current_window, 1000, 750);
+		}
 		ImGui::End();
 		ImGui::Render();
 		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering

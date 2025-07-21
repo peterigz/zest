@@ -71,6 +71,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		if (ImGui::Button("Full Screen")) {
 			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_fullscreen);
 		}
+		if (ImGui::Button("Set window size to 1000 x 750")) {
+			zest_SetWindowSize(ZestApp->current_window, 1000, 750);
+		}
 		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
 		/*
 		//Test for memory leaks in the render graph
