@@ -141,7 +141,7 @@ void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_render_grap
 	//Send the the push constant
 	zest_SendPushConstants(command_buffer, pipeline, &push);
 	//Set the viewport with this helper function
-	zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
+	zest_SetScreenSizedViewport(context, 0.f, 1.f);
 	//Bind the vertex buffer with the particle buffer containing the location of all the point sprite particles
 	zest_BindVertexBuffer(command_buffer, app->particle_buffer);
 	//Draw the point sprites
@@ -216,11 +216,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_imgui_UpdateBuffers();
 	} zest_EndTimerLoop(app->loop_timer)
 
-	if (zest_BeginRenderToScreen("Compute Particles")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Compute Particles")) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Resources
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		zest_resource_node particle_buffer = zest_ImportStorageBufferResource("particle buffer", app->particle_buffer);
 
 		//---------------------------------Compute Pass-----------------------------------------------------
@@ -238,7 +237,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//inputs
 		zest_ConnectVertexBufferInput(render_pass, particle_buffer);
 		//outputs
-		zest_ConnectSwapChainOutput(render_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(render_pass, clear_color);
 		//tasks
 		zest_SetPassTask(render_pass, RecordComputeSprites, app);
 		//--------------------------------------------------------------------------------------------------
@@ -247,7 +246,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
 		if (imgui_pass) {
-			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+			zest_ConnectSwapChainOutput(imgui_pass, clear_color);
 		}
 		//----------------------------------------------------------------------------------------------------
 

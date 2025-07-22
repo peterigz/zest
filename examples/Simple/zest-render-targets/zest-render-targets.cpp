@@ -204,7 +204,7 @@ void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_rend
 	zest_uint up_bindless_index = zest_AcquireTransientTextureIndex(context, render_target, ZEST_TRUE, zest_combined_image_sampler_binding);
 	zest_uint down_bindless_index = zest_AcquireTransientTextureIndex(context, downsampler, ZEST_TRUE, zest_combined_image_sampler_binding);
 
-	zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
+	zest_SetScreenSizedViewport(context, 0.f, 1.f);
 
 	zest_pipeline pipeline = zest_PipelineWithTemplate(example->composite_pipeline, context->render_pass);
 	zest_BindPipelineShaderResource(context->command_buffer, pipeline, example->render_target_resources);
@@ -387,12 +387,11 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	}
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen("Bloom Example Render Graph")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Bloom Example Render Graph")) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
 		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_hdr, example->mipped_sampler, true);
@@ -440,7 +439,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_ConnectSampledImageInput(graphics_pass, upsampler);
 		zest_ConnectSampledImageInput(graphics_pass, downsampler);
 		//outputs
-		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(graphics_pass, clear_color);
 		//tasks
 		zest_SetPassTask(graphics_pass, zest_DrawRenderTargetSimple, example);
 		//--------------------------------------------------------------------------------------------------
