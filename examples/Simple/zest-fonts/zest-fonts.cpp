@@ -85,6 +85,8 @@ int main(void) {
 
 	InitExample(&example);
 
+	test_bucket_array();
+
 	zest_Start();
 
 	return 0;

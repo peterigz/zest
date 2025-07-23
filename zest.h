@@ -14,6 +14,7 @@
     [Enums_and_flags]                   Enums and bit flag definitions
     [Forward_declarations]              Forward declarations for structs and setting up of handles
     [Pocket_dynamic_array]              Simple dynamic array
+    [Pocket_bucket_array]               Simple bucket array
     [Pocket_Hasher]                     XXHash code for use in hash map
     [Pocket_ordered_hash_map]           Simple ordered hash map
     [Pocket_text_buffer]                Very simple struct and functions for storing strings
@@ -1609,12 +1610,39 @@ zest_uint zest__grow_capacity(void *T, zest_uint size);
 #define zest_vec_foreach(index, T) for(int index = 0; index != zest_vec_size(T); ++index)
 // --end of pocket dynamic array
 
+// --Pocket_bucket_array
+// The main purpose of this bucket array is to produce stable pointers for render graph resources
+typedef struct zest_bucket_array_t {
+    void** buckets;             // A zest_vec of pointers to individual buckets
+    zest_uint bucket_capacity;  // Number of elements each bucket can hold
+    zest_uint current_size;       // Total number of elements across all buckets
+    zest_uint element_size;     // The size of a single element
+} zest_bucket_array_t;
+
+ZEST_PRIVATE inline void zest__bucket_array_init(zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity);
+ZEST_PRIVATE inline void zest__bucket_array_free(zest_bucket_array_t *array);
+ZEST_PRIVATE inline void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index);
+ZEST_PRIVATE inline void *zest__bucket_array_add(zest_bucket_array_t *array);
+ZEST_PRIVATE inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, zest_bucket_array_t *array);
+
+ZEST_API void test_bucket_array();
+
+#define zest_bucket_array_init(array, T, cap) zest__bucket_array_init(array, sizeof(T), cap)
+#define zest_bucket_array_get(array, T, index) ((T*)zest__bucket_array_get(array, index))
+#define zest_bucket_array_add(array, T) ((T*)zest__bucket_array_add(array))
+#define zest_bucket_array_linear_add(allocator, array, T) ((T*)zest__bucket_array_linear_add(allocator, array))
+#define zest_bucket_array_push(array, T, value) do { T* new_slot = zest_bucket_array_add(array, T); *new_slot = value; } while(0)
+#define zest_bucket_array_linear_push(allocator, array, T, value) do { T* new_slot = zest_bucket_array_linear_add(allocator, array, T); *new_slot = value; } while(0)
+#define zest_bucket_array_size(array) ((array)->total_size)
+#define zest_bucket_array_foreach(index, array) for (int index = 0; index != array.current_size; ++index)
+// --end of pocket bucket array
+
 // --Pocket_Hasher, converted to c from Stephen Brumme's XXHash code (https://github.com/stbrumme/xxhash) by Peter Rigby
 /*
-    MIT License Copyright (c) 2018 Stephan Brumme
-    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-    The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.  */
+MIT License Copyright (c) 2018 Stephan Brumme
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.  */
 #define zest__PRIME1 11400714785074694791ULL
 #define zest__PRIME2 14029467366897019727ULL
 #define zest__PRIME3 1609587929392839161ULL

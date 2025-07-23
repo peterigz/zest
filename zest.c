@@ -2499,7 +2499,7 @@ unsigned int zest_GetDefaultThreadCount(void) {
 }
 
 #ifdef _WIN32
-ZEST_PRIVATE unsigned WINAPI zest__thread_worker(void *arg) {
+unsigned WINAPI zest__thread_worker(void *arg) {
     zest_queue_processor_t *queue_processor = (zest_queue_processor_t *)arg;
     while (!zest__do_next_work_queue(queue_processor)) {
         // Continue processing
@@ -2580,7 +2580,7 @@ void* zest__reallocate(void* memory, zest_size size) {
     return allocation;
 }
 
-ZEST_PRIVATE void* zest__allocate_aligned(zest_size size, zest_size alignment) {
+void* zest__allocate_aligned(zest_size size, zest_size alignment) {
     void* allocation = zloc_AllocateAligned(ZestDevice->allocator, size, alignment);
     if (!allocation) {
         zest__add_host_memory_pool(size);
@@ -6299,6 +6299,69 @@ void *zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void *T, zest
     ((zest_vec*)(new_data))->capacity = new_capacity;
     return T;
 }
+
+void zest__bucket_array_init(zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity) {
+    array->buckets = NULL; // zest_vec will handle initialization on first push
+    array->bucket_capacity = bucket_capacity;
+    array->current_size = 0;
+    array->element_size = element_size;
+}
+
+void zest__bucket_array_free(zest_bucket_array_t *array) {
+    if (!array || !array->buckets) return;
+    // Free each individual bucket
+    zest_vec_foreach(i, array->buckets) {
+        ZEST__FREE(array->buckets[i]);
+    }
+    // Free the zest_vec that holds the bucket pointers
+    zest_vec_free(array->buckets);
+    array->buckets = NULL;
+    array->current_size = 0;
+}
+
+void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index) {
+    if (!array || index >= array->current_size) {
+        return NULL;
+    }
+    zest_uint bucket_index = index / array->bucket_capacity;
+    zest_uint index_in_bucket = index % array->bucket_capacity;
+    return (void *)((char *)array->buckets[bucket_index] + index_in_bucket * array->element_size);
+}
+
+void *zest__bucket_array_add(zest_bucket_array_t *array) {
+    ZEST_ASSERT(array);
+    // If the array is empty or the last bucket is full, allocate a new one.
+    if (zest_vec_empty(array->buckets) || (array->current_size % array->bucket_capacity == 0)) {
+        void *new_bucket = ZEST__ALLOCATE(array->element_size * array->bucket_capacity);
+        zest_vec_push(array->buckets, new_bucket);
+    }
+
+    // Get the pointer to the new element's location
+    zest_uint bucket_index = (array->current_size) / array->bucket_capacity;
+    zest_uint index_in_bucket = (array->current_size) % array->bucket_capacity;
+    void *new_element = (void *)((char *)array->buckets[bucket_index] + index_in_bucket * array->element_size);
+
+    array->current_size++;
+    return new_element;
+}
+
+inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, zest_bucket_array_t *array) {
+    ZEST_ASSERT(array);
+    // If the array is empty or the last bucket is full, allocate a new one.
+    if (zest_vec_empty(array->buckets) || (array->current_size % array->bucket_capacity == 0)) {
+		void *new_bucket = zloc_LinearAllocation(allocator, array->element_size * array->bucket_capacity);
+        zest_vec_linear_push(allocator, array->buckets, new_bucket);
+    }
+
+    // Get the pointer to the new element's location
+    zest_uint bucket_index = (array->current_size) / array->bucket_capacity;
+    zest_uint index_in_bucket = (array->current_size) % array->bucket_capacity;
+    void *new_element = (void *)((char *)array->buckets[bucket_index] + index_in_bucket * array->element_size);
+
+    array->current_size++;
+    return new_element;
+}
+
 
 void zest_SetText(zest_text_t* buffer, const char* text) {
     if (!text) {
@@ -10313,7 +10376,7 @@ void zest__add_image_barrier(zest_resource_node resource, zest_execution_barrier
     }
 }
 
-ZEST_PRIVATE void zest__add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access,
+void zest__add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access,
     zest_uint src_family, zest_uint dst_family, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage) {
     VkBufferMemoryBarrier buffer_barrier = zest__create_buffer_memory_barrier(
         VK_NULL_HANDLE,
@@ -15125,6 +15188,29 @@ double zest_TimerUpdateFrequency(zest_timer timer) {
 zest_bool zest_TimerUpdateWasRun(zest_timer timer) {
     ZEST_CHECK_HANDLE(timer);	//Not a valid handle!
     return timer->update_count > 0;
+}
+
+void test_bucket_array() {
+    zest_bucket_array_t ba;
+    zest_bucket_array_init(&ba, int, 8);
+    for (int v = 0; v != 20; ++v) {
+        zest_bucket_array_push(&ba, int, v);
+    }
+    zest_bucket_array_foreach(i, ba) {
+        int *v = zest_bucket_array_get(&ba, int, i);
+        ZEST_PRINT("%i", *v);
+    }
+    zest__bucket_array_free(&ba);
+
+    zest_bucket_array_init(&ba, int, 8);
+    for (int v = 0; v != 20; ++v) {
+        zest_bucket_array_linear_push(ZestRenderer->render_graph_allocator[0], &ba, int, v);
+    }
+    zest_bucket_array_foreach(i, ba) {
+        int *v = zest_bucket_array_get(&ba, int, i);
+        ZEST_PRINT("%i", *v);
+    }
+    zloc_ResetLinearAllocator(ZestRenderer->render_graph_allocator[0]);
 }
 //-- End Timer Functions
 
