@@ -16,7 +16,7 @@
     [Pocket_dynamic_array]              Simple dynamic array
     [Pocket_bucket_array]               Simple bucket array
     [Pocket_Hasher]                     XXHash code for use in hash map
-    [Pocket_ordered_hash_map]           Simple ordered hash map
+    [Pocket_hash_map]                   Simple hash map
     [Pocket_text_buffer]                Very simple struct and functions for storing strings
     [Threading]                         Simple worker queue mainly used for recording secondary command buffers
     [Structs]                           All the structs are defined here.
@@ -1763,7 +1763,7 @@ void zest__hash_initialise(zest_hasher_t *hasher, zest_ull seed);
 zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed);
 //-- End of Pocket Hasher
 
-// --Begin Pocket_ordered_hash_map
+// --Begin Pocket_hash_map
 typedef struct {
     zest_key key;
     zest_index index;
@@ -1773,6 +1773,7 @@ typedef struct {
 #define ZEST_HASH_SEED 0xABCDEF99
 #endif
 ZEST_PRIVATE zest_hash_pair* zest__lower_bound(zest_hash_pair *map, zest_key key) { zest_hash_pair *first = map; zest_hash_pair *last = map ? zest_vec_end(map) : 0; size_t count = (size_t)(last - first); while (count > 0) { size_t count2 = count >> 1; zest_hash_pair* mid = first + count2; if (mid->key < key) { first = ++mid; count -= count2 + 1; } else { count = count2; } } return first; }
+ZEST_PRIVATE void zest__map_realign_indexes(zest_hash_pair *map, zest_index index) { zest_vec_foreach(i, map) { if (map[i].index < index) continue; map[i].index--; } }
 ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) { zest_hash_pair *it = zest__lower_bound(map, key); return (it == zest_vec_end(map) || it->key != key) ? -1 : it->index; }
 #define zest_map_hash(hash_map, name) zest_Hash(name, strlen(name), ZEST_HASH_SEED)
 #define zest_map_hash_ptr(hash_map, ptr, size) zest_Hash(ptr, size, ZEST_HASH_SEED)
@@ -2874,7 +2875,7 @@ typedef struct zest_render_graph_t {
 
     zest_execution_wave_t *execution_waves;            // Execution order after compilation
 
-    zest_resource_id swapchain_resource_id; // ID for the current swapchain image resource
+    zest_resource_node swapchain_resource; // Handle to the current swapchain image resource
     zest_swapchain swapchain; // Handle to the current swapchain image resource
     VkImage current_swapchain_image;
     VkImageView current_swapchain_image_view;
@@ -2907,7 +2908,7 @@ ZEST_PRIVATE VkImageAspectFlags zest__determine_aspect_flag(VkFormat format);
 ZEST_PRIVATE void zest__deferr_buffer_destruction(zest_buffer storage_buffer);
 ZEST_PRIVATE void zest__deferr_image_destruction(zest_image_buffer_t *image_buffer);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type);
-ZEST_PRIVATE zest_resource_id zest__add_render_graph_resource(zest_resource_node resource);
+ZEST_PRIVATE zest_resource_node zest__add_render_graph_resource(zest_resource_node resource);
 ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource);
 ZEST_PRIVATE VkCommandPool zest__create_queue_command_pool(int queue_family_index);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_texture texture);
@@ -2917,8 +2918,8 @@ ZEST_PRIVATE zest_uint zest__get_image_binding_number(zest_resource_node resourc
 ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_resource_node resource);
 ZEST_PRIVATE void zest__create_transient_resource(zest_render_graph render_graph, zest_resource_node resource);
 ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
-ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_id buffer_id, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
-ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_id image_id, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value);
+ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
+ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value);
 ZEST_PRIVATE zest_render_graph zest__new_render_graph(const char *name);
 ZEST_PRIVATE void zest__add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access, 
     VkImageLayout old_layout, VkImageLayout new_layout, zest_uint src_family, zest_uint dst_family, 
@@ -2938,7 +2939,6 @@ ZEST_API zest_resource_node zest_GetPassInputResource(zest_pass_node pass, const
 ZEST_API zest_resource_node zest_GetPassOutputResource(zest_pass_node pass, const char *name);
 ZEST_API zest_buffer zest_GetPassInputBuffer(zest_pass_node pass, const char *name);
 ZEST_API zest_buffer zest_GetPassOutputBuffer(zest_pass_node pass, const char *name);
-ZEST_API zest_resource_node zest_GetResource(zest_resource_id id);
 ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
@@ -2962,8 +2962,8 @@ ZEST_API zest_pass_node zest_AddComputePassNode(zest_compute compute, const char
 ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_AcquireTransientTextureIndex(const zest_render_graph_context_t *context, zest_resource_id resource, zest_bool base_mip_only, zest_uint binding_number);
-ZEST_API zest_uint *zest_AcquireTransientMipIndexes(const zest_render_graph_context_t *context, zest_resource_id resource, zest_uint binding_number);
+ZEST_API zest_uint zest_AcquireTransientTextureIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_bool base_mip_only, zest_uint binding_number);
+ZEST_API zest_uint *zest_AcquireTransientMipIndexes(const zest_render_graph_context_t *context, zest_resource_node resource, zest_uint binding_number);
 
 // --- Add callback tasks to passes
 ZEST_API void zest_SetPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
@@ -2971,43 +2971,46 @@ ZEST_API void zest_SetPassInstanceLayerUpload(zest_pass_node pass, zest_layer la
 ZEST_API void zest_SetPassInstanceLayer(zest_pass_node pass, zest_layer layer);
 
 // --- Add Transient resources ---
-ZEST_API zest_resource_id zest_AddTransientImageResource(const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
-ZEST_API zest_resource_id zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless);
-ZEST_API zest_resource_id zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif);
-ZEST_API zest_resource_id zest_AddFontLayerTextureResource(const zest_font font);
-ZEST_API zest_resource_id zest_AddRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler, zest_bool with_storage_flag);
-ZEST_API zest_resource_id zest_AliasResource(const char *name, zest_resource_id resource);
+ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
+ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif);
+ZEST_API zest_resource_node zest_AddFontLayerTextureResource(const zest_font font);
+ZEST_API zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler, zest_bool with_storage_flag);
+ZEST_API zest_resource_node zest_AliasResource(const char *name, zest_resource_node resource);
 
 // --- Helpers for adding various types of resources
-ZEST_API zest_resource_id zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
-ZEST_API zest_resource_id zest_AddTransientIndexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
-ZEST_API zest_resource_id zest_AddTransientStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddTransientIndexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddTransientStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless);
 
 // --- Import external resouces into the render graph ---
-ZEST_API zest_resource_id zest_ImportImageResource(const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
-ZEST_API zest_resource_id zest_ImportImageResourceReadOnly(const char *name, zest_texture texture);
-ZEST_API zest_resource_id zest_ImportStorageBufferResource(const char *name, zest_buffer buffer);
-ZEST_API zest_resource_id zest_ImportBufferResource(const char *name, zest_buffer buffer);
-ZEST_API zest_resource_id zest_ImportSwapChainResource(zest_swapchain swapchain);
+ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
+ZEST_API zest_resource_node zest_ImportImageResourceReadOnly(const char *name, zest_texture texture);
+ZEST_API zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_buffer buffer);
+ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer);
+ZEST_API zest_resource_node zest_ImportSwapChainResource(zest_swapchain swapchain);
 
 // --- Connect Buffer Helpers ---
-ZEST_API void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_id vertex_buffer);
-ZEST_API void zest_ConnectIndexBufferInput(zest_pass_node pass, zest_resource_id index_buffer);
-ZEST_API void zest_ConnectUniformBufferInput(zest_pass_node pass, zest_resource_id uniform_buffer);
-ZEST_API void zest_ConnectStorageBufferInput(zest_pass_node pass, zest_resource_id storage_buffer);
-ZEST_API void zest_ConnectTransferBufferInput(zest_pass_node pass, zest_resource_id src_buffer);
-ZEST_API void zest_ConnectStorageBufferOutput(zest_pass_node pass, zest_resource_id storage_buffer);
-ZEST_API void zest_ConnectTransferBufferOutput(zest_pass_node pass, zest_resource_id dst_buffer);
+ZEST_API void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_node vertex_buffer);
+ZEST_API void zest_ConnectIndexBufferInput(zest_pass_node pass, zest_resource_node index_buffer);
+ZEST_API void zest_ConnectUniformBufferInput(zest_pass_node pass, zest_resource_node uniform_buffer);
+ZEST_API void zest_ConnectStorageBufferInput(zest_pass_node pass, zest_resource_node storage_buffer);
+ZEST_API void zest_ConnectTransferBufferInput(zest_pass_node pass, zest_resource_node src_buffer);
+ZEST_API void zest_ConnectStorageBufferOutput(zest_pass_node pass, zest_resource_node storage_buffer);
+ZEST_API void zest_ConnectTransferBufferOutput(zest_pass_node pass, zest_resource_node dst_buffer);
+
+// --- Manual Barrier Functions
+ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 
 // --- Connect Image Helpers ---
-ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_id texture);
-ZEST_API void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_id texture, zest_bool read_only);
-ZEST_API void zest_ConnectStorageImageOutput(zest_pass_node pass, zest_resource_id texture, zest_bool write_only);
+ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture);
+ZEST_API void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_node texture, zest_bool read_only);
+ZEST_API void zest_ConnectStorageImageOutput(zest_pass_node pass, zest_resource_node texture, zest_bool write_only);
 ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass, VkClearColorValue clear_color_on_load);
-ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_id color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
-ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_id color_target);
-ZEST_API void zest_ConnectDepthStencilOutput(zest_pass_node pass_node, zest_resource_id depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing);
-ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_id depth_target);
+ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
+ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target);
+ZEST_API void zest_ConnectDepthStencilOutput(zest_pass_node pass_node, zest_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing);
+ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target);
 
 // --- Connect graphs to each other
 ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);
@@ -3350,8 +3353,8 @@ typedef struct zest_layer_t {
     zest_layer_instruction_t *draw_instructions[ZEST_MAX_FIF];
     zest_draw_mode last_draw_mode;
 
-    zest_resource_id vertex_buffer_resource_id;  //The ids in the render graph
-    zest_resource_id index_buffer_resource_id;
+    zest_resource_node vertex_buffer_node;  //TODO: this should be an index not a pointer
+    zest_resource_node index_buffer_node;
 
     zest_layer_flags flags;
     void *user_data;
