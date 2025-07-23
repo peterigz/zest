@@ -2490,6 +2490,7 @@ zest_hash_map(zest_queue) zest_map_queue_value;
 
 typedef struct zest_queue_t {
     VkQueue vk_queue;
+    zest_uint family_index;
     //We decouple the frame in flight on the queue so that the counts don't get out of sync when the swap chain
     //can't be acquired for whatever reason.
     zest_uint fif;
@@ -2497,6 +2498,10 @@ typedef struct zest_queue_t {
     zest_u64 current_count[ZEST_MAX_FIF];
     zest_u64 signal_value;
     zest_bool has_waited;
+
+    VkCommandPool command_pool[ZEST_MAX_FIF];
+    VkCommandBuffer *command_buffers[ZEST_MAX_FIF];
+    zest_uint next_buffer;
 } zest_queue_t;
 
 zest_hash_map(const char *) zest_map_queue_names;
@@ -2530,10 +2535,11 @@ typedef struct zest_device_t {
     zest_queue_t graphics_queue;
     zest_queue_t compute_queue;
     zest_queue_t transfer_queue;
+    zest_queue *queues;
     VkQueueFamilyProperties *queue_families;
     zest_map_queue_names queue_names;
-    VkCommandPool command_pool;
-    VkCommandPool one_time_command_pool;
+    VkCommandPool command_pool;     //Todo: can remove now?
+    VkCommandPool one_time_command_pool;		//Todo: can remove now?
     PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
     VkFormat color_format;
     zest_map_buffer_pool_sizes pool_sizes;
@@ -3262,7 +3268,6 @@ typedef struct zest_layer_buffers_t {
 		zest_buffer staging_instance_data;
     };
 	zest_buffer staging_index_data;
-
 	zest_buffer device_vertex_data;
 
     union {
@@ -3627,31 +3632,14 @@ zest_hash_map(zest_render_graph) zest_map_render_graph;
 zest_hash_map(zest_report_t) zest_map_reports;
 zest_hash_map(zest_swapchain) zest_map_swapchains;
 
-typedef struct zest_command_buffer_pools_t {
-    VkCommandPool graphics_command_pool;
-    VkCommandPool compute_command_pool;
-    VkCommandPool transfer_command_pool;
-    VkCommandBuffer *free_graphics;
-    VkCommandBuffer *free_compute;
-    VkCommandBuffer *free_transfer;
-    VkCommandBuffer *graphics;
-    VkCommandBuffer *compute;
-    VkCommandBuffer *transfer;
-} zest_command_buffer_pools_t;
-
 typedef struct zest_renderer_t {
     VkFence fif_fence[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
     zest_uint fence_count[ZEST_MAX_FIF];
-
-    VkSemaphore *semaphore_pool;
-    VkSemaphore *free_semaphores;
 
     zest_execution_timeline *timeline_semaphores;
 
     zest_u64 total_frame_count;
 
-    zest_command_buffer_pools_t command_buffers;
-    
     VkExtent2D window_extent;
     float dpi_scale;
 
@@ -3705,10 +3693,6 @@ typedef struct zest_renderer_t {
     zest_pipeline_handles_t *pipeline_destroy_queue;
     zest_destruction_queue_t deferred_resource_freeing_list;
 	VkFramebuffer *old_frame_buffers[ZEST_MAX_FIF];             //For clearing up frame buffers from previous frames that aren't needed anymore
-    VkSemaphore *used_semaphores[ZEST_MAX_FIF];                 //For returning to the semaphore pool after a render graph is finished with them from the previous frame
-    VkCommandBuffer *used_graphics_command_buffers[ZEST_MAX_FIF];
-    VkCommandBuffer *used_compute_command_buffers[ZEST_MAX_FIF];
-    VkCommandBuffer *used_transfer_command_buffers[ZEST_MAX_FIF];
 
     //Each texture has a simple descriptor set with a combined image sampler for debugging purposes
     //allocated from this pool and using the layout
@@ -3817,9 +3801,8 @@ ZEST_PRIVATE VkRenderPass zest__get_render_pass(VkFormat render_format, VkImageL
 ZEST_PRIVATE void zest__initialise_swapchain_depth_resources(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__create_command_buffer_pools(void);
 ZEST_PRIVATE zest_render_graph_semaphores zest__get_render_graph_semaphores(const char *name);
-ZEST_PRIVATE VkCommandBuffer zest__acquire_graphics_command_buffer(VkCommandBufferLevel level);
-ZEST_PRIVATE VkCommandBuffer zest__acquire_compute_command_buffer(VkCommandBufferLevel level);
-ZEST_PRIVATE VkCommandBuffer zest__acquire_transfer_command_buffer(VkCommandBufferLevel level);
+ZEST_PRIVATE VkCommandBuffer zest__get_next_command_buffer(zest_queue queue);
+ZEST_PRIVATE void zest__reset_queue_command_pool(zest_queue queue);
 ZEST_PRIVATE zest_uniform_buffer zest__add_uniform_buffer(zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__format_shader_code(zest_text_t *code);
@@ -3992,6 +3975,8 @@ ZEST_API void zest_SetUserData(void* data);
 ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
 //Start the main loop in the zest renderer. Must be run after zest_Initialise and also zest_SetUserUpdateCallback
 ZEST_API void zest_Start(void);
+//Free all memory used in the renderer and reset it back to an initial state.
+ZEST_API void zest_ResetRenderer();
 
 //-----------------------------------------------
 //        Vulkan_Helper_Functions

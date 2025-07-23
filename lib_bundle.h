@@ -570,7 +570,9 @@ static inline unsigned int zloc__count_bits(unsigned int n) {
 	}
 
 	static inline zloc_bool zloc__is_free_block(const zloc_header *block) {
-		return block->size & zloc__BLOCK_IS_FREE;
+		return block->size & zloc__BLOCK_IS_FREE;   //If you're crashing here, then you're probably trying to free
+                                                    //something that isn't a memory block. Maybe you should be
+                                                    //zest_vec_free or zest_map_free or maybe freeing someting twice?
 	}
 
 	static inline zloc_bool zloc__prev_is_free_block(const zloc_header *block) {
