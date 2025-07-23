@@ -1633,7 +1633,7 @@ ZEST_API void test_bucket_array();
 #define zest_bucket_array_linear_add(allocator, array, T) ((T*)zest__bucket_array_linear_add(allocator, array))
 #define zest_bucket_array_push(array, T, value) do { T* new_slot = zest_bucket_array_add(array, T); *new_slot = value; } while(0)
 #define zest_bucket_array_linear_push(allocator, array, T, value) do { T* new_slot = zest_bucket_array_linear_add(allocator, array, T); *new_slot = value; } while(0)
-#define zest_bucket_array_size(array) ((array)->total_size)
+#define zest_bucket_array_size(array) ((array)->current_size)
 #define zest_bucket_array_foreach(index, array) for (int index = 0; index != array.current_size; ++index)
 // --end of pocket bucket array
 
@@ -2864,9 +2864,9 @@ typedef struct zest_render_graph_t {
     zest_render_graph_flags flags;
     const char *name;
 
-    zest_pass_node_t *potential_passes; 
+    zest_bucket_array_t potential_passes; 
     zest_map_passes final_passes; 
-    zest_resource_node_t *resources; 
+    zest_bucket_array_t resources; 
     zest_map_resource_versions resource_versions;
 
     zest_execution_timeline *wait_on_timelines;
