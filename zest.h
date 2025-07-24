@@ -60,6 +60,7 @@
     [Compute_shaders]                   Functions for setting up your own custom compute shaders
     [Events_and_States]                 Just one function for now
     [Timer_functions]                   High resolution timer functions
+    [Window_functions]                  Open/close and edit window modes/size
     [General_Helper_functions]          General API functions - get screen dimensions some vulkan helper functions
     [Debug_Helpers]                     Functions for debugging and outputting queues to the console.
 */
@@ -2477,7 +2478,7 @@ typedef struct zest_create_info_t {
 
     //Callbacks: use these to implement your own preferred window creation functionality
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
-    void(*destroy_window_callback)(void *user_data);
+    void(*destroy_window_callback)(zest_window window, void *user_data);
     void(*poll_events_callback)(ZEST_PROTOTYPE);
     void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
     zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
@@ -2518,17 +2519,23 @@ typedef struct zest_device_t {
     zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
     zest_uint memory_pool_count;
     zloc_allocator *allocator;
-    VkAllocationCallbacks allocation_callbacks;
     char **extensions;
+
+    zest_swapchain_support_details_t swapchain_support_details;
+    VkAllocationCallbacks allocation_callbacks;
     VkInstance instance;
     VkPhysicalDevice physical_device;
     VkDevice logical_device;
     VkDebugUtilsMessengerEXT debug_messenger;
     VkSampleCountFlagBits msaa_samples;
-    zest_swapchain_support_details_t swapchain_support_details;
     VkPhysicalDeviceProperties properties;
     VkPhysicalDeviceFeatures features;
     VkPhysicalDeviceMemoryProperties memory_properties;
+    VkQueueFamilyProperties *queue_families;
+    VkCommandPool one_time_command_pool;		
+    PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
+    VkFormat color_format;
+
     zest_uint graphics_queue_family_index;
     zest_uint transfer_queue_family_index;
     zest_uint compute_queue_family_index;
@@ -2536,29 +2543,18 @@ typedef struct zest_device_t {
     zest_queue_t compute_queue;
     zest_queue_t transfer_queue;
     zest_queue *queues;
-    VkQueueFamilyProperties *queue_families;
     zest_map_queue_names queue_names;
-    VkCommandPool command_pool;     //Todo: can remove now?
-    VkCommandPool one_time_command_pool;		//Todo: can remove now?
-    PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
-    VkFormat color_format;
-    zest_map_buffer_pool_sizes pool_sizes;
-    void *allocator_start;
-    void *allocator_end;
     zest_text_t log_path;
     zest_create_info_t setup_info;
-} zest_device_t;
 
-zest_hash_map(zest_window) zest_map_windows;
+    zest_map_buffer_pool_sizes pool_sizes;
+} zest_device_t;
 
 typedef struct zest_app_t {
     zest_create_info_t create_info;
 
     void(*update_callback)(zest_microsecs, void*);
     void *user_data;
-
-    zest_map_windows windows;
-    zest_window current_window;
 
     zest_microsecs current_elapsed;
     zest_microsecs current_elapsed_time;
@@ -3631,6 +3627,7 @@ zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
 zest_hash_map(zest_render_graph) zest_map_render_graph;
 zest_hash_map(zest_report_t) zest_map_reports;
 zest_hash_map(zest_swapchain) zest_map_swapchains;
+zest_hash_map(zest_window) zest_map_windows;
 
 typedef struct zest_renderer_t {
     VkFence fif_fence[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
@@ -3683,6 +3680,9 @@ typedef struct zest_renderer_t {
     zest_map_samplers samplers;
     zest_map_rg_semaphores render_graph_semaphores;
     zest_map_swapchains swapchains;
+    zest_map_windows windows;
+
+    zest_window current_window;
 
     //For scheduled tasks
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
@@ -3713,7 +3713,7 @@ typedef struct zest_renderer_t {
 
     //Callbacks for customising window and surface creation
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
-    void(*destroy_window_callback)(void *user_data);
+    void(*destroy_window_callback)(zest_window window, void *user_data);
     void(*poll_events_callback)(ZEST_PROTOTYPE);
     void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
     zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
@@ -3789,7 +3789,7 @@ ZEST_PRIVATE VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *availab
 ZEST_PRIVATE VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
 ZEST_PRIVATE void zest__create_pipeline_cache();
 ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
-ZEST_PRIVATE void zest__destroy_window_callback(void *user_data);
+ZEST_PRIVATE void zest__destroy_window_callback(zest_window window, void *user_data);
 ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__cleanup_device(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
@@ -3946,6 +3946,7 @@ ZEST_PRIVATE void zest_vk_free_callback(void* pUserData, void *memory);
 //App_initialise_and_run_functions
 ZEST_PRIVATE void zest__do_scheduled_tasks(void);
 ZEST_PRIVATE void zest__initialise_app(zest_create_info_t *create_info);
+ZEST_PRIVATE void zest__initialise_window(zest_create_info_t *create_info);
 ZEST_PRIVATE zest_bool zest__initialise_device();
 ZEST_PRIVATE void zest__destroy(void);
 ZEST_PRIVATE void zest__main_loop(void);
@@ -4272,7 +4273,7 @@ ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest
 //Platform_dependent_callbacks
 //Depending on the platform and method you're using to create a window and poll events callbacks are used to do those things.
 //You can define those callbacks with these functions
-ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(void *user_data));
+ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(zest_window window, void *user_data));
 ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height));
 ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
 ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
@@ -5224,6 +5225,7 @@ ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer timer);                    
 //-----------------------------------------------
 ZEST_API void zest_SetWindowMode(zest_window window, zest_window_mode mode);
 ZEST_API void zest_SetWindowSize(zest_window window, zest_uint width, zest_uint height);
+ZEST_API void zest_CloseWindow(const char *name);
 
 //-----------------------------------------------
 //        General_Helper_functions
