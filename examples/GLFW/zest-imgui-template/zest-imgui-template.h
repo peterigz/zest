@@ -16,6 +16,7 @@ struct ImGuiApp {
 	zest_timer timer;
 	bool sync_refresh;
 	bool request_graph_print;
+	bool reset;
 };
 
 void InitImGuiApp(ImGuiApp *app);

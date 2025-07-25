@@ -6,7 +6,7 @@ zest_imgui zest_imgui_Initialise() {
 	ZEST_ASSERT(!imgui_info->vertex_staging_buffer[0]);	//imgui already initialised!
 	ZEST_ASSERT(!imgui_info->index_staging_buffer[0]);
 	memset(imgui_info, 0, sizeof(zest_imgui_t));
-	imgui_info->magic = zest_INIT_MAGIC;
+	imgui_info->magic = zest_INIT_MAGIC(zest_struct_type_imgui);
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());
@@ -51,7 +51,7 @@ zest_imgui zest_imgui_Initialise() {
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
 
 	io.Fonts->SetTexID((ImTextureID)font_image);
-	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestApp->current_window->window_handle, true);
+	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestRenderer->current_window->window_handle, true);
 
     imgui_info->pipeline = imgui_pipeline;
 
@@ -61,5 +61,21 @@ zest_imgui zest_imgui_Initialise() {
 	}
 
 	return imgui_info;
+}
+
+void zest_imgui_Shutdown() {
+	ImGui_ImplGlfw_Shutdown();
+	ImGui::DestroyContext();
+	zest_imgui imgui_info = &ZestRenderer->imgui_info;
+	zest_ForEachFrameInFlight(fif) {
+		zest_FreeBuffer(imgui_info->index_device_buffer[fif]);
+		zest_FreeBuffer(imgui_info->vertex_device_buffer[fif]);
+		zest_FreeBuffer(imgui_info->index_staging_buffer[fif]);
+		zest_FreeBuffer(imgui_info->vertex_staging_buffer[fif]);
+	}
+	zest_DeleteTexture(imgui_info->font_texture);
+	zest_DeletePipeline(imgui_info->pipeline);
+	zest_vec_free(imgui_info->draw_sets);
+	*imgui_info = { 0 };
 }
 

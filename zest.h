@@ -140,6 +140,9 @@ extern "C" {
 #define STBI_REALLOC(p,newsz)     ZEST__REALLOCATE(p,newsz)
 #define STBI_FREE(p)              ZEST__FREE(p)
 
+#define ZEST_SET_MEMORY_CONTEXT(context, command) ZestDevice->vulkan_memory_info.timestamp = zest_Millisecs(); \
+    ZestDevice->vulkan_memory_info.context_info = context | (command << 16);
+
 #define ZLOC_ENABLE_REMOTE_MEMORY
 #define ZLOC_THREAD_SAFE
 #define ZLOC_EXTRA_DEBUGGING
@@ -1130,10 +1133,68 @@ typedef enum {
 } zest_constants;
 
 typedef enum zest_struct_type {
-    zest_struct_type_texture = VK_STRUCTURE_TYPE_MAX_ENUM - 1,
-    zest_struct_type_image = VK_STRUCTURE_TYPE_MAX_ENUM - 2,
-    zest_struct_type_imgui_image = VK_STRUCTURE_TYPE_MAX_ENUM - 3,
+    zest_struct_type_texture                 = 1 << 16,
+    zest_struct_type_image                   = 2 << 16,
+    zest_struct_type_imgui_image             = 3 << 16,
+    zest_struct_type_image_collection        = 4 << 16,
+    zest_struct_type_sampler                 = 5 << 16,
+    zest_struct_type_font                    = 6 << 16,
+    zest_struct_type_layer                   = 7 << 16,
+    zest_struct_type_pipeline                = 8 << 16,
+    zest_struct_type_pipeline_template       = 9 << 16,
+    zest_struct_type_set_layout              = 10 << 16,
+    zest_struct_type_descriptor_set          = 11 << 16,
+    zest_struct_type_shader_resources        = 12 << 16,
+    zest_struct_type_uniform_buffer          = 13 << 16,
+    zest_struct_type_buffer_allocator        = 14 << 16,
+    zest_struct_type_descriptor_pool         = 15 << 16,
+    zest_struct_type_compute                 = 16 << 16,
+    zest_struct_type_buffer                  = 17 << 16,
+    zest_struct_type_device_memory_pool      = 18 << 16,
+    zest_struct_type_timer                   = 19 << 16,
+    zest_struct_type_window                  = 20 << 16,
+    zest_struct_type_shader                  = 21 << 16,
+    zest_struct_type_imgui                   = 22 << 16,
+    zest_struct_type_queue                   = 23 << 16,
+    zest_struct_type_execution_timeline      = 24 << 16,
+    zest_struct_type_render_graph_semaphores = 25 << 16,
+    zest_struct_type_swapchain               = 26 << 16,
+    zest_struct_type_render_graph            = 27 << 16,
+    zest_struct_type_pass_node               = 28 << 16,
+    zest_struct_type_resource_node           = 29 << 16,
+    zest_struct_type_wave_submission         = 30 << 16,
 } zest_struct_type;
+
+typedef enum zest_vulkan_memory_context {
+    zest_vk_renderer = 1,
+    zest_vk_device = 2,
+} zest_vulkan_memory_context; 
+
+typedef enum zest_vulkan_command {
+    zest_vk_surface = 1,
+    zest_vk_instance,
+    zest_vk_debug_messenger,
+    zest_vk_device_instance,
+    zest_vk_semaphore,
+    zest_vk_command_pool,
+    zest_vk_buffer,
+    zest_vk_allocate_memory,
+    zest_vk_fence,
+    zest_vk_swapchain,
+    zest_vk_pipeline_cache,
+    zest_vk_descriptor_layout,
+    zest_vk_descriptor_pool,
+    zest_vk_pipeline_layout,
+    zest_vk_pipelines,
+    zest_vk_shader_module,
+    zest_vk_sampler,
+    zest_vk_image,
+    zest_vk_image_view,
+    zest_vk_render_pass,
+    zest_vk_frame_buffer,
+    zest_vk_query_pool,
+    zest_vk_compute_pipeline,
+} zest_vulkan_command;
 
 typedef enum zest_app_flag_bits {
     zest_app_flag_none =                     0,
@@ -1298,6 +1359,7 @@ typedef enum zest_texture_flag_bits {
     zest_texture_flag_dirty                               = 1 << 4,
     zest_texture_flag_descriptor_sets_created             = 1 << 5,
     zest_texture_flag_is_fif                              = 1 << 6,
+    zest_texture_flag_was_replaced                        = 1 << 7,
 } zest_texture_flag_bits;
 
 typedef zest_uint zest_texture_flags;
@@ -1491,12 +1553,14 @@ typedef enum zest_global_binding_numbers {
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
 
-static const int zest_INIT_MAGIC = 0x4E57;
+static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
+#define zest_INIT_MAGIC(struct_type) (struct_type | ZEST_STRUCT_IDENTIFIER);
 
-#define ZEST_ASSERT_INIT(magic) ZEST_ASSERT(magic == zest_INIT_MAGIC)
-#define ZEST_ASSERT_UNINIT(magic) ZEST_ASSERT(magic != zest_INIT_MAGIC)
-#define ZEST_CHECK_HANDLE(handle) ZEST_ASSERT(handle && *((int*)handle) == zest_INIT_MAGIC)
-#define ZEST_VALID_HANDLE(handle) (handle && *((int*)handle) == zest_INIT_MAGIC)
+#define ZEST_CHECK_HANDLE(handle) ZEST_ASSERT(handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
+#define ZEST_VALID_HANDLE(handle) (handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
+#define ZEST_STRUCT_TYPE(handle) (*((int*)handle) & 0xFFFF0000)
+#define ZEST_STRUCT_MAGIC_TYPE(magic) (magic & 0xFFFF0000)
+#define ZEST_IS_INTITIALISED(magic) (magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER
 
 // --Forward_declarations
 typedef struct zest_texture_t zest_texture_t;
@@ -1555,7 +1619,6 @@ ZEST__MAKE_HANDLE(zest_queue)
 ZEST__MAKE_HANDLE(zest_execution_timeline)
 ZEST__MAKE_HANDLE(zest_render_graph_semaphores)
 ZEST__MAKE_HANDLE(zest_swapchain)
-
 ZEST__MAKE_HANDLE(zest_render_graph)
 ZEST__MAKE_HANDLE(zest_pass_node)
 ZEST__MAKE_HANDLE(zest_resource_node)
@@ -1765,6 +1828,7 @@ zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed);
 //-- End of Pocket Hasher
 
 // --Begin Pocket_hash_map
+//  For internal use only
 typedef struct {
     zest_key key;
     zest_index index;
@@ -1796,6 +1860,7 @@ ZEST_PRIVATE zest_index zest__map_get_index(zest_hash_pair *map, zest_key key) {
 #define zest_map_get_index_by_key(hash_map, key) zest__map_get_index(hash_map.map, key);
 #define zest_map_get_index_by_name(hash_map, name) zest__map_get_index(hash_map.map, zest_map_hash(hash_map, name));
 #define zest_map_remove(hash_map, name) {zest_key key = zest_map_hash(hash_map, name); zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(hash_map.free_slots, index); }
+#define zest_map_remove_key(hash_map, name) { zest_hash_pair *it = zest__lower_bound(hash_map.map, key); zest_index index = it->index; zest_vec_erase(hash_map.map, it); zest_vec_push(hash_map.free_slots, index); }
 #define zest_map_last_index(hash_map) (hash_map.last_index)
 #define zest_map_size(hash_map) (hash_map.map ? zest__vec_header(hash_map.data)->current_size : 0)
 #define zest_map_clear(hash_map) zest_vec_clear(hash_map.map); zest_vec_clear(hash_map.data); zest_vec_clear(hash_map.free_slots)
@@ -2505,6 +2570,11 @@ typedef struct zest_queue_t {
     zest_uint next_buffer;
 } zest_queue_t;
 
+typedef struct zest_vulkan_memory_info_t {
+    zest_millisecs timestamp;
+    int context_info;
+} zest_vulkan_memory_info_t;
+
 zest_hash_map(const char *) zest_map_queue_names;
 
 typedef struct zest_device_t {
@@ -2520,6 +2590,7 @@ typedef struct zest_device_t {
     zest_uint memory_pool_count;
     zloc_allocator *allocator;
     char **extensions;
+    zest_vulkan_memory_info_t vulkan_memory_info;
 
     zest_swapchain_support_details_t swapchain_support_details;
     VkAllocationCallbacks allocation_callbacks;
@@ -3122,10 +3193,14 @@ typedef struct zest_render_pass_info_s{
 	int depth_buffer;
 } zest_render_pass_info_t;
 
+typedef struct zest_cached_pipeline_key_t {
+	zest_key pipeline_key;
+	VkRenderPass render_pass;
+} zest_cached_pipeline_key_t;
+
 //Pipeline template is used with CreatePipeline to create a vulkan pipeline. Use PipelineTemplate() or SetPipelineTemplate with PipelineTemplateCreateInfo to create a PipelineTemplate
 typedef struct zest_pipeline_template_t {
     int magic;
-    zest_hasher_t hasher;
     zest_text_t name;                                                            //Name for the pipeline just for labelling it when listing all the renderer objects in debug
     VkPipelineShaderStageCreateInfo vertShaderStageInfo;
     VkPipelineShaderStageCreateInfo fragShaderStageInfo;
@@ -3160,6 +3235,8 @@ typedef struct zest_pipeline_template_t {
     VkPrimitiveTopology topology;
     zest_text_t vertShaderFile;
     zest_text_t fragShaderFile;
+
+    zest_key *cached_pipeline_keys;
 } zest_pipeline_template_t;
 
 typedef struct zest_pipeline_descriptor_writes_t {
@@ -3497,7 +3574,6 @@ typedef struct zest_bitmap_array_t {
 
 typedef struct zest_image_t {
     int magic;
-    zest_struct_type struct_type;
     zest_index index;            //index within the QulkanTexture
     zest_text_t name;            //Filename of the image
     zest_uint width;
@@ -3517,7 +3593,6 @@ typedef struct zest_image_t {
 
 typedef struct zest_imgui_image_t {
     int magic;
-    zest_struct_type struct_type;
     zest_image image;
     zest_pipeline_template pipeline;
     zest_shader_resources shader_resources;
@@ -3533,7 +3608,6 @@ typedef struct zest_framebuffer_attachment_t {
 
 typedef struct zest_texture_t {
     int magic;
-    zest_struct_type struct_type;
     VkImageLayout image_layout;
     VkFormat image_format;
     VkImageViewType image_view_type;
@@ -3576,6 +3650,7 @@ typedef struct zest_texture_t {
 } zest_texture_t;
 
 typedef struct zest_image_collection_t {
+    int magic;
     zest_bitmap_t *image_bitmaps;
     zest_image *images;
     zest_bitmap_t *layers;
@@ -3810,6 +3885,7 @@ ZEST_PRIVATE void zest__compile_builtin_shaders(zest_bool compile_shaders);
 ZEST_PRIVATE void zest__create_debug_layout_and_pool(zest_uint max_texture_count);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__cleanup_pipelines(void);
+ZEST_PRIVATE void zest__cleanup_pipeline_templates(void);
 ZEST_PRIVATE void zest__cleanup_textures(void);
 ZEST_PRIVATE void zest__cleanup_framebuffer(zest_frame_buffer_t *frame_buffer);
 ZEST_PRIVATE void zest__refresh_pipeline_template(zest_pipeline_template pipeline);
@@ -3888,9 +3964,10 @@ ZEST_PRIVATE void zest__set_pipeline_template(zest_pipeline_template pipeline_te
 ZEST_PRIVATE void zest__update_pipeline_template(zest_pipeline_template pipeline_template);
 ZEST_PRIVATE VkShaderModule zest__create_shader_module(char *code);
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
-ZEST_PRIVATE zest_pipeline zest__cache_pipeline(zest_pipeline_template pipeline_template, VkRenderPass render_pass);
+ZEST_PRIVATE zest_pipeline zest__cache_pipeline(zest_pipeline_template pipeline_template, VkRenderPass render_pass, zest_key key);
 ZEST_PRIVATE zest_uint zest__get_vk_format_size(VkFormat format);
 ZEST_PRIVATE int zest__compare_interface_variables(const void *a, const void *b);
+ZEST_PRIVATE void zest__destroy_pipeline(zest_pipeline p);
 // --End Pipeline Helper Functions
 
 // --Buffer_allocation_funcitons
@@ -4266,6 +4343,8 @@ ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
 ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_template);
+//Delete a pipeline including the template and any cached versions of the pipeline
+ZEST_API void zest_DeletePipeline(zest_pipeline_template pipeline_template);
 //-- End Pipeline related
 
 //--End vulkan helper functions
@@ -5225,6 +5304,7 @@ ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer timer);                    
 //-----------------------------------------------
 ZEST_API void zest_SetWindowMode(zest_window window, zest_window_mode mode);
 ZEST_API void zest_SetWindowSize(zest_window window, zest_uint width, zest_uint height);
+ZEST_API zest_window zest_GetCurrentWindow();
 ZEST_API void zest_CloseWindow(const char *name);
 
 //-----------------------------------------------
@@ -5335,6 +5415,7 @@ ZEST_API void zest_OutputMemoryUsage();
 ZEST_API zest_bool zest_SetErrorLogPath(const char *path);
 //Print out any reports that have been collected to the console
 ZEST_API void zest_PrintReports();
+ZEST_API void zest_PrintMemeoryBlocks(zloc_header *first_block);
 //--End Debug Helpers
 
 #ifdef __cplusplus

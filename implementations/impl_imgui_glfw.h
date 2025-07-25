@@ -7,4 +7,5 @@
 #include <imgui/backends/imgui_impl_glfw.h>
 
 zest_imgui zest_imgui_Initialise();
+void zest_imgui_Shutdown();
 

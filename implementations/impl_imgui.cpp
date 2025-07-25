@@ -121,7 +121,7 @@ void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_buf
                 zest_push_constants_t *push_constants = &imgui_info->push_constants;
 
 				zest_pipeline pipeline = zest_PipelineWithTemplate(imgui_info->pipeline, context->render_pass);
-                switch (current_image->struct_type) {
+                switch (ZEST_STRUCT_MAGIC_TYPE(current_image->magic)) {
                 case zest_struct_type_image:
                     if (last_pipeline != imgui_info->pipeline || last_descriptor_set != current_image->texture->debug_set->vk_descriptor_set) {
                         last_descriptor_set = current_image->texture->debug_set->vk_descriptor_set;

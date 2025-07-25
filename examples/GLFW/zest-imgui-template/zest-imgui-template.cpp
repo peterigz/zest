@@ -32,6 +32,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(60);
 	app->request_graph_print = true;
+	app->reset = false;
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -63,32 +64,40 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zloc_VerifyAllRemoteBlocks(0, 0);
 		}
 		if (ImGui::Button("Bordered")) {
-			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_bordered);
+			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_bordered);
 		}
 		if (ImGui::Button("Borderless")) {
-			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_borderless);
+			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_borderless);
 		}
 		if (ImGui::Button("Full Screen")) {
-			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_fullscreen);
+			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_fullscreen);
 		}
 		if (ImGui::Button("Set window size to 1000 x 750")) {
-			zest_SetWindowSize(ZestApp->current_window, 1000, 750);
+			zest_SetWindowSize(zest_GetCurrentWindow(), 1000, 750);
+		}
+		if (ImGui::Button("Reset Renderer")) {
+			app->reset = true;
 		}
 		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
-		/*
-		//Test for memory leaks in the render graph
+		//Test for memory leaks in zest
 		for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
 			zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
 			ImGui::Text("Free Blocks: %i, Used Blocks: %i", stats.free_blocks, stats.used_blocks);
 			ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb), Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024, stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 		}
-		*/
 		ImGui::End();
 		ImGui::Render();
 		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
 		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 		zest_imgui_UpdateBuffers();
 	} zest_EndTimerLoop(app->timer);
+
+	if (app->reset) {
+		app->reset = false;
+		zest_imgui_Shutdown();
+		zest_ResetRenderer();
+		InitImGuiApp(app);
+	}
 
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
@@ -115,7 +124,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
-			zest_PrintCompiledRenderGraph(render_graph);
+			//zest_PrintCompiledRenderGraph(render_graph);
 			app->request_graph_print = false;
 		}
 	}
