@@ -31,6 +31,7 @@ zest_window_t *zest_implglfw_CreateWindowCallback(int x, int y, int width, int h
 }
 
 void zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
 	ZEST_VK_CHECK_RESULT(glfwCreateWindowSurface(ZestDevice->instance, (GLFWwindow*)window->window_handle, &ZestDevice->allocation_callbacks, &window->surface));
 }
 

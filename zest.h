@@ -140,9 +140,6 @@ extern "C" {
 #define STBI_REALLOC(p,newsz)     ZEST__REALLOCATE(p,newsz)
 #define STBI_FREE(p)              ZEST__FREE(p)
 
-#define ZEST_SET_MEMORY_CONTEXT(context, command) ZestDevice->vulkan_memory_info.timestamp = zest_Millisecs(); \
-    ZestDevice->vulkan_memory_info.context_info = context | (command << 16);
-
 #define ZLOC_ENABLE_REMOTE_MEMORY
 #define ZLOC_THREAD_SAFE
 #define ZLOC_EXTRA_DEBUGGING
@@ -1163,6 +1160,9 @@ typedef enum zest_struct_type {
     zest_struct_type_pass_node               = 28 << 16,
     zest_struct_type_resource_node           = 29 << 16,
     zest_struct_type_wave_submission         = 30 << 16,
+    zest_struct_type_renderer                = 31 << 16,
+    zest_struct_type_device                  = 32 << 16,
+    zest_struct_type_app                     = 33 << 16,
 } zest_struct_type;
 
 typedef enum zest_vulkan_memory_context {
@@ -1173,12 +1173,14 @@ typedef enum zest_vulkan_memory_context {
 typedef enum zest_vulkan_command {
     zest_vk_surface = 1,
     zest_vk_instance,
+    zest_vk_logical_device,
     zest_vk_debug_messenger,
     zest_vk_device_instance,
     zest_vk_semaphore,
     zest_vk_command_pool,
     zest_vk_buffer,
-    zest_vk_allocate_memory,
+    zest_vk_allocate_memory_pool,
+    zest_vk_allocate_memory_image,
     zest_vk_fence,
     zest_vk_swapchain,
     zest_vk_pipeline_cache,
@@ -1561,6 +1563,10 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 #define ZEST_STRUCT_TYPE(handle) (*((int*)handle) & 0xFFFF0000)
 #define ZEST_STRUCT_MAGIC_TYPE(magic) (magic & 0xFFFF0000)
 #define ZEST_IS_INTITIALISED(magic) (magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER
+
+#define ZEST_SET_MEMORY_CONTEXT(context, command) ZestDevice->vulkan_memory_info.timestamp = ZestDevice->allocation_id++; \
+    ZestDevice->vulkan_memory_info.context_info = ZEST_STRUCT_IDENTIFIER | (context << 16) | (command << 24)
+
 
 // --Forward_declarations
 typedef struct zest_texture_t zest_texture_t;
@@ -2296,6 +2302,12 @@ typedef struct zest_resource_identifier_t {
     zest_resource_type type;
 } zest_resource_identifier_t;
 
+typedef struct zest_memory_stats_t {
+    zest_uint device_allocations;
+    zest_uint renderer_allocations;
+    zest_uint filter_count;
+} zest_memory_stats_t;
+
 typedef struct zest_timer_t {
     int magic;
     double start_time;
@@ -2572,12 +2584,13 @@ typedef struct zest_queue_t {
 
 typedef struct zest_vulkan_memory_info_t {
     zest_millisecs timestamp;
-    int context_info;
+    zest_uint context_info;
 } zest_vulkan_memory_info_t;
 
 zest_hash_map(const char *) zest_map_queue_names;
 
 typedef struct zest_device_t {
+    int magic;
     zest_uint api_version;
     zest_uint use_labels_address_bit;
     zest_uint previous_fif;
@@ -2591,6 +2604,7 @@ typedef struct zest_device_t {
     zloc_allocator *allocator;
     char **extensions;
     zest_vulkan_memory_info_t vulkan_memory_info;
+    zest_uint allocation_id;
 
     zest_swapchain_support_details_t swapchain_support_details;
     VkAllocationCallbacks allocation_callbacks;
@@ -2622,6 +2636,7 @@ typedef struct zest_device_t {
 } zest_device_t;
 
 typedef struct zest_app_t {
+    int magic;
     zest_create_info_t create_info;
 
     void(*update_callback)(zest_microsecs, void*);
@@ -3705,6 +3720,8 @@ zest_hash_map(zest_swapchain) zest_map_swapchains;
 zest_hash_map(zest_window) zest_map_windows;
 
 typedef struct zest_renderer_t {
+    int magic;
+
     VkFence fif_fence[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
     zest_uint fence_count[ZEST_MAX_FIF];
 
@@ -3993,6 +4010,7 @@ ZEST_PRIVATE bool zest__binding_exists_in_layout_builder(zest_set_layout_builder
 ZEST_PRIVATE VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_set_layout layout, zest_uint binding_index);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout_handle, zest_uint binding_number);
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout_handle, zest_uint binding_number, zest_uint index_to_release);
+ZEST_PRIVATE void zest__destroy_set_layout(zest_set_layout layout_handle);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -5415,7 +5433,8 @@ ZEST_API void zest_OutputMemoryUsage();
 ZEST_API zest_bool zest_SetErrorLogPath(const char *path);
 //Print out any reports that have been collected to the console
 ZEST_API void zest_PrintReports();
-ZEST_API void zest_PrintMemeoryBlocks(zloc_header *first_block);
+ZEST_PRIVATE void zest__print_block_info(void *allocation, zloc_header *current_block, zest_vulkan_memory_context context_filter, zest_vulkan_command command_filter);
+ZEST_API void zest_PrintMemeoryBlocks(zloc_header *first_block, zest_bool output_all, zest_vulkan_memory_context context_filter, zest_vulkan_command command_filter);
 //--End Debug Helpers
 
 #ifdef __cplusplus

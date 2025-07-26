@@ -1430,6 +1430,9 @@ zest_bool zest_Initialise(zest_create_info_t* info) {
     memset(ZestDevice, 0, sizeof(zest_device_t));
     memset(ZestApp, 0, sizeof(zest_app_t));
     memset(ZestRenderer, 0, sizeof(zest_renderer_t));
+    ZestRenderer->magic = zest_INIT_MAGIC(zest_struct_type_renderer);
+    ZestDevice->magic = zest_INIT_MAGIC(zest_struct_type_device);
+    ZestApp->magic = zest_INIT_MAGIC(zest_struct_type_app);
     ZestDevice->allocator = allocator;
     ZestDevice->memory_pools[0] = memory_pool;
     ZestDevice->memory_pool_sizes[0] = info->memory_pool_size;
@@ -1468,8 +1471,15 @@ void zest_ResetRenderer() {
 
     zest_WaitForIdleDevice();
 
+    zest_vulkan_command command_filter = zest_vk_descriptor_pool;
+
+    zest_PrintMemeoryBlocks(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)), 1, zest_vk_renderer, command_filter);
+    ZEST_PRINT("-----------------------------------------------------------------------------------------");
+    ZEST_PRINT("-----------------------------------------------------------------------------------------");
     zest__cleanup_renderer();
-    zest_PrintMemeoryBlocks(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
+    zest_PrintMemeoryBlocks(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)), 1, zest_vk_renderer, command_filter);
+    ZEST_PRINT("-----------------------------------------------------------------------------------------");
+    ZEST_PRINT("-----------------------------------------------------------------------------------------");
     zest_create_info_t *info = &ZestApp->create_info;
     ZestRenderer->destroy_window_callback = info->destroy_window_callback;
     ZestRenderer->get_window_size_callback = info->get_window_size_callback;
@@ -1482,6 +1492,7 @@ void zest_ResetRenderer() {
 	zest__initialise_window(&ZestApp->create_info);
     ZestRenderer->create_window_surface_callback(ZestRenderer->current_window);
     zest__initialise_renderer(&ZestApp->create_info);
+    //zest_PrintMemeoryBlocks(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)), 1, zest_vk_renderer, command_filter);
 }
 
 zest_bool zest__initialise_device() {
@@ -2095,7 +2106,7 @@ zest_bool zest__create_logical_device() {
     }
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating logical device");
-    ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_device);
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_logical_device);
     ZEST_VK_CHECK_RESULT(vkCreateDevice(ZestDevice->physical_device, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->logical_device));
 
     vkGetDeviceQueue(ZestDevice->logical_device, indices.graphics_family_index, 0, &ZestDevice->graphics_queue.vk_queue);
@@ -2285,6 +2296,9 @@ void *zest_vk_allocate_callback(void *pUserData, size_t size, size_t alignment, 
     zest_vulkan_memory_info_t *pInfo = (zest_vulkan_memory_info_t *)pUserData;
     void *pAllocation = ZEST__ALLOCATE(size + sizeof(zest_vulkan_memory_info_t));
     *(zest_vulkan_memory_info_t *)pAllocation = *pInfo;
+    if ((pInfo->context_info & 0xff000000) >> 24 == zest_vk_descriptor_pool) {
+        int d = 0;
+    }
     return (void *)((zest_vulkan_memory_info_t *)pAllocation + 1);
 }
 
@@ -2298,6 +2312,9 @@ void *zest_vk_reallocate_callback(void *pUserData, void *pOriginal, size_t size,
 
 void zest_vk_free_callback(void *pUserData, void *memory) {
     zest_vulkan_memory_info_t *original_allocation = (zest_vulkan_memory_info_t *)memory - 1;
+    if (original_allocation->timestamp == 1) {
+        int d = 0;
+    }
     ZEST__FREE(original_allocation);
 }
 
@@ -2683,7 +2700,7 @@ void zest__create_device_memory_pool(VkDeviceSize size, zest_buffer_info_t *buff
         alloc_info.pNext = &flags;
     }
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
-	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_allocate_memory);
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_allocate_memory_pool);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &memory_pool->memory));
 
     memory_pool->size = memory_requirements.size;
@@ -2717,7 +2734,7 @@ void zest__create_image_memory_pool(VkDeviceSize size_in_bytes, VkImage image, z
     buffer->usage_flags = 0;
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, buffer_info->alignment, buffer_info->memory_type_bits);
-	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_allocate_memory);
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_allocate_memory_pool);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, &buffer->memory));
 }
 
@@ -3875,6 +3892,7 @@ void zest__cleanup_renderer() {
             vkDestroyDescriptorPool(ZestDevice->logical_device, layout->pool->vk_descriptor_pool, &ZestDevice->allocation_callbacks);
         }
     }
+	vkDestroyDescriptorPool(ZestDevice->logical_device, ZestRenderer->texture_debug_layout->pool->vk_descriptor_pool, &ZestDevice->allocation_callbacks);
 
     zest_ForEachFrameInFlight(i) {
         for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
@@ -3961,7 +3979,7 @@ void zest__cleanup_renderer() {
 
 	zest_vec_foreach(i, ZestRenderer->uniform_buffers) {
 		zest_uniform_buffer uniform_buffer = ZestRenderer->uniform_buffers[i];
-		ZEST__FREE(uniform_buffer->set_layout);
+        zest__destroy_set_layout(uniform_buffer->set_layout);
         zest_ForEachFrameInFlight(fif) {
             zest_FreeBuffer(uniform_buffer->buffer[fif]);
             ZEST__FREE(uniform_buffer->descriptor_set[fif]);
@@ -3973,16 +3991,14 @@ void zest__cleanup_renderer() {
         zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
         zest_vec_foreach(j, buffer_allocator->memory_pools) {
             zest__destroy_memory(buffer_allocator->memory_pools[j]);
-            //ZEST__FREE(buffer_allocator->memory_pools[j]);
+            ZEST__FREE(buffer_allocator->memory_pools[j]);
         }
-        /*
         zest_vec_free(buffer_allocator->memory_pools);
         zest_vec_foreach(j, buffer_allocator->range_pools) {
             ZEST__FREE(buffer_allocator->range_pools[j]);
         }
         zest_vec_free(buffer_allocator->range_pools);
         ZEST__FREE(buffer_allocator->allocator);
-        */
     }
 
     zest_map_foreach(i, ZestRenderer->windows) {
@@ -4497,6 +4513,21 @@ void zest__release_bindless_index(zest_set_layout layout_handle, zest_uint bindi
 
     ZEST_ASSERT(index_to_release < manager->capacity);
     zest_vec_push(manager->free_indices, index_to_release);
+}
+
+void zest__destroy_set_layout(zest_set_layout layout) {
+    ZEST_CHECK_HANDLE(layout);  //Not a valid layout handle!
+    zest_vec_free(layout->layout_bindings);
+    vkDestroyDescriptorSetLayout(ZestDevice->logical_device, layout->vk_layout, &ZestDevice->allocation_callbacks);
+    zest_FreeText(&layout->name);
+    zest_vec_foreach(i, layout->descriptor_indexes) {
+        zest_vec_free(layout->descriptor_indexes[i].free_indices);
+    }
+    zest_vec_free(layout->descriptor_indexes);
+    zest_vec_free(layout->pool->vk_pool_sizes);
+    vkDestroyDescriptorPool(ZestDevice->logical_device, layout->pool->vk_descriptor_pool, &ZestDevice->allocation_callbacks);
+    ZEST__FREE(layout->pool);
+	ZEST__FREE(layout);
 }
 
 VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(zest_uint count, VkDescriptorSetLayoutBinding* bindings) {
@@ -5776,7 +5807,7 @@ VkCommandPool zest__create_queue_command_pool(int queue_family_index) {
 	cmd_info_pool.queueFamilyIndex = queue_family_index;
 	cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
     VkCommandPool command_pool;
-	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_command_pool);
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_command_pool);
 	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &command_pool));
     return command_pool;
 }
@@ -7195,7 +7226,7 @@ void zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint m
     alloc_info.allocationSize = memRequirements.size;
     alloc_info.memoryTypeIndex = zest_find_memory_type(memRequirements.memoryTypeBits, properties);
 
-	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_allocate_memory);
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_allocate_memory_image);
     ZEST_VK_CHECK_RESULT(vkAllocateMemory(ZestDevice->logical_device, &alloc_info, &ZestDevice->allocation_callbacks, memory));
 
     vkBindImageMemory(ZestDevice->logical_device, *image, *memory, 0);
@@ -15250,13 +15281,86 @@ const char *zest__struct_type_to_string(zest_struct_type struct_type) {
 	case zest_struct_type_pass_node               : return "pass_node"; break;
 	case zest_struct_type_resource_node           : return "resource_node"; break;
 	case zest_struct_type_wave_submission         : return "wave_submission"; break;
+	case zest_struct_type_renderer                : return "renderer"; break;
+	case zest_struct_type_device                  : return "device"; break;
+	case zest_struct_type_app                     : return "app"; break;
     default: return "UNKNOWN"; break;
     }
     return "UNKNOWN";
 }
 
-void zest_PrintMemeoryBlocks(zloc_header *first_block) {
+const char *zest__vulkan_command_to_string(zest_vulkan_command command) {
+    switch (command) {
+		case zest_vk_surface                : return "Surface"; break;
+		case zest_vk_instance               : return "Instance"; break;
+		case zest_vk_logical_device         : return "Instance"; break;
+		case zest_vk_debug_messenger        : return "Debug Messenger"; break;
+		case zest_vk_device_instance        : return "Device Instance"; break;
+		case zest_vk_semaphore              : return "Semaphore"; break;
+		case zest_vk_command_pool           : return "Command Pool"; break;
+		case zest_vk_buffer                 : return "Buffer"; break;
+		case zest_vk_allocate_memory_pool   : return "Allocate Memory Pool"; break;
+		case zest_vk_allocate_memory_image  : return "Allocate Memory Image"; break;
+		case zest_vk_fence                  : return "Fence"; break;
+		case zest_vk_swapchain              : return "Swapchain"; break;
+		case zest_vk_pipeline_cache         : return "Pipeline Cache"; break;
+		case zest_vk_descriptor_layout      : return "Descriptor Layout"; break;
+		case zest_vk_descriptor_pool        : return "Descriptor Pool"; break;
+		case zest_vk_pipeline_layout        : return "Pipeline Layout"; break;
+		case zest_vk_pipelines              : return "Pipelines"; break;
+		case zest_vk_shader_module          : return "Shader Module"; break;
+		case zest_vk_sampler                : return "Sampler"; break;
+		case zest_vk_image                  : return "Image"; break;
+		case zest_vk_image_view             : return "Image View"; break;
+		case zest_vk_render_pass            : return "Render Pass"; break;
+		case zest_vk_frame_buffer           : return "Frame Buffer"; break;
+		case zest_vk_query_pool             : return "Query Pool"; break;
+		case zest_vk_compute_pipeline       : return "Compute Pipeline"; break;
+		default: return "UNKNOWN"; break;
+    }
+    return "UNKNOWN";
+}
+
+const char *zest__vulkan_context_to_string(zest_vulkan_memory_context context) {
+    switch (context) {
+		case zest_vk_renderer         : return "Renderer"; break;
+		case zest_vk_device           : return "Device"; break;
+		default: return "UNKNOWN"; break;
+    }
+    return "UNKNOWN";
+}
+
+void zest__print_block_info(void *allocation, zloc_header *current_block, zest_vulkan_memory_context context_filter, zest_vulkan_command command_filter) {
+    if (ZEST_VALID_HANDLE(allocation)) {
+		zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
+		switch (struct_type) {
+		case zest_struct_type_texture:
+			zest_texture texture = (zest_texture)allocation;
+			//ZEST_PRINT("Allocation: %p, size: %zu, type: %s - Texture name: %s", allocation, current_block->size, zest__struct_type_to_string(struct_type), texture->name.str);
+			break;
+		default:
+			//ZEST_PRINT("Allocation: %p, size: %zu, type: %s", allocation, current_block->size, zest__struct_type_to_string(struct_type));
+			break;
+		}
+    } else {
+        //Is it a vulkan allocation?
+        zest_vulkan_memory_info_t *vulkan_info = (zest_vulkan_memory_info_t *)allocation;
+        zest_uint context = (vulkan_info->context_info & 0xff0000) >> 16;
+        zest_uint command = (vulkan_info->context_info & 0xff000000) >> 24;
+        if ((!command_filter || command == command_filter) && (!context_filter || context_filter == context)) {
+            if (ZEST_IS_INTITIALISED(vulkan_info->context_info)) {
+                ZEST_PRINT("Vulkan allocation: %p, Timestamp: %u, Category: %s, Command: %s", allocation, vulkan_info->timestamp,
+                    zest__vulkan_context_to_string(context),
+                    zest__vulkan_command_to_string(command)
+                );
+            }
+        }
+    }
+}
+
+void zest_PrintMemeoryBlocks(zloc_header *first_block, zest_bool output_all, zest_vulkan_memory_context context_filter, zest_vulkan_command command_filter) {
     zloc_pool_stats_t stats = { 0 };
+    zest_memory_stats_t zest_stats = { 0 };
     zloc_header *current_block = first_block;
     ZEST_PRINT("Current used blocks in ZEST memory");
     while (!zloc__is_last_block_in_pool(current_block)) {
@@ -15266,19 +15370,20 @@ void zest_PrintMemeoryBlocks(zloc_header *first_block) {
         } else {
             stats.used_blocks++;
             stats.used_size += zloc__block_size(current_block);
-            void *allocation = (void*)(current_block + 1);
-            if (ZEST_VALID_HANDLE(allocation)) {
-                zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
-                switch (struct_type) {
-                case zest_struct_type_texture:
-                    zest_texture texture = (zest_texture)allocation;
-                    ZEST_PRINT("Allocation: %p, size: %zu, type: %s - Texture name: %s", allocation, current_block->size, zest__struct_type_to_string(struct_type), texture->name.str);
-                    break;
-                default:
-                    break;
-                }
-            //} else {
-				//ZEST_PRINT("Allocation: %p, size: %zu, type: OTHER", allocation, current_block->size);
+            void *allocation = (void*)((char*)current_block + zloc__BLOCK_POINTER_OFFSET);
+            if (output_all) {
+                zest__print_block_info(allocation, current_block, context_filter, command_filter);
+            }
+			zest_vulkan_memory_info_t *vulkan_info = (zest_vulkan_memory_info_t *)allocation;
+			zest_uint context = (vulkan_info->context_info & 0xff0000) >> 16;
+			zest_uint command = (vulkan_info->context_info & 0xff000000) >> 24;
+            if (context == zest_vk_device) {
+                zest_stats.device_allocations++;
+            } else {
+                zest_stats.renderer_allocations++;
+            }
+            if (command_filter == command && context_filter == context) {
+                zest_stats.filter_count++;
             }
         }
         current_block = zloc__next_physical_block(current_block);
@@ -15289,10 +15394,23 @@ void zest_PrintMemeoryBlocks(zloc_header *first_block) {
     } else {
         stats.used_blocks++;
         stats.used_size += zloc__block_size(current_block);
-		void *allocation = (void*)(current_block + 1);
-		zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
-		ZEST_PRINT("Allocation: %p, size: %zu, type: %s", allocation, current_block->size, zest__struct_type_to_string(struct_type));
+		void *allocation = (void*)((char*)current_block + zloc__BLOCK_SIZE_OVERHEAD);
+        if (output_all) {
+            zest__print_block_info(allocation, current_block, context_filter, command_filter);
+        }
+        zest_vulkan_memory_info_t *vulkan_info = (zest_vulkan_memory_info_t *)allocation;
+        zest_uint context = (vulkan_info->context_info & 0xff0000) >> 16;
+        zest_uint command = (vulkan_info->context_info & 0xff000000) >> 24;
+        if (context == zest_vk_device) {
+            zest_stats.device_allocations++;
+        } else {
+            zest_stats.renderer_allocations++;
+        }
+        if (command_filter == command && context_filter == context) {
+            zest_stats.filter_count++;
+        }
     }
+    ZEST_PRINT("Device allocations: %u, Renderer Allocations: %u, Filter Allocations: %u", zest_stats.device_allocations, zest_stats.renderer_allocations, zest_stats.filter_count);
 }
 
 zest_bool zest_SetErrorLogPath(const char* path) {
