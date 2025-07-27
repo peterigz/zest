@@ -1178,6 +1178,7 @@ typedef enum zest_vulkan_command {
     zest_vk_device_instance,
     zest_vk_semaphore,
     zest_vk_command_pool,
+    zest_vk_command_buffer,
     zest_vk_buffer,
     zest_vk_allocate_memory_pool,
     zest_vk_allocate_memory_image,

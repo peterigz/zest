@@ -7,6 +7,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Implement a dark style
 	zest_imgui_DarkStyle();
 	
+	/*
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -20,7 +21,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 
 	//Rebuild the Zest font texture
-	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
+	//zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
+	*/
 
 	//Create a texture to load in a test image to show drawing that image in an imgui window
 	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
