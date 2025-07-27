@@ -2844,7 +2844,8 @@ zest_device_memory_pool zest__create_vk_memory_pool(zest_buffer_info_t* buffer_i
             ZEST_PRINT_WARNING(ZEST_WARNING_COLOR"Allocating memory where no default pool size was found for usage flags: %i and property flags: %i. Defaulting to next power from size + size / 2",
                 buffer_info->usage_flags, buffer_info->property_flags);
         }
-        buffer_pool->size = zest_GetNextPower(minimum_size + minimum_size / 2);
+        //Todo: we need a better solution then this
+        buffer_pool->size = ZEST__MAX(zest_GetNextPower(minimum_size + minimum_size / 2), zloc__MEGABYTE(16));
         buffer_pool->name = "Unknown";
         buffer_pool->minimum_allocation_size = zest__get_minimum_block_size(buffer_pool->size);
     }
@@ -3031,6 +3032,9 @@ zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t* buffer_info
         buffer_allocator->allocator->unable_to_reallocate_callback = zest__on_reallocation_copy;
         buffer_allocator->allocator->merge_next_callback = zest__remote_merge_next_callback;
         buffer_allocator->allocator->merge_prev_callback = zest__remote_merge_prev_callback;
+        if (buffer_pool->size == 1) {
+            int d = 0;
+        }
         zloc_AddRemotePool(buffer_allocator->allocator, range_pool, range_pool_size, buffer_pool->size);
     }
 
@@ -4077,7 +4081,6 @@ void zest__cleanup_renderer() {
     zest_map_free(ZestRenderer->samplers);
     zest_map_free(ZestRenderer->render_graph_semaphores);
     zest_map_free(ZestRenderer->swapchains);
-    zest_map_free(ZestDevice->pool_sizes);
     zest_map_free(ZestRenderer->windows);
     zest_map_free(ZestRenderer->timers);
 
@@ -5594,6 +5597,7 @@ void zest_DeletePipeline(zest_pipeline_template pipeline_template) {
     zest_vec_free(pipeline_template->attributeDescriptions);
     zest_vec_free(pipeline_template->bindingDescriptions);
     zest_vec_free(pipeline_template->cached_pipeline_keys);
+    zest_vec_free(pipeline_template->dynamicStates);
     ZEST__FREE(pipeline_template);
 }
 
