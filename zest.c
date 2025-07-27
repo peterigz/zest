@@ -3883,6 +3883,7 @@ void zest__cleanup_device(void) {
     zest_vec_free(ZestDevice->queue_families);
     zest_vec_free(ZestDevice->queues);
     zest_map_free(ZestDevice->queue_names);
+    zest_map_free(ZestDevice->pool_sizes);
     ZEST__FREE(ZestDevice->swapchain_support_details.formats);
     ZEST__FREE(ZestDevice->swapchain_support_details.present_modes);
     zest_FreeText(&ZestDevice->log_path);
