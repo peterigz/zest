@@ -20,6 +20,7 @@ zest_imgui zest_imgui_Initialise() {
 	imgui_info->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
 	zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, &font_bitmap);
 	zest_ProcessTextureImages(imgui_info->font_texture);
+	zest_FreeBitmap(&font_bitmap);
 
 	//ImGuiPipeline
 	zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate("pipeline_imgui");
@@ -76,6 +77,7 @@ void zest_imgui_Shutdown() {
 	zest_DeleteTexture(imgui_info->font_texture);
 	zest_DeletePipeline(imgui_info->pipeline);
 	zest_vec_free(imgui_info->draw_sets);
+	zest_FreeShaderResources(imgui_info->shader_resources);
 	*imgui_info = { 0 };
 }
 

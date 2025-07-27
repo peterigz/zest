@@ -1163,6 +1163,7 @@ typedef enum zest_struct_type {
     zest_struct_type_renderer                = 31 << 16,
     zest_struct_type_device                  = 32 << 16,
     zest_struct_type_app                     = 33 << 16,
+    zest_struct_type_vector                  = 34 << 16,
 } zest_struct_type;
 
 typedef enum zest_vulkan_memory_context {
@@ -1639,6 +1640,8 @@ typedef struct zest_queue_family_indices {
 
 // --Pocket Dynamic Array
 typedef struct zest_vec {
+    int magic;
+    int id;
     zest_uint current_size;
     zest_uint capacity;
 } zest_vec;
@@ -2606,6 +2609,7 @@ typedef struct zest_device_t {
     char **extensions;
     zest_vulkan_memory_info_t vulkan_memory_info;
     zest_uint allocation_id;
+    zest_uint vector_id;
 
     zest_swapchain_support_details_t swapchain_support_details;
     VkAllocationCallbacks allocation_callbacks;
@@ -3574,6 +3578,7 @@ typedef struct zest_bitmap_t {
     zest_text_t name;
     size_t size;
     zest_byte *data;
+    zest_bool is_imported;
 } zest_bitmap_t;
 
 typedef struct zest_bitmap_array_t {
@@ -3698,6 +3703,7 @@ typedef struct zest_report_t {
 } zest_report_t;
 
 typedef struct zest_render_graph_semaphores_t {
+    int magic;
     VkSemaphore vk_semaphores[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
     zest_size values[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
 } zest_render_graph_semaphores_t;
@@ -3719,6 +3725,7 @@ zest_hash_map(zest_render_graph) zest_map_render_graph;
 zest_hash_map(zest_report_t) zest_map_reports;
 zest_hash_map(zest_swapchain) zest_map_swapchains;
 zest_hash_map(zest_window) zest_map_windows;
+zest_hash_map(zest_timer) zest_map_timers;
 
 typedef struct zest_renderer_t {
     int magic;
@@ -3774,6 +3781,7 @@ typedef struct zest_renderer_t {
     zest_map_rg_semaphores render_graph_semaphores;
     zest_map_swapchains swapchains;
     zest_map_windows windows;
+    zest_map_timers timers;
 
     zest_window current_window;
 
@@ -5292,8 +5300,9 @@ ZEST_API zest_bool zest_SwapchainWasRecreated(void);
 //        This is a simple API for a high resolution timer. You can use this to implement fixed step
 //        updating for your logic in the main loop, plus for anything else that you need to time.
 //-----------------------------------------------
-ZEST_API zest_timer zest_CreateTimer(double update_frequency);                                  //Create a new timer and return its handle
-ZEST_API void zest_FreeTimer(zest_timer timer);                                                 //Free a timer and its memory
+ZEST_API zest_timer zest_CreateTimer(const char *name, double update_frequency);                //Create a new timer and return its handle
+ZEST_API zest_timer zest_GetTimer(const char *name);                                            //Create a new timer and return its handle
+ZEST_API void zest_FreeTimer(const char *name);                                                 //Free a timer and its memory
 ZEST_API void zest_TimerSetUpdateFrequency(zest_timer timer, double update_frequency);          //Set the update frequency for timing loop functions, accumulators and such
 ZEST_API void zest_TimerSetMaxFrames(zest_timer timer, double frames);                          //Set the maximum amount of frames that can pass each update. This helps avoid simulations blowing up
 ZEST_API void zest_TimerReset(zest_timer timer);                                                //Set the clock time to now
