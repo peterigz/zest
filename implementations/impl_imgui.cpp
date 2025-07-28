@@ -11,6 +11,7 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     zest_ResetTexture(imgui_info->font_texture);
     zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, &font_bitmap);
     zest_ProcessTextureImages(imgui_info->font_texture);
+    zest_FreeBitmap(&font_bitmap);
     
     ImGuiIO &io = ImGui::GetIO();
     io.Fonts->SetTexID((ImTextureID)font_image);
