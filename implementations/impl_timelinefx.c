@@ -34,6 +34,7 @@ void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, vo
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 	}
+	zest_FreeBitmap(&bitmap);
 }
 
 //Basic function for updating the uniform buffer
@@ -61,7 +62,7 @@ void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
 void zest_tfx_InitTimelineFXRenderResources(tfx_render_resources_t *resources, const char *library_path) {
 	resources->uniform_buffer = zest_CreateUniformBuffer("tfx uniform", sizeof(tfx_uniform_buffer_data_t));
 
-	resources->timer = zest_CreateTimer(60);
+	resources->timer = zest_CreateTimer("TimelineFX Loop Timer", 60);
 
 	resources->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&resources->camera, 60.f);
@@ -129,7 +130,7 @@ void zest_tfx_UpdateTimelineFXImageData(tfx_render_resources_t *tfx_rendering, t
 }
 
 void zest_tfx_CreateTimelineFXShaderResources(tfx_render_resources_t *tfx_rendering) {
-	tfx_rendering->shader_resource = zest_CreateShaderResources();
+	tfx_rendering->shader_resource = zest_CreateShaderResources("TimelineFX");
 	zest_ForEachFrameInFlight(fif) {
 		zest_AddDescriptorSetToResources(tfx_rendering->shader_resource, zest_GetFIFUniformBufferSet(tfx_rendering->uniform_buffer, fif), fif);
 		zest_AddDescriptorSetToResources(tfx_rendering->shader_resource, zest_GetGlobalBindlessSet(), fif);
@@ -149,10 +150,10 @@ void zest_tfx_DrawParticleLayer(VkCommandBuffer command_buffer, const zest_rende
 	zest_buffer prev_buffer = layer->memory_refs[layer->prev_fif].device_vertex_data;
 	zest_BindVertexBuffer(command_buffer, device_buffer);
 
-	for (zest_foreach_i(layer->draw_instructions[layer->fif])) {
+	zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
 		zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
 
-		zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
+		zest_SetScreenSizedViewport(context, 0.f, 1.f);
 
 		zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
 		if (pipeline && ZEST_VALID_HANDLE(current->shader_resources)) {

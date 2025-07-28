@@ -77,7 +77,6 @@ void zest_imgui_Shutdown() {
 	zest_DeleteTexture(imgui_info->font_texture);
 	zest_DeletePipeline(imgui_info->pipeline);
 	zest_vec_free(imgui_info->draw_sets);
-	zest_FreeShaderResources(imgui_info->shader_resources);
 	*imgui_info = { 0 };
 }
 

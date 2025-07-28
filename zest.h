@@ -3476,7 +3476,6 @@ typedef struct zest_imgui_t {
     zest_uint fif;
     zest_uint dirty[ZEST_MAX_FIF];
     zest_push_constants_t push_constants;
-    zest_shader_resources shader_resources;
     VkDescriptorSet *draw_sets;
 } zest_imgui_t;
 

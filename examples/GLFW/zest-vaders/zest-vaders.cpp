@@ -237,6 +237,7 @@ void VadersGame::Init() {
 		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
 		zest_bitmap_t temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap->data, (int)bitmap->size, bitmap->width, bitmap->height, bitmap->channels);
 		zest_AddTextureImageBitmap(tfx_rendering.color_ramps_texture, &temp_bitmap);
+		zest_FreeBitmap(&temp_bitmap);
 	}
 	//Process the color ramp texture to upload it all to the gpu
 	zest_ProcessTextureImages(tfx_rendering.color_ramps_texture);
@@ -342,12 +343,12 @@ void VadersGame::Init() {
 	billboard_layer = zest_CreateInstanceLayer("billboards", sizeof(zest_billboard_instance_t));
 	font_layer = zest_CreateFontLayer("Example fonts");
 
-	sprite_resources = zest_CreateShaderResources();
+	sprite_resources = zest_CreateShaderResources("Sprite resources");
 	zest_AddUniformBufferToResources(sprite_resources, tfx_rendering.uniform_buffer);
 	zest_AddGlobalBindlessSetToResources(sprite_resources);
 
-	for (ZEST_EACH_FIF_i) {
-		index_offset[i] = 0;
+	zest_ForEachFrameInFlight(fif) {
+		index_offset[fif] = 0;
 	}
 
 }
@@ -1036,7 +1037,7 @@ void VadersGame::Update(float ellapsed) {
 
 	zest_tfx_UpdateUniformBuffer(&tfx_rendering);
 
-	if (zest_BeginRenderToScreen("TimelineFX Render Graph")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "TimelineFX Render Graph")) {
 		zest_WaitOnTimeline(tfx_rendering.timeline);
 
 		//Do all the rendering outside of the update loop
@@ -1097,8 +1098,6 @@ void VadersGame::Update(float ellapsed) {
 		}
 
 		VkClearColorValue clear_color = { {0.0f, 0.0f, 0.2f, 1.0f} };
-		//Import the swap chain into the render pass
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 
 		//---------------------------------Resources-------------------------------------------------------
 		zest_resource_node particle_texture = zest_ImportImageResourceReadOnly("Particle Texture", tfx_rendering.particle_texture);
@@ -1146,7 +1145,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_ConnectVertexBufferInput(particles_pass, tfx_write_layer);
 		zest_ConnectVertexBufferInput(particles_pass, tfx_read_layer);
 		//outputs
-		zest_ConnectSwapChainOutput(particles_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(particles_pass, clear_color);
 		//Task
 		zest_tfx_AddPassTask(particles_pass, &tfx_rendering);
 
@@ -1156,7 +1155,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_ConnectSampledImageInput(billboards_pass, game_sprites_texture);
 		zest_ConnectVertexBufferInput(billboards_pass, billboard_layer_resource);
 		//outputs
-		zest_ConnectSwapChainOutput(billboards_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(billboards_pass, clear_color);
 		//Task
 		zest_SetPassTask(billboards_pass, zest_DrawInstanceLayer, billboard_layer);
 
@@ -1166,7 +1165,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_ConnectSampledImageInput(fonts_pass, font_layer_texture);
 		zest_ConnectVertexBufferInput(fonts_pass, font_layer_resources);
 		//outputs
-		zest_ConnectSwapChainOutput(fonts_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(fonts_pass, clear_color);
 		//Task
 		zest_SetPassTask(fonts_pass, zest_DrawFonts, font_layer);
 		//----------------------------------------------------------------------------------------------------
@@ -1175,7 +1174,7 @@ void VadersGame::Update(float ellapsed) {
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
 		if (imgui_pass) {
-			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+			zest_ConnectSwapChainOutput(imgui_pass, clear_color);
 		}
 		//----------------------------------------------------------------------------------------------------
 

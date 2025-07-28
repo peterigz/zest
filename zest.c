@@ -3938,6 +3938,7 @@ void zest__cleanup_renderer() {
         ZEST__FREE(semaphores);
     }
 
+    zest_FlushUsedBuffers();
     zest__cleanup_buffers_in_allocators();
 
     zest_map_foreach(i, ZestRenderer->layers) {
@@ -3963,8 +3964,6 @@ void zest__cleanup_renderer() {
 		}
 		zest_vec_free(ZestRenderer->old_frame_buffers[fif]);
 	}
-
-    zest_FlushUsedBuffers();
 
     zest_ForEachFrameInFlight(fif) {
         if (zest_vec_size(ZestRenderer->deferred_resource_freeing_list.images[fif])) {
@@ -6515,7 +6514,7 @@ void* zest__vec_reserve(void* T, zest_uint unit_size, zest_uint new_capacity) {
     T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD);
     zest_vec *header = (zest_vec *)new_data;
     header->id = ZestDevice->vector_id++;
-    if (header->id == 332) {
+    if (header->id == 342) {
         int d = 0;
     }
     header->magic = zest_INIT_MAGIC(zest_struct_type_vector);
@@ -11362,7 +11361,9 @@ zest_bitmap_t zest_CreateBitmapFromRawBuffer(const char* name, unsigned char* pi
     bitmap.channels = channels;
     bitmap.size = size;
     bitmap.stride = width * channels;
-    zest_SetText(&bitmap.name, name);
+    if (name) {
+        zest_SetText(&bitmap.name, name);
+    }
     return bitmap;
 }
 
@@ -11947,6 +11948,7 @@ void zest__free_all_texture_images(zest_texture texture) {
     }
     zest_vec_free(texture->image_collection->images);
     zest_vec_free(texture->image_collection->image_bitmaps);
+    zest_vec_free(texture->image_collection->buffer_copy_regions);
     zest_FreeBitmapArray(&texture->image_collection->bitmap_array);
     texture->image_index = 0;
     zest_FreeBitmap(&texture->texture_bitmap);
@@ -11956,7 +11958,6 @@ void zest__delete_texture(zest_texture texture) {
     zest__cleanup_texture(texture);
     zest__free_all_texture_images(texture);
     ZEST__FREE(texture->image_collection);
-    zest_vec_free(texture->image_collection->buffer_copy_regions);
     ZEST__UNFLAG(texture->flags, zest_texture_flag_ready);
     zest_map_remove(ZestRenderer->textures, texture->name.str);
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, texture->name.str));
@@ -15435,6 +15436,9 @@ void zest__print_block_info(void *allocation, zloc_header *current_block, zest_v
                     zest__vulkan_context_to_string(context),
                     zest__vulkan_command_to_string(command)
                 );
+			} else if(zloc__block_size(current_block) > 0) {
+				//Unknown block, print what we can about it
+				ZEST_PRINT("Unknown Block - size: %zu (%p)", zloc__block_size(current_block), allocation);
             }
         }
     }
@@ -15454,7 +15458,6 @@ void zest_PrintMemoryBlocks(zloc_header *first_block, zest_bool output_all, zest
             zest_size block_size = zloc__block_size(current_block);
             stats.used_size += block_size;
             void *allocation = (void*)((char*)current_block + zloc__BLOCK_POINTER_OFFSET);
-            //ZEST_PRINT("Block size: %zu (%p)", zloc__block_size(current_block), allocation);
             if (output_all) {
                 zest__print_block_info(allocation, current_block, context_filter, command_filter);
             }
