@@ -2361,7 +2361,7 @@ void zest__destroy(void) {
     ZEST__FREE(zest__globals);
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
     if (stats.used_blocks > 0) {
-        ZEST_PRINT("There are still used memory blocks in Zest, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after Zest has shutdown.");
+        ZEST_PRINT("There are still used memory blocks in Zest, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after Zest has shutdown. Check the type of allocation in the list below and chek to make sure you're freeing those objects.");
         zest_PrintMemoryBlocks(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)), 1, 0, 0);
     } else {
         ZEST_PRINT("Successful shutdown of Zest.");
@@ -3843,6 +3843,7 @@ void zest__cleanup_textures() {
         zest_vec_free(texture->image_collection->buffer_copy_regions);
         ZEST__UNFLAG(texture->flags, zest_texture_flag_ready);
         zest_FreeText(&texture->name);
+        texture->magic = 0;
         ZEST__FREE(texture);
     }
 }
@@ -11617,9 +11618,10 @@ void zest_ConvertBGRAToRGBA(zest_bitmap  src) {
     }
 }
 
-void zest_CopyWholeBitmap(zest_bitmap  src, zest_bitmap  dst) {
+void zest_CopyWholeBitmap(zest_bitmap src, zest_bitmap dst) {
     ZEST_ASSERT(src->data && src->size);
 
+    zest_FreeBitmapData(dst);
     zest_SetText(&dst->name, src->name.str);
     dst->channels = src->channels;
     dst->height = src->height;
@@ -11633,7 +11635,7 @@ void zest_CopyWholeBitmap(zest_bitmap  src, zest_bitmap  dst) {
 
 }
 
-void zest_CopyBitmap(zest_bitmap  src, int from_x, int from_y, int width, int height, zest_bitmap  dst, int to_x, int to_y) {
+void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width, int height, zest_bitmap dst, int to_x, int to_y) {
     ZEST_ASSERT(src->data);
     ZEST_ASSERT(dst->data);
     ZEST_ASSERT(src->channels == dst->channels);
@@ -11853,7 +11855,7 @@ zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filena
     return texture->image_collection->images[first_index];
 }
 
-zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap  spritesheet, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
+zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
     float max_radius;
 
     zest__maybe_create_image_collection(texture);
@@ -11908,7 +11910,7 @@ zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name
     return texture->image_collection->images[first_index];
 }
 
-float zest__copy_animation_frames(zest_texture texture, zest_bitmap  spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row) {
+float zest__copy_animation_frames(zest_texture texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row) {
     zest_uint rows = spritesheet->height / height;
     zest_uint cols = spritesheet->width / width;
 
@@ -15384,6 +15386,7 @@ const char *zest__struct_type_to_string(zest_struct_type struct_type) {
 	case zest_struct_type_device                  : return "device"; break;
 	case zest_struct_type_app                     : return "app"; break;
 	case zest_struct_type_vector                  : return "vector"; break;
+	case zest_struct_type_bitmap                  : return "bitmap"; break;
     default: return "UNKNOWN"; break;
     }
     return "UNKNOWN";
