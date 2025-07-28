@@ -11,30 +11,30 @@ void zest_tfx_ShapeLoader(const char *filename, tfx_image_data_t *image_data, vo
 	tfx_render_resources_t *resources = (tfx_render_resources_t *)custom_data;
 
 	//This shape loader example uses the STB image library to load the raw bitmap (png usually) data
-	zest_bitmap_t bitmap = zest_NewBitmap();
-	zest_LoadBitmapImageMemory(&bitmap, (unsigned char *)raw_image_data, image_memory_size, 0);
+	zest_bitmap bitmap = zest_NewBitmap();
+	zest_LoadBitmapImageMemory(bitmap, (unsigned char *)raw_image_data, image_memory_size, 0);
 	//Convert the image to RGBA which is necessary for this particular renderer
-	zest_ConvertBitmapToRGBA(&bitmap, 255);
+	zest_ConvertBitmapToRGBA(bitmap, 255);
 	//The editor has the option to convert an bitmap to an alpha map. I will probably change this so that it gets baked into the saved effect so you won't need to apply the filter here.
 	//Alpha map is where all color channels are set to 255
 	if (image_data->import_filter)
-		zest_ConvertBitmapToAlpha(&bitmap);
+		zest_ConvertBitmapToAlpha(bitmap);
 
 	//Get the texture where we're storing all the particle shapes
 	//You'll probably need to load the image in such a way depending on whether or not it's an animation or not
 	if (image_data->animation_frames > 1) {
 		//Add the spritesheet to the texture in our renderer
 		float max_radius = 0;
-		image_data->ptr = zest_AddTextureAnimationBitmap(resources->particle_texture, &bitmap, (tfxU32)image_data->image_size.x, (tfxU32)image_data->image_size.y, (tfxU32)image_data->animation_frames, &max_radius, 1);
+		image_data->ptr = zest_AddTextureAnimationBitmap(resources->particle_texture, bitmap, (tfxU32)image_data->image_size.x, (tfxU32)image_data->image_size.y, (tfxU32)image_data->animation_frames, &max_radius, 1);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 	} else {
 		//Add the image to the texture in our renderer
-		image_data->ptr = zest_AddTextureImageBitmap(resources->particle_texture, &bitmap);
+		image_data->ptr = zest_AddTextureImageBitmap(resources->particle_texture, bitmap);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 	}
-	zest_FreeBitmap(&bitmap);
+	zest_FreeBitmap(bitmap);
 }
 
 //Basic function for updating the uniform buffer

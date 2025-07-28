@@ -11294,7 +11294,7 @@ zest_image zest_CreateAnimation(zest_uint frames) {
     return image;
 }
 
-void zest_AllocateBitmap(zest_bitmap_t* bitmap, int width, int height, int channels, zest_color fill_color) {
+void zest_AllocateBitmap(zest_bitmap bitmap, int width, int height, int channels, zest_color fill_color) {
     bitmap->size = width * height * channels;
     if (bitmap->size > 0) {
         bitmap->data = (zest_byte*)ZEST__ALLOCATE(bitmap->size);
@@ -11306,7 +11306,7 @@ void zest_AllocateBitmap(zest_bitmap_t* bitmap, int width, int height, int chann
     zest_FillBitmap(bitmap, fill_color);
 }
 
-void zest_LoadBitmapImage(zest_bitmap_t* image, const char* file, int color_channels) {
+void zest_LoadBitmapImage(zest_bitmap image, const char* file, int color_channels) {
     int width, height, original_no_channels;
     unsigned char* img = stbi_load(file, &width, &height, &original_no_channels, color_channels);
     if (img != NULL) {
@@ -11323,7 +11323,7 @@ void zest_LoadBitmapImage(zest_bitmap_t* image, const char* file, int color_chan
     }
 }
 
-void zest_LoadBitmapImageMemory(zest_bitmap_t* image, const unsigned char* buffer, int size, int desired_no_channels) {
+void zest_LoadBitmapImageMemory(zest_bitmap image, const unsigned char* buffer, int size, int desired_no_channels) {
     int width, height, original_no_channels;
     unsigned char* img = stbi_load_from_memory(buffer, size, &width, &height, &original_no_channels, desired_no_channels);
     if (img != NULL) {
@@ -11339,7 +11339,16 @@ void zest_LoadBitmapImageMemory(zest_bitmap_t* image, const unsigned char* buffe
     }
 }
 
-void zest_FreeBitmap(zest_bitmap_t* image) {
+void zest_FreeBitmap(zest_bitmap image) {
+    if (!image->is_imported && image->data) {
+        ZEST__FREE(image->data);
+    }
+    zest_FreeText(&image->name);
+    image->data = ZEST_NULL;
+    ZEST__FREE(image);
+}
+
+void zest_FreeBitmapData(zest_bitmap_t* image) {
     if (!image->is_imported && image->data) {
         ZEST__FREE(image->data);
     }
@@ -11347,33 +11356,34 @@ void zest_FreeBitmap(zest_bitmap_t* image) {
     image->data = ZEST_NULL;
 }
 
-zest_bitmap_t zest_NewBitmap() {
-    zest_bitmap_t bitmap = { 0 };
-    bitmap.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
+zest_bitmap zest_NewBitmap() {
+    zest_bitmap bitmap = ZEST__NEW(zest_bitmap);
+    *bitmap = (zest_bitmap_t){ 0 };
+    bitmap->magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
     return bitmap;
 }
 
-zest_bitmap_t zest_CreateBitmapFromRawBuffer(const char* name, unsigned char* pixels, int size, int width, int height, int channels) {
-    zest_bitmap_t bitmap = zest_NewBitmap();
-    bitmap.is_imported = 1;
-    bitmap.data = pixels;
-    bitmap.width = width;
-    bitmap.height = height;
-    bitmap.channels = channels;
-    bitmap.size = size;
-    bitmap.stride = width * channels;
+zest_bitmap zest_CreateBitmapFromRawBuffer(const char* name, unsigned char* pixels, int size, int width, int height, int channels) {
+    zest_bitmap bitmap = zest_NewBitmap();
+    bitmap->is_imported = 1;
+    bitmap->data = pixels;
+    bitmap->width = width;
+    bitmap->height = height;
+    bitmap->channels = channels;
+    bitmap->size = size;
+    bitmap->stride = width * channels;
     if (name) {
-        zest_SetText(&bitmap.name, name);
+        zest_SetText(&bitmap->name, name);
     }
     return bitmap;
 }
 
-zest_bitmap_t* zest_GetBitmap(zest_texture texture, zest_index bitmap_index) {
+zest_bitmap zest_GetBitmap(zest_texture texture, zest_index bitmap_index) {
     zest_vec_test(texture->image_collection->image_bitmaps, (zest_uint)bitmap_index);
     return &texture->image_collection->image_bitmaps[bitmap_index];
 }
 
-void zest_ConvertBitmapToTextureFormat(zest_bitmap_t* src, VkFormat format) {
+void zest_ConvertBitmapToTextureFormat(zest_bitmap src, VkFormat format) {
     switch (format) {
     case VK_FORMAT_R8G8B8A8_UNORM:
     case VK_FORMAT_R8G8B8A8_SRGB:
@@ -11391,12 +11401,13 @@ void zest_ConvertBitmapToTextureFormat(zest_bitmap_t* src, VkFormat format) {
     }
 }
 
-void zest_ConvertBitmapTo1Channel(zest_bitmap_t* image) {
+void zest_ConvertBitmapTo1Channel(zest_bitmap image) {
     if (image->channels == 1) {
         return;
     }
 
     zest_bitmap_t converted = { 0 };
+    converted.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
     zest_AllocateBitmap(&converted, image->width, image->height, 1, zest_ColorSet1(0));
     zest_ConvertBitmapToAlpha(image);
 
@@ -11420,11 +11431,11 @@ void zest_ConvertBitmapTo1Channel(zest_bitmap_t* image) {
             pos += image->channels;
         }
     }
-    zest_FreeBitmap(image);
+    zest_FreeBitmapData(image);
     *image = converted;
 }
 
-void zest_PlotBitmap(zest_bitmap_t *image, int x, int y, zest_color color) {
+void zest_PlotBitmap(zest_bitmap image, int x, int y, zest_color color) {
 
     size_t pos = y * image->stride + (x * image->channels);
 
@@ -11453,7 +11464,7 @@ void zest_PlotBitmap(zest_bitmap_t *image, int x, int y, zest_color color) {
 
 }
 
-void zest_FillBitmap(zest_bitmap_t *image, zest_color color) {
+void zest_FillBitmap(zest_bitmap image, zest_color color) {
 
     zest_size pos = 0;
 
@@ -11489,7 +11500,7 @@ void zest_FillBitmap(zest_bitmap_t *image, zest_color color) {
     }
 }
 
-void zest_ConvertBitmapToAlpha(zest_bitmap_t* image) {
+void zest_ConvertBitmapToAlpha(zest_bitmap  image) {
 
     zest_size pos = 0;
 
@@ -11523,7 +11534,7 @@ void zest_ConvertBitmapToAlpha(zest_bitmap_t* image) {
     }
 }
 
-void zest_ConvertBitmap(zest_bitmap_t* src, zest_texture_format format, zest_byte alpha_level) {
+void zest_ConvertBitmap(zest_bitmap  src, zest_texture_format format, zest_byte alpha_level) {
     //Todo: simd this
     if (src->channels == 4)
         return;
@@ -11582,15 +11593,15 @@ void zest_ConvertBitmap(zest_bitmap_t* src, zest_texture_format format, zest_byt
 
 }
 
-void zest_ConvertBitmapToBGRA(zest_bitmap_t* src, zest_byte alpha_level) {
+void zest_ConvertBitmapToBGRA(zest_bitmap  src, zest_byte alpha_level) {
     zest_ConvertBitmap(src, zest_texture_format_bgra_unorm, alpha_level);
 }
 
-void zest_ConvertBitmapToRGBA(zest_bitmap_t* src, zest_byte alpha_level) {
+void zest_ConvertBitmapToRGBA(zest_bitmap  src, zest_byte alpha_level) {
     zest_ConvertBitmap(src, zest_texture_format_rgba_unorm, alpha_level);
 }
 
-void zest_ConvertBGRAToRGBA(zest_bitmap_t* src) {
+void zest_ConvertBGRAToRGBA(zest_bitmap  src) {
     if (src->channels != 4)
         return;
 
@@ -11606,7 +11617,7 @@ void zest_ConvertBGRAToRGBA(zest_bitmap_t* src) {
     }
 }
 
-void zest_CopyWholeBitmap(zest_bitmap_t* src, zest_bitmap_t* dst) {
+void zest_CopyWholeBitmap(zest_bitmap  src, zest_bitmap  dst) {
     ZEST_ASSERT(src->data && src->size);
 
     zest_SetText(&dst->name, src->name.str);
@@ -11622,7 +11633,7 @@ void zest_CopyWholeBitmap(zest_bitmap_t* src, zest_bitmap_t* dst) {
 
 }
 
-void zest_CopyBitmap(zest_bitmap_t* src, int from_x, int from_y, int width, int height, zest_bitmap_t* dst, int to_x, int to_y) {
+void zest_CopyBitmap(zest_bitmap  src, int from_x, int from_y, int width, int height, zest_bitmap  dst, int to_x, int to_y) {
     ZEST_ASSERT(src->data);
     ZEST_ASSERT(dst->data);
     ZEST_ASSERT(src->channels == dst->channels);
@@ -11651,7 +11662,7 @@ void zest_CopyBitmap(zest_bitmap_t* src, int from_x, int from_y, int width, int 
     }
 }
 
-zest_color zest_SampleBitmap(zest_bitmap_t* image, int x, int y) {
+zest_color zest_SampleBitmap(zest_bitmap  image, int x, int y) {
     ZEST_ASSERT(image->data);
 
     size_t offset = y * image->stride + (x * image->channels);
@@ -11678,7 +11689,7 @@ zest_color zest_SampleBitmap(zest_bitmap_t* image, int x, int y) {
     return c;
 }
 
-float zest_FindBitmapRadius(zest_bitmap_t* image) {
+float zest_FindBitmapRadius(zest_bitmap  image) {
     //Todo: optimise with SIMD
     ZEST_ASSERT(image->data);
     float max_radius = 0;
@@ -11705,13 +11716,13 @@ void zest_DestroyBitmapArray(zest_bitmap_array_t* bitmap_array) {
     bitmap_array->size_of_array = 0;
 }
 
-zest_bitmap_t zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_index index) {
-    zest_bitmap_t image = zest_NewBitmap();
-    image.width = bitmap_array->width;
-    image.height = bitmap_array->height;
-    image.channels = bitmap_array->channels;
-    image.stride = bitmap_array->width * bitmap_array->channels;
-    image.data = bitmap_array->data + index * bitmap_array->size_of_each_image;
+zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_index index) {
+    zest_bitmap image = zest_NewBitmap();
+    image->width = bitmap_array->width;
+    image->height = bitmap_array->height;
+    image->channels = bitmap_array->channels;
+    image->stride = bitmap_array->width * bitmap_array->channels;
+    image->data = bitmap_array->data + index * bitmap_array->size_of_each_image;
     return image;
 }
 
@@ -11727,7 +11738,9 @@ zest_image zest_AddTextureImageFile(zest_texture texture, const char* filename) 
 			zest_FreeTextureBitmaps(texture);
         }
     }
-	zest_vec_push(texture->image_collection->image_bitmaps, zest_NewBitmap());
+    zest_bitmap_t new_bitmap = { 0 };
+    new_bitmap.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
+	zest_vec_push(texture->image_collection->image_bitmaps, new_bitmap);
     zest_bitmap_t* bitmap = zest_GetBitmap(texture, zest__texture_image_index(texture));
 
     zest_LoadBitmapImage(bitmap, filename, 0);
@@ -11746,13 +11759,14 @@ zest_image zest_AddTextureImageFile(zest_texture texture, const char* filename) 
     return image;
 }
 
-zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t* bitmap_to_load) {
+zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap bitmap_to_load) {
     zest_image image = zest_CreateImage();
     zest__maybe_create_image_collection(texture);
     zest_vec_push(texture->image_collection->images, image);
     texture->image_index = zest_vec_last_index(texture->image_collection->images);
     image->index = texture->image_index;
-    zest_bitmap_t image_copy = zest_NewBitmap();
+    zest_bitmap_t image_copy = { 0 };
+    image_copy.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
     zest_CopyWholeBitmap(bitmap_to_load, &image_copy);
     if (texture->storage_type == zest_texture_storage_type_single) {
         if (zest_vec_size(texture->image_collection->image_bitmaps)) {
@@ -11790,7 +11804,9 @@ zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, co
 			zest_FreeTextureBitmaps(texture);
         }
     }
-    zest_vec_push(texture->image_collection->image_bitmaps, zest_NewBitmap());
+    zest_bitmap_t new_bitmap = { 0 };
+    new_bitmap.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
+    zest_vec_push(texture->image_collection->image_bitmaps, new_bitmap);
     zest_bitmap_t* bitmap = zest_GetBitmap(texture, zest__texture_image_index(texture));
 
     zest_LoadBitmapImageMemory(bitmap, buffer, buffer_size, 0);
@@ -11827,7 +11843,7 @@ zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filena
     ZEST_ASSERT(spritesheet.height >= height);            // ERROR: The animation being loaded is not heigh enough for the height of each frame specified.
 
     max_radius = zest__copy_animation_frames(texture, &spritesheet, width, height, frames, row_by_row);
-    zest_FreeBitmap(&spritesheet);
+    zest_FreeBitmapData(&spritesheet);
 
     if (_max_radius) {
         *_max_radius = max_radius;
@@ -11837,7 +11853,7 @@ zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filena
     return texture->image_collection->images[first_index];
 }
 
-zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap_t* spritesheet, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
+zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap  spritesheet, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
     float max_radius;
 
     zest__maybe_create_image_collection(texture);
@@ -11882,7 +11898,7 @@ zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name
     ZEST_ASSERT(spritesheet.height >= height);            // ERROR: The animation being loaded is not heigh enough for the height of each frame specified.
 
     max_radius = zest__copy_animation_frames(texture, &spritesheet, width, height, frames, row_by_row);
-    zest_FreeBitmap(&spritesheet);
+    zest_FreeBitmapData(&spritesheet);
 
     if (_max_radius) {
         *_max_radius = max_radius;
@@ -11892,7 +11908,7 @@ zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name
     return texture->image_collection->images[first_index];
 }
 
-float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t* spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row) {
+float zest__copy_animation_frames(zest_texture texture, zest_bitmap  spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row) {
     zest_uint rows = spritesheet->height / height;
     zest_uint cols = spritesheet->width / width;
 
@@ -11911,7 +11927,9 @@ float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t* spriteshe
             zest_vec_push(texture->image_collection->images, frame);
             texture->image_index = zest_vec_last_index(texture->image_collection->images);
             frame->index = texture->image_index;
-            zest_vec_push(texture->image_collection->image_bitmaps, zest_NewBitmap());
+            zest_bitmap_t new_bitmap = { 0 };
+            new_bitmap.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
+            zest_vec_push(texture->image_collection->image_bitmaps, new_bitmap);
             zest_bitmap_t* image_bitmap = zest_GetBitmap(texture, texture->image_index);
             zest_AllocateBitmap(image_bitmap, width, height, spritesheet->channels, zest_ColorSet1(0));
             zest_CopyBitmap(spritesheet, c * width, r * height, width, height, image_bitmap, 0, 0);
@@ -11937,7 +11955,7 @@ float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t* spriteshe
 void zest__free_all_texture_images(zest_texture texture) {
     if (!texture->image_collection) return;
     zest_vec_foreach(i, texture->image_collection->image_bitmaps) {
-        zest_FreeBitmap(&texture->image_collection->image_bitmaps[i]);
+        zest_FreeBitmapData(&texture->image_collection->image_bitmaps[i]);
     }
     zest__delete_texture_layers(texture);
     zest_uint i = 0;
@@ -11952,7 +11970,7 @@ void zest__free_all_texture_images(zest_texture texture) {
     zest_vec_free(texture->image_collection->buffer_copy_regions);
     zest_FreeBitmapArray(&texture->image_collection->bitmap_array);
     texture->image_index = 0;
-    zest_FreeBitmap(&texture->texture_bitmap);
+    zest_FreeBitmapData(&texture->texture_bitmap);
 }
 
 void zest__delete_texture(zest_texture texture) {
@@ -12126,7 +12144,7 @@ zest_uint zest_GetTextureDescriptorIndex(zest_texture texture) {
 
 void zest__delete_texture_layers(zest_texture texture) {
     zest_vec_foreach(i, texture->image_collection->layers) {
-        zest_FreeBitmap(&texture->image_collection->layers[i]);
+        zest_FreeBitmapData(&texture->image_collection->layers[i]);
     }
     zest_vec_free(texture->image_collection->layers);
 }
@@ -12148,7 +12166,7 @@ void zest_SchedulePipelineRecreate(zest_pipeline pipeline) {
     zest_vec_push(ZestRenderer->pipeline_recreate_queue, pipeline);
 }
 
-zest_bitmap_t* zest_GetTextureSingleBitmap(zest_texture texture) {
+zest_bitmap zest_GetTextureSingleBitmap(zest_texture texture) {
     if (texture->texture_bitmap.data) {
         return &texture->texture_bitmap;
     }
@@ -12389,7 +12407,8 @@ void zest__make_image_bank(zest_texture texture, zest_uint size) {
         image->layer = id;
         image->texture = texture;
 
-        zest_bitmap_t tmp_image = zest_NewBitmap();
+		zest_bitmap_t tmp_image = { 0 };
+		tmp_image.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
         zest_AllocateBitmap(&tmp_image, size, size, texture->color_channels, zest_ColorSet1(0));
 
         if (image->width != size || image->height != size) {
@@ -12404,7 +12423,7 @@ void zest__make_image_bank(zest_texture texture, zest_uint size) {
         tmp_image.height = size;
 
         zloc_SafeCopyBlock(texture->image_collection->bitmap_array.data, zest_BitmapArrayLookUp(&texture->image_collection->bitmap_array, id), tmp_image.data, texture->image_collection->bitmap_array.size_of_each_image);
-        zest_FreeBitmap(&tmp_image);
+        zest_FreeBitmapData(&tmp_image);
 
         id++;
     }
@@ -12480,7 +12499,7 @@ void zest__make_sprite_sheet(zest_texture texture) {
     zest_byte current_layer = 0;
 
     zest_vec_foreach(i, texture->image_collection->layers) {
-        zest_FreeBitmap(&texture->image_collection->layers[i]);
+        zest_FreeBitmapData(&texture->image_collection->layers[i]);
     }
     zest_vec_clear(texture->image_collection->layers);
 
@@ -12495,7 +12514,7 @@ void zest__make_sprite_sheet(zest_texture texture) {
 
     zest_vec_clear(rects);
 
-    zest_FreeBitmap(&texture->texture_bitmap);
+    zest_FreeBitmapData(&texture->texture_bitmap);
     zest_AllocateBitmap(&texture->texture_bitmap, size, size, texture->color_channels, zest_ColorSet1(0));
     texture->texture.width = size;
     texture->texture.height = size;
@@ -12584,7 +12603,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
     zest_byte current_layer = 0;
 
     zest_vec_foreach(i, texture->image_collection->layers) {
-        zest_FreeBitmap(&texture->image_collection->layers[i]);
+        zest_FreeBitmapData(&texture->image_collection->layers[i]);
     }
     zest_vec_clear(texture->image_collection->layers);
 
@@ -12606,7 +12625,8 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
 
         zest_vec_clear(rects);
 
-        zest_bitmap_t tmp_image = zest_NewBitmap();
+        zest_bitmap_t tmp_image = { 0 };
+        tmp_image.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
         zest_AllocateBitmap(&tmp_image, size, size, texture->color_channels, zest_ColorSet1(0));
         int count = 0;
 
@@ -12816,7 +12836,7 @@ void zest_FreeTextureBitmaps(zest_texture texture) {
 void zest_RemoveTextureImage(zest_texture texture, zest_image image) {
     ZEST_CHECK_HANDLE(texture);	//Not a valid handle!
     ZEST_ASSERT((zest_uint)image->index < zest_vec_size(texture->image_collection->images));    //Image not within range of image indexes in the texture
-    zest_FreeBitmap(&texture->image_collection->image_bitmaps[image->index]);
+    zest_FreeBitmapData(&texture->image_collection->image_bitmaps[image->index]);
     zest_vec_erase(texture->image_collection->image_bitmaps, &texture->image_collection->image_bitmaps[image->index]);
     zest_vec_erase(texture->image_collection->images, &texture->image_collection->images[image->index]);
     ZEST__FREE(image);
@@ -12827,7 +12847,7 @@ void zest_RemoveTextureAnimation(zest_texture texture, zest_image first_image) {
     ZEST_CHECK_HANDLE(texture);	//Not a valid handle!
     ZEST_ASSERT(first_image->frames > 1);    //Must be an animation image that you're deleting and also note that you must pass in the first frame of the image
     for (zest_uint i = 0; i < first_image->frames; ++i) {
-        zest_FreeBitmap(&texture->image_collection->image_bitmaps[first_image->index + i]);
+        zest_FreeBitmapData(&texture->image_collection->image_bitmaps[first_image->index + i]);
     }
     zest_vec_erase_range(texture->image_collection->image_bitmaps, &texture->image_collection->image_bitmaps[first_image->index], &texture->image_collection->image_bitmaps[first_image->index + first_image->frames]);
     zest_vec_erase_range(texture->image_collection->images, &texture->image_collection->images[first_image->index], &texture->image_collection->images[first_image->index + first_image->frames]);
@@ -13204,7 +13224,7 @@ void zest_CopyTextureToTexture(zest_texture src_image, zest_texture target, int 
 
 }
 
-void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t* image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel) {
+void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel) {
     ZEST_CHECK_HANDLE(src_image);	//Not a valid handle!
     VkCommandBuffer copy_command = zest__begin_single_time_commands();
     VkImage temp_image;

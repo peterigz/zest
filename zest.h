@@ -1601,6 +1601,7 @@ typedef struct zest_imgui_t zest_imgui_t;
 typedef struct zest_queue_t zest_queue_t;
 typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 typedef struct zest_swapchain_t zest_swapchain_t;
+typedef struct zest_bitmap_t zest_bitmap_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_texture)
@@ -1631,6 +1632,7 @@ ZEST__MAKE_HANDLE(zest_swapchain)
 ZEST__MAKE_HANDLE(zest_render_graph)
 ZEST__MAKE_HANDLE(zest_pass_node)
 ZEST__MAKE_HANDLE(zest_resource_node)
+ZEST__MAKE_HANDLE(zest_bitmap)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -4783,60 +4785,62 @@ ZEST_API void zest_LoadBitmapImage(zest_bitmap_t *image, const char *file, int c
 //Load a bitmap from a memory buffer. Set color_channels to 0 to auto detect the number of channels. Pass in a pointer to the memory buffer containing
 //the bitmap, the size in bytes and how many channels it has.
 ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap_t *image, const unsigned char *buffer, int size, int desired_no_channels);
+//Free the memory used in a zest_bitmap including the bitmap handle itself
+ZEST_API void zest_FreeBitmap(zest_bitmap image);
 //Free the memory used in a zest_bitmap_t
-ZEST_API void zest_FreeBitmap(zest_bitmap_t *image);
+ZEST_API void zest_FreeBitmapData(zest_bitmap_t *image);
 //Create a new initialise zest_bitmap_t
-ZEST_API zest_bitmap_t zest_NewBitmap(void);
+ZEST_API zest_bitmap zest_NewBitmap(void);
 //Create a new bitmap from a pixel buffer. Pass in the name of the bitmap, a pointer to the buffer, the size in bytes of the buffer, the width and height
 //and the number of color channels
-ZEST_API zest_bitmap_t zest_CreateBitmapFromRawBuffer(const char *name, unsigned char *pixels, int size, int width, int height, int channels);
+ZEST_API zest_bitmap zest_CreateBitmapFromRawBuffer(const char *name, unsigned char *pixels, int size, int width, int height, int channels);
 //Allocate the memory for a bitmap based on the width, height and number of color channels. You can also specify the fill color
-ZEST_API void zest_AllocateBitmap(zest_bitmap_t *bitmap, int width, int height, int channels, zest_color fill_color);
+ZEST_API void zest_AllocateBitmap(zest_bitmap bitmap, int width, int height, int channels, zest_color fill_color);
 //Copy all of a source bitmap to a destination bitmap
-ZEST_API void zest_CopyWholeBitmap(zest_bitmap_t *src, zest_bitmap_t *dst);
+ZEST_API void zest_CopyWholeBitmap(zest_bitmap src, zest_bitmap_t *dst);
 //Copy an area of a source bitmap to another bitmap
-ZEST_API void zest_CopyBitmap(zest_bitmap_t *src, int from_x, int from_y, int width, int height, zest_bitmap_t *dst, int to_x, int to_y);
+ZEST_API void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width, int height, zest_bitmap dst, int to_x, int to_y);
 //Convert a bitmap to a specific vulkan color format. Accepted formats are:
 //VK_FORMAT_R8G8B8A8_UNORM
 //VK_FORMAT_B8G8R8A8_UNORM
 //VK_FORMAT_R8_UNORM
-ZEST_API void zest_ConvertBitmapToTextureFormat(zest_bitmap_t *src, VkFormat format);
+ZEST_API void zest_ConvertBitmapToTextureFormat(zest_bitmap src, VkFormat format);
 //Convert a bitmap to a specific zest_texture_format. Accepted values are;
 //zest_texture_format_alpha
 //zest_texture_format_rgba_unorm
 //zest_texture_format_bgra_unorm
-ZEST_API void zest_ConvertBitmap(zest_bitmap_t *src, zest_texture_format format, zest_byte alpha_level);
+ZEST_API void zest_ConvertBitmap(zest_bitmap src, zest_texture_format format, zest_byte alpha_level);
 //Convert a bitmap to BGRA format
-ZEST_API void zest_ConvertBitmapToBGRA(zest_bitmap_t *src, zest_byte alpha_level);
+ZEST_API void zest_ConvertBitmapToBGRA(zest_bitmap src, zest_byte alpha_level);
 //Fill a bitmap with a color
-ZEST_API void zest_FillBitmap(zest_bitmap_t *image, zest_color color);
+ZEST_API void zest_FillBitmap(zest_bitmap image, zest_color color);
 //plot a single pixel in the bitmap with a color
-ZEST_API void zest_PlotBitmap(zest_bitmap_t *image, int x, int y, zest_color color);
+ZEST_API void zest_PlotBitmap(zest_bitmap image, int x, int y, zest_color color);
 //Convert a bitmap to RGBA format
-ZEST_API void zest_ConvertBitmapToRGBA(zest_bitmap_t *src, zest_byte alpha_level);
+ZEST_API void zest_ConvertBitmapToRGBA(zest_bitmap src, zest_byte alpha_level);
 //Convert a BGRA bitmap to RGBA format
-ZEST_API void zest_ConvertBGRAToRGBA(zest_bitmap_t *src);
+ZEST_API void zest_ConvertBGRAToRGBA(zest_bitmap src);
 //Convert a bitmap to a single alpha channel
-ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap_t *image);
-ZEST_API void zest_ConvertBitmapTo1Channel(zest_bitmap_t *image);
+ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap image);
+ZEST_API void zest_ConvertBitmapTo1Channel(zest_bitmap image);
 //Sample the color of a pixel in a bitmap with the given x/y coordinates
-ZEST_API zest_color zest_SampleBitmap(zest_bitmap_t *image, int x, int y);
+ZEST_API zest_color zest_SampleBitmap(zest_bitmap image, int x, int y);
 //Get a pointer to the first pixel in a bitmap within the bitmap array. Index must be less than the number of bitmaps in the array
 ZEST_API zest_byte *zest_BitmapArrayLookUp(zest_bitmap_array_t *bitmap_array, zest_index index);
 //Get the distance in pixels to the furthes pixel from the center that isn't alpha 0
-ZEST_API float zest_FindBitmapRadius(zest_bitmap_t *image);
+ZEST_API float zest_FindBitmapRadius(zest_bitmap image);
 //Destory a bitmap array and free its resources
 ZEST_API void zest_DestroyBitmapArray(zest_bitmap_array_t *bitmap_array);
 //Get a bitmap from a bitmap array with the given index
-ZEST_API zest_bitmap_t zest_GetImageFromArray(zest_bitmap_array_t *bitmap_array, zest_index index);
+ZEST_API zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t *bitmap_array, zest_index index);
 //Get a bitmap from a texture with the given index
-ZEST_API zest_bitmap_t *zest_GetBitmap(zest_texture texture, zest_index bitmap_index);
+ZEST_API zest_bitmap zest_GetBitmap(zest_texture texture, zest_index bitmap_index);
 //Get a zest_image from a texture by it's index
 ZEST_API zest_image zest_GetImageFromTexture(zest_texture texture, zest_index index);
 //Add an image to a texture from a file. This uses stb_image to load the image so must be in a format that stb image can load
 ZEST_API zest_image zest_AddTextureImageFile(zest_texture texture, const char* name);
 //Add an image to a texture using a zest_bitmap_t
-ZEST_API zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap_t *bitmap_to_load);
+ZEST_API zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap bitmap_to_load);
 //Add an image to a texture from a buffer.
 ZEST_API zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, const unsigned char* buffer, int buffer_size);
 //Add a sequence of images (in a sprite sheet) to a texture from a file. specify the width and height of each frame (they must all be the same size), the number of frames in the animation.
@@ -4844,7 +4848,7 @@ ZEST_API zest_image zest_AddTextureImageMemory(zest_texture texture, const char*
 //whether the animation runs row by row, set to 0 to read column by column.
 ZEST_API zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 //Add an animation from a bitmap.
-ZEST_API zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 //Add an animation from a buffer in memory.
 ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 //After adding all the images you want to a texture, you will then need to process the texture which will create all of the necessary GPU resources and upload the texture to the GPU.
@@ -4898,7 +4902,7 @@ ZEST_API void zest_TextureResize(zest_texture texture, zest_uint width, zest_uin
 //Clear a texture
 ZEST_API void zest_TextureClear(zest_texture texture);
 //For single or storage textures, get the bitmap for the texture.
-ZEST_API zest_bitmap_t *zest_GetTextureSingleBitmap(zest_texture texture);
+ZEST_API zest_bitmap zest_GetTextureSingleBitmap(zest_texture texture);
 //Every texture you create is stored by name in the render, use this to retrieve one by name.
 ZEST_API zest_texture zest_GetTexture(const char *name);
 //Returns true if the texture has a storage type of zest_texture_storage_type_bank or zest_texture_storage_type_single.
@@ -4916,7 +4920,7 @@ ZEST_API void zest_CopyFramebufferToTexture(zest_frame_buffer_t *src_image, zest
 //Copies an area of a zest_texture to another zest_texture
 ZEST_API void zest_CopyTextureToTexture(zest_texture src_image, zest_texture target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 //Copies an area of a zest_texture to a zest_bitmap_t.
-ZEST_API void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap_t *image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel);
+ZEST_API void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel);
 
 // --Sampler functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler

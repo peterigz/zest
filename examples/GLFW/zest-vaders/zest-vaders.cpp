@@ -235,9 +235,9 @@ void VadersGame::Init() {
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
 	for (int i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
-		zest_bitmap_t temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap->data, (int)bitmap->size, bitmap->width, bitmap->height, bitmap->channels);
-		zest_AddTextureImageBitmap(tfx_rendering.color_ramps_texture, &temp_bitmap);
-		zest_FreeBitmap(&temp_bitmap);
+		zest_bitmap temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap->data, (int)bitmap->size, bitmap->width, bitmap->height, bitmap->channels);
+		zest_AddTextureImageBitmap(tfx_rendering.color_ramps_texture, temp_bitmap);
+		zest_FreeBitmap(temp_bitmap);
 	}
 	//Process the color ramp texture to upload it all to the gpu
 	zest_ProcessTextureImages(tfx_rendering.color_ramps_texture);

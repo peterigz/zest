@@ -6,12 +6,12 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     zest_imgui imgui_info = &ZestRenderer->imgui_info;
     zest_WaitForIdleDevice();
     int upload_size = width * height * 4 * sizeof(char);
-    zest_bitmap_t font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	imgui_info->font_texture = zest_ReplaceTexture(imgui_info->font_texture, zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
     zest_ResetTexture(imgui_info->font_texture);
-    zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, &font_bitmap);
+    zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, font_bitmap);
     zest_ProcessTextureImages(imgui_info->font_texture);
-    zest_FreeBitmap(&font_bitmap);
+    zest_FreeBitmap(font_bitmap);
     
     ImGuiIO &io = ImGui::GetIO();
     io.Fonts->SetTexID((ImTextureID)font_image);
