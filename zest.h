@@ -3726,6 +3726,7 @@ zest_hash_map(zest_report_t) zest_map_reports;
 zest_hash_map(zest_swapchain) zest_map_swapchains;
 zest_hash_map(zest_window) zest_map_windows;
 zest_hash_map(zest_timer) zest_map_timers;
+zest_hash_map(zest_shader_resources) zest_map_shader_resources;
 
 typedef struct zest_renderer_t {
     int magic;
@@ -3782,6 +3783,7 @@ typedef struct zest_renderer_t {
     zest_map_swapchains swapchains;
     zest_map_windows windows;
     zest_map_timers timers;
+    zest_map_shader_resources shader_resources;
 
     zest_window current_window;
 
@@ -4020,6 +4022,7 @@ ZEST_PRIVATE VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_se
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout_handle, zest_uint binding_number);
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout_handle, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__destroy_set_layout(zest_set_layout layout_handle);
+ZEST_PRIVATE void zest__free_shader_resources(zest_shader_resources shader_resources);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -4203,7 +4206,10 @@ ZEST_API VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout();
 ZEST_API zest_set_layout zest_GetGlobalBindlessLayout();
 ZEST_API VkDescriptorSet zest_vk_GetGlobalUniformBufferDescriptorSet();
 //Create a new descriptor set shader_resources
-ZEST_API zest_shader_resources zest_CreateShaderResources();
+ZEST_API zest_shader_resources zest_CreateShaderResources(const char *name);
+//Delete shader resources from the renderer and free the memory. This does not free or destroy the actual
+//descriptor sets that you added to the resources
+ZEST_API void zest_DeleteShaderResources(const char *name);
 //Add a descriptor set to a descriptor set shader_resources. Bundles are used for binding to a draw call so the descriptor sets can be passed in to the shaders
 //according to their set and binding number. So therefore it's important that you add the descriptor sets to the shader_resources in the same order
 //that you set up the descriptor set layouts. You must also specify the frame in flight for the descriptor set that you're addeding.
@@ -4220,8 +4226,6 @@ ZEST_API void zest_ClearShaderResources(zest_shader_resources shader_resources);
 //Update the descriptor set in a shader_resources. You'll need this whenever you update a descriptor set for whatever reason. Pass the index of the
 //descriptor set in the shader_resources that you want to update.
 ZEST_API void zest_UpdateShaderResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set, zest_uint index, zest_uint fif);
-//Free the memory of used to store the descriptor sets in the shader resources, this does not free the descriptor sets themselves.
-ZEST_API void zest_FreeShaderResources(zest_shader_resources shader_resources);
 //Helper function to validate
 ZEST_API bool zest_ValidateShaderResource(zest_shader_resources shader_resources);
 //Update a VkDescriptorSet with an array of descriptor writes. For when the images/buffers in a descriptor set have changed, the corresponding descriptor set will need to be updated.

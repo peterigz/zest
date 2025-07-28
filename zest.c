@@ -3922,7 +3922,9 @@ void zest__cleanup_renderer() {
     }
 
     zest_vec_foreach(i, ZestRenderer->timeline_semaphores) {
-        vkDestroySemaphore(ZestDevice->logical_device, ZestRenderer->timeline_semaphores[i]->semaphore, &ZestDevice->allocation_callbacks);
+        zest_execution_timeline timeline = ZestRenderer->timeline_semaphores[i];
+        vkDestroySemaphore(ZestDevice->logical_device, timeline->semaphore, &ZestDevice->allocation_callbacks);
+        ZEST__FREE(timeline);
     }
     zest_vec_free(ZestRenderer->timeline_semaphores);
 
@@ -3944,7 +3946,9 @@ void zest__cleanup_renderer() {
             zest_FreeBuffer(layer->memory_refs[fif].device_vertex_data);
             zest_FreeBuffer(layer->memory_refs[fif].staging_vertex_data);
             zest_FreeBuffer(layer->memory_refs[fif].staging_index_data);
+            zest_vec_free(layer->draw_instructions[fif]);
         }
+        ZEST__FREE(layer);
     }
 
     zest_map_foreach(i, ZestRenderer->computes) {
@@ -3984,6 +3988,7 @@ void zest__cleanup_renderer() {
         zest_shader shader = ZestRenderer->shaders.data[i];
         zest_FreeText(&shader->name);
         zest_FreeText(&shader->shader_code);
+        zest_FreeText(&shader->file_path);
         if (shader->spv) {
             zest_vec_free(shader->spv);
         }
@@ -3997,6 +4002,7 @@ void zest__cleanup_renderer() {
         if (ZEST_VALID_HANDLE(font->texture)) {
             zest__delete_texture(font->texture);
         }
+        ZEST__FREE(font);
     }
 
 	zest_vec_foreach(i, ZestRenderer->uniform_buffers) {
@@ -4039,6 +4045,11 @@ void zest__cleanup_renderer() {
         zest_FreeText(&report->message);
     }
 
+    zest_map_foreach(i, ZestRenderer->shader_resources) {
+        zest_shader_resources shader_resources = ZestRenderer->shader_resources.data[i];
+        zest__free_shader_resources(shader_resources);
+    }
+
     zest_ForEachFrameInFlight(fif) {
         ZEST__FREE(ZestRenderer->render_graph_allocator[fif]);
         zest_vec_free(ZestRenderer->texture_refresh_queue[fif]);
@@ -4077,6 +4088,7 @@ void zest__cleanup_renderer() {
     zest_map_free(ZestRenderer->swapchains);
     zest_map_free(ZestRenderer->windows);
     zest_map_free(ZestRenderer->timers);
+    zest_map_free(ZestRenderer->shader_resources);
 
     zest_FreeText(&ZestRenderer->shader_path_prefix);
 
@@ -4570,6 +4582,16 @@ void zest__destroy_set_layout(zest_set_layout layout) {
 	ZEST__FREE(layout);
 }
 
+void zest__free_shader_resources(zest_shader_resources shader_resources) {
+    if (ZEST_VALID_HANDLE(shader_resources)) {
+        zest_ForEachFrameInFlight(fif) {
+            zest_vec_free(shader_resources->sets[fif]);
+        }
+		zest_vec_free(shader_resources->binding_sets);
+		ZEST__FREE(shader_resources);
+    }
+}
+
 VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(zest_uint count, VkDescriptorSetLayoutBinding* bindings) {
     ZEST_ASSERT(bindings);    //must have bindings to create the layout
 
@@ -4853,12 +4875,27 @@ zest_descriptor_set zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_des
     return new_set_to_populate_or_update;
 }
 
-zest_shader_resources zest_CreateShaderResources() {
-    zest_shader_resources_t blank_bundle = { 0 };
+zest_shader_resources zest_CreateShaderResources(const char *name) {
+    ZEST_ASSERT(name);  //Must set a name for the resources.
+    if (zest_map_valid_name(ZestRenderer->shader_resources, name)) {
+        ZEST_PRINT("Shader resources with name %s already exitst!", name);
+        return *zest_map_at(ZestRenderer->shader_resources, name);
+    }
     zest_shader_resources bundle = ZEST__NEW(zest_shader_resources);
-    *bundle = blank_bundle;
+    *bundle = (zest_shader_resources_t){ 0 };
     bundle->magic = zest_INIT_MAGIC(zest_struct_type_shader_resources);
+    zest_map_insert(ZestRenderer->shader_resources, name, bundle);
     return bundle;
+}
+
+void zest_DeleteShaderResources(const char *name) {
+    if (zest_map_valid_name(ZestRenderer->shader_resources, name)) {
+        zest_shader_resources shader_resources = *zest_map_at(ZestRenderer->shader_resources, name);
+        zest__free_shader_resources(shader_resources);
+        zest_map_remove(ZestRenderer->shader_resources, name);
+    } else {
+        ZEST_PRINT("Could not find shader resources with name %s to delete!", name);
+    }
 }
 
 void zest_AddDescriptorSetToResources(zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif) {
@@ -4892,16 +4929,6 @@ void zest_UpdateShaderResources(zest_shader_resources resources, zest_descriptor
 void zest_ClearShaderResources(zest_shader_resources shader_resources) {
     if (!shader_resources) return;
     zest_vec_clear(shader_resources->sets);
-}
-
-void zest_FreeShaderResources(zest_shader_resources shader_resources) {
-    if (ZEST_VALID_HANDLE(shader_resources)) {
-        zest_ForEachFrameInFlight(fif) {
-            zest_vec_free(shader_resources->sets[fif]);
-        }
-		zest_vec_free(shader_resources->binding_sets);
-		ZEST__FREE(shader_resources);
-    }
 }
 
 bool zest_ValidateShaderResource(zest_shader_resources shader_resources) {
@@ -6488,7 +6515,7 @@ void* zest__vec_reserve(void* T, zest_uint unit_size, zest_uint new_capacity) {
     T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD);
     zest_vec *header = (zest_vec *)new_data;
     header->id = ZestDevice->vector_id++;
-    if (header->id == 205) {
+    if (header->id == 332) {
         int d = 0;
     }
     header->magic = zest_INIT_MAGIC(zest_struct_type_vector);
@@ -13407,10 +13434,10 @@ zest_font zest_LoadMSDFFont(const char* filename) {
     zest_vec_free(image_data);
     zest_vec_free(font_data);
 
+    zest_SetText(&font->name, filename);
+
     zest__setup_font_texture(font);
     stbi_set_flip_vertically_on_load(0);
-
-    zest_SetText(&font->name, filename);
 
     return zest__add_font(font);
 }
@@ -13519,7 +13546,7 @@ void zest__setup_font_texture(zest_font font) {
     zest_AcquireGlobalCombinedImageSampler(font->texture);
 
     font->pipeline_template = zest_PipelineTemplate("pipeline_fonts");
-	font->shader_resources = zest_CreateShaderResources();
+	font->shader_resources = zest_CreateShaderResources(font->name.str);
     zest_ForEachFrameInFlight(fif) {
         zest_AddDescriptorSetToResources(font->shader_resources, ZestRenderer->uniform_buffer->descriptor_set[fif], fif);
         zest_AddDescriptorSetToResources(font->shader_resources, ZestRenderer->global_set, fif);
@@ -15248,6 +15275,7 @@ void zest__clean_up_compute(zest_compute compute) {
         compute->extra_cleanup_callback(compute);
     }
 
+    ZEST__FREE(compute);
 }
 //--End Compute shaders
 
