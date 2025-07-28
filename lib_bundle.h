@@ -1227,7 +1227,7 @@ zloc_pool_stats_t zloc_CreateMemorySnapshot(zloc_header *first_block) {
     if (zloc__is_free_block(current_block)) {
         stats.free_blocks++;
         stats.free_size += zloc__block_size(current_block);
-    } else {
+    } else if(zloc__block_size(current_block) > 0) {
         stats.used_blocks++;
         stats.used_size += zloc__block_size(current_block);
     }

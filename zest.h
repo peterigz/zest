@@ -1640,8 +1640,8 @@ typedef struct zest_queue_family_indices {
 
 // --Pocket Dynamic Array
 typedef struct zest_vec {
-    int magic;
-    int id;
+    int magic;  //For allocation tracking
+    int id;     //and finding leaks.
     zest_uint current_size;
     zest_uint capacity;
 } zest_vec;
@@ -5444,7 +5444,7 @@ ZEST_API zest_bool zest_SetErrorLogPath(const char *path);
 //Print out any reports that have been collected to the console
 ZEST_API void zest_PrintReports();
 ZEST_PRIVATE void zest__print_block_info(void *allocation, zloc_header *current_block, zest_vulkan_memory_context context_filter, zest_vulkan_command command_filter);
-ZEST_API void zest_PrintMemeoryBlocks(zloc_header *first_block, zest_bool output_all, zest_vulkan_memory_context context_filter, zest_vulkan_command command_filter);
+ZEST_API void zest_PrintMemoryBlocks(zloc_header *first_block, zest_bool output_all, zest_vulkan_memory_context context_filter, zest_vulkan_command command_filter);
 //--End Debug Helpers
 
 #ifdef __cplusplus

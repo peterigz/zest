@@ -89,6 +89,7 @@ void zest_implsdl2_AddPlatformExtensionsCallback(void) {
 	for (int i = 0; i != count; ++i) {
 		zest_AddInstanceExtension((char*)sdl_extensions[i]);
 	}
+	zest_vec_free(sdl_extensions);
 }
 
 void zest_implsdl2_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
@@ -98,6 +99,7 @@ void zest_implsdl2_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb
 
 void zest_implsdl2_DestroyWindowCallback(zest_window window, void *user_data) {
 	SDL_DestroyWindow((SDL_Window*)window->window_handle);
+    vkDestroySurfaceKHR(ZestDevice->instance, window->surface, &ZestDevice->allocation_callbacks);
 }
 
 void zest_implsdl2_SetCallbacks(zest_create_info_t *create_info) {

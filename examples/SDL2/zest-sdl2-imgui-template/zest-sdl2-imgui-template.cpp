@@ -29,7 +29,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Process the texture so that its ready to be used
 	zest_ProcessTextureImages(app->test_texture);
 
-	app->timer = zest_CreateTimer(60.0);
+	app->timer = zest_CreateTimer("Main Loop Timer", 60.0);
+	app->reset = false;
 }
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
@@ -37,7 +38,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	while (SDL_PollEvent(&event)) {
 		ImGui_ImplSDL2_ProcessEvent(&event);
 		zest_MaybeQuit(event.type == SDL_QUIT);
-		zest_MaybeQuit(event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID((SDL_Window*)ZestApp->current_window->window_handle));
+		zest_MaybeQuit(event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID((SDL_Window*)zest_GetCurrentWindow()->window_handle));
 	}
 	//Don't forget to update the uniform buffer!
 	zest_Update2dUniformBuffer();
@@ -57,25 +58,35 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGui::Text("FPS %i", ZestApp->last_fps);
 		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
 		if (ImGui::Button("Bordered")) {
-			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_bordered);
+			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_bordered);
 		}
 		if (ImGui::Button("Borderless")) {
-			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_borderless);
+			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_borderless);
 		}
 		if (ImGui::Button("Full Screen")) {
-			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_fullscreen);
+			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_fullscreen);
 		}
 		if (ImGui::Button("Full Screen Borderless")) {
-			zest_SetWindowMode(ZestApp->current_window, zest_window_mode_fullscreen_borderless);
+			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_fullscreen_borderless);
 		}
 		if (ImGui::Button("Set window size to 1000 x 750")) {
-			zest_SetWindowSize(ZestApp->current_window, 1000, 750);
+			zest_SetWindowSize(zest_GetCurrentWindow(), 1000, 750);
+		}
+		if (ImGui::Button("Reset Renderer")) {
+			app->reset = true;
 		}
 		ImGui::End();
 		ImGui::Render();
 		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 		zest_imgui_UpdateBuffers();
 	} zest_EndTimerLoop(app->timer);
+
+	if (app->reset) {
+		app->reset = false;
+		zest_imgui_Shutdown();
+		zest_ResetRenderer();
+		InitImGuiApp(app);
+	}
 
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
@@ -111,10 +122,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(int argc, char *argv[]) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	//Implement GLFW for window creation

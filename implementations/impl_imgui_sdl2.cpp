@@ -6,7 +6,7 @@ zest_imgui zest_imgui_Initialise() {
 	ZEST_ASSERT(!imgui_info->vertex_staging_buffer[0]);	//imgui already initialised!
 	ZEST_ASSERT(!imgui_info->index_staging_buffer[0]);
 	memset(imgui_info, 0, sizeof(zest_imgui_t));
-	imgui_info->magic = zest_INIT_MAGIC;
+	imgui_info->magic = zest_INIT_MAGIC(zest_struct_type_imgui);
 	ImGui::CreateContext();
 	ImGuiIO &io = ImGui::GetIO();
 	io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());
@@ -20,6 +20,7 @@ zest_imgui zest_imgui_Initialise() {
 	imgui_info->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
 	zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, &font_bitmap);
 	zest_ProcessTextureImages(imgui_info->font_texture);
+	zest_FreeBitmap(&font_bitmap);
 
 	//ImGuiPipeline
 	zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate("pipeline_imgui");
@@ -58,7 +59,24 @@ zest_imgui zest_imgui_Initialise() {
 		imgui_info->vertex_device_buffer[fif] = zest_CreateVertexBuffer(1024 * 1024, fif);
 		imgui_info->index_device_buffer[fif] = zest_CreateIndexBuffer(1024 * 1024, fif);
 	}
-	ImGui_ImplSDL2_InitForVulkan((SDL_Window*)ZestApp->current_window->window_handle);
+	ImGui_ImplSDL2_InitForVulkan((SDL_Window*)ZestRenderer->current_window->window_handle);
 
 	return imgui_info;
+}
+
+void zest_imgui_Shutdown() {
+	ImGui_ImplSDL2_Shutdown();
+	ImGui::DestroyContext();
+	zest_imgui imgui_info = &ZestRenderer->imgui_info;
+	zest_ForEachFrameInFlight(fif) {
+		zest_FreeBuffer(imgui_info->index_device_buffer[fif]);
+		zest_FreeBuffer(imgui_info->vertex_device_buffer[fif]);
+		zest_FreeBuffer(imgui_info->index_staging_buffer[fif]);
+		zest_FreeBuffer(imgui_info->vertex_staging_buffer[fif]);
+	}
+	zest_DeleteTexture(imgui_info->font_texture);
+	zest_DeletePipeline(imgui_info->pipeline);
+	zest_vec_free(imgui_info->draw_sets);
+	zest_FreeShaderResources(imgui_info->shader_resources);
+	*imgui_info = { 0 };
 }
