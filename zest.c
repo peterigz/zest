@@ -11349,6 +11349,7 @@ void zest_FreeBitmap(zest_bitmap_t* image) {
 
 zest_bitmap_t zest_NewBitmap() {
     zest_bitmap_t bitmap = { 0 };
+    bitmap.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
     return bitmap;
 }
 

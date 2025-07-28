@@ -1164,6 +1164,7 @@ typedef enum zest_struct_type {
     zest_struct_type_device                  = 32 << 16,
     zest_struct_type_app                     = 33 << 16,
     zest_struct_type_vector                  = 34 << 16,
+    zest_struct_type_bitmap                  = 35 << 16,
 } zest_struct_type;
 
 typedef enum zest_vulkan_memory_context {
@@ -3570,6 +3571,7 @@ typedef struct zest_sampler_t {
 zest_hash_map(zest_descriptor_set_builder_t) zest_map_texture_descriptor_builders;
 
 typedef struct zest_bitmap_t {
+    int magic;
     int width;
     int height;
     int channels;
