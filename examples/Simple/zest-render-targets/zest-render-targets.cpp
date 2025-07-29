@@ -77,67 +77,6 @@ void InitExample(RenderTargetExample *example) {
     zest_EndPipelineTemplate(example->composite_pipeline);
     example->composite_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
-	/*
-	example->downsampler->pipeline_template = example->downsample_pipeline;
-	//Create the render queue
-	//For a bloom effect we will have a base render target where we can render the scene. 
-	//Then that render target is passed to a down sampler render pass that will run the downsampling shader that
-	//progressively blurs to the next mip level down. Then that render target is passed to an up sampler where the same
-	//process happens in reverse. Finally we set up a composite draw command where we blend the base target with the 
-	//up sampled blurred render target and then tonemapped and output straight to the swap chain.
-
-	//First create a queue and set it's dependency to the present queue. This means that it will wait on the swap chain to present the final render to the screen before rendering again.
-	//But bear in mind that there are multiple frames in flight (as long as ZEST_MAX_FIF is >1) so while one queue is being executed on the gpu the next one will be created in the meantime.
-	//The best explaination I've seen of this can be found here: https://software.intel.com/content/www/us/en/develop/articles/practical-approach-to-vulkan-part-1.html
-	example->command_queue = zest_NewCommandQueue("Screen Blur/Bloom");
-	{
-		//Create draw commands that render to a base render target
-		//Note: all draw commands will happen in the order that they're added here as they are a part of the same command buffer in "Screen Blur" command queue
-		zest_NewDrawCommandSetup("Base render pass", example->base_target);
-		{
-			//base target needs a layer that we can use to draw to so we just use a built in one but you could use
-			//your own custom layer and draw routine
-			//example->base_layer = zest_NewBuiltinLayerSetup("Base Layer", zest_builtin_layer_sprites);
-			//Create a font layer to draw to it
-			//example->font_layer = zest_NewBuiltinLayerSetup("Fonts", zest_builtin_layer_fonts);
-		}
-		//Create draw commands that downsamples the base render target in a mip chain applying blur as it goes
-		//We can use the bloom_pass_pipeline to filter the input first, for example filter out all the dark colors.
-		//Specify the downsampler render target and the input render target which will be the base render target.
-		zest_NewDrawCommandSetupDownSampler("Bloom pass render pass", example->downsampler, example->base_target, example->bloom_pass_pipeline);
-		{
-			//We use the built in down sampler, but you could specify your own callback here
-			zest_SetDrawCommandsCallback(zest_DownSampleRenderTarget);
-		}
-		//Create draw commands that upsample the downsampled target in a mip chain applying more blur as it goes. Each
-		//mip level in the up sampler will be blended with the downsampled mip level additively to create a rich bloom
-		zest_NewDrawCommandSetupUpSampler("Up sample render pass", example->upsampler, example->downsampler, example->upsample_pipeline);
-		{
-			//We use the built in up sampler, but you could specify your own callback here if needed. Most of the 
-			//customisation you'll need can be done in the fragment shader though.
-			zest_SetDrawCommandsCallback(zest_UpSampleRenderTarget);
-		}
-		//Finally we won't see anything unless we tell the render queue to render to the swap chain to be presented to the screen, but we
-		//need to specify which render targets we want to be drawn to the swap chain.
-		//We can use zest_NewDrawCommandSetupCompositeToSwap which composites our render targets with a specific pipeline
-		//we want to use. This shader can blend the bloom and base render target together and then tonemap before outputtin
-		//directly to the swap chain. Note that all the render targets before here are HDR (16bit float format) but in
-		//this phase they will be converted automatically to 8bit srgb.
-		zest_NewDrawCommandSetupCompositeToSwap("Render render targets to swap", example->composite_pipeline);
-		{
-			zest_AddRenderTarget(example->base_target);
-			zest_AddRenderTarget(example->upsampler);
-			//We can add as many other render targets as we need to get drawn to the swap chain you must ensure that
-			//the shader that blends the render targets together has the right amount of samplers to do this.
-		}
-		//Connect the render queue to the Present queue so that the swap chain has to wait until the rendering is complete before
-		//presenting to the screen
-		zest_FinishQueueSetup();
-	}
-
-	//zest_OutputQueues();
-	*/
-
 	example->render_target_resources = zest_CreateShaderResources("Example resources");
 	zest_AddGlobalBindlessSetToResources(example->render_target_resources);
 

@@ -1833,8 +1833,10 @@ zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device) {
 
     zest_bool swapchain_adequate = 0;
     if (extensions_supported) {
-        ZestDevice->swapchain_support_details = zest__query_swapchain_support(physical_device);
-        swapchain_adequate = ZestDevice->swapchain_support_details.formats_count && ZestDevice->swapchain_support_details.present_modes_count;
+        zest_swapchain_support_details_t swapchain_support_details = zest__query_swapchain_support(physical_device);
+        swapchain_adequate = swapchain_support_details.formats_count && swapchain_support_details.present_modes_count;
+		ZEST__FREE(swapchain_support_details.formats);
+		ZEST__FREE(swapchain_support_details.present_modes);
     }
 
     VkPhysicalDeviceFeatures supported_features;
@@ -2303,10 +2305,8 @@ void *zest_vk_reallocate_callback(void *pUserData, void *pOriginal, size_t size,
 }
 
 void zest_vk_free_callback(void *pUserData, void *memory) {
+    if (!memory) return;
     zest_vulkan_memory_info_t *original_allocation = (zest_vulkan_memory_info_t *)memory - 1;
-    if (original_allocation->timestamp == 1) {
-        int d = 0;
-    }
     ZEST__FREE(original_allocation);
 }
 
@@ -3498,6 +3498,7 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     ZestRenderer->main_swapchain = swapchain;
     ZestRenderer->current_window->swapchain = swapchain;
     zest__initialise_swapchain(swapchain, ZestRenderer->current_window);
+    zest__initialise_swapchain_semaphores(swapchain);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain image views");
     zest__create_swapchain_image_views(swapchain);
 
@@ -3584,12 +3585,12 @@ zest_swapchain zest__create_swapchain(const char *name) {
 
 void zest__initialise_swapchain(zest_swapchain swapchain, zest_window window) {
     ZEST_CHECK_HANDLE(swapchain);   //Not a valid swapchain handle!
-    zest_swapchain_support_details_t *swapchain_support = &ZestDevice->swapchain_support_details;
+	zest_swapchain_support_details_t swapchain_support_details = zest__query_swapchain_support(ZestDevice->physical_device);
     swapchain->window = window;
 
-    VkSurfaceFormatKHR surfaceFormat = zest__choose_swapchain_format(swapchain_support->formats);
-    VkPresentModeKHR presentMode = zest_choose_present_mode(swapchain_support->present_modes, ZestRenderer->flags & zest_renderer_flag_vsync_enabled);
-    VkExtent2D extent = zest_choose_swap_extent(&swapchain_support->capabilities);
+    VkSurfaceFormatKHR surfaceFormat = zest__choose_swapchain_format(swapchain_support_details.formats);
+    VkPresentModeKHR presentMode = zest_choose_present_mode(swapchain_support_details.present_modes, ZestRenderer->flags & zest_renderer_flag_vsync_enabled); 
+    VkExtent2D extent = zest_choose_swap_extent(&swapchain_support_details.capabilities);
     ZestRenderer->dpi_scale = (float)extent.width / (float)ZestRenderer->current_window->window_width;
 
     swapchain->vk_format = surfaceFormat.format;
@@ -3597,10 +3598,10 @@ void zest__initialise_swapchain(zest_swapchain swapchain, zest_window window) {
     ZestRenderer->window_extent.width = ZestRenderer->current_window->window_width;
     ZestRenderer->window_extent.height = ZestRenderer->current_window->window_height;
 
-    zest_uint image_count = swapchain_support->capabilities.minImageCount + 1;
+    zest_uint image_count = swapchain_support_details.capabilities.minImageCount + 1;
 
-    if (swapchain_support->capabilities.maxImageCount > 0 && image_count > swapchain_support->capabilities.maxImageCount) {
-        image_count = swapchain_support->capabilities.maxImageCount;
+    if (swapchain_support_details.capabilities.maxImageCount > 0 && image_count > swapchain_support_details.capabilities.maxImageCount) {
+        image_count = swapchain_support_details.capabilities.maxImageCount;
     }
 
     VkSwapchainCreateInfoKHR createInfo = { 0 };
@@ -3613,7 +3614,7 @@ void zest__initialise_swapchain(zest_swapchain swapchain, zest_window window) {
     createInfo.imageExtent = extent;
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    createInfo.preTransform = swapchain_support->capabilities.currentTransform;
+    createInfo.preTransform = swapchain_support_details.capabilities.currentTransform;
     createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     createInfo.presentMode = presentMode;
     createInfo.clipped = VK_TRUE;
@@ -3628,6 +3629,11 @@ void zest__initialise_swapchain(zest_swapchain swapchain, zest_window window) {
     zest_vec_resize(swapchain->vk_images, image_count);
     vkGetSwapchainImagesKHR(ZestDevice->logical_device, swapchain->vk_swapchain, &image_count, swapchain->vk_images);
 
+	ZEST__FREE(swapchain_support_details.formats);
+	ZEST__FREE(swapchain_support_details.present_modes);
+}
+
+void zest__initialise_swapchain_semaphores(zest_swapchain swapchain) {
     VkSemaphoreCreateInfo semaphore_info = { 0 };
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -3642,7 +3648,6 @@ void zest__initialise_swapchain(zest_swapchain swapchain, zest_window window) {
 		ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_semaphore);
         ZEST_VK_CHECK_RESULT(vkCreateSemaphore(ZestDevice->logical_device, &semaphore_info, &ZestDevice->allocation_callbacks, &swapchain->vk_render_finished_semaphore[i]));
     }
-
 }
 
 VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR* available_present_modes, zest_bool use_vsync) {
@@ -3773,13 +3778,9 @@ void zest__create_pipeline_cache() {
     ZEST_VK_CHECK_RESULT(vkCreatePipelineCache(ZestDevice->logical_device, &pipeline_cache_create_info, &ZestDevice->allocation_callbacks, &ZestRenderer->pipeline_cache));
 }
 
-void zest__cleanup_swapchain(zest_swapchain swapchain) {
+void zest__cleanup_swapchain(zest_swapchain swapchain, zest_bool for_recreation) {
     vkDestroyImageView(ZestDevice->logical_device, swapchain->vk_depth_image_view, &ZestDevice->allocation_callbacks);
     vkDestroyImage(ZestDevice->logical_device, swapchain->vk_depth_image, &ZestDevice->allocation_callbacks);
-
-    zest_vec_foreach(i, swapchain->vk_frame_buffers) {
-        vkDestroyFramebuffer(ZestDevice->logical_device, swapchain->vk_frame_buffers[i], &ZestDevice->allocation_callbacks);
-    }
 
     zest_vec_foreach(i, swapchain->vk_image_views) {
         vkDestroyImageView(ZestDevice->logical_device, swapchain->vk_image_views[i], &ZestDevice->allocation_callbacks);
@@ -3787,20 +3788,20 @@ void zest__cleanup_swapchain(zest_swapchain swapchain) {
 
     vkDestroySwapchainKHR(ZestDevice->logical_device, swapchain->vk_swapchain, &ZestDevice->allocation_callbacks);
 
-    zest_ForEachFrameInFlight(fif) {
-		vkDestroySemaphore(ZestDevice->logical_device, swapchain->vk_image_available_semaphore[fif], &ZestDevice->allocation_callbacks);
-    }
-
-    zest_vec_foreach(i, swapchain->vk_render_finished_semaphore) {
-		vkDestroySemaphore(ZestDevice->logical_device, swapchain->vk_render_finished_semaphore[i], &ZestDevice->allocation_callbacks);
-    }
-
     zest_vec_free(swapchain->vk_images);
     zest_vec_free(swapchain->vk_image_views);
-    zest_vec_free(swapchain->vk_frame_buffers);
-    zest_vec_free(swapchain->vk_render_finished_semaphore);
 
-    ZEST__FREE(swapchain);
+	zest_ForEachFrameInFlight(fif) {
+		vkDestroySemaphore(ZestDevice->logical_device, swapchain->vk_image_available_semaphore[fif], &ZestDevice->allocation_callbacks);
+	}
+	zest_vec_foreach(i, swapchain->vk_render_finished_semaphore) {
+		vkDestroySemaphore(ZestDevice->logical_device, swapchain->vk_render_finished_semaphore[i], &ZestDevice->allocation_callbacks);
+	}
+	zest_vec_free(swapchain->vk_render_finished_semaphore);
+
+    if (!for_recreation) {
+        ZEST__FREE(swapchain);
+    }
 }
 
 void zest__destroy_pipeline(zest_pipeline p) {
@@ -3878,14 +3879,12 @@ void zest__cleanup_device(void) {
     zest_vec_free(ZestDevice->queues);
     zest_map_free(ZestDevice->queue_names);
     zest_map_free(ZestDevice->pool_sizes);
-    ZEST__FREE(ZestDevice->swapchain_support_details.formats);
-    ZEST__FREE(ZestDevice->swapchain_support_details.present_modes);
     zest_FreeText(&ZestDevice->log_path);
 }
 
 void zest__cleanup_renderer() {
     zest_map_foreach(i, ZestRenderer->swapchains) {
-        zest__cleanup_swapchain(ZestRenderer->swapchains.data[i]);
+        zest__cleanup_swapchain(ZestRenderer->swapchains.data[i], 0);
     }
 
     zest_uint cached_pipelines_size = zest_map_size(ZestRenderer->cached_pipelines);
@@ -4112,10 +4111,12 @@ void zest__recreate_swapchain(zest_swapchain swapchain) {
 
     zest_WaitForIdleDevice();
 
-    zest__cleanup_swapchain(swapchain);
+    zest__cleanup_swapchain(swapchain, 1);
     zest__cleanup_pipelines();
+    zest_map_free(ZestRenderer->cached_pipelines);
 
     zest__initialise_swapchain(swapchain, swapchain->window);
+    zest__initialise_swapchain_semaphores(swapchain);
     zest__create_swapchain_image_views(swapchain);
 
     if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_has_depth_buffer)) {
@@ -4130,16 +4131,6 @@ void zest__recreate_swapchain(zest_swapchain swapchain) {
         zest_pipeline_template pipeline_template = *zest_map_at_index(ZestRenderer->pipelines, i);
         zest__refresh_pipeline_template(pipeline_template);
     }
-    zest_map_foreach(i, ZestRenderer->cached_pipelines) {
-        zest_pipeline pipeline = *zest_map_at_index(ZestRenderer->cached_pipelines, i);
-        if (!pipeline->rebuild_pipeline_function) {
-            zest__rebuild_pipeline(pipeline);
-        }
-        else {
-            pipeline->rebuild_pipeline_function(pipeline);
-        }
-    }
-
 }
 
 void zest__create_swapchain_image_views(zest_swapchain swapchain) {

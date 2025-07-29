@@ -27,12 +27,6 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Draw a single line of text
 	zest_DrawMSDFText(example->font_layer, "(This should be centered)", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 50.f, 0.f);
 
-	if (zest_MouseXf() < zest_ScreenWidth() / 2) {
-		zest_SetWindowMode(ZestApp->current_window, zest_window_mode_borderless);
-	} else {
-		zest_SetWindowMode(ZestApp->current_window, zest_window_mode_bordered);
-	}
-
 	//Create the render graph
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Fonts Example Render Graph")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };

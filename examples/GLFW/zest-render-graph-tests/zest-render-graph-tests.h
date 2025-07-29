@@ -8,15 +8,25 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
+#define TEST_COUNT 1
 
+struct ZestTests;
+struct Test;
 
-struct ImGuiApp {
-	zest_index imgui_draw_routine_index;
-	zest_texture imgui_font_texture;
-	zest_timer timer;
-	bool sync_refresh;
-	bool request_graph_print;
+typedef int (*test_callback)(ZestTests *tests, Test *test);
+
+struct Test {
+	const char *name;
+	test_callback the_test;
+	int frame_count;
+	zest_render_graph_result result;
 };
 
-void InitImGuiApp(ImGuiApp *app);
-void RenderGraphTests(ImGuiApp *app);
+struct ZestTests {
+	Test tests[TEST_COUNT];
+	int current_test;
+};
+
+void InitialiseTests(ZestTests *tests);
+
+int test__blank_screen(ZestTests *tests, Test *test);

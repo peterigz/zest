@@ -2,11 +2,10 @@
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	// Begin Render Graph Definition
-	if (zest_BeginRenderToScreen("Render Graph")) {
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource( "Swapchain Output" );
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Render Graph")) {
 		zest_pass_node clear_pass = zest_AddGraphicBlankScreen("Draw Nothing");
-		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} }; 
-		zest_ConnectSwapChainOutput( clear_pass, swapchain_output_resource, clear_color);
+		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
+		zest_ConnectSwapChainOutput(clear_pass, clear_color);
 		zest_EndRenderGraph();
 	}
 }

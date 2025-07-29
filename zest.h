@@ -1543,11 +1543,6 @@ typedef enum zest_report_category {
     zest_report_unconnected_resource,
 } zest_report_category;
 
-typedef zest_uint zest_supported_shader_stages;		//zest_shader_stage_bits
-typedef zest_uint zest_compute_flags;		//zest_compute_flag_bits
-typedef zest_uint zest_layer_flags;         //zest_layer_flag_bits
-typedef zest_uint zest_pass_flags;          //zest_layer_flag_bits
-
 typedef enum zest_global_binding_numbers {
     zest_combined_image_sampler_binding = 0,
     zest_storage_buffer_binding,
@@ -1555,6 +1550,17 @@ typedef enum zest_global_binding_numbers {
     zest_sampled_image_binding,
     zest_storage_image_binding,
 } zest_global_binding_numbers;
+
+typedef enum zest_render_graph_result_bits {
+    zest_rgs_success = 0,
+    zest_rgs_failed  = 1 << 0,
+} zest_render_graph_result_bits;
+
+typedef zest_uint zest_supported_shader_stages;		//zest_shader_stage_bits
+typedef zest_uint zest_compute_flags;		        //zest_compute_flag_bits
+typedef zest_uint zest_layer_flags;                 //zest_layer_flag_bits
+typedef zest_uint zest_pass_flags;                  //zest_pass_flag_bits
+typedef zest_uint zest_render_graph_result;         //zest_render_graph_result_bits
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
 
@@ -2497,7 +2503,6 @@ typedef struct zest_swapchain_t {
 
     VkImage *vk_images;
     VkImageView *vk_image_views;
-    VkFramebuffer *vk_frame_buffers;
 
     zest_buffer depth_resource_buffer;
     VkImageView vk_depth_image_view;
@@ -2614,7 +2619,6 @@ typedef struct zest_device_t {
     zest_uint allocation_id;
     zest_uint vector_id;
 
-    zest_swapchain_support_details_t swapchain_support_details;
     VkAllocationCallbacks allocation_callbacks;
     VkInstance instance;
     VkPhysicalDevice physical_device;
@@ -2958,6 +2962,7 @@ zest_hash_map(zest_resource_versions_t) zest_map_resource_versions;
 typedef struct zest_render_graph_t {
     int magic;
     zest_render_graph_flags flags;
+    zest_render_graph_result error_status;
     const char *name;
 
     zest_bucket_array_t potential_passes; 
@@ -3890,13 +3895,14 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators();
 ZEST_PRIVATE void zest__initialise_renderer(zest_create_info_t *create_info);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(const char *name);
 ZEST_PRIVATE void zest__initialise_swapchain(zest_swapchain swapchain, zest_window window);
+ZEST_PRIVATE void zest__initialise_swapchain_semaphores(zest_swapchain swapchain);
 ZEST_PRIVATE VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *availableFormats);
 ZEST_PRIVATE VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_modes, zest_bool use_vsync);
 ZEST_PRIVATE VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
 ZEST_PRIVATE void zest__create_pipeline_cache();
 ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 ZEST_PRIVATE void zest__destroy_window_callback(zest_window window, void *user_data);
-ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain);
+ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain, zest_bool for_recreation);
 ZEST_PRIVATE void zest__cleanup_device(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
 ZEST_PRIVATE void zest__clean_up_compute(zest_compute compute);
