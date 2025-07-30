@@ -163,6 +163,9 @@ void zest__os_poll_events() {
     }
 }
 
+BOOL zest_IsWindowClassRegistered(const char *className) {
+}
+
 zest_window zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
     ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
 
@@ -182,8 +185,13 @@ zest_window zest__os_create_window(int x, int y, int width, int height, zest_boo
     window_class.hIcon = LoadIcon(zest_window_instance, MAKEINTRESOURCE(IDI_APPLICATION));
     window_class.lpszClassName = "zest_app_class_name";
 
-    if (!RegisterClass(&window_class)) {
-        ZEST_ASSERT(0);        //Failed to register window
+    WNDCLASSEX wcex = { 0 };
+    wcex.cbSize = sizeof(WNDCLASSEX);
+
+    if (GetClassInfoEx(zest_window_instance, window_class.lpszClassName, &wcex) == 0) {
+        if (!RegisterClass(&window_class)) {
+            ZEST_ASSERT(0);        //Failed to register window
+        }
     }
 
     DWORD style = WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
@@ -15662,28 +15670,5 @@ double zest_TimerUpdateFrequency(zest_timer timer) {
 zest_bool zest_TimerUpdateWasRun(zest_timer timer) {
     ZEST_CHECK_HANDLE(timer);	//Not a valid handle!
     return timer->update_count > 0;
-}
-
-void test_bucket_array() {
-    zest_bucket_array_t ba;
-    zest_bucket_array_init(&ba, int, 8);
-    for (int v = 0; v != 20; ++v) {
-        zest_bucket_array_push(&ba, int, v);
-    }
-    zest_bucket_array_foreach(i, ba) {
-        int *v = zest_bucket_array_get(&ba, int, i);
-        ZEST_PRINT("%i", *v);
-    }
-    zest__bucket_array_free(&ba);
-
-    zest_bucket_array_init(&ba, int, 8);
-    for (int v = 0; v != 20; ++v) {
-        zest_bucket_array_linear_push(ZestRenderer->render_graph_allocator[0], &ba, int, v);
-    }
-    zest_bucket_array_foreach(i, ba) {
-        int *v = zest_bucket_array_get(&ba, int, i);
-        ZEST_PRINT("%i", *v);
-    }
-    zloc_ResetLinearAllocator(ZestRenderer->render_graph_allocator[0]);
 }
 //-- End Timer Functions

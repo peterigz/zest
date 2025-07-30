@@ -1708,8 +1708,6 @@ ZEST_PRIVATE inline void *zest__bucket_array_get(zest_bucket_array_t *array, zes
 ZEST_PRIVATE inline void *zest__bucket_array_add(zest_bucket_array_t *array);
 ZEST_PRIVATE inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, zest_bucket_array_t *array);
 
-ZEST_API void test_bucket_array();
-
 #define zest_bucket_array_init(array, T, cap) zest__bucket_array_init(array, sizeof(T), cap)
 #define zest_bucket_array_get(array, T, index) ((T*)zest__bucket_array_get(array, index))
 #define zest_bucket_array_add(array, T) ((T*)zest__bucket_array_add(array))
