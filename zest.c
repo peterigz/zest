@@ -163,9 +163,6 @@ void zest__os_poll_events() {
     }
 }
 
-BOOL zest_IsWindowClassRegistered(const char *className) {
-}
-
 zest_window zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title) {
     ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
 
@@ -8077,7 +8074,6 @@ void zest__create_transient_resource(zest_render_graph render_graph, zest_resour
 /*
 Render graph compiler index:
 [Check_unused_resources_and_passes]
-[Version_control_resources]
 [Set_producers_and_consumers]
 [Set_adjacency_list]
 [Process_dependency_queue]
@@ -8113,15 +8109,33 @@ zest_render_graph zest_EndRenderGraph() {
 
     //Check_unused_resources_and_passes and cull them if necessary
     bool a_pass_was_culled = 0;
-    //Cull passes that have no output and/or no execution callback and reduce any input resource reference counts 
     zest_bucket_array_foreach(i, render_graph->potential_passes) {
         zest_pass_node pass_node = zest_bucket_array_get(&render_graph->potential_passes, zest_pass_node_t, i);
         if (zest_map_size(pass_node->outputs) == 0 || pass_node->execution_callback.callback == 0) {
+			//Cull passes that have no output and/or no execution callback and reduce any input resource reference counts 
             zest_map_foreach(j, pass_node->inputs) {
                 pass_node->inputs.data[j].resource_node->reference_count--;
             }
             ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
             a_pass_was_culled = true;
+        } else {
+            zest_uint reference_counts = 0;
+            zest_map_foreach(output_index, pass_node->outputs) {
+                zest_resource_node resource = pass_node->outputs.data[output_index].resource_node;
+                if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_essential_output)) {
+					reference_counts += 1;
+                    continue;
+                }
+				reference_counts += resource->reference_count;
+            }
+            if (reference_counts == 0) {
+                //Outputs are not consumed by any other pass so this pass can be culled
+				zest_map_foreach(j, pass_node->inputs) {
+					pass_node->inputs.data[j].resource_node->reference_count--;
+				}
+                ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
+				a_pass_was_culled = true;
+            }
         }
     }
 
@@ -8194,18 +8208,17 @@ zest_render_graph zest_EndRenderGraph() {
                     zest_map_insert_linear_key(allocator, pass_group->inputs, pair.key, *usage);
                 }
             }
+        } else {
+            render_graph->culled_passes_count++;
         }
     }
 
-    //Alias resources that are written to multiple times in different passes
-    //[Version_control_resources]
-
+    ZEST__MAYBE_FLAG(render_graph->error_status, zest_rgs_passes_were_culled, render_graph->culled_passes_count > 0);
     zest_uint potential_passes = zest_bucket_array_size(&render_graph->potential_passes);
     zest_uint final_passes = zest_map_size(render_graph->final_passes);
 
     if (!has_execution_callback) {
-        ZEST_PRINT("WARNING: No execution callbacks found in render graph %s.", render_graph->name);
-        ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
+        zest__set_rg_error_status(render_graph, zest_rgs_no_work_to_do);
         return render_graph;
     }
 
@@ -9624,8 +9637,6 @@ void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_grap
     //Nothing here to render, it's just for render graphs that have nothing to render
 }
 
-
-
 // --Command Queue functions
 zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only) {
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
@@ -9860,7 +9871,11 @@ zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format fo
     description.numSamples = VK_SAMPLE_COUNT_1_BIT;
 	description.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
 	description.tiling = VK_IMAGE_TILING_OPTIMAL;
-	description.mip_levels = sampler->create_info.maxLod > 1.f ? (zest_uint)sampler->create_info.maxLod + 1 : 1;
+    if (ZEST_VALID_HANDLE(sampler)) {
+        description.mip_levels = sampler->create_info.maxLod > 1.f ? (zest_uint)sampler->create_info.maxLod + 1 : 1;
+    } else {
+        description.mip_levels = 1;
+    }
 	zest_resource_node resource = zest_AddTransientImageResource(name, &description, ZEST_TRUE, ZEST_TRUE);
     resource->sampler = sampler;
     return resource;
@@ -9964,6 +9979,15 @@ zest_resource_node zest_AddTransientStorageBufferResource(const char *name, zest
     zest_buffer_description_t buffer_desc = { 0 };
     buffer_desc.size = size;
     buffer_desc.buffer_info = zest_CreateStorageBufferInfo();
+    return zest_AddTransientBufferResource(name, &buffer_desc, assign_bindless);
+}
+
+zest_resource_node zest_AddTransientCPUStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless) {
+    ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_buffer_description_t buffer_desc = { 0 };
+    buffer_desc.size = size;
+    buffer_desc.buffer_info = zest_CreateCPUVisibleStorageBufferInfo();
     return zest_AddTransientBufferResource(name, &buffer_desc, assign_bindless);
 }
 
@@ -10825,6 +10849,11 @@ zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id) {
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_CHECK_HANDLE(render_graph);
     return &render_graph->submissions[submission_index].batches[queue_index];
+}
+
+void zest__set_rg_error_status(zest_render_graph render_graph, zest_render_graph_result result) {
+    ZEST__FLAG(render_graph->error_status, result);
+	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
 }
 
 zest_resource_usage_t zest__get_image_usage(zest_resource_purpose purpose, VkFormat format, VkAttachmentLoadOp load_op, VkAttachmentLoadOp stencil_load_op, VkPipelineStageFlags relevant_pipeline_stages) {
@@ -15088,14 +15117,6 @@ zest_compute_builder_t zest_BeginComputeBuilder() {
     zest_compute_builder_t builder = { 0 };
     //builder.descriptor_update_callback = zest_StandardComputeDescriptorUpdate;
     return builder;
-}
-
-zest_compute zest_RegisterCompute() {
-    zest_compute_t blank_compute = { 0 };
-    zest_compute compute = ZEST__NEW(zest_compute);
-    *compute = blank_compute;
-    compute->magic = zest_INIT_MAGIC(zest_struct_type_compute);
-    return compute;
 }
 
 void zest_SetComputeBindlessLayout(zest_compute_builder_t *builder, zest_set_layout bindless_layout) {

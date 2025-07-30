@@ -1553,7 +1553,8 @@ typedef enum zest_global_binding_numbers {
 
 typedef enum zest_render_graph_result_bits {
     zest_rgs_success = 0,
-    zest_rgs_failed  = 1 << 0,
+    zest_rgs_no_work_to_do       = 1 << 0,
+    zest_rgs_passes_were_culled  = 1 << 1,
 } zest_render_graph_result_bits;
 
 typedef zest_uint zest_supported_shader_stages;		//zest_shader_stage_bits
@@ -2961,6 +2962,7 @@ typedef struct zest_render_graph_t {
     int magic;
     zest_render_graph_flags flags;
     zest_render_graph_result error_status;
+    zest_uint culled_passes_count;
     const char *name;
 
     zest_bucket_array_t potential_passes; 
@@ -3029,6 +3031,7 @@ ZEST_PRIVATE void zest__create_rg_render_pass(zest_pass_group_t *pass, zest_exec
 ZEST_PRIVATE void zest__execute_render_graph();
 ZEST_PRIVATE zest_resource_usage_t zest__get_image_usage(zest_resource_purpose purpose, VkFormat format, VkAttachmentLoadOp load_op, VkAttachmentLoadOp stencil_load_op, VkPipelineStageFlags relevant_pipeline_stages);
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
+ZEST_PRIVATE void zest__set_rg_error_status(zest_render_graph render_graph, zest_render_graph_result result);
 
 // --- Utility callbacks ---
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
@@ -3081,6 +3084,7 @@ ZEST_API zest_resource_node zest_AliasResource(const char *name, zest_resource_n
 ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
 ZEST_API zest_resource_node zest_AddTransientIndexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
 ZEST_API zest_resource_node zest_AddTransientStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddTransientCPUStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless);
 
 // --- Import external resouces into the render graph ---
 ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
