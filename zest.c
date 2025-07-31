@@ -2366,7 +2366,7 @@ void zest__destroy(void) {
     ZEST__FREE(zest__globals);
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
     if (stats.used_blocks > 0) {
-        ZEST_PRINT("There are still used memory blocks in Zest, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after Zest has shutdown. Check the type of allocation in the list below and chek to make sure you're freeing those objects.");
+        ZEST_PRINT("There are still used memory blocks in Zest, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after Zest has shutdown. Check the type of allocation in the list below and check to make sure you're freeing those objects.");
         zest_PrintMemoryBlocks(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)), 1, 0, 0);
     } else {
         ZEST_PRINT("Successful shutdown of Zest.");
@@ -2492,7 +2492,6 @@ void zest__main_loop(void) {
 			ZestRenderer->fence_count[ZEST_FIF] = 0;
         }
 		ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired);
-		ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used);
 
         zest__do_scheduled_tasks();
 
@@ -2507,6 +2506,7 @@ void zest__main_loop(void) {
 
         ZestApp->update_callback(ZestApp->current_elapsed, ZestApp->user_data);
 
+        /*
         //Cover some cases where a render graph wasn't created or it was but there was nothing render etc., to make sure
         //that the fence is always signalled and another frame can happen
         if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired) && ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used)) {
@@ -2517,9 +2517,8 @@ void zest__main_loop(void) {
         } else if (ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_work_was_submitted) && ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
 			zest__dummy_submit_for_present_only();
 			zest__present_frame(ZestRenderer->main_swapchain);
-        } else if(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
-            zest__dummy_submit_fence_only();
         }
+        */
 
         ZestApp->frame_timer += ZestApp->current_elapsed;
         ZestApp->frame_count++;
@@ -3544,12 +3543,13 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     VkFenceCreateInfo fence_info = { 0 };
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = 0;
-    zest_ForEachFrameInFlight(i) {
-        for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
-			ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_fence);
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_fence);
+	for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
+		zest_ForEachFrameInFlight(i) {
             ZEST_VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_info, &ZestDevice->allocation_callbacks, &ZestRenderer->fif_fence[i][queue_index]));
+			ZestRenderer->fence_count[i] = 0;
         }
-        ZestRenderer->fence_count[i] = 0;
+		ZEST_VK_CHECK_RESULT(vkCreateFence(ZestDevice->logical_device, &fence_info, &ZestDevice->allocation_callbacks, &ZestRenderer->intraframe_fence[queue_index]));
     }
 
     zest__create_debug_layout_and_pool(create_info->maximum_textures);
@@ -3920,10 +3920,11 @@ void zest__cleanup_renderer() {
         zest__destroy_set_layout(layout);
     }
 
-    zest_ForEachFrameInFlight(i) {
-        for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
+	for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
+		zest_ForEachFrameInFlight(i) {
             vkDestroyFence(ZestDevice->logical_device, ZestRenderer->fif_fence[i][queue_index], &ZestDevice->allocation_callbacks);
         }
+		vkDestroyFence(ZestDevice->logical_device, ZestRenderer->intraframe_fence[queue_index], &ZestDevice->allocation_callbacks);
     }
 
     zest_vec_foreach(i, ZestRenderer->timeline_semaphores) {
@@ -8101,7 +8102,8 @@ Main compile phases:
     - Create lists ready for execution for barrier and transient buffer/image craeation during the execution stage
     - Process exexution list and create or fetch cached render passes.
 */
-zest_render_graph zest_EndRenderGraph() {
+zest_render_graph zest__compile_render_graph() {
+
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_CHECK_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 
@@ -8118,6 +8120,7 @@ zest_render_graph zest_EndRenderGraph() {
             }
             ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
             a_pass_was_culled = true;
+            ZEST__REPORT(zest_report_pass_culled, zest_message_pass_culled, pass_node->name);
         } else {
             zest_uint reference_counts = 0;
             zest_map_foreach(output_index, pass_node->outputs) {
@@ -8135,6 +8138,7 @@ zest_render_graph zest_EndRenderGraph() {
 				}
                 ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
 				a_pass_was_culled = true;
+				ZEST__REPORT(zest_report_pass_culled, zest_message_pass_culled_not_consumed, pass_node->name);
             }
         }
     }
@@ -8159,6 +8163,7 @@ zest_render_graph zest_EndRenderGraph() {
                         ZEST_ASSERT(pass_node->inputs.data[j].resource_node->reference_count);  //Reference counts should never go below 0
                         pass_node->inputs.data[j].resource_node->reference_count--;
                     }
+					ZEST__REPORT(zest_report_pass_culled, zest_message_pass_culled_not_consumed, pass_node->name);
                 }
             }
         }
@@ -8601,16 +8606,18 @@ zest_render_graph zest_EndRenderGraph() {
 
         // --- Handle renderFinishedSemaphore for the last batch ---
         zest_wave_submission_t *last_wave = &zest_vec_back(render_graph->submissions);
-        // This assumes the last batch's *primary* signal is renderFinished.
-        // If it also needs to signal internal semaphores, `signal_semaphore` needs to become a list.
-        if (!last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores) {
-            zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores, render_graph->swapchain->vk_render_finished_semaphore[render_graph->swapchain->current_image_frame]);
-        } else {
-            // This case needs `p_signal_semaphores` to be a list in your batch struct.
-            // You would then add ZestRenderer->frame_sync[ZEST_FIF].render_finished_semaphore to that list.
-            ZEST_PRINT("Last batch already has an internal signal_semaphore. Logic to add external renderFinishedSemaphore needs p_signal_semaphores to be a list.");
-            // For now, you might just overwrite if single signal is assumed for external:
-            // last_batch->internal_signal_semaphore = ZestRenderer->frame_sync[ZEST_FIF].render_finished_semaphore;
+        if (last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].magic) {  //Only if it's a graphics queue... We should probably check that it renders to a swap chain as well
+            // This assumes the last batch's *primary* signal is renderFinished.
+            // If it also needs to signal internal semaphores, `signal_semaphore` needs to become a list.
+            if (!last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores) {
+                zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores, render_graph->swapchain->vk_render_finished_semaphore[render_graph->swapchain->current_image_frame]);
+            } else {
+                // This case needs `p_signal_semaphores` to be a list in your batch struct.
+                // You would then add ZestRenderer->frame_sync[ZEST_FIF].render_finished_semaphore to that list.
+                ZEST_PRINT("Last batch already has an internal signal_semaphore. Logic to add external renderFinishedSemaphore needs p_signal_semaphores to be a list.");
+                // For now, you might just overwrite if single signal is assumed for external:
+                // last_batch->internal_signal_semaphore = ZestRenderer->frame_sync[ZEST_FIF].render_finished_semaphore;
+            }
         }
     }
 
@@ -8877,13 +8884,32 @@ zest_render_graph zest_EndRenderGraph() {
     }   //Batch loop
 
     if (ZEST__FLAGGED(render_graph->flags, zest_render_graph_expecting_swap_chain_usage)) {
-        ZEST_ASSERT(ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used));    
+        ZEST_ASSERT(ZEST__FLAGGED(render_graph->flags, zest_render_graph_present_after_execute));    
         //Error: the render graph is trying to render to the screen but no swap chain image was used!
-        //Make sure that you call zest_ImportSwapChainResource and zest_ConnectSwapChainOutput in your render graph setup.
+        //Make sure that you call zest_ConnectSwapChainOutput in your render graph setup.
     }
 	ZEST__FLAG(render_graph->flags, zest_render_graph_is_compiled);  
 
-    zest__execute_render_graph();
+    return render_graph;
+}
+
+zest_render_graph zest_EndRenderGraph() {
+    zest_render_graph render_graph = zest__compile_render_graph();
+
+    zest__execute_render_graph(ZEST_FALSE);
+
+    if (ZEST_VALID_HANDLE(render_graph->swapchain) && ZEST__FLAGGED(render_graph->flags, zest_render_graph_present_after_execute)) {
+        zest__present_frame(render_graph->swapchain);
+    } 
+
+    return render_graph;
+}
+
+zest_render_graph zest_EndRenderGraphAndWait() {
+    zest_render_graph render_graph = zest__compile_render_graph();
+
+    zest__execute_render_graph(ZEST_TRUE);
+
     return render_graph;
 }
 
@@ -8940,13 +8966,18 @@ void zest__deferr_image_destruction(zest_image_buffer_t *image_buffer) {
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF], *image_buffer);
 }
 
-void zest__execute_render_graph() {
+void zest__execute_render_graph(zest_bool is_intraframe) {
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_CHECK_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zloc_linear_allocator_t *allocator = ZestRenderer->render_graph_allocator[ZEST_FIF];
     zest_map_queue_value queues = { 0 };
     VkSemaphore *wave_wait_semaphores = 0;
     zest_size *wave_wait_values = 0;
+
+    zest_uint intraframe_fence_count = 0;
+    VkFence *fence = is_intraframe ? ZestRenderer->fif_fence[ZEST_FIF] : ZestRenderer->intraframe_fence;
+    zest_uint *fence_count = is_intraframe ? &ZestRenderer->fence_count[ZEST_FIF] : &intraframe_fence_count;
+
     zest_vec_foreach(submission_index, render_graph->submissions) {
         zest_wave_submission_t *wave_submission = &render_graph->submissions[submission_index];
         VkCommandBuffer command_buffer;
@@ -9242,9 +9273,9 @@ void zest__execute_render_graph() {
             //If this is the last batch then add the fence that tells the cpu to wait each frame
             VkFence submit_fence = VK_NULL_HANDLE;
             if (submission_index == zest_vec_size(render_graph->submissions) - 1) {
-                submit_fence = ZestRenderer->fif_fence[ZEST_FIF][ZestRenderer->fence_count[ZEST_FIF]];
-                ZestRenderer->fence_count[ZEST_FIF]++;
-                ZEST_ASSERT(ZestRenderer->fence_count[ZEST_FIF] < ZEST_QUEUE_COUNT);
+                submit_fence = fence[*fence_count];
+                (*fence_count)++;
+                ZEST_ASSERT(*fence_count < ZEST_QUEUE_COUNT);
 
                 if (zest_vec_size(render_graph->signal_timelines)) {
                     zest_vec_foreach(timeline_index, render_graph->signal_timelines) {
@@ -9309,6 +9340,10 @@ void zest__execute_render_graph() {
     ZEST__FLAG(render_graph->flags, zest_render_graph_is_executed);
     ZestRenderer->current_render_graph = 0;
 	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);  
+
+    if (is_intraframe && *fence_count > 0) {
+		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, *fence_count, fence, VK_TRUE, UINT64_MAX));
+    }
 
 }
 
@@ -10005,6 +10040,7 @@ zest_resource_node_t zest__create_import_descriptor_buffer_resource_node(const c
     node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     node.producer_pass_idx = -1;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
+	ZEST__FLAG(node.flags, zest_resource_node_flag_essential_output);
     return node;
 }
 
@@ -10023,6 +10059,7 @@ zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, 
     node.current_access_mask = buffer->last_access_mask;
     node.producer_pass_idx = -1;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
+	ZEST__FLAG(node.flags, zest_resource_node_flag_essential_output);
     return node;
 }
 
@@ -10044,6 +10081,7 @@ zest_resource_node_t zest__create_import_image_resource_node(const char *name, z
     node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     node.producer_pass_idx = -1;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
+	ZEST__FLAG(node.flags, zest_resource_node_flag_essential_output);
     return node;
 }
 
@@ -10063,6 +10101,7 @@ zest_resource_node zest_ImportImageResourceReadOnly(const char *name, zest_textu
     node.final_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     node.current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
+	ZEST__FLAG(node.flags, zest_resource_node_flag_essential_output);
     return zest__add_render_graph_resource(&node);
 }
 
@@ -10730,7 +10769,7 @@ void zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details
                     attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                 }
                 if (attachment.finalLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
-                    ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used);
+                    ZEST__FLAG(ZestRenderer->current_render_graph->flags, zest_render_graph_present_after_execute);
                 }
                 zest_vec_linear_push(allocator, attachments, attachment);
                 zest_map_insert_linear_key(allocator, exe_details->attachment_indexes, (zest_key)node, (zest_vec_size(attachments) - 1));

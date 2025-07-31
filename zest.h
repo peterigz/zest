@@ -121,6 +121,10 @@ extern "C" {
 #define ZEST__EXECUTION_ORDER_ID(id) (id & 0xFFFFFF)
 #define ZEST__QUEUE_INDEX(id) ((id & 0xFF000000) >> 24)
 
+#define ZEST__REPORT(category, message, ...) zest__add_report(category, message, ##__VA_ARGS__)
+static const char *zest_message_pass_culled = "Pass [%s] culled because there were no outputs.";
+static const char *zest_message_pass_culled_not_consumed = "Pass [%s] culled because it's output was not consumed by any subsequent passes. This won't happen if the ouput is an imported buffer or image. If the resource is transient then it will be discarded immediately once it has no further use. Also note that passes at the front of a chain can be culled if ultimately nothing consumes the output from the last pass in the chain.";
+
 //Override this if you'd prefer a different way to allocate the pools for sub allocation in host memory.
 #ifndef ZEST__ALLOCATE_POOL
 #define ZEST__ALLOCATE_POOL malloc
@@ -1256,10 +1260,9 @@ typedef enum zest_renderer_flag_bits {
     zest_renderer_flag_swapchain_was_recreated                   = 1 << 8,
     zest_renderer_flag_has_depth_buffer                          = 1 << 9,
     zest_renderer_flag_swap_chain_was_acquired                   = 1 << 10,
-    zest_renderer_flag_swap_chain_was_used                       = 1 << 11,
-    zest_renderer_flag_work_was_submitted                        = 1 << 12,
-    zest_renderer_flag_building_render_graph                     = 1 << 13,
-    zest_renderer_flag_enable_multisampling                      = 1 << 14,
+    zest_renderer_flag_work_was_submitted                        = 1 << 11,
+    zest_renderer_flag_building_render_graph                     = 1 << 12,
+    zest_renderer_flag_enable_multisampling                      = 1 << 13,
 } zest_renderer_flag_bits;
 
 typedef zest_uint zest_renderer_flags;
@@ -1471,6 +1474,7 @@ typedef enum zest_render_graph_flag_bits {
     zest_render_graph_force_on_graphics_queue       = 1 << 1,
     zest_render_graph_is_compiled                   = 1 << 2,
     zest_render_graph_is_executed                   = 1 << 3,
+    zest_render_graph_present_after_execute         = 1 << 4,
 } zest_render_graph_flag_bits;
 
 typedef zest_uint zest_render_graph_flags;
@@ -1541,6 +1545,7 @@ typedef enum zest_report_category {
     zest_report_unused_pass,
     zest_report_taskless_pass,
     zest_report_unconnected_resource,
+    zest_report_pass_culled,
 } zest_report_category;
 
 typedef enum zest_global_binding_numbers {
@@ -3028,7 +3033,8 @@ ZEST_PRIVATE void zest__add_image_barrier(zest_resource_node resource, zest_exec
 ZEST_PRIVATE void zest__add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access, 
      zest_uint src_family, zest_uint dst_family, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
 ZEST_PRIVATE void zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
-ZEST_PRIVATE void zest__execute_render_graph();
+ZEST_PRIVATE zest_render_graph zest__compile_render_graph();
+ZEST_PRIVATE void zest__execute_render_graph(zest_bool is_intraframe);
 ZEST_PRIVATE zest_resource_usage_t zest__get_image_usage(zest_resource_purpose purpose, VkFormat format, VkAttachmentLoadOp load_op, VkAttachmentLoadOp stencil_load_op, VkPipelineStageFlags relevant_pipeline_stages);
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
 ZEST_PRIVATE void zest__set_rg_error_status(zest_render_graph render_graph, zest_render_graph_result result);
@@ -3056,6 +3062,7 @@ ZEST_API bool zest_BeginRenderGraph(const char *name);
 ZEST_API bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name);
 ZEST_API void zest_ForceRenderGraphOnGraphicsQueue();
 ZEST_API zest_render_graph zest_EndRenderGraph();
+ZEST_API zest_render_graph zest_EndRenderGraphAndWait();
 
 // --- Add pass nodes that execute user commands ---
 ZEST_API zest_pass_node zest_AddGraphicBlankScreen( const char *name);
@@ -3743,6 +3750,7 @@ typedef struct zest_renderer_t {
 
     VkFence fif_fence[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
     zest_uint fence_count[ZEST_MAX_FIF];
+    VkFence intraframe_fence[ZEST_QUEUE_COUNT];
 
     zest_execution_timeline *timeline_semaphores;
 
