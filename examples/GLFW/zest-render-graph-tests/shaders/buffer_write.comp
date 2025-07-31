@@ -1,0 +1,24 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint write_buffer_index;
+    uint verify_buffer_index;
+    uint unused1;
+    uint unused2;
+} pc;
+
+struct TestData {
+    vec4 data;
+};
+
+layout(std430, set = 0, binding = 1) buffer TestBuffer {
+    TestData values[];
+} buffers[];
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    buffers[pc.write_buffer_index].values[index].data = vec4(float(index), 0.0, 0.0, 0.0);
+}

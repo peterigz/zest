@@ -5,15 +5,6 @@ void InitExample(RenderTargetExample *example) {
 
 	//Create the render targets that we will draw the layers to. The Base render target will be where we draw the images, The top render target
 	//will be where we draw the result of the the blur effect.
-	/*
-	example->top_target = zest_CreateTextureStorage("Top render target");
-	example->base_target = zest_CreateHDRRenderTarget("Base render target");
-	example->compositor = zest_CreateHDRRenderTarget("Compositor render target");
-	example->tonemap = zest_CreateSimpleRenderTarget("Tone map render target");
-	example->downsampler = zest_CreateMippedHDRRenderTarget("Bloom pass downsampler", 8);
-	example->upsampler = zest_CreateMippedHDRRenderTarget("Bloom pass upsampler", 8);
-	example->downsampler->input_source = example->base_target;
-	*/
 
 	VkSamplerCreateInfo sampler_info = zest_CreateSamplerInfo();
 	VkSamplerCreateInfo mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
