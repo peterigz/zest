@@ -3084,7 +3084,7 @@ ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, con
 ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless);
 ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 ZEST_API zest_resource_node zest_AddFontLayerTextureResource(const zest_font font);
-ZEST_API zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler, zest_bool with_storage_flag);
+ZEST_API zest_resource_node zest_AddTransientRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler);
 ZEST_API zest_resource_node zest_AliasResource(const char *name, zest_resource_node resource);
 
 // --- Helpers for adding various types of resources
@@ -3100,6 +3100,9 @@ ZEST_API zest_resource_node zest_ImportStorageBufferResource(const char *name, z
 ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer);
 ZEST_API zest_resource_node zest_ImportSwapChainResource(zest_swapchain swapchain);
 
+//Todo: All these connectors could be simplyfied? At least have better errors/warnings.
+// We know the pass queue type, and we know the resource type so probably don't need a lot of these specific 
+// connector types.
 // --- Connect Buffer Helpers ---
 ZEST_API void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_node vertex_buffer);
 ZEST_API void zest_ConnectIndexBufferInput(zest_pass_node pass, zest_resource_node index_buffer);
@@ -3113,12 +3116,13 @@ ZEST_API void zest_ConnectTransferBufferOutput(zest_pass_node pass, zest_resourc
 ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 
 // --- Connect Image Helpers ---
+ZEST_API void zest_ConnectImageInput(zest_pass_node pass, zest_resource_node texture, zest_bool read_only);
 ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture);
 ZEST_API void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_node texture, zest_bool read_only);
 ZEST_API void zest_ConnectStorageImageOutput(zest_pass_node pass, zest_resource_node texture, zest_bool write_only);
 ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass, VkClearColorValue clear_color_on_load);
 ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
-ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target);
+ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target, VkClearColorValue clear_color_on_load);
 ZEST_API void zest_ConnectDepthStencilOutput(zest_pass_node pass_node, zest_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing);
 ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target);
 

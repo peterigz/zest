@@ -8975,8 +8975,8 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
     zest_size *wave_wait_values = 0;
 
     zest_uint intraframe_fence_count = 0;
-    VkFence *fence = is_intraframe ? ZestRenderer->fif_fence[ZEST_FIF] : ZestRenderer->intraframe_fence;
-    zest_uint *fence_count = is_intraframe ? &ZestRenderer->fence_count[ZEST_FIF] : &intraframe_fence_count;
+    VkFence *fence = !is_intraframe ? ZestRenderer->fif_fence[ZEST_FIF] : ZestRenderer->intraframe_fence;
+    zest_uint *fence_count = !is_intraframe ? &ZestRenderer->fence_count[ZEST_FIF] : &intraframe_fence_count;
 
     zest_vec_foreach(submission_index, render_graph->submissions) {
         zest_wave_submission_t *wave_submission = &render_graph->submissions[submission_index];
@@ -9343,6 +9343,7 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
 
     if (is_intraframe && *fence_count > 0) {
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, *fence_count, fence, VK_TRUE, UINT64_MAX));
+		vkResetFences(ZestDevice->logical_device, *fence_count, fence);
     }
 
 }
@@ -9898,7 +9899,7 @@ zest_resource_node zest_AddTransientImageResource(const char *name, const zest_i
     return zest__add_render_graph_resource(&node);
 }
 
-zest_resource_node zest_AddRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler, zest_bool with_storage_flag) {
+zest_resource_node zest_AddTransientRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler) {
     zest_image_description_t description = { 0 };
     description.format = (VkFormat)format;
     description.width = zest_ScreenWidth();
@@ -11076,6 +11077,26 @@ void zest_ReleaseBufferAfterUse(zest_resource_node node) {
 }
 
 // --- Image Helpers ---
+void zest_ConnectImageInput(zest_pass_node pass, zest_resource_node texture, zest_bool read_only) {
+    ZEST_CHECK_HANDLE(texture);  //Not a valid texture resource
+    zest_supported_pipeline_stages stages = 0;
+    zest_resource_purpose purpose = zest_purpose_sampled_image;
+    switch (pass->queue_info.queue_type) {
+    case zest_queue_graphics: 
+        stages = zest_pipeline_fragment_stage; 
+        break;
+    case zest_queue_compute: 
+        stages = zest_pipeline_compute_stage; 
+        purpose = read_only ? zest_purpose_storage_image_read : zest_purpose_storage_image_read_write;  
+        break;
+    case zest_queue_transfer: stages = zest_pipeline_transfer_stage; 
+        purpose = read_only ? zest_purpose_storage_image_read : zest_purpose_storage_image_read_write;  
+        break;
+    }
+    zest__add_pass_image_usage(pass, texture, zest_purpose_sampled_image, stages, ZEST_FALSE,
+        VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue){0});
+}
+
 void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture) {
     ZEST_CHECK_HANDLE(texture);  //Not a valid texture resource
     zest__add_pass_image_usage(pass, texture, zest_purpose_sampled_image, zest_pipeline_fragment_stage, ZEST_FALSE,
@@ -11131,16 +11152,15 @@ void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_n
         cv);
 }
 
-void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target) {
+void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target, VkClearColorValue clear_color) {
     ZEST_CHECK_HANDLE(pass_node);
     ZEST_CHECK_HANDLE(color_target);
-    VkClearValue cv = { 0 }; 
+    VkClearValue cv; cv.color = clear_color;
     zest__add_pass_image_usage(pass_node, color_target, zest_purpose_color_attachment_write,
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, ZEST_TRUE,
         VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
         VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
         cv);
-
 }
 
 void zest_ConnectDepthStencilOutput(zest_pass_node pass_node, zest_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing) {
