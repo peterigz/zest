@@ -452,7 +452,6 @@ struct ImGuiApp {
 	zest_pipeline_template line_3d_pipeline;
 	zest_pipeline_template mesh_pipeline;
 	zest_pipeline_template mesh_instance_pipeline;
-	zest_execution_timeline timeline;
 
 	zest_layer move_widget_layer;
 	zest_layer scale_widget_layer;
@@ -470,7 +469,7 @@ struct ImGuiApp {
 	zest_axis_flags current_axis;
 	zest_vec3 angles;
 	zest_vec3 velocity_normal;
-
+	
 	ValueNoise value_noise;
 	float noise_frequency = 0.025f;
 	float noise_influence = 0.05f;

@@ -361,7 +361,7 @@ void InitImGuiApp(ImGuiApp* app) {
 	zest_ProcessTextureImages(app->sprite_texture);
 	app->mesh_pipeline = zest_PipelineTemplate("pipeline_mesh");
 
-	app->mesh_shader_resources = zest_CreateShaderResources();
+	app->mesh_shader_resources = zest_CreateShaderResources("Mesh resources");
 	zest_AddUniformBufferToResources(app->mesh_shader_resources, ZestRenderer->uniform_buffer);
 
 	app->line_3d_pipeline = zest_CopyPipelineTemplate("pipeline_line3d_instance", zest_PipelineTemplate("pipeline_2d_sprites"));
@@ -539,7 +539,7 @@ void InitImGuiApp(ImGuiApp* app) {
 	UpdateUniform3d(app);
 
 	//Set up a timer
-	app->timer = zest_CreateTimer(60);
+	app->timer = zest_CreateTimer("Loop Timer", 60);
 	/*
 	app->ellipse = {};
 	app->ellipse.radius.x = 5.f;
@@ -601,8 +601,6 @@ void InitImGuiApp(ImGuiApp* app) {
 		app->particles2d[i].speed = app->speed;
 		app->particles2d[i].id = i * 10000;
 	}
-
-	app->timeline = zest_CreateExecutionTimeline();
 }
 
 void HandleWidget(ImGuiApp* app, zest_widget* widget) {
@@ -849,6 +847,21 @@ void UpdateVelocity2D(particle2d* particle, float time, float delta_time, float 
 	// Normalize the velocity and apply the speed
 	zest_vec2 position = zest_AddVec2({ particle->position.x, particle->position.y }, zest_ScaleVec2(particle->velocity, particle->speed * delta_time));
 	particle->position = { position.x, position.y, 0.f };
+}
+
+void UploadMeshData(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+	ImGuiApp *app = (ImGuiApp *)user_data;
+
+	zest_layer layers[3]{
+		app->scale_widget_layer,
+		app->move_widget_layer,
+		app->line_layer
+	};
+
+	for (int i = 0; i != 3; ++i) {
+		zest_layer layer = layers[i];
+		zest_UploadLayerStagingData(layer, context);
+	}
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
@@ -1146,9 +1159,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	TransformQuaternionVec3(&cube_q, &rx.m, &ry.m, &rz.m);
 
 	zest_vec3 tform_cube[8];
-	tfxWideArray tform_wcube_x[8];
-	tfxWideArray tform_wcube_y[8];
-	tfxWideArray tform_wcube_z[8];
+	//tfxWideArray tform_wcube_x[8];
+	//tfxWideArray tform_wcube_y[8];
+	//tfxWideArray tform_wcube_z[8];
 	for (int i = 0; i != 8; ++i) {
 		tfxWideArray xc;
 		tfxWideArray yc;
@@ -1191,11 +1204,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen("Test Render Graph")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Test Render Graph")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Resources
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		//zest_resource_node mesh_layer_resources = zest_AddInstanceLayerBufferResource("Mesh layer", app->mesh_layer, false);
 		zest_resource_node scale_widget_layer_resources = zest_AddInstanceLayerBufferResource("Scale widget layer", app->scale_widget_layer, false);
 		zest_resource_node scale_mesh_data_index = zest_ImportBufferResource("Scale Mesh Index", app->scale_widget_layer->index_data);
@@ -1207,42 +1219,45 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		//---------------------------------Transfer Pass----------------------------------------------------
 		//zest_pass_node upload_mesh_data = zest_AddTransferPassNode("Upload Mesh Data");
-		zest_pass_node upload_scale_data = zest_AddTransferPassNode("Upload Scale Data");
-		zest_pass_node upload_move_data = zest_AddTransferPassNode("Upload Move Data");
-		zest_pass_node upload_line_data = zest_AddTransferPassNode("Upload Line Data");
+		zest_pass_node upload_mesh_data = zest_AddTransferPassNode("Upload Scale Data");
 		//outputs
 		//zest_ConnectTransferBufferOutput(upload_mesh_data, mesh_layer_resources);
-		zest_ConnectTransferBufferOutput(upload_scale_data, scale_widget_layer_resources);
-		zest_ConnectTransferBufferOutput(upload_move_data, move_widget_layer_resources);
-		zest_ConnectTransferBufferOutput(upload_line_data, line_layer_resources);
-		//tasks
-		//zest_AddPassTask(upload_mesh_data, zest_UploadInstanceLayerData, app->mesh_layer);
-		zest_AddPassTask(upload_scale_data, zest_UploadInstanceLayerData, app->scale_widget_layer);
-		zest_AddPassTask(upload_move_data, zest_UploadInstanceLayerData, app->move_widget_layer);
-		zest_AddPassTask(upload_line_data, zest_UploadInstanceLayerData, app->line_layer);
+		zest_ConnectTransferBufferOutput(upload_mesh_data, scale_widget_layer_resources);
+		zest_ConnectTransferBufferOutput(upload_mesh_data, move_widget_layer_resources);
+		zest_ConnectTransferBufferOutput(upload_mesh_data, line_layer_resources);
+
+		//task
+		zest_SetPassTask(upload_mesh_data, UploadMeshData, app);
 		//--------------------------------------------------------------------------------------------------
 
 		//Add passes
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node scale_pass = zest_AddRenderPassNode("Scale Pass");
 		//inputs
-		//zest_ConnectVertexBufferInput(graphics_pass, mesh_layer_resources);
-		zest_ConnectVertexBufferInput(graphics_pass, scale_widget_layer_resources);
-		zest_ConnectVertexBufferInput(graphics_pass, scale_mesh_data_index);
-		zest_ConnectVertexBufferInput(graphics_pass, scale_mesh_data_vertex);
-		zest_ConnectVertexBufferInput(graphics_pass, move_widget_layer_resources);
-		zest_ConnectVertexBufferInput(graphics_pass, move_mesh_data_index);
-		zest_ConnectVertexBufferInput(graphics_pass, move_mesh_data_vertex);
-		zest_ConnectVertexBufferInput(graphics_pass, line_layer_resources);
+		//zest_ConnectVertexBufferInput(scale_pass, mesh_layer_resources);
+		zest_ConnectVertexBufferInput(scale_pass, scale_widget_layer_resources);
+		zest_ConnectVertexBufferInput(scale_pass, scale_mesh_data_index);
+		zest_ConnectVertexBufferInput(scale_pass, scale_mesh_data_vertex);
+		zest_ConnectSwapChainOutput(scale_pass, clear_color);
+		zest_SetPassTask(scale_pass, zest_DrawInstanceMeshLayer, app->scale_widget_layer);
+
+		zest_pass_node move_pass = zest_AddRenderPassNode("Move Pass");
+		zest_ConnectVertexBufferInput(move_pass, move_widget_layer_resources);
+		zest_ConnectVertexBufferInput(move_pass, move_mesh_data_index);
+		zest_ConnectVertexBufferInput(move_pass, move_mesh_data_vertex);
+		zest_ConnectSwapChainOutput(move_pass, clear_color);
+		zest_SetPassTask(move_pass, zest_DrawInstanceMeshLayer, app->move_widget_layer);
+
+		zest_pass_node line_pass = zest_AddRenderPassNode("Line Pass");
+		zest_ConnectVertexBufferInput(line_pass, line_layer_resources);
 		//outputs
-		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(line_pass, clear_color);
 		//tasks
+		zest_SetPassTask(line_pass, zest_DrawInstanceLayer, app->line_layer);
 		//zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->mesh_layer);
-		zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->scale_widget_layer);
-		zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->move_widget_layer);
-		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, app->line_layer);
-		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
-			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
+		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		if (imgui_pass) {
+			zest_ConnectSwapChainOutput(imgui_pass, clear_color);
 		}
 		//--------------------------------------------------------------------------------------------------
 
