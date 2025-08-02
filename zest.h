@@ -51,6 +51,7 @@
     [Images_and_textures]               Load and setup images for using in textures accessed on the GPU
     [Fonts]                             Basic functions for loading MSDF fonts
     [Main_loop_update_functions]        Only one function currently, for setting the current command queue to render with
+    [Draw_Layers_API]                   General helper functions for layers
     [Draw_sprite_layers]                Functions for drawing the builtin sprite layer pipeline
     [Draw_billboard_layers]             Functions for drawing the builtin billboard layer pipeline
     [Draw_3D_Line_layers]               Functions for drawing the builtin 3d line layer pipeline
@@ -121,7 +122,6 @@ extern "C" {
 #define ZEST__EXECUTION_ORDER_ID(id) (id & 0xFFFFFF)
 #define ZEST__QUEUE_INDEX(id) ((id & 0xFF000000) >> 24)
 
-#define ZEST__REPORT(category, message, ...) zest__add_report(category, message, ##__VA_ARGS__)
 static const char *zest_message_pass_culled = "Pass [%s] culled because there were no outputs.";
 static const char *zest_message_pass_culled_not_consumed = "Pass [%s] culled because it's output was not consumed by any subsequent passes. This won't happen if the ouput is an imported buffer or image. If the resource is transient then it will be discarded immediately once it has no further use. Also note that passes at the front of a chain can be culled if ultimately nothing consumes the output from the last pass in the chain.";
 
@@ -1546,6 +1546,7 @@ typedef enum zest_report_category {
     zest_report_taskless_pass,
     zest_report_unconnected_resource,
     zest_report_pass_culled,
+    zest_report_resource_culled,
 } zest_report_category;
 
 typedef enum zest_global_binding_numbers {
@@ -1921,12 +1922,16 @@ ZEST_PRIVATE void zest__reset_frame_log(char *str, const char *entry, ...);
 
 ZEST_PRIVATE void zest__add_report(zest_report_category category, const char *entry, ...);
 
+
 #ifdef ZEST_DEBUGGING
 #define ZEST_FRAME_LOG(message_f, ...) zest__log_entry(message_f, ##__VA_ARGS__)
 #define ZEST_RESET_LOG() zest__reset_log()
+#define ZEST__MAYBE_REPORT(condition, category, entry, ...) if(condition) {zest__add_report(category, entry, ##__VA_ARGS__);}
+#define ZEST__REPORT(category, entry, ...) zest__add_report(category, entry, ##__VA_ARGS__)
 #else
 #define ZEST_FRAME_LOG(message_f, ...) 
 #define ZEST_RESET_LOG() 
+#define ZEST__REPORT()
 #endif
 
 //Threading
@@ -4987,9 +4992,6 @@ ZEST_API zest_layer zest_CreateFontLayer(const char *name);
 // --Initialise a layer for drawing instanced data like billboards or other mesh instances. This function will create a buffer to store instance data that can
 //be uploaded to the GPU for drawing each frame
 ZEST_API void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
-//A standar callback function you can use to draw all instances in your layer each frame. When creating your own custom layers you can override this callback
-//if needed but you should find that this one covers most uses of instance drawing.
-ZEST_API void zest_RecordInstanceLayerCallback(struct zest_work_queue_t *queue, void *data);
 //Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
 //instance layers more easily
 ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
@@ -5042,6 +5044,7 @@ ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
 //Get the user data from the layer
 #define zest_GetLayerUserData(type, layer) ((type*)layer->user_data)
 ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, bool last_frame);
+ZEST_API zest_buffer zest_GetLayerResourceBuffer(zest_layer layer);
 //-- End Draw Layers
 
 //-----------------------------------------------

@@ -14067,6 +14067,22 @@ void zest_SetLayerUserData(zest_layer layer, void *data) {
     ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
     layer->user_data = data;
 }
+
+zest_buffer zest_GetLayerResourceBuffer(zest_layer layer) {
+    ZEST_CHECK_HANDLE(ZestRenderer->current_render_graph);  //This function must be called within a task callback in a render graph
+    ZEST_CHECK_HANDLE(layer);   //Not a valid layer handle!
+    if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
+        return layer->memory_refs[layer->fif].device_vertex_data;
+    } else if(ZEST_VALID_HANDLE(layer->vertex_buffer_node)) {
+        ZEST_CHECK_HANDLE(layer->vertex_buffer_node); //Layer does not have a valid resource node. 
+                                                      //Make sure you add it to the render graph
+        ZEST__MAYBE_REPORT(layer->vertex_buffer_node->reference_count == 0, zest_report_resource_culled, "zest_GetLayerResourceBuffer was called for resourcee [%s] that has been culled. Passes will be culled (and therefore their transient resources will not be created) if they have no outputs and therefore deemed as unnecessary and also bear in mind that passes in the chain may also be culled.", layer->vertex_buffer_node->name);   
+        return layer->vertex_buffer_node->storage_buffer;
+    } else {
+        ZEST__REPORT(zest_report_resource_culled, "zest_GetLayerResourceBuffer was called for layer [%s] but the layer doesn't have a resource node. Make sure that you add the layer to the render graph with zest_AddInstanceLayerBufferResource", layer->name);   
+    }
+    return NULL;
+}
 //-- End Draw Layers
 
 //-- Start Instance Drawing API
