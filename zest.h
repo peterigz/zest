@@ -1547,6 +1547,7 @@ typedef enum zest_report_category {
     zest_report_unconnected_resource,
     zest_report_pass_culled,
     zest_report_resource_culled,
+    zest_report_invalid_layer,
 } zest_report_category;
 
 typedef enum zest_global_binding_numbers {
@@ -1574,7 +1575,7 @@ typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, 
 static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 #define zest_INIT_MAGIC(struct_type) (struct_type | ZEST_STRUCT_IDENTIFIER);
 
-#define ZEST_CHECK_HANDLE(handle) ZEST_ASSERT(handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
+#define ZEST_ASSERT_HANDLE(handle) ZEST_ASSERT(handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
 #define ZEST_VALID_HANDLE(handle) (handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
 #define ZEST_STRUCT_TYPE(handle) (*((int*)handle) & 0xFFFF0000)
 #define ZEST_STRUCT_MAGIC_TYPE(magic) (magic & 0xFFFF0000)
@@ -5038,13 +5039,18 @@ ZEST_API void zest_SetLayerColorf(zest_layer layer, float red, float green, floa
 //use zest_layers. Note that intensity levels can exceed 1.f to make your sprites extra bright because of pre-multiplied blending in the sprite.
 ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
 //A dirty layer denotes that it's buffers have changed and therefore needs uploading to the GPU again. This is currently used for Dear Imgui layers.
-ZEST_API void zest_SetLayerDirty(zest_layer layer);
+ZEST_API void zest_SetLayerChanged(zest_layer layer);
+//Returns 1 if the layer is marked as changed
+ZEST_API zest_bool zest_LayerHasChanged(zest_layer layer);
 //Set the user data of a layer. You can use this to extend the functionality of the layers for your own needs.
 ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
 //Get the user data from the layer
 #define zest_GetLayerUserData(type, layer) ((type*)layer->user_data)
 ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, bool last_frame);
 ZEST_API zest_buffer zest_GetLayerResourceBuffer(zest_layer layer);
+ZEST_API zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer layer);
+ZEST_API zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer);
+ZEST_API void zest_UploadLayerStagingData(zest_layer layer, const zest_render_graph_context_t *context);
 //-- End Draw Layers
 
 //-----------------------------------------------
