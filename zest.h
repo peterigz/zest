@@ -2476,6 +2476,7 @@ typedef struct zest_image_description_t {
 	VkImageUsageFlags usage;
 	VkMemoryPropertyFlags properties;
     VkFormat format;
+    VkImageAspectFlags aspect_flags;
 } zest_image_description_t;
 
 typedef struct zest_image_buffer_t {
@@ -2546,30 +2547,14 @@ typedef struct zest_swapchain_t {
 
     VkSwapchainKHR vk_swapchain;
     VkFormat vk_format;
-    VkFormat vk_depth_format;
     VkExtent2D vk_extent;
     zest_vec2 screen_resolution_push;
 
-    VkClearValue vk_clear_values[2];
-    zest_uint clear_value_count;
+    VkClearColorValue vk_clear_color;
 
     //Color buffer
     VkImage *vk_images;
     VkImageView *vk_image_views;
-
-    //Depth buffer
-    zest_buffer *depth_resource_buffers;
-    VkImageView *vk_depth_image_views;
-    VkImage *vk_depth_images;
-
-    //MSAA resources
-	VkSampleCountFlagBits msaa_samples;
-	VkImage vk_msaa_image;
-	VkImageView vk_msaa_image_view;
-	zest_buffer msaa_image_memory;
-
-    VkRenderPass vk_render_pass;
-    VkFramebuffer *vk_frame_buffers;
 
     //Syncronization
     VkSemaphore *vk_render_finished_semaphore;
@@ -3104,6 +3089,7 @@ ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, co
 ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 ZEST_API zest_resource_node zest_AddFontLayerTextureResource(const zest_font font);
 ZEST_API zest_resource_node zest_AddTransientRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler);
+ZEST_API zest_resource_node zest_AddTransientDepthBufferResource(const char *name, zest_sampler sampler);
 ZEST_API zest_resource_node zest_AliasResource(const char *name, zest_resource_node resource);
 
 // --- Helpers for adding various types of resources
@@ -3142,7 +3128,7 @@ ZEST_API void zest_ConnectStorageImageOutput(zest_pass_node pass, zest_resource_
 ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass);
 ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
 ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target, VkClearColorValue clear_color_on_load);
-ZEST_API void zest_ConnectDepthStencilOutput(zest_pass_node pass_node, zest_resource_node depth_target, VkAttachmentLoadOp depth_load_op, VkAttachmentStoreOp depth_store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearDepthStencilValue clear_value_if_clearing);
+ZEST_API void zest_ConnectDepthOutput(zest_pass_node pass_node, zest_resource_node depth_target);
 ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target);
 
 // --- Connect graphs to each other
@@ -3168,7 +3154,6 @@ ZEST_API void zest_PrintCompiledRenderGraph(zest_render_graph render_graph);
 ZEST_API zest_swapchain zest_GetSwapchain(const char *name);
 ZEST_API zest_swapchain zest_GetMainWindowSwapchain();
 ZEST_API void zest_SetSwapchainClearColor(zest_swapchain swapchain, float red, float green, float blue, float alpha);
-ZEST_API void zest_SetSwapchainClearDepth(zest_swapchain swapchain, float depth_value, zest_uint stencil_value);
 //End Swapchain helpers
 
 typedef struct zest_set_layout_builder_t {
@@ -3829,6 +3814,9 @@ typedef struct zest_renderer_t {
 
     zest_window current_window;
 
+    //Cache of the supported depth format
+    VkFormat vk_depth_format;
+
     //For scheduled tasks
     zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
     zest_buffer *staging_buffers;
@@ -3930,7 +3918,6 @@ ZEST_PRIVATE void zest__initialise_renderer(zest_create_info_t *create_info);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(const char *name, zest_bool depth_buffer);
 ZEST_PRIVATE void zest__initialise_swapchain(zest_swapchain swapchain, zest_window window);
 ZEST_PRIVATE void zest__initialise_swapchain_semaphores(zest_swapchain swapchain);
-ZEST_PRIVATE void zest__initialise_swapchain_framebuffers(zest_swapchain swapchain);
 ZEST_PRIVATE VkSurfaceFormatKHR zest__choose_swapchain_format(VkSurfaceFormatKHR *availableFormats);
 ZEST_PRIVATE VkPresentModeKHR zest_choose_present_mode(VkPresentModeKHR *available_present_modes, zest_bool use_vsync);
 ZEST_PRIVATE VkExtent2D zest_choose_swap_extent(VkSurfaceCapabilitiesKHR *capabilities);
@@ -3943,7 +3930,6 @@ ZEST_PRIVATE void zest__cleanup_renderer(void);
 ZEST_PRIVATE void zest__clean_up_compute(zest_compute compute);
 ZEST_PRIVATE void zest__recreate_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__create_swapchain_image_views(zest_swapchain swapchain);
-ZEST_PRIVATE void zest__initialise_swapchain_depth_resources(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__create_command_buffer_pools(void);
 ZEST_PRIVATE zest_render_graph_semaphores zest__get_render_graph_semaphores(const char *name);
 ZEST_PRIVATE VkCommandBuffer zest__get_next_command_buffer(zest_queue queue);
@@ -4000,9 +3986,7 @@ ZEST_PRIVATE void zest__setup_font_texture(zest_font font);
 ZEST_PRIVATE zest_font zest__add_font(zest_font font);
 
 // --Mesh_layer_internal_functions
-ZEST_PRIVATE void zest__draw_mesh_layer_callback(struct zest_work_queue_t *queue, void *data);
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
-ZEST_PRIVATE void zest__draw_instance_mesh_layer_callback(struct zest_work_queue_t *queue, void *data);
 
 // --General_Helper_Functions
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mip_levels_this_view, zest_uint base_mip, VkImageViewType viewType, zest_uint layerCount);
@@ -4014,12 +3998,11 @@ ZEST_PRIVATE void zest__create_transient_buffer(zest_resource_node node);
 ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout image_layout, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount, VkCommandBuffer command_buffer);
-ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage image, VkAccessFlags from_access, VkAccessFlags to_access, VkImageLayout from_layout, VkImageLayout to_layout, zest_uint target_mip_level, zest_uint mip_count);
+ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage image, VkAccessFlags from_access, VkAccessFlags to_access, VkImageLayout from_layout, VkImageLayout to_layout, VkImageAspectFlags aspect_flags, zest_uint target_mip_level, zest_uint mip_count);
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_base_image_memory_barrier(VkImage image);
 ZEST_PRIVATE VkBufferMemoryBarrier zest__create_buffer_memory_barrier( VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkDeviceSize offset, VkDeviceSize size);
 ZEST_PRIVATE void zest__place_fragment_barrier(VkCommandBuffer command_buffer, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier);
-ZEST_PRIVATE void zest__initialise_swapchain_render_pass(zest_swapchain swapchain);
 ZEST_PRIVATE VkSampler zest__create_sampler(VkSamplerCreateInfo samplerInfo);
 ZEST_PRIVATE VkFormat zest__find_depth_format(void);
 ZEST_PRIVATE zest_bool zest__has_stencil_format(VkFormat format);
