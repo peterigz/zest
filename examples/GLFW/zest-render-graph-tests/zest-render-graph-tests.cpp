@@ -237,7 +237,7 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 void zest_WriteBufferCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
 	zest_resource_node write_buffer = zest_GetPassOutputResource(context->pass_node, "Write Buffer");
-	ZEST_CHECK_HANDLE(write_buffer);
+	ZEST_ASSERT_HANDLE(write_buffer);
 
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
@@ -267,8 +267,8 @@ void zest_VerifyBufferCompute(VkCommandBuffer command_buffer, const zest_render_
 	ZestTests *tests = (ZestTests *)user_data;
 	zest_resource_node write_buffer = zest_GetPassInputResource(context->pass_node, "Write Buffer");
 	zest_resource_node verify_buffer = zest_GetPassOutputResource(context->pass_node, "Verify Buffer");
-	ZEST_CHECK_HANDLE(write_buffer);
-	ZEST_CHECK_HANDLE(verify_buffer);
+	ZEST_ASSERT_HANDLE(write_buffer);
+	ZEST_ASSERT_HANDLE(verify_buffer);
 
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
@@ -403,8 +403,8 @@ void zest_VerifyImageCompute(VkCommandBuffer command_buffer, const zest_render_g
 	ZestTests *tests = (ZestTests *)user_data;
 	zest_resource_node read_image = zest_GetPassInputResource(context->pass_node, "Write Buffer");
 	zest_resource_node verify_buffer = zest_GetPassOutputResource(context->pass_node, "Verify Buffer");
-	ZEST_CHECK_HANDLE(read_image);
-	ZEST_CHECK_HANDLE(verify_buffer);
+	ZEST_ASSERT_HANDLE(read_image);
+	ZEST_ASSERT_HANDLE(verify_buffer);
 
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
@@ -493,21 +493,36 @@ Depth Attachment Test:
 * Pass B: Renders geometry that should be occluded by the objects from Pass A.
 * Verify the final image shows correct occlusion.
 */
+int test__depth_attachment(ZestTests *tests, Test *test) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Blank Screen")) {
+		zest_pass_node clear_pass = zest_AddGraphicBlankScreen("Draw Nothing");
+		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
+		zest_ConnectSwapChainOutput(clear_pass, clear_color);
+		zest_render_graph render_graph = zest_EndRenderGraph();
+		test->result |= render_graph->error_status;
+		if (zest_map_size(ZestRenderer->render_passes) == 1) {
+		}
+	}
+	test->frame_count++;
+	return test->result;
+}
+
 
 void InitialiseTests(ZestTests *tests) {
 
-	tests->tests[0] = { "Empty Graph", test__empty_graph, 0, 0, zest_rgs_no_work_to_do};
-	tests->tests[1] = { "Single Pass", test__single_pass, 0, 0, zest_rgs_no_work_to_do | zest_rgs_passes_were_culled};
-	tests->tests[2] = { "Blank Screen", test__blank_screen, 0, 0, 0 };
-	tests->tests[3] = { "Pass Culling", test__pass_culling, 0, 0, zest_rgs_passes_were_culled };
-	tests->tests[4] = { "Resource Culling", test__resource_culling, 0, 0, 0 };
-	tests->tests[5] = { "Chained Pass Culling", test__chained_pass_culling, 0, 0, zest_rgs_passes_were_culled };
-	tests->tests[6] = { "Transient Image", test__transient_image, 0, 0, 0 };
-	tests->tests[7] = { "Import Image", test__import_image, 0, 0, 0 };
-	tests->tests[8] = { "Image Barriers", test__image_barrier_tests, 0, 0, 0 };
-	tests->tests[9] = { "Buffer Read/Write", test__buffer_read_write, 0, 0, 0 };
-	tests->tests[10] = { "Multi Reader Barrier", test__multi_reader_barrier, 0, 0, 0 };
-	tests->tests[11] = { "Image Write/Read", test__image_read_write, 0, 0, 0 };
+	tests->tests[0] = { "Empty Graph", test__empty_graph, 0, 0, zest_rgs_no_work_to_do, tests->simple_create_info};
+	tests->tests[1] = { "Single Pass", test__single_pass, 0, 0, zest_rgs_no_work_to_do | zest_rgs_passes_were_culled, tests->simple_create_info};
+	tests->tests[2] = { "Blank Screen", test__blank_screen, 0, 0, 0, tests->simple_create_info };
+	tests->tests[3] = { "Pass Culling", test__pass_culling, 0, 0, zest_rgs_passes_were_culled, tests->simple_create_info };
+	tests->tests[4] = { "Resource Culling", test__resource_culling, 0, 0, 0, tests->simple_create_info };
+	tests->tests[5] = { "Chained Pass Culling", test__chained_pass_culling, 0, 0, zest_rgs_passes_were_culled, tests->simple_create_info };
+	tests->tests[6] = { "Transient Image", test__transient_image, 0, 0, 0, tests->simple_create_info };
+	tests->tests[7] = { "Import Image", test__import_image, 0, 0, 0, tests->simple_create_info };
+	tests->tests[8] = { "Image Barriers", test__image_barrier_tests, 0, 0, 0, tests->simple_create_info };
+	tests->tests[9] = { "Buffer Read/Write", test__buffer_read_write, 0, 0, 0, tests->simple_create_info };
+	tests->tests[10] = { "Multi Reader Barrier", test__multi_reader_barrier, 0, 0, 0, tests->simple_create_info };
+	tests->tests[11] = { "Image Write/Read", test__image_read_write, 0, 0, 0, tests->simple_create_info };
+	tests->tests[12] = { "Depth Attachment", test__depth_attachment, 0, 0, 0, tests->depth_create_info };
 
 	VkSamplerCreateInfo sampler_info = zest_CreateSamplerInfo();
 	VkSamplerCreateInfo mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
@@ -539,6 +554,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		if (tests->current_test < TEST_COUNT - 1) {
 			tests->current_test++;
+			zest_SetCreateInfo(&tests->tests[tests->current_test].create_info);
 			zest_ResetRenderer();
 			ResetTests(tests);
 		}
@@ -562,6 +578,9 @@ int main(void) {
 	create_info.thread_count = 0;
 
 	ZestTests tests = {};
+	tests.simple_create_info = create_info;
+	tests.depth_create_info = create_info;
+	ZEST__FLAG(tests.depth_create_info.flags, zest_init_flag_use_depth_buffer);
 
 	//Initialise Zest
 	zest_Initialise(&create_info);

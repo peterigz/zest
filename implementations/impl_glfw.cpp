@@ -36,14 +36,14 @@ void zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
 }
 
 void zest_implglfw_SetWindowSize(zest_window window, int width, int height) {
-	ZEST_CHECK_HANDLE(window);	//Not a valid window handle!
+	ZEST_ASSERT_HANDLE(window);	//Not a valid window handle!
 	GLFWwindow *handle = (GLFWwindow *)window->window_handle;
 
 	glfwSetWindowSize(handle, width, height);
 }
 
 void zest_implglfw_SetWindowMode(zest_window window, zest_window_mode mode) {
-	ZEST_CHECK_HANDLE(window);	//Not a valid window handle!
+	ZEST_ASSERT_HANDLE(window);	//Not a valid window handle!
 	GLFWwindow *handle = (GLFWwindow *)window->window_handle;
 	static int last_x, last_y, last_width, last_height;
 

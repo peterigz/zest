@@ -39,14 +39,14 @@ void zest_implsdl2_CreateWindowSurfaceCallback(zest_window_t* window) {
 }
 
 void zest_implsdl2_SetWindowSize(zest_window window, int width, int height) {
-	ZEST_CHECK_HANDLE(window);	//Not a valid window handle!
+	ZEST_ASSERT_HANDLE(window);	//Not a valid window handle!
 	SDL_Window *handle = (SDL_Window *)window->window_handle;
 	SDL_SetWindowSize(handle, width, height);
 }
 
 
 void zest_implsdl2_SetWindowMode(zest_window window, zest_window_mode mode) {
-	ZEST_CHECK_HANDLE(window);	//Not a valid window handle!
+	ZEST_ASSERT_HANDLE(window);	//Not a valid window handle!
 	SDL_Window *handle = (SDL_Window *)window->window_handle;
 	switch (mode) {
 	case zest_window_mode_fullscreen:

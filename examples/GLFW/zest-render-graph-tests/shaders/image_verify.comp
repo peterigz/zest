@@ -1,0 +1,44 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout (set = 0, binding = 0) uniform sampler2D u_textures[];
+
+layout(push_constant) uniform PushConstants {
+    uint read_image_index;
+    uint verify_buffer_index;
+    uint width;
+    uint height;
+} pc;
+
+struct TestResult {
+    vec4 success;
+};
+
+layout(std430, set = 0, binding = 1) buffer VerifyBuffer {
+    TestResult result;
+} verify_buffers[];
+
+void main() {
+    ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 image_dims = ivec2(pc.width, pc.height);
+
+    // Bounds check to terminate extra threads
+    if (pixel_coords.x >= image_dims.x || pixel_coords.y >= image_dims.y) {
+        return;
+    }
+
+    // The filter kernel is applied with a radius, specified in texture
+    // coordinates, so that the radius will vary across mip resolutions.
+    float x_offset_uv = 1.0 / float(image_dims.x);
+    float y_offset_uv = 1.0 / float(image_dims.y); // Corrected to use image_dims.y
+
+    vec3 a = texture(u_textures[nonuniformEXT(pc.read_image_index)], vec2(x_offset_uv, y_offset_uv)).rgb;
+
+    if (a.r == 0 && a.g == 1 && a.b == 1) {
+        verify_buffers[pc.verify_buffer_index].result.success.x = 1.0;
+    } else {
+        verify_buffers[pc.verify_buffer_index].result.success.y = 1.0;
+    }
+}

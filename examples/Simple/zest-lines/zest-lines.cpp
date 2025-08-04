@@ -10,7 +10,7 @@ typedef struct zest_example {
 } zest_example;
 
 void zest_SetShapeDrawing(zest_layer layer, zest_shape_type shape_type, zest_shader_resources shader_resources, zest_pipeline_template pipeline) {
-    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     zest_EndInstanceInstructions(layer);
     zest_StartInstanceInstructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
@@ -22,7 +22,7 @@ void zest_SetShapeDrawing(zest_layer layer, zest_shape_type shape_type, zest_sha
 }
 
 void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], float width) {
-    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_line_instance || layer->current_instruction.draw_mode == zest_draw_mode_dashed_line);    //Call zest_StartSpriteDrawing before calling this function
 
     zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
@@ -41,7 +41,7 @@ void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], f
 }
 
 void zest_DrawRect(zest_layer layer, float top_left[2], float width, float height) {
-    ZEST_CHECK_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_rect_instance);    //Call zest_StartSpriteDrawing before calling this function
 
     zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;

@@ -324,8 +324,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Add resources
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
 		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
-		zest_resource_node downsampler = zest_AddRenderTarget("Downsampler", zest_texture_format_rgba_hdr, example->mipped_sampler, true);
-		zest_resource_node upsampler = zest_AddRenderTarget("Upsampler", zest_texture_format_rgba_hdr, example->mipped_sampler, true);
+		zest_resource_node downsampler = zest_AddTransientRenderTarget("Downsampler", zest_texture_format_rgba_hdr, example->mipped_sampler);
+		zest_resource_node upsampler = zest_AddTransientRenderTarget("Upsampler", zest_texture_format_rgba_hdr, example->mipped_sampler);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
@@ -339,7 +339,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_pass_node render_target_pass = zest_AddRenderPassNode("Graphics Pass");
 		zest_ConnectVertexBufferInput(render_target_pass, font_layer_resources);
 		zest_ConnectSampledImageInput(render_target_pass, font_layer_texture);
-		zest_ConnectRenderTargetOutput(render_target_pass, downsampler);
+		zest_ConnectRenderTargetOutput(render_target_pass, downsampler, {0});
 		//tasks
 		zest_SetPassTask(render_target_pass, zest_DrawFonts, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
