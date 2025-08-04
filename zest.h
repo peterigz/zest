@@ -1170,6 +1170,7 @@ typedef enum zest_struct_type {
     zest_struct_type_app                     = 33 << 16,
     zest_struct_type_vector                  = 34 << 16,
     zest_struct_type_bitmap                  = 35 << 16,
+    zest_struct_type_render_target_group     = 36 << 16,
 } zest_struct_type;
 
 typedef enum zest_vulkan_memory_context {
@@ -1449,9 +1450,12 @@ typedef enum {
 } zest_device_queue_type;
 
 typedef enum {
-    zest_resource_type_image,
-    zest_resource_type_buffer,
-    zest_resource_type_swap_chain_image
+    zest_resource_type_image             = 1 << 0,
+    zest_resource_type_buffer            = 1 << 1,
+    zest_resource_type_swap_chain_image  = 1 << 2,
+    zest_resource_type_depth             = 1 << 3,
+    zest_resource_type_is_image          = zest_resource_type_image | zest_resource_type_swap_chain_image | zest_resource_type_depth,
+    zest_resource_type_is_image_or_depth = zest_resource_type_image | zest_resource_type_depth
 } zest_resource_type;
 
 typedef enum zest_resource_node_flag_bits {
@@ -1616,6 +1620,7 @@ typedef struct zest_imgui_t zest_imgui_t;
 typedef struct zest_queue_t zest_queue_t;
 typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 typedef struct zest_swapchain_t zest_swapchain_t;
+typedef struct zest_render_target_group_t zest_render_target_group_t;
 typedef struct zest_bitmap_t zest_bitmap_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
@@ -1647,6 +1652,7 @@ ZEST__MAKE_HANDLE(zest_swapchain)
 ZEST__MAKE_HANDLE(zest_render_graph)
 ZEST__MAKE_HANDLE(zest_pass_node)
 ZEST__MAKE_HANDLE(zest_resource_node)
+ZEST__MAKE_HANDLE(zest_render_target_group);
 ZEST__MAKE_HANDLE(zest_bitmap)
 
 // --Private structs with inline functions
@@ -2904,6 +2910,11 @@ typedef struct zest_resource_node_t {
     zest_resource_node next;
 } zest_resource_node_t;
 
+typedef struct zest_render_target_group_t {
+    int magic;
+    zest_resource_node *resources;
+} zest_render_target_group_t;
+
 typedef struct zest_execution_timeline_t {
     int magic;
     VkSemaphore semaphore;
@@ -3091,6 +3102,12 @@ ZEST_API zest_resource_node zest_AddFontLayerTextureResource(const zest_font fon
 ZEST_API zest_resource_node zest_AddTransientRenderTarget(const char *name, zest_texture_format format, zest_sampler sampler);
 ZEST_API zest_resource_node zest_AddTransientDepthBufferResource(const char *name, zest_sampler sampler);
 ZEST_API zest_resource_node zest_AliasResource(const char *name, zest_resource_node resource);
+ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
+
+// --- Render target groups ---
+ZEST_API zest_render_target_group zest_CreateRenderTargetGroup();
+ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_render_target_group group);
+ZEST_API void zest_AddDepthToRenderTargetGroup(zest_render_target_group group, zest_resource_node depth_resource);
 
 // --- Helpers for adding various types of resources
 ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
@@ -3130,6 +3147,7 @@ ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_r
 ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target, VkClearColorValue clear_color_on_load);
 ZEST_API void zest_ConnectDepthOutput(zest_pass_node pass_node, zest_resource_node depth_target);
 ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target);
+ZEST_API void zest_ConnectRenderTargetGroup(zest_pass_node pass_node, zest_render_target_group group);
 
 // --- Connect graphs to each other
 ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);

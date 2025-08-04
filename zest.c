@@ -7827,7 +7827,7 @@ bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name) {
         ZEST_PRINT("Unable to acquire the swap chain!");
         return false;
     }
-	zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource(swapchain);
+	zest_ImportSwapChainResource(swapchain);
     return true;
 }
 
@@ -7915,14 +7915,14 @@ void zest__free_transient_resource(zest_resource_node resource) {
     if (resource->type == zest_resource_type_buffer) {
         zest_FreeBuffer(resource->storage_buffer);
         resource->storage_buffer = 0;
-    } else if (resource->type == zest_resource_type_image) {
+    } else if (resource->type & zest_resource_type_is_image_or_depth) {
         zest_FreeBuffer(resource->image_buffer.buffer);
         resource->image_buffer.buffer = 0;
     }
 }
 
 void zest__create_transient_resource(zest_render_graph render_graph, zest_resource_node resource) {
-    if (resource->type == zest_resource_type_image && resource->image_buffer.image == VK_NULL_HANDLE) {
+    if (resource->type & zest_resource_type_is_image && resource->image_buffer.image == VK_NULL_HANDLE) {
         zest__create_transient_image(resource);
         resource->image_buffer.base_view = zest__create_image_view(
             resource->image_buffer.image,
@@ -8261,7 +8261,12 @@ zest_render_graph zest__compile_render_graph() {
             zest_resource_versions_t *versions = zest__maybe_add_resource_version(resource);
             zest_resource_node latest_version = zest_vec_back(versions->resources);
             if (latest_version->id != resource->id) {
-                //Add the versioned alias to the outputs instead
+                //This is the second time that the swap chain is used
+				//as output, this should not happen. Check that the passes
+				//that use the swapchain as output have exactly the same set of other
+				//ouputs so that the passes can be properly grouped together.
+                ZEST_ASSERT(resource->type != zest_resource_type_swap_chain_image); 
+                              //Add the versioned alias to the outputs instead
                 output_usage->resource_node = latest_version;
                 zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->outputs, latest_version->name, *output_usage);
                 //Check if the user already added this as input:
@@ -8610,16 +8615,19 @@ zest_render_graph zest__compile_render_graph() {
         zest_resource_node resource = zest_bucket_array_get(&render_graph->resources, zest_resource_node_t, resource_index);
 
         // Check if this resource is transient AND actually used in the compiled graph
-        if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_transient) && 
-            (resource->reference_count > 0 ||  ZEST__FLAGGED(resource->flags, zest_resource_node_flag_essential_output)) &&
-            resource->first_usage_pass_idx <= resource->last_usage_pass_idx && // Ensures it's used
-            resource->first_usage_pass_idx != ZEST_INVALID) { 
+        if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_transient)) {
+            if (resource->reference_count > 0 || ZEST__FLAGGED(resource->flags, zest_resource_node_flag_essential_output) &&
+                resource->first_usage_pass_idx <= resource->last_usage_pass_idx && // Ensures it's used
+                resource->first_usage_pass_idx != ZEST_INVALID) {
 
-            zest_pass_group_t *first_pass = &render_graph->final_passes.data[resource->first_usage_pass_idx];
-            zest_pass_group_t *last_pass = &render_graph->final_passes.data[resource->last_usage_pass_idx];
+                zest_pass_group_t *first_pass = &render_graph->final_passes.data[resource->first_usage_pass_idx];
+                zest_pass_group_t *last_pass = &render_graph->final_passes.data[resource->last_usage_pass_idx];
 
-			zest_vec_linear_push(allocator, first_pass->transient_resources_to_create, resource_index);
-			zest_vec_linear_push(allocator, last_pass->transient_resources_to_free, resource_index);
+                zest_vec_linear_push(allocator, first_pass->transient_resources_to_create, resource_index);
+                zest_vec_linear_push(allocator, last_pass->transient_resources_to_free, resource_index);
+            } else {
+                ZEST__REPORT(zest_report_resource_culled, "Transient resource [%s] was culled because it's was not consumed by any other passes. If you intended to use this output outside of the render graph once it's executed then you can call zest_FlagResourceAsEssential.", resource->name);
+            }
         }
     }
 
@@ -8643,7 +8651,7 @@ zest_render_graph zest__compile_render_graph() {
                 next_state = &resource->journey[state_index + 1];
             }
             VkPipelineStageFlags required_stage = current_usage->stage_mask;
-            if (resource->type == zest_resource_type_image || resource->type == zest_resource_type_swap_chain_image) {
+            if (resource->type & zest_resource_type_is_image) {
                 zest__add_image_barriers(render_graph, allocator, resource, barriers, current_state, prev_state, next_state);
                 prev_state = current_state;
                 if (current_state->usage.access_mask & zest_access_render_pass_bits) {
@@ -9396,7 +9404,7 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
 		zest_resource_node resource = zest_bucket_array_get(&render_graph->resources, zest_resource_node_t, resource_index);
         if (resource->type == zest_resource_type_buffer) {
 			ZEST_PRINT("Buffer: %s - Size: %zu", resource->name, resource->buffer_desc.size);
-        } else if (resource->type == zest_resource_type_image) {
+        } else if (resource->type & zest_resource_type_image) {
             ZEST_PRINT("Image: %s - VkImage: %p, Size: %u x %u", 
                 resource->name, resource->image_buffer.image,  
                 resource->image_desc.width, resource->image_desc.height);
@@ -9579,7 +9587,7 @@ zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image
         return ZEST_INVALID;
     }
 
-    ZEST_ASSERT(resource->type == zest_resource_type_image);   //resource must be a image
+    ZEST_ASSERT(resource->type & zest_resource_type_is_image);   //resource must be a image
     zest_uint binding_number = ZEST_INVALID;
 	zest_vec_foreach(i, render_graph->bindless_layout->layout_bindings) {
 		VkDescriptorSetLayoutBinding *binding = &render_graph->bindless_layout->layout_bindings[i];
@@ -9835,6 +9843,7 @@ zest_resource_node zest_AddTransientDepthBufferResource(const char *name, zest_s
         description.mip_levels = 1;
     }
 	zest_resource_node resource = zest_AddTransientImageResource(name, &description, sampler ? ZEST_TRUE : ZEST_FALSE, ZEST_TRUE);
+    resource->type = zest_resource_type_depth;
     resource->sampler = sampler;
     return resource;
 }
@@ -9852,6 +9861,37 @@ zest_resource_node zest_AliasResource(const char *name, zest_resource_node resou
     node.id = render_graph->id_counter++;
     node.flags = zest_resource_node_flag_aliased;
     return zest__add_render_graph_resource(&node);
+}
+
+void zest_FlagResourceAsEssential(zest_resource_node resource) {
+    ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle!
+    ZEST__FLAG(resource->flags, zest_resource_node_flag_essential_output);
+}
+
+void zest_AddSwapchainToRenderTargetGroup(zest_render_target_group group) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);    //Render graph must have a swapchain, use zest_BeginRenderToScreen
+    ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
+    zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], group->resources, render_graph->swapchain_resource);
+}
+
+void zest_AddDepthToRenderTargetGroup(zest_render_target_group group, zest_resource_node depth_resource) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
+    ZEST_ASSERT(depth_resource->type == zest_resource_type_depth);  //Must be a depth buffer resource type
+	zest_FlagResourceAsEssential(depth_resource);
+    zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], group->resources, depth_resource);
+}
+
+zest_render_target_group zest_CreateRenderTargetGroup() {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_render_target_group group = zloc_LinearAllocation(ZestRenderer->render_graph_allocator[ZEST_FIF], sizeof(zest_render_target_group_t));
+    *group = (zest_render_target_group_t){ 0 };
+    group->magic = zest_INIT_MAGIC(zest_struct_type_render_target_group);
+    return group;
 }
 
 zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless) {
@@ -10335,7 +10375,7 @@ zest_uint zest_GetResourceHeight(zest_resource_node resource) {
 
 VkImage zest_GetResourceImage(zest_resource_node resource_node) {
 	ZEST_ASSERT_HANDLE(resource_node);   //Not a valid resource handle!
-	if (resource_node->type == zest_resource_type_image) {
+	if (resource_node->type & zest_resource_type_is_image_or_depth) {
         return resource_node->image_buffer.image;
 	}
 	return VK_NULL_HANDLE;
@@ -10647,7 +10687,7 @@ void zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details
         zest_map_foreach(o, pass->outputs) {
             zest_resource_usage_t *output_usage = &pass->outputs.data[o];
             zest_resource_node output_resource = pass->outputs.data[o].resource_node;
-            if (output_resource->type == zest_resource_type_image || output_resource->type == zest_resource_type_swap_chain_image) {
+            if (output_resource->type & zest_resource_type_is_image) {
                 if (ZEST__FLAGGED(output_usage->access_mask, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) {
                     zest_temp_attachment_info_t color = { 0 };
                     color.resource_node = output_resource;
@@ -10668,7 +10708,7 @@ void zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details
         zest_map_foreach(i, pass->inputs) {
             zest_resource_usage_t *input_usage = &pass->inputs.data[i];
             zest_resource_node input_resource = pass->inputs.data[i].resource_node;
-            if (input_resource->type == zest_resource_type_image || input_resource->type == zest_resource_type_swap_chain_image) {
+            if (input_resource->type & zest_resource_type_is_image) {
                 if (ZEST__FLAGGED(input_usage->access_mask, VK_ACCESS_INPUT_ATTACHMENT_READ_BIT)) {
                     zest_temp_attachment_info_t color = { 0 };
                     color.resource_node = input_resource;
@@ -11085,6 +11125,22 @@ void zest_ConnectSwapChainOutput( zest_pass_node pass) {
     zest__add_pass_image_usage(pass, render_graph->swapchain_resource, zest_purpose_color_attachment_write, 
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, ZEST_TRUE,
         VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, cv);
+}
+
+void zest_ConnectRenderTargetGroup(zest_pass_node pass_node, zest_render_target_group group) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
+    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(group);  //Not a valid render target group
+    ZEST_ASSERT_HANDLE(pass_node);  //Not a valid pass node
+    ZEST_ASSERT(zest_vec_size(group->resources));   //There are no resources in the group!
+    zest_vec_foreach(i, group->resources) {
+        zest_resource_node resource = group->resources[i];
+        switch (resource->type) {
+        case zest_resource_type_swap_chain_image: zest_ConnectSwapChainOutput(pass_node); break;
+        case zest_resource_type_image: zest_ConnectRenderTargetOutput(pass_node, resource, (VkClearColorValue){ 0 }); break;
+        case zest_resource_type_depth: zest_ConnectDepthOutput(pass_node, resource); break;
+        }
+    }
 }
 
 // More flexible version:
@@ -15484,6 +15540,7 @@ const char *zest__struct_type_to_string(zest_struct_type struct_type) {
 	case zest_struct_type_app                     : return "app"; break;
 	case zest_struct_type_vector                  : return "vector"; break;
 	case zest_struct_type_bitmap                  : return "bitmap"; break;
+	case zest_struct_type_render_target_group     : return "render_target_group"; break;
     default: return "UNKNOWN"; break;
     }
     return "UNKNOWN";
