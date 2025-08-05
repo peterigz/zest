@@ -9885,6 +9885,15 @@ void zest_AddDepthToRenderTargetGroup(zest_render_target_group group, zest_resou
     zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], group->resources, depth_resource);
 }
 
+void zest_AddImageToRenderTargetGroup(zest_render_target_group group, zest_resource_node image) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
+    ZEST_ASSERT(image->type == zest_resource_type_image);  //Must be a depth buffer resource type
+	zest_FlagResourceAsEssential(image);
+    zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], group->resources, image);
+}
+
 zest_render_target_group zest_CreateRenderTargetGroup() {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
@@ -10544,6 +10553,11 @@ void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, z
     zest__place_image_barrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, pipeline_stage, &blit_dst_barrier);
 }
 
+void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha) {
+    ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle!
+    resource->clear_color = (zest_vec4){red, green, blue, alpha};
+}
+
 void zest_InsertComputeImageBarrier(VkCommandBuffer command_buffer, zest_resource_node resource, zest_uint base_mip) {
     ZEST_ASSERT_HANDLE(resource);    //Not a valid resource handle!
     ZEST_ASSERT(resource->type == zest_resource_type_image);    //resource type must be an image
@@ -11120,6 +11134,7 @@ void zest_ConnectSwapChainOutput( zest_pass_node pass) {
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);  //Not a valid swapchain resource, did you call zest_BeginRenderToScreen?
     VkClearValue cv = { 0 };
+    cv.color = render_graph->swapchain->vk_clear_color;
     // Assuming clear for swapchain if not explicitly loaded
     ZEST__FLAG(pass->flags, zest_pass_flag_do_not_cull);
     zest__add_pass_image_usage(pass, render_graph->swapchain_resource, zest_purpose_color_attachment_write, 
@@ -11127,7 +11142,7 @@ void zest_ConnectSwapChainOutput( zest_pass_node pass) {
         VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, cv);
 }
 
-void zest_ConnectRenderTargetGroup(zest_pass_node pass_node, zest_render_target_group group) {
+void zest_ConnectRenderTargetGroupOutput(zest_pass_node pass_node, zest_render_target_group group) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(group);  //Not a valid render target group
@@ -11137,7 +11152,7 @@ void zest_ConnectRenderTargetGroup(zest_pass_node pass_node, zest_render_target_
         zest_resource_node resource = group->resources[i];
         switch (resource->type) {
         case zest_resource_type_swap_chain_image: zest_ConnectSwapChainOutput(pass_node); break;
-        case zest_resource_type_image: zest_ConnectRenderTargetOutput(pass_node, resource, (VkClearColorValue){ 0 }); break;
+        case zest_resource_type_image: zest_ConnectRenderTargetOutput(pass_node, resource, (VkClearColorValue){ resource->clear_color.x, resource->clear_color.y, resource->clear_color.z , resource->clear_color.w }); break;
         case zest_resource_type_depth: zest_ConnectDepthOutput(pass_node, resource); break;
         }
     }

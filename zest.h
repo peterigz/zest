@@ -2882,6 +2882,7 @@ typedef struct zest_resource_node_t {
 
 	zest_buffer_description_t buffer_desc; // Used if transient buffer
     zest_image_description_t image_desc;
+    zest_vec4 clear_color;
 
     zest_image_buffer_t image_buffer;
     zest_buffer storage_buffer;
@@ -3057,7 +3058,7 @@ ZEST_PRIVATE void zest__set_rg_error_status(zest_render_graph render_graph, zest
 // --- Utility callbacks ---
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 
-// --- Retrieve resources from a render graph
+// --- General resource functions ---
 ZEST_API zest_resource_node zest_GetPassInputResource(zest_pass_node pass, const char *name);
 ZEST_API zest_resource_node zest_GetPassOutputResource(zest_pass_node pass, const char *name);
 ZEST_API zest_buffer zest_GetPassInputBuffer(zest_pass_node pass, const char *name);
@@ -3068,6 +3069,7 @@ ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
 ZEST_API VkImage zest_GetResourceImage(zest_resource_node resource_node);
 ZEST_API void zest_BlitImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 ZEST_API void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
+ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
 
 // -- Helper functions to insert barrier functions within pass callbacks
 ZEST_API void zest_InsertComputeImageBarrier(VkCommandBuffer command_buffer, zest_resource_node resource, zest_uint base_mip);
@@ -3108,6 +3110,7 @@ ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
 ZEST_API zest_render_target_group zest_CreateRenderTargetGroup();
 ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_render_target_group group);
 ZEST_API void zest_AddDepthToRenderTargetGroup(zest_render_target_group group, zest_resource_node depth_resource);
+ZEST_API void zest_AddImageToRenderTargetGroup(zest_render_target_group group, zest_resource_node image);
 
 // --- Helpers for adding various types of resources
 ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
@@ -3147,7 +3150,7 @@ ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_r
 ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target, VkClearColorValue clear_color_on_load);
 ZEST_API void zest_ConnectDepthOutput(zest_pass_node pass_node, zest_resource_node depth_target);
 ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target);
-ZEST_API void zest_ConnectRenderTargetGroup(zest_pass_node pass_node, zest_render_target_group group);
+ZEST_API void zest_ConnectRenderTargetGroupOutput(zest_pass_node pass_node, zest_render_target_group group);
 
 // --- Connect graphs to each other
 ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);
