@@ -325,8 +325,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 
 		//Add resources
-		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
-		zest_resource_node font_layer_texture = zest_ImportFontLayerTextureResource(example->font);
+		zest_resource_node font_layer_resources = zest_AddTransientLayerResource("Font resources", example->font_layer, false);
+		zest_resource_node font_layer_texture = zest_ImportFontResource(example->font);
 		zest_resource_node downsampler = zest_AddTransientImageResource("Downsampler", &image_info);
 		zest_resource_node upsampler = zest_AddTransientImageResource("Upsampler", &image_info);
 
@@ -340,7 +340,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		//---------------------------------Draw Base Pass---------------------------------------------------
 		zest_pass_node render_target_pass = zest_AddRenderPassNode("Graphics Pass");
-		zest_ConnectVertexBufferInput(render_target_pass, font_layer_resources);
+		zest_ConnectInput(render_target_pass, font_layer_resources, 0);
 		zest_ConnectInput(render_target_pass, font_layer_texture, 0);
 		zest_ConnectOutput(render_target_pass, downsampler);
 		//tasks

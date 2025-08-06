@@ -1204,21 +1204,29 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	}
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 
+	zest_image_resource_info_t depth_info = {
+		zest_texture_format_depth,
+		zest_resource_usage_hint_none,
+		zest_ScreenWidth(),
+		zest_ScreenHeight(),
+		1
+	};
+
 	//Create the render graph
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Test Render Graph")) {
 		zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, .1f, .2f, 1.f);
 
 		//Resources
 		//zest_resource_node mesh_layer_resources = zest_AddInstanceLayerBufferResource("Mesh layer", app->mesh_layer, false);
-		zest_resource_node scale_widget_layer_resources = zest_AddInstanceLayerBufferResource("Scale widget layer", app->scale_widget_layer, false);
+		zest_resource_node scale_widget_layer_resources = zest_AddTransientLayerResource("Scale widget layer", app->scale_widget_layer, false);
 		zest_resource_node scale_mesh_data_index = zest_ImportBufferResource("Scale Mesh Index", app->scale_widget_layer->index_data);
 		zest_resource_node scale_mesh_data_vertex = zest_ImportBufferResource("Scale Mesh Vertex", app->scale_widget_layer->vertex_data);
 		zest_resource_node move_mesh_data_index = zest_ImportBufferResource("Move Mesh Index", app->move_widget_layer->index_data);
 		zest_resource_node move_mesh_data_vertex = zest_ImportBufferResource("Move Mesh Vertex", app->move_widget_layer->vertex_data);
-		zest_resource_node move_widget_layer_resources = zest_AddInstanceLayerBufferResource("Move widget layer", app->move_widget_layer, false);
-		zest_resource_node line_layer_resources = zest_AddInstanceLayerBufferResource("Line layer", app->line_layer, false);
-		zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer");
-		zest_render_target_group group = zest_CreateRenderTargetGroup();
+		zest_resource_node move_widget_layer_resources = zest_AddTransientLayerResource("Move widget layer", app->move_widget_layer, false);
+		zest_resource_node line_layer_resources = zest_AddTransientLayerResource("Line layer", app->line_layer, false);
+		zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
+		zest_output_group group = zest_CreateRenderTargetGroup();
 		zest_AddSwapchainToRenderTargetGroup(group);
 		zest_AddDepthToRenderTargetGroup(group, depth_buffer);
 
@@ -1227,9 +1235,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_pass_node upload_mesh_data = zest_AddTransferPassNode("Upload Scale Data");
 		//outputs
 		//zest_ConnectTransferBufferOutput(upload_mesh_data, mesh_layer_resources);
-		zest_ConnectTransferBufferOutput(upload_mesh_data, scale_widget_layer_resources);
-		zest_ConnectTransferBufferOutput(upload_mesh_data, move_widget_layer_resources);
-		zest_ConnectTransferBufferOutput(upload_mesh_data, line_layer_resources);
+		zest_ConnectOutput(upload_mesh_data, scale_widget_layer_resources);
+		zest_ConnectOutput(upload_mesh_data, move_widget_layer_resources);
+		zest_ConnectOutput(upload_mesh_data, line_layer_resources);
 
 		//task
 		zest_SetPassTask(upload_mesh_data, UploadMeshData, app);
@@ -1240,29 +1248,29 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_pass_node scale_pass = zest_AddRenderPassNode("Scale Pass");
 		//inputs
 		//zest_ConnectVertexBufferInput(scale_pass, mesh_layer_resources);
-		zest_ConnectVertexBufferInput(scale_pass, scale_widget_layer_resources);
-		zest_ConnectVertexBufferInput(scale_pass, scale_mesh_data_index);
-		zest_ConnectVertexBufferInput(scale_pass, scale_mesh_data_vertex);
-		zest_ConnectRenderTargetGroupOutput(scale_pass, group);
+		zest_ConnectInput(scale_pass, scale_widget_layer_resources, 0);
+		zest_ConnectInput(scale_pass, scale_mesh_data_index, 0);
+		zest_ConnectInput(scale_pass, scale_mesh_data_vertex, 0);
+		zest_ConnectGroupedOutput(scale_pass, group);
 		zest_SetPassTask(scale_pass, zest_DrawInstanceMeshLayer, app->scale_widget_layer);
 
 		zest_pass_node move_pass = zest_AddRenderPassNode("Move Pass");
-		zest_ConnectVertexBufferInput(move_pass, move_widget_layer_resources);
-		zest_ConnectVertexBufferInput(move_pass, move_mesh_data_index);
-		zest_ConnectVertexBufferInput(move_pass, move_mesh_data_vertex);
-		zest_ConnectRenderTargetGroupOutput(move_pass, group);
+		zest_ConnectInput(move_pass, move_widget_layer_resources, 0);
+		zest_ConnectInput(move_pass, move_mesh_data_index, 0);
+		zest_ConnectInput(move_pass, move_mesh_data_vertex, 0);
+		zest_ConnectGroupedOutput(move_pass, group);
 		zest_SetPassTask(move_pass, zest_DrawInstanceMeshLayer, app->move_widget_layer);
 
 		zest_pass_node line_pass = zest_AddRenderPassNode("Line Pass");
-		zest_ConnectVertexBufferInput(line_pass, line_layer_resources);
+		zest_ConnectInput(line_pass, line_layer_resources, 0);
 		//outputs
-		zest_ConnectRenderTargetGroupOutput(line_pass, group);
+		zest_ConnectGroupedOutput(line_pass, group);
 		//tasks
 		zest_SetPassTask(line_pass, zest_DrawInstanceLayer, app->line_layer);
 		//zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->mesh_layer);
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
 		if (imgui_pass) {
-			zest_ConnectRenderTargetGroupOutput(imgui_pass, group);
+			zest_ConnectGroupedOutput(imgui_pass, group);
 		}
 		//--------------------------------------------------------------------------------------------------
 
@@ -1285,7 +1293,6 @@ int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";
-	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);

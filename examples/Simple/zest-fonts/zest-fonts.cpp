@@ -32,8 +32,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
-		zest_resource_node font_layer_texture = zest_ImportFontLayerTextureResource(example->font);
+		zest_resource_node font_layer_resources = zest_AddTransientLayerResource("Font resources", example->font_layer, false);
+		zest_resource_node font_layer_texture = zest_ImportFontResource(example->font);
 
 		//---------------------------------Transfer Pass------------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");

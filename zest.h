@@ -1482,6 +1482,8 @@ typedef enum zest_resource_usage_hint_bits {
     zest_resource_usage_hint_copy_dst          = 1 << 1,
     zest_resource_usage_hint_cpu_read          = (1 << 2) | zest_resource_usage_hint_copy_src,
     zest_resource_usage_hint_cpu_write         = (1 << 3) | zest_resource_usage_hint_copy_dst,
+    zest_resource_usage_hint_vertex_buffer     = 1 << 4,
+    zest_resource_usage_hint_index_buffer      = 1 << 5,
     zest_resource_usage_hint_copyable          = zest_resource_usage_hint_copy_src | zest_resource_usage_hint_copy_dst,
     zest_resource_usage_hint_cpu_transfer      = zest_resource_usage_hint_cpu_read | zest_resource_usage_hint_cpu_write
 } zest_resource_usage_hint_bits;
@@ -1507,7 +1509,7 @@ typedef enum {
 
 typedef enum zest_resource_purpose {
     // Buffer Usages
-    zest_purpose_vertex_buffer,
+    zest_purpose_vertex_buffer = 1,
     zest_purpose_index_buffer,
     zest_purpose_uniform_buffer,                      // Might need shader stage too if general
     zest_purpose_storage_buffer_read,                 // Needs shader stage
@@ -1634,7 +1636,7 @@ typedef struct zest_imgui_t zest_imgui_t;
 typedef struct zest_queue_t zest_queue_t;
 typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 typedef struct zest_swapchain_t zest_swapchain_t;
-typedef struct zest_render_target_group_t zest_render_target_group_t;
+typedef struct zest_output_group_t zest_output_group_t;
 typedef struct zest_bitmap_t zest_bitmap_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
@@ -1666,7 +1668,7 @@ ZEST__MAKE_HANDLE(zest_swapchain)
 ZEST__MAKE_HANDLE(zest_render_graph)
 ZEST__MAKE_HANDLE(zest_pass_node)
 ZEST__MAKE_HANDLE(zest_resource_node)
-ZEST__MAKE_HANDLE(zest_render_target_group);
+ZEST__MAKE_HANDLE(zest_output_group);
 ZEST__MAKE_HANDLE(zest_bitmap)
 
 // --Private structs with inline functions
@@ -2931,10 +2933,10 @@ typedef struct zest_resource_node_t {
     zest_uint last_usage_pass_idx;                  // For lifetime tracking
 } zest_resource_node_t;
 
-typedef struct zest_render_target_group_t {
+typedef struct zest_output_group_t {
     int magic;
     zest_resource_node *resources;
-} zest_render_target_group_t;
+} zest_output_group_t;
 
 typedef struct zest_execution_timeline_t {
     int magic;
@@ -3055,6 +3057,7 @@ ZEST_PRIVATE VkCommandPool zest__create_queue_command_pool(int queue_family_inde
 ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_texture texture);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_descriptor_buffer_resource_node(const char *name, zest_buffer buffer);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
+ZEST_PRIVATE zest_resource_node zest__import_swap_chain_resource(zest_swapchain swapchain);
 ZEST_PRIVATE zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only);
 ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_resource_node resource);
 ZEST_PRIVATE zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
@@ -3121,56 +3124,30 @@ ZEST_API void zest_SetPassInstanceLayer(zest_pass_node pass, zest_layer layer);
 // --- Add Transient resources ---
 ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
 ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless);
-ZEST_API zest_resource_node zest_AddInstanceLayerBufferResource(const char *name, const zest_layer layer, zest_bool prev_fif);
+ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
 
 // --- Render target groups ---
-ZEST_API zest_render_target_group zest_CreateRenderTargetGroup();
-ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_render_target_group group);
-ZEST_API void zest_AddDepthToRenderTargetGroup(zest_render_target_group group, zest_resource_node depth_resource);
-ZEST_API void zest_AddImageToRenderTargetGroup(zest_render_target_group group, zest_resource_node image);
-
-// --- Helpers for adding various types of resources
-ZEST_API zest_resource_node zest_AddTransientVertexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
-ZEST_API zest_resource_node zest_AddTransientIndexBufferResource(const char *name, zest_size size, zest_bool include_storage_flags, zest_bool assign_bindless);
-ZEST_API zest_resource_node zest_AddTransientStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless);
-ZEST_API zest_resource_node zest_AddTransientCPUStorageBufferResource(const char *name, zest_size size, zest_bool assign_bindless);
+ZEST_API zest_output_group zest_CreateRenderTargetGroup();
+ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_output_group group);
+ZEST_API void zest_AddDepthToRenderTargetGroup(zest_output_group group, zest_resource_node depth_resource);
+ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image);
 
 // --- Import external resouces into the render graph ---
 ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
 ZEST_API zest_resource_node zest_ImportImageResourceReadOnly(const char *name, zest_texture texture);
 ZEST_API zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_buffer buffer);
 ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer);
-ZEST_API zest_resource_node zest_ImportSwapChainResource(zest_swapchain swapchain);
-ZEST_API zest_resource_node zest_ImportFontLayerTextureResource(const zest_font font);
-
-//Todo: All these connectors could be simplyfied? At least have better errors/warnings.
-// We know the pass queue type, and we know the resource type so probably don't need a lot of these specific 
-// connector types.
-// --- Connect Buffer Helpers ---
-ZEST_API void zest_ConnectVertexBufferInput(zest_pass_node pass, zest_resource_node vertex_buffer);
-ZEST_API void zest_ConnectIndexBufferInput(zest_pass_node pass, zest_resource_node index_buffer);
-ZEST_API void zest_ConnectUniformBufferInput(zest_pass_node pass, zest_resource_node uniform_buffer);
-ZEST_API void zest_ConnectStorageBufferInput(zest_pass_node pass, zest_resource_node storage_buffer);
-ZEST_API void zest_ConnectTransferBufferInput(zest_pass_node pass, zest_resource_node src_buffer);
-ZEST_API void zest_ConnectStorageBufferOutput(zest_pass_node pass, zest_resource_node storage_buffer);
-ZEST_API void zest_ConnectTransferBufferOutput(zest_pass_node pass, zest_resource_node dst_buffer);
+ZEST_API zest_resource_node zest_ImportFontResource(const zest_font font);
 
 // --- Manual Barrier Functions
 ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 
-// --- Connect Image Helpers ---
+// --- Connect Resources to Pass Nodes ---
 ZEST_API void zest_ConnectInput(zest_pass_node pass, zest_resource_node resource, zest_sampler sampler);
-ZEST_API void zest_ConnectSampledImageInput(zest_pass_node pass, zest_resource_node texture, zest_sampler sampler);
-ZEST_API void zest_ConnectStorageImageInput(zest_pass_node pass, zest_resource_node texture, zest_bool read_only);
-ZEST_API void zest_ConnectStorageImageOutput(zest_pass_node pass, zest_resource_node texture, zest_bool write_only);
-ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass);
-ZEST_API void zest_ConnectColorAttachmentOutput(zest_pass_node pass_node, zest_resource_node color_target, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkClearColorValue clear_color_if_clearing);
-ZEST_API void zest_ConnectRenderTargetOutput(zest_pass_node pass_node, zest_resource_node color_target);
 ZEST_API void zest_ConnectOutput(zest_pass_node pass_node, zest_resource_node resource);
-ZEST_API void zest_ConnectDepthOutput(zest_pass_node pass_node, zest_resource_node depth_target);
-ZEST_API void zest_ConnectDepthStencilInputReadOnly(zest_pass_node pass_node, zest_resource_node depth_target);
-ZEST_API void zest_ConnectRenderTargetGroupOutput(zest_pass_node pass_node, zest_render_target_group group);
+ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass);
+ZEST_API void zest_ConnectGroupedOutput(zest_pass_node pass, zest_output_group group);
 
 // --- Connect graphs to each other
 ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);

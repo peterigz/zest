@@ -111,20 +111,20 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
 		if (imgui_pass) {
-			zest_ConnectSampledImageInput(imgui_pass, test_texture);
-			zest_ConnectSwapChainOutput(imgui_pass, clear_color);
+			zest_ConnectInput(imgui_pass, test_texture, 0);
+			zest_ConnectSwapChainOutput(imgui_pass);
 		} else {
 			//If there's no ImGui to render then just render a blank screen
 			zest_pass_node blank_pass = zest_AddGraphicBlankScreen("Draw Nothing");
 			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-			zest_ConnectSwapChainOutput(blank_pass, clear_color);
+			zest_ConnectSwapChainOutput(blank_pass);
 		}
 		//----------------------------------------------------------------------------------------------------
 		//End the render graph and execute it. This will submit it to the GPU.
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
-			//zest_PrintCompiledRenderGraph(render_graph);
+			zest_PrintCompiledRenderGraph(render_graph);
 			app->request_graph_print = false;
 		}
 	}
@@ -135,8 +135,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfo();
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	//Implement GLFW for window creation

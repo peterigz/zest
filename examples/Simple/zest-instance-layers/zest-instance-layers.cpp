@@ -10,8 +10,6 @@ typedef struct zest_example {
 	zest_camera_t camera;						        //A camera for the 3d view
 	zest_uniform_buffer uniform_buffer_3d;		        //A uniform buffer to contain the projection and view matrix
 	zest_vec3 last_position;
-	zest_command_queue command_queue;
-	zest_command_queue_draw_commands draw_commands;
 	zest_shader billboard_vert_shader;
 	zest_shader billboard_frag_shader;
 	zest_shader_resources billboard_shader_resources;
@@ -43,11 +41,11 @@ void InitExample(zest_example *example) {
 
 	zest_AcquireGlobalCombinedImageSampler(example->texture);
 
-	example->billboard_shader_resources = zest_CreateShaderResources();
+	example->billboard_shader_resources = zest_CreateShaderResources("Billboard shader resources");
 	zest_AddUniformBufferToResources(example->billboard_shader_resources, example->uniform_buffer_3d);
 	zest_AddGlobalBindlessSetToResources(example->billboard_shader_resources);
 
-	example->sprite_shader_resources = zest_CreateShaderResources();
+	example->sprite_shader_resources = zest_CreateShaderResources("Sprite shader resources");
 	zest_AddUniformBufferToResources(example->sprite_shader_resources, ZestRenderer->uniform_buffer);
 	zest_AddGlobalBindlessSetToResources(example->sprite_shader_resources);
 
@@ -135,20 +133,19 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	example->last_position = position;
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen("Sprite Drawing")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Sprite Drawing")) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
 		zest_resource_node texture = zest_ImportImageResourceReadOnly("Bunny Texture", example->texture);
-		zest_resource_node billboard_layer = zest_AddInstanceLayerBufferResource("Billboard Layer", example->billboard_layer, false);
-		zest_resource_node sprite_layer = zest_AddInstanceLayerBufferResource("Sprite Layer", example->sprite_layer, false);
+		zest_resource_node billboard_layer = zest_AddTransientLayerResource("Billboard Layer", example->billboard_layer, false);
+		zest_resource_node sprite_layer = zest_AddTransientLayerResource("Sprite Layer", example->sprite_layer, false);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_billboard_data = zest_AddTransferPassNode("Upload Billboard Data");
 		//outputs
-		zest_ConnectTransferBufferOutput(upload_billboard_data, billboard_layer);
+		zest_ConnectOutput(upload_billboard_data, billboard_layer);
 		//tasks
 		zest_SetPassTask(upload_billboard_data , zest_UploadInstanceLayerData, example->billboard_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -156,7 +153,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_sprite_data = zest_AddTransferPassNode("Upload Sprite Data");
 		//outputs
-		zest_ConnectTransferBufferOutput(upload_sprite_data, sprite_layer);
+		zest_ConnectOutput(upload_sprite_data, sprite_layer);
 		//tasks
 		zest_SetPassTask(upload_sprite_data , zest_UploadInstanceLayerData, example->sprite_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -164,10 +161,10 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Render Pass------------------------------------------------------
 		zest_pass_node billboard_pass = zest_AddRenderPassNode("Billboard Pass");
 		//inputs
-		zest_ConnectVertexBufferInput(billboard_pass, billboard_layer);
-		zest_ConnectSampledImageInput(billboard_pass, texture, zest_pipeline_fragment_stage);
+		zest_ConnectInput(billboard_pass, billboard_layer, 0);
+		zest_ConnectInput(billboard_pass, texture, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(billboard_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(billboard_pass);
 		//tasks
 		zest_SetPassTask(billboard_pass, zest_DrawInstanceLayer, example->billboard_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -175,10 +172,10 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Render Pass------------------------------------------------------
 		zest_pass_node sprite_pass = zest_AddRenderPassNode("Sprite Pass");
 		//inputs
-		zest_ConnectVertexBufferInput(sprite_pass, sprite_layer);
-		zest_ConnectSampledImageInput(sprite_pass, texture, zest_pipeline_fragment_stage);
+		zest_ConnectInput(sprite_pass, sprite_layer, 0);
+		zest_ConnectInput(sprite_pass, texture, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(sprite_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(sprite_pass);
 		//tasks
 		zest_SetPassTask(sprite_pass, zest_DrawInstanceLayer, example->sprite_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -209,7 +206,6 @@ int main(void)
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	create_info.color_format = VK_FORMAT_B8G8R8A8_SRGB;
 	create_info.thread_count = 0;
-	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = "./";
 

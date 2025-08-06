@@ -111,8 +111,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Resources
-		zest_resource_node swapchain_output_resource = zest_ImportSwapChainResource("Swapchain Output");
-		zest_resource_node line_layer_resources = zest_AddInstanceLayerBufferResource("Line layer", example->line_layer, false);
+		zest_resource_node swapchain_output_resource = zest__import_swap_chain_resource("Swapchain Output");
+		zest_resource_node line_layer_resources = zest_AddTransientLayerResource("Line layer", example->line_layer, false);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_line_data = zest_AddTransferPassNode("Upload Line Data");
