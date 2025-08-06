@@ -311,26 +311,29 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_SetLayerColor(example->font_layer, 0, 0, 255, 255);
 	zest_DrawMSDFText(example->font_layer, "With HDR texture", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .75f, .5f, .5f, 80.f, 0.f);
 
-	if (zest_MouseHit(zest_left_mouse)) {
-		int d = 0;
-		//zest_ScheduleRenderTargetRefresh(example->final_blur);
-	}
+	zest_image_resource_info_t image_info = {
+		zest_texture_format_rgba_hdr,
+		zest_resource_usage_hint_copyable,
+		zest_ScreenWidth(),
+		zest_ScreenHeight(),
+		7
+	};
 
 	//Create the render graph
+	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, .1f, .2f, 1.f);
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Bloom Example Render Graph")) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
-		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Font resources", example->font_layer, false);
-		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(example->font);
-		zest_resource_node downsampler = zest_AddTransientRenderTarget("Downsampler", zest_texture_format_rgba_hdr, example->mipped_sampler);
-		zest_resource_node upsampler = zest_AddTransientRenderTarget("Upsampler", zest_texture_format_rgba_hdr, example->mipped_sampler);
+		zest_resource_node font_layer_texture = zest_ImportFontLayerTextureResource(example->font);
+		zest_resource_node downsampler = zest_AddTransientImageResource("Downsampler", &image_info);
+		zest_resource_node upsampler = zest_AddTransientImageResource("Upsampler", &image_info);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
 		//outputs
-		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
+		zest_ConnectOutput(upload_font_data, font_layer_resources);
 		//tasks
 		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -338,8 +341,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Draw Base Pass---------------------------------------------------
 		zest_pass_node render_target_pass = zest_AddRenderPassNode("Graphics Pass");
 		zest_ConnectVertexBufferInput(render_target_pass, font_layer_resources);
-		zest_ConnectSampledImageInput(render_target_pass, font_layer_texture);
-		zest_ConnectRenderTargetOutput(render_target_pass, downsampler, {0});
+		zest_ConnectInput(render_target_pass, font_layer_texture, 0);
+		zest_ConnectOutput(render_target_pass, downsampler);
 		//tasks
 		zest_SetPassTask(render_target_pass, zest_DrawFonts, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -347,8 +350,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Downsample Pass--------------------------------------------------
 		zest_pass_node downsampler_pass = zest_AddComputePassNode(example->downsampler_compute, "Downsampler Pass");
 		//The stage should be assumed based on the pass queue type.
-		zest_ConnectStorageImageInput(downsampler_pass, downsampler, ZEST_TRUE);
-		zest_ConnectStorageImageOutput(downsampler_pass, downsampler, ZEST_FALSE);
+		zest_ConnectInput(downsampler_pass, downsampler, 0);
+		zest_ConnectOutput(downsampler_pass, downsampler);
 		//tasks
 		zest_SetPassTask(downsampler_pass, zest_DownsampleCompute, example);
 		//--------------------------------------------------------------------------------------------------
@@ -356,8 +359,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Upsample Pass----------------------------------------------------
 		zest_pass_node upsampler_pass = zest_AddComputePassNode(example->upsampler_compute, "Upsampler Pass");
 		//The stage should be assumed based on the pass queue type.
-		zest_ConnectStorageImageInput(upsampler_pass, downsampler, ZEST_TRUE);
-		zest_ConnectStorageImageOutput(upsampler_pass, upsampler, ZEST_FALSE);
+		zest_ConnectInput(upsampler_pass, downsampler, 0);
+		zest_ConnectOutput(upsampler_pass, upsampler);
 		//tasks
 		zest_SetPassTask(upsampler_pass, zest_UpsampleCompute, example);
 		//--------------------------------------------------------------------------------------------------
@@ -366,10 +369,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		zest_pass_node graphics_pass = zest_AddGraphicBlankScreen("Blank Screen");
 		//inputs
-		zest_ConnectSampledImageInput(graphics_pass, upsampler);
-		zest_ConnectSampledImageInput(graphics_pass, downsampler);
+		zest_ConnectInput(graphics_pass, upsampler, 0);
+		zest_ConnectInput(graphics_pass, downsampler, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(graphics_pass, clear_color);
+		zest_ConnectSwapChainOutput(graphics_pass);
 		//tasks
 		zest_SetPassTask(graphics_pass, zest_DrawRenderTargetSimple, example);
 		//--------------------------------------------------------------------------------------------------
@@ -390,8 +393,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main()
 {
-	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfo();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);

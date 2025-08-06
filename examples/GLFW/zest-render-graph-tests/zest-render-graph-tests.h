@@ -8,7 +8,7 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
-#define TEST_COUNT 13
+#define TEST_COUNT 14
 
 struct ZestTests;
 struct Test;

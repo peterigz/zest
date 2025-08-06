@@ -1108,7 +1108,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", tfx_rendering.image_data);
 		zest_resource_node billboard_layer_resource = zest_AddInstanceLayerBufferResource("Billboards", billboard_layer, false);
 		zest_resource_node font_layer_resources = zest_AddInstanceLayerBufferResource("Fonts", font_layer, false);
-		zest_resource_node font_layer_texture = zest_AddFontLayerTextureResource(font);
+		zest_resource_node font_layer_texture = zest_ImportFontLayerTextureResource(font);
 		//--------------------------------------------------------------------------------------------------
 
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
