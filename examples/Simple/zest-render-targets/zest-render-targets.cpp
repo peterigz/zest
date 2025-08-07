@@ -99,8 +99,6 @@ void InitExample(RenderTargetExample *example) {
 	//Set up the compute shader for downsampling
 	//A builder is used to simplify the compute shader setup process
 	zest_compute_builder_t downsampler_builder = zest_BeginComputeBuilder();
-	//Declare the bindings we want in the shader
-	zest_SetComputeBindlessLayout(&downsampler_builder, ZestRenderer->global_bindless_set_layout);
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&downsampler_builder, example);
 	zest_SetComputePushConstantSize(&downsampler_builder, sizeof(BlurPushConstants));
@@ -112,8 +110,6 @@ void InitExample(RenderTargetExample *example) {
 	//Set up the compute shader for up sampling
 	//A builder is used to simplify the compute shader setup process
 	zest_compute_builder_t upsampler_builder = zest_BeginComputeBuilder();
-	//Declare the bindings we want in the shader
-	zest_SetComputeBindlessLayout(&upsampler_builder, ZestRenderer->global_bindless_set_layout);
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&upsampler_builder, example);
 	zest_SetComputePushConstantSize(&upsampler_builder, sizeof(BlurPushConstants));
@@ -131,8 +127,8 @@ void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_rend
 	zest_resource_node downsampler = zest_GetPassInputResource(context->pass_node, "Downsampler");
 	zest_resource_node render_target = zest_GetPassInputResource(context->pass_node, "Upsampler");
 
-	zest_uint up_bindless_index = zest_AcquireTransientTextureIndex(context, render_target, ZEST_TRUE, zest_combined_image_sampler_binding);
-	zest_uint down_bindless_index = zest_AcquireTransientTextureIndex(context, downsampler, ZEST_TRUE, zest_combined_image_sampler_binding);
+	zest_uint up_bindless_index = zest_GetTransientImageBindlessIndex(context, render_target, ZEST_TRUE, zest_binding_type_combined_image_sampler);
+	zest_uint down_bindless_index = zest_GetTransientImageBindlessIndex(context, downsampler, ZEST_TRUE, zest_binding_type_combined_image_sampler);
 
 	zest_SetScreenSizedViewport(context, 0.f, 1.f);
 
@@ -161,8 +157,8 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_gr
 	zest_resource_node downsampler_target = zest_GetPassInputResource(context->pass_node, "Downsampler");
 
 	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
-	zest_uint* sampler_mip_indices = zest_AcquireTransientMipIndexes(context, downsampler_target, zest_combined_image_sampler_binding);
-	zest_uint* storage_mip_indices = zest_AcquireTransientMipIndexes(context, downsampler_target, zest_storage_image_binding);
+	zest_uint* sampler_mip_indices = zest_GetTransientMipBindlessIndexes(context, downsampler_target, zest_binding_type_combined_image_sampler);
+	zest_uint* storage_mip_indices = zest_GetTransientMipBindlessIndexes(context, downsampler_target, zest_binding_type_storage_image);
 
 	BlurPushConstants push = { 0 };
 
@@ -209,9 +205,9 @@ void zest_UpsampleCompute(VkCommandBuffer command_buffer, const zest_render_grap
 	zest_resource_node downsampler_target = zest_GetPassInputResource(context->pass_node, "Downsampler");
 
 	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
-	zest_uint *sampler_mip_indices = zest_AcquireTransientMipIndexes(context, upsampler_target, zest_combined_image_sampler_binding);
-	zest_uint *storage_mip_indices = zest_AcquireTransientMipIndexes(context, upsampler_target, zest_storage_image_binding);
-	zest_uint *downsampler_mip_indices = zest_AcquireTransientMipIndexes(context, downsampler_target, zest_combined_image_sampler_binding);
+	zest_uint *sampler_mip_indices = zest_GetTransientMipBindlessIndexes(context, upsampler_target, zest_binding_type_combined_image_sampler);
+	zest_uint *storage_mip_indices = zest_GetTransientMipBindlessIndexes(context, upsampler_target, zest_binding_type_storage_image);
+	zest_uint *downsampler_mip_indices = zest_GetTransientMipBindlessIndexes(context, downsampler_target, zest_binding_type_combined_image_sampler);
 
 	BlurPushConstants push = { 0 };
 

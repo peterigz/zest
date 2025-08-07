@@ -1037,6 +1037,7 @@ void VadersGame::Update(float ellapsed) {
 
 	zest_tfx_UpdateUniformBuffer(&tfx_rendering);
 
+	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, 0.f, .2f, 1.f);
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "TimelineFX Render Graph")) {
 		zest_WaitOnTimeline(tfx_rendering.timeline);
 
@@ -1097,8 +1098,6 @@ void VadersGame::Update(float ellapsed) {
 			zest_DrawMSDFText(font_layer, "GAME OVER", zest_ScreenWidthf() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 60.f, 0.f);
 		}
 
-		VkClearColorValue clear_color = { {0.0f, 0.0f, 0.2f, 1.0f} };
-
 		//---------------------------------Resources-------------------------------------------------------
 		zest_resource_node particle_texture = zest_ImportImageResourceReadOnly("Particle Texture", tfx_rendering.particle_texture);
 		zest_resource_node color_ramps_texture = zest_ImportImageResourceReadOnly("Color Ramps Texture", tfx_rendering.color_ramps_texture);
@@ -1114,8 +1113,8 @@ void VadersGame::Update(float ellapsed) {
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
 		zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
 		// Outputs
-		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_read_layer);
-		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_write_layer);
+		zest_ConnectOutput(upload_tfx_data, tfx_read_layer);
+		zest_ConnectOutput(upload_tfx_data, tfx_write_layer);
 		// Tasks
 		zest_SetPassInstanceLayerUpload(upload_tfx_data, tfx_rendering.layer);
 		//--------------------------------------------------------------------------------------------------
@@ -1123,7 +1122,7 @@ void VadersGame::Update(float ellapsed) {
 		//--------------------------Billboard Transfer Pass-------------------------------------------------
 		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
 		// Outputs
-		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer_resource);
+		zest_ConnectOutput(upload_instance_data, billboard_layer_resource);
 		// Taks
 		zest_SetPassTask(upload_instance_data, zest_UploadInstanceLayerData, billboard_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -1131,7 +1130,7 @@ void VadersGame::Update(float ellapsed) {
 		//----------------------------Font Transfer Pass----------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
 		// Outputs
-		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
+		zest_ConnectOutput(upload_font_data, font_layer_resources);
 		// Tasks
 		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, font_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -1139,33 +1138,33 @@ void VadersGame::Update(float ellapsed) {
 		//------------------------ Particles Pass -----------------------------------------------------------
 		zest_pass_node particles_pass = zest_AddRenderPassNode("Particles Pass");
 		//inputs
-		zest_ConnectSampledImageInput(particles_pass, particle_texture);
-		zest_ConnectSampledImageInput(particles_pass, tfx_image_data);
-		zest_ConnectSampledImageInput(particles_pass, color_ramps_texture);
-		zest_ConnectVertexBufferInput(particles_pass, tfx_write_layer);
-		zest_ConnectVertexBufferInput(particles_pass, tfx_read_layer);
+		zest_ConnectInput(particles_pass, particle_texture, 0);
+		zest_ConnectInput(particles_pass, tfx_image_data, 0);
+		zest_ConnectInput(particles_pass, color_ramps_texture, 0);
+		zest_ConnectInput(particles_pass, tfx_write_layer, 0);
+		zest_ConnectInput(particles_pass, tfx_read_layer, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(particles_pass, clear_color);
+		zest_ConnectSwapChainOutput(particles_pass);
 		//Task
 		zest_tfx_AddPassTask(particles_pass, &tfx_rendering);
 
 		//------------------------ Billboards Pass -----------------------------------------------------------
 		zest_pass_node billboards_pass = zest_AddRenderPassNode("Billboards Pass");
 		//inputs
-		zest_ConnectSampledImageInput(billboards_pass, game_sprites_texture);
-		zest_ConnectVertexBufferInput(billboards_pass, billboard_layer_resource);
+		zest_ConnectInput(billboards_pass, game_sprites_texture, 0);
+		zest_ConnectInput(billboards_pass, billboard_layer_resource, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(billboards_pass, clear_color);
+		zest_ConnectSwapChainOutput(billboards_pass);
 		//Task
 		zest_SetPassTask(billboards_pass, zest_DrawInstanceLayer, billboard_layer);
 
 		//------------------------ Fonts Pass ----------------------------------------------------------------
 		zest_pass_node fonts_pass = zest_AddRenderPassNode("Fonts Pass");
 		//inputs
-		zest_ConnectSampledImageInput(fonts_pass, font_layer_texture);
-		zest_ConnectVertexBufferInput(fonts_pass, font_layer_resources);
+		zest_ConnectInput(fonts_pass, font_layer_texture, 0);
+		zest_ConnectInput(fonts_pass, font_layer_resources, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(fonts_pass, clear_color);
+		zest_ConnectSwapChainOutput(fonts_pass);
 		//Task
 		zest_SetPassTask(fonts_pass, zest_DrawFonts, font_layer);
 		//----------------------------------------------------------------------------------------------------
@@ -1174,7 +1173,7 @@ void VadersGame::Update(float ellapsed) {
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
 		if (imgui_pass) {
-			zest_ConnectSwapChainOutput(imgui_pass, clear_color);
+			zest_ConnectSwapChainOutput(imgui_pass);
 		}
 		//----------------------------------------------------------------------------------------------------
 
@@ -1199,8 +1198,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	//zest_create_info_t create_info = zest_CreateInfo();
+	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = ".";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
