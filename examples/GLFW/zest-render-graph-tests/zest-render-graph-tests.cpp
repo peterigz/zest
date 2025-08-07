@@ -8,8 +8,6 @@
 
   Data Integrity
   Complex Scenarios & Error Handling
-   14. Pass Grouping: Define two graphics passes that render to the same render target but have no dependency on each other. The graph compiler should ideally
-	   group these into a single render pass with two subpasses for efficiency.
    15. Cyclic Dependency: Create a graph where Pass A depends on Pass B's output, and Pass B depends on Pass A's output. The graph compiler should detect this
 	   cycle and return an error instead of crashing.
    16. Re-executing Graph: Compile a graph once, then execute it for multiple consecutive frames. Verify that no memory leaks or synchronization issues occur.
@@ -21,6 +19,7 @@ int test__empty_graph(ZestTests *tests, Test *test) {
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		test->result |= render_graph->error_status;
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -32,6 +31,7 @@ int test__single_pass(ZestTests *tests, Test *test) {
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		test->result |= render_graph->error_status;
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -44,6 +44,7 @@ int test__blank_screen(ZestTests *tests, Test *test) {
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		test->result |= render_graph->error_status;
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -51,12 +52,13 @@ int test__blank_screen(ZestTests *tests, Test *test) {
 //Unused Pass Culling: Define two passes, A and B. Pass A writes to a resource, but that resource is never used as an input to Pass B or as a final
 //output. Verify that Pass A is culled and never executed.
 int test__pass_culling(ZestTests *tests, Test *test) {
+	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Pass Culling")) {
-		zest_resource_node output_a = zest_AddTransientRenderTarget("Output A", zest_texture_format_rgba_unorm, NULL);
+		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
 		//This pass should get culled
 		zest_pass_node pass_a = zest_AddRenderPassNode("Pass A");
-		zest_ConnectRenderTargetOutput(pass_a, output_a);
+		zest_ConnectOutput(pass_a, output_a);
 		zest_SetPassTask(pass_a, zest_EmptyRenderPass, NULL);
 
 		zest_pass_node pass_b = zest_AddGraphicBlankScreen("Pass B");
@@ -65,19 +67,22 @@ int test__pass_culling(ZestTests *tests, Test *test) {
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		test->result |= render_graph->error_status;
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
 
 //Unused Resource Culling: Declare a resource that is never used by any pass. The graph should compile and run without trying to allocate memory for it.
 int test__resource_culling(ZestTests *tests, Test *test) {
+	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Resource Culling")) {
-		zest_resource_node output_a = zest_AddTransientRenderTarget("Output A", zest_texture_format_rgba_unorm, NULL);
+		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 		zest_pass_node clear_pass = zest_AddGraphicBlankScreen("Draw Nothing");
 		zest_ConnectSwapChainOutput(clear_pass);
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		test->result |= render_graph->error_status;
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -85,19 +90,20 @@ int test__resource_culling(ZestTests *tests, Test *test) {
 //Chained Culling: Pass A writes to Resource X. Pass B reads from Resource X and writes to Resource Y. If Resource Y is not used as a final output, both
 //Pass A and Pass B should be culled.
 int test__chained_pass_culling(ZestTests *tests, Test *test) {
+	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Chained Pass Culling")) {
-		zest_resource_node output_x = zest_AddTransientRenderTarget("Output X", zest_texture_format_rgba_unorm, NULL);
-		zest_resource_node output_y = zest_AddTransientRenderTarget("Output Y", zest_texture_format_rgba_unorm, NULL);
+		zest_resource_node output_x = zest_AddTransientImageResource("Output X", &info);
+		zest_resource_node output_y = zest_AddTransientImageResource("Output Y", &info);
 
 		//This pass should get culled
 		zest_pass_node pass_a = zest_AddRenderPassNode("Pass A");
-		zest_ConnectRenderTargetOutput(pass_a, output_x);
+		zest_ConnectOutput(pass_a, output_x);
 		zest_SetPassTask(pass_a, zest_EmptyRenderPass, NULL);
 
 		//This pass should also get culled
 		zest_pass_node pass_b = zest_AddGraphicBlankScreen("Pass B");
-		zest_ConnectSampledImageInput(pass_b, output_x);
-		zest_ConnectRenderTargetOutput(pass_b, output_y);
+		zest_ConnectInput(pass_b, output_x, 0);
+		zest_ConnectOutput(pass_b, output_y);
 		zest_SetPassTask(pass_b, zest_EmptyRenderPass, NULL);
 
 		zest_pass_node pass_c = zest_AddGraphicBlankScreen("Pass C");
@@ -108,6 +114,7 @@ int test__chained_pass_culling(ZestTests *tests, Test *test) {
 			test->result |= render_graph->error_status;
 		}
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -115,16 +122,16 @@ int test__chained_pass_culling(ZestTests *tests, Test *test) {
 //Transient Resource Test: Pass A writes to a transient texture. Pass B reads from that texture. Verify the data is passed correctly. The graph should
 //manage the creation and destruction of the transient texture in the appropriate passes.
 int test__transient_image(ZestTests *tests, Test *test) {
-	zest_sampler sampler = zest_GetSampler(&tests->sampler_info);
+	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Transient Image")) {
-		zest_resource_node output_a = zest_AddTransientRenderTarget("Output A", zest_texture_format_rgba_unorm, sampler);
+		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
 		zest_pass_node pass_a = zest_AddRenderPassNode("Pass A");
-		zest_ConnectRenderTargetOutput(pass_a, output_a);
+		zest_ConnectOutput(pass_a, output_a);
 		zest_SetPassTask(pass_a, zest_EmptyRenderPass, NULL);
 
 		zest_pass_node pass_b = zest_AddGraphicBlankScreen("Pass B");
-		zest_ConnectSampledImageInput(pass_b, output_a);
+		zest_ConnectInput(pass_b, output_a, 0);
 		zest_ConnectSwapChainOutput(pass_b);
 
 		zest_render_graph render_graph = zest_EndRenderGraph();
@@ -144,6 +151,7 @@ int test__transient_image(ZestTests *tests, Test *test) {
 			test->result = 1;
 		}
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -151,7 +159,6 @@ int test__transient_image(ZestTests *tests, Test *test) {
 //Input/Output Test: A pass that takes a pre-existing resource (e.g., a user-created buffer) as input and writes to a 
 //final output resource (e.g., the swapchain).
 int test__import_image(ZestTests *tests, Test *test) {
-	zest_sampler sampler = zest_GetSampler(&tests->sampler_info);
 	if (!tests->texture) {
 		tests->texture = zest_CreateTexturePacked("Sprite Texture", zest_texture_format_rgba_unorm);
 		zest_image player_image = zest_AddTextureImageFile(tests->texture, "examples/assets/vaders/player.png");
@@ -161,12 +168,13 @@ int test__import_image(ZestTests *tests, Test *test) {
 		zest_resource_node imported_image = zest_ImportImageResourceReadOnly("Imported Texture", tests->texture);
 
 		zest_pass_node pass_a = zest_AddGraphicBlankScreen("Pass B");
-		zest_ConnectSampledImageInput(pass_a, imported_image);
+		zest_ConnectInput(pass_a, imported_image, 0);
 		zest_ConnectSwapChainOutput(pass_a);
 
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		test->result |= render_graph->error_status;
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -178,16 +186,16 @@ Automatic Barrier Test(Layout Transition) :
 * The graph must insert the correct pipeline barrier to transition the texture layout between passes.
 */
 int test__image_barrier_tests(ZestTests *tests, Test *test) {
-	zest_sampler sampler = zest_GetSampler(&tests->sampler_info);
+	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Transient Image")) {
-		zest_resource_node output_a = zest_AddTransientRenderTarget("Output A", zest_texture_format_rgba_unorm, sampler);
+		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
 		zest_pass_node pass_a = zest_AddRenderPassNode("Pass A");
-		zest_ConnectRenderTargetOutput(pass_a, output_a);
+		zest_ConnectOutput(pass_a, output_a);
 		zest_SetPassTask(pass_a, zest_EmptyRenderPass, NULL);
 
 		zest_pass_node pass_b = zest_AddGraphicBlankScreen("Pass B");
-		zest_ConnectSampledImageInput(pass_b, output_a);
+		zest_ConnectInput(pass_b, output_a, 0);
 		zest_ConnectSwapChainOutput(pass_b);
 
 		zest_render_graph render_graph = zest_EndRenderGraph();
@@ -219,6 +227,7 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 			test->result += 1;
 		}
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -242,7 +251,7 @@ void zest_WriteBufferCompute(VkCommandBuffer command_buffer, const zest_render_g
 
 	// Update push constants for the current dispatch
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
-	push.index1 = write_buffer->bindless_index;
+	push.index1 = zest_GetTransientBufferBindlessIndex(context, write_buffer);
 
 	zest_SendCustomComputePushConstants(command_buffer, tests->compute_write, &push);
 
@@ -273,8 +282,8 @@ void zest_VerifyBufferCompute(VkCommandBuffer command_buffer, const zest_render_
 
 	// Update push constants for the current dispatch
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
-	push.index1 = write_buffer->bindless_index;
-	push.index2 = tests->cpu_buffer_index;
+	push.index1 = zest_GetTransientBufferBindlessIndex(context, write_buffer);
+	push.index2 = zest_GetTransientBufferBindlessIndex(context, verify_buffer);
 
 	zest_SendCustomComputePushConstants(command_buffer, tests->compute_verify, &push);
 
@@ -319,17 +328,19 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		tests->cpu_buffer_index = zest_AcquireGlobalStorageBufferIndex(tests->cpu_buffer);
 			
 	}
+	zest_buffer_resource_info_t info = {};
+	info.size = sizeof(TestData) * 1000;
 	if (zest_BeginRenderGraph("Buffer Read/Write")) {
-		zest_resource_node write_buffer = zest_AddTransientStorageBufferResource("Write Buffer", sizeof(TestData) * 1000, ZEST_TRUE);
+		zest_resource_node write_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
 		zest_resource_node verify_buffer = zest_ImportStorageBufferResource("Verify Buffer", tests->cpu_buffer);
 
 		zest_pass_node write_pass = zest_AddComputePassNode(tests->compute_write, "Write Pass");
-		zest_ConnectStorageImageOutput(write_pass, write_buffer, true);
+		zest_ConnectOutput(write_pass, write_buffer);
 		zest_SetPassTask(write_pass, zest_WriteBufferCompute, tests);
 
 		zest_pass_node verify_pass = zest_AddComputePassNode(tests->compute_verify, "Verify Pass");
-		zest_ConnectStorageBufferInput(verify_pass, write_buffer);
-		zest_ConnectStorageBufferOutput(verify_pass, verify_buffer);
+		zest_ConnectInput(verify_pass, write_buffer, 0);
+		zest_ConnectOutput(verify_pass, verify_buffer);
 		zest_SetPassTask(verify_pass, zest_VerifyBufferCompute, tests);
 
 		zest_render_graph render_graph = zest_EndRenderGraphAndWait();
@@ -339,6 +350,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 			test->result = 1;
 		}
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -348,21 +360,20 @@ Multi-Reader Barrier Test: Pass A writes to a resource. Passes B and C both read
 The graph should correctly synchronize this so B and C only execute after A is complete.
 */
 int test__multi_reader_barrier(ZestTests *tests, Test *test) {
-	zest_sampler sampler = zest_GetSampler(&tests->sampler_info);
-
+	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Multi Reader Barrier")) {
-		zest_resource_node output_a = zest_AddTransientRenderTarget("Output A", zest_texture_format_rgba_unorm, sampler);
+		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
 		zest_pass_node pass_a = zest_AddRenderPassNode("Pass A");
-		zest_ConnectRenderTargetOutput(pass_a, output_a);
+		zest_ConnectOutput(pass_a, output_a);
 		zest_SetPassTask(pass_a, zest_EmptyRenderPass, NULL);
 
 		zest_pass_node pass_b = zest_AddGraphicBlankScreen("Pass B");
-		zest_ConnectSampledImageInput(pass_b, output_a);
+		zest_ConnectInput(pass_b, output_a, 0);
 		zest_ConnectSwapChainOutput(pass_b);
 
 		zest_pass_node pass_c = zest_AddGraphicBlankScreen("Pass C");
-		zest_ConnectSampledImageInput(pass_c, output_a);
+		zest_ConnectInput(pass_c, output_a, 0);
 		zest_ConnectSwapChainOutput(pass_c);
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		test->result |= render_graph->error_status;
@@ -408,7 +419,7 @@ void zest_VerifyImageCompute(VkCommandBuffer command_buffer, const zest_render_g
 
 	// Update push constants for the current dispatch
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
-	push.index1 = zest_AcquireTransientTextureIndex(context, read_image, ZEST_TRUE, zest_combined_image_sampler_binding);
+	push.index1 = zest_GetTransientImageBindlessIndex(context, read_image, ZEST_TRUE, zest_binding_type_combined_image_sampler);
 	push.index2 = tests->cpu_buffer_index;
 	push.index3 = zest_ScreenWidth();
 	push.index4 = zest_ScreenHeight();
@@ -429,7 +440,7 @@ Image Write / Read(Clear Color) :
 * Pass B(Compute) : Reads the image pixels and verifies they match the clear color.
 */
 int test__image_read_write(ZestTests *tests, Test *test) {
-	zest_sampler sampler = zest_GetSampler(&tests->sampler_info);
+	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
 	if (!tests->compute_verify) {
 		shaderc_compiler_t compiler = shaderc_compiler_initialize();
 		zest_shader shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/image_verify.comp", "image_verify.spv", shaderc_compute_shader, 1, compiler, 0);
@@ -447,17 +458,17 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 			
 	}
 	if (zest_BeginRenderGraph("Image Read Write")) {
-		zest_resource_node write_buffer = zest_AddTransientRenderTarget("Write Buffer", zest_texture_format_rgba_unorm, sampler);
+		zest_resource_node write_buffer = zest_AddTransientImageResource("Write Buffer", &info);
 		zest_resource_node verify_buffer = zest_ImportStorageBufferResource("Verify Buffer", tests->cpu_buffer);
 		zest_SetResourceClearColor(write_buffer, 0.0f, 1.0f, 1.0f, 1.0f);
 
 		zest_pass_node pass_a = zest_AddRenderPassNode("Pass A");
-		zest_ConnectRenderTargetOutput(pass_a, write_buffer);
+		zest_ConnectOutput(pass_a, write_buffer);
 		zest_SetPassTask(pass_a, zest_EmptyRenderPass, NULL);
 
 		zest_pass_node verify_pass = zest_AddComputePassNode(tests->compute_verify, "Pass B");
-		zest_ConnectImageInput(verify_pass, write_buffer, ZEST_TRUE);
-		zest_ConnectStorageBufferOutput(verify_pass, verify_buffer);
+		zest_ConnectInput(verify_pass, write_buffer, 0);
+		zest_ConnectOutput(verify_pass, verify_buffer);
 		zest_SetPassTask(verify_pass, zest_VerifyImageCompute, tests);
 
 		zest_render_graph render_graph = zest_EndRenderGraphAndWait();
@@ -471,6 +482,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 			test->result = 1;
 		}
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -482,13 +494,15 @@ Depth Attachment Test:
 * Verify the final image shows correct occlusion.
 */
 int test__depth_attachment(ZestTests *tests, Test *test) {
+	zest_image_resource_info_t info = { zest_texture_format_rgba_unorm };
+	zest_image_resource_info_t depth_info = { zest_texture_format_depth };
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Blank Screen")) {
-		zest_resource_node depth = zest_AddTransientDepthBufferResource("Depth Buffer", 0);
+		zest_resource_node depth = zest_AddTransientImageResource("Depth Buffer", &depth_info);
 		zest_FlagResourceAsEssential(depth);
 		zest_pass_node clear_pass = zest_AddGraphicBlankScreen("Draw Nothing");
 		zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.0f, 0.1f, 0.2f, 1.0f);
 		zest_ConnectSwapChainOutput(clear_pass);
-		zest_ConnectDepthOutput(clear_pass, depth);
+		zest_ConnectOutput(clear_pass, depth);
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		test->result = 1;
 		if (zest_map_size(render_graph->final_passes) == 1) {
@@ -503,6 +517,7 @@ int test__depth_attachment(ZestTests *tests, Test *test) {
 		}
 		test->result |= render_graph->error_status;
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
@@ -526,7 +541,7 @@ void zest_WriteImageCompute(VkCommandBuffer command_buffer, const zest_render_gr
 
 	// Update push constants for the current dispatch
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
-	push.index1 = zest_AcquireTransientTextureIndex(context, write_buffer, true, zest_storage_image_binding);
+	push.index1 = zest_GetTransientImageBindlessIndex(context, write_buffer, true, zest_binding_type_storage_image);
 
 	zest_SendCustomComputePushConstants(command_buffer, tests->compute_write, &push);
 
@@ -558,30 +573,49 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	}
 
 	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, .1f, .2f, 1.f);
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Pass Culling")) {
-		zest_resource_node output_a = zest_AddTransientImageResource("Output A", zest_texture_format_rgba_unorm, 0, 0, 1);
+	zest_image_resource_info_t info = { zest_texture_format_rgba_unorm };
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Multi Queue Sync")) {
+		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
-		//This pass should get culled
 		zest_pass_node pass_a = zest_AddComputePassNode(tests->compute_write, "Pass A");
 		zest_ConnectOutput(pass_a, output_a);
 		zest_SetPassTask(pass_a, zest_WriteImageCompute, tests);
 
 		zest_pass_node pass_b = zest_AddGraphicBlankScreen("Pass B");
-		zest_ConnectImageInput(pass_b, output_a, true);
+		zest_ConnectInput(pass_b, output_a, 0);
 		zest_ConnectSwapChainOutput(pass_b);
 
 		zest_render_graph render_graph = zest_EndRenderGraph();
 		test->result |= render_graph->error_status;
-
-		static bool print_graph = true;
-		if (print_graph) {
-			zest_PrintCompiledRenderGraph(render_graph);
-			print_graph = false;
-		}
 	}
+	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
 	return test->result;
 }
+
+/*
+Pass Grouping : Define two graphics passes that render to the same render target but have no dependency on each other. The graph compiler should ideally
+group these into a single render pass with two subpasses for efficiency.
+*/
+int test__pass_grouping(ZestTests *tests, Test *test) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Pass Grouping")) {
+
+		zest_pass_node pass_a = zest_AddGraphicBlankScreen("Draw Pass A");
+		zest_ConnectSwapChainOutput(pass_a);
+
+		zest_pass_node pass_b = zest_AddGraphicBlankScreen("Draw Pass B");
+		zest_ConnectSwapChainOutput(pass_b);
+
+		zest_render_graph render_graph = zest_EndRenderGraph();
+		test->result |= render_graph->error_status;
+		zest_uint final_pass_count = zest_map_size(render_graph->final_passes);
+		test->result |= final_pass_count == 1 ? 0 : 1;
+	}
+	test->result |= zest_GetValidationErrorCount();
+	test->frame_count++;
+	return test->result;
+}
+
 
 
 void InitialiseTests(ZestTests *tests) {
@@ -600,13 +634,15 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[11] = { "Image Write/Read", test__image_read_write, 0, 0, 0, tests->simple_create_info };
 	tests->tests[12] = { "Depth Attachment", test__depth_attachment, 0, 0, 0, tests->depth_create_info };
 	tests->tests[13] = { "Multi Queue Sync", test__multi_queue_sync, 0, 0, 0, tests->simple_create_info };
+	tests->tests[14] = { "Pass Grouping", test__pass_grouping, 0, 0, 0, tests->simple_create_info };
 
 	VkSamplerCreateInfo sampler_info = zest_CreateSamplerInfo();
 	VkSamplerCreateInfo mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 
-	tests->current_test = 13;
+	tests->current_test = 14;
+    zest_ResetValidationErrors();
 }
 
 void ResetTests(ZestTests *tests) {
@@ -633,6 +669,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			tests->current_test++;
 			zest_SetCreateInfo(&tests->tests[tests->current_test].create_info);
 			zest_ResetRenderer();
+			zest_ResetValidationErrors();
 			ResetTests(tests);
 		}
 	}
@@ -648,6 +685,7 @@ int main(void) {
 //	zest_create_info_t create_info = zest_CreateInfo();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
+	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_memory);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	create_info.log_path = "./";
