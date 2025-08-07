@@ -1297,6 +1297,7 @@ typedef enum zest_init_flag_bits {
     zest_init_flag_enable_validation_layers                     = 1 << 6,
     zest_init_flag_enable_validation_layers_with_sync           = 1 << 7,
     zest_init_flag_log_validation_errors_to_console             = 1 << 8,
+    zest_init_flag_log_validation_errors_to_memory              = 1 << 9,
 } zest_init_flag_bits;
 
 typedef zest_uint zest_init_flags;
@@ -1578,6 +1579,12 @@ typedef enum zest_global_binding_numbers {
     zest_sampled_image_binding,
     zest_storage_image_binding,
 } zest_global_binding_numbers;
+
+typedef enum zest_image_binding_type {
+    zest_binding_type_combined_image_sampler = 0,
+    zest_binding_type_storage_image,
+    zest_max_image_binding_type
+} zest_image_binding_type;
 
 typedef enum zest_render_graph_result_bits {
     zest_rgs_success = 0,
@@ -2662,6 +2669,7 @@ typedef struct zest_vulkan_memory_info_t {
 } zest_vulkan_memory_info_t;
 
 zest_hash_map(const char *) zest_map_queue_names;
+zest_hash_map(zest_text_t) zest_map_validation_errors;
 
 typedef struct zest_device_t {
     int magic;
@@ -2707,6 +2715,8 @@ typedef struct zest_device_t {
     zest_create_info_t setup_info;
 
     zest_map_buffer_pool_sizes pool_sizes;
+
+    zest_map_validation_errors validation_errors;
 } zest_device_t;
 
 typedef struct zest_app_t {
@@ -2916,8 +2926,7 @@ typedef struct zest_resource_node_t {
 
     zest_image_buffer_t image_buffer;
     zest_buffer storage_buffer;
-    zest_uint binding_number;
-    zest_uint bindless_index;               //The index to use in the shader
+    zest_uint bindless_index[2];            //The index to use in the shader
     zest_uint *mip_level_bindless_indexes;  //The index to use in the shader
     zest_sampler sampler;
 
@@ -3118,8 +3127,9 @@ ZEST_API zest_pass_node zest_AddComputePassNode(zest_compute compute, const char
 ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_AcquireTransientTextureIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_bool base_mip_only, zest_uint binding_number);
-ZEST_API zest_uint *zest_AcquireTransientMipIndexes(const zest_render_graph_context_t *context, zest_resource_node resource, zest_uint binding_number);
+ZEST_API zest_uint zest_GetTransientImageBindlessIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_bool base_mip_only, zest_image_binding_type binding_type);
+ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_render_graph_context_t *context, zest_resource_node resource, zest_image_binding_type binding_type);
+ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_render_graph_context_t *context, zest_resource_node resource);
 
 // --- Add callback tasks to passes
 ZEST_API void zest_SetPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
@@ -5500,6 +5510,8 @@ ZEST_API zest_bool zest_SetErrorLogPath(const char *path);
 ZEST_API void zest_PrintReports();
 ZEST_PRIVATE void zest__print_block_info(void *allocation, zloc_header *current_block, zest_vulkan_memory_context context_filter, zest_vulkan_command command_filter);
 ZEST_API void zest_PrintMemoryBlocks(zloc_header *first_block, zest_bool output_all, zest_vulkan_memory_context context_filter, zest_vulkan_command command_filter);
+ZEST_API zest_uint zest_GetValidationErrorCount();
+ZEST_API void zest_ResetValidationErrors();
 //--End Debug Helpers
 
 #ifdef __cplusplus
