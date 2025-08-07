@@ -2866,6 +2866,11 @@ typedef struct zest_image_resource_info_t {
     zest_uint mip_levels;
 } zest_image_resource_info_t;
 
+typedef struct zest_buffer_resource_info_t { 
+    zest_resource_usage_hint usage_hints;
+    zest_size size; 
+} zest_buffer_resource_info_t;
+
 zest_hash_map(zest_uint) attachment_idx;
 
 typedef struct zest_execution_details_t {
@@ -3123,12 +3128,12 @@ ZEST_API void zest_SetPassInstanceLayer(zest_pass_node pass, zest_layer layer);
 
 // --- Add Transient resources ---
 ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
-ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless);
+ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_resource_info_t *info);
 ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
 
 // --- Render target groups ---
-ZEST_API zest_output_group zest_CreateRenderTargetGroup();
+ZEST_API zest_output_group zest_CreateOutputGroup();
 ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_output_group group);
 ZEST_API void zest_AddDepthToRenderTargetGroup(zest_output_group group, zest_resource_node depth_resource);
 ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image);
@@ -4499,7 +4504,7 @@ ZEST_API zest_buffer zest_CreateUniqueComputeIndexBuffer(VkDeviceSize size, zest
 //The following functions can be used to generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible);
-ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(void);
+ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateCPUVisibleStorageBufferInfo(void);
 ZEST_API zest_buffer_info_t zest_CreateStorageBufferInfoWithSrcFlag(void);
 ZEST_API zest_buffer_info_t zest_CreateComputeVertexBufferInfo(void);

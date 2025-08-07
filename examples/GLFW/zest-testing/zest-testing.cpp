@@ -1226,7 +1226,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_resource_node move_widget_layer_resources = zest_AddTransientLayerResource("Move widget layer", app->move_widget_layer, false);
 		zest_resource_node line_layer_resources = zest_AddTransientLayerResource("Line layer", app->line_layer, false);
 		zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
-		zest_output_group group = zest_CreateRenderTargetGroup();
+		zest_output_group group = zest_CreateOutputGroup();
 		zest_AddSwapchainToRenderTargetGroup(group);
 		zest_AddDepthToRenderTargetGroup(group, depth_buffer);
 

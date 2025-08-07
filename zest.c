@@ -3090,7 +3090,7 @@ zest_buffer zest_CreateVertexStorageBuffer(VkDeviceSize size, zest_uint fif) {
 }
 
 zest_buffer zest_CreateStorageBuffer(VkDeviceSize size, zest_uint fif) {
-    zest_buffer_info_t buffer_info = zest_CreateStorageBufferInfo();
+    zest_buffer_info_t buffer_info = zest_CreateStorageBufferInfo(0);
     buffer_info.frame_in_flight = fif;
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
     return buffer;
@@ -3142,7 +3142,7 @@ zest_buffer zest_CreateUniqueVertexStorageBuffer(VkDeviceSize size, zest_uint fi
 }
 
 zest_buffer zest_CreateUniqueStorageBuffer(VkDeviceSize size, zest_uint fif, zest_uint unique_id) {
-    zest_buffer_info_t buffer_info = zest_CreateStorageBufferInfo();
+    zest_buffer_info_t buffer_info = zest_CreateStorageBufferInfo(0);
     buffer_info.frame_in_flight = fif;
     buffer_info.unique_id = unique_id;
     zest_buffer buffer = zest_CreateBuffer(size, &buffer_info, ZEST_NULL);
@@ -3332,10 +3332,15 @@ zest_buffer_info_t zest_CreateCPUVisibleStorageBufferInfo() {
     return buffer_info;
 }
 
-zest_buffer_info_t zest_CreateStorageBufferInfo() {
+zest_buffer_info_t zest_CreateStorageBufferInfo(zest_bool cpu_visible) {
     zest_buffer_info_t buffer_info = { 0 };
     buffer_info.usage_flags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    if (cpu_visible) {
+        buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    }
+    else {
+        buffer_info.property_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    }
     return buffer_info;
 }
 
@@ -9845,7 +9850,7 @@ void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_nod
     zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], group->resources, image);
 }
 
-zest_output_group zest_CreateRenderTargetGroup() {
+zest_output_group zest_CreateOutputGroup() {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     zest_output_group group = zloc_LinearAllocation(ZestRenderer->render_graph_allocator[ZEST_FIF], sizeof(zest_output_group_t));
@@ -9869,29 +9874,30 @@ zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_r
     return resource;
 }
 
-zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_description_t *description, zest_bool assign_bindless) {
+zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_resource_info_t *info) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = { 0 };
     node.name = name;
     node.id = render_graph->id_counter++;
     node.first_usage_pass_idx = ZEST_INVALID;
-    node.buffer_desc = *description;
+    node.buffer_desc.size = info->size;
+    if (info->usage_hints & zest_resource_usage_hint_vertex_buffer) {
+        node.buffer_desc.buffer_info = zest_CreateVertexBufferInfo(info->usage_hints & zest_resource_usage_hint_cpu_transfer);;
+    } else if (info->usage_hints & zest_resource_usage_hint_index_buffer) {
+        node.buffer_desc.buffer_info = zest_CreateIndexBufferInfo(info->usage_hints & zest_resource_usage_hint_cpu_transfer);;
+    } else {
+        node.buffer_desc.buffer_info = zest_CreateStorageBufferInfo(info->usage_hints & zest_resource_usage_hint_cpu_transfer);;
+    }
+    if (info->usage_hints & zest_resource_usage_hint_copy_src) {
+        node.buffer_desc.buffer_info.usage_flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    }
     node.type = zest_resource_type_buffer;
     node.render_graph = render_graph;
 	node.buffer_desc.buffer_info.flags = zest_memory_pool_flag_single_buffer;
     node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     node.producer_pass_idx = -1;
-    if (assign_bindless && description->size > 0) {
-        ZEST_ASSERT_HANDLE(render_graph->bindless_layout);   //Trying to assign bindless index number but the render graph bindless layout is null.
-        //Make sure you assign it when creating the render graph.
-        node.binding_number = zest__get_buffer_binding_number(&node);
-        ZEST_ASSERT(node.binding_number != ZEST_INVALID);   //Could not find a valid binding number for the image/texture. Make sure that
-        //the bindless descriptor set layout you assigned to the render graph has the correct
-        //desriptor types set.
-        ZEST__FLAG(node.flags, zest_resource_node_flag_is_bindless);
-    }
     ZEST__FLAG(node.flags, zest_resource_node_flag_transient);
     return zest__add_render_graph_resource(&node);
 }
@@ -9908,11 +9914,10 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         layer->fif = ZEST_FIF;
         layer->dirty[ZEST_FIF] = 1;
-        zest_buffer_description_t buffer_desc = { 0 };
+        zest_buffer_resource_info_t buffer_desc = { 0 };
         buffer_desc.size = layer_size;
-        buffer_desc.buffer_info = zest_CreateVertexBufferInfo(0);
-        buffer_desc.buffer_info.frame_in_flight = ZEST_FIF;
-        layer->vertex_buffer_node = zest_AddTransientBufferResource(name, &buffer_desc, ZEST_FALSE);
+        buffer_desc.usage_hints = zest_resource_usage_hint_vertex_buffer;
+        layer->vertex_buffer_node = zest_AddTransientBufferResource(name, &buffer_desc);
     } else {
         zest_uint fif = prev_fif ? layer->prev_fif : layer->fif;
 		zest_resource_node_t node = zest__create_import_buffer_resource_node(name, layer->memory_refs[fif].device_vertex_data);
