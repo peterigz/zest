@@ -330,7 +330,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	info.size = sizeof(TestData) * 1000;
 	if (zest_BeginRenderGraph("Buffer Read/Write")) {
 		zest_resource_node write_buffer = zest_AddTransientBufferResource("Write Buffer", &info);
-		zest_resource_node verify_buffer = zest_ImportStorageBufferResource("Verify Buffer", tests->cpu_buffer);
+		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer);
 
 		zest_pass_node write_pass = zest_AddComputePassNode(tests->compute_write, "Write Pass");
 		zest_ConnectOutput(write_pass, write_buffer);
@@ -457,7 +457,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 	}
 	if (zest_BeginRenderGraph("Image Read Write")) {
 		zest_resource_node write_buffer = zest_AddTransientImageResource("Write Buffer", &info);
-		zest_resource_node verify_buffer = zest_ImportStorageBufferResource("Verify Buffer", tests->cpu_buffer);
+		zest_resource_node verify_buffer = zest_ImportBufferResource("Verify Buffer", tests->cpu_buffer);
 		zest_SetResourceClearColor(write_buffer, 0.0f, 1.0f, 1.0f, 1.0f);
 
 		zest_pass_node pass_a = zest_AddRenderPassNode("Pass A");
@@ -673,7 +673,7 @@ void InitialiseTests(ZestTests *tests) {
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 
-	tests->current_test = 0;
+	tests->current_test = 9;
     zest_ResetValidationErrors();
 }
 
