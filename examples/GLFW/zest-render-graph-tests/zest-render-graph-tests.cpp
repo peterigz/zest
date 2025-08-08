@@ -8,8 +8,6 @@
 
   Data Integrity
   Complex Scenarios & Error Handling
-   15. Cyclic Dependency: Create a graph where Pass A depends on Pass B's output, and Pass B depends on Pass A's output. The graph compiler should detect this
-	   cycle and return an error instead of crashing.
    16. Re-executing Graph: Compile a graph once, then execute it for multiple consecutive frames. Verify that no memory leaks or synchronization issues occur.
 */
 
@@ -616,6 +614,39 @@ int test__pass_grouping(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
+/*
+Cyclic Dependency : Create a graph where Pass A depends on Pass B's output, and Pass B depends on Pass A's output.The graph compiler should detect this
+cycle and return an error instead of crashing.
+*/
+int test__cyclic_dependency(ZestTests *tests, Test *test) {
+	zest_image_resource_info_t info = { zest_texture_format_rgba_unorm };
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Cyclic Dependency")) {
+		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
+		zest_resource_node output_b = zest_AddTransientImageResource("Output B", &info);
+
+		zest_pass_node pass_a = zest_AddGraphicBlankScreen("Draw Pass A");
+		zest_ConnectInput(pass_a, output_b, 0);
+		zest_ConnectOutput(pass_a, output_a);
+
+		zest_pass_node pass_b = zest_AddGraphicBlankScreen("Draw Pass B");
+		zest_ConnectInput(pass_b, output_a, 0);
+		zest_ConnectOutput(pass_b, output_b);
+
+		zest_pass_node pass_c = zest_AddGraphicBlankScreen("Draw Pass C");
+		zest_ConnectSwapChainOutput(pass_c);
+
+		zest_render_graph render_graph = zest_EndRenderGraph();
+		test->result |= render_graph->error_status;
+	}
+	test->result |= zest_GetValidationErrorCount();
+	test->frame_count++;
+	return test->result;
+}
+
+/*
+Re-executing Graph : Compile a graph once, then execute it for multiple consecutive frames.
+Verify that no memory leaks or synchronization issues occur.
+*/
 
 
 void InitialiseTests(ZestTests *tests) {
@@ -635,13 +666,14 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[12] = { "Depth Attachment", test__depth_attachment, 0, 0, 0, tests->depth_create_info };
 	tests->tests[13] = { "Multi Queue Sync", test__multi_queue_sync, 0, 0, 0, tests->simple_create_info };
 	tests->tests[14] = { "Pass Grouping", test__pass_grouping, 0, 0, 0, tests->simple_create_info };
+	tests->tests[15] = { "Cyclic Dependency", test__cyclic_dependency, 0, 0, zest_rgs_cyclic_dependency, tests->simple_create_info };
 
 	VkSamplerCreateInfo sampler_info = zest_CreateSamplerInfo();
 	VkSamplerCreateInfo mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 
-	tests->current_test = 14;
+	tests->current_test = 0;
     zest_ResetValidationErrors();
 }
 

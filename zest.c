@@ -2518,19 +2518,19 @@ void zest__main_loop(void) {
 
         ZestApp->update_callback(ZestApp->current_elapsed, ZestApp->user_data);
 
-        /*
         //Cover some cases where a render graph wasn't created or it was but there was nothing render etc., to make sure
         //that the fence is always signalled and another frame can happen
-        if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired) && ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_used)) {
+        if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
             if (ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_work_was_submitted)) {
                 zest__dummy_submit_for_present_only();
+				zest__present_frame(ZestRenderer->main_swapchain);
             }
-			zest__present_frame(ZestRenderer->main_swapchain);
+		/*
         } else if (ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_work_was_submitted) && ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
 			zest__dummy_submit_for_present_only();
 			zest__present_frame(ZestRenderer->main_swapchain);
+		*/
         }
-        */
 
         ZestApp->frame_timer += ZestApp->current_elapsed;
         ZestApp->frame_count++;
@@ -8055,6 +8055,29 @@ void zest__add_image_barriers(zest_render_graph render_graph, zloc_linear_alloca
     }
 }
 
+zest_bool zest__detect_cyclic_recursion(zest_render_graph render_graph, zest_pass_node pass_node) {
+    pass_node->visit_state = zest_pass_node_visiting;
+    zest_map_foreach(i, pass_node->outputs) {
+        zest_resource_usage_t *output_usage = &pass_node->outputs.data[i];
+        zest_resource_node output_resource = output_usage->resource_node;
+        zest_bucket_array_foreach(p_idx, render_graph->potential_passes) {
+            zest_pass_node dependent_pass = zest_bucket_array_get(&render_graph->potential_passes, zest_pass_node_t, p_idx);
+            if (zest_map_valid_name(dependent_pass->inputs, output_resource->name)) {
+                if (dependent_pass->visit_state == zest_pass_node_visiting) {
+                    return ZEST_TRUE; // Signal that a cycle was found
+                }
+                if (dependent_pass->visit_state == zest_pass_node_unvisited) {
+                    if (zest__detect_cyclic_recursion(render_graph, dependent_pass)) {
+                        return ZEST_TRUE; // Propagate the cycle detection signal up
+                    }
+                }
+            }
+        }
+    }
+    pass_node->visit_state = zest_pass_node_visited;
+    return ZEST_FALSE; // No cycle found from this pass
+}
+
 /*
 Render graph compiler index:
 
@@ -8097,6 +8120,13 @@ zest_render_graph zest__compile_render_graph() {
     bool a_pass_was_culled = 0;
     zest_bucket_array_foreach(i, render_graph->potential_passes) {
         zest_pass_node pass_node = zest_bucket_array_get(&render_graph->potential_passes, zest_pass_node_t, i);
+        if (pass_node->visit_state == zest_pass_node_unvisited) {
+            if (zest__detect_cyclic_recursion(render_graph, pass_node)) {
+                ZEST__REPORT(zest_report_cyclic_dependency, zest_message_cyclic_dependency, render_graph->name, pass_node->name);
+				ZEST__FLAG(render_graph->error_status, zest_rgs_cyclic_dependency);
+                return render_graph;
+            }
+        }
         if (zest_map_size(pass_node->outputs) == 0 || pass_node->execution_callback.callback == 0) {
 			//Cull passes that have no output and/or no execution callback and reduce any input resource reference counts 
             zest_map_foreach(j, pass_node->inputs) {
@@ -8342,7 +8372,9 @@ zest_render_graph zest__compile_render_graph() {
             pass_count++;
         }
     }
-    zest_vec_linear_push(allocator, render_graph->execution_waves, first_wave);
+    if (pass_count > 0) {
+        zest_vec_linear_push(allocator, render_graph->execution_waves, first_wave);
+    }
 
     zest_uint current_wave_index = 0;
     while (current_wave_index < zest_vec_size(render_graph->execution_waves)) {

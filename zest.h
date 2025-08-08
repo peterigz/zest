@@ -125,6 +125,7 @@ extern "C" {
 
 static const char *zest_message_pass_culled = "Pass [%s] culled because there were no outputs.";
 static const char *zest_message_pass_culled_not_consumed = "Pass [%s] culled because it's output was not consumed by any subsequent passes. This won't happen if the ouput is an imported buffer or image. If the resource is transient then it will be discarded immediately once it has no further use. Also note that passes at the front of a chain can be culled if ultimately nothing consumes the output from the last pass in the chain.";
+static const char *zest_message_cyclic_dependency = "Cyclic dependency detected in render graph [%s] with pass [%s]. You have a situation where  Pass A depends on Pass B's output, and Pass B depends on Pass A's output.";
 
 //Override this if you'd prefer a different way to allocate the pools for sub allocation in host memory.
 #ifndef ZEST__ALLOCATE_POOL
@@ -1136,6 +1137,7 @@ typedef enum {
     ZEST_TRANSIENT_NON_COMPATIBLE_FLAGS = ~(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
 } zest_constants;
 
+//Used for memory tracking and debugging
 typedef enum zest_struct_type {
     zest_struct_type_texture                 = 1 << 16,
     zest_struct_type_image                   = 2 << 16,
@@ -1570,6 +1572,7 @@ typedef enum zest_report_category {
     zest_report_pass_culled,
     zest_report_resource_culled,
     zest_report_invalid_layer,
+    zest_report_cyclic_dependency,
 } zest_report_category;
 
 typedef enum zest_global_binding_numbers {
@@ -1590,7 +1593,14 @@ typedef enum zest_render_graph_result_bits {
     zest_rgs_success = 0,
     zest_rgs_no_work_to_do       = 1 << 0,
     zest_rgs_passes_were_culled  = 1 << 1,
+    zest_rgs_cyclic_dependency   = 1 << 2,
 } zest_render_graph_result_bits;
+
+typedef enum zest_pass_node_visit_state {
+    zest_pass_node_unvisited = 0,
+    zest_pass_node_visiting,
+    zest_pass_node_visited,
+} zest_pass_node_visit_state;
 
 typedef zest_uint zest_supported_shader_stages;		//zest_shader_stage_bits
 typedef zest_uint zest_compute_flags;		        //zest_compute_flag_bits
@@ -2845,6 +2855,7 @@ typedef struct zest_pass_node_t {
     zest_compute compute;
     zest_pass_flags flags;
     zest_pass_type type;
+    zest_pass_node_visit_state visit_state;
 } zest_pass_node_t;
 
 typedef struct zest_execution_barriers_t {
@@ -3031,11 +3042,8 @@ typedef struct zest_render_graph_t {
 
     zest_execution_wave_t *execution_waves;            // Execution order after compilation
 
-    zest_resource_node swapchain_resource; // Handle to the current swapchain image resource
-    zest_swapchain swapchain; // Handle to the current swapchain image resource
-    VkImage current_swapchain_image;
-    VkImageView current_swapchain_image_view;
-    zest_uint current_swapchain_image_index;
+    zest_resource_node swapchain_resource;  // Handle to the current swapchain image resource
+    zest_swapchain swapchain;               // Handle to the current swapchain image resource
     zest_uint id_counter;
     zest_descriptor_pool descriptor_pool;           //Descriptor pool for execution nodes within the graph.
     zest_set_layout bindless_layout;
@@ -3093,6 +3101,7 @@ ZEST_PRIVATE void zest__add_image_barriers(zest_render_graph render_graph, zloc_
 ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, VkFormat format, VkAttachmentLoadOp load_op, VkAttachmentLoadOp stencil_load_op, VkPipelineStageFlags relevant_pipeline_stages);
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
 ZEST_PRIVATE void zest__set_rg_error_status(zest_render_graph render_graph, zest_render_graph_result result);
+ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_render_graph render_graph, zest_pass_node pass_node);
 
 // --- Utility callbacks ---
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
