@@ -9851,23 +9851,11 @@ void zest_AddSwapchainToRenderTargetGroup(zest_output_group group) {
     zest_vec_linear_push(ZestRenderer->render_graph_allocator, group->resources, render_graph->swapchain_resource);
 }
 
-void zest_AddDepthToRenderTargetGroup(zest_output_group group, zest_resource_node depth_resource) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
-    if (depth_resource->type == zest_resource_type_none) {
-        
-    }
-    ZEST_ASSERT(depth_resource->type == zest_resource_type_depth);  //Must be a depth buffer resource type
-	zest_FlagResourceAsEssential(depth_resource);
-    zest_vec_linear_push(ZestRenderer->render_graph_allocator, group->resources, depth_resource);
-}
-
 void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
-    ZEST_ASSERT(image->type == zest_resource_type_image);  //Must be a depth buffer resource type
+    ZEST_ASSERT(image->type & zest_resource_type_is_image_or_depth);  //Must be a depth buffer resource type
 	zest_FlagResourceAsEssential(image);
     zest_vec_linear_push(ZestRenderer->render_graph_allocator, group->resources, image);
 }
@@ -9955,24 +9943,6 @@ zest_resource_node zest_ImportFontResource(const zest_font font) {
     return zest_ImportImageResource(font->texture->name.str, font->texture);
 }
 
-zest_resource_node_t zest__create_import_descriptor_buffer_resource_node(const char *name, zest_buffer buffer) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    zest_resource_node_t node = { 0 };
-    node.name = name;
-	node.id = render_graph->id_counter++;
-    node.first_usage_pass_idx = ZEST_INVALID;
-	node.type = zest_resource_type_buffer;
-    node.render_graph = render_graph;
-    node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
-    node.storage_buffer = buffer;
-    node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
-    node.producer_pass_idx = -1;
-	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
-	ZEST__FLAG(node.flags, zest_resource_node_flag_essential_output);
-    return node;
-}
-
 zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
@@ -10022,13 +9992,6 @@ zest_resource_node zest_ImportImageResource(const char *name, zest_texture textu
     node.final_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     node.current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
-    return zest__add_render_graph_resource(&node);
-}
-
-zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_buffer buffer) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    zest_resource_node_t node = zest__create_import_descriptor_buffer_resource_node(name, buffer);
     return zest__add_render_graph_resource(&node);
 }
 

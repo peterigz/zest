@@ -2805,20 +2805,6 @@ typedef struct zest_batch_key {
 	zest_u64 next_family_indexes;
 } zest_batch_key;
 
-typedef struct zest_rg_pass_resource_usage_desc_t {
-    zest_resource_node resource_node;
-    VkImageLayout         image_layout;
-    VkAccessFlags         access_mask;
-    VkPipelineStageFlags  stage_mask;
-    VkImageAspectFlags    aspect_flags; 
-
-    VkAttachmentLoadOp    load_op;
-    VkAttachmentStoreOp   store_op;
-    VkAttachmentLoadOp    stencil_load_op;
-    VkAttachmentStoreOp   stencil_store_op;
-    VkClearValue          clear_value;
-} zest_rg_pass_resource_usage_desc_t;
-
 zest_hash_map(zest_resource_usage_t) zest_map_resource_usages;
 
 typedef struct zest_pass_execution_callback_t {
