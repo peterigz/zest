@@ -4344,7 +4344,6 @@ ZEST_API zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets);
 //-----------------------------------------------
 //Add a new pipeline template to the renderer and return its handle.
 ZEST_API zest_pipeline_template zest_BeginPipelineTemplate(const char *name);
-ZEST_API zest_pipeline_template zest_CreateGraphicsPipeline(const char *name, const char *vertex_shader, const char *fragment_shader, bool instanced);
 //Set the name of the file to use for the vert and frag shader in the zest_pipeline_template_create_info_t
 ZEST_API void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
 ZEST_API void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
