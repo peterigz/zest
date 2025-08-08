@@ -240,8 +240,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest__import_swap_chain_resource("Swapchain Output");
 		//Import our test texture with the Bunny sprite
-		zest_resource_node particle_texture = zest_ImportImageResourceReadOnly("Particle Texture", game->tfx_rendering.particle_texture);
-		zest_resource_node color_ramps_texture = zest_ImportImageResourceReadOnly("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);
+		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture);
+		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);
 		zest_resource_node tfx_layer = zest_AddTransientLayerResource("current particles", game->tfx_rendering.layer, false);
 		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", game->tfx_rendering.image_data);
 		zest_resource_node tfx_layer_prev = zest_AddTransientLayerResource("last frame particles", game->tfx_rendering.layer, true);

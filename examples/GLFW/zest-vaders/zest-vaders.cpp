@@ -1099,9 +1099,9 @@ void VadersGame::Update(float ellapsed) {
 		}
 
 		//---------------------------------Resources-------------------------------------------------------
-		zest_resource_node particle_texture = zest_ImportImageResourceReadOnly("Particle Texture", tfx_rendering.particle_texture);
-		zest_resource_node color_ramps_texture = zest_ImportImageResourceReadOnly("Color Ramps Texture", tfx_rendering.color_ramps_texture);
-		zest_resource_node game_sprites_texture = zest_ImportImageResourceReadOnly("Sprites Texture", sprite_texture);
+		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", tfx_rendering.particle_texture);
+		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", tfx_rendering.color_ramps_texture);
+		zest_resource_node game_sprites_texture = zest_ImportImageResource("Sprites Texture", sprite_texture);
 		zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write Particle Buffer", tfx_rendering.layer, false);
 		zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read Particle Buffer", tfx_rendering.layer, true);
 		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", tfx_rendering.image_data);

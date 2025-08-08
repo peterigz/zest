@@ -95,7 +95,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
 		//Import our test texture with the Bunny sprite
-		zest_resource_node test_texture = zest_ImportImageResourceReadOnly("test texture", app->test_texture);
+		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture);
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();

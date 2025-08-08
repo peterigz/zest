@@ -138,7 +138,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node texture = zest_ImportImageResourceReadOnly("Bunny Texture", example->texture);
+		zest_resource_node texture = zest_ImportImageResource("Bunny Texture", example->texture);
 		zest_resource_node billboard_layer = zest_AddTransientLayerResource("Billboard Layer", example->billboard_layer, false);
 		zest_resource_node sprite_layer = zest_AddTransientLayerResource("Sprite Layer", example->sprite_layer, false);
 

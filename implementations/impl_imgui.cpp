@@ -23,7 +23,7 @@ zest_pass_node zest_imgui_AddToRenderGraph() {
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
         zest_imgui imgui_info = &ZestRenderer->imgui_info;
         //Declare resources
-        zest_resource_node imgui_font_texture = zest_ImportImageResourceReadOnly("Imgui Font", ZestRenderer->imgui_info.font_texture);
+        zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", ZestRenderer->imgui_info.font_texture);
 		zest_resource_node imgui_vertex_buffer = zest_imgui_ImportVertexResources("Imgui Vertex Buffer");
 		zest_resource_node imgui_index_buffer = zest_imgui_ImportIndexResources("Imgui Index Buffer");
         //Transfer Pass

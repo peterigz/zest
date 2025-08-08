@@ -154,8 +154,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
 		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
 		//Import our test texture with the Bunny sprite
-		zest_resource_node particle_texture = zest_ImportImageResourceReadOnly("Particle Texture", game->tfx_rendering.particle_texture);
-		zest_resource_node color_ramps_texture = zest_ImportImageResourceReadOnly("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);
+		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture);
+		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);
 		zest_resource_node tfx_layer = zest_AddTransientLayerResource(game->tfx_rendering.layer);
 		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", game->tfx_rendering.image_data);
 

@@ -163,7 +163,7 @@ int test__import_image(ZestTests *tests, Test *test) {
 		zest_ProcessTextureImages(tests->texture);
 	}
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Import Image")) {
-		zest_resource_node imported_image = zest_ImportImageResourceReadOnly("Imported Texture", tests->texture);
+		zest_resource_node imported_image = zest_ImportImageResource("Imported Texture", tests->texture);
 
 		zest_pass_node pass_a = zest_AddGraphicBlankScreen("Pass B");
 		zest_ConnectInput(pass_a, imported_image, 0);

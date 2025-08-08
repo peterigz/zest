@@ -3158,8 +3158,7 @@ ZEST_API void zest_AddDepthToRenderTargetGroup(zest_output_group group, zest_res
 ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image);
 
 // --- Import external resouces into the render graph ---
-ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use);
-ZEST_API zest_resource_node zest_ImportImageResourceReadOnly(const char *name, zest_texture texture);
+ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture);
 ZEST_API zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_buffer buffer);
 ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer);
 ZEST_API zest_resource_node zest_ImportFontResource(const zest_font font);

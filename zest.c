@@ -9952,7 +9952,7 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
 zest_resource_node zest_ImportFontResource(const zest_font font) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    return zest_ImportImageResourceReadOnly(font->texture->name.str, font->texture);
+    return zest_ImportImageResource(font->texture->name.str, font->texture);
 }
 
 zest_resource_node_t zest__create_import_descriptor_buffer_resource_node(const char *name, zest_buffer buffer) {
@@ -10015,16 +10015,7 @@ zest_resource_node_t zest__create_import_image_resource_node(const char *name, z
     return node;
 }
 
-zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, VkImageLayout initial_layout_at_graph_start, VkImageLayout desired_layout_after_graph_use) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    zest_resource_node_t node = zest__create_import_image_resource_node(name, texture);
-    node.final_layout = desired_layout_after_graph_use;
-    node.current_layout = initial_layout_at_graph_start;
-    return zest__add_render_graph_resource(&node);
-}
-
-zest_resource_node zest_ImportImageResourceReadOnly(const char *name, zest_texture texture) {
+zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = zest__create_import_image_resource_node(name, texture);
