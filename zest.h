@@ -1500,6 +1500,7 @@ typedef enum zest_render_graph_flag_bits {
     zest_render_graph_is_compiled                   = 1 << 2,
     zest_render_graph_is_executed                   = 1 << 3,
     zest_render_graph_present_after_execute         = 1 << 4,
+    zest_render_graph_is_cached                     = 1 << 5,
 } zest_render_graph_flag_bits;
 
 typedef zest_uint zest_render_graph_flags;
@@ -1548,6 +1549,12 @@ typedef enum zest_pass_type {
     zest_pass_type_compute      = 2,
     zest_pass_type_transfer     = 3,
 } zest_pass_type;
+
+typedef enum zest_dynamic_resource_type {
+    zest_dynamic_resource_none = 0,
+    zest_dynamic_resource_image_available_semaphore,
+    zest_dynamic_resource_render_finished_semaphore,
+} zest_dynamic_resource_type;
 
 typedef enum zest_supported_pipeline_stages {
     zest_pipeline_vertex_input_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
@@ -2518,10 +2525,14 @@ typedef struct zest_image_description_t {
     VkImageAspectFlags aspect_flags;
 } zest_image_description_t;
 
-typedef struct zest_image_buffer_t {
-    VkImage image;
+typedef struct zest_image_handles_t {
     zest_buffer buffer;
-    VkImageView base_view;
+    VkImage image;
+    VkImageView view;
+} zest_image_handles_t;
+
+typedef struct zest_image_buffer_t {
+    zest_image_handles_t image_handles;
     VkImageView multi_mip_view;
     VkImageView *mip_views;
     zest_map_mip_indexes mip_indexes;
@@ -2906,6 +2917,9 @@ typedef struct zest_pass_group_t {
     zest_pass_node *passes;
 } zest_pass_group_t;
 
+ typedef zest_buffer(*zest_resource_buffer_provider)(zest_resource_node resource, void *user_data);
+ typedef zest_image_buffer_t(*zest_resource_image_provider)(zest_resource_node resource, void *user_data);
+
 typedef struct zest_resource_node_t {
     int magic;
     const char *name;
@@ -2942,6 +2956,9 @@ typedef struct zest_resource_node_t {
     zest_resource_node_flags flags;                 // Imported/Transient Etc.
     zest_uint first_usage_pass_idx;                 // For lifetime tracking
     zest_uint last_usage_pass_idx;                  // For lifetime tracking
+
+    zest_resource_buffer_provider buffer_provider;
+    zest_resource_image_provider image_provider;
 } zest_resource_node_t;
 
 typedef struct zest_output_group_t {
@@ -2968,6 +2985,11 @@ typedef struct zest_destruction_queue_t {
     zest_binding_index_for_release_t *binding_indexes[ZEST_MAX_FIF];
 } zest_destruction_queue_t;
 
+typedef struct zest_semaphore_reference_t {
+    zest_dynamic_resource_type type;
+    VkSemaphore semaphore;
+} zest_semaphore_reference_t;
+
 typedef struct zest_submission_batch_t {
     zest_uint magic;
     zest_queue queue;
@@ -2979,8 +3001,8 @@ typedef struct zest_submission_batch_t {
     VkCommandBuffer command_buffer;
     zest_bool waits_for_acquire_semaphore;
     VkPipelineStageFlags *wait_dst_stage_masks;
-    VkSemaphore *wait_semaphores;
-    VkSemaphore *signal_semaphores;
+    zest_semaphore_reference_t *wait_semaphores;
+    zest_semaphore_reference_t *signal_semaphores;
 
     //References for printing the render graph only
     VkSemaphore *final_wait_semaphores;
@@ -3046,8 +3068,12 @@ typedef struct zest_render_graph_t {
     zest_gpu_timestamp_t *timestamps[ZEST_MAX_FIF];                  //The last recorded frame durations for the whole render pipeline
 
     VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
-
 } zest_render_graph_t;
+
+typedef struct zest_cached_render_graph_t {
+    void *memory;
+    zest_render_graph render_graph;
+} zest_cached_render_graph_t;
 
 ZEST_API zest_bool zest_AcquireSwapChainImage(zest_swapchain swapchain);
 
@@ -3063,13 +3089,12 @@ ZEST_PRIVATE zest_resource_node zest__add_render_graph_resource(zest_resource_no
 ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource);
 ZEST_PRIVATE VkCommandPool zest__create_queue_command_pool(int queue_family_index);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_texture texture);
-ZEST_PRIVATE zest_resource_node_t zest__create_import_descriptor_buffer_resource_node(const char *name, zest_buffer buffer);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
 ZEST_PRIVATE zest_resource_node zest__import_swap_chain_resource(zest_swapchain swapchain);
 ZEST_PRIVATE zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only);
 ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_resource_node resource);
 ZEST_PRIVATE zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
-ZEST_PRIVATE void zest__create_transient_resource(zest_render_graph render_graph, zest_resource_node resource);
+ZEST_PRIVATE void zest__create_transient_resource(zest_resource_node resource);
 ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
 ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op, VkAttachmentLoadOp stencil_load_op, VkAttachmentStoreOp stencil_store_op, VkClearValue clear_value);
@@ -3088,6 +3113,9 @@ ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_nod
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
 ZEST_PRIVATE void zest__set_rg_error_status(zest_render_graph render_graph, zest_render_graph_result result);
 ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_render_graph render_graph, zest_pass_node pass_node);
+ZEST_PRIVATE void zest__cache_render_graph();
+ZEST_PRIVATE zest_render_graph zest__get_cached_render_graph();
+ZEST_PRIVATE VkSemaphore zest__get_semaphore_reference(zest_render_graph render_graph, zest_semaphore_reference_t *reference);
 
 // --- Utility callbacks ---
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
@@ -3782,6 +3810,7 @@ zest_hash_map(zest_swapchain) zest_map_swapchains;
 zest_hash_map(zest_window) zest_map_windows;
 zest_hash_map(zest_timer) zest_map_timers;
 zest_hash_map(zest_shader_resources) zest_map_shader_resources;
+zest_hash_map(zest_cached_render_graph_t) zest_map_cached_render_graphs;
 
 typedef struct zest_renderer_t {
     int magic;
@@ -3838,6 +3867,7 @@ typedef struct zest_renderer_t {
     zest_map_windows windows;
     zest_map_timers timers;
     zest_map_shader_resources shader_resources;
+    zest_map_cached_render_graphs cached_render_graphs;
 
     zest_window current_window;
 
