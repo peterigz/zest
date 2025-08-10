@@ -442,7 +442,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 	if (zest_BeginRenderToScreen("Ribbons render graph")) {
 		VkClearColorValue clear_color = { {0.f} };
-		zest_resource_node swapchain_output_resource = zest__import_swap_chain_resource("Swapchain Output");
+		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
 
 		//Resources
 		zest_resource_node ribbon_segment_buffer = zest_AddTransientStorageBufferResource("Ribbon Segment Buffer", app->ribbon_segment_staging_buffer[ZEST_FIF]->memory_in_use, true);

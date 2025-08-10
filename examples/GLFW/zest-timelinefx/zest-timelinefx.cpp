@@ -180,7 +180,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_WaitOnTimeline(game->tfx_rendering.timeline);
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
-		zest_resource_node swapchain_output_resource = zest__import_swap_chain_resource("Swapchain Output");
+		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
 		//Import our test texture with the Bunny sprite

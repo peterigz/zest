@@ -2,7 +2,9 @@
 
 void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	// Begin Render Graph Definition
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Render Graph")) {
+	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
+	zest_render_graph_cache_key_t cache_key = zest_InitialiseCacheKey(zest_GetMainWindowSwapchain(), 0, 0);
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Render Graph", &cache_key)) {
 		zest_pass_node clear_pass = zest_AddGraphicBlankScreen("Draw Nothing");
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		zest_ConnectSwapChainOutput(clear_pass);
@@ -16,8 +18,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 int main(void) 
 {
 	//Make a config struct where you can configure zest with some options
-	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	//zest_create_info_t create_info = zest_CreateInfo();
 	create_info.log_path = "./";
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

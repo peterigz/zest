@@ -238,7 +238,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		}
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
-		zest_resource_node swapchain_output_resource = zest__import_swap_chain_resource("Swapchain Output");
+		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
 		//Import our test texture with the Bunny sprite
 		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture);
 		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);

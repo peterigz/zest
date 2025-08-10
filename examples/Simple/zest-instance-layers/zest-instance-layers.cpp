@@ -132,6 +132,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
 	example->last_position = position;
 
+	zest_render_graph_cache_key_t cache_key = {0};
+
 	//Create the render graph
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Sprite Drawing")) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
