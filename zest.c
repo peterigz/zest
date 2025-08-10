@@ -7702,9 +7702,17 @@ VkSemaphore zest__get_semaphore_reference(zest_render_graph render_graph, zest_s
     return VK_NULL_HANDLE;
 }
 
-void zest__cache_render_graph() {
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+zest_key zest__hash_render_graph_cache_key(zest_render_graph_cache_key_t *cache_key) {
+    zest_key key = zest_Hash(&cache_key->auto_state, sizeof(zest_render_graph_auto_state_t), ZEST_HASH_SEED);
+    if (cache_key->user_state && cache_key->user_state_size) {
+        key += zest_Hash(&cache_key->user_state, cache_key->user_state_size, ZEST_HASH_SEED);
+    }
+    return key;
+}
+
+void zest__cache_render_graph(zest_render_graph render_graph) {
     ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    if (!render_graph->cache_key) return;
     zest_cached_render_graph_t new_cached_graph = {
         zloc_PromoteLinearBlock(ZestDevice->allocator, ZestRenderer->render_graph_allocator, ZestRenderer->render_graph_allocator->current_offset),
         render_graph
@@ -7712,32 +7720,54 @@ void zest__cache_render_graph() {
     ZEST__FLAG(render_graph->flags, zest_render_graph_is_cached);
 	void *render_graph_linear_memory = ZEST__ALLOCATE(zloc__MEGABYTE(1));
 	ZestRenderer->render_graph_allocator = zloc_InitialiseLinearAllocator(render_graph_linear_memory, zloc__MEGABYTE(1));
-    if (zest_map_valid_name(ZestRenderer->cached_render_graphs, render_graph->name)) {
-        zest_cached_render_graph_t *cached_graph = zest_map_at(ZestRenderer->cached_render_graphs, render_graph->name);
+    if (zest_map_valid_key(ZestRenderer->cached_render_graphs, render_graph->cache_key)) {
+        zest_cached_render_graph_t *cached_graph = zest_map_at_key(ZestRenderer->cached_render_graphs, render_graph->cache_key);
         ZEST__FREE(cached_graph->memory);
         *cached_graph = new_cached_graph;
     } else {
-        zest_map_insert(ZestRenderer->cached_render_graphs, render_graph->name, new_cached_graph);
+        zest_map_insert_key(ZestRenderer->cached_render_graphs, render_graph->cache_key, new_cached_graph);
     }
 }
 
-zest_render_graph zest__get_cached_render_graph(const char *name) {
-    if (zest_map_valid_name(ZestRenderer->cached_render_graphs, name)) {
-        zest_cached_render_graph_t *cached_graph = zest_map_at(ZestRenderer->cached_render_graphs, name);
+zest_image_handles_t zest__swapchain_resource_provider(zest_resource_node resource) {
+    zest_image_handles_t image_handles = {
+        NULL,
+        resource->swapchain->vk_images[resource->swapchain->current_image_frame],
+        resource->swapchain->vk_image_views[resource->swapchain->current_image_frame]
+    };
+    return image_handles;
+}
+
+zest_render_graph zest__get_cached_render_graph(zest_key key) {
+    if (zest_map_valid_key(ZestRenderer->cached_render_graphs, key)) {
+        zest_cached_render_graph_t *cached_graph = zest_map_at_key(ZestRenderer->cached_render_graphs, key);
         return cached_graph->render_graph;
     }
     return NULL;
 }
 
-bool zest_BeginRenderGraph(const char *name) {
+zest_render_graph_cache_key_t zest_InitialiseCacheKey(zest_swapchain swapchain, const void *user_state, zest_size user_state_size) {
+    zest_render_graph_cache_key_t key = { 0 };
+    key.auto_state.render_format = swapchain->vk_format;
+    key.auto_state.render_width = swapchain->vk_extent.width;
+    key.auto_state.render_height = swapchain->vk_extent.height;
+    return key;
+}
+
+bool zest_BeginRenderGraph(const char *name, zest_render_graph_cache_key_t *cache_key) {
 	ZEST_ASSERT(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_building_render_graph));  //Render graph already being built. You cannot build a render graph within another begin render graph process.
 
-    zest_render_graph cached_graph = zest__get_cached_render_graph(name);
-    if (cached_graph) {
-		ZestRenderer->current_render_graph = cached_graph;
-        return cached_graph;
+    zest_key key = 0;
+    if (cache_key) {
+        key = zest__hash_render_graph_cache_key(cache_key);
+        zest_render_graph cached_graph = zest__get_cached_render_graph(key);
+        if (cached_graph) {
+            ZestRenderer->current_render_graph = cached_graph;
+            return cached_graph;
+        }
     }
     zest_render_graph render_graph = zest__new_render_graph(name);
+    render_graph->cache_key = key;
 
     render_graph->semaphores = zest__get_render_graph_semaphores(name);
 
@@ -7747,8 +7777,8 @@ bool zest_BeginRenderGraph(const char *name) {
     return true;
 }
 
-bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name) {
-    if (zest_BeginRenderGraph(name)) {
+bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name, zest_render_graph_cache_key_t *cache_key) {
+    if (zest_BeginRenderGraph(name, cache_key)) {
         zest_render_graph render_graph = ZestRenderer->current_render_graph;
         if (ZEST__FLAGGED(render_graph->flags, zest_render_graph_is_cached)) {
 			if (!zest_AcquireSwapChainImage(swapchain)) {
@@ -7773,7 +7803,7 @@ bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name) {
         ZEST_PRINT("Unable to acquire the swap chain!");
         return false;
     }
-	zest__import_swap_chain_resource(swapchain);
+	zest__import_swapchain_resource(swapchain);
     return true;
 }
 
@@ -8767,7 +8797,7 @@ zest_render_graph zest__compile_render_graph() {
 zest_render_graph zest_EndRenderGraph() {
     zest_render_graph render_graph = zest__compile_render_graph();
 
-    zest__cache_render_graph();
+    zest__cache_render_graph(render_graph);
 
     zest__execute_render_graph(ZEST_FALSE);
 
@@ -8919,6 +8949,9 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
                         VkBufferMemoryBarrier *barrier = &exe_details->barriers.acquire_buffer_barriers[resource_index];
                         zest_resource_node resource = exe_details->barriers.acquire_buffer_barrier_nodes[resource_index];
 						zest_buffer buffer = resource->storage_buffer;
+                        if (resource->buffer_provider) {
+                            resource->storage_buffer = resource->buffer_provider(resource);
+                        }
 						barrier->buffer = buffer->vk_buffer;
 						barrier->size = buffer->size;
 						barrier->offset = buffer->buffer_offset;
@@ -8927,9 +8960,11 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
                         VkImageMemoryBarrier *barrier = &exe_details->barriers.acquire_image_barriers[resource_index];
                         zest_resource_node resource = exe_details->barriers.acquire_image_barrier_nodes[resource_index];
                         if (resource->image_provider) {
-                            resource->image_buffer = resource->image_provider(resource, 0);
+                            resource->image_buffer.image_handles = resource->image_provider(resource);
                         }
                         barrier->image = resource->image_buffer.image_handles.image;
+                        ZEST_ASSERT(barrier->image);    //The image handle in the resource is null, if the resource is not
+                                                        //transient then can resource provider callback must be set in the resource.
                         barrier->subresourceRange.levelCount = resource->image_desc.mip_levels;
                     }
                     zest_uint buffer_count = zest_vec_size(exe_details->barriers.acquire_buffer_barriers);
@@ -9959,7 +9994,7 @@ zest_bool zest_AcquireSwapChainImage(zest_swapchain swapchain) {
     return ZEST_TRUE;
 }
 
-zest_resource_node zest__import_swap_chain_resource(zest_swapchain swapchain) {
+zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZestRenderer->current_render_graph->swapchain = swapchain;
@@ -9986,6 +10021,7 @@ zest_resource_node zest__import_swap_chain_resource(zest_swapchain swapchain) {
     node.last_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     node.producer_pass_idx = -1;
     node.final_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    node.image_provider = zest__swapchain_resource_provider;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
 	ZEST__FLAG(node.flags, zest_resource_node_flag_essential_output);
     render_graph->swapchain_resource = zest__add_render_graph_resource(&node);

@@ -2917,8 +2917,8 @@ typedef struct zest_pass_group_t {
     zest_pass_node *passes;
 } zest_pass_group_t;
 
- typedef zest_buffer(*zest_resource_buffer_provider)(zest_resource_node resource, void *user_data);
- typedef zest_image_buffer_t(*zest_resource_image_provider)(zest_resource_node resource, void *user_data);
+ typedef zest_buffer(*zest_resource_buffer_provider)(zest_resource_node resource);
+ typedef zest_image_handles_t(*zest_resource_image_provider)(zest_resource_node resource);
 
 typedef struct zest_resource_node_t {
     int magic;
@@ -2959,6 +2959,7 @@ typedef struct zest_resource_node_t {
 
     zest_resource_buffer_provider buffer_provider;
     zest_resource_image_provider image_provider;
+    void *user_data;
 } zest_resource_node_t;
 
 typedef struct zest_output_group_t {
@@ -3048,10 +3049,10 @@ typedef struct zest_render_graph_t {
     zest_execution_timeline *signal_timelines;
     zest_render_graph_semaphores semaphores;
 
-    zest_execution_wave_t *execution_waves;            // Execution order after compilation
+    zest_execution_wave_t *execution_waves;         // Execution order after compilation
 
-    zest_resource_node swapchain_resource;  // Handle to the current swapchain image resource
-    zest_swapchain swapchain;               // Handle to the current swapchain image resource
+    zest_resource_node swapchain_resource;          // Handle to the current swapchain image resource
+    zest_swapchain swapchain;                       // Handle to the current swapchain image resource
     zest_uint id_counter;
     zest_descriptor_pool descriptor_pool;           //Descriptor pool for execution nodes within the graph.
     zest_set_layout bindless_layout;
@@ -3061,6 +3062,7 @@ typedef struct zest_render_graph_t {
 
     void *user_data;
     zest_render_graph_context_t context;
+    zest_key cache_key;
 
     VkQueryPool query_pool;                                          //For profiling
     zest_uint timestamp_count;
@@ -3074,6 +3076,18 @@ typedef struct zest_cached_render_graph_t {
     void *memory;
     zest_render_graph render_graph;
 } zest_cached_render_graph_t;
+
+typedef struct zest_render_graph_auto_state_t {
+    zest_uint render_width;
+    zest_uint render_height;
+    zest_uint render_format;
+} zest_render_graph_auto_state_t;
+
+typedef struct zest_render_graph_cache_key_t {
+    zest_render_graph_auto_state_t auto_state;
+    const void *user_state;
+    zest_size user_state_size;
+} zest_render_graph_cache_key_t;
 
 ZEST_API zest_bool zest_AcquireSwapChainImage(zest_swapchain swapchain);
 
@@ -3090,7 +3104,7 @@ ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_res
 ZEST_PRIVATE VkCommandPool zest__create_queue_command_pool(int queue_family_index);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_texture texture);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
-ZEST_PRIVATE zest_resource_node zest__import_swap_chain_resource(zest_swapchain swapchain);
+ZEST_PRIVATE zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain);
 ZEST_PRIVATE zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only);
 ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_resource_node resource);
 ZEST_PRIVATE zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_description_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
@@ -3113,12 +3127,16 @@ ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_nod
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
 ZEST_PRIVATE void zest__set_rg_error_status(zest_render_graph render_graph, zest_render_graph_result result);
 ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_render_graph render_graph, zest_pass_node pass_node);
-ZEST_PRIVATE void zest__cache_render_graph();
-ZEST_PRIVATE zest_render_graph zest__get_cached_render_graph();
+ZEST_PRIVATE void zest__cache_render_graph(zest_render_graph render_graph);
+ZEST_PRIVATE zest_key zest__hash_render_graph_cache_key(zest_render_graph_cache_key_t *cache_key);
+ZEST_PRIVATE zest_render_graph zest__get_cached_render_graph(zest_key key);
 ZEST_PRIVATE VkSemaphore zest__get_semaphore_reference(zest_render_graph render_graph, zest_semaphore_reference_t *reference);
 
+// --- Dynamic resource callbacks ---
+ZEST_PRIVATE zest_image_handles_t zest__swapchain_resource_provider(zest_resource_node resource);
+
 // --- Utility callbacks ---
-void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
+ZEST_API void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 
 // --- General resource functions ---
 ZEST_API zest_resource_node zest_GetPassInputResource(zest_pass_node pass, const char *name);
@@ -3137,8 +3155,9 @@ ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red,
 ZEST_API void zest_InsertComputeImageBarrier(VkCommandBuffer command_buffer, zest_resource_node resource, zest_uint base_mip);
 
 // -- Creating and Executing the render graph
-ZEST_API bool zest_BeginRenderGraph(const char *name);
-ZEST_API bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name);
+ZEST_API bool zest_BeginRenderGraph(const char *name, zest_render_graph_cache_key_t *cache_key);
+ZEST_API bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name, zest_render_graph_cache_key_t *cache_key);
+ZEST_API zest_render_graph_cache_key_t zest_InitialiseCacheKey(zest_swapchain swapchain, const void *user_state, zest_size user_state_size);
 ZEST_API void zest_ForceRenderGraphOnGraphicsQueue();
 ZEST_API zest_render_graph zest_EndRenderGraph();
 ZEST_API zest_render_graph zest_EndRenderGraphAndWait();
