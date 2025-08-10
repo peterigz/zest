@@ -88,25 +88,29 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		InitImGuiApp(app);
 	}
 
+	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
+	app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+	zest_render_graph_cache_key_t cache_key = {};
+	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
+
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "ImGui")) {
-		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
+	if (zest_BeginRenderToScreen(swapchain, "ImGui", &cache_key)) {
 		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
 		//Import our test texture with the Bunny sprite
-		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture);
+		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
 		if (imgui_pass) {
-			zest_ConnectSampledImageInput(imgui_pass, test_texture);
-			zest_ConnectSwapChainOutput(imgui_pass, clear_color);
+			zest_ConnectInput(imgui_pass, test_texture, 0);
+			zest_ConnectSwapChainOutput(imgui_pass);
 		} else {
 			//If there's no ImGui to render then just render a blank screen
 			zest_pass_node blank_pass = zest_AddGraphicBlankScreen("Draw Nothing");
 			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-			zest_ConnectSwapChainOutput(blank_pass, clear_color);
+			zest_ConnectSwapChainOutput(blank_pass);
 		}
 		//----------------------------------------------------------------------------------------------------
 		//End the render graph and execute it. This will submit it to the GPU.
@@ -128,6 +132,7 @@ int main(int argc, char *argv[]) {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
+	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	//Implement GLFW for window creation
 	zest_implsdl2_SetCallbacks(&create_info);
 
