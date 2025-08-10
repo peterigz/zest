@@ -17,13 +17,18 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     io.Fonts->SetTexID((ImTextureID)font_image);
 }
 
+bool zest_imgui_HasGuiToDraw() {
+    ImDrawData *imgui_draw_data = ImGui::GetDrawData();
+    return (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0);
+}
+
 zest_pass_node zest_imgui_AddToRenderGraph() {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
         zest_imgui imgui_info = &ZestRenderer->imgui_info;
         //Declare resources
-        zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", ZestRenderer->imgui_info.font_texture);
+        zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", ZestRenderer->imgui_info.font_texture, 0);
 		zest_resource_node imgui_vertex_buffer = zest_imgui_ImportVertexResources("Imgui Vertex Buffer");
 		zest_resource_node imgui_index_buffer = zest_imgui_ImportIndexResources("Imgui Index Buffer");
         //Transfer Pass
@@ -181,11 +186,21 @@ void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_buf
     vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 }
 
+zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource) {
+	zest_imgui imgui_info = &ZestRenderer->imgui_info;
+    return imgui_info->vertex_device_buffer[imgui_info->fif];
+}
+
+zest_buffer zest_imgui_IndexBufferProvider(zest_resource_node resource) {
+	zest_imgui imgui_info = &ZestRenderer->imgui_info;
+    return imgui_info->index_device_buffer[imgui_info->fif];
+}
+
 zest_resource_node zest_imgui_ImportVertexResources(const char *name) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     if (imgui_draw_data) {
 		zest_imgui imgui_info = &ZestRenderer->imgui_info;
-		zest_resource_node node = zest_ImportBufferResource(name, imgui_info->vertex_device_buffer[imgui_info->fif]);
+		zest_resource_node node = zest_ImportBufferResource(name, imgui_info->vertex_device_buffer[imgui_info->fif], zest_imgui_VertexBufferProvider);
         return node;
     }
     return NULL;
@@ -195,7 +210,7 @@ zest_resource_node zest_imgui_ImportIndexResources(const char *name) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     if (imgui_draw_data) {
 		zest_imgui imgui_info = &ZestRenderer->imgui_info;
-		zest_resource_node node = zest_ImportBufferResource(name, imgui_info->index_device_buffer[imgui_info->fif]);
+		zest_resource_node node = zest_ImportBufferResource(name, imgui_info->index_device_buffer[imgui_info->fif], zest_imgui_IndexBufferProvider);
         return node;
     }
     return NULL;

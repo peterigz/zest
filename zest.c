@@ -7705,7 +7705,7 @@ VkSemaphore zest__get_semaphore_reference(zest_render_graph render_graph, zest_s
 zest_key zest__hash_render_graph_cache_key(zest_render_graph_cache_key_t *cache_key) {
     zest_key key = zest_Hash(&cache_key->auto_state, sizeof(zest_render_graph_auto_state_t), ZEST_HASH_SEED);
     if (cache_key->user_state && cache_key->user_state_size) {
-        key += zest_Hash(&cache_key->user_state, cache_key->user_state_size, ZEST_HASH_SEED);
+        key += zest_Hash(cache_key->user_state, cache_key->user_state_size, ZEST_HASH_SEED);
     }
     return key;
 }
@@ -7751,6 +7751,8 @@ zest_render_graph_cache_key_t zest_InitialiseCacheKey(zest_swapchain swapchain, 
     key.auto_state.render_format = swapchain->vk_format;
     key.auto_state.render_width = swapchain->vk_extent.width;
     key.auto_state.render_height = swapchain->vk_extent.height;
+    key.user_state = user_state;
+    key.user_state_size = user_state_size;
     return key;
 }
 
@@ -8625,6 +8627,9 @@ zest_render_graph zest__compile_render_graph() {
             } else {
                 ZEST__REPORT(zest_report_resource_culled, "Transient resource [%s] was culled because it's was not consumed by any other passes. If you intended to use this output outside of the render graph once it's executed then you can call zest_FlagResourceAsEssential.", resource->name);
             }
+        } else if (resource->buffer_provider || resource->image_provider) {
+			zest_pass_group_t *first_pass = &render_graph->final_passes.data[resource->first_usage_pass_idx];
+            zest_vec_linear_push(allocator, first_pass->imported_resources_to_update, resource);
         }
     }
 
@@ -8942,6 +8947,15 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
                     zest__create_transient_resource(resource);
                 }
 
+                zest_vec_foreach(r, grouped_pass->imported_resources_to_update) {
+                    zest_resource_node resource = grouped_pass->imported_resources_to_update[r];
+					if (resource->buffer_provider) {
+						resource->storage_buffer = resource->buffer_provider(resource);
+                    } else if (resource->image_provider) {
+						resource->image_buffer.image_handles = resource->image_provider(resource);
+                    }
+                }
+
                 //Batch execute acquire barriers for images and buffers
                 if (zest_vec_size(exe_details->barriers.acquire_buffer_barriers) > 0 ||
                     zest_vec_size(exe_details->barriers.acquire_image_barriers) > 0) {
@@ -8949,9 +8963,6 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
                         VkBufferMemoryBarrier *barrier = &exe_details->barriers.acquire_buffer_barriers[resource_index];
                         zest_resource_node resource = exe_details->barriers.acquire_buffer_barrier_nodes[resource_index];
 						zest_buffer buffer = resource->storage_buffer;
-                        if (resource->buffer_provider) {
-                            resource->storage_buffer = resource->buffer_provider(resource);
-                        }
 						barrier->buffer = buffer->vk_buffer;
 						barrier->size = buffer->size;
 						barrier->offset = buffer->buffer_offset;
@@ -8959,9 +8970,6 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
                     zest_vec_foreach(resource_index, exe_details->barriers.acquire_image_barriers) {
                         VkImageMemoryBarrier *barrier = &exe_details->barriers.acquire_image_barriers[resource_index];
                         zest_resource_node resource = exe_details->barriers.acquire_image_barrier_nodes[resource_index];
-                        if (resource->image_provider) {
-                            resource->image_buffer.image_handles = resource->image_provider(resource);
-                        }
                         barrier->image = resource->image_buffer.image_handles.image;
                         ZEST_ASSERT(barrier->image);    //The image handle in the resource is null, if the resource is not
                                                         //transient then can resource provider callback must be set in the resource.
@@ -9404,6 +9412,14 @@ zest_text_t zest__vulkan_queue_flags_to_string(VkQueueFlags flags) {
         flags_field &= ~(1ull << index);
     }
     return string;
+}
+
+void zest_PrintCachedRenderGraph(zest_render_graph_cache_key_t *cache_key) {
+    zest_key key = zest__hash_render_graph_cache_key(cache_key);
+    zest_render_graph render_graph = zest__get_cached_render_graph(key);
+    if (render_graph) {
+        zest_PrintCompiledRenderGraph(render_graph);
+    }
 }
 
 void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
@@ -9918,7 +9934,7 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
 zest_resource_node zest_ImportFontResource(const zest_font font) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    return zest_ImportImageResource(font->texture->name.str, font->texture);
+    return zest_ImportImageResource(font->texture->name.str, font->texture, 0);
 }
 
 zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer) {
@@ -9963,20 +9979,22 @@ zest_resource_node_t zest__create_import_image_resource_node(const char *name, z
     return node;
 }
 
-zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture) {
+zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, zest_resource_image_provider provider) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = zest__create_import_image_resource_node(name, texture);
     node.final_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     node.current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
+    node.image_provider = provider;
     return zest__add_render_graph_resource(&node);
 }
 
-zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer) {
+zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = zest__create_import_buffer_resource_node(name, buffer);
+    node.buffer_provider = provider;
     return zest__add_render_graph_resource(&node);
 }
 

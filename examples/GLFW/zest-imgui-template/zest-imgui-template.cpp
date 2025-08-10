@@ -99,14 +99,19 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		InitImGuiApp(app);
 	}
 
+	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
+	app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+	zest_render_graph_cache_key_t cache_key = {};
+	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
+
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "ImGui")) {
+	if (zest_BeginRenderToScreen(swapchain, "ImGui", &cache_key)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
 		//Import our test texture with the Bunny sprite
-		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture);
+		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
@@ -125,6 +130,12 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);
+			app->request_graph_print = false;
+		}
+	} else {
+		if (app->request_graph_print) {
+			//You can print out the render graph for debugging purposes
+			zest_PrintCachedRenderGraph(&cache_key);
 			app->request_graph_print = false;
 		}
 	}

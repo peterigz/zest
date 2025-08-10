@@ -15,7 +15,10 @@ void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bo
 bool zest_imgui_DrawButton(zest_image image, const char* user_texture_id, float width, float height, int frame_padding);
 void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned char* pixels);
 zest_pass_node zest_imgui_AddToRenderGraph();
+zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource);
+zest_buffer zest_imgui_IndexBufferProvider(zest_resource_node resource);
 void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 void zest_imgui_DarkStyle();
+bool zest_imgui_HasGuiToDraw();
 

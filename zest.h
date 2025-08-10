@@ -2912,6 +2912,7 @@ typedef struct zest_pass_group_t {
     zest_map_resource_usages outputs;
     zest_uint *transient_resources_to_create;
     zest_uint *transient_resources_to_free;
+    zest_resource_node *imported_resources_to_update;
     zest_uint submission_id;
     zest_execution_details_t execution_details;
     zest_pass_node *passes;
@@ -3187,13 +3188,11 @@ ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
 // --- Render target groups ---
 ZEST_API zest_output_group zest_CreateOutputGroup();
 ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_output_group group);
-ZEST_API void zest_AddDepthToRenderTargetGroup(zest_output_group group, zest_resource_node depth_resource);
 ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image);
 
 // --- Import external resouces into the render graph ---
-ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture);
-ZEST_API zest_resource_node zest_ImportStorageBufferResource(const char *name, zest_buffer buffer);
-ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer);
+ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, zest_resource_image_provider provider);
+ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
 ZEST_API zest_resource_node zest_ImportFontResource(const zest_font font);
 
 // --- Manual Barrier Functions
@@ -3223,6 +3222,7 @@ ZEST_PRIVATE zest_text_t zest__vulkan_queue_flags_to_string(VkQueueFlags flags);
 
 // --- Render graph debug functions ---
 ZEST_API void zest_PrintCompiledRenderGraph(zest_render_graph render_graph);
+ZEST_API void zest_PrintCachedRenderGraph(zest_render_graph_cache_key_t *cache_key);
 
 // --- [Swapchain_helpers]
 ZEST_API zest_swapchain zest_GetSwapchain(const char *name);
