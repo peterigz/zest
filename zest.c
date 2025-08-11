@@ -1607,6 +1607,11 @@ zest_bool zest__create_instance() {
 
         if (zest__validation_layers_with_sync_are_enabled()) {
             zest_vec_push(enabled_validation_features, VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT);
+        }
+        if (zest__validation_layers_with_best_practices_are_enabled()) {
+            zest_vec_push(enabled_validation_features, VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT);
+        }
+        if(zest_vec_size(enabled_validation_features)) {
             // Potentially add others like VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT for more advice
             VkValidationFeaturesEXT validation_features_ext = { 0 };
             validation_features_ext.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
@@ -2398,6 +2403,10 @@ zest_bool zest__validation_layers_are_enabled(void) {
 
 zest_bool zest__validation_layers_with_sync_are_enabled(void) {
     return ZEST__FLAGGED(ZestDevice->setup_info.flags, zest_init_flag_enable_validation_layers_with_sync);
+}
+
+zest_bool zest__validation_layers_with_best_practices_are_enabled(void) {
+    return ZEST__FLAGGED(ZestDevice->setup_info.flags, zest_init_flag_enable_validation_layers_with_best_practices);
 }
 
 void zest__do_scheduled_tasks(void) {
@@ -5843,7 +5852,7 @@ VkCommandPool zest__create_queue_command_pool(int queue_family_index) {
 	VkCommandPoolCreateInfo cmd_info_pool = { 0 };
 	cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	cmd_info_pool.queueFamilyIndex = queue_family_index;
-	cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT | VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+	cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
     VkCommandPool command_pool;
 	ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_command_pool);
 	ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &command_pool));
@@ -7598,6 +7607,9 @@ zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags fla
     if (flags & zest_validation_flag_enable_sync) {
         create_info.flags |= zest_init_flag_enable_validation_layers_with_sync;
     }
+    if (flags & zest_validation_flag_best_practices) {
+        create_info.flags |= zest_init_flag_enable_validation_layers_with_best_practices;
+    }
     return create_info;
 }
 
@@ -7738,6 +7750,26 @@ zest_image_handles_t zest__swapchain_resource_provider(zest_resource_node resour
         resource->swapchain->vk_image_views[resource->swapchain->current_image_frame]
     };
     return image_handles;
+}
+
+zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource) {
+    zest_layer layer = (zest_layer)resource->user_data;
+    ZEST_ASSERT_HANDLE(layer);  //Not a valid layer handle
+    zest_EndInstanceInstructions(layer); //Make sure the staging buffer memory in use is up to date
+    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
+		zest_size layer_size = zest_GetLayerInstanceSize(layer);
+        if (layer_size == 0) return NULL;
+        layer->fif = ZEST_FIF;
+        layer->dirty[ZEST_FIF] = 1;
+        zest_buffer_resource_info_t buffer_desc = { 0 };
+        buffer_desc.size = layer_size;
+        buffer_desc.usage_hints = zest_resource_usage_hint_vertex_buffer;
+    } else {
+        zest_uint fif = ZEST__FLAGGED(layer->flags, zest_layer_flag_use_prev_fif) ? layer->prev_fif : layer->fif;
+        layer->vertex_buffer_node->bindless_index[0] = layer->memory_refs[fif].device_vertex_data->array_index;
+        return layer->memory_refs[fif].device_vertex_data;
+    }
+    return NULL;
 }
 
 zest_render_graph zest__get_cached_render_graph(zest_key key) {
@@ -7902,7 +7934,7 @@ void zest__free_transient_resource(zest_resource_node resource) {
 }
 
 void zest__create_transient_resource(zest_resource_node resource) {
-    if (resource->type & zest_resource_type_is_image && resource->image_buffer.image_handles.image == VK_NULL_HANDLE) {
+    if (resource->type & zest_resource_type_is_image) {
         zest__create_transient_image(resource);
         resource->image_buffer.image_handles.view = zest__create_image_view(
             resource->image_buffer.image_handles.image,
@@ -8631,14 +8663,14 @@ zest_render_graph zest__compile_render_graph() {
                 zest_pass_group_t *first_pass = &render_graph->final_passes.data[resource->first_usage_pass_idx];
                 zest_pass_group_t *last_pass = &render_graph->final_passes.data[resource->last_usage_pass_idx];
 
-                zest_vec_linear_push(allocator, first_pass->transient_resources_to_create, resource_index);
-                zest_vec_linear_push(allocator, last_pass->transient_resources_to_free, resource_index);
+                zest_vec_linear_push(allocator, first_pass->transient_resources_to_create, resource);
+                zest_vec_linear_push(allocator, last_pass->transient_resources_to_free, resource);
             } else {
                 ZEST__REPORT(zest_report_resource_culled, "Transient resource [%s] was culled because it's was not consumed by any other passes. If you intended to use this output outside of the render graph once it's executed then you can call zest_FlagResourceAsEssential.", resource->name);
             }
-        } else if (resource->buffer_provider || resource->image_provider) {
-			zest_pass_group_t *first_pass = &render_graph->final_passes.data[resource->first_usage_pass_idx];
-            zest_vec_linear_push(allocator, first_pass->imported_resources_to_update, resource);
+        } 
+        if (resource->buffer_provider || resource->image_provider) {
+            zest_vec_linear_push(allocator, render_graph->resources_to_update, resource);
         }
     }
 
@@ -8907,6 +8939,15 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
     VkFence *fence = !is_intraframe ? ZestRenderer->fif_fence[ZEST_FIF] : ZestRenderer->intraframe_fence;
     zest_uint *fence_count = !is_intraframe ? &ZestRenderer->fence_count[ZEST_FIF] : &intraframe_fence_count;
 
+	zest_vec_foreach(resource_index, render_graph->resources_to_update) {
+		zest_resource_node resource = render_graph->resources_to_update[resource_index];
+		if (resource->buffer_provider) {
+			resource->storage_buffer = resource->buffer_provider(resource);
+		} else if (resource->image_provider) {
+			resource->image_buffer.image_handles = resource->image_provider(resource);
+		}
+	}
+
     zest_vec_foreach(submission_index, render_graph->submissions) {
         zest_wave_submission_t *wave_submission = &render_graph->submissions[submission_index];
         VkCommandBuffer command_buffer;
@@ -8951,18 +8992,8 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
 
                 //Create any transient resources where they're first used in this grouped_pass
                 zest_vec_foreach(r, grouped_pass->transient_resources_to_create) {
-                    zest_uint resource_index = grouped_pass->transient_resources_to_create[r];
-					zest_resource_node resource = zest_bucket_array_get(&render_graph->resources, zest_resource_node_t, resource_index);
+                    zest_resource_node resource = grouped_pass->transient_resources_to_create[r];
                     zest__create_transient_resource(resource);
-                }
-
-                zest_vec_foreach(r, grouped_pass->imported_resources_to_update) {
-                    zest_resource_node resource = grouped_pass->imported_resources_to_update[r];
-					if (resource->buffer_provider) {
-						resource->storage_buffer = resource->buffer_provider(resource);
-                    } else if (resource->image_provider) {
-						resource->image_buffer.image_handles = resource->image_provider(resource);
-                    }
                 }
 
                 //Batch execute acquire barriers for images and buffers
@@ -9109,8 +9140,7 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
                 }
 
                 zest_vec_foreach(r, grouped_pass->transient_resources_to_free) {
-                    zest_uint resource_index = grouped_pass->transient_resources_to_free[r];
-					zest_resource_node resource = zest_bucket_array_get(&render_graph->resources, zest_resource_node_t, resource_index);
+                    zest_resource_node resource = grouped_pass->transient_resources_to_free[r];
                     zest__free_transient_resource(resource);
                 }
                 //End pass
@@ -9272,10 +9302,13 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
 	zest_bucket_array_foreach(index, render_graph->resources) {
 		zest_resource_node resource = zest_bucket_array_get(&render_graph->resources, zest_resource_node_t, index);
 		if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_transient)) {
-			if (resource->storage_buffer) {
-				//zest__deferr_buffer_destruction(resource->storage_buffer);
-			} else if(resource->image_buffer.image_handles.image) {
+			if(resource->image_buffer.image_handles.image) {
 				zest__deferr_image_destruction(&resource->image_buffer);
+                resource->image_buffer.image_handles = (zest_image_handles_t){ 0 };
+                resource->image_buffer.mip_indexes = (zest_map_mip_indexes){ 0 };
+                resource->mip_level_bindless_indexes = 0;
+                resource->image_buffer.mip_views = 0;
+                resource->image_buffer.multi_mip_view = 0;
 			}
 		}
         //Reset the resource state indexes (the point in their graph journey). This is necessary for cached
@@ -9931,10 +9964,8 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle
-    zest_EndInstanceInstructions(layer); //Make sure the staging buffer memory in use is up to date
+    ZEST__MAYBE_FLAG(layer->flags, zest_layer_flag_use_prev_fif, prev_fif);
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-        layer->fif = ZEST_FIF;
-        layer->dirty[ZEST_FIF] = 1;
         zest_buffer_resource_info_t buffer_desc = { 0 };
         buffer_desc.size = layer_size;
         buffer_desc.usage_hints = zest_resource_usage_hint_vertex_buffer;
@@ -9945,6 +9976,8 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
 		layer->vertex_buffer_node = zest__add_render_graph_resource(&node);
         layer->vertex_buffer_node->bindless_index[0] = layer->memory_refs[fif].device_vertex_data->array_index;
     }
+    layer->vertex_buffer_node->user_data = layer;
+    layer->vertex_buffer_node->buffer_provider = zest__instance_layer_resource_provider;
     return layer->vertex_buffer_node;
 }
 
@@ -13503,6 +13536,7 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_cont
 	//Grab the app object from the user_data that we set in the render graph when adding this function callback 
 	zest_layer layer = (zest_layer)user_data;
     ZEST_ASSERT_HANDLE(layer);       //Not a valid layer. Make sure that you pass in the font layer to the zest_AddPassTask function
+
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
 	VkDeviceSize instance_data_offsets[] = { device_buffer->buffer_offset };
 	vkCmdBindVertexBuffers(command_buffer, 0, 1, &device_buffer->vk_buffer, instance_data_offsets);

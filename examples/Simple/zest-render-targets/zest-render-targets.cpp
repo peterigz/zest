@@ -321,7 +321,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	//Create the render graph
 	zest_SetSwapchainClearColor(swapchain, 0.f, .1f, .2f, 1.f);
-	if (zest_BeginRenderToScreen(swapchain, "Bloom Example Render Graph", 0)) {
+	if (zest_BeginRenderToScreen(swapchain, "Bloom Example Render Graph", &cache_key)) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 
 		//Add resources
@@ -393,7 +393,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main()
 {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync | zest_validation_flag_best_practices);
 	//zest_create_info_t create_info = zest_CreateInfo();
 	//ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

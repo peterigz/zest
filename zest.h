@@ -1298,23 +1298,25 @@ typedef enum zest_init_flag_bits {
     zest_init_flag_disable_shaderc                              = 1 << 5,
     zest_init_flag_enable_validation_layers                     = 1 << 6,
     zest_init_flag_enable_validation_layers_with_sync           = 1 << 7,
-    zest_init_flag_log_validation_errors_to_console             = 1 << 8,
-    zest_init_flag_log_validation_errors_to_memory              = 1 << 9,
+    zest_init_flag_enable_validation_layers_with_best_practices = 1 << 8,
+    zest_init_flag_log_validation_errors_to_console             = 1 << 9,
+    zest_init_flag_log_validation_errors_to_memory              = 1 << 10,
 } zest_init_flag_bits;
 
 typedef zest_uint zest_init_flags;
 
 typedef enum zest_validation_flag_bits {
-    zest_validation_flag_none                                         = 0,
-    zest_validation_flag_enable_sync                                  = 1,
+    zest_validation_flag_none                                   = 0,
+    zest_validation_flag_enable_sync                            = 1 << 0,
+    zest_validation_flag_best_practices                         = 1 << 1,
 } zest_validation_flag_bits;
 
 typedef zest_uint zest_validation_flags;
 
 typedef enum zest_buffer_upload_flag_bits {
-    zest_buffer_upload_flag_initialised                           = 1 << 0,                //Set to true once AddCopyCommand has been run at least once
-    zest_buffer_upload_flag_source_is_fif                         = 1 << 1,
-    zest_buffer_upload_flag_target_is_fif                         = 1 << 2
+    zest_buffer_upload_flag_initialised                         = 1 << 0,                //Set to true once AddCopyCommand has been run at least once
+    zest_buffer_upload_flag_source_is_fif                       = 1 << 1,
+    zest_buffer_upload_flag_target_is_fif                       = 1 << 2
 } zest_buffer_upload_flag_bits;
 
 typedef zest_uint zest_buffer_upload_flags;
@@ -1429,6 +1431,7 @@ typedef enum zest_layer_flag_bits {
     zest_layer_flag_device_local_direct                   = 1 << 1,    // Upload directly to device buffer (has issues so is disabled by default for now)
     zest_layer_flag_manual_fif                            = 1 << 2,    // Manually set the frame in flight for the layer
     zest_layer_flag_using_global_bindless_layout          = 1 << 3,    // Flagged if the layer is automatically setting the descriptor array index for the device buffers
+    zest_layer_flag_use_prev_fif                          = 1 << 4,    // Make the layer reference the last fif rather then the current one.
 } zest_layer_flag_bits;
 
 typedef enum zest_draw_buffer_result {
@@ -2910,9 +2913,8 @@ typedef struct zest_pass_group_t {
     zest_pass_queue_info_t queue_info;
     zest_map_resource_usages inputs;
     zest_map_resource_usages outputs;
-    zest_uint *transient_resources_to_create;
-    zest_uint *transient_resources_to_free;
-    zest_resource_node *imported_resources_to_update;
+    zest_resource_node *transient_resources_to_create;
+    zest_resource_node *transient_resources_to_free;
     zest_uint submission_id;
     zest_execution_details_t execution_details;
     zest_pass_node *passes;
@@ -3045,6 +3047,7 @@ typedef struct zest_render_graph_t {
     zest_map_passes final_passes; 
     zest_bucket_array_t resources; 
     zest_map_resource_versions resource_versions;
+    zest_resource_node *resources_to_update;
 
     zest_execution_timeline *wait_on_timelines;
     zest_execution_timeline *signal_timelines;
@@ -3133,8 +3136,15 @@ ZEST_PRIVATE zest_key zest__hash_render_graph_cache_key(zest_render_graph_cache_
 ZEST_PRIVATE zest_render_graph zest__get_cached_render_graph(zest_key key);
 ZEST_PRIVATE VkSemaphore zest__get_semaphore_reference(zest_render_graph render_graph, zest_semaphore_reference_t *reference);
 
+// Helper functions to convert enums to strings 
+ZEST_PRIVATE const char *zest__vulkan_image_layout_to_string(VkImageLayout layout);
+ZEST_PRIVATE zest_text_t zest__vulkan_access_flags_to_string(VkAccessFlags flags);
+ZEST_PRIVATE zest_text_t zest__vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
+ZEST_PRIVATE zest_text_t zest__vulkan_queue_flags_to_string(VkQueueFlags flags);
+
 // --- Dynamic resource callbacks ---
 ZEST_PRIVATE zest_image_handles_t zest__swapchain_resource_provider(zest_resource_node resource);
+ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource);
 
 // --- Utility callbacks ---
 ZEST_API void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
@@ -3213,12 +3223,6 @@ ZEST_API bool zest_RenderGraphWasExecuted(zest_render_graph render_graph);
 
 // --- Syncronization Helpers ---
 ZEST_API zest_execution_timeline zest_CreateExecutionTimeline();
-
-// Helper functions to convert enums to strings 
-ZEST_PRIVATE const char *zest__vulkan_image_layout_to_string(VkImageLayout layout);
-ZEST_PRIVATE zest_text_t zest__vulkan_access_flags_to_string(VkAccessFlags flags);
-ZEST_PRIVATE zest_text_t zest__vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
-ZEST_PRIVATE zest_text_t zest__vulkan_queue_flags_to_string(VkQueueFlags flags);
 
 // --- Render graph debug functions ---
 ZEST_API void zest_PrintCompiledRenderGraph(zest_render_graph render_graph);
@@ -4161,6 +4165,7 @@ ZEST_PRIVATE void zest__main_loop(void);
 ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
 ZEST_PRIVATE zest_bool zest__validation_layers_are_enabled(void);
 ZEST_PRIVATE zest_bool zest__validation_layers_with_sync_are_enabled(void);
+ZEST_PRIVATE zest_bool zest__validation_layers_with_best_practices_are_enabled(void);
 //-- end of internal functions
 
 //-- Window_related_functions
