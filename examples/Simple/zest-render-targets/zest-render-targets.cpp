@@ -315,9 +315,13 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		7
 	};
 
+	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
+	zest_render_graph_cache_key_t cache_key = {};
+	cache_key = zest_InitialiseCacheKey(swapchain, 0, 0);
+
 	//Create the render graph
-	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, .1f, .2f, 1.f);
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Bloom Example Render Graph")) {
+	zest_SetSwapchainClearColor(swapchain, 0.f, .1f, .2f, 1.f);
+	if (zest_BeginRenderToScreen(swapchain, "Bloom Example Render Graph", 0)) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 
 		//Add resources

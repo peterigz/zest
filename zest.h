@@ -3864,7 +3864,7 @@ typedef struct zest_renderer_t {
     zest_swapchain main_swapchain;
 
     //Linear allocator for building the render graph each frame
-    zloc_linear_allocator_t *render_graph_allocator;
+    zloc_linear_allocator_t *render_graph_allocator[ZEST_MAX_FIF];
 
     //Small utility allocator for per function tempory allocations
     zloc_linear_allocator_t *utility_allocator;
