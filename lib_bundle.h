@@ -1218,39 +1218,34 @@ ZLOC_API void* zloc_PromoteLinearBlock(zloc_allocator *allocator, void* linear_a
     zloc_size original_block_size = zloc__block_size(block);
     zloc_size aligned_keep_size = zloc__adjust_size(used_size, zloc__MINIMUM_BLOCK_SIZE, zloc__MEMORY_ALIGNMENT);
 
-    // Check if there's enough space remaining to create a new free block.
-    // The remaining space must be at least the minimum block size.
     if (original_block_size <= aligned_keep_size + zloc__MINIMUM_BLOCK_SIZE) {
         // Not enough space to split, so we just "promote" the whole block by doing nothing.
         zloc__unlock_thread_access;
         return linear_alloc_mem;
     }
 
-    // This logic is adapted from zloc__maybe_split_block
+    zloc_header *next_block = zloc__next_physical_block(block); 
+    zloc_size new_free_block_size = (char *)next_block - ((char *)linear_alloc_mem + aligned_keep_size);
+    zloc_header *trimmed_free_block = (zloc_header *)((char *)linear_alloc_mem + aligned_keep_size);
 
-    // 1. Calculate the size of the new block that will be freed.
-    zloc_size new_free_block_size = original_block_size - aligned_keep_size - zloc__BLOCK_POINTER_OFFSET;
-
-    // 2. Find the location of the new free block's header.
-    zloc_header *trimmed_free_block = (zloc_header*)((char*)zloc__block_user_ptr(block) + aligned_keep_size);
-    
-    // 3. Set the size and mark the new block as free (initially).
+    new_free_block_size -= zloc__BLOCK_POINTER_OFFSET;
     zloc__set_block_size(trimmed_free_block, new_free_block_size);
     zloc__block_set_free(trimmed_free_block);
-
-    // 4. Update the original block's size to the new, smaller size.
     zloc__set_block_size(block, aligned_keep_size);
 
-    // 5. Link the blocks physically.
-    zloc_header *next_block = zloc__next_physical_block(block); // This should be the old next block
     zloc__set_prev_physical_block(next_block, trimmed_free_block);
     zloc__set_prev_physical_block(trimmed_free_block, block);
-
-    // 6. The new free block's "prev is free" flag should reflect the state of our promoted block.
-    // Since our promoted block is used, the flag should be unset.
     zloc__block_set_prev_used(trimmed_free_block);
 
-    // 7. Push the new trimmed block onto the free list.
+    zloc_header *next_block_from_trimmed_block = zloc__next_physical_block(trimmed_free_block);
+    zloc_header *next_block_from_promoted_block = zloc__next_physical_block(block);
+
+    //Sanity checks to double check the blocks all connect up
+    ZLOC_ASSERT(next_block_from_trimmed_block == next_block);
+    ZLOC_ASSERT(next_block_from_promoted_block == trimmed_free_block);
+    ZLOC_ASSERT(block == trimmed_free_block->prev_physical_block);
+    ZLOC_ASSERT(trimmed_free_block == next_block->prev_physical_block);
+
     zloc__push_block(allocator, trimmed_free_block);
 
     zloc__unlock_thread_access;

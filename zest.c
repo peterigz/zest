@@ -1467,6 +1467,9 @@ zest_bool zest_Initialise(zest_create_info_t* info) {
 
 void zest_Start() {
     zest__main_loop();
+}
+
+void zest_Shutdown(void) {
     zest__destroy();
 }
 
@@ -2638,6 +2641,10 @@ void zest__add_host_memory_pool(zest_size size) {
 
 void* zest__allocate(zest_size size) {
     void* allocation = zloc_Allocate(ZestDevice->allocator, size);
+	//ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)ZestDevice->allocator;
+    // If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
+    // it should print out the offset from the allocator, you can use that offset to break here and 
+    // find out what's being allocated.
     if (!allocation) {
         zest__add_host_memory_pool(size);
         allocation = zloc_Allocate(ZestDevice->allocator, size);
@@ -3059,9 +3066,6 @@ zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t* buffer_info
         buffer_allocator->allocator->unable_to_reallocate_callback = zest__on_reallocation_copy;
         buffer_allocator->allocator->merge_next_callback = zest__remote_merge_next_callback;
         buffer_allocator->allocator->merge_prev_callback = zest__remote_merge_prev_callback;
-        if (buffer_pool->size == 1) {
-            int d = 0;
-        }
         zloc_AddRemotePool(buffer_allocator->allocator, range_pool, range_pool_size, buffer_pool->size);
     }
 
@@ -15491,6 +15495,7 @@ const char *zest__struct_type_to_string(zest_struct_type struct_type) {
 	case zest_struct_type_vector                  : return "vector"; break;
 	case zest_struct_type_bitmap                  : return "bitmap"; break;
 	case zest_struct_type_render_target_group     : return "render_target_group"; break;
+	case zest_struct_type_slang_info              : return "slang_info"; break;
     default: return "UNKNOWN"; break;
     }
     return "UNKNOWN";
@@ -15566,7 +15571,8 @@ void zest__print_block_info(void *allocation, zloc_header *current_block, zest_v
                 );
 			} else if(zloc__block_size(current_block) > 0) {
 				//Unknown block, print what we can about it
-				ZEST_PRINT("Unknown Block - size: %zu (%p)", zloc__block_size(current_block), allocation);
+                ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)ZestDevice->allocator;
+				ZEST_PRINT("Unknown Block - size: %zu (%p) Offset from allocator: %zu", zloc__block_size(current_block), allocation, offset_from_allocator);
             }
         }
     }

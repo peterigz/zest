@@ -1175,6 +1175,7 @@ typedef enum zest_struct_type {
     zest_struct_type_vector                  = 34 << 16,
     zest_struct_type_bitmap                  = 35 << 16,
     zest_struct_type_render_target_group     = 36 << 16,
+    zest_struct_type_slang_info              = 37 << 16,
 } zest_struct_type;
 
 typedef enum zest_vulkan_memory_context {
@@ -4189,6 +4190,8 @@ ZEST_API void zest_SetUserData(void* data);
 ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
 //Start the main loop in the zest renderer. Must be run after zest_Initialise and also zest_SetUserUpdateCallback
 ZEST_API void zest_Start(void);
+//Shutdown zest and unload/free everything. Call this after zest_Start.
+ZEST_API void zest_Shutdown(void);
 //Free all memory used in the renderer and reset it back to an initial state.
 ZEST_API void zest_ResetRenderer();
 //Set the create info for the renderer, to be used optionally before a call to zest_ResetRenderer to change the configuration
