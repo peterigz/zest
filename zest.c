@@ -2690,11 +2690,11 @@ void zest__unmap_memory(zest_device_memory_pool memory_allocation) {
 }
 
 void zest__destroy_memory(zest_device_memory_pool memory_allocation) {
-    if (memory_allocation->memory) {
-        vkFreeMemory(ZestDevice->logical_device, memory_allocation->memory, &ZestDevice->allocation_callbacks);
-    }
     if (memory_allocation->vk_buffer != VK_NULL_HANDLE) {
         vkDestroyBuffer(ZestDevice->logical_device, memory_allocation->vk_buffer, &ZestDevice->allocation_callbacks);
+    }
+    if (memory_allocation->memory) {
+        vkFreeMemory(ZestDevice->logical_device, memory_allocation->memory, &ZestDevice->allocation_callbacks);
     }
     memory_allocation->mapped = ZEST_NULL;
 }

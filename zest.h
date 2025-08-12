@@ -4134,8 +4134,8 @@ ZEST_PRIVATE void zest__free_shader_resources(zest_shader_resources shader_resou
 ZEST_PRIVATE zest_bool zest__create_instance();
 ZEST_PRIVATE void zest__setup_validation(void);
 ZEST_PRIVATE VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
-ZEST_PRIVATE VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
-ZEST_PRIVATE void zest_destroy_debug_messenger(void);
+ZEST_PRIVATE VkResult zest__create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
+ZEST_PRIVATE void zest__destroy_debug_messenger(void);
 ZEST_PRIVATE void zest__pick_physical_device(void);
 ZEST_PRIVATE zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_bool zest__device_is_discrete_gpu(VkPhysicalDevice physical_device);
