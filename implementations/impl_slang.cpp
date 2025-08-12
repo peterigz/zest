@@ -8,6 +8,7 @@ zest_slang_info_t *zest_slang_Session() {
 void zest_slang_InitialiseSession() {
     void *memory = zest_AllocateMemory(sizeof(zest_slang_info_t));
     zest_slang_info_t *slang_info = new (memory) zest_slang_info_t();
+    slang_info->magic = zest_INIT_MAGIC(zest_struct_type_slang_info);
     slang::createGlobalSession(slang_info->global_session.writeRef());
     ZestRenderer->slang_info = slang_info;
 }

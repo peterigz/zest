@@ -6,6 +6,7 @@
 #include <slang/slang-com-helper.h>
 
 typedef struct zest_slang_info_s {
+    int magic;
     Slang::ComPtr<slang::IGlobalSession> global_session;
 } zest_slang_info_t;
 
