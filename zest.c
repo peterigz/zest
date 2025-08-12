@@ -1652,10 +1652,15 @@ zest_bool zest__create_instance() {
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
+    if (pCallbackData->messageIdNumber == 1734198062) {
+        //Just ignore the best practice "Hey validation errors are for debug only".
+        return VK_FALSE;
+    }
     if (ZestDevice->log_path.str) {
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validation Layer: %s", pCallbackData->pMessage);
     }
     if(ZEST__FLAGGED(ZestApp->create_info.flags, zest_init_flag_log_validation_errors_to_console)) {
+        ZEST_PRINT("%s", pCallbackData->pMessageIdName);
         ZEST_PRINT("Validation Layer: %s", pCallbackData->pMessage);
         ZEST_PRINT("-------------------------------------------------------");
     }
@@ -1670,7 +1675,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSev
     return VK_FALSE;
 }
 
-VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
+VkResult zest__create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
     PFN_vkCreateDebugUtilsMessengerEXT func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
     if (func != ZEST_NULL) {
         return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
@@ -1680,7 +1685,7 @@ VkResult zest_create_debug_messenger(VkInstance instance, const VkDebugUtilsMess
     }
 }
 
-void zest_destroy_debug_messenger(void) {
+void zest__destroy_debug_messenger(void) {
     if (ZestDevice->debug_messenger != VK_NULL_HANDLE) {
         PFN_vkDestroyDebugUtilsMessengerEXT destroyDebugUtilsMessenger =
             (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(ZestDevice->instance, "vkDestroyDebugUtilsMessengerEXT");
@@ -1701,7 +1706,7 @@ void zest__setup_validation(void) {
     create_info.pfnUserCallback = zest_debug_callback;
 
     ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_debug_messenger);
-    ZEST_VK_CHECK_RESULT(zest_create_debug_messenger(ZestDevice->instance, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->debug_messenger));
+    ZEST_VK_CHECK_RESULT(zest__create_debug_messenger(ZestDevice->instance, &create_info, &ZestDevice->allocation_callbacks, &ZestDevice->debug_messenger));
 
     ZestDevice->pfnSetDebugUtilsObjectNameEXT = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(ZestDevice->instance, "vkSetDebugUtilsObjectNameEXT");
 }
@@ -2165,10 +2170,12 @@ zest_bool zest__create_logical_device() {
     VkCommandPoolCreateInfo cmd_info_pool = { 0 };
     cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     cmd_info_pool.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
-    cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating command pools");
+    cmd_info_pool.flags = 0;    //Maybe needs transient bit?
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating one time command pools");
 	ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_command_pool);
-    ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->one_time_command_pool));
+    zest_ForEachFrameInFlight(fif) {
+        ZEST_VK_CHECK_RESULT(vkCreateCommandPool(ZestDevice->logical_device, &cmd_info_pool, &ZestDevice->allocation_callbacks, &ZestDevice->one_time_command_pool[fif]));
+    }
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create queue command buffer pools");
     zest__create_command_buffer_pools();
@@ -2372,8 +2379,10 @@ void zest__destroy(void) {
     zloc_allocator *allocator = ZestDevice->allocator;
     zest__cleanup_renderer();
     zest__cleanup_device();
-    zest_destroy_debug_messenger();
-    vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->one_time_command_pool, &ZestDevice->allocation_callbacks);
+    zest__destroy_debug_messenger();
+    zest_ForEachFrameInFlight(fif) {
+        vkDestroyCommandPool(ZestDevice->logical_device, ZestDevice->one_time_command_pool[fif], &ZestDevice->allocation_callbacks);
+    }
     vkDestroyDevice(ZestDevice->logical_device, &ZestDevice->allocation_callbacks);
     vkDestroyInstance(ZestDevice->instance, &ZestDevice->allocation_callbacks);
     zest_ResetValidationErrors();
@@ -3568,10 +3577,12 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     VkCommandBufferAllocateInfo alloc_info = { 0 };
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = ZEST_MAX_FIF;
-    alloc_info.commandPool = ZestDevice->one_time_command_pool;
+    alloc_info.commandBufferCount = 1;
 	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_command_buffer);
-    ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, ZestRenderer->utility_command_buffer));
+    zest_ForEachFrameInFlight(fif) {
+		alloc_info.commandPool = ZestDevice->one_time_command_pool[fif];
+        ZEST_VK_CHECK_RESULT(vkAllocateCommandBuffers(ZestDevice->logical_device, &alloc_info, &ZestRenderer->utility_command_buffer[fif]));
+    }
 
     zest_ForEachFrameInFlight(fif) {
 		void *render_graph_linear_memory = ZEST__ALLOCATE(zloc__MEGABYTE(1));
@@ -6954,7 +6965,7 @@ void zest__dummy_submit_fence_only(void) {
 }
 
 void zest__dummy_submit_for_present_only(void) {
-    vkResetCommandBuffer(ZestRenderer->utility_command_buffer[ZEST_FIF], 0); // Or use appropriate reset flags
+    vkResetCommandPool(ZestDevice->logical_device, ZestDevice->one_time_command_pool[ZEST_FIF], 0); // Or use appropriate reset flags
 
     VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -7511,7 +7522,7 @@ VkCommandBuffer zest__begin_single_time_commands() {
     VkCommandBufferAllocateInfo alloc_info = { 0 };
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandPool = ZestDevice->one_time_command_pool;
+    alloc_info.commandPool = ZestDevice->one_time_command_pool[ZEST_FIF];
     alloc_info.commandBufferCount = 1;
 
     VkCommandBuffer command_buffer;
@@ -7538,7 +7549,7 @@ void zest__end_single_time_commands(VkCommandBuffer command_buffer) {
     vkQueueSubmit(ZestDevice->graphics_queue.vk_queue, 1, &submit_info, VK_NULL_HANDLE);
     vkQueueWaitIdle(ZestDevice->graphics_queue.vk_queue);
 
-    vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->one_time_command_pool, 1, &command_buffer);
+    vkFreeCommandBuffers(ZestDevice->logical_device, ZestDevice->one_time_command_pool[ZEST_FIF], 1, &command_buffer);
 }
 
 void zest__insert_image_memory_barrier(VkCommandBuffer cmdbuffer, VkImage image, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkImageSubresourceRange subresourceRange) {
@@ -10838,24 +10849,40 @@ void zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details
         subpass_desc.pResolveAttachments = VK_NULL_HANDLE;
 
         //Handle sub pass dependencies
+        VkPipelineStageFlags combined_attachment_stage_mask = 0;
+        VkAccessFlags combined_attachment_access_mask = 0;
+
+        // Collect stage masks from color attachments
+        zest_vec_foreach(c, exe_details->color_attachment_info) {
+            zest_resource_usage_t *usage_info = exe_details->color_attachment_info[c].usage_info;
+            combined_attachment_stage_mask |= usage_info->stage_mask;
+            combined_attachment_access_mask |= usage_info->access_mask;
+        }
+
+        // Collect stage masks from depth attachment, if present
+        if (exe_details->depth_attachment_info.resource_node) {
+            zest_resource_usage_t *usage_info = exe_details->depth_attachment_info.usage_info;
+            combined_attachment_stage_mask |= usage_info->stage_mask;
+            combined_attachment_access_mask |= usage_info->access_mask;
+        }
+
+        //Handle sub pass dependencies
         VkSubpassDependency initial_dependency = { 0 };
         initial_dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
         initial_dependency.dstSubpass = 0;
         initial_dependency.srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // A safe bet if barriers handle specifics
-        initial_dependency.dstStageMask = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;   // Stages where attachments are first used
+        initial_dependency.dstStageMask = combined_attachment_stage_mask;   // Stages where attachments are first used
         initial_dependency.srcAccessMask = 0;
-        initial_dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
-            VK_ACCESS_INPUT_ATTACHMENT_READ_BIT; // A broad mask - can be refined later?
+        initial_dependency.dstAccessMask = combined_attachment_access_mask; // A broad mask - can be refined later?
         initial_dependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
         render_pass_hash += zest_Hash(&initial_dependency, sizeof(VkSubpassDependency), ZEST_HASH_SEED);
 
         VkSubpassDependency final_dependency = { 0 };
         final_dependency.srcSubpass = 0;
         final_dependency.dstSubpass = VK_SUBPASS_EXTERNAL;
-        final_dependency.srcStageMask = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;		// Stages where attachments were last used
-        final_dependency.dstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;      // Stages of subsequent operations
-        final_dependency.srcAccessMask = initial_dependency.dstAccessMask;      // Accesses this subpass performed
+        final_dependency.srcStageMask = combined_attachment_stage_mask;		// Stages where attachments were last used
+        final_dependency.dstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;	// Stages of subsequent operations
+        final_dependency.srcAccessMask = combined_attachment_access_mask;	// Accesses this subpass performed
         final_dependency.dstAccessMask = 0; // Subsequent access will be handled by next pass's barriers/RP
         final_dependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
         render_pass_hash += zest_Hash(&final_dependency, sizeof(VkSubpassDependency), ZEST_HASH_SEED);

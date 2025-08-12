@@ -2723,7 +2723,7 @@ typedef struct zest_device_t {
     VkPhysicalDeviceFeatures features;
     VkPhysicalDeviceMemoryProperties memory_properties;
     VkQueueFamilyProperties *queue_families;
-    VkCommandPool one_time_command_pool;		
+    VkCommandPool one_time_command_pool[ZEST_MAX_FIF];		
     PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
     VkFormat color_format;
 
