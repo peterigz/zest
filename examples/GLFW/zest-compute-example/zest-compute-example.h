@@ -29,6 +29,10 @@ struct ParticleFragmentPush {
 	int gradient_index;
 };
 
+struct RenderCacheInfo {
+	bool draw_imgui;
+};
+
 struct ImGuiApp {
 	zest_imgui imgui_info;
 
@@ -41,6 +45,7 @@ struct ImGuiApp {
 	zest_compute compute;
 
 	zest_timer loop_timer;
+	RenderCacheInfo cache_info;
 
 	float frame_timer;
 	float anim_start;

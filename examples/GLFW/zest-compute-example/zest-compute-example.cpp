@@ -119,7 +119,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->compute = zest_FinishCompute(&builder, "Particles Compute");
 
 	//Create a timer for a fixed update loop
-	app->loop_timer = zest_CreateTimer(60.0);
+	app->loop_timer = zest_CreateTimer("Update Loop Timer", 60.0);
 }
 
 void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
@@ -210,24 +210,36 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
 		if (ImGui::Button("Print Render Graph")) {
 			app->request_graph_print = true;
+			zest_map_foreach(i, ZestRenderer->buffer_allocators) {
+				zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
+				zest_vec_foreach(j, buffer_allocator->range_pools) {
+					ZEST_PRINT("%p", buffer_allocator->range_pools[j]);
+				}
+			}
+
 		}
 		ImGui::End();
 		ImGui::Render();
 		zest_imgui_UpdateBuffers();
 	} zest_EndTimerLoop(app->loop_timer)
 
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Compute Particles")) {
+	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
+	app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+	zest_render_graph_cache_key_t cache_key = {};
+	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
+
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Compute Particles", &cache_key)) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Resources
-		zest_resource_node particle_buffer = zest_ImportStorageBufferResource("particle buffer", app->particle_buffer);
+		zest_resource_node particle_buffer = zest_ImportBufferResource("particle buffer", app->particle_buffer, 0);
 
 		//---------------------------------Compute Pass-----------------------------------------------------
 		zest_pass_node compute_pass = zest_AddComputePassNode(app->compute, "Compute Particles");
 		//inputs
-		zest_ConnectStorageBufferInput(compute_pass, particle_buffer);
+		zest_ConnectInput(compute_pass, particle_buffer, 0);
 		//outputs
-		zest_ConnectStorageBufferOutput(compute_pass, particle_buffer);
+		zest_ConnectOutput(compute_pass, particle_buffer);
 		//tasks
 		zest_SetPassTask(compute_pass, RecordComputeCommands, app);
 		//--------------------------------------------------------------------------------------------------
@@ -235,9 +247,9 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Render Pass------------------------------------------------------
 		zest_pass_node render_pass = zest_AddRenderPassNode("Graphics Pass");
 		//inputs
-		zest_ConnectVertexBufferInput(render_pass, particle_buffer);
+		zest_ConnectInput(render_pass, particle_buffer, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(render_pass, clear_color);
+		zest_ConnectSwapChainOutput(render_pass);
 		//tasks
 		zest_SetPassTask(render_pass, RecordComputeSprites, app);
 		//--------------------------------------------------------------------------------------------------
@@ -246,7 +258,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
 		if (imgui_pass) {
-			zest_ConnectSwapChainOutput(imgui_pass, clear_color);
+			zest_ConnectSwapChainOutput(imgui_pass);
 		}
 		//----------------------------------------------------------------------------------------------------
 
@@ -263,8 +275,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	//zest_create_info_t create_info = zest_CreateInfo();
+	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfo();
 	//Disable vsync so we can see how fast it runs
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
@@ -286,6 +298,8 @@ int main(void) {
 
 	//Start the mainloop in Zest
 	zest_Start();
+	zest_slang_Shutdown();
+	zest_Shutdown();
 
 	return 0;
 }
