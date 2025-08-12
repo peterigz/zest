@@ -8004,7 +8004,7 @@ void zest__add_image_barriers(zest_render_graph render_graph, zloc_linear_alloca
             zest_resource_usage_t *prev_usage = &prev_state->usage;
             //Acquire the resource. No transitioning is done here, acquire only if needed
             zest__add_image_barrier(resource, barriers, true,
-                VK_ACCESS_NONE, current_usage->access_mask | VK_ACCESS_SHADER_WRITE_BIT,
+                VK_ACCESS_NONE, current_usage->access_mask,
                 prev_usage->image_layout, current_usage->image_layout,
                 src_queue_family_index, dst_queue_family_index,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, current_state->usage.stage_mask);
