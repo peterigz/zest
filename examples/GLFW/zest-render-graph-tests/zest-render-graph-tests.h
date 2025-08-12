@@ -8,7 +8,7 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
 
-#define TEST_COUNT 16
+#define TEST_COUNT 17
 
 struct ZestTests;
 struct Test;
@@ -37,6 +37,7 @@ struct Test {
 	zest_render_graph_result result;
 	zest_render_graph_result expected_result;
 	zest_create_info_t create_info;
+	int cache_count;
 };
 
 struct ZestTests {
