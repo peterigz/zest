@@ -1048,7 +1048,7 @@ void VadersGame::Update(float ellapsed) {
 	zest_tfx_UpdateUniformBuffer(&tfx_rendering);
 
 	//Do all the rendering outside of the update loop
-//Set the font drawing to the font we loaded in the Init function
+	//Set the font drawing to the font we loaded in the Init function
 	zest_SetMSDFFontDrawing(font_layer, font);
 	//Render the background particles
 	if (zest_TimerUpdateWasRun(tfx_rendering.timer)) {
@@ -1112,7 +1112,7 @@ void VadersGame::Update(float ellapsed) {
 	cache_key = zest_InitialiseCacheKey(swapchain, &cache_info, sizeof(RenderCacheInfo));
 
 	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, 0.f, .2f, 1.f);
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "TimelineFX Render Graph", &cache_key)) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "TimelineFX Render Graph", 0)) {
 		zest_WaitOnTimeline(tfx_rendering.timeline);
 
 		//---------------------------------Resources-------------------------------------------------------
@@ -1202,6 +1202,12 @@ void VadersGame::Update(float ellapsed) {
 			zest_PrintCompiledRenderGraph(render_graph);
 			request_graph_print = false;
 		}
+	}
+	if (zest_SwapchainWasRecreated(swapchain)) {
+		top_left_bound = ScreenRay(0.f, 0.f, 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+		bottom_right_bound = ScreenRay(zest_ScreenWidthf(), zest_ScreenHeightf(), 10.f, tfx_rendering.camera.position, tfx_rendering.uniform_buffer);
+		zest_SetLayerViewPort(font_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
+		zest_SetLayerViewPort(billboard_layer, 0, 0, zest_ScreenWidth(), zest_ScreenHeight(), zest_ScreenWidthf(), zest_ScreenHeightf());
 	}
 }
 
