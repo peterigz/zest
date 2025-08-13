@@ -3559,7 +3559,7 @@ typedef struct zest_layer_t {
     zest_layer_instruction_t *draw_instructions[ZEST_MAX_FIF];
     zest_draw_mode last_draw_mode;
 
-    zest_resource_node vertex_buffer_node;  //TODO: this should be an index not a pointer
+    zest_resource_node vertex_buffer_node;  
     zest_resource_node index_buffer_node;
 
     zest_layer_flags flags;

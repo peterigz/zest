@@ -7770,6 +7770,7 @@ zest_image_handles_t zest__swapchain_resource_provider(zest_resource_node resour
 zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource) {
     zest_layer layer = (zest_layer)resource->user_data;
     ZEST_ASSERT_HANDLE(layer);  //Not a valid layer handle
+    layer->vertex_buffer_node = resource;
     zest_EndInstanceInstructions(layer); //Make sure the staging buffer memory in use is up to date
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
 		zest_size layer_size = zest_GetLayerInstanceSize(layer);
@@ -7781,7 +7782,7 @@ zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource) 
         buffer_desc.usage_hints = zest_resource_usage_hint_vertex_buffer;
     } else {
         zest_uint fif = ZEST__FLAGGED(layer->flags, zest_layer_flag_use_prev_fif) ? layer->prev_fif : layer->fif;
-        layer->vertex_buffer_node->bindless_index[0] = layer->memory_refs[fif].device_vertex_data->array_index;
+        resource->bindless_index[0] = layer->memory_refs[fif].device_vertex_data->array_index;
         return layer->memory_refs[fif].device_vertex_data;
     }
     return NULL;
@@ -9984,20 +9985,22 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle
     ZEST__MAYBE_FLAG(layer->flags, zest_layer_flag_use_prev_fif, prev_fif);
+    zest_resource_node resource = 0;
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         zest_buffer_resource_info_t buffer_desc = { 0 };
         buffer_desc.size = layer_size;
         buffer_desc.usage_hints = zest_resource_usage_hint_vertex_buffer;
-        layer->vertex_buffer_node = zest_AddTransientBufferResource(name, &buffer_desc);
+        resource = zest_AddTransientBufferResource(name, &buffer_desc);
     } else {
         zest_uint fif = prev_fif ? layer->prev_fif : layer->fif;
 		zest_resource_node_t node = zest__create_import_buffer_resource_node(name, layer->memory_refs[fif].device_vertex_data);
-		layer->vertex_buffer_node = zest__add_render_graph_resource(&node);
-        layer->vertex_buffer_node->bindless_index[0] = layer->memory_refs[fif].device_vertex_data->array_index;
+		resource = zest__add_render_graph_resource(&node);
+        resource->bindless_index[0] = layer->memory_refs[fif].device_vertex_data->array_index;
     }
-    layer->vertex_buffer_node->user_data = layer;
-    layer->vertex_buffer_node->buffer_provider = zest__instance_layer_resource_provider;
-    return layer->vertex_buffer_node;
+    resource->user_data = layer;
+    resource->buffer_provider = zest__instance_layer_resource_provider;
+    layer->vertex_buffer_node = resource;
+    return resource;
 }
 
 zest_resource_node zest_ImportFontResource(const zest_font font) {
@@ -13554,7 +13557,7 @@ void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_ren
 
         layer->dirty[layer->fif] = 0;
 
-        if (staging_buffer->memory_in_use) {
+        if (staging_buffer->memory_in_use && device_buffer) {
             zest_AddCopyCommand(&instance_upload, staging_buffer, device_buffer, device_buffer->buffer_offset);
         } else {
             return;
@@ -13573,6 +13576,9 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_cont
     ZEST_ASSERT_HANDLE(layer);       //Not a valid layer. Make sure that you pass in the font layer to the zest_AddPassTask function
 
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
+    if (!device_buffer) {
+        return;
+    }
 	VkDeviceSize instance_data_offsets[] = { device_buffer->buffer_offset };
 	vkCmdBindVertexBuffers(command_buffer, 0, 1, &device_buffer->vk_buffer, instance_data_offsets);
     bool has_instruction_view_port = false;
