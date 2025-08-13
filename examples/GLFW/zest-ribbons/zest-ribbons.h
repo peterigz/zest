@@ -86,6 +86,11 @@ struct Ribbons {
 	zest_uint index_count;
 	float seconds_passed;
 
+	zest_buffer_resource_info_t segment_buffer_info;
+	zest_buffer_resource_info_t instance_buffer_info;
+	zest_buffer_resource_info_t vertex_buffer_info;
+	zest_buffer_resource_info_t index_buffer_info;
+
 	ribbon ribbons[RIBBON_COUNT];
 	ribbon_instance ribbon_instances[RIBBON_COUNT];
 	ribbon_segment ribbon_segments[SEGMENT_COUNT * RIBBON_COUNT];

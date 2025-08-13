@@ -77,7 +77,7 @@ void InitImGuiApp(Ribbons *app) {
 
 	zest_AcquireGlobalCombinedImageSampler(app->ribbon_texture);
 
-	app->timer = zest_CreateTimer(60);
+	app->timer = zest_CreateTimer("Fixed update timer", 60);
 
 	app->camera = zest_CreateCamera();
 	zest_CameraSetFoV(&app->camera, 60.f);
@@ -96,6 +96,11 @@ void InitImGuiApp(Ribbons *app) {
 	for (int s = 0; s != SEGMENT_COUNT; ++s) {
 		UpdateRibbons(app);
 	}
+
+	app->segment_buffer_info.usage_hints = 0;
+	app->instance_buffer_info.usage_hints = 0;
+	app->vertex_buffer_info.usage_hints = zest_resource_usage_hint_vertex_buffer;
+	app->index_buffer_info.usage_hints = zest_resource_usage_hint_index_buffer;
 }
 
 // tessellation: number of divisions across the width of the ribbon
@@ -114,18 +119,22 @@ RibbonBufferInfo GenerateRibbonInfo(uint32_t tessellation, uint32_t maxSegments,
 void UploadRibbonData(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	Ribbons *app = (Ribbons*)user_data;
 
-    zest_resource_node segment_buffer = zest_GetPassOutputResource(context->pass_node, "Ribbon Segment Buffer");
-    zest_resource_node ribbon_instance_buffer = zest_GetPassOutputResource(context->pass_node, "Ribbon Instance Buffer");
+    zest_resource_node segment_buffer = zest_GetPassOutputResource(context, "Ribbon Segment Buffer");
+    zest_resource_node ribbon_instance_buffer = zest_GetPassOutputResource(context, "Ribbon Instance Buffer");
 
-	zest_CopyBuffer(command_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF], segment_buffer->storage_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF]->memory_in_use);
-	zest_CopyBuffer(command_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF], ribbon_instance_buffer->storage_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF]->memory_in_use);
+	if (segment_buffer->storage_buffer) {
+		zest_CopyBuffer(command_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF], segment_buffer->storage_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF]->memory_in_use);
+	}
+	if (ribbon_instance_buffer->storage_buffer) {
+		zest_CopyBuffer(command_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF], ribbon_instance_buffer->storage_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF]->memory_in_use);
+	}
 }
 
 void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	Ribbons *app = (Ribbons*)user_data;
 
-    zest_buffer vertex_buffer = zest_GetPassInputBuffer(context->pass_node, "Ribbon Vertex Buffer");
-    zest_buffer index_buffer = zest_GetPassInputBuffer(context->pass_node, "Ribbon Index Buffer");
+    zest_buffer vertex_buffer = zest_GetPassInputBuffer(context, "Ribbon Vertex Buffer");
+    zest_buffer index_buffer = zest_GetPassInputBuffer(context, "Ribbon Index Buffer");
 
 	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
 	zest_BindVertexBuffer(command_buffer, vertex_buffer);
@@ -140,7 +149,7 @@ void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_render_graph
 	//Draw all the sprites in the buffer that is built by the compute shader
 	zest_BindPipeline(command_buffer, pipeline, sets, 2);
 	zest_SendPushConstants(command_buffer, pipeline, &app->ribbon_push_constants);
-	zest_SetScreenSizedViewport(command_buffer, 0.f, 1.f);
+	zest_SetScreenSizedViewport(context, 0.f, 1.f);
 
 	//zest_DrawIndexedIndirect(command_buffer, app->ribbon_draw_commands);
 	zest_DrawIndexed(command_buffer, app->index_count, 1, 0, 0, 0);
@@ -161,15 +170,15 @@ void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_render_gra
 	//Bind the compute shader pipeline
 	zest_BindComputePipeline(command_buffer, app->ribbon_compute, sets, 1);
 
-    zest_resource_node segment_buffer = zest_GetPassInputResource(context->pass_node, "Ribbon Segment Buffer");
-    zest_resource_node ribbon_instance_buffer = zest_GetPassInputResource(context->pass_node, "Ribbon Instance Buffer");
-    zest_resource_node vertex_buffer = zest_GetPassOutputResource(context->pass_node, "Ribbon Vertex Buffer");
-    zest_resource_node index_buffer = zest_GetPassOutputResource(context->pass_node, "Ribbon Index Buffer");
+    zest_resource_node segment_buffer = zest_GetPassInputResource(context, "Ribbon Segment Buffer");
+    zest_resource_node ribbon_instance_buffer = zest_GetPassInputResource(context, "Ribbon Instance Buffer");
+    zest_resource_node vertex_buffer = zest_GetPassOutputResource(context, "Ribbon Vertex Buffer");
+    zest_resource_node index_buffer = zest_GetPassOutputResource(context, "Ribbon Index Buffer");
 
-	app->camera_push.segment_buffer_index = segment_buffer->bindless_index;
-	app->camera_push.instance_buffer_index = ribbon_instance_buffer->bindless_index;
-	app->camera_push.vertex_buffer_index = vertex_buffer->bindless_index;
-	app->camera_push.index_buffer_index = index_buffer->bindless_index;
+	app->camera_push.segment_buffer_index = zest_GetTransientBufferBindlessIndex(context, segment_buffer);
+	app->camera_push.instance_buffer_index = zest_GetTransientBufferBindlessIndex(context, ribbon_instance_buffer);
+	app->camera_push.vertex_buffer_index = zest_GetTransientBufferBindlessIndex(context, vertex_buffer);
+	app->camera_push.index_buffer_index = zest_GetTransientBufferBindlessIndex(context, index_buffer);
 
 	//Send the push constants in the compute object to the shader
 	zest_SendCustomComputePushConstants(command_buffer, app->ribbon_compute, &app->camera_push);
@@ -440,24 +449,28 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	app->index_count += (SEGMENT_COUNT * RIBBON_COUNT) * app->ribbon_buffer_info.indicesPerSegment;
 	zest_StageData(app->ribbon_instances, app->ribbon_instance_staging_buffer[ZEST_FIF], app->ribbon_count * sizeof(ribbon_instance));
 
-	if (zest_BeginRenderToScreen("Ribbons render graph")) {
-		VkClearColorValue clear_color = { {0.f} };
-		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
+	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
 
+	app->segment_buffer_info.size = app->ribbon_segment_staging_buffer[ZEST_FIF]->memory_in_use;
+	app->instance_buffer_info.size = app->ribbon_instance_staging_buffer[ZEST_FIF]->memory_in_use;
+	app->vertex_buffer_info.size = app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex);
+	app->index_buffer_info.size = app->index_count * sizeof(zest_uint);
+
+	if (zest_BeginRenderToScreen(swapchain, "Ribbons render graph", 0)) {
 		//Resources
-		zest_resource_node ribbon_segment_buffer = zest_AddTransientStorageBufferResource("Ribbon Segment Buffer", app->ribbon_segment_staging_buffer[ZEST_FIF]->memory_in_use, true);
-		zest_resource_node ribbon_instance_buffer = zest_AddTransientStorageBufferResource("Ribbon Instance Buffer", app->ribbon_instance_staging_buffer[ZEST_FIF]->memory_in_use, true);
-		zest_resource_node ribbon_vertex_buffer = zest_AddTransientVertexBufferResource("Ribbon Vertex Buffer", app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex), true, true);
-		zest_resource_node ribbon_index_buffer = zest_AddTransientIndexBufferResource("Ribbon Index Buffer", app->index_count * sizeof(zest_uint), true, true);
+		zest_resource_node ribbon_segment_buffer = zest_AddTransientBufferResource("Ribbon Segment Buffer", &app->segment_buffer_info);
+		zest_resource_node ribbon_instance_buffer = zest_AddTransientBufferResource("Ribbon Instance Buffer", &app->instance_buffer_info);
+		zest_resource_node ribbon_vertex_buffer = zest_AddTransientBufferResource("Ribbon Vertex Buffer", &app->vertex_buffer_info);
+		zest_resource_node ribbon_index_buffer = zest_AddTransientBufferResource("Ribbon Index Buffer", &app->index_buffer_info);
 
-		//-------------------------TimelineFX Compute Pass-------------------------------------------------
+		//-------------------------Ribbon Compute Pass-------------------------------------------------
 		zest_pass_node compute_pass = zest_AddComputePassNode(app->ribbon_compute, "Compute Ribbons");
 		//inputes
-		zest_ConnectStorageBufferInput(compute_pass, ribbon_segment_buffer);
-		zest_ConnectStorageBufferInput(compute_pass, ribbon_instance_buffer);
+		zest_ConnectInput(compute_pass, ribbon_segment_buffer, 0);
+		zest_ConnectInput(compute_pass, ribbon_instance_buffer, 0);
 		//outputs
-		zest_ConnectStorageBufferOutput(compute_pass, ribbon_vertex_buffer);
-		zest_ConnectStorageBufferOutput(compute_pass, ribbon_index_buffer);
+		zest_ConnectOutput(compute_pass, ribbon_vertex_buffer);
+		zest_ConnectOutput(compute_pass, ribbon_index_buffer);
 		//tasks
 		zest_SetPassTask(compute_pass, RecordComputeCommands, app);
 		//--------------------------------------------------------------------------------------------------
@@ -465,8 +478,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
 		zest_pass_node transfer_pass = zest_AddTransferPassNode("Transfer Ribbon Data");
 		//outputs
-		zest_ConnectTransferBufferOutput(transfer_pass, ribbon_segment_buffer);
-		zest_ConnectTransferBufferOutput(transfer_pass, ribbon_instance_buffer);
+		zest_ConnectOutput(transfer_pass, ribbon_segment_buffer);
+		zest_ConnectOutput(transfer_pass, ribbon_instance_buffer);
 		//tasks
 		zest_SetPassTask(transfer_pass, UploadRibbonData, app);
 		//--------------------------------------------------------------------------------------------------
@@ -474,10 +487,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//-------------------------TimelineFX Render Pass---------------------------------------------------
 		zest_pass_node render_pass = zest_AddRenderPassNode("Graphics Pass");
 		//inputs
-		zest_ConnectVertexBufferInput(render_pass, ribbon_vertex_buffer);
-		zest_ConnectVertexBufferInput(render_pass, ribbon_index_buffer);
+		zest_ConnectInput(render_pass, ribbon_vertex_buffer, 0);
+		zest_ConnectInput(render_pass, ribbon_index_buffer, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(render_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(render_pass);
 		//tasks
 		zest_SetPassTask(render_pass, RecordRibbonDrawing, app);
 		//--------------------------------------------------------------------------------------------------
@@ -486,7 +499,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
 		if (imgui_pass) {
-			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+			zest_ConnectSwapChainOutput(imgui_pass);
 		}
 		//----------------------------------------------------------------------------------------------------
 
@@ -502,8 +515,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 #if defined(_WIN32)
 // Windows entry point
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
-//int main(void) {
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
+int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
     create_info.log_path = ".";
@@ -524,6 +537,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 
 	//Start the main loop
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }

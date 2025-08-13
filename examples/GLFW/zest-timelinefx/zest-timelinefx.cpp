@@ -9,6 +9,11 @@ typedef unsigned int u32;
 
 #define FrameLength 16.66666666667f
 
+struct RenderCacheInfo {
+	bool draw_imgui;
+	bool draw_timeline_fx;
+};
+
 struct TimelineFXExample {
 	zest_texture imgui_font_texture;
 	tfx_render_resources_t tfx_rendering;
@@ -18,6 +23,7 @@ struct TimelineFXExample {
 
 	tfx_effect_template effect_template1;
 	tfx_effect_template effect_template2;
+	RenderCacheInfo cache_info;
 
 	tfxEffectID effect_id;
 	zest_imgui_t imgui_layer_info;
@@ -64,8 +70,9 @@ void TimelineFXExample::Init() {
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
 	for (int i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
-		zest_bitmap_t temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap->data, (int)bitmap->size, bitmap->width, bitmap->height, bitmap->channels);
-		zest_AddTextureImageBitmap(tfx_rendering.color_ramps_texture, &temp_bitmap);
+		zest_bitmap temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap->data, (int)bitmap->size, bitmap->width, bitmap->height, bitmap->channels);
+		zest_AddTextureImageBitmap(tfx_rendering.color_ramps_texture, temp_bitmap);
+		zest_FreeBitmap(temp_bitmap);
 	}
 	//Process the color ramp texture to upload it all to the gpu
 	zest_ProcessTextureImages(tfx_rendering.color_ramps_texture);
@@ -172,23 +179,27 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
 	}
 
+	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
+	game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+	game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(game->tfx_rendering.layer) > 0;
+	zest_render_graph_cache_key_t cache_key = {};
+	cache_key = zest_InitialiseCacheKey(swapchain, &game->cache_info, sizeof(RenderCacheInfo));
+
+	zest_SetSwapchainClearColor(swapchain, 0.f, .1f, .2f, 1.f);
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginRenderToScreen("TimelineFX Render Graphs")) {
+	if (zest_BeginRenderToScreen(swapchain, "TimelineFX Render Graphs", &cache_key)) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		zest_WaitOnTimeline(game->tfx_rendering.timeline);
-		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
-		//Import the swap chain into the render pass
-		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
 		//Import our test texture with the Bunny sprite
-		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture);
-		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);
+		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture, 0);
+		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture, 0);
 		zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write particle buffer", game->tfx_rendering.layer, false);
 		zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read particle buffer", game->tfx_rendering.layer, true);
-		zest_resource_node tfx_image_data = zest_ImportStorageBufferResource("Image Data", game->tfx_rendering.image_data);
+		zest_resource_node tfx_image_data = zest_ImportBufferResource("Image Data", game->tfx_rendering.image_data, 0);
 
 		//Connect buffers and textures
 
@@ -197,25 +208,26 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Outputs
 		//Note, the only reason the prev frame particle data is put as an output here is to make sure that it's
 		//propertly transitioned to the graphics queue (who releases it after each frame)
-		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_write_layer);
-		zest_ConnectTransferBufferOutput(upload_tfx_data, tfx_read_layer);
+		zest_ConnectOutput(upload_tfx_data, tfx_write_layer);
+		zest_ConnectOutput(upload_tfx_data, tfx_read_layer);
 		//Tasks
-		zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
+		zest_SetPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//------------------------ Graphics Pass -----------------------------------------------------------
 		//Inputs
-		zest_ConnectSampledImageInput(graphics_pass, particle_texture, zest_pipeline_fragment_stage);
-		zest_ConnectSampledImageInput(graphics_pass, color_ramps_texture, zest_pipeline_fragment_stage);
-		zest_ConnectVertexBufferInput(graphics_pass, tfx_write_layer);
-		zest_ConnectStorageBufferInput(graphics_pass, tfx_read_layer);
+		zest_ConnectInput(graphics_pass, particle_texture, 0);
+		zest_ConnectInput(graphics_pass, color_ramps_texture, 0);
+		zest_ConnectInput(graphics_pass, tfx_write_layer, 0);
+		zest_ConnectInput(graphics_pass, tfx_read_layer, 0);
 		//Outputs
-		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(graphics_pass);
 		//Tasks
 		zest_tfx_AddPassTask(graphics_pass, &game->tfx_rendering);
 		//If there's imgui to draw then draw it
-		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
-			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, NULL);
+		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		if (imgui_pass) {
+			zest_ConnectSwapChainOutput(imgui_pass);
 		}
 		//--------------------------------------------------------------------------------------------------
 
@@ -226,7 +238,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);
 			game->request_graph_print = false;
-		}		//Execute the render graph. This must come after the EndRenderGraph function
+		}		
 	}
 }
 
@@ -250,6 +262,7 @@ int main() {
 	game.Init();
 
 	zest_Start();
+	zest_Shutdown();
 
 	tfx_EndTimelineFX();
 

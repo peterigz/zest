@@ -166,6 +166,7 @@ int main(void) {
 
 	//Start the main loop
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }

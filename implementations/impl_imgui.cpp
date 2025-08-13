@@ -53,8 +53,8 @@ zest_pass_node zest_imgui_AddToRenderGraph() {
 // This is the function that will be called for your pass.
 void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
     zest_imgui imgui_info = &ZestRenderer->imgui_info;
-    zest_buffer vertex_buffer = zest_GetPassInputResource(context->pass_node, "Imgui Vertex Buffer")->storage_buffer;
-    zest_buffer index_buffer = zest_GetPassInputResource(context->pass_node, "Imgui Index Buffer")->storage_buffer;
+    zest_buffer vertex_buffer = zest_GetPassInputResource(context, "Imgui Vertex Buffer")->storage_buffer;
+    zest_buffer index_buffer = zest_GetPassInputResource(context, "Imgui Index Buffer")->storage_buffer;
     zest_imgui_RecordLayer(context, vertex_buffer, index_buffer);
 }
 
@@ -68,8 +68,8 @@ void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_rende
 
     zest_buffer staging_vertex = imgui_info->vertex_staging_buffer[imgui_info->fif];
     zest_buffer staging_index = imgui_info->index_staging_buffer[imgui_info->fif];
-    zest_buffer vertex_buffer = zest_GetPassOutputResource(context->pass_node, "Imgui Vertex Buffer")->storage_buffer;
-    zest_buffer index_buffer = zest_GetPassOutputResource(context->pass_node, "Imgui Index Buffer")->storage_buffer;
+    zest_buffer vertex_buffer = zest_GetPassOutputResource(context, "Imgui Vertex Buffer")->storage_buffer;
+    zest_buffer index_buffer = zest_GetPassOutputResource(context, "Imgui Index Buffer")->storage_buffer;
 
     zest_buffer_uploader_t index_upload = { 0, staging_index, index_buffer, 0 };
     zest_buffer_uploader_t vertex_upload = { 0, staging_vertex, vertex_buffer, 0 };

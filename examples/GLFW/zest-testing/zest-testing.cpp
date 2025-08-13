@@ -1213,16 +1213,16 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	};
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Test Render Graph")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Test Render Graph", 0)) {
 		zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, .1f, .2f, 1.f);
 
 		//Resources
 		//zest_resource_node mesh_layer_resources = zest_AddInstanceLayerBufferResource("Mesh layer", app->mesh_layer, false);
 		zest_resource_node scale_widget_layer_resources = zest_AddTransientLayerResource("Scale widget layer", app->scale_widget_layer, false);
-		zest_resource_node scale_mesh_data_index = zest_ImportBufferResource("Scale Mesh Index", app->scale_widget_layer->index_data);
-		zest_resource_node scale_mesh_data_vertex = zest_ImportBufferResource("Scale Mesh Vertex", app->scale_widget_layer->vertex_data);
-		zest_resource_node move_mesh_data_index = zest_ImportBufferResource("Move Mesh Index", app->move_widget_layer->index_data);
-		zest_resource_node move_mesh_data_vertex = zest_ImportBufferResource("Move Mesh Vertex", app->move_widget_layer->vertex_data);
+		zest_resource_node scale_mesh_data_index = zest_ImportBufferResource("Scale Mesh Index", app->scale_widget_layer->index_data, 0);
+		zest_resource_node scale_mesh_data_vertex = zest_ImportBufferResource("Scale Mesh Vertex", app->scale_widget_layer->vertex_data, 0);
+		zest_resource_node move_mesh_data_index = zest_ImportBufferResource("Move Mesh Index", app->move_widget_layer->index_data, 0);
+		zest_resource_node move_mesh_data_vertex = zest_ImportBufferResource("Move Mesh Vertex", app->move_widget_layer->vertex_data, 0);
 		zest_resource_node move_widget_layer_resources = zest_AddTransientLayerResource("Move widget layer", app->move_widget_layer, false);
 		zest_resource_node line_layer_resources = zest_AddTransientLayerResource("Line layer", app->line_layer, false);
 		zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
@@ -1291,7 +1291,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync | zest_validation_flag_best_practices);
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	//Don't enable vsync so we can see the FPS go higher then the refresh rate
@@ -1312,6 +1312,7 @@ int main(void) {
 
 	//Start the main loop
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }

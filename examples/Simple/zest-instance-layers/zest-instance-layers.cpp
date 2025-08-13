@@ -132,15 +132,13 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
 	example->last_position = position;
 
-	zest_render_graph_cache_key_t cache_key = {0};
-
 	//Create the render graph
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Sprite Drawing")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Sprite Drawing", 0)) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node texture = zest_ImportImageResource("Bunny Texture", example->texture);
+		zest_resource_node texture = zest_ImportImageResource("Bunny Texture", example->texture, 0);
 		zest_resource_node billboard_layer = zest_AddTransientLayerResource("Billboard Layer", example->billboard_layer, false);
 		zest_resource_node sprite_layer = zest_AddTransientLayerResource("Sprite Layer", example->sprite_layer, false);
 
@@ -149,7 +147,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//outputs
 		zest_ConnectOutput(upload_billboard_data, billboard_layer);
 		//tasks
-		zest_SetPassTask(upload_billboard_data , zest_UploadInstanceLayerData, example->billboard_layer);
+		zest_SetPassTask(upload_billboard_data, zest_UploadInstanceLayerData, example->billboard_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Transfer Pass----------------------------------------------------
@@ -219,6 +217,7 @@ int main(void)
 	InitExample(&example);
 
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }

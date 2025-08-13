@@ -222,7 +222,7 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 
 void zest_WriteBufferCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
-	zest_resource_node write_buffer = zest_GetPassOutputResource(context->pass_node, "Write Buffer");
+	zest_resource_node write_buffer = zest_GetPassOutputResource(context, "Write Buffer");
 	ZEST_ASSERT_HANDLE(write_buffer);
 
 	const zest_uint local_size_x = 8;
@@ -251,8 +251,8 @@ void zest_WriteBufferCompute(VkCommandBuffer command_buffer, const zest_render_g
 
 void zest_VerifyBufferCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
-	zest_resource_node write_buffer = zest_GetPassInputResource(context->pass_node, "Write Buffer");
-	zest_resource_node verify_buffer = zest_GetPassOutputResource(context->pass_node, "Verify Buffer");
+	zest_resource_node write_buffer = zest_GetPassInputResource(context, "Write Buffer");
+	zest_resource_node verify_buffer = zest_GetPassOutputResource(context, "Verify Buffer");
 	ZEST_ASSERT_HANDLE(write_buffer);
 	ZEST_ASSERT_HANDLE(verify_buffer);
 
@@ -388,8 +388,8 @@ int test__multi_reader_barrier(ZestTests *tests, Test *test) {
 
 void zest_VerifyImageCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
-	zest_resource_node read_image = zest_GetPassInputResource(context->pass_node, "Write Buffer");
-	zest_resource_node verify_buffer = zest_GetPassOutputResource(context->pass_node, "Verify Buffer");
+	zest_resource_node read_image = zest_GetPassInputResource(context, "Write Buffer");
+	zest_resource_node verify_buffer = zest_GetPassOutputResource(context, "Verify Buffer");
 	ZEST_ASSERT_HANDLE(read_image);
 	ZEST_ASSERT_HANDLE(verify_buffer);
 
@@ -512,7 +512,7 @@ int test__depth_attachment(ZestTests *tests, Test *test) {
 
 void zest_WriteImageCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
-	zest_resource_node write_buffer = zest_GetPassOutputResource(context->pass_node, "Output A");
+	zest_resource_node write_buffer = zest_GetPassOutputResource(context, "Output A");
 	ZEST_ASSERT_HANDLE(write_buffer);
 
 	const zest_uint local_size_x = 8;
@@ -682,7 +682,7 @@ void InitialiseTests(ZestTests *tests) {
 	tests->sampler_info = zest_CreateSamplerInfo();
 	tests->mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 
-	tests->current_test = 16;
+	tests->current_test = 0;
     zest_ResetValidationErrors();
 }
 
@@ -748,6 +748,7 @@ int main(void) {
 	
 	//Start the main loop
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }

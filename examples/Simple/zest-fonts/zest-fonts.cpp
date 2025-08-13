@@ -28,7 +28,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawMSDFText(example->font_layer, "(This should be centered)", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 50.f, 0.f);
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Fonts Example Render Graph")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Fonts Example Render Graph", 0)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
@@ -38,7 +38,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Transfer Pass------------------------------------------------------
 		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
 		//outputs
-		zest_ConnectTransferBufferOutput(upload_font_data, font_layer_resources);
+		zest_ConnectOutput(upload_font_data, font_layer_resources);
 		//tasks
 		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -46,10 +46,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Render Pass------------------------------------------------------
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//inputes
-		zest_ConnectVertexBufferInput(graphics_pass, font_layer_resources);
-		zest_ConnectSampledImageInput(graphics_pass, font_layer_texture);
+		zest_ConnectInput(graphics_pass, font_layer_resources, 0);
+		zest_ConnectInput(graphics_pass, font_layer_texture, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(graphics_pass, clear_color);
+		zest_ConnectSwapChainOutput(graphics_pass);
 		//tasks
 		zest_SetPassTask(graphics_pass, zest_DrawFonts, example->font_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -74,9 +74,8 @@ int main(void) {
 
 	InitExample(&example);
 
-	test_bucket_array();
-
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }

@@ -149,6 +149,7 @@ int main(int argc, char *argv[]) {
 
 	//Start the main loop
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }

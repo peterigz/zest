@@ -124,8 +124,8 @@ void InitExample(RenderTargetExample *example) {
 
 void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
     RenderTargetExample *example = (RenderTargetExample*)user_data;
-	zest_resource_node downsampler = zest_GetPassInputResource(context->pass_node, "Downsampler");
-	zest_resource_node render_target = zest_GetPassInputResource(context->pass_node, "Upsampler");
+	zest_resource_node downsampler = zest_GetPassInputResource(context, "Downsampler");
+	zest_resource_node render_target = zest_GetPassInputResource(context, "Upsampler");
 
 	zest_uint up_bindless_index = zest_GetTransientImageBindlessIndex(context, render_target, ZEST_TRUE, zest_binding_type_combined_image_sampler);
 	zest_uint down_bindless_index = zest_GetTransientImageBindlessIndex(context, downsampler, ZEST_TRUE, zest_binding_type_combined_image_sampler);
@@ -154,7 +154,7 @@ void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_rend
 
 void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t* context, void* user_data) {
 	RenderTargetExample* example = (RenderTargetExample*)user_data;
-	zest_resource_node downsampler_target = zest_GetPassInputResource(context->pass_node, "Downsampler");
+	zest_resource_node downsampler_target = zest_GetPassInputResource(context, "Downsampler");
 
 	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
 	zest_uint* sampler_mip_indices = zest_GetTransientMipBindlessIndexes(context, downsampler_target, zest_binding_type_combined_image_sampler);
@@ -201,8 +201,8 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_gr
 
 void zest_UpsampleCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	RenderTargetExample *example = (RenderTargetExample *)user_data;
-	zest_resource_node upsampler_target = zest_GetPassOutputResource(context->pass_node, "Upsampler");
-	zest_resource_node downsampler_target = zest_GetPassInputResource(context->pass_node, "Downsampler");
+	zest_resource_node upsampler_target = zest_GetPassOutputResource(context, "Upsampler");
+	zest_resource_node downsampler_target = zest_GetPassInputResource(context, "Downsampler");
 
 	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
 	zest_uint *sampler_mip_indices = zest_GetTransientMipBindlessIndexes(context, upsampler_target, zest_binding_type_combined_image_sampler);
@@ -411,6 +411,7 @@ int main()
 	zest_SetUserUpdateCallback(UpdateCallback);
 
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }

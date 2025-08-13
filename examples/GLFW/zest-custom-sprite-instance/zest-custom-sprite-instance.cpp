@@ -39,16 +39,17 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_vec4 end_color1 = {0.f, 255.f, 255.f, 255.f};
 	zest_vec4 start_color2 = {0.f, 255.f, 0.f, 255.f};
 	zest_vec4 end_color2 = {255.f, 0.f, 255.f, 255.f};
-	zest_AllocateBitmap(&app->color_ramps_bitmap, 256, 256, 4, { 0 });
+	zest_AllocateBitmap(app->color_ramps_bitmap, 256, 256, 4, { 0 });
 	for (int x = 0; x != 256; ++x) {
 		float lerp = (float)x / 255.f;
 		zest_vec4 color1 = zest_LerpVec4(&start_color1, &end_color1, lerp);
 		zest_vec4 color2 = zest_LerpVec4(&start_color2, &end_color2, lerp);
-		zest_PlotBitmap(&app->color_ramps_bitmap, x, 0, { (zest_byte)color1.x, (zest_byte)color1.y, (zest_byte)color1.z, (zest_byte)color1.w});
-		zest_PlotBitmap(&app->color_ramps_bitmap, x, 1, { (zest_byte)color2.x, (zest_byte)color2.y, (zest_byte)color2.z, (zest_byte)color2.w});
+		zest_PlotBitmap(app->color_ramps_bitmap, x, 0, { (zest_byte)color1.x, (zest_byte)color1.y, (zest_byte)color1.z, (zest_byte)color1.w});
+		zest_PlotBitmap(app->color_ramps_bitmap, x, 1, { (zest_byte)color2.x, (zest_byte)color2.y, (zest_byte)color2.z, (zest_byte)color2.w});
 	}
-	app->color_ramps_image = zest_AddTextureImageBitmap(app->color_ramps_texture, &app->color_ramps_bitmap);
+	app->color_ramps_image = zest_AddTextureImageBitmap(app->color_ramps_texture, app->color_ramps_bitmap);
 	zest_ProcessTextureImages(app->color_ramps_texture);
+	zest_FreeBitmap(app->color_ramps_bitmap);
 
 	app->lerp_value = 0.f;
 	app->mix_value = 0.f;
@@ -94,7 +95,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->custom_layer = zest_CreateInstanceLayer("Custom layer", sizeof(zest_custom_sprite_instance_t));
 	zest_SetLayerUserData(app->custom_layer, &app->layer_data);
 
-	app->shader_resources = zest_CreateShaderResources();
+	app->shader_resources = zest_CreateShaderResources("Sprite resources");
 	zest_AddUniformBufferToResources(app->shader_resources, ZestRenderer->uniform_buffer);
 	zest_AddGlobalBindlessSetToResources(app->shader_resources);
 
@@ -143,18 +144,18 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	push->descriptor_index[1] = zest_GetTextureDescriptorIndex(app->color_ramps_texture);
 	zest_DrawCustomSprite(app->custom_layer, app->test_image, 800.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f, {app->lerp_value, app->mix_value});
 
-	if (zest_BeginRenderToScreen("Custom Sprite Render Graph")) {
+	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
+	if (zest_BeginRenderToScreen(swapchain, "Custom Sprite Render Graph", 0)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
-		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
-		zest_resource_node texture = zest_ImportImageResource("Test Texture", app->test_texture);
+		zest_resource_node texture = zest_ImportImageResource("Test Texture", app->test_texture, 0);
 		zest_resource_node billboard_layer = zest_AddTransientLayerResource("Billboard layer", app->custom_layer, false);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
 		//Outputs
-		zest_ConnectTransferBufferOutput(upload_instance_data, billboard_layer);
+		zest_ConnectOutput(upload_instance_data, billboard_layer);
 		//Tasks
 		zest_SetPassTask(upload_instance_data, zest_UploadInstanceLayerData, app->custom_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -162,10 +163,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//---------------------------------Render Pass------------------------------------------------------
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//Inputs
-		zest_ConnectVertexBufferInput(graphics_pass, billboard_layer);
-		zest_ConnectSampledImageInput(graphics_pass, texture);
+		zest_ConnectInput(graphics_pass, billboard_layer, 0);
+		zest_ConnectInput(graphics_pass, texture, 0);
 		//Outputs
-		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(graphics_pass);
 		//Tasks
 		zest_SetPassTask(graphics_pass, zest_DrawInstanceLayer, app->custom_layer);
 		//--------------------------------------------------------------------------------------------------
@@ -174,7 +175,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
 		if (imgui_pass) {
-			zest_ConnectSwapChainOutput(imgui_pass, swapchain_output_resource, clear_color);
+			zest_ConnectSwapChainOutput(imgui_pass);
 		}
 		//----------------------------------------------------------------------------------------------------
 
@@ -208,6 +209,7 @@ int main(void) {
 
 	//Start the main loop
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }

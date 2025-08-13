@@ -86,7 +86,7 @@ void InitExample(zest_example *example) {
 
 	example->line_layer = zest_CreateInstanceLayer("Lines", sizeof(zest_line_instance_t));
 
-	example->line_resources = zest_CreateShaderResources();
+	example->line_resources = zest_CreateShaderResources("Line Resources");
 	zest_AddUniformBufferToResources(example->line_resources, ZestRenderer->uniform_buffer);
 }
 
@@ -107,30 +107,29 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawRect(example->line_layer, &top_left.x, 30.f, 50.f);
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen("Lines Render Graph")) {
+	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Lines Render Graph", 0)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Resources
-		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
 		zest_resource_node line_layer_resources = zest_AddTransientLayerResource("Line layer", example->line_layer, false);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
 		zest_pass_node upload_line_data = zest_AddTransferPassNode("Upload Line Data");
 		//outputs
-		zest_ConnectTransferBufferOutput(upload_line_data, line_layer_resources);
+		zest_ConnectOutput(upload_line_data, line_layer_resources);
 		//tasks
-		zest_AddPassTask(upload_line_data, zest_UploadInstanceLayerData, example->line_layer);
+		zest_SetPassTask(upload_line_data, zest_UploadInstanceLayerData, example->line_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//Add passes
 		//---------------------------------Render Pass------------------------------------------------------
 		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
 		//inputs
-		zest_ConnectVertexBufferInput(graphics_pass, line_layer_resources);
+		zest_ConnectInput(graphics_pass, line_layer_resources, 0);
 		//outputs
-		zest_ConnectSwapChainOutput(graphics_pass, swapchain_output_resource, clear_color);
+		zest_ConnectSwapChainOutput(graphics_pass);
 		//tasks
-		zest_AddPassTask(graphics_pass, zest_DrawInstanceLayer, example->line_layer);
+		zest_SetPassTask(graphics_pass, zest_DrawInstanceLayer, example->line_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//Compile and execute the render graph
@@ -154,7 +153,6 @@ int main(void)
 
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(0);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	ZEST__FLAG(create_info.flags, zest_init_flag_use_depth_buffer);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = "./";
 
@@ -166,6 +164,7 @@ int main(void)
 	InitExample(&example);
 
 	zest_Start();
+	zest_Shutdown();
 
 	return 0;
 }
