@@ -1469,16 +1469,16 @@ typedef enum {
 } zest_resource_type;
 
 typedef enum zest_resource_node_flag_bits {
-    zest_resource_node_flag_none              = 0,
-    zest_resource_node_flag_transient         = 1 << 0,
-    zest_resource_node_flag_imported          = 1 << 1,
-    zest_resource_node_flag_used_in_output    = 1 << 2,
-	zest_resource_node_flag_is_bindless       = 1 << 3,
-    zest_resource_node_flag_release_after_use = 1 << 4,
-    zest_resource_node_flag_essential_output  = 1 << 5,
-    zest_resource_node_flag_requires_storage  = 1 << 6,
-    zest_resource_node_flag_aliased           = 1 << 7,
-    zest_resource_node_flag_has_producer      = 1 << 8,
+    zest_resource_node_flag_none                        = 0,
+    zest_resource_node_flag_transient                   = 1 << 0,
+    zest_resource_node_flag_imported                    = 1 << 1,
+    zest_resource_node_flag_used_in_output              = 1 << 2,
+	zest_resource_node_flag_is_bindless                 = 1 << 3,
+    zest_resource_node_flag_release_after_use           = 1 << 4,
+    zest_resource_node_flag_essential_output            = 1 << 5,
+    zest_resource_node_flag_requires_storage            = 1 << 6,
+    zest_resource_node_flag_aliased                     = 1 << 7,
+    zest_resource_node_flag_has_producer                = 1 << 8,
 } zest_resource_node_flag_bits;
 
 typedef zest_uint zest_resource_node_flags;
@@ -3049,6 +3049,7 @@ typedef struct zest_render_graph_t {
     zest_bucket_array_t resources; 
     zest_map_resource_versions resource_versions;
     zest_resource_node *resources_to_update;
+    zest_pass_group_t **pass_execution_order;
 
     zest_execution_timeline *wait_on_timelines;
     zest_execution_timeline *signal_timelines;
@@ -3151,10 +3152,10 @@ ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider(zest_resource_no
 ZEST_API void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 
 // --- General resource functions ---
-ZEST_API zest_resource_node zest_GetPassInputResource(zest_pass_node pass, const char *name);
-ZEST_API zest_resource_node zest_GetPassOutputResource(zest_pass_node pass, const char *name);
-ZEST_API zest_buffer zest_GetPassInputBuffer(zest_pass_node pass, const char *name);
-ZEST_API zest_buffer zest_GetPassOutputBuffer(zest_pass_node pass, const char *name);
+ZEST_API zest_resource_node zest_GetPassInputResource(const zest_render_graph_context_t *context, const char *name);
+ZEST_API zest_resource_node zest_GetPassOutputResource(const zest_render_graph_context_t *context, const char *name);
+ZEST_API zest_buffer zest_GetPassInputBuffer(const zest_render_graph_context_t *context, const char *name);
+ZEST_API zest_buffer zest_GetPassOutputBuffer(const zest_render_graph_context_t *context, const char *name);
 ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
@@ -4100,7 +4101,6 @@ ZEST_PRIVATE VkShaderModule zest__create_shader_module(char *code);
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
 ZEST_PRIVATE zest_pipeline zest__cache_pipeline(zest_pipeline_template pipeline_template, VkRenderPass render_pass, zest_key key);
 ZEST_PRIVATE zest_uint zest__get_vk_format_size(VkFormat format);
-ZEST_PRIVATE int zest__compare_interface_variables(const void *a, const void *b);
 ZEST_PRIVATE void zest__destroy_pipeline(zest_pipeline p);
 // --End Pipeline Helper Functions
 

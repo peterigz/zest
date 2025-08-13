@@ -8495,6 +8495,7 @@ zest_render_graph zest__compile_render_graph() {
     //[Resource_journeys]
     //Now that the passes have been grouped into wave submissions we can calculate the resource journey and set the
     //first and last usage index for each resource.
+    zest_uint execution_order_index = 0;
     zest_vec_foreach(submission_index, render_graph->submissions) {
         zest_wave_submission_t *current_wave = &render_graph->submissions[submission_index];
         for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
@@ -8504,6 +8505,8 @@ zest_render_graph zest__compile_render_graph() {
                 zest_uint current_pass_index = batch->pass_indices[execution_index];
                 zest_pass_group_t *current_pass = &render_graph->final_passes.data[current_pass_index];
                 current_pass->submission_id = ZEST__MAKE_SUBMISSION_ID(submission_index, execution_index, queue_index);
+
+                zest_vec_linear_push(allocator, render_graph->pass_execution_order, current_pass);
 
                 zest_batch_key batch_key = { 0 };
                 batch_key.current_family_index = current_pass->queue_info.queue_family_index;
@@ -8515,8 +8518,8 @@ zest_render_graph zest__compile_render_graph() {
                     zest_resource_node resource_node = current_pass->inputs.data[input_idx].resource_node;
                     if (resource_node->aliased_resource) resource_node = resource_node->aliased_resource;
                     if (resource_node) {
-                        resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, current_pass_index);
-                        resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, current_pass_index);
+                        resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, execution_order_index);
+                        resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, execution_order_index);
                     }
                     if (resource_node->producer_pass_idx != -1) {
                         zest_pass_group_t *producer_pass = &render_graph->final_passes.data[resource_node->producer_pass_idx];
@@ -8539,8 +8542,8 @@ zest_render_graph zest__compile_render_graph() {
                     zest_resource_node resource_node = current_pass->outputs.data[output_idx].resource_node;
                     if (resource_node->aliased_resource) resource_node = resource_node->aliased_resource;
                     if (resource_node) {
-                        resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, current_pass_index);
-                        resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, current_pass_index);
+                        resource_node->first_usage_pass_idx = ZEST__MIN(resource_node->first_usage_pass_idx, execution_order_index);
+                        resource_node->last_usage_pass_idx = ZEST__MAX(resource_node->last_usage_pass_idx, execution_order_index);
                     }
                     zest_resource_state_t state = { 0 };
                     state.pass_index = current_pass_index;
@@ -8554,6 +8557,7 @@ zest_render_graph zest__compile_render_graph() {
                         batch_key.next_family_indexes |= (1ull << render_graph->final_passes.data[consumer_pass_index].queue_info.queue_family_index);
                     }
                 }
+                execution_order_index++;
             }
         }
     }
@@ -8569,7 +8573,7 @@ zest_render_graph zest__compile_render_graph() {
 
             zest_resource_node swapchain_node = render_graph->swapchain_resource; 
             if (swapchain_node->first_usage_pass_idx != ZEST_INVALID) {
-                zest_pass_group_t *pass = &render_graph->final_passes.data[swapchain_node->first_usage_pass_idx];
+                zest_pass_group_t *pass = render_graph->pass_execution_order[swapchain_node->first_usage_pass_idx];
                 zest_uint submission_index = ZEST__SUBMISSION_INDEX(pass->submission_id);
                 zest_uint execution_index = ZEST__EXECUTION_INDEX(pass->submission_id);
                 zest_uint queue_index = ZEST__QUEUE_INDEX(pass->submission_id);
@@ -8675,8 +8679,8 @@ zest_render_graph zest__compile_render_graph() {
                 resource->first_usage_pass_idx <= resource->last_usage_pass_idx && // Ensures it's used
                 resource->first_usage_pass_idx != ZEST_INVALID) {
 
-                zest_pass_group_t *first_pass = &render_graph->final_passes.data[resource->first_usage_pass_idx];
-                zest_pass_group_t *last_pass = &render_graph->final_passes.data[resource->last_usage_pass_idx];
+                zest_pass_group_t *first_pass = render_graph->pass_execution_order[resource->first_usage_pass_idx];
+                zest_pass_group_t *last_pass = render_graph->pass_execution_order[resource->last_usage_pass_idx];
 
                 zest_vec_linear_push(allocator, first_pass->transient_resources_to_create, resource);
                 zest_vec_linear_push(allocator, last_pass->transient_resources_to_free, resource);
@@ -10238,29 +10242,29 @@ zest_pass_node zest_AddTransferPassNode(const char *name) {
     return node;
 }
 
-zest_resource_node zest_GetPassInputResource(zest_pass_node pass, const char *name) {
-    ZEST_ASSERT(zest_map_valid_name(pass->inputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from outputs?
-    zest_resource_usage_t *usage = zest_map_at(pass->inputs, name);
+zest_resource_node zest_GetPassInputResource(const zest_render_graph_context_t *context, const char *name) {
+    ZEST_ASSERT(zest_map_valid_name(context->pass_node->inputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from outputs?
+    zest_resource_usage_t *usage = zest_map_at(context->pass_node->inputs, name);
     return ZEST_VALID_HANDLE(usage->resource_node->aliased_resource) ? usage->resource_node->aliased_resource : usage->resource_node;
 }
 
-zest_buffer zest_GetPassInputBuffer(zest_pass_node pass, const char *name) {
-    ZEST_ASSERT(zest_map_valid_name(pass->inputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from outputs?
-    zest_resource_usage_t *usage = zest_map_at(pass->inputs, name);
+zest_buffer zest_GetPassInputBuffer(const zest_render_graph_context_t *context, const char *name) {
+    ZEST_ASSERT(zest_map_valid_name(context->pass_node->inputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from outputs?
+    zest_resource_usage_t *usage = zest_map_at(context->pass_node->inputs, name);
     zest_resource_node resource = ZEST_VALID_HANDLE(usage->resource_node->aliased_resource) ? usage->resource_node->aliased_resource : usage->resource_node;
     return resource->storage_buffer;
 }
 
-zest_buffer zest_GetPassOutputBuffer(zest_pass_node pass, const char *name) {
-    ZEST_ASSERT(zest_map_valid_name(pass->outputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from inputs?
-    zest_resource_usage_t *usage = zest_map_at(pass->outputs, name);
+zest_buffer zest_GetPassOutputBuffer(const zest_render_graph_context_t *context, const char *name) {
+    ZEST_ASSERT(zest_map_valid_name(context->pass_node->outputs, name));  //Not a valid input resource name. Check the name and also maybe you meant to get from inputs?
+    zest_resource_usage_t *usage = zest_map_at(context->pass_node->outputs, name);
     zest_resource_node resource = ZEST_VALID_HANDLE(usage->resource_node->aliased_resource) ? usage->resource_node->aliased_resource : usage->resource_node;
     return resource->storage_buffer;
 }
 
-zest_resource_node zest_GetPassOutputResource(zest_pass_node pass, const char *name) {
-    ZEST_ASSERT(zest_map_valid_name(pass->outputs, name));  //Not a valid output resource name. Check the name and also maybe you meant to get from inputs?
-    zest_resource_usage_t *usage = zest_map_at(pass->outputs, name);
+zest_resource_node zest_GetPassOutputResource(const zest_render_graph_context_t *context, const char *name) {
+    ZEST_ASSERT(zest_map_valid_name(context->pass_node->outputs, name));  //Not a valid output resource name. Check the name and also maybe you meant to get from inputs?
+    zest_resource_usage_t *usage = zest_map_at(context->pass_node->outputs, name);
     return ZEST_VALID_HANDLE(usage->resource_node->aliased_resource) ? usage->resource_node->aliased_resource : usage->resource_node;
 }
 
