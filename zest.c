@@ -1018,8 +1018,8 @@ zest_matrix4 zest_Ortho(float left, float right, float bottom, float top, float 
 }
 
 //-- Events and States
-zest_bool zest_SwapchainWasRecreated() {
-    return (ZestRenderer->flags & zest_renderer_flag_swapchain_was_recreated);
+zest_bool zest_SwapchainWasRecreated(zest_swapchain swapchain) {
+    return ZEST__FLAGGED(swapchain->flags, zest_swapchain_flag_was_recreated);
 }
 //-- End Events and States
 
@@ -4138,7 +4138,7 @@ void zest__cleanup_renderer() {
 void zest__recreate_swapchain(zest_swapchain swapchain) {
     int fb_width = 0, fb_height = 0;
     int window_width = 0, window_height = 0;
-    ZestRenderer->flags |= zest_renderer_flag_swapchain_was_recreated;
+    ZEST__FLAG(swapchain->flags, zest_swapchain_flag_was_recreated);
     while (fb_width == 0 || fb_height == 0) {
         ZestRenderer->get_window_size_callback(ZestApp->user_data, &fb_width, &fb_height, &window_width, &window_height);
         if (fb_width == 0 || fb_height == 0) {
@@ -10081,6 +10081,7 @@ zest_bool zest_AcquireSwapChainImage(zest_swapchain swapchain) {
     }
     ZEST_VK_CHECK_RESULT(result);
     ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired);
+    ZEST__UNFLAG(swapchain->flags, zest_swapchain_flag_was_recreated);
     return ZEST_TRUE;
 }
 

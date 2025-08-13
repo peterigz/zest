@@ -1264,12 +1264,11 @@ typedef enum zest_renderer_flag_bits {
     zest_renderer_flag_msaa_toggled                              = 1 << 5,
     zest_renderer_flag_vsync_enabled                             = 1 << 6,
     zest_renderer_flag_disable_default_uniform_update            = 1 << 7,
-    zest_renderer_flag_swapchain_was_recreated                   = 1 << 8,
-    zest_renderer_flag_has_depth_buffer                          = 1 << 9,
-    zest_renderer_flag_swap_chain_was_acquired                   = 1 << 10,
-    zest_renderer_flag_work_was_submitted                        = 1 << 11,
-    zest_renderer_flag_building_render_graph                     = 1 << 12,
-    zest_renderer_flag_enable_multisampling                      = 1 << 13,
+    zest_renderer_flag_has_depth_buffer                          = 1 << 8,
+    zest_renderer_flag_swap_chain_was_acquired                   = 1 << 9,
+    zest_renderer_flag_work_was_submitted                        = 1 << 10,
+    zest_renderer_flag_building_render_graph                     = 1 << 11,
+    zest_renderer_flag_enable_multisampling                      = 1 << 12,
 } zest_renderer_flag_bits;
 
 typedef zest_uint zest_renderer_flags;
@@ -1278,6 +1277,7 @@ typedef enum zest_swapchain_flag_bits {
     zest_swapchain_flag_none             = 0,
     zest_swapchain_flag_has_depth_buffer = 1 << 0,
     zest_swapchain_flag_has_msaa         = 1 << 1,
+    zest_swapchain_flag_was_recreated    = 1 << 2,
 }zest_swapchain_flag_bits;
 
 typedef zest_swapchain_flag_bits zest_swapchain_flags;
@@ -5407,7 +5407,7 @@ ZEST_API int zest_ComputeConditionAlwaysTrue(zest_compute compute);
 //        Events_and_States
 //-----------------------------------------------
 //Returns true if the swap chain was recreated last frame. The swap chain will mainly be recreated if the window size changes
-ZEST_API zest_bool zest_SwapchainWasRecreated(void);
+ZEST_API zest_bool zest_SwapchainWasRecreated(zest_swapchain swapchain);
 //--End Events and States
 
 //-----------------------------------------------
