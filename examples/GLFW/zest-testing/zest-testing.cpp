@@ -1206,15 +1206,25 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 	zest_image_resource_info_t depth_info = {
 		zest_texture_format_depth,
-		zest_resource_usage_hint_none,
+		zest_resource_usage_hint_msaa,
 		zest_ScreenWidth(),
 		zest_ScreenHeight(),
-		1
+		1,
+	};
+
+	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
+
+	zest_image_resource_info_t msaa_info = {
+		zest_GetSwapchainFormat(swapchain),
+		zest_resource_usage_hint_msaa,
+		zest_ScreenWidth(),
+		zest_ScreenHeight(),
+		1,
 	};
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Test Render Graph", 0)) {
-		zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, .1f, .2f, 1.f);
+	if (zest_BeginRenderToScreen(swapchain, "Test Render Graph", 0)) {
+		zest_SetSwapchainClearColor(swapchain, 0.f, .1f, .2f, 1.f);
 
 		//Resources
 		//zest_resource_node mesh_layer_resources = zest_AddInstanceLayerBufferResource("Mesh layer", app->mesh_layer, false);
@@ -1226,8 +1236,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_resource_node move_widget_layer_resources = zest_AddTransientLayerResource("Move widget layer", app->move_widget_layer, false);
 		zest_resource_node line_layer_resources = zest_AddTransientLayerResource("Line layer", app->line_layer, false);
 		zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
+		zest_resource_node msaa_buffer = zest_AddTransientImageResource("MSAA Buffer", &msaa_info);
 		zest_output_group group = zest_CreateOutputGroup();
 		zest_AddSwapchainToRenderTargetGroup(group);
+		zest_AddImageToRenderTargetGroup(group, msaa_buffer);
 		zest_AddImageToRenderTargetGroup(group, depth_buffer);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
