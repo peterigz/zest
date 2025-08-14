@@ -169,6 +169,7 @@ set(EXAMPLES
 	zest-custom-sprite-instance
 	zest-ribbons
 	zest-implot
+	zest-pbr
 )
 
 buildExamples()
