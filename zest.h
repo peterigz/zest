@@ -1012,7 +1012,10 @@ layout(binding = 0) uniform ubo_view
 
 layout(push_constant) uniform parameters
 {
-    mat4 model;
+    uint index1;
+    uint index2;
+    uint index3;
+    uint index4;
     vec4 parameters1;
     vec4 parameters2;
     vec4 parameters3;
@@ -1177,6 +1180,7 @@ typedef enum zest_struct_type {
     zest_struct_type_render_target_group     = 36 << 16,
     zest_struct_type_slang_info              = 37 << 16,
     zest_struct_type_render_pass             = 38 << 16,
+    zest_struct_type_mesh                    = 39 << 16,
 } zest_struct_type;
 
 typedef enum zest_vulkan_memory_context {
@@ -1675,6 +1679,7 @@ typedef struct zest_swapchain_t zest_swapchain_t;
 typedef struct zest_output_group_t zest_output_group_t;
 typedef struct zest_bitmap_t zest_bitmap_t;
 typedef struct zest_render_pass_t zest_render_pass_t;
+typedef struct zest_mesh_t zest_mesh_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_texture)
@@ -1708,6 +1713,7 @@ ZEST__MAKE_HANDLE(zest_resource_node)
 ZEST__MAKE_HANDLE(zest_output_group);
 ZEST__MAKE_HANDLE(zest_bitmap)
 ZEST__MAKE_HANDLE(zest_render_pass)
+ZEST__MAKE_HANDLE(zest_mesh)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -3461,6 +3467,7 @@ typedef struct zest_vertex_t {
 } zest_vertex_t;
 
 typedef struct zest_mesh_t {
+    int magic;
     zest_vertex_t* vertices;
     zest_uint* indexes;
 } zest_mesh_t;
@@ -4958,7 +4965,7 @@ ZEST_API zest_bitmap zest_GetBitmap(zest_texture texture, zest_index bitmap_inde
 //Get a zest_image from a texture by it's index
 ZEST_API zest_image zest_GetImageFromTexture(zest_texture texture, zest_index index);
 //Add an image to a texture from a file. This uses stb_image to load the image so must be in a format that stb image can load
-ZEST_API zest_image zest_AddTextureImageFile(zest_texture texture, const char* name);
+ZEST_API zest_image zest_AddTextureImageFile(zest_texture texture, const char* filename);
 //Add an image to a texture using a zest_bitmap_t
 ZEST_API zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap bitmap_to_load);
 //Add an image to a texture from a buffer.
@@ -5321,46 +5328,50 @@ ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x
 ZEST_API void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
-ZEST_API void zest_PushMeshVertex(zest_mesh_t *mesh, float pos_x, float pos_y, float pos_z, zest_color color);
+ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color color);
 //Push an index to a mesh to build triangles
-ZEST_API void zest_PushMeshIndex(zest_mesh_t *mesh, zest_uint index);
+ZEST_API void zest_PushMeshIndex(zest_mesh mesh, zest_uint index);
 //Rather then PushMeshIndex you can call this to add three indexes at once to build a triangle in the mesh
-ZEST_API void zest_PushMeshTriangle(zest_mesh_t *mesh, zest_uint i1, zest_uint i2, zest_uint i3);
+ZEST_API void zest_PushMeshTriangle(zest_mesh mesh, zest_uint i1, zest_uint i2, zest_uint i3);
+//Create a new mesh and return the handle to it
+ZEST_API zest_mesh zest_NewMesh();
 //Free the memeory used for the mesh. You can free the mesh once it's been added to the layer
-ZEST_API void zest_FreeMesh(zest_mesh_t *mesh);
+ZEST_API void zest_FreeMesh(zest_mesh mesh);
 //Set the position of the mesh in it's transform matrix
-ZEST_API void zest_PositionMesh(zest_mesh_t *mesh, zest_vec3 position);
+ZEST_API void zest_PositionMesh(zest_mesh mesh, zest_vec3 position);
 //Rotate a mesh by the given pitch, yaw and roll values (in radians)
-ZEST_API zest_matrix4 zest_RotateMesh(zest_mesh_t *mesh, float pitch, float yaw, float roll);
+ZEST_API zest_matrix4 zest_RotateMesh(zest_mesh mesh, float pitch, float yaw, float roll);
 //Transform a mesh by the given pitch, yaw and roll values (in radians), position x, y, z and scale sx, sy, sz
-ZEST_API zest_matrix4 zest_TransformMesh(zest_mesh_t *mesh, float pitch, float yaw, float roll, float x, float y, float z, float sx, float sy, float sz);
+ZEST_API zest_matrix4 zest_TransformMesh(zest_mesh mesh, float pitch, float yaw, float roll, float x, float y, float z, float sx, float sy, float sz);
+//Calculate the normals of a mesh. This will unweld the mesh to create faceted normals.
+ZEST_API void zest_CalculateNormals(zest_mesh mesh);
 //Initialise a new bounding box to 0
 ZEST_API zest_bounding_box_t zest_NewBoundingBox();
 //Calculate the bounding box of a mesh and return it
-ZEST_API zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh_t *mesh);
+ZEST_API zest_bounding_box_t zest_GetMeshBoundingBox(zest_mesh mesh);
 //Add all the vertices and indices of a mesh to another mesh to combine them into a single mesh.
-ZEST_API void zest_AddMeshToMesh(zest_mesh_t *dst_mesh, zest_mesh_t *src_mesh);
+ZEST_API void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh);
 //Set the group id for every vertex in the mesh. This can be used in the shader to identify different parts of the mesh and do different shader stuff with them.
-ZEST_API void zest_SetMeshGroupID(zest_mesh_t *mesh, zest_uint group_id);
+ZEST_API void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id);
 //Add a mesh to an instanced mesh layer. Existing vertex data in the layer will be deleted.
-ZEST_API void zest_AddMeshToLayer(zest_layer layer, zest_mesh_t *src_mesh);
+ZEST_API void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh);
 //Get the size in bytes for the vertex data in a mesh
-ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh_t *mesh);
+ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh mesh);
 //Get the size in bytes for the index data in a mesh
-ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh_t *mesh);
+ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh mesh);
 //Draw an instance of a mesh with an instanced mesh layer. Pass in the position, rotations and scale to transform the instance.
 //You must call zest_SetInstanceDrawing before calling this function as many times as you need.
 ZEST_API void zest_DrawInstancedMesh(zest_layer mesh_layer, float pos[3], float rot[3], float scale[3]);
 //Create a cylinder mesh of given number of sides, radius and height. Set cap to 1 to cap the cylinder.
-ZEST_API zest_mesh_t zest_CreateCylinderMesh(int sides, float radius, float height, zest_color color, zest_bool cap);
+ZEST_API zest_mesh zest_CreateCylinder(int sides, float radius, float height, zest_color color, zest_bool cap);
 //Create a cone mesh of given number of sides, radius and height.
-ZEST_API zest_mesh_t zest_CreateCone(int sides, float radius, float height, zest_color color);
+ZEST_API zest_mesh zest_CreateCone(int sides, float radius, float height, zest_color color);
 //Create a uv sphere mesh made up using a number of horizontal rings and vertical sectors of a give radius.
-ZEST_API zest_mesh_t zest_CreateSphere(int rings, int sectors, float radius, zest_color color);
+ZEST_API zest_mesh zest_CreateSphere(int rings, int sectors, float radius, zest_color color);
 //Create a cube mesh of a given size.
-ZEST_API zest_mesh_t zest_CreateCube(float size, zest_color color);
+ZEST_API zest_mesh zest_CreateCube(float size, zest_color color);
 //Create a flat rounded rectangle of a give width and height. Pass in the radius to use for the corners and number of segments to use for the corners.
-ZEST_API zest_mesh_t zest_CreateRoundedRectangle(float width, float height, float radius, int segments, zest_bool backface, zest_color color);
+ZEST_API zest_mesh zest_CreateRoundedRectangle(float width, float height, float radius, int segments, zest_bool backface, zest_color color);
 //--End Instance Draw mesh layers
 
 //-----------------------------------------------
