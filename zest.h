@@ -1181,6 +1181,7 @@ typedef enum zest_struct_type {
     zest_struct_type_slang_info              = 37 << 16,
     zest_struct_type_render_pass             = 38 << 16,
     zest_struct_type_mesh                    = 39 << 16,
+    zest_struct_type_texture_asset           = 40 << 16,
 } zest_struct_type;
 
 typedef enum zest_vulkan_memory_context {
@@ -1393,8 +1394,17 @@ typedef enum zest_texture_storage_type {
     zest_texture_storage_type_single,                        //A single image texture
     zest_texture_storage_type_storage,                       //A storage texture useful for manipulation and other things in a compute shader
     zest_texture_storage_type_stream,                        //A storage texture that you can update every frame
-    zest_texture_storage_type_render_target                  //Texture storage for a render target sampler, so that you can draw the target onto another render target
+    zest_texture_storage_type_render_target,                 //Texture storage for a render target sampler, so that you can draw the target onto another render target
+    zest_texture_storage_type_cube_map                       //Texture is a cube map
 } zest_texture_storage_type;
+
+typedef enum zest_image_collection_flag_bits {
+    zest_image_collection_flag_none        = 0,
+    zest_image_collection_flag_is_cube_map = 1 << 0,
+    zest_image_collection_flag_ktx_data    = 1 << 1,
+} zest_image_collection_flag_bits;
+
+typedef zest_uint zest_image_collection_flags;
 
 typedef enum zest_camera_flag_bits {
     zest_camera_flags_none = 0,
@@ -1649,6 +1659,7 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 // --Forward_declarations
 typedef struct zest_texture_t zest_texture_t;
 typedef struct zest_image_collection_t zest_image_collection_t;
+typedef struct zest_bitmap_t zest_bitmap_t;
 typedef struct zest_image_t zest_image_t;
 typedef struct zest_sampler_t zest_sampler_t;
 typedef struct zest_font_t zest_font_t;
@@ -1677,13 +1688,13 @@ typedef struct zest_queue_t zest_queue_t;
 typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 typedef struct zest_swapchain_t zest_swapchain_t;
 typedef struct zest_output_group_t zest_output_group_t;
-typedef struct zest_bitmap_t zest_bitmap_t;
 typedef struct zest_render_pass_t zest_render_pass_t;
 typedef struct zest_mesh_t zest_mesh_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image_collection)
+ZEST__MAKE_HANDLE(zest_bitmap)
 ZEST__MAKE_HANDLE(zest_image)
 ZEST__MAKE_HANDLE(zest_sampler)
 ZEST__MAKE_HANDLE(zest_font)
@@ -1711,7 +1722,6 @@ ZEST__MAKE_HANDLE(zest_render_graph)
 ZEST__MAKE_HANDLE(zest_pass_node)
 ZEST__MAKE_HANDLE(zest_resource_node)
 ZEST__MAKE_HANDLE(zest_output_group);
-ZEST__MAKE_HANDLE(zest_bitmap)
 ZEST__MAKE_HANDLE(zest_render_pass)
 ZEST__MAKE_HANDLE(zest_mesh)
 
@@ -3695,26 +3705,27 @@ typedef struct zest_sampler_t {
 
 zest_hash_map(zest_descriptor_set_builder_t) zest_map_texture_descriptor_builders;
 
-typedef struct zest_bitmap_t {
-    int magic;
+typedef struct zest_bitmap_meta_t {
     int width;
     int height;
     int channels;
     int stride;
-    zest_text_t name;
     size_t size;
+    size_t offset;
+} zest_bitmap_meta_t;
+
+typedef struct zest_bitmap_t {
+    int magic;
+    zest_bitmap_meta_t meta;
+    zest_text_t name;
     zest_byte *data;
     zest_bool is_imported;
 } zest_bitmap_t;
 
 typedef struct zest_bitmap_array_t {
-    int width;
-    int height;
-    int channels;
-    int stride;
     const char *name;
     zest_uint size_of_array;
-    size_t size_of_each_image;
+    zest_bitmap_meta_t *meta;
     size_t total_mem_size;
     zest_byte *data;
 } zest_bitmap_array_t;
@@ -3798,12 +3809,15 @@ typedef struct zest_texture_t {
 
 typedef struct zest_image_collection_t {
     int magic;
+    VkFormat vk_format; 
     zest_bitmap_t *image_bitmaps;
     zest_image *images;
     zest_bitmap_t *layers;
     zest_bitmap_array_t bitmap_array;
     VkBufferImageCopy *buffer_copy_regions;
     zest_uint packed_border_size;
+    zest_uint layer_count;
+    zest_image_collection_flags flags;
 } zest_image_collection_t;
 
 typedef struct zest_shader_t {
@@ -4063,7 +4077,7 @@ ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size ty
 
 // --Texture_internal_functions
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
-ZEST_PRIVATE float zest__copy_animation_frames(zest_texture texture, zest_bitmap_t *spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
+ZEST_PRIVATE float zest__copy_animation_frames(zest_texture texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 ZEST_PRIVATE void zest__delete_texture_layers(zest_texture texture);
 ZEST_PRIVATE void zest__generate_mipmaps(VkImage image, VkFormat image_format, int32_t texture_width, int32_t texture_height, zest_uint mip_levels, zest_uint layer_count, VkImageLayout image_layout, VkCommandBuffer cb);
 ZEST_PRIVATE void zest__create_texture_image(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap, VkCommandBuffer command_buffer);
@@ -4078,6 +4092,14 @@ ZEST_PRIVATE void zest__create_texture_image_view(zest_texture texture, VkImageV
 ZEST_PRIVATE void zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__create_texture_debug_set(zest_texture texture);
 ZEST_PRIVATE void zest__maybe_create_image_collection(zest_texture texture);
+ZEST_PRIVATE void zest__tinyktxCallbackError(void *user, char const *msg);
+ZEST_PRIVATE void *zest__tinyktxCallbackAlloc(void *user, size_t size);
+ZEST_PRIVATE void zest__tinyktxCallbackFree(void *user, void *data);
+ZEST_PRIVATE size_t zest__tinyktxCallbackRead(void *user, void *data, size_t size);
+ZEST_PRIVATE bool zest__tinyktxCallbackSeek(void *user, int64_t offset);
+ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
+ZEST_API zest_image_collection zest__load_ktx(const char *file_path);
+ZEST_PRIVATE VkFormat zest__convert_tktx_format(TinyKtx_Format format);
 
 // --General_layer_internal_functions
 ZEST_PRIVATE zest_layer zest__create_instance_layer(const char *name, zest_size instance_type_size, zest_uint initial_instance_count);
@@ -4879,7 +4901,8 @@ ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_textu
 ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureStorage(const char *name, int width, int height, zest_texture_format format, VkImageViewType view_type);
-ZEST_API zest_texture zest_CreateTextureTarget(const char *name, int width, int height, zest_texture_format format, VkImageViewType view_type);
+//Load a cube map from a ktx file
+ZEST_API zest_texture zest_LoadCubemap(const char *name, const char *file_name);
 //Delete a texture from the renderer and free its resources. You must ensure that you don't try writing to the texture while deleting.
 ZEST_API void zest_DeleteTexture(zest_texture texture);
 //Resetting a texture will remove all it's images and reset it back to it's "just created" status
@@ -4908,23 +4931,27 @@ ZEST_API zest_imgui_image_t zest_NewImGuiImage(void);
 ZEST_API zest_image zest_CreateImage(void);
 ZEST_API zest_image zest_CreateAnimation(zest_uint frames);
 //Load a bitmap from a file. Set color_channels to 0 to auto detect the number of channels
-ZEST_API void zest_LoadBitmapImage(zest_bitmap_t *image, const char *file, int color_channels);
+ZEST_API void zest_LoadBitmapImage(zest_bitmap image, const char *file, int color_channels);
 //Load a bitmap from a memory buffer. Set color_channels to 0 to auto detect the number of channels. Pass in a pointer to the memory buffer containing
 //the bitmap, the size in bytes and how many channels it has.
-ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap_t *image, const unsigned char *buffer, int size, int desired_no_channels);
+ZEST_API void zest_LoadBitmapImageMemory(zest_bitmap image, const unsigned char *buffer, int size, int desired_no_channels);
 //Free the memory used in a zest_bitmap including the bitmap handle itself
 ZEST_API void zest_FreeBitmap(zest_bitmap image);
 //Free the memory used in a zest_bitmap_t
-ZEST_API void zest_FreeBitmapData(zest_bitmap_t *image);
+ZEST_API void zest_FreeBitmapData(zest_bitmap image);
 //Create a new initialise zest_bitmap_t
 ZEST_API zest_bitmap zest_NewBitmap(void);
 //Create a new bitmap from a pixel buffer. Pass in the name of the bitmap, a pointer to the buffer, the size in bytes of the buffer, the width and height
 //and the number of color channels
 ZEST_API zest_bitmap zest_CreateBitmapFromRawBuffer(const char *name, unsigned char *pixels, int size, int width, int height, int channels);
 //Allocate the memory for a bitmap based on the width, height and number of color channels. You can also specify the fill color
-ZEST_API void zest_AllocateBitmap(zest_bitmap bitmap, int width, int height, int channels, zest_color fill_color);
+ZEST_API void zest_AllocateBitmap(zest_bitmap bitmap, int width, int height, int channels);
+//Allocate the memory for a bitmap based on the width, height and number of color channels. You can also specify the fill color
+ZEST_API void zest_AllocateBitmapAndClear(zest_bitmap bitmap, int width, int height, int channels, zest_color fill_color);
+//Allocate the memory for a bitmap based the number of bytes required
+ZEST_API void zest_AllocateBitmapMemory(zest_bitmap bitmap, zest_size size_in_bytes);
 //Copy all of a source bitmap to a destination bitmap
-ZEST_API void zest_CopyWholeBitmap(zest_bitmap src, zest_bitmap_t *dst);
+ZEST_API void zest_CopyWholeBitmap(zest_bitmap src, zest_bitmap dst);
 //Copy an area of a source bitmap to another bitmap
 ZEST_API void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width, int height, zest_bitmap dst, int to_x, int to_y);
 //Convert a bitmap to a specific vulkan color format. Accepted formats are:
@@ -4992,6 +5019,7 @@ ZEST_API VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture 
 //Create and allocate a bitmap array. Bitmap arrays are exactly as they sound, an array of bitmaps. These are used to copy an array of bitmaps into a GPU texture array. These are
 //primarily used in the creation of textures that use zest_texture_storage_type_packed and zest_texture_storage_type_bank.
 ZEST_API void zest_CreateBitmapArray(zest_bitmap_array_t *images, int width, int height, int channels, zest_uint size_of_array);
+ZEST_API void zest_InitialiseBitmapArray(zest_bitmap_array_t *images, zest_uint size_of_array);
 //Free a bitmap array and return memory resources to the allocator
 ZEST_API void zest_FreeBitmapArray(zest_bitmap_array_t *images);
 //Set the handle of an image. This dictates where the image will be positioned when you draw it with zest_DrawSprite/zest_DrawBillboard. 0.5, 0.5 will center the image at the position you draw it.
