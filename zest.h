@@ -12,6 +12,7 @@
     [Platform_specific_code]            Windows/Mac specific, no linux yet
     [Shader_code]                       glsl shader code for all the built in shaders
     [Enums_and_flags]                   Enums and bit flag definitions
+        [pipeline_enums]
     [Forward_declarations]              Forward declarations for structs and setting up of handles
     [Pocket_dynamic_array]              Simple dynamic array
     [Pocket_bucket_array]               Simple bucket array
@@ -124,6 +125,7 @@ extern "C" {
 #define ZEST__QUEUE_INDEX(id) ((id & 0xFF000000) >> 24)
 
 static const char *zest_message_pass_culled = "Pass [%s] culled because there were no outputs.";
+static const char *zest_message_pass_culled_no_work = "Pass [%s] culled because there was no work found.";
 static const char *zest_message_pass_culled_not_consumed = "Pass [%s] culled because it's output was not consumed by any subsequent passes. This won't happen if the ouput is an imported buffer or image. If the resource is transient then it will be discarded immediately once it has no further use. Also note that passes at the front of a chain can be culled if ultimately nothing consumes the output from the last pass in the chain.";
 static const char *zest_message_cyclic_dependency = "Cyclic dependency detected in render graph [%s] with pass [%s]. You have a situation where  Pass A depends on Pass B's output, and Pass B depends on Pass A's output.";
 
@@ -1288,14 +1290,6 @@ typedef enum zest_swapchain_flag_bits {
 
 typedef zest_swapchain_flag_bits zest_swapchain_flags;
 
-typedef enum zest_pipeline_set_flag_bits {
-    zest_pipeline_set_flag_none                                   = 0,
-    zest_pipeline_set_flag_is_render_target_pipeline              = 1 << 0,        //True if this pipeline is used for the final render of a render target to the swap chain
-    zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild = 1 << 1        //True if the pipeline should update it's view extent when the swap chain is recreated (the window is resized)
-} zest_pipeline_set_flag_bits;
-
-typedef zest_uint zest_pipeline_set_flags;
-
 typedef enum zest_init_flag_bits {
     zest_init_flag_none                                         = 0,
     zest_init_flag_maximised                                    = 1 << 1,
@@ -1415,12 +1409,15 @@ typedef enum zest_camera_flag_bits {
 typedef zest_uint zest_camera_flags;
 
 typedef enum zest_texture_format {
+    //Todo: rename these, should include the 8/16/32 in the type
     zest_texture_format_alpha = VK_FORMAT_R8_UNORM,
     zest_texture_format_rgba_unorm = VK_FORMAT_R8G8B8A8_UNORM,
     zest_texture_format_bgra_unorm = VK_FORMAT_B8G8R8A8_UNORM,
     zest_texture_format_rgba_srgb = VK_FORMAT_R8G8B8A8_SRGB,
     zest_texture_format_bgra_srgb = VK_FORMAT_B8G8R8A8_SRGB,
     zest_texture_format_rgba_hdr = VK_FORMAT_R16G16B16A16_SFLOAT,
+    zest_texture_format_rgba32 = VK_FORMAT_R32G32B32A32_SFLOAT,
+    zest_texture_format_rg_hdr = VK_FORMAT_R16G16_SFLOAT,
     zest_texture_format_depth = VK_FORMAT_D16_UNORM
 } zest_texture_format;
 
@@ -1579,6 +1576,15 @@ typedef enum zest_dynamic_resource_type {
     zest_dynamic_resource_render_finished_semaphore,
 } zest_dynamic_resource_type;
 
+//pipeline_enums
+typedef enum zest_pipeline_set_flag_bits {
+    zest_pipeline_set_flag_none = 0,
+    zest_pipeline_set_flag_is_render_target_pipeline = 1 << 0,        //True if this pipeline is used for the final render of a render target to the swap chain
+    zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild = 1 << 1        //True if the pipeline should update it's view extent when the swap chain is recreated (the window is resized)
+} zest_pipeline_set_flag_bits;
+
+typedef zest_uint zest_pipeline_set_flags;
+
 typedef enum zest_supported_pipeline_stages {
     zest_pipeline_vertex_input_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
     zest_pipeline_vertex_stage = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
@@ -1586,6 +1592,32 @@ typedef enum zest_supported_pipeline_stages {
     zest_pipeline_compute_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
     zest_pipeline_transfer_stage = VK_PIPELINE_STAGE_TRANSFER_BIT
 } zest_supported_pipeline_stages;
+
+typedef enum zest_front_face {
+    zest_front_face_clockwise,
+    zest_front_face_counter_clockwise,
+} zest_front_face;
+
+typedef enum zest_topology {
+    zest_topology_point_list,
+    zest_topology_line_list,
+    zest_topology_line_strip,
+    zest_topology_triangle_list,
+    zest_topology_triangle_strip,
+    zest_topology_triangle_fan,
+    zest_topology_line_list_with_adjacency,
+    zest_topology_line_strip_with_adjacency,
+    zest_topology_triangle_list_with_adjacency,
+    zest_topology_triangle_strip_with_adjacency,
+    zest_topology_patch_list,
+} zest_topology;
+
+typedef enum zest_cull_mode {
+    zest_cull_mode_none,
+    zest_cull_mode_front,
+    zest_cull_mode_back,
+    zest_cull_mode_front_and_back,
+} zest_cull_mode;
 
 typedef enum zest_supported_shader_stage_bits {
     zest_shader_vertex_stage = VK_SHADER_STAGE_VERTEX_BIT,
@@ -2600,7 +2632,7 @@ typedef struct zest_resource_usage_t {
     zest_resource_access_type access_type;
     VkPipelineStageFlags stage_mask; // Pipeline stages this usage pertains to
     VkAccessFlags access_mask;       // Vulkan access mask for barriers
-    VkImageLayout image_layout;      // Required VkImageLayout if it's an image
+    VkImageLayout vk_image_layout;      // Required VkImageLayout if it's an image
     VkImageAspectFlags    aspect_flags; 
     zest_resource_purpose purpose;
     // For framebuffer attachments
@@ -3387,7 +3419,6 @@ typedef struct zest_pipeline_template_t {
     zest_text_t shader_path_prefix;
     zest_text_t vertShaderFunctionName;
     zest_text_t fragShaderFunctionName;
-    VkPrimitiveTopology topology;
     zest_text_t vertShaderFile;
     zest_text_t fragShaderFile;
 
@@ -3766,10 +3797,10 @@ typedef struct zest_framebuffer_attachment_t {
 
 typedef struct zest_texture_t {
     int magic;
-    VkImageLayout image_layout;
-    VkFormat image_format;
-    VkImageViewType image_view_type;
-    VkSamplerCreateInfo sampler_info;
+    VkImageLayout vk_image_layout;
+    VkFormat vk_image_format;
+    VkImageViewType vk_image_view_type;
+    VkSamplerCreateInfo vk_sampler_info;
     zest_uint mip_levels;
 
     zest_text_t name;
@@ -4079,8 +4110,8 @@ ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size ty
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
 ZEST_PRIVATE float zest__copy_animation_frames(zest_texture texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 ZEST_PRIVATE void zest__delete_texture_layers(zest_texture texture);
-ZEST_PRIVATE void zest__generate_mipmaps(VkImage image, VkFormat image_format, int32_t texture_width, int32_t texture_height, zest_uint mip_levels, zest_uint layer_count, VkImageLayout image_layout, VkCommandBuffer cb);
-ZEST_PRIVATE void zest__create_texture_image(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout image_layout, zest_bool copy_bitmap, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__generate_mipmaps(VkImage image, VkFormat vk_image_format, int32_t texture_width, int32_t texture_height, zest_uint mip_levels, zest_uint layer_count, VkImageLayout vk_image_layout, VkCommandBuffer cb);
+ZEST_PRIVATE void zest__create_texture_image(zest_texture texture, zest_uint mip_levels, VkImageUsageFlags usage_flags, VkImageLayout vk_image_layout, zest_bool copy_bitmap, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__create_texture_image_array(zest_texture texture, zest_uint mip_levels, VkCommandBuffer command_buffer);
 ZEST_PRIVATE zest_byte zest__calculate_texture_layers(stbrp_rect *rects, zest_uint size, const zest_uint node_count);
 ZEST_PRIVATE void zest__make_image_bank(zest_texture texture, zest_uint size);
@@ -4115,10 +4146,10 @@ ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size v
 ZEST_PRIVATE VkImageView zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mip_levels_this_view, zest_uint base_mip, VkImageViewType viewType, zest_uint layerCount);
 ZEST_PRIVATE void zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory);
 ZEST_PRIVATE zest_buffer zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
-ZEST_PRIVATE zest_buffer zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
+ZEST_PRIVATE zest_buffer zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits numSamples, VkFormat format, VkImageCreateFlags flags, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image);
 ZEST_PRIVATE void zest__create_transient_image(zest_resource_node node);
 ZEST_PRIVATE void zest__create_transient_buffer(zest_resource_node node);
-ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout image_layout, VkCommandBuffer command_buffer);
+ZEST_PRIVATE void zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout vk_image_layout, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__copy_buffer_regions_to_image(VkBufferImageCopy *regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mipLevels, zest_uint layerCount, VkCommandBuffer command_buffer);
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage image, VkAccessFlags from_access, VkAccessFlags to_access, VkImageLayout from_layout, VkImageLayout to_layout, VkImageAspectFlags aspect_flags, zest_uint target_mip_level, zest_uint mip_count);
@@ -4346,6 +4377,7 @@ ZEST_API zest_uint zest_AcquireBindlessTextureIndex(zest_texture texture, zest_s
 ZEST_API zest_uint zest_AcquireGlobalCombinedImageSampler(zest_texture texture);
 ZEST_API zest_uint zest_AcquireGlobalSampledImage(zest_texture texture);
 ZEST_API zest_uint zest_AcquireGlobalSampler(zest_texture texture);
+ZEST_API zest_uint zest_AcquireGlobalStorageSampler(zest_texture texture);
 ZEST_API zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer);
 ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer layer);
 ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
@@ -4446,6 +4478,9 @@ ZEST_API zest_pipeline_template zest_BeginPipelineTemplate(const char *name);
 ZEST_API void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
 ZEST_API void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
 ZEST_API void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, const char *vertex_shader, const char *fragment_shader, const char *prefix);
+ZEST_API void zest_SetPipelineFrontFace(zest_pipeline_template pipeline_template, zest_front_face front_face);
+ZEST_API void zest_SetPipelineTopology(zest_pipeline_template pipeline_template, zest_topology topology);
+ZEST_API void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template, zest_cull_mode cull_mode);
 //Set the name of both the fragment and vertex shader to the same file (frag and vertex shaders can be combined into the same spv)
 ZEST_API void zest_SetPipelineShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
 //Add a new VkVertexInputBindingDescription which is used to set the size of the struct (stride) and the vertex input rate.
@@ -4498,6 +4533,7 @@ ZEST_API zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_ui
 ZEST_API zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint index);
 //The following are helper functions to set color blend attachment states for various blending setups
 //Just take a look inside the functions for the values being used
+ZEST_API VkPipelineColorBlendAttachmentState zest_BlendStateNone(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState2(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaOnlyBlendState(void);
@@ -4900,7 +4936,7 @@ ZEST_API zest_texture zest_CreateTexturePacked(const char *name, zest_texture_fo
 ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_format format);
-ZEST_API zest_texture zest_CreateTextureStorage(const char *name, int width, int height, zest_texture_format format, VkImageViewType view_type);
+ZEST_API zest_texture zest_CreateTextureStorage(const char *name, int width, int height, zest_texture_format format, VkImageViewType view_type, zest_bool with_mip_maps);
 //Load a cube map from a ktx file
 ZEST_API zest_texture zest_LoadCubemap(const char *name, const char *file_name);
 //Delete a texture from the renderer and free its resources. You must ensure that you don't try writing to the texture while deleting.
