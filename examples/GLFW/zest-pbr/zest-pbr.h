@@ -10,10 +10,16 @@
 
 struct RenderCacheInfo {
 	bool draw_imgui;
+	VkImageLayout brd_layout;
+	VkImageLayout irradiance_layout;
+	VkImageLayout prefiltered_layout;
 };
 
 struct UniformLights {
 	zest_vec4 lights[4];
+	float exposure;
+	float gamma;
+	zest_uint texture_index;
 };
 
 typedef struct uniform_buffer_data_t {
@@ -28,23 +34,70 @@ struct billboard_push_constant_t {
 	zest_uint texture_index;
 };
 
+struct irr_push_constant_t {
+	zest_uint source_env_index;
+	zest_uint irr_index;
+	float delta_phi;
+	float delta_theta;
+};
+
+struct prefiltered_push_constant_t {
+	zest_uint source_env_index;
+	zest_uint prefiltered_index;
+	float roughness;
+	zest_uint num_samples;
+};
+
 struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
-	zest_texture imgui_font_texture;
 	zest_timer timer;
 	zest_camera_t camera;
+
 	zest_layer cube_layer;
+	zest_layer skybox_layer;
+	zest_layer billboard_layer;
+
 	zest_pipeline_template pbr_pipeline;
-	zest_shader_resources pbr_shader_resources;
+	zest_pipeline_template skybox_pipeline;
+	zest_pipeline_template billboard_pipeline;
+	zest_pipeline_template brdibl_pipeline;
+
 	zest_uniform_buffer view_buffer;
 	zest_uniform_buffer lights_buffer;
+
 	RenderCacheInfo cache_info;
+
 	zest_push_constants_t material_push;
 	billboard_push_constant_t billboard_push;
-	zest_layer billboard_layer;
+	irr_push_constant_t irr_push_constant;
+	prefiltered_push_constant_t prefiltered_push_constant;
+
 	zest_shader_resources sprite_resources;
+	zest_shader_resources pbr_shader_resources;
+	zest_shader_resources skybox_shader_resources;
+
+	zest_shader brd_shader;
+	zest_shader irr_shader;
+	zest_shader prefiltered_shader;
+
+	zest_texture imgui_font_texture;
 	zest_texture sprites_texture;
-	zest_pipeline_template billboard_pipeline;
+	zest_texture skybox_texture;
+	zest_texture brd_texture;
+	zest_texture irr_texture;
+	zest_texture prefiltered_texture;
+
+	zest_compute brd_compute;
+	zest_compute irr_compute;
+	zest_compute prefiltered_compute;
+
+	zest_uint skybox_bindless_index;
+	zest_uint brd_bindless_index;
+	zest_uint irr_bindless_index;
+	zest_uint prefiltered_bindless_index;
+	
+	zest_uint *prefiltered_mip_indexes;
+
 	zest_image light;
 	float ellapsed_time;
 	bool sync_refresh;
@@ -53,4 +106,8 @@ struct ImGuiApp {
 };
 
 void InitImGuiApp(ImGuiApp *app);
-void UpdateLights(ImGuiApp *app);
+void UpdateLights(ImGuiApp *app, float timer);
+void SetupBillboards(ImGuiApp *app);
+void SetupBRDFLUT(ImGuiApp *app);
+void SetupIrradianceCube(ImGuiApp *app);
+void SetupPrefilteredCube(ImGuiApp *app);

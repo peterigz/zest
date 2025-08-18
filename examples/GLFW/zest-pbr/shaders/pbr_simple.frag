@@ -23,6 +23,8 @@ layout(push_constant) uniform quad_index
 
 layout (set = 1, binding = 0) uniform UBOLights {
 	vec4 lights[4];
+	float exposure;
+	float gamma;
 } ubo_lights;
 
 const float PI = 3.14159265359;
