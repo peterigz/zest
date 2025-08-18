@@ -1638,21 +1638,20 @@ typedef enum zest_report_category {
     zest_report_invalid_render_pass,
     zest_report_render_pass_skipped,
     zest_report_expecting_swapchain_usage,
+    zest_report_bindless_indexes,
 } zest_report_category;
 
-typedef enum zest_global_binding_numbers {
-    zest_combined_image_sampler_binding = 0,
+typedef enum zest_global_binding_number {
+    zest_combined_image_sampler_2d_binding = 0,
+    zest_combined_image_sampler_array_binding,
+    zest_combined_image_sampler_cube_binding,
+    zest_combined_image_sampler_3d_binding,
     zest_storage_buffer_binding,
     zest_sampler_binding,
     zest_sampled_image_binding,
     zest_storage_image_binding,
-} zest_global_binding_numbers;
-
-typedef enum zest_image_binding_type {
-    zest_binding_type_combined_image_sampler = 0,
-    zest_binding_type_storage_image,
-    zest_max_image_binding_type
-} zest_image_binding_type;
+    zest_max_global_binding_number
+} zest_global_binding_number;
 
 typedef enum zest_render_graph_result_bits {
     zest_rgs_success                      = 0,
@@ -2712,7 +2711,10 @@ typedef struct zest_create_info_t {
     zest_texture_format color_format;                   //The format to use for the swapchain
     zest_init_flags flags;                              //Set flags to apply different initialisation options
     zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
-    zest_uint bindless_combined_sampler_count;
+    zest_uint bindless_combined_sampler_2d_count;
+    zest_uint bindless_combined_sampler_array_count;
+    zest_uint bindless_combined_sampler_cube_count;
+    zest_uint bindless_combined_sampler_3d_count;
     zest_uint bindless_sampler_count;
     zest_uint bindless_sampled_image_count;
     zest_uint bindless_storage_buffer_count;
@@ -3002,8 +3004,8 @@ typedef struct zest_resource_node_t {
 
     zest_image_buffer_t image_buffer;
     zest_buffer storage_buffer;
-    zest_uint bindless_index[2];            //The index to use in the shader
-    zest_uint *mip_level_bindless_indexes;  //The index to use in the shader
+    zest_uint bindless_index[zest_max_global_binding_number];   //The index to use in the shader
+    zest_uint *mip_level_bindless_indexes;                      //The mip indexes to use in the shader
     zest_sampler sampler;
 
     zest_uint reference_count;
@@ -3014,6 +3016,7 @@ typedef struct zest_resource_node_t {
     VkPipelineStageFlags last_stage_mask;
     VkImageLayout current_layout;                   // The current layout of the image in the resource
     VkImageLayout final_layout;                     // Layout resource should be in after last use in this graph
+    VkImageLayout *linked_layout;                   // A link to the layout in the texture so that the layout in the texture can be updated as it's transitioned in the render graph
 
     zest_resource_state_t *journey;                 // List of the different states this resource has over the render graph, used to build barriers where needed
     int producer_pass_idx;                          // Index of the pass that writes/creates this resource (-1 if imported)
@@ -3243,8 +3246,8 @@ ZEST_API zest_pass_node zest_AddComputePassNode(zest_compute compute, const char
 ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_GetTransientImageBindlessIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_bool base_mip_only, zest_image_binding_type binding_type);
-ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_render_graph_context_t *context, zest_resource_node resource, zest_image_binding_type binding_type);
+ZEST_API zest_uint zest_GetTransientImageBindlessIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_bool base_mip_only, zest_global_binding_number binding_number);
+ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_render_graph_context_t *context, zest_resource_node resource, zest_global_binding_number binding_number);
 ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_render_graph_context_t *context, zest_resource_node resource);
 
 // --- Add callback tasks to passes
@@ -3820,8 +3823,7 @@ typedef struct zest_texture_t {
     zest_descriptor_set debug_set;          //A descriptor set for simply sampling the texture
     zest_descriptor_set bindless_set;       //A descriptor set for a bindless layout
     zest_sampler sampler;
-    zest_uint descriptor_array_index;
-    zest_uint binding_number;
+    zest_uint bindless_index[zest_max_global_binding_number];
     // --- 
 
     //Bitmap data for loading in from disk
@@ -4373,18 +4375,21 @@ ZEST_API void zest_AddSetBuilderStorageBuffer( zest_descriptor_set_builder_t *bu
 ZEST_API zest_descriptor_set zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update);
 ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout layout);
 ZEST_API zest_uint zest_AcquireBindlessStorageBufferIndex(zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
-ZEST_API zest_uint zest_AcquireBindlessTextureIndex(zest_texture texture, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
-ZEST_API zest_uint zest_AcquireGlobalCombinedImageSampler(zest_texture texture);
+ZEST_API zest_uint zest_AcquireBindlessTextureIndex(zest_texture texture, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number);
+ZEST_API zest_uint zest_AcquireGlobalCombinedSampler2d(zest_texture texture);
+ZEST_API zest_uint zest_AcquireGlobalCombinedSampler3d(zest_texture texture);
+ZEST_API zest_uint zest_AcquireGlobalCombinedSamplerCube(zest_texture texture);
+ZEST_API zest_uint zest_AcquireGlobalCombinedSamplerArray(zest_texture texture);
 ZEST_API zest_uint zest_AcquireGlobalSampledImage(zest_texture texture);
 ZEST_API zest_uint zest_AcquireGlobalSampler(zest_texture texture);
 ZEST_API zest_uint zest_AcquireGlobalStorageSampler(zest_texture texture);
 ZEST_API zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer);
+ZEST_API zest_uint *zest_AcquireGlobalTextureMipIndexes(zest_texture texture, zest_global_binding_number binding_number);
 ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer layer);
 ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
-ZEST_API void zest_ReleaseGlobalTextureIndex(zest_texture texture);
-ZEST_API void zest_ReleaseGlobalSamplerIndex(zest_uint index);
-ZEST_API void zest_ReleaseGlobalSampledImageIndex(zest_uint index);
-ZEST_API void zest_ReleaseBindlessIndex(zest_uint index, zest_uint binding_number);
+ZEST_API void zest_ReleaseGlobalTextureIndex(zest_texture texture, zest_global_binding_number binding_number);
+ZEST_API void zest_ReleaseAllGlobalTextureIndexes(zest_texture texture);
+ZEST_API void zest_ReleaseBindlessIndex(zest_uint index, zest_global_binding_number binding_number);
 ZEST_API VkDescriptorSet zest_vk_GetGlobalBindlessSet();
 ZEST_API zest_descriptor_set zest_GetGlobalBindlessSet();
 ZEST_API VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout();
@@ -5049,7 +5054,7 @@ ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const c
 //just call zest_ScheduleTextureReprocess which will recreate the texture between frames and then schedule a cleanup the next
 //frame after.
 ZEST_API void zest_ProcessTextureImages(zest_texture texture);
-ZEST_API zest_uint zest_GetTextureDescriptorIndex(zest_texture texture);
+ZEST_API zest_uint zest_GetTextureDescriptorIndex(zest_texture texture, zest_global_binding_number binding_number);
 //Get the descriptor image info for the texture that you can use to build a descriptor set with
 ZEST_API VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture texture);
 //Create and allocate a bitmap array. Bitmap arrays are exactly as they sound, an array of bitmaps. These are used to copy an array of bitmaps into a GPU texture array. These are
@@ -5107,6 +5112,8 @@ ZEST_API void zest_CopyFramebufferToTexture(zest_frame_buffer_t *src_image, zest
 ZEST_API void zest_CopyTextureToTexture(zest_texture src_image, zest_texture target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 //Copies an area of a zest_texture to a zest_bitmap_t.
 ZEST_API void zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel);
+//Get the current layout of the texture
+ZEST_API VkImageLayout zest_GetTextureLayout(zest_texture texture);
 
 // --Sampler functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
