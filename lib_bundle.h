@@ -1281,7 +1281,7 @@ int zloc_SafeCopy(void *dst, void *src, zloc_size size) {
     return 1;
 }
 
-int zloc_SafeCopyBlock(void *dst_block_start, void *dst, void *src, zloc_size size) {
+int zloc_SafeCopyBlock(void *dst_block_start, void *dst, const void *src, zloc_size size) {
     zloc_header *block = zloc__block_from_allocation(dst_block_start);
     zloc_header *next_physical_block = zloc__next_physical_block(block);
     ptrdiff_t diff_check = (ptrdiff_t)((char *)dst + size) - (ptrdiff_t)next_physical_block;
