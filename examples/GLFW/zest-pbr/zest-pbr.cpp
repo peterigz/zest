@@ -50,7 +50,7 @@ void SetupBillboards(ImGuiApp *app) {
 	zest_AddGlobalBindlessSetToResources(app->sprite_resources);
 }
 
-void zest_DispatchBRDSetup(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void zest_DispatchBRDSetup(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	ImGuiApp *app = (ImGuiApp *)user_data;
 
 	const zest_uint local_size_x = 8;
@@ -95,11 +95,11 @@ void SetupBRDFLUT(ImGuiApp *app) {
 	zest_SetPassTask(zest_DispatchBRDSetup, app);
 	zest_EndPass();
 
-	zest_frame_graph render_graph = zest_EndFrameGraphAndWait();
-	zest_PrintCompiledRenderGraph(render_graph);
+	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
+	zest_PrintCompiledRenderGraph(frame_graph);
 }
 
-void zest_DispatchIrradianceSetup(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void zest_DispatchIrradianceSetup(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	ImGuiApp *app = (ImGuiApp *)user_data;
 
 	const zest_uint local_size = 8;
@@ -148,11 +148,11 @@ void SetupIrradianceCube(ImGuiApp *app) {
 	zest_SetPassTask(zest_DispatchIrradianceSetup, app);
 	zest_EndPass();
 
-	zest_frame_graph render_graph = zest_EndFrameGraphAndWait();
-	zest_PrintCompiledRenderGraph(render_graph);
+	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
+	zest_PrintCompiledRenderGraph(frame_graph);
 }
 
-void zest_DispatchPrefilteredSetup(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void zest_DispatchPrefilteredSetup(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	ImGuiApp *app = (ImGuiApp *)user_data;
 
 	const zest_uint local_size = 8;
@@ -204,8 +204,8 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 	zest_SetPassTask(zest_DispatchPrefilteredSetup, app);
 	zest_EndPass();
 
-	zest_frame_graph render_graph = zest_EndFrameGraphAndWait();
-	zest_PrintCompiledRenderGraph(render_graph);
+	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
+	zest_PrintCompiledRenderGraph(frame_graph);
 }
 
 void InitImGuiApp(ImGuiApp *app) {
@@ -320,7 +320,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_mesh cone = zest_CreateCone(50, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh cylinder = zest_CreateCylinder(100, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255), true);
 	zest_mesh sky_box = zest_CreateCube(1.f, zest_ColorSet(255, 255, 255, 255));
-	zest_AddMeshToLayer(app->cube_layer, cylinder);
+	zest_AddMeshToLayer(app->cube_layer, cube);
 	zest_AddMeshToLayer(app->skybox_layer, sky_box);
 	zest_FreeMesh(cube);
 	zest_FreeMesh(sphere);
@@ -356,7 +356,7 @@ void UpdateLights(ImGuiApp *app, float timer) {
 	zest_DrawBillboardSimple(app->billboard_layer, app->light, &buffer_data->lights[3].x, 0.f, 1.f, 1.f);
 }
 
-void UploadMeshData(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void UploadMeshData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	ImGuiApp *app = (ImGuiApp *)user_data;
 
 	zest_layer layers[3]{
@@ -502,7 +502,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	app->cache_info.brd_layout = zest_GetTextureLayout(app->brd_texture);
 	app->cache_info.irradiance_layout = zest_GetTextureLayout(app->irr_texture);
 	app->cache_info.prefiltered_layout = zest_GetTextureLayout(app->prefiltered_texture);
-	zest_render_graph_cache_key_t cache_key = {};
+	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
 
 	zest_image_resource_info_t depth_info = {
@@ -588,10 +588,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		//----------------------------------------------------------------------------------------------------
 		//End the render graph and execute it. This will submit it to the GPU.
-		zest_frame_graph render_graph = zest_EndFrameGraph();
+		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
-			zest_PrintCompiledRenderGraph(render_graph);
+			zest_PrintCompiledRenderGraph(frame_graph);
 			app->request_graph_print = false;
 		}
 	} else {
