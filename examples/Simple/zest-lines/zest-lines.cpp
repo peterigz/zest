@@ -133,7 +133,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//Compile and execute the render graph
-		zest_render_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndRenderGraph();
 
 		//Print the render graph
 		static bool print_render_graph = true;

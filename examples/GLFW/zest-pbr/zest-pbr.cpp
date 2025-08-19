@@ -95,7 +95,7 @@ void SetupBRDFLUT(ImGuiApp *app) {
 	zest_SetPassTask(zest_DispatchBRDSetup, app);
 	zest_EndPass();
 
-	zest_render_graph render_graph = zest_EndRenderGraphAndWait();
+	zest_frame_graph render_graph = zest_EndRenderGraphAndWait();
 	zest_PrintCompiledRenderGraph(render_graph);
 }
 
@@ -148,7 +148,7 @@ void SetupIrradianceCube(ImGuiApp *app) {
 	zest_SetPassTask(zest_DispatchIrradianceSetup, app);
 	zest_EndPass();
 
-	zest_render_graph render_graph = zest_EndRenderGraphAndWait();
+	zest_frame_graph render_graph = zest_EndRenderGraphAndWait();
 	zest_PrintCompiledRenderGraph(render_graph);
 }
 
@@ -204,7 +204,7 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 	zest_SetPassTask(zest_DispatchPrefilteredSetup, app);
 	zest_EndPass();
 
-	zest_render_graph render_graph = zest_EndRenderGraphAndWait();
+	zest_frame_graph render_graph = zest_EndRenderGraphAndWait();
 	zest_PrintCompiledRenderGraph(render_graph);
 }
 
@@ -588,7 +588,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		//----------------------------------------------------------------------------------------------------
 		//End the render graph and execute it. This will submit it to the GPU.
-		zest_render_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndRenderGraph();
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);

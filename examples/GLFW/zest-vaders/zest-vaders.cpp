@@ -1196,7 +1196,7 @@ void VadersGame::Update(float ellapsed) {
 
 		zest_SignalTimeline(tfx_rendering.timeline);
 		//Compile and execute the render graph. 
-		zest_render_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndRenderGraph();
 		if (request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);

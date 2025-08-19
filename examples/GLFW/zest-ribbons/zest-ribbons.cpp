@@ -503,7 +503,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		//----------------------------------------------------------------------------------------------------
 
-		zest_render_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndRenderGraph();
 
 		static bool print_graph = true;
 		if (print_graph) {

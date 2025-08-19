@@ -292,7 +292,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_SignalTimeline(game->tfx_rendering.timeline);
 		//Compile and execute the render graph. This tells Zest that it can now compile the render graph ready for executing.
 
-		zest_render_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndRenderGraph();
 		if (game->request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);

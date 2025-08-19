@@ -1287,7 +1287,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//Compile and execute the render graph
-		zest_render_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndRenderGraph();
 
 		//Print the render graph
 		if (app->print_render_graph) {

@@ -2540,7 +2540,7 @@ void zest__main_loop(void) {
 
         ZestApp->update_callback(ZestApp->current_elapsed, ZestApp->user_data);
 
-        //Cover some cases where a render graph wasn't created or it was but there was nothing render etc., to make sure
+        //Cover some cases where a frame graph wasn't created or it was but there was nothing render etc., to make sure
         //that the fence is always signalled and another frame can happen
         if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
             if (ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_work_was_submitted)) {
@@ -3597,7 +3597,7 @@ void zest__initialise_renderer(zest_create_info_t* create_info) {
     zest_ForEachFrameInFlight(fif) {
 		void *render_graph_linear_memory = ZEST__ALLOCATE(zloc__MEGABYTE(1));
         ZestRenderer->render_graph_allocator[fif] = zloc_InitialiseLinearAllocator(render_graph_linear_memory, zloc__MEGABYTE(1));
-		ZEST_ASSERT(ZestRenderer->render_graph_allocator[fif]);    //Unabable to allocate the render graph allocator, 
+		ZEST_ASSERT(ZestRenderer->render_graph_allocator[fif]);    //Unabable to allocate the frame graph allocator, 
     }
 
     void *utility_linear_memory = ZEST__ALLOCATE(zloc__MEGABYTE(1));
@@ -7089,11 +7089,11 @@ VkViewport zest_CreateViewport(float x, float y, float width, float height, floa
 }
 
 void zest_SetScreenSizedViewport(const zest_render_graph_context_t *context, float min_depth, float max_depth) {
-    //This function must be called within a render graph execution pass callback
+    //This function must be called within a frame graph execution pass callback
     ZEST_ASSERT(context);    //Must be a valid command buffer
     ZEST_ASSERT(context->command_buffer);    //Must be a valid command buffer
     ZEST_ASSERT_HANDLE(context->render_graph);
-    ZEST_ASSERT_HANDLE(context->render_graph->swapchain);    //Render graph must be set up with a swapchain to use this function
+    ZEST_ASSERT_HANDLE(context->render_graph->swapchain);    //frame graph must be set up with a swapchain to use this function
     zest_swapchain swapchain = context->render_graph->swapchain;
 
     VkViewport viewport = {
@@ -7752,10 +7752,10 @@ char* zest_ReadEntireFile(const char* file_name, zest_bool terminate) {
 }
 // --End General Helper Functions
 
-// --Render Graph functions
-zest_render_graph zest__new_render_graph(const char *name) {
-    zest_render_graph_t blank = { 0 };
-    zest_render_graph render_graph = zloc_LinearAllocation(ZestRenderer->render_graph_allocator[ZEST_FIF], sizeof(zest_render_graph_t));
+// --frame graph functions
+zest_frame_graph zest__new_render_graph(const char *name) {
+    zest_frame_graph_t blank = { 0 };
+    zest_frame_graph render_graph = zloc_LinearAllocation(ZestRenderer->render_graph_allocator[ZEST_FIF], sizeof(zest_frame_graph_t));
     *render_graph = blank;
     render_graph->magic = zest_INIT_MAGIC(zest_struct_type_render_graph);
     render_graph->name = name;
@@ -7777,7 +7777,7 @@ zest_render_graph zest__new_render_graph(const char *name) {
     return render_graph;
 }
 
-VkSemaphore zest__get_semaphore_reference(zest_render_graph render_graph, zest_semaphore_reference_t *reference) {
+VkSemaphore zest__get_semaphore_reference(zest_frame_graph render_graph, zest_semaphore_reference_t *reference) {
     switch (reference->type) {
     case zest_dynamic_resource_image_available_semaphore:
         ZEST_ASSERT_HANDLE(render_graph->swapchain);
@@ -7798,10 +7798,10 @@ zest_key zest__hash_render_graph_cache_key(zest_render_graph_cache_key_t *cache_
     return key;
 }
 
-void zest__cache_render_graph(zest_render_graph render_graph) {
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+void zest__cache_render_graph(zest_frame_graph render_graph) {
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     if (!render_graph->cache_key) return;    //Only cache if there's a key
-    if (render_graph->error_status) return; //Don't cache a render graph that had errors
+    if (render_graph->error_status) return; //Don't cache a frame graph that had errors
     zest_cached_render_graph_t new_cached_graph = {
         zloc_PromoteLinearBlock(ZestDevice->allocator, ZestRenderer->render_graph_allocator[ZEST_FIF], ZestRenderer->render_graph_allocator[ZEST_FIF]->current_offset),
         render_graph
@@ -7848,7 +7848,7 @@ zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource) 
     return NULL;
 }
 
-zest_render_graph zest__get_cached_render_graph(zest_key key) {
+zest_frame_graph zest__get_cached_render_graph(zest_key key) {
     if (zest_map_valid_key(ZestRenderer->cached_render_graphs, key)) {
         zest_cached_render_graph_t *cached_graph = zest_map_at_key(ZestRenderer->cached_render_graphs, key);
         return cached_graph->render_graph;
@@ -7867,18 +7867,18 @@ zest_render_graph_cache_key_t zest_InitialiseCacheKey(zest_swapchain swapchain, 
 }
 
 bool zest_BeginRenderGraph(const char *name, zest_render_graph_cache_key_t *cache_key) {
-	ZEST_ASSERT(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_building_render_graph));  //Render graph already being built. You cannot build a render graph within another begin render graph process.
+	ZEST_ASSERT(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_building_render_graph));  //frame graph already being built. You cannot build a frame graph within another begin frame graph process.
 
     zest_key key = 0;
     if (cache_key) {
         key = zest__hash_render_graph_cache_key(cache_key);
-        zest_render_graph cached_graph = zest__get_cached_render_graph(key);
+        zest_frame_graph cached_graph = zest__get_cached_render_graph(key);
         if (cached_graph) {
             ZestRenderer->current_render_graph = cached_graph;
             return cached_graph;
         }
     }
-    zest_render_graph render_graph = zest__new_render_graph(name);
+    zest_frame_graph render_graph = zest__new_render_graph(name);
     render_graph->cache_key = key;
 
     render_graph->semaphores = zest__get_render_graph_semaphores(name);
@@ -7891,7 +7891,7 @@ bool zest_BeginRenderGraph(const char *name, zest_render_graph_cache_key_t *cach
 
 bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name, zest_render_graph_cache_key_t *cache_key) {
     if (zest_BeginRenderGraph(name, cache_key)) {
-        zest_render_graph render_graph = ZestRenderer->current_render_graph;
+        zest_frame_graph render_graph = ZestRenderer->current_render_graph;
         if (ZEST__FLAGGED(render_graph->flags, zest_render_graph_is_cached)) {
 			if (!zest_AcquireSwapChainImage(swapchain)) {
 				ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
@@ -7909,7 +7909,7 @@ bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name, zest_r
     } else {
         return false;
     }
-    ZEST_ASSERT(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired));    //Swap chain was already acquired. Only one render graph can output to the swap chain per frame.
+    ZEST_ASSERT(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired));    //Swap chain was already acquired. Only one frame graph can output to the swap chain per frame.
     if (!zest_AcquireSwapChainImage(swapchain)) {
         ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
         ZEST_PRINT("Unable to acquire the swap chain!");
@@ -8031,7 +8031,7 @@ void zest__create_transient_resource(zest_resource_node resource) {
     }
 }
 
-void zest__add_image_barriers(zest_render_graph render_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers, 
+void zest__add_image_barriers(zest_frame_graph render_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers, 
                               zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state) {
 	zest_resource_usage_t *current_usage = &current_state->usage;
     VkImage image = resource->image_buffer.image_handles.image;
@@ -8053,7 +8053,7 @@ void zest__add_image_barriers(zest_render_graph render_graph, zloc_linear_alloca
             }
         } else if (ZEST__NOT_FLAGGED(render_graph->flags, zest_render_graph_force_on_graphics_queue)) {
             //This resource already belongs to a queue which means that it's an imported resource
-            //If the render graph is on the graphics queue only then there's no need to acquire from a prior release.
+            //If the frame graph is on the graphics queue only then there's no need to acquire from a prior release.
             ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
             dst_queue_family_index = current_state->queue_family_index;
             if (src_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
@@ -8126,7 +8126,7 @@ void zest__add_image_barriers(zest_render_graph render_graph, zloc_linear_alloca
     }
 }
 
-zest_bool zest__detect_cyclic_recursion(zest_render_graph render_graph, zest_pass_node pass_node) {
+zest_bool zest__detect_cyclic_recursion(zest_frame_graph render_graph, zest_pass_node pass_node) {
     pass_node->visit_state = zest_pass_node_visiting;
     zest_map_foreach(i, pass_node->outputs) {
         zest_resource_usage_t *output_usage = &pass_node->outputs.data[i];
@@ -8153,7 +8153,7 @@ zest_bool zest__detect_cyclic_recursion(zest_render_graph render_graph, zest_pas
 }
 
 /*
-Render graph compiler index:
+frame graph compiler index:
 
 Main compile phases:
     - Initial cull of passes with no outputs or execution callbacks
@@ -8183,10 +8183,10 @@ Main compile phases:
 [Create_memory_barriers_for_outputs]
 [Create_render_passes]
 */
-zest_render_graph zest__compile_render_graph() {
+zest_frame_graph zest__compile_render_graph() {
 
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 
     zloc_linear_allocator_t *allocator = ZestRenderer->render_graph_allocator[ZEST_FIF];
 
@@ -8578,7 +8578,7 @@ zest_render_graph zest__compile_render_graph() {
                 batch_key.current_family_index = current_pass->queue_info.queue_family_index;
 
                 //Calculate_lifetime_of_resources and also create a state for each resource and plot
-                //it's journey through the render graph so that the appropriate barriers and semaphores
+                //it's journey through the frame graph so that the appropriate barriers and semaphores
                 //can be set up
                 zest_map_foreach(input_idx, current_pass->inputs) {
                     zest_resource_node resource_node = current_pass->inputs.data[input_idx].resource_node;
@@ -8751,7 +8751,7 @@ zest_render_graph zest__compile_render_graph() {
                 zest_vec_linear_push(allocator, first_pass->transient_resources_to_create, resource);
                 zest_vec_linear_push(allocator, last_pass->transient_resources_to_free, resource);
             } else {
-                ZEST__REPORT(zest_report_resource_culled, "Transient resource [%s] was culled because it's was not consumed by any other passes. If you intended to use this output outside of the render graph once it's executed then you can call zest_FlagResourceAsEssential.", resource->name);
+                ZEST__REPORT(zest_report_resource_culled, "Transient resource [%s] was culled because it's was not consumed by any other passes. If you intended to use this output outside of the frame graph once it's executed then you can call zest_FlagResourceAsEssential.", resource->name);
             }
         } 
         if (resource->buffer_provider || resource->image_provider) {
@@ -8802,7 +8802,7 @@ zest_render_graph zest__compile_render_graph() {
                         }
                     } else if (ZEST__NOT_FLAGGED(render_graph->flags, zest_render_graph_force_on_graphics_queue)) {
                         //This resource already belongs to a queue which means that it's an imported resource
-                        //If the render graph is on the graphics queue only then there's no need to acquire from a prior release.
+                        //If the frame graph is on the graphics queue only then there's no need to acquire from a prior release.
                         ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
                         dst_queue_family_index = current_state->queue_family_index;
                         if (src_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
@@ -8917,19 +8917,19 @@ zest_render_graph zest__compile_render_graph() {
 
     if (ZEST__FLAGGED(render_graph->flags, zest_render_graph_expecting_swap_chain_usage)) {
         if (ZEST__NOT_FLAGGED(render_graph->flags, zest_render_graph_present_after_execute)) {
-            ZEST__REPORT(zest_report_expecting_swapchain_usage, "Swapchain usage was expected but the render graph present flag was not set in render graph [%s], indicating that a render pass could not be created. Check other reports.", render_graph->name);
+            ZEST__REPORT(zest_report_expecting_swapchain_usage, "Swapchain usage was expected but the frame graph present flag was not set in frame graph [%s], indicating that a render pass could not be created. Check other reports.", render_graph->name);
             ZEST__FLAG(render_graph->flags, zest_render_graph_present_after_execute);
         }
-        //Error: the render graph is trying to render to the screen but no swap chain image was used!
-        //Make sure that you call zest_ConnectSwapChainOutput in your render graph setup.
+        //Error: the frame graph is trying to render to the screen but no swap chain image was used!
+        //Make sure that you call zest_ConnectSwapChainOutput in your frame graph setup.
     }
 	ZEST__FLAG(render_graph->flags, zest_render_graph_is_compiled);  
 
     return render_graph;
 }
 
-zest_render_graph zest_EndRenderGraph() {
-    zest_render_graph render_graph = zest__compile_render_graph();
+zest_frame_graph zest_EndRenderGraph() {
+    zest_frame_graph render_graph = zest__compile_render_graph();
 
 	zest__cache_render_graph(render_graph);
 
@@ -8942,8 +8942,8 @@ zest_render_graph zest_EndRenderGraph() {
     return render_graph;
 }
 
-zest_render_graph zest_EndRenderGraphAndWait() {
-    zest_render_graph render_graph = zest__compile_render_graph();
+zest_frame_graph zest_EndRenderGraphAndWait() {
+    zest_frame_graph render_graph = zest__compile_render_graph();
 
     zest__execute_render_graph(ZEST_TRUE);
 
@@ -8988,8 +8988,8 @@ void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint
 }
 
 VkImageLayout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage) {
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_vec_foreach(state_index, node->journey) {
         zest_resource_state_t *state = &node->journey[state_index];
         if (state->pass_index == pass_index && (zest_uint)state_index < zest_vec_size(node->journey) - 1) {
@@ -9016,8 +9016,8 @@ void zest__deferr_image_destruction(zest_image_buffer_t *image_buffer) {
 }
 
 void zest__execute_render_graph(zest_bool is_intraframe) {
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zloc_linear_allocator_t *allocator = ZestRenderer->render_graph_allocator[ZEST_FIF];
     zest_map_queue_value queues = { 0 };
     VkSemaphore *wave_wait_semaphores = 0;
@@ -9253,7 +9253,7 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
             zest_uint queue_fif = queue->fif;
             VkSemaphore timeline_semaphore_for_this_fif = queue->semaphore[queue_fif];
 
-            //Increment the queue count for the timeline semaphores if the queue hasn't been used yet this render graph
+            //Increment the queue count for the timeline semaphores if the queue hasn't been used yet this frame graph
             zest_u64 wait_value = 0;
             zest_uint wait_index = queue->fif;
             if (zest_map_valid_key(queues, (zest_key)queue)) {
@@ -9408,7 +9408,7 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
 			}
 		}
         //Reset the resource state indexes (the point in their graph journey). This is necessary for cached
-        //render graphs.
+        //frame graphs.
         if (resource->aliased_resource) {
             resource->aliased_resource->current_state_index = 0;
         } else {
@@ -9428,7 +9428,7 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
 
 }
 
-bool zest_RenderGraphWasExecuted(zest_render_graph render_graph) {
+bool zest_RenderGraphWasExecuted(zest_frame_graph render_graph) {
     return ZEST__FLAGGED(render_graph->flags, zest_render_graph_is_executed);
 }
 
@@ -9562,22 +9562,22 @@ zest_text_t zest__vulkan_queue_flags_to_string(VkQueueFlags flags) {
 
 void zest_PrintCachedRenderGraph(zest_render_graph_cache_key_t *cache_key) {
     zest_key key = zest__hash_render_graph_cache_key(cache_key);
-    zest_render_graph render_graph = zest__get_cached_render_graph(key);
+    zest_frame_graph render_graph = zest__get_cached_render_graph(key);
     if (render_graph) {
         zest_PrintCompiledRenderGraph(render_graph);
     }
 }
 
-void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    ZEST_PRINT("--- Render Graph Execution Plan, Current FIF: %i ---", ZEST_FIF);
+void zest_PrintCompiledRenderGraph(zest_frame_graph render_graph) {
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    ZEST_PRINT("--- frame graph Execution Plan, Current FIF: %i ---", ZEST_FIF);
     if (!ZEST_VALID_HANDLE(render_graph)) {
-        ZEST_PRINT("Render graph handle is NULL.");
+        ZEST_PRINT("frame graph handle is NULL.");
         return;
     }
 
     if (!ZEST__FLAGGED(render_graph->flags, zest_render_graph_is_compiled)) {
-        ZEST_PRINT("Render graph is not in a compiled state");
+        ZEST_PRINT("frame graph is not in a compiled state");
         return;
     }
 
@@ -9758,15 +9758,15 @@ void zest_PrintCompiledRenderGraph(zest_render_graph render_graph) {
 }
 
 void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
-    //Nothing here to render, it's just for render graphs that have nothing to render
+    //Nothing here to render, it's just for frame graphs that have nothing to render
 }
 
 // --Command Queue functions
 zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only) {
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     if (!ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
-        ZEST_PRINT("ERROR: render graph %s doesn't have a bindless layout assigned, but you're tring to add a resource that uses a binding number.", render_graph->name);
+        ZEST_PRINT("ERROR: frame graph %s doesn't have a bindless layout assigned, but you're tring to add a resource that uses a binding number.", render_graph->name);
         return ZEST_INVALID;
     }
 
@@ -9790,10 +9790,10 @@ zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image
 }
 
 zest_uint zest__get_buffer_binding_number(zest_resource_node resource) {
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     if (!ZEST_VALID_HANDLE(render_graph->bindless_layout)) {
-        ZEST_PRINT("ERROR: render graph %s doesn't have a bindless layout assigned, but you're tring to add a resource that uses a binding number.", render_graph->name);
+        ZEST_PRINT("ERROR: frame graph %s doesn't have a bindless layout assigned, but you're tring to add a resource that uses a binding number.", render_graph->name);
         return ZEST_INVALID;
     }
     ZEST_ASSERT(resource->type == zest_resource_type_buffer);   //resource must be a buffer
@@ -9920,8 +9920,8 @@ zest_uint zest_AcquireGlobalStorageSampler(zest_texture texture) {
 }
 
 zest_uint *zest_AcquireGlobalTextureMipIndexes(zest_texture texture, zest_global_binding_number binding_number) {
-    ZEST_ASSERT_HANDLE(texture);  //No bindless layout has been set in the render graph
-    ZEST_ASSERT(texture->mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the render graph
+    ZEST_ASSERT_HANDLE(texture);  //No bindless layout has been set in the frame graph
+    ZEST_ASSERT(texture->mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
 
     if (zest_map_valid_key(texture->image_buffer[texture->fif].mip_indexes, (zest_key)binding_number)) {
         zest_mip_index_collection *mip_collection = zest_map_at_key(texture->image_buffer[texture->fif].mip_indexes, (zest_key)binding_number);
@@ -10032,8 +10032,8 @@ VkDescriptorSet zest_vk_GetGlobalUniformBufferDescriptorSet() {
 }
 
 zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_description_t *description, zest_bool assign_bindless, zest_bool image_view_binding_only) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = { 0 };
     node.name = name;
 	node.id = render_graph->id_counter++;
@@ -10055,16 +10055,16 @@ void zest_FlagResourceAsEssential(zest_resource_node resource) {
 }
 
 void zest_AddSwapchainToRenderTargetGroup(zest_output_group group) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);    //Render graph must have a swapchain, use zest_BeginRenderToScreen
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);    //frame graph must have a swapchain, use zest_BeginRenderToScreen
     ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
     zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], group->resources, render_graph->swapchain_resource);
 }
 
 void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
     ZEST_ASSERT(image->type & zest_resource_type_is_image_or_depth);  //Must be a depth buffer resource type
 	zest_FlagResourceAsEssential(image);
@@ -10072,8 +10072,8 @@ void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_nod
 }
 
 zest_output_group zest_CreateOutputGroup() {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_output_group group = zloc_LinearAllocation(ZestRenderer->render_graph_allocator[ZEST_FIF], sizeof(zest_output_group_t));
     *group = (zest_output_group_t){ 0 };
     group->magic = zest_INIT_MAGIC(zest_struct_type_render_target_group);
@@ -10081,8 +10081,8 @@ zest_output_group zest_CreateOutputGroup() {
 }
 
 zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_image_description_t description = { 0 };
     description.width = info->width ? info->width : zest_ScreenWidth();
     description.height = info->height ? info->height : zest_ScreenHeight();
@@ -10096,8 +10096,8 @@ zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_r
 }
 
 zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_resource_info_t *info) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = { 0 };
     node.name = name;
     node.id = render_graph->id_counter++;
@@ -10128,8 +10128,8 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
     if (layer_size == 0) {
         return NULL;
     }
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle
     ZEST__MAYBE_FLAG(layer->flags, zest_layer_flag_use_prev_fif, prev_fif);
     zest_resource_node resource = 0;
@@ -10151,14 +10151,14 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
 }
 
 zest_resource_node zest_ImportFontResource(const zest_font font) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     return zest_ImportImageResource(font->texture->name.str, font->texture, 0);
 }
 
 zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = { 0 };
     node.name = name;
 	node.id = render_graph->id_counter++;
@@ -10176,9 +10176,9 @@ zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, 
 }
 
 zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_texture texture) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     ZEST_ASSERT_HANDLE(texture);    //Not a valid texture handle
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = { 0 };
     node.name = name;
 	node.id = render_graph->id_counter++;
@@ -10201,8 +10201,8 @@ zest_resource_node_t zest__create_import_image_resource_node(const char *name, z
 }
 
 zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, zest_resource_image_provider provider) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = zest__create_import_image_resource_node(name, texture);
     node.final_layout = texture->vk_image_layout;
     node.current_layout = texture->vk_image_layout;
@@ -10212,8 +10212,8 @@ zest_resource_node zest_ImportImageResource(const char *name, zest_texture textu
 }
 
 zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_resource_node_t node = zest__create_import_buffer_resource_node(name, buffer);
     node.buffer_provider = provider;
     return zest__add_render_graph_resource(&node);
@@ -10235,8 +10235,8 @@ zest_bool zest_AcquireSwapChainImage(zest_swapchain swapchain) {
 }
 
 zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     ZestRenderer->current_render_graph->swapchain = swapchain;
     if (ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
         ZEST_PRINT("WARNING: Swap chain is being imported but no swap chain image has been acquired. You can use zest_BeginRenderToScreen() to properly acquire a swap chain image.");
@@ -10299,8 +10299,8 @@ void zest_SetPassInstanceLayer(zest_layer layer) {
 }
 
 zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type) {
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_pass_node_t node = { 0 };
     node.id = render_graph->id_counter++;
     node.queue_info.queue_type = queue_type;
@@ -10327,8 +10327,8 @@ zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queu
 }
 
 zest_resource_node zest__add_render_graph_resource(zest_resource_node resource) {
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zloc_linear_allocator_t *allocator = ZestRenderer->render_graph_allocator[ZEST_FIF];
     zest_resource_node node = zest_bucket_array_linear_add(allocator, &render_graph->resources, zest_resource_node_t);
     *node = *resource;
@@ -10344,8 +10344,8 @@ zest_resource_node zest__add_render_graph_resource(zest_resource_node resource) 
 }
 
 zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource) {
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
+    ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_resource_versions_t *versions = zest_map_at_key(render_graph->resource_versions, resource->original_id);
     zest_resource_node last_version = zest_vec_back(versions->resources);
     if (ZEST__FLAGGED(last_version->flags, zest_resource_node_flag_has_producer)) {
@@ -10377,7 +10377,7 @@ zest_pass_node zest_AddGraphicBlankScreen(const char *name) {
 }
 
 zest_pass_node zest_BeginRenderPass(const char *name) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     ZEST_ASSERT(!ZestRenderer->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
     zest_pass_node node = zest__add_pass_node(name, zest_queue_graphics);
     node->queue_info.timeline_wait_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
@@ -10386,7 +10386,7 @@ zest_pass_node zest_BeginRenderPass(const char *name) {
 }
 
 zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     ZEST_ASSERT(!ZestRenderer->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
     bool force_graphics_queue = (ZestRenderer->current_render_graph->flags & zest_render_graph_force_on_graphics_queue) > 0;
     zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_compute);
@@ -10397,7 +10397,7 @@ zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name) {
 }
 
 zest_pass_node zest_BeginTransferPass(const char *name) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     ZEST_ASSERT(!ZestRenderer->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
     bool force_graphics_queue = (ZestRenderer->current_render_graph->flags & zest_render_graph_force_on_graphics_queue) > 0;
     zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_transfer);
@@ -10440,7 +10440,7 @@ zest_resource_node zest_GetPassOutputResource(const zest_render_graph_context_t 
 zest_uint zest_GetTransientImageBindlessIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_bool base_mip_only, zest_global_binding_number binding_number) {
     ZEST_ASSERT_HANDLE(resource);            // Not a valid resource handle
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
-    zest_render_graph render_graph = context->render_graph;
+    zest_frame_graph render_graph = context->render_graph;
     if (resource->bindless_index[binding_number] != ZEST_INVALID) return resource->bindless_index[binding_number];
     zest_uint bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, binding_number);
     VkDescriptorImageInfo image_buffer_info = { 0 };
@@ -10481,11 +10481,11 @@ zest_uint zest_GetTransientImageBindlessIndex(const zest_render_graph_context_t 
 }
 
 zest_uint *zest_GetTransientMipBindlessIndexes(const zest_render_graph_context_t *context, zest_resource_node resource, zest_global_binding_number binding_number) {
-    ZEST_ASSERT_HANDLE(context->render_graph->bindless_layout);  //No bindless layout has been set in the render graph
+    ZEST_ASSERT_HANDLE(context->render_graph->bindless_layout);  //No bindless layout has been set in the frame graph
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
-    ZEST_ASSERT(resource->image_desc.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the render graph
+    ZEST_ASSERT(resource->image_desc.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
     ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
-    zest_render_graph render_graph = context->render_graph;
+    zest_frame_graph render_graph = context->render_graph;
 
     if (zest_map_valid_key(resource->image_buffer.mip_indexes, (zest_key)binding_number)) {
         zest_mip_index_collection *mip_collection = zest_map_at_key(resource->image_buffer.mip_indexes, (zest_key)binding_number);
@@ -10526,7 +10526,7 @@ zest_uint zest_GetTransientBufferBindlessIndex(const zest_render_graph_context_t
     ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle
     ZEST_ASSERT(resource->type == zest_resource_type_buffer);   //Must be a buffer resource type for this bindlesss index acquisition
     if (resource->bindless_index[0] != ZEST_INVALID) return resource->bindless_index[0];
-    zest_render_graph render_graph = context->render_graph;
+    zest_frame_graph render_graph = context->render_graph;
 	zest_uint bindless_index = zest__acquire_bindless_index(render_graph->bindless_layout, zest_storage_buffer_binding);
 	VkDescriptorBufferInfo buffer_info;
 	buffer_info.buffer = resource->storage_buffer->vk_buffer;
@@ -11172,12 +11172,12 @@ zest_render_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, ze
 zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id) {
     zest_uint submission_index = ZEST__SUBMISSION_INDEX(submission_id);
     zest_uint queue_index = ZEST__QUEUE_INDEX(submission_id);
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(render_graph);
     return &render_graph->submissions[submission_index].batches[queue_index];
 }
 
-void zest__set_rg_error_status(zest_render_graph render_graph, zest_render_graph_result result) {
+void zest__set_rg_error_status(zest_frame_graph render_graph, zest_render_graph_result result) {
     ZEST__FLAG(render_graph->error_status, result);
 	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
 }
@@ -11397,7 +11397,7 @@ void zest_ConnectSwapChainOutput() {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
     ZEST_ASSERT_HANDLE(ZestRenderer->current_pass); //No current pass found. Make sure you call zest_BeginPass
     zest_pass_node pass = ZestRenderer->current_pass;
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);  //Not a valid swapchain resource, did you call zest_BeginRenderToScreen?
     VkClearValue cv = { 0 };
     cv.color = render_graph->swapchain->vk_clear_color;
@@ -11479,7 +11479,7 @@ void zest_ConnectGroupedOutput(zest_output_group group) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
     ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);          //No current pass found. Make sure you call zest_BeginPass
     zest_pass_node pass = ZestRenderer->current_pass;
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(group);  //Not a valid render target group
     ZEST_ASSERT_HANDLE(pass);  //Not a valid pass node
     ZEST_ASSERT(zest_vec_size(group->resources));   //There are no resources in the group!
@@ -11495,14 +11495,14 @@ void zest_ConnectGroupedOutput(zest_output_group group) {
 void zest_WaitOnTimeline(zest_execution_timeline timeline) {
     ZEST_ASSERT_HANDLE(timeline);    //Not a valid execution timeline. Use zest_CreateExecutionTimeline to create one
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], render_graph->wait_on_timelines, timeline);
 }
 
 void zest_SignalTimeline(zest_execution_timeline timeline) {
     ZEST_ASSERT_HANDLE(timeline);    //Not a valid execution timeline. Use zest_CreateExecutionTimeline to create one
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
-    zest_render_graph render_graph = ZestRenderer->current_render_graph;
+    zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], render_graph->signal_timelines, timeline);
 }
 
@@ -11523,7 +11523,7 @@ zest_execution_timeline zest_CreateExecutionTimeline() {
     return timeline;
 }
 
-// --End Render Graph functions
+// --End frame graph functions
 
 // [Swapchain]
 zest_swapchain zest_GetSwapchain(const char *name) {
@@ -14209,7 +14209,7 @@ zest_font zest_GetFont(const char* name) {
 void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
 	zest_layer layer = (zest_layer)user_data;
 
-    ZEST__MAYBE_REPORT(!ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadInstanceLayerData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the render graph.", ZestRenderer->current_render_graph->name);
+    ZEST__MAYBE_REPORT(!ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadInstanceLayerData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", ZestRenderer->current_render_graph->name);
 
     if (ZEST_VALID_HANDLE(layer)) {  //You must pass in the zest_layer in the user data
 
@@ -14238,7 +14238,7 @@ void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_ren
 
 
 void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
-	//Grab the app object from the user_data that we set in the render graph when adding this function callback 
+	//Grab the app object from the user_data that we set in the frame graph when adding this function callback 
 	zest_layer layer = (zest_layer)user_data;
     ZEST_ASSERT_HANDLE(layer);       //Not a valid layer. Make sure that you pass in the font layer to the zest_AddPassTask function
 
@@ -14458,7 +14458,7 @@ void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_render_gr
     zest_layer layer = (zest_layer)user_data;
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle! Make sure you pass in the zest_layer in the user data
 
-    if (!layer->vertex_buffer_node) return; //It could be that the render graph culled the pass because it was unreferenced or disabled
+    if (!layer->vertex_buffer_node) return; //It could be that the frame graph culled the pass because it was unreferenced or disabled
     if (!layer->vertex_buffer_node->storage_buffer) return;
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
 	VkDeviceSize instance_data_offsets[] = { device_buffer->buffer_offset };
@@ -14553,7 +14553,7 @@ void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_rende
     }
 
     ZEST_ASSERT_HANDLE(layer->vertex_buffer_node);  //No resource node in the layer, check that you added this layer as a 
-                                                    //resource to the render graph
+                                                    //resource to the frame graph
 
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
 	VkDeviceSize instance_data_offsets[] = { device_buffer->buffer_offset };
@@ -14727,10 +14727,10 @@ void zest_SetLayerUserData(zest_layer layer, void *data) {
 }
 
 void zest_UploadLayerStagingData(zest_layer layer, const zest_render_graph_context_t *context) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called within a task callback in a render graph
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called within a task callback in a frame graph
     ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
 
-    ZEST__MAYBE_REPORT(!ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadLayerStagingData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the render graph.", ZestRenderer->current_render_graph->name);
+    ZEST__MAYBE_REPORT(!ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadLayerStagingData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", ZestRenderer->current_render_graph->name);
 
     if (ZEST_VALID_HANDLE(layer)) {  //You must pass in the zest_layer in the user data
 
@@ -14758,17 +14758,17 @@ void zest_UploadLayerStagingData(zest_layer layer, const zest_render_graph_conte
 }
 
 zest_buffer zest_GetLayerResourceBuffer(zest_layer layer) {
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called within a task callback in a render graph
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called within a task callback in a frame graph
     ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         return layer->memory_refs[layer->fif].device_vertex_data;
     } else if(ZEST_VALID_HANDLE(layer->vertex_buffer_node)) {
         ZEST_ASSERT_HANDLE(layer->vertex_buffer_node); //Layer does not have a valid resource node. 
-                                                      //Make sure you add it to the render graph
+                                                      //Make sure you add it to the frame graph
         ZEST__MAYBE_REPORT(layer->vertex_buffer_node->reference_count == 0, zest_report_resource_culled, "zest_GetLayerResourceBuffer was called for resourcee [%s] that has been culled. Passes will be culled (and therefore their transient resources will not be created) if they have no outputs and therefore deemed as unnecessary and also bear in mind that passes in the chain may also be culled.", layer->vertex_buffer_node->name);   
         return layer->vertex_buffer_node->storage_buffer;
     } else {
-        ZEST__REPORT(zest_report_resource_culled, "zest_GetLayerResourceBuffer was called for layer [%s] but the layer doesn't have a resource node. Make sure that you add the layer to the render graph with zest_AddInstanceLayerBufferResource", layer->name);   
+        ZEST__REPORT(zest_report_resource_culled, "zest_GetLayerResourceBuffer was called for layer [%s] but the layer doesn't have a resource node. Make sure that you add the layer to the frame graph with zest_AddInstanceLayerBufferResource", layer->name);   
     }
     return NULL;
 }

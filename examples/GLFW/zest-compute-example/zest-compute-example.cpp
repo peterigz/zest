@@ -262,7 +262,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 		//----------------------------------------------------------------------------------------------------
 
-		zest_render_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndRenderGraph();
 		if (app->request_graph_print) {
 			zest_PrintCompiledRenderGraph(render_graph);
 			app->request_graph_print = false;

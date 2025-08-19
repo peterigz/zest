@@ -170,7 +170,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_AddPassTask(graphics_pass, zest_tfx_DrawParticleLayer, &game->tfx_rendering);
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
 		zest_EndRenderGraph();
-		zest_render_graph render_graph = zest_ExecuteRenderGraph();
+		zest_frame_graph render_graph = zest_ExecuteRenderGraph();
 	}
 }
 
