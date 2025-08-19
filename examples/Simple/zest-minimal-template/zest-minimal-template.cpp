@@ -4,11 +4,11 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	// Begin Render Graph Definition
 	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
 	zest_render_graph_cache_key_t cache_key = zest_InitialiseCacheKey(zest_GetMainWindowSwapchain(), 0, 0);
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Render Graph", &cache_key)) {
+	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Render Graph", &cache_key)) {
 		zest_pass_node clear_pass = zest_AddGraphicBlankScreen("Draw Nothing");
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		zest_ConnectSwapChainOutput(clear_pass);
-		zest_EndRenderGraph();
+		zest_EndFrameGraph();
 	}
 }
 

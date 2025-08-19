@@ -93,10 +93,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_render_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
 
-	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
+	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginRenderToScreen(swapchain, "ImGui", &cache_key)) {
+	if (zest_BeginFrameGraphSwapchain(swapchain, "ImGui", &cache_key)) {
 		//If there was no imgui data to render then zest_imgui_BeginPass will return false
 		//Import our test texture with the Bunny sprite
 		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
@@ -114,7 +114,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 		//----------------------------------------------------------------------------------------------------
 		//End the render graph and execute it. This will submit it to the GPU.
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);

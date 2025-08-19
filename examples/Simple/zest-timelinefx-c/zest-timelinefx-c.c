@@ -143,10 +143,10 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
 	}
 
-	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
+	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginRenderToScreen("TimelineFX Render Graphs")) {
+	if (zest_BeginFrameGraphSwapchain("TimelineFX Render Graphs")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
@@ -169,7 +169,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		zest_AddPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
 		zest_AddPassTask(graphics_pass, zest_tfx_DrawParticleLayer, &game->tfx_rendering);
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
-		zest_EndRenderGraph();
+		zest_EndFrameGraph();
 		zest_frame_graph render_graph = zest_ExecuteRenderGraph();
 	}
 }

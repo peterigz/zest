@@ -1112,7 +1112,7 @@ void VadersGame::Update(float ellapsed) {
 	cache_key = zest_InitialiseCacheKey(swapchain, &cache_info, sizeof(RenderCacheInfo));
 
 	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, 0.f, .2f, 1.f);
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "TimelineFX Render Graph", &cache_key)) {
+	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "TimelineFX Render Graph", &cache_key)) {
 		zest_WaitOnTimeline(tfx_rendering.timeline);
 
 		//---------------------------------Resources-------------------------------------------------------
@@ -1196,7 +1196,7 @@ void VadersGame::Update(float ellapsed) {
 
 		zest_SignalTimeline(tfx_rendering.timeline);
 		//Compile and execute the render graph. 
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 		if (request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);

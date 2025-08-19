@@ -87,7 +87,7 @@ void SetupBRDFLUT(ImGuiApp *app) {
 	zest_SetComputePushConstantSize(&compute_builder, sizeof(zest_uint));
 	app->brd_compute = zest_FinishCompute(&compute_builder, "brd compute");
 
-	zest_BeginRenderGraph("BRDFLUT", 0);
+	zest_BeginFrameGraph("BRDFLUT", 0);
 	zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", app->brd_texture, 0);
 
 	zest_BeginComputePass(app->brd_compute, "Brd compute");
@@ -95,7 +95,7 @@ void SetupBRDFLUT(ImGuiApp *app) {
 	zest_SetPassTask(zest_DispatchBRDSetup, app);
 	zest_EndPass();
 
-	zest_frame_graph render_graph = zest_EndRenderGraphAndWait();
+	zest_frame_graph render_graph = zest_EndFrameGraphAndWait();
 	zest_PrintCompiledRenderGraph(render_graph);
 }
 
@@ -138,7 +138,7 @@ void SetupIrradianceCube(ImGuiApp *app) {
 	zest_SetComputePushConstantSize(&compute_builder, sizeof(irr_push_constant_t));
 	app->irr_compute = zest_FinishCompute(&compute_builder, "irradiance compute");
 
-	zest_BeginRenderGraph("Irradiance", 0);
+	zest_BeginFrameGraph("Irradiance", 0);
 	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", app->skybox_texture, 0);
 	zest_resource_node irradiance_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
 
@@ -148,7 +148,7 @@ void SetupIrradianceCube(ImGuiApp *app) {
 	zest_SetPassTask(zest_DispatchIrradianceSetup, app);
 	zest_EndPass();
 
-	zest_frame_graph render_graph = zest_EndRenderGraphAndWait();
+	zest_frame_graph render_graph = zest_EndFrameGraphAndWait();
 	zest_PrintCompiledRenderGraph(render_graph);
 }
 
@@ -194,7 +194,7 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 	zest_SetComputePushConstantSize(&compute_builder, sizeof(prefiltered_push_constant_t));
 	app->prefiltered_compute = zest_FinishCompute(&compute_builder, "prefiltered compute");
 
-	zest_BeginRenderGraph("Prefiltered", 0);
+	zest_BeginFrameGraph("Prefiltered", 0);
 	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", app->skybox_texture, 0);
 	zest_resource_node prefiltered_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
 
@@ -204,7 +204,7 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 	zest_SetPassTask(zest_DispatchPrefilteredSetup, app);
 	zest_EndPass();
 
-	zest_frame_graph render_graph = zest_EndRenderGraphAndWait();
+	zest_frame_graph render_graph = zest_EndFrameGraphAndWait();
 	zest_PrintCompiledRenderGraph(render_graph);
 }
 
@@ -514,10 +514,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	};
 
 	zest_SetSwapchainClearColor(swapchain, 0, 0.1f, 0.2f, 1.f);
-	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
+	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginRenderToScreen(swapchain, "ImGui", &cache_key)) {
+	if (zest_BeginFrameGraphSwapchain(swapchain, "ImGui", &cache_key)) {
 		zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", app->cube_layer, false);
 		zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", app->billboard_layer, false);
 		zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", app->skybox_layer, false);
@@ -588,7 +588,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		//----------------------------------------------------------------------------------------------------
 		//End the render graph and execute it. This will submit it to the GPU.
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 		if (app->request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);

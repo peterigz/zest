@@ -133,8 +133,8 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	example->last_position = position;
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Sprite Drawing", 0)) {
-		//zest_ForceRenderGraphOnGraphicsQueue();
+	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Sprite Drawing", 0)) {
+		//zest_ForceFrameGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
@@ -181,7 +181,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//Compile and execute the render graph
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 
 		//Print the render graph
 		static bool print_render_graph = true;

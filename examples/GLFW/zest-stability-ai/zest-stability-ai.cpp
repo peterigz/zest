@@ -73,10 +73,10 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_imgui_UpdateBuffers();
 	} zest_EndTimerLoop(app->timer);
 
-	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
+	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginRenderToScreen("ImGui")) {
+	if (zest_BeginFrameGraphSwapchain("ImGui")) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
@@ -101,7 +101,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 			zest_ConnectSwapChainOutput(blank_pass, swapchain_output_resource, clear_color);
 		}
 		//End the render graph. This tells Zest that it can now compile the render graph ready for executing.
-		zest_EndRenderGraph();
+		zest_EndFrameGraph();
 		//Execute the render graph. This must come after the EndRenderGraph function
 		zest_ExecuteRenderGraph();
 	}

@@ -186,11 +186,11 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	cache_key = zest_InitialiseCacheKey(swapchain, &game->cache_info, sizeof(RenderCacheInfo));
 
 	zest_SetSwapchainClearColor(swapchain, 0.f, .1f, .2f, 1.f);
-	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
+	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginRenderToScreen(swapchain, "TimelineFX Render Graphs", &cache_key)) {
-		//zest_ForceRenderGraphOnGraphicsQueue();
+	if (zest_BeginFrameGraphSwapchain(swapchain, "TimelineFX Render Graphs", &cache_key)) {
+		//zest_ForceFrameGraphOnGraphicsQueue();
 		zest_WaitOnTimeline(game->tfx_rendering.timeline);
 		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
 		//If there was no imgui data to render then zest_imgui_BeginPass will return false
@@ -233,7 +233,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 
 		zest_SignalTimeline(game->tfx_rendering.timeline);
 		//Compile and execute the render graph. 
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 		if (game->request_graph_print) {
 			//You can print out the render graph for debugging purposes
 			zest_PrintCompiledRenderGraph(render_graph);

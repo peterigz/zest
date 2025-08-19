@@ -145,7 +145,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawCustomSprite(app->custom_layer, app->test_image, 800.f, 400.f, 0.f, 256.f, 256.f, .5f, .5f, 0, 0.f, {app->lerp_value, app->mix_value});
 
 	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
-	if (zest_BeginRenderToScreen(swapchain, "Custom Sprite Render Graph", 0)) {
+	if (zest_BeginFrameGraphSwapchain(swapchain, "Custom Sprite Render Graph", 0)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
@@ -179,7 +179,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 		//----------------------------------------------------------------------------------------------------
 
-		zest_EndRenderGraph();
+		zest_EndFrameGraph();
 	}
 }
 

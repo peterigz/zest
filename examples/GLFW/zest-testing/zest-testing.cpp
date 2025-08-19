@@ -1223,7 +1223,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	};
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen(swapchain, "Test Render Graph", 0)) {
+	if (zest_BeginFrameGraphSwapchain(swapchain, "Test Render Graph", 0)) {
 		zest_SetSwapchainClearColor(swapchain, 0.f, .1f, .2f, 1.f);
 
 		//Resources
@@ -1287,7 +1287,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//Compile and execute the render graph
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 
 		//Print the render graph
 		if (app->print_render_graph) {

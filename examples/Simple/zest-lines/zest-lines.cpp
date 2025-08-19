@@ -107,7 +107,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawRect(example->line_layer, &top_left.x, 30.f, 50.f);
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Lines Render Graph", 0)) {
+	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Lines Render Graph", 0)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Resources
@@ -133,7 +133,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//Compile and execute the render graph
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 
 		//Print the render graph
 		static bool print_render_graph = true;

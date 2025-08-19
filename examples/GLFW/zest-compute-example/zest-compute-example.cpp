@@ -228,8 +228,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_render_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
 
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Compute Particles", &cache_key)) {
-		//zest_ForceRenderGraphOnGraphicsQueue();
+	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Compute Particles", &cache_key)) {
+		//zest_ForceFrameGraphOnGraphicsQueue();
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Resources
 		zest_resource_node particle_buffer = zest_ImportBufferResource("particle buffer", app->particle_buffer, 0);
@@ -262,7 +262,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		}
 		//----------------------------------------------------------------------------------------------------
 
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 		if (app->request_graph_print) {
 			zest_PrintCompiledRenderGraph(render_graph);
 			app->request_graph_print = false;

@@ -28,7 +28,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawMSDFText(example->font_layer, "(This should be centered)", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .5f, .5f, .5f, 50.f, 0.f);
 
 	//Create the render graph
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "Fonts Example Render Graph", 0)) {
+	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Fonts Example Render Graph", 0)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 
 		//Add resources
@@ -55,7 +55,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//End and execute the render graph
-		zest_EndRenderGraph();
+		zest_EndFrameGraph();
 	}
 }
 

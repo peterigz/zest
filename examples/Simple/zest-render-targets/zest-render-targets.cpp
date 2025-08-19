@@ -321,8 +321,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	//Create the render graph
 	zest_SetSwapchainClearColor(swapchain, 0.f, .1f, .2f, 1.f);
-	if (zest_BeginRenderToScreen(swapchain, "Bloom Example Render Graph", &cache_key)) {
-		//zest_ForceRenderGraphOnGraphicsQueue();
+	if (zest_BeginFrameGraphSwapchain(swapchain, "Bloom Example Render Graph", &cache_key)) {
+		//zest_ForceFrameGraphOnGraphicsQueue();
 
 		//Add resources
 		zest_resource_node font_layer_resources = zest_AddTransientLayerResource("Font resources", example->font_layer, false);
@@ -378,7 +378,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//End and execute the render graph
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 		static int print_render_graph = 0;
 		if (print_render_graph < 1) {
 			zest_PrintCompiledRenderGraph(render_graph);

@@ -52,10 +52,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_imgui_UpdateBuffers();
 	} zest_EndTimerLoop(app->timer);
 
-	//Begin the render graph with the command that acquires a swap chain image (zest_BeginRenderToScreen)
+	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 //Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 //if the window is resized for example.
-	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "ImGui Plot", 0)) {
+	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "ImGui Plot", 0)) {
 		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 		//Import the swap chain into the render pass
 		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
@@ -74,7 +74,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		//If there's imgui to draw then draw it
 		//End the render graph. This compiles and executes the render graph.
-		zest_EndRenderGraph();
+		zest_EndFrameGraph();
 	}
 }
 

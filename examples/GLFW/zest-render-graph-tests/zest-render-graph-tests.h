@@ -34,8 +34,8 @@ struct Test {
 	const char *name;
 	test_callback the_test;
 	int frame_count;
-	zest_render_graph_result result;
-	zest_render_graph_result expected_result;
+	zest_frame_graph_result result;
+	zest_frame_graph_result expected_result;
 	zest_create_info_t create_info;
 	int cache_count;
 };

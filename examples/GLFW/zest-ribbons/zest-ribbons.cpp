@@ -456,7 +456,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	app->vertex_buffer_info.size = app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex);
 	app->index_buffer_info.size = app->index_count * sizeof(zest_uint);
 
-	if (zest_BeginRenderToScreen(swapchain, "Ribbons render graph", 0)) {
+	if (zest_BeginFrameGraphSwapchain(swapchain, "Ribbons render graph", 0)) {
 		//Resources
 		zest_resource_node ribbon_segment_buffer = zest_AddTransientBufferResource("Ribbon Segment Buffer", &app->segment_buffer_info);
 		zest_resource_node ribbon_instance_buffer = zest_AddTransientBufferResource("Ribbon Instance Buffer", &app->instance_buffer_info);
@@ -503,7 +503,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		//----------------------------------------------------------------------------------------------------
 
-		zest_frame_graph render_graph = zest_EndRenderGraph();
+		zest_frame_graph render_graph = zest_EndFrameGraph();
 
 		static bool print_graph = true;
 		if (print_graph) {
