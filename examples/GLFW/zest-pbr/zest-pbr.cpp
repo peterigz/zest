@@ -90,9 +90,10 @@ void SetupBRDFLUT(ImGuiApp *app) {
 	zest_BeginRenderGraph("BRDFLUT", 0);
 	zest_resource_node texture_resource = zest_ImportImageResource("Brd texture", app->brd_texture, 0);
 
-	zest_pass_node compute_pass = zest_AddComputePassNode(app->brd_compute, "Brd compute");
-	zest_ConnectOutput(compute_pass, texture_resource);
-	zest_SetPassTask(compute_pass, zest_DispatchBRDSetup, app);
+	zest_BeginComputePass(app->brd_compute, "Brd compute");
+	zest_ConnectOutput(texture_resource);
+	zest_SetPassTask(zest_DispatchBRDSetup, app);
+	zest_EndPass();
 
 	zest_render_graph render_graph = zest_EndRenderGraphAndWait();
 	zest_PrintCompiledRenderGraph(render_graph);
@@ -141,10 +142,11 @@ void SetupIrradianceCube(ImGuiApp *app) {
 	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", app->skybox_texture, 0);
 	zest_resource_node irradiance_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
 
-	zest_pass_node compute_pass = zest_AddComputePassNode(app->irr_compute, "Irradiance compute");
-	zest_ConnectInput(compute_pass, skybox_resource, 0);
-	zest_ConnectOutput(compute_pass, irradiance_resource);
-	zest_SetPassTask(compute_pass, zest_DispatchIrradianceSetup, app);
+	zest_BeginComputePass(app->irr_compute, "Irradiance compute");
+	zest_ConnectInput(skybox_resource, 0);
+	zest_ConnectOutput(irradiance_resource);
+	zest_SetPassTask(zest_DispatchIrradianceSetup, app);
+	zest_EndPass();
 
 	zest_render_graph render_graph = zest_EndRenderGraphAndWait();
 	zest_PrintCompiledRenderGraph(render_graph);
@@ -196,10 +198,11 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 	zest_resource_node skybox_resource = zest_ImportImageResource("Skybox texture", app->skybox_texture, 0);
 	zest_resource_node prefiltered_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
 
-	zest_pass_node compute_pass = zest_AddComputePassNode(app->prefiltered_compute, "Prefiltered compute");
-	zest_ConnectInput(compute_pass, skybox_resource, 0);
-	zest_ConnectOutput(compute_pass, prefiltered_resource);
-	zest_SetPassTask(compute_pass, zest_DispatchPrefilteredSetup, app);
+	zest_BeginComputePass(app->prefiltered_compute, "Prefiltered compute");
+	zest_ConnectInput(skybox_resource, 0);
+	zest_ConnectOutput(prefiltered_resource);
+	zest_SetPassTask(zest_DispatchPrefilteredSetup, app);
+	zest_EndPass();
 
 	zest_render_graph render_graph = zest_EndRenderGraphAndWait();
 	zest_PrintCompiledRenderGraph(render_graph);
@@ -232,6 +235,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_CameraSetYaw(&app->camera, zest_Radians(-90.f));
 	zest_CameraSetPitch(&app->camera, zest_Radians(0.f));
 	zest_CameraUpdateFront(&app->camera);
+	app->new_camera_position = app->camera.position;
+	app->old_camera_position = app->camera.position;
 
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer("Main loop timer", 60);
@@ -311,11 +316,11 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->cube_layer = zest_CreateBuiltinInstanceMeshLayer("Cube Layer");
 	app->skybox_layer = zest_CreateBuiltinInstanceMeshLayer("Sky Box Layer");
 	zest_mesh cube = zest_CreateCube(1.f, zest_ColorSet(0, 50, 100, 255));
-	zest_mesh sphere = zest_CreateSphere(50, 50, 1.f, zest_ColorSet(0, 50, 100, 255));
+	zest_mesh sphere = zest_CreateSphere(100, 100, 1.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh cone = zest_CreateCone(50, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255));
-	zest_mesh cylinder = zest_CreateCylinder(50, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255), true);
+	zest_mesh cylinder = zest_CreateCylinder(100, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255), true);
 	zest_mesh sky_box = zest_CreateCube(1.f, zest_ColorSet(255, 255, 255, 255));
-	zest_AddMeshToLayer(app->cube_layer, cone);
+	zest_AddMeshToLayer(app->cube_layer, cylinder);
 	zest_AddMeshToLayer(app->skybox_layer, sky_box);
 	zest_FreeMesh(cube);
 	zest_FreeMesh(sphere);
@@ -363,6 +368,29 @@ void UploadMeshData(VkCommandBuffer command_buffer, const zest_render_graph_cont
 	for (int i = 0; i != 3; ++i) {
 		zest_layer layer = layers[i];
 		zest_UploadLayerStagingData(layer, context);
+	}
+}
+
+void UpdateCameraPosition(ImGuiApp *app) {
+	float speed = 5.f * (float)app->timer->update_time;
+	app->old_camera_position = app->camera.position;
+	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+		ImGui::SetWindowFocus(nullptr);
+
+		if (ImGui::IsKeyDown(ImGuiKey_W)) {
+			app->new_camera_position = zest_AddVec3(app->new_camera_position, zest_ScaleVec3(app->camera.front, speed));
+		}
+		if (ImGui::IsKeyDown(ImGuiKey_S)) {
+			app->new_camera_position = zest_SubVec3(app->new_camera_position, zest_ScaleVec3(app->camera.front, speed));
+		}
+		if (ImGui::IsKeyDown(ImGuiKey_A)) {
+			zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(app->camera.front, app->camera.up));
+			app->new_camera_position = zest_SubVec3(app->new_camera_position, zest_ScaleVec3(cross, speed));
+		}
+		if (ImGui::IsKeyDown(ImGuiKey_D)) {
+			zest_vec3 cross = zest_NormalizeVec3(zest_CrossProduct(app->camera.front, app->camera.up));
+			app->new_camera_position = zest_AddVec3(app->new_camera_position, zest_ScaleVec3(cross, speed));
+		}
 	}
 }
 
@@ -427,7 +455,19 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
 		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 		zest_imgui_UpdateBuffers();
+
+		UpdateCameraPosition(app);
+
+		//Restore the mouse when right mouse isn't held down
+		if (camera_free_look) {
+			glfwSetInputMode((GLFWwindow*)zest_Window(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+		}
+		else {
+			glfwSetInputMode((GLFWwindow*)zest_Window(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+		}
 	} zest_EndTimerLoop(app->timer);
+
+	app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(app->timer));
 
 	zest_vec3 position = { 0.f, 0.f, 0.f };
 	app->ellapsed_time += elapsed;
@@ -478,8 +518,6 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
 	if (zest_BeginRenderToScreen(swapchain, "ImGui", &cache_key)) {
-		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
-
 		zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", app->cube_layer, false);
 		zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", app->billboard_layer, false);
 		zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", app->skybox_layer, false);
@@ -494,49 +532,59 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_AddImageToRenderTargetGroup(group, depth_buffer);
 
 		//-------------------------Transfer Pass----------------------------------------------------
-		zest_pass_node upload_mesh_data = zest_AddTransferPassNode("Upload Mesh Data");
-		zest_ConnectOutput(upload_mesh_data, cube_layer_resource);
-		zest_ConnectOutput(upload_mesh_data, billboard_layer_resource);
-		zest_ConnectOutput(upload_mesh_data, skybox_layer_resource);
-		zest_SetPassTask(upload_mesh_data, UploadMeshData, app);
+		zest_BeginTransferPass("Upload Mesh Data"); {
+			zest_ConnectOutput(cube_layer_resource);
+			zest_ConnectOutput(billboard_layer_resource);
+			zest_ConnectOutput(skybox_layer_resource);
+			zest_SetPassTask(UploadMeshData, app);
+			zest_EndPass();
+		}
 		//--------------------------------------------------------------------------------------------------
 
 		//------------------------ Skybox Layer Pass ------------------------------------------------------------
-		zest_pass_node skybox_pass = zest_AddRenderPassNode("Skybox Pass");
-		zest_ConnectInput(skybox_pass, skybox_texture_resource, 0);
-		zest_ConnectInput(skybox_pass, skybox_layer_resource, 0);
-		zest_ConnectGroupedOutput(skybox_pass, group);
-		zest_SetPassTask(skybox_pass, zest_DrawInstanceMeshLayer, app->skybox_layer);
+		zest_BeginRenderPass("Skybox Pass"); {
+			zest_ConnectInput(skybox_texture_resource, 0);
+			zest_ConnectInput(skybox_layer_resource, 0);
+			zest_ConnectGroupedOutput(group);
+			zest_SetPassTask(zest_DrawInstanceMeshLayer, app->skybox_layer);
+			zest_EndPass();
+		}
 		//--------------------------------------------------------------------------------------------------
 
 		//------------------------ PBR Layer Pass ------------------------------------------------------------
-		zest_pass_node cube_pass = zest_AddRenderPassNode("Cube Pass");
-		zest_ConnectInput(cube_pass, cube_layer_resource, 0);
-		zest_ConnectInput(cube_pass, brd_texture_resource, 0);
-		zest_ConnectInput(cube_pass, irradiance_texture_resource, 0);
-		zest_ConnectInput(cube_pass, prefiltered_texture_resource, 0);
-		zest_ConnectGroupedOutput(cube_pass, group);
-		zest_SetPassTask(cube_pass, zest_DrawInstanceMeshLayer, app->cube_layer);
+		zest_BeginRenderPass("Cube Pass"); {
+			zest_ConnectInput(cube_layer_resource, 0);
+			zest_ConnectInput(brd_texture_resource, 0);
+			zest_ConnectInput(irradiance_texture_resource, 0);
+			zest_ConnectInput(prefiltered_texture_resource, 0);
+			zest_ConnectGroupedOutput(group);
+			zest_SetPassTask(zest_DrawInstanceMeshLayer, app->cube_layer);
+			zest_EndPass();
+		}
 		//--------------------------------------------------------------------------------------------------
 
 		//------------------------ Billboard Layer Pass ------------------------------------------------------------
-		zest_pass_node billboard_pass = zest_AddRenderPassNode("Billboard Pass");
-		zest_ConnectInput(billboard_pass, billboard_layer_resource, 0);
-		zest_ConnectInput(billboard_pass, billboard_texture_resource, 0);
-		zest_ConnectGroupedOutput(billboard_pass, group);
-		zest_SetPassTask(billboard_pass, zest_DrawInstanceLayer, app->billboard_layer);
+		zest_BeginRenderPass("Billboard Pass"); {
+			zest_ConnectInput(billboard_layer_resource, 0);
+			zest_ConnectInput(billboard_texture_resource, 0);
+			zest_ConnectGroupedOutput(group);
+			zest_SetPassTask(zest_DrawInstanceLayer, app->billboard_layer);
+			zest_EndPass();
+		}
 		//--------------------------------------------------------------------------------------------------
 
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
-		if (imgui_pass) {
-			zest_ConnectGroupedOutput(imgui_pass, group);
-		} else {
-			//If there's no ImGui to render then just render a blank screen
-			zest_pass_node blank_pass = zest_AddGraphicBlankScreen("Draw Nothing");
-			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-			zest_ConnectGroupedOutput(imgui_pass, group);
+		zest_pass_node imgui_pass = zest_imgui_BeginPass(); {
+			if (imgui_pass) {
+				zest_ConnectGroupedOutput(group);
+			} else {
+				//If there's no ImGui to render then just render a blank screen
+				zest_pass_node blank_pass = zest_AddGraphicBlankScreen("Draw Nothing");
+				//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
+				zest_ConnectGroupedOutput(group);
+			}
+			zest_EndPass();
 		}
 		//----------------------------------------------------------------------------------------------------
 		//End the render graph and execute it. This will submit it to the GPU.
@@ -560,8 +608,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	//zest_create_info_t create_info = zest_CreateInfo();
+	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
+	zest_create_info_t create_info = zest_CreateInfo();
 	create_info.memory_pool_size = zloc__MEGABYTE(256);
     create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);

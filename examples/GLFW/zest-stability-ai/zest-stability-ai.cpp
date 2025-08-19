@@ -80,16 +80,16 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
-		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
+		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
+		//If there was no imgui data to render then zest_imgui_BeginPass will return false
 		//Import our test texture with the Bunny sprite
 		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture);
 		//Add the test texture to the imgui render pass
 		zest_ConnectSampledImageInput(graphics_pass, test_texture, zest_pipeline_fragment_stage);
 		//If there's imgui to draw then draw it
-		if (zest_imgui_AddToRenderGraph(graphics_pass)) {
+		if (zest_imgui_BeginPass(graphics_pass)) {
 			//Imgui won't draw anything unless we add a callback with zest_AddPassTask. This has to be done manually rather then
-			//taken care of in the zest_imgui_AddToRenderGraph so that you have the flexibility to draw other things to the swap chain
+			//taken care of in the zest_imgui_BeginPass so that you have the flexibility to draw other things to the swap chain
 			//or other render target in the order that you want.
 			zest_AddPassTask(graphics_pass, zest_imgui_DrawImGuiRenderPass, app);
 			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.

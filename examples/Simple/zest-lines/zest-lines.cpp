@@ -114,7 +114,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node line_layer_resources = zest_AddTransientLayerResource("Line layer", example->line_layer, false);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
-		zest_pass_node upload_line_data = zest_AddTransferPassNode("Upload Line Data");
+		zest_pass_node upload_line_data = zest_BeginTransferPass("Upload Line Data");
 		//outputs
 		zest_ConnectOutput(upload_line_data, line_layer_resources);
 		//tasks
@@ -123,7 +123,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 
 		//Add passes
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
 		//inputs
 		zest_ConnectInput(graphics_pass, line_layer_resources, 0);
 		//outputs

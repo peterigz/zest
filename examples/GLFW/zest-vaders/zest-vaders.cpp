@@ -1128,7 +1128,7 @@ void VadersGame::Update(float ellapsed) {
 		//--------------------------------------------------------------------------------------------------
 
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-		zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
+		zest_pass_node upload_tfx_data = zest_BeginTransferPass("Upload TFX Pass");
 		// Outputs
 		zest_ConnectOutput(upload_tfx_data, tfx_read_layer);
 		zest_ConnectOutput(upload_tfx_data, tfx_write_layer);
@@ -1137,7 +1137,7 @@ void VadersGame::Update(float ellapsed) {
 		//--------------------------------------------------------------------------------------------------
 
 		//--------------------------Billboard Transfer Pass-------------------------------------------------
-		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
+		zest_pass_node upload_instance_data = zest_BeginTransferPass("Upload Instance Data");
 		// Outputs
 		zest_ConnectOutput(upload_instance_data, billboard_layer_resource);
 		// Taks
@@ -1145,7 +1145,7 @@ void VadersGame::Update(float ellapsed) {
 		//--------------------------------------------------------------------------------------------------
 
 		//----------------------------Font Transfer Pass----------------------------------------------------
-		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
+		zest_pass_node upload_font_data = zest_BeginTransferPass("Upload Font Data");
 		// Outputs
 		zest_ConnectOutput(upload_font_data, font_layer_resources);
 		// Tasks
@@ -1153,7 +1153,7 @@ void VadersGame::Update(float ellapsed) {
 		//--------------------------------------------------------------------------------------------------
 
 		//------------------------ Particles Pass -----------------------------------------------------------
-		zest_pass_node particles_pass = zest_AddRenderPassNode("Particles Pass");
+		zest_pass_node particles_pass = zest_BeginRenderPass("Particles Pass");
 		//inputs
 		zest_ConnectInput(particles_pass, particle_texture, 0);
 		zest_ConnectInput(particles_pass, tfx_image_data, 0);
@@ -1166,7 +1166,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_tfx_AddPassTask(particles_pass, &tfx_rendering);
 
 		//------------------------ Billboards Pass -----------------------------------------------------------
-		zest_pass_node billboards_pass = zest_AddRenderPassNode("Billboards Pass");
+		zest_pass_node billboards_pass = zest_BeginRenderPass("Billboards Pass");
 		//inputs
 		zest_ConnectInput(billboards_pass, game_sprites_texture, 0);
 		zest_ConnectInput(billboards_pass, billboard_layer_resource, 0);
@@ -1176,7 +1176,7 @@ void VadersGame::Update(float ellapsed) {
 		zest_SetPassTask(billboards_pass, zest_DrawInstanceLayer, billboard_layer);
 
 		//------------------------ Fonts Pass ----------------------------------------------------------------
-		zest_pass_node fonts_pass = zest_AddRenderPassNode("Fonts Pass");
+		zest_pass_node fonts_pass = zest_BeginRenderPass("Fonts Pass");
 		//inputs
 		zest_ConnectInput(fonts_pass, font_layer_texture, 0);
 		zest_ConnectInput(fonts_pass, font_layer_resources, 0);
@@ -1188,7 +1188,7 @@ void VadersGame::Update(float ellapsed) {
 
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectSwapChainOutput(imgui_pass);
 		}

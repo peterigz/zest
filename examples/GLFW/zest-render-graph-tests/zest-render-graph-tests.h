@@ -43,7 +43,7 @@ struct Test {
 struct ZestTests {
 	Test tests[TEST_COUNT];
 	int current_test;
-	VkSamplerCreateInfo sampler_info;
+	VkSamplerCreateInfo vk_sampler_info;
 	VkSamplerCreateInfo mipped_sampler_info;
 	zest_texture texture;
 	TestPushConstants push;

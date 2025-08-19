@@ -260,7 +260,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Connect buffers and textures
 
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-		zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
+		zest_pass_node upload_tfx_data = zest_BeginTransferPass("Upload TFX Pass");
 		//Outputs
 		//Note, the only reason the prev frame particle data is put as an output here is to make sure that it's
 		//propertly transitioned to the graphics queue (who releases it after each frame)
@@ -271,7 +271,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//------------------------ Graphics Pass -----------------------------------------------------------
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
 		//Inputs
 		zest_ConnectInput(graphics_pass, tfx_layer, 0);
 		zest_ConnectInput(graphics_pass, tfx_layer_prev, 0);
@@ -283,7 +283,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Tasks
 		zest_tfx_AddPassTask(graphics_pass, &game->tfx_rendering);
 		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectSwapChainOutput(imgui_pass);
 		}

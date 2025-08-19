@@ -192,8 +192,8 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	if (zest_BeginRenderToScreen(swapchain, "TimelineFX Render Graphs", &cache_key)) {
 		//zest_ForceRenderGraphOnGraphicsQueue();
 		zest_WaitOnTimeline(game->tfx_rendering.timeline);
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
-		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
+		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
+		//If there was no imgui data to render then zest_imgui_BeginPass will return false
 		//Import our test texture with the Bunny sprite
 		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture, 0);
 		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture, 0);
@@ -204,7 +204,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Connect buffers and textures
 
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-		zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
+		zest_pass_node upload_tfx_data = zest_BeginTransferPass("Upload TFX Pass");
 		//Outputs
 		//Note, the only reason the prev frame particle data is put as an output here is to make sure that it's
 		//propertly transitioned to the graphics queue (who releases it after each frame)
@@ -225,7 +225,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		//Tasks
 		zest_tfx_AddPassTask(graphics_pass, &game->tfx_rendering);
 		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectSwapChainOutput(imgui_pass);
 		}

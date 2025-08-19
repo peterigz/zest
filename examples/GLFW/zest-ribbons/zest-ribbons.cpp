@@ -464,7 +464,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_resource_node ribbon_index_buffer = zest_AddTransientBufferResource("Ribbon Index Buffer", &app->index_buffer_info);
 
 		//-------------------------Ribbon Compute Pass-------------------------------------------------
-		zest_pass_node compute_pass = zest_AddComputePassNode(app->ribbon_compute, "Compute Ribbons");
+		zest_pass_node compute_pass = zest_BeginComputePass(app->ribbon_compute, "Compute Ribbons");
 		//inputes
 		zest_ConnectInput(compute_pass, ribbon_segment_buffer, 0);
 		zest_ConnectInput(compute_pass, ribbon_instance_buffer, 0);
@@ -476,7 +476,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-		zest_pass_node transfer_pass = zest_AddTransferPassNode("Transfer Ribbon Data");
+		zest_pass_node transfer_pass = zest_BeginTransferPass("Transfer Ribbon Data");
 		//outputs
 		zest_ConnectOutput(transfer_pass, ribbon_segment_buffer);
 		zest_ConnectOutput(transfer_pass, ribbon_instance_buffer);
@@ -485,7 +485,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//-------------------------TimelineFX Render Pass---------------------------------------------------
-		zest_pass_node render_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node render_pass = zest_BeginRenderPass("Graphics Pass");
 		//inputs
 		zest_ConnectInput(render_pass, ribbon_vertex_buffer, 0);
 		zest_ConnectInput(render_pass, ribbon_index_buffer, 0);
@@ -497,7 +497,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectSwapChainOutput(imgui_pass);
 		}

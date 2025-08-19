@@ -17,12 +17,12 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Prepare a couple of textures:
 	//Particle image for point sprites
 	app->particle_texture = zest_CreateTextureSingle("particle", zest_texture_format_rgba_unorm);
-	app->particle_texture->image_view_type = VK_IMAGE_VIEW_TYPE_2D;
+	app->particle_texture->vk_image_view_type = VK_IMAGE_VIEW_TYPE_2D;
 	zest_AddTextureImageFile(app->particle_texture, "examples/assets/particle.png");
 	zest_ProcessTextureImages(app->particle_texture);
 	//A gradient texture to sample the colour from
 	app->gradient_texture = zest_CreateTextureSingle("gradient", zest_texture_format_rgba_unorm);
-	app->gradient_texture->image_view_type = VK_IMAGE_VIEW_TYPE_2D;
+	app->gradient_texture->vk_image_view_type = VK_IMAGE_VIEW_TYPE_2D;
 	zest_AddTextureImageFile(app->gradient_texture, "examples/assets/gradient.png");
 	zest_ProcessTextureImages(app->gradient_texture);
 
@@ -235,7 +235,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node particle_buffer = zest_ImportBufferResource("particle buffer", app->particle_buffer, 0);
 
 		//---------------------------------Compute Pass-----------------------------------------------------
-		zest_pass_node compute_pass = zest_AddComputePassNode(app->compute, "Compute Particles");
+		zest_pass_node compute_pass = zest_BeginComputePass(app->compute, "Compute Particles");
 		//inputs
 		zest_ConnectInput(compute_pass, particle_buffer, 0);
 		//outputs
@@ -245,7 +245,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node render_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node render_pass = zest_BeginRenderPass("Graphics Pass");
 		//inputs
 		zest_ConnectInput(render_pass, particle_buffer, 0);
 		//outputs
@@ -256,7 +256,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectSwapChainOutput(imgui_pass);
 		}

@@ -150,9 +150,9 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//Import the swap chain into the render pass
 		zest_resource_node swapchain_output_resource = zest__import_swapchain_resource("Swapchain Output");
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
-		zest_pass_node upload_tfx_data = zest_AddTransferPassNode("Upload TFX Pass");
-		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
+		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
+		zest_pass_node upload_tfx_data = zest_BeginTransferPass("Upload TFX Pass");
+		//If there was no imgui data to render then zest_imgui_BeginPass will return false
 		//Import our test texture with the Bunny sprite
 		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture);
 		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture);

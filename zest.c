@@ -10268,16 +10268,18 @@ zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain) {
     return render_graph->swapchain_resource;
 }
 
-void zest_SetPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data) {
-    ZEST_ASSERT_HANDLE(pass);        //Not a valid pass node!
+void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);        //No current pass found, make sure you call zest_BeginPass
+    zest_pass_node pass = ZestRenderer->current_pass;
     zest_pass_execution_callback_t callback_data;
     callback_data.callback = callback;
     callback_data.user_data = user_data;
     pass->execution_callback = callback_data;
 }
 
-void zest_SetPassInstanceLayerUpload(zest_pass_node pass, zest_layer layer) {
-    ZEST_ASSERT_HANDLE(pass);        //Not a valid pass node!
+void zest_SetPassInstanceLayerUpload(zest_layer layer) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);        //No current pass found, make sure you call zest_BeginPass
+    zest_pass_node pass = ZestRenderer->current_pass;
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif) && layer->dirty[layer->fif] == 0) {
         return;
     }
@@ -10287,8 +10289,9 @@ void zest_SetPassInstanceLayerUpload(zest_pass_node pass, zest_layer layer) {
     pass->execution_callback = callback_data;
 }
 
-void zest_SetPassInstanceLayer(zest_pass_node pass, zest_layer layer) {
-    ZEST_ASSERT_HANDLE(pass);        //Not a valid pass node!
+void zest_SetPassInstanceLayer(zest_layer layer) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);        //No current pass found, make sure you call zest_BeginPass
+    zest_pass_node pass = ZestRenderer->current_pass;
     zest_pass_execution_callback_t callback_data;
     callback_data.callback = zest_DrawInstanceLayer;
     callback_data.user_data = layer;
@@ -10369,30 +10372,43 @@ zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node re
 
 zest_pass_node zest_AddGraphicBlankScreen(const char *name) {
     zest_pass_node pass = zest__add_pass_node(name, zest_queue_graphics);
-    zest_SetPassTask(pass, zest_EmptyRenderPass, 0);
+    zest_SetPassTask(zest_EmptyRenderPass, 0);
     return pass;
 }
 
-zest_pass_node zest_AddRenderPassNode(const char *name) {
+zest_pass_node zest_BeginRenderPass(const char *name) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    ZEST_ASSERT(!ZestRenderer->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
     zest_pass_node node = zest__add_pass_node(name, zest_queue_graphics);
     node->queue_info.timeline_wait_stage = VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
+    ZestRenderer->current_pass = node;
     return node;
 }
 
-zest_pass_node zest_AddComputePassNode(zest_compute compute, const char *name) {
+zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    ZEST_ASSERT(!ZestRenderer->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
     bool force_graphics_queue = (ZestRenderer->current_render_graph->flags & zest_render_graph_force_on_graphics_queue) > 0;
     zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_compute);
     node->compute = compute;
     node->queue_info.timeline_wait_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    ZestRenderer->current_pass = node;
     return node;
 }
 
-zest_pass_node zest_AddTransferPassNode(const char *name) {
+zest_pass_node zest_BeginTransferPass(const char *name) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid render graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    ZEST_ASSERT(!ZestRenderer->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
     bool force_graphics_queue = (ZestRenderer->current_render_graph->flags & zest_render_graph_force_on_graphics_queue) > 0;
     zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_transfer);
     node->queue_info.timeline_wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    ZestRenderer->current_pass = node;
     return node;
+}
+
+void zest_EndPass() {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_pass); //No begin pass found, make sure you call BeginRender/Compute/TransferPass
+    ZestRenderer->current_pass = 0;
 }
 
 zest_resource_node zest_GetPassInputResource(const zest_render_graph_context_t *context, const char *name) {
@@ -11321,7 +11337,10 @@ void zest_ReleaseBufferAfterUse(zest_resource_node node) {
 }
 
 // --- Image Helpers ---
-void zest_ConnectInput(zest_pass_node pass, zest_resource_node resource, zest_sampler sampler) {
+void zest_ConnectInput(zest_resource_node resource, zest_sampler sampler) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);          //No current pass found. Make sure you call zest_BeginPass
+    zest_pass_node pass = ZestRenderer->current_pass;
     if(!ZEST_VALID_HANDLE(resource)) return;  
     zest_supported_pipeline_stages stages = 0;
     zest_resource_purpose purpose = 0;
@@ -11374,8 +11393,10 @@ void zest_ConnectInput(zest_pass_node pass, zest_resource_node resource, zest_sa
     }
 }
 
-void zest_ConnectSwapChainOutput( zest_pass_node pass) {
+void zest_ConnectSwapChainOutput() {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_pass); //No current pass found. Make sure you call zest_BeginPass
+    zest_pass_node pass = ZestRenderer->current_pass;
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);  //Not a valid swapchain resource, did you call zest_BeginRenderToScreen?
     VkClearValue cv = { 0 };
@@ -11387,27 +11408,29 @@ void zest_ConnectSwapChainOutput( zest_pass_node pass) {
         VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, cv);
 }
 
-void zest_ConnectOutput(zest_pass_node pass_node, zest_resource_node resource) {
-    ZEST_ASSERT_HANDLE(pass_node);
+void zest_ConnectOutput(zest_resource_node resource) {
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_pass); //No current pass found. Make sure you call zest_BeginPass
+    zest_pass_node pass = ZestRenderer->current_pass;
     if (!ZEST_VALID_HANDLE(resource)) return;
     if (resource->image_desc.numSamples > 1) {
-        ZEST__FLAG(pass_node->flags, zest_pass_flag_output_resolve);
+        ZEST__FLAG(pass->flags, zest_pass_flag_output_resolve);
     }
     if (resource->type & zest_resource_type_is_image) {
         VkClearValue cv = { 0 };
-        switch (pass_node->type) {
+        switch (pass->type) {
         case zest_pass_type_graphics: {
             ZEST_ASSERT(resource->type & zest_resource_type_is_image); //Resource must be an image buffer when used as output in a graphics pass
             if (resource->image_desc.format == ZestRenderer->vk_depth_format) {
                 cv.depthStencil = (VkClearDepthStencilValue){ 1.f, 0 };
-                zest__add_pass_image_usage(pass_node, resource, zest_purpose_depth_stencil_attachment_write,
+                zest__add_pass_image_usage(pass, resource, zest_purpose_depth_stencil_attachment_write,
                     0, ZEST_TRUE,
                     VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_DONT_CARE,
                     VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
                     cv);
             } else {
                 cv.color = (VkClearColorValue){ resource->clear_color.x, resource->clear_color.y, resource->clear_color.z, resource->clear_color.w };
-                zest__add_pass_image_usage(pass_node, resource, zest_purpose_color_attachment_write,
+                zest__add_pass_image_usage(pass, resource, zest_purpose_color_attachment_write,
                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, ZEST_TRUE,
                     VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
                     VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
@@ -11416,13 +11439,13 @@ void zest_ConnectOutput(zest_pass_node pass_node, zest_resource_node resource) {
             break;
         }
         case zest_pass_type_compute: {
-            zest__add_pass_image_usage(pass_node, resource, zest_purpose_storage_image_write, zest_pipeline_compute_stage,
+            zest__add_pass_image_usage(pass, resource, zest_purpose_storage_image_write, zest_pipeline_compute_stage,
                 ZEST_FALSE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
                 VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue) { 0 });
             break;
         }
         case zest_pass_type_transfer: {
-            zest__add_pass_image_usage(pass_node, resource, zest_purpose_transfer_image, zest_pipeline_compute_stage,
+            zest__add_pass_image_usage(pass, resource, zest_purpose_transfer_image, zest_pipeline_compute_stage,
                 ZEST_FALSE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
                 VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE, (VkClearValue) { 0 });
             break;
@@ -11430,20 +11453,20 @@ void zest_ConnectOutput(zest_pass_node pass_node, zest_resource_node resource) {
         }
     } else {
         //Buffer output
-        switch (pass_node->type) {
+        switch (pass->type) {
         case zest_pass_type_graphics: {
             ZEST_ASSERT(resource->type & zest_resource_type_is_image); //Resource must be an image buffer when used as output in a graphics pass
-            zest__add_pass_buffer_usage(pass_node, resource, zest_purpose_storage_buffer_write,
+            zest__add_pass_buffer_usage(pass, resource, zest_purpose_storage_buffer_write,
                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, ZEST_TRUE);
             break;
         }
         case zest_pass_type_compute: {
-            zest__add_pass_buffer_usage(pass_node, resource, zest_purpose_storage_buffer_write,
+            zest__add_pass_buffer_usage(pass, resource, zest_purpose_storage_buffer_write,
                 zest_pipeline_compute_stage, ZEST_TRUE);
             break;
         }
         case zest_pass_type_transfer: {
-            zest__add_pass_buffer_usage(pass_node, resource, zest_purpose_transfer_buffer, 
+            zest__add_pass_buffer_usage(pass, resource, zest_purpose_transfer_buffer, 
                 zest_pipeline_compute_stage, ZEST_TRUE);
             break;
         }
@@ -11452,17 +11475,19 @@ void zest_ConnectOutput(zest_pass_node pass_node, zest_resource_node resource) {
     }
 }
 
-void zest_ConnectGroupedOutput(zest_pass_node pass_node, zest_output_group group) {
+void zest_ConnectGroupedOutput(zest_output_group group) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);  //This function must be called withing a Being/EndRenderGraph block
+    ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);          //No current pass found. Make sure you call zest_BeginPass
+    zest_pass_node pass = ZestRenderer->current_pass;
     zest_render_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(group);  //Not a valid render target group
-    ZEST_ASSERT_HANDLE(pass_node);  //Not a valid pass node
+    ZEST_ASSERT_HANDLE(pass);  //Not a valid pass node
     ZEST_ASSERT(zest_vec_size(group->resources));   //There are no resources in the group!
     zest_vec_foreach(i, group->resources) {
         zest_resource_node resource = group->resources[i];
         switch (resource->type) {
-        case zest_resource_type_swap_chain_image: zest_ConnectSwapChainOutput(pass_node); break;
-		default: zest_ConnectOutput(pass_node, resource); break;
+			case zest_resource_type_swap_chain_image: zest_ConnectSwapChainOutput(); break;
+			default: zest_ConnectOutput(resource); break;
         }
     }
 }

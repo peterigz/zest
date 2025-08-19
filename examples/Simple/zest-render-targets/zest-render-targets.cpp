@@ -6,9 +6,9 @@ void InitExample(RenderTargetExample *example) {
 	//Create the render targets that we will draw the layers to. The Base render target will be where we draw the images, The top render target
 	//will be where we draw the result of the the blur effect.
 
-	VkSamplerCreateInfo sampler_info = zest_CreateSamplerInfo();
+	VkSamplerCreateInfo vk_sampler_info = zest_CreateSamplerInfo();
 	VkSamplerCreateInfo mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
-	example->pass_through_sampler = zest_GetSampler(&sampler_info);
+	example->pass_through_sampler = zest_GetSampler(&vk_sampler_info);
 	example->mipped_sampler = zest_GetSampler(&mipped_sampler_info);
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
@@ -331,7 +331,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node upsampler = zest_AddTransientImageResource("Upsampler", &image_info);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
-		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
+		zest_pass_node upload_font_data = zest_BeginTransferPass("Upload Font Data");
 		//outputs
 		zest_ConnectOutput(upload_font_data, font_layer_resources);
 		//tasks
@@ -339,7 +339,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Draw Base Pass---------------------------------------------------
-		zest_pass_node render_target_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node render_target_pass = zest_BeginRenderPass("Graphics Pass");
 		zest_ConnectInput(render_target_pass, font_layer_resources, 0);
 		zest_ConnectInput(render_target_pass, font_layer_texture, 0);
 		zest_ConnectOutput(render_target_pass, downsampler);
@@ -348,7 +348,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Downsample Pass--------------------------------------------------
-		zest_pass_node downsampler_pass = zest_AddComputePassNode(example->downsampler_compute, "Downsampler Pass");
+		zest_pass_node downsampler_pass = zest_BeginComputePass(example->downsampler_compute, "Downsampler Pass");
 		//The stage should be assumed based on the pass queue type.
 		zest_ConnectInput(downsampler_pass, downsampler, 0);
 		zest_ConnectOutput(downsampler_pass, downsampler);
@@ -357,7 +357,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Upsample Pass----------------------------------------------------
-		zest_pass_node upsampler_pass = zest_AddComputePassNode(example->upsampler_compute, "Upsampler Pass");
+		zest_pass_node upsampler_pass = zest_BeginComputePass(example->upsampler_compute, "Upsampler Pass");
 		//The stage should be assumed based on the pass queue type.
 		zest_ConnectInput(upsampler_pass, downsampler, 0);
 		zest_ConnectOutput(upsampler_pass, upsampler);
@@ -366,7 +366,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
-		//zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		//zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
 		zest_pass_node graphics_pass = zest_AddGraphicBlankScreen("Blank Screen");
 		//inputs
 		zest_ConnectInput(graphics_pass, upsampler, 0);

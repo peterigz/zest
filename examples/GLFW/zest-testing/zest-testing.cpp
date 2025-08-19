@@ -1243,8 +1243,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_AddImageToRenderTargetGroup(group, depth_buffer);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
-		//zest_pass_node upload_mesh_data = zest_AddTransferPassNode("Upload Mesh Data");
-		zest_pass_node upload_mesh_data = zest_AddTransferPassNode("Upload Scale Data");
+		//zest_pass_node upload_mesh_data = zest_BeginTransferPass("Upload Mesh Data");
+		zest_pass_node upload_mesh_data = zest_BeginTransferPass("Upload Scale Data");
 		//outputs
 		//zest_ConnectTransferBufferOutput(upload_mesh_data, mesh_layer_resources);
 		zest_ConnectOutput(upload_mesh_data, scale_widget_layer_resources);
@@ -1257,7 +1257,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		//Add passes
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node scale_pass = zest_AddRenderPassNode("Scale Pass");
+		zest_pass_node scale_pass = zest_BeginRenderPass("Scale Pass");
 		//inputs
 		//zest_ConnectVertexBufferInput(scale_pass, mesh_layer_resources);
 		zest_ConnectInput(scale_pass, scale_widget_layer_resources, 0);
@@ -1266,21 +1266,21 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_ConnectGroupedOutput(scale_pass, group);
 		zest_SetPassTask(scale_pass, zest_DrawInstanceMeshLayer, app->scale_widget_layer);
 
-		zest_pass_node move_pass = zest_AddRenderPassNode("Move Pass");
+		zest_pass_node move_pass = zest_BeginRenderPass("Move Pass");
 		zest_ConnectInput(move_pass, move_widget_layer_resources, 0);
 		zest_ConnectInput(move_pass, move_mesh_data_index, 0);
 		zest_ConnectInput(move_pass, move_mesh_data_vertex, 0);
 		zest_ConnectGroupedOutput(move_pass, group);
 		zest_SetPassTask(move_pass, zest_DrawInstanceMeshLayer, app->move_widget_layer);
 
-		zest_pass_node line_pass = zest_AddRenderPassNode("Line Pass");
+		zest_pass_node line_pass = zest_BeginRenderPass("Line Pass");
 		zest_ConnectInput(line_pass, line_layer_resources, 0);
 		//outputs
 		zest_ConnectGroupedOutput(line_pass, group);
 		//tasks
 		zest_SetPassTask(line_pass, zest_DrawInstanceLayer, app->line_layer);
 		//zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->mesh_layer);
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectGroupedOutput(imgui_pass, group);
 		}

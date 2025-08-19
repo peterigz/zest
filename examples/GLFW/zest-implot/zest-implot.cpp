@@ -58,11 +58,11 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	if (zest_BeginRenderToScreen(zest_GetMainWindowSwapchain(), "ImGui Plot", 0)) {
 		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 		//Import the swap chain into the render pass
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
-		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
+		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
+		//If there was no imgui data to render then zest_imgui_BeginPass will return false
 		//Import our test texture with the Bunny sprite
 		//Add the test texture to the imgui render pass
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectInput(imgui_pass, test_texture, 0);
 			zest_ConnectSwapChainOutput(imgui_pass);

@@ -31,9 +31,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_ProcessTextureImages(app->test_texture);
 
 	app->color_ramps_texture = zest_CreateTexture("Color Ramps", zest_texture_storage_type_bank, 0, zest_texture_format_rgba_unorm, 10);
-	app->color_ramps_texture->sampler_info.minFilter = VK_FILTER_NEAREST;
-	app->color_ramps_texture->sampler_info.magFilter = VK_FILTER_NEAREST;
-	app->color_ramps_texture->sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+	app->color_ramps_texture->vk_sampler_info.minFilter = VK_FILTER_NEAREST;
+	app->color_ramps_texture->vk_sampler_info.magFilter = VK_FILTER_NEAREST;
+	app->color_ramps_texture->vk_sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 	app->color_ramps_bitmap = zest_NewBitmap();
 	zest_vec4 start_color1 = {255.f, 255.f, 0.f, 255.f};
 	zest_vec4 end_color1 = {0.f, 255.f, 255.f, 255.f};
@@ -153,7 +153,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node billboard_layer = zest_AddTransientLayerResource("Billboard layer", app->custom_layer, false);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
-		zest_pass_node upload_instance_data = zest_AddTransferPassNode("Upload Instance Data");
+		zest_pass_node upload_instance_data = zest_BeginTransferPass("Upload Instance Data");
 		//Outputs
 		zest_ConnectOutput(upload_instance_data, billboard_layer);
 		//Tasks
@@ -161,7 +161,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
 		//Inputs
 		zest_ConnectInput(graphics_pass, billboard_layer, 0);
 		zest_ConnectInput(graphics_pass, texture, 0);
@@ -173,7 +173,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectSwapChainOutput(imgui_pass);
 		}

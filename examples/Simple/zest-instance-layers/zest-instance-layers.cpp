@@ -143,7 +143,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node sprite_layer = zest_AddTransientLayerResource("Sprite Layer", example->sprite_layer, false);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
-		zest_pass_node upload_billboard_data = zest_AddTransferPassNode("Upload Billboard Data");
+		zest_pass_node upload_billboard_data = zest_BeginTransferPass("Upload Billboard Data");
 		//outputs
 		zest_ConnectOutput(upload_billboard_data, billboard_layer);
 		//tasks
@@ -151,7 +151,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Transfer Pass----------------------------------------------------
-		zest_pass_node upload_sprite_data = zest_AddTransferPassNode("Upload Sprite Data");
+		zest_pass_node upload_sprite_data = zest_BeginTransferPass("Upload Sprite Data");
 		//outputs
 		zest_ConnectOutput(upload_sprite_data, sprite_layer);
 		//tasks
@@ -159,7 +159,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node billboard_pass = zest_AddRenderPassNode("Billboard Pass");
+		zest_pass_node billboard_pass = zest_BeginRenderPass("Billboard Pass");
 		//inputs
 		zest_ConnectInput(billboard_pass, billboard_layer, 0);
 		zest_ConnectInput(billboard_pass, texture, 0);
@@ -170,7 +170,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node sprite_pass = zest_AddRenderPassNode("Sprite Pass");
+		zest_pass_node sprite_pass = zest_BeginRenderPass("Sprite Pass");
 		//inputs
 		zest_ConnectInput(sprite_pass, sprite_layer, 0);
 		zest_ConnectInput(sprite_pass, texture, 0);

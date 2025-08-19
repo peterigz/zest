@@ -22,7 +22,7 @@ bool zest_imgui_HasGuiToDraw() {
     return (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0);
 }
 
-zest_pass_node zest_imgui_AddToRenderGraph() {
+zest_pass_node zest_imgui_BeginPass() {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
@@ -32,19 +32,21 @@ zest_pass_node zest_imgui_AddToRenderGraph() {
 		zest_resource_node imgui_vertex_buffer = zest_imgui_ImportVertexResources("Imgui Vertex Buffer");
 		zest_resource_node imgui_index_buffer = zest_imgui_ImportIndexResources("Imgui Index Buffer");
         //Transfer Pass
-		zest_pass_node imgui_upload_pass = zest_AddTransferPassNode("Upload ImGui");
-		zest_ConnectOutput(imgui_upload_pass, imgui_vertex_buffer);
-		zest_ConnectOutput(imgui_upload_pass, imgui_index_buffer);
-        //task
-		zest_SetPassTask(imgui_upload_pass, zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
+        zest_BeginTransferPass("Upload ImGui"); {
+            zest_ConnectOutput(imgui_vertex_buffer);
+            zest_ConnectOutput(imgui_index_buffer);
+            //task
+            zest_SetPassTask(zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
+            zest_EndPass();
+        }
         //Graphics Pass for ImGui outputting to the output passed in to this function
-		zest_pass_node imgui_pass = zest_AddRenderPassNode("Dear ImGui Pass");
+		zest_pass_node imgui_pass = zest_BeginRenderPass("Dear ImGui Pass");
         //inputs
-		zest_ConnectInput(imgui_pass, imgui_font_texture, 0);
-		zest_ConnectInput(imgui_pass, imgui_vertex_buffer, 0);
-		zest_ConnectInput(imgui_pass, imgui_index_buffer, 0);
+		zest_ConnectInput(imgui_font_texture, 0);
+		zest_ConnectInput(imgui_vertex_buffer, 0);
+		zest_ConnectInput(imgui_index_buffer, 0);
         //Task
-		zest_SetPassTask(imgui_pass, zest_imgui_DrawImGuiRenderPass, NULL);
+		zest_SetPassTask(zest_imgui_DrawImGuiRenderPass, NULL);
         return imgui_pass;
     }
     return 0;

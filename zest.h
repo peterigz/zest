@@ -3241,9 +3241,11 @@ ZEST_API zest_render_graph zest_EndRenderGraphAndWait();
 
 // --- Add pass nodes that execute user commands ---
 ZEST_API zest_pass_node zest_AddGraphicBlankScreen( const char *name);
-ZEST_API zest_pass_node zest_AddRenderPassNode(const char *name);
-ZEST_API zest_pass_node zest_AddComputePassNode(zest_compute compute, const char *name);
-ZEST_API zest_pass_node zest_AddTransferPassNode(const char *name);
+ZEST_API zest_pass_node zest_BeginRenderPass(const char *name);
+ZEST_API zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name);
+ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
+ZEST_API void zest_EndPass();
+
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
 ZEST_API zest_uint zest_GetTransientImageBindlessIndex(const zest_render_graph_context_t *context, zest_resource_node resource, zest_bool base_mip_only, zest_global_binding_number binding_number);
@@ -3251,9 +3253,9 @@ ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_render_graph_
 ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_render_graph_context_t *context, zest_resource_node resource);
 
 // --- Add callback tasks to passes
-ZEST_API void zest_SetPassTask(zest_pass_node pass, zest_rg_execution_callback callback, void *user_data);
-ZEST_API void zest_SetPassInstanceLayerUpload(zest_pass_node pass, zest_layer layer);
-ZEST_API void zest_SetPassInstanceLayer(zest_pass_node pass, zest_layer layer);
+ZEST_API void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data);
+ZEST_API void zest_SetPassInstanceLayerUpload(zest_layer layer);
+ZEST_API void zest_SetPassInstanceLayer(zest_layer layer);
 
 // --- Add Transient resources ---
 ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
@@ -3275,10 +3277,10 @@ ZEST_API zest_resource_node zest_ImportFontResource(const zest_font font);
 ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 
 // --- Connect Resources to Pass Nodes ---
-ZEST_API void zest_ConnectInput(zest_pass_node pass, zest_resource_node resource, zest_sampler sampler);
-ZEST_API void zest_ConnectOutput(zest_pass_node pass_node, zest_resource_node resource);
-ZEST_API void zest_ConnectSwapChainOutput(zest_pass_node pass);
-ZEST_API void zest_ConnectGroupedOutput(zest_pass_node pass, zest_output_group group);
+ZEST_API void zest_ConnectInput(zest_resource_node resource, zest_sampler sampler);
+ZEST_API void zest_ConnectOutput(zest_resource_node resource);
+ZEST_API void zest_ConnectSwapChainOutput();
+ZEST_API void zest_ConnectGroupedOutput(zest_output_group group);
 
 // --- Connect graphs to each other
 ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);
@@ -3930,6 +3932,7 @@ typedef struct zest_renderer_t {
 
     //Context data
     zest_render_graph current_render_graph;
+    zest_pass_node current_pass;
     zest_render_graph *render_graphs;       //All the render graphs used this frame. Gets cleared at the beginning of each frame
     zest_swapchain last_acquired_swapchain;
     zest_swapchain main_swapchain;

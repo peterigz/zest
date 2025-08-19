@@ -36,7 +36,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node font_layer_texture = zest_ImportFontResource(example->font);
 
 		//---------------------------------Transfer Pass------------------------------------------------------
-		zest_pass_node upload_font_data = zest_AddTransferPassNode("Upload Font Data");
+		zest_pass_node upload_font_data = zest_BeginTransferPass("Upload Font Data");
 		//outputs
 		zest_ConnectOutput(upload_font_data, font_layer_resources);
 		//tasks
@@ -44,7 +44,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
-		zest_pass_node graphics_pass = zest_AddRenderPassNode("Graphics Pass");
+		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
 		//inputes
 		zest_ConnectInput(graphics_pass, font_layer_resources, 0);
 		zest_ConnectInput(graphics_pass, font_layer_texture, 0);

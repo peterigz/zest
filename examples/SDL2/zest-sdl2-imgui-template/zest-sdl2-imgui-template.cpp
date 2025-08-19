@@ -97,12 +97,12 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
 	if (zest_BeginRenderToScreen(swapchain, "ImGui", &cache_key)) {
-		//If there was no imgui data to render then zest_imgui_AddToRenderGraph will return false
+		//If there was no imgui data to render then zest_imgui_BeginPass will return false
 		//Import our test texture with the Bunny sprite
 		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_AddToRenderGraph();
+		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectInput(imgui_pass, test_texture, 0);
 			zest_ConnectSwapChainOutput(imgui_pass);
