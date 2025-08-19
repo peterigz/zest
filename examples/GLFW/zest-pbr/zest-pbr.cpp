@@ -601,6 +601,13 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			app->request_graph_print = false;
 		}
 	}
+
+	if (zest_SwapchainWasRecreated(swapchain)) {
+		zest_SetLayerSizeToSwapchain(app->billboard_layer, swapchain);
+		zest_SetLayerSizeToSwapchain(app->cube_layer, swapchain);
+		zest_SetLayerSizeToSwapchain(app->skybox_layer, swapchain);
+	}
+
 }
 
 #if defined(_WIN32)

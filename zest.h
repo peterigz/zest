@@ -5196,6 +5196,8 @@ ZEST_API zest_layer zest_NewLayer();
 //uniform buffer is setup
 ZEST_API void zest_SetLayerViewPort(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
 ZEST_API void zest_SetLayerScissor(zest_layer layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height);
+//Update the layer viewport to match the swapchain
+ZEST_API void zest_SetLayerSizeToSwapchain(zest_layer layer, zest_swapchain swapchain);
 //Set the size of the layer. Called internally to set it to the window size. Can this be internal?
 ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
 //Get a layer from the renderer by name.

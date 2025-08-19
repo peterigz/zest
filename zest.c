@@ -14671,14 +14671,22 @@ zest_layer zest_NewLayer() {
 }
 
 void zest_SetLayerViewPort(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid layer handle!
     layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
     layer->viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
 }
 
 void zest_SetLayerScissor(zest_layer layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid layer handle!
     layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, offset_x, offset_y);
+}
+
+void zest_SetLayerSizeToSwapchain(zest_layer layer, zest_swapchain swapchain) {
+    ZEST_ASSERT_HANDLE(layer);	    //Not a valid layer handle!
+    ZEST_ASSERT_HANDLE(swapchain);	//Not a valid swapchain handle!
+    layer->scissor = zest_CreateRect2D(swapchain->vk_extent.width, swapchain->vk_extent.height, 0, 0);
+    layer->viewport = zest_CreateViewport(0.f, 0.f, (float)swapchain->vk_extent.width, (float)swapchain->vk_extent.height, 0.f, 1.f);
+
 }
 
 void zest_SetLayerSize(zest_layer layer, float width, float height) {
