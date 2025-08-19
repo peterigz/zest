@@ -128,6 +128,11 @@ static const char *zest_message_pass_culled = "Pass [%s] culled because there we
 static const char *zest_message_pass_culled_no_work = "Pass [%s] culled because there was no work found.";
 static const char *zest_message_pass_culled_not_consumed = "Pass [%s] culled because it's output was not consumed by any subsequent passes. This won't happen if the ouput is an imported buffer or image. If the resource is transient then it will be discarded immediately once it has no further use. Also note that passes at the front of a chain can be culled if ultimately nothing consumes the output from the last pass in the chain.";
 static const char *zest_message_cyclic_dependency = "Cyclic dependency detected in render graph [%s] with pass [%s]. You have a situation where  Pass A depends on Pass B's output, and Pass B depends on Pass A's output.";
+static const char *zest_message_invalid_reference_counts = "Graph Compile Error in Frame Graph [%s]: When culling potential pass in reference counts should never go below 0. This could be a bug in the compile logic.";
+static const char *zest_message_usage_has_no_resource = "Graph Compile Error in Frame Graph [%s]: A usage node did not have a valid resource node.";
+static const char *zest_message_multiple_swapchain_usage = "Graph Compile Error in Frame Graph [%s]: This is the second time that the swap chain is used as output, this should not happen. Check that the passes that use the swapchain as output have exactly the same set of other ouputs so that the passes can be properly grouped together.";
+static const char *zest_message_resource_added_as_ouput_more_than_once = "Graph Compile Error in Frame Graph [%s]: A resource should only have one producer in a valid graph. Check to make sure you haven't added the same output to a pass more than once";
+static const char *zest_message_resource_should_be_imported = "Graph Compile Error in Frame Graph [%s]: ";
 
 //Override this if you'd prefer a different way to allocate the pools for sub allocation in host memory.
 #ifndef ZEST__ALLOCATE_POOL
@@ -1466,7 +1471,7 @@ typedef enum {
 
 typedef enum {
     zest_queue_graphics = 1,
-    zest_queue_compute = 1 << 1,
+    zest_queue_compute  = 1 << 1,
     zest_queue_transfer = 1 << 2
 } zest_device_queue_type;
 
@@ -1639,6 +1644,7 @@ typedef enum zest_report_category {
     zest_report_render_pass_skipped,
     zest_report_expecting_swapchain_usage,
     zest_report_bindless_indexes,
+    zest_report_invalid_reference_counts,
 } zest_report_category;
 
 typedef enum zest_global_binding_number {
@@ -1653,12 +1659,13 @@ typedef enum zest_global_binding_number {
     zest_max_global_binding_number
 } zest_global_binding_number;
 
-typedef enum zest_render_graph_result_bits {
-    zest_rgs_success                      = 0,
-    zest_rgs_no_work_to_do                = 1 << 0,
-    zest_rgs_cyclic_dependency            = 1 << 1,
-    zest_rgs_invalid_render_pass          = 1 << 2,
-} zest_render_graph_result_bits;
+typedef enum zest_frame_graph_result_bits {
+    zest_fgs_success                      = 0,
+    zest_fgs_no_work_to_do                = 1 << 0,
+    zest_fgs_cyclic_dependency            = 1 << 1,
+    zest_fgs_invalid_render_pass          = 1 << 2,
+    zest_fgs_critical_error               = 1 << 3,
+} zest_frame_graph_result_bits;
 
 typedef enum zest_pass_node_visit_state {
     zest_pass_node_unvisited = 0,
@@ -1670,7 +1677,7 @@ typedef zest_uint zest_supported_shader_stages;		//zest_shader_stage_bits
 typedef zest_uint zest_compute_flags;		        //zest_compute_flag_bits
 typedef zest_uint zest_layer_flags;                 //zest_layer_flag_bits
 typedef zest_uint zest_pass_flags;                  //zest_pass_flag_bits
-typedef zest_uint zest_render_graph_result;         //zest_render_graph_result_bits
+typedef zest_uint zest_frame_graph_result;         //zest_frame_graph_result_bits
 
 typedef void(*zloc__block_output)(void* ptr, size_t size, int used, void* user, int is_final_output);
 
@@ -2029,14 +2036,14 @@ ZEST_PRIVATE void zest__log_entry(const char *entry, ...);
 ZEST_PRIVATE void zest__log_entry_v(char *str, const char *entry, ...);
 ZEST_PRIVATE void zest__reset_frame_log(char *str, const char *entry, ...);
 
-ZEST_PRIVATE void zest__add_report(zest_report_category category, const char *entry, ...);
+ZEST_PRIVATE void zest__add_report(zest_report_category category, int line_number, const char *entry, ...);
 
 
 #ifdef ZEST_DEBUGGING
 #define ZEST_FRAME_LOG(message_f, ...) zest__log_entry(message_f, ##__VA_ARGS__)
 #define ZEST_RESET_LOG() zest__reset_log()
-#define ZEST__MAYBE_REPORT(condition, category, entry, ...) if(condition) {zest__add_report(category, entry, ##__VA_ARGS__);}
-#define ZEST__REPORT(category, entry, ...) zest__add_report(category, entry, ##__VA_ARGS__)
+#define ZEST__MAYBE_REPORT(condition, category, entry, ...) if(condition) { zest__add_report(category, __LINE__, __FILE__, entry, ##__VA_ARGS__);}
+#define ZEST__REPORT(category, entry, ...) zest__add_report(category, __LINE__, __FILE__, entry, ##__VA_ARGS__)
 #else
 #define ZEST_FRAME_LOG(message_f, ...) 
 #define ZEST_RESET_LOG() 
@@ -3104,7 +3111,7 @@ zest_hash_map(zest_resource_versions_t) zest_map_resource_versions;
 typedef struct zest_frame_graph_t {
     int magic;
     zest_render_graph_flags flags;
-    zest_render_graph_result error_status;
+    zest_frame_graph_result error_status;
     zest_uint culled_passes_count;
     const char *name;
 
@@ -3188,18 +3195,18 @@ ZEST_PRIVATE void zest__add_image_barrier(zest_resource_node resource, zest_exec
     VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
 ZEST_PRIVATE void zest__add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access, 
      zest_uint src_family, zest_uint dst_family, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
-ZEST_PRIVATE zest_render_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
-ZEST_PRIVATE zest_frame_graph zest__compile_render_graph();
-ZEST_PRIVATE void zest__execute_render_graph(zest_bool is_intraframe);
+ZEST_PRIVATE zest_frame_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
+ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
+ZEST_PRIVATE void zest__execute_frame_graph(zest_bool is_intraframe);
 ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph render_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers, 
                                            zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
 ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, VkFormat format, VkAttachmentLoadOp load_op, VkAttachmentLoadOp stencil_load_op, VkPipelineStageFlags relevant_pipeline_stages);
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
-ZEST_PRIVATE void zest__set_rg_error_status(zest_frame_graph render_graph, zest_render_graph_result result);
+ZEST_PRIVATE void zest__set_rg_error_status(zest_frame_graph render_graph, zest_frame_graph_result result);
 ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_frame_graph render_graph, zest_pass_node pass_node);
-ZEST_PRIVATE void zest__cache_render_graph(zest_frame_graph render_graph);
-ZEST_PRIVATE zest_key zest__hash_render_graph_cache_key(zest_render_graph_cache_key_t *cache_key);
-ZEST_PRIVATE zest_frame_graph zest__get_cached_render_graph(zest_key key);
+ZEST_PRIVATE void zest__cache_frame_graph(zest_frame_graph render_graph);
+ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_render_graph_cache_key_t *cache_key);
+ZEST_PRIVATE zest_frame_graph zest__get_cached_frame_graph(zest_key key);
 ZEST_PRIVATE VkSemaphore zest__get_semaphore_reference(zest_frame_graph render_graph, zest_semaphore_reference_t *reference);
 
 // Helper functions to convert enums to strings 
@@ -3232,12 +3239,12 @@ ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red,
 ZEST_API void zest_InsertComputeImageBarrier(VkCommandBuffer command_buffer, zest_resource_node resource, zest_uint base_mip);
 
 // -- Creating and Executing the render graph
-ZEST_API bool zest_BeginRenderGraph(const char *name, zest_render_graph_cache_key_t *cache_key);
-ZEST_API bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name, zest_render_graph_cache_key_t *cache_key);
+ZEST_API bool zest_BeginFrameGraph(const char *name, zest_render_graph_cache_key_t *cache_key);
+ZEST_API bool zest_BeginFrameGraphSwapchain(zest_swapchain swapchain, const char *name, zest_render_graph_cache_key_t *cache_key);
 ZEST_API zest_render_graph_cache_key_t zest_InitialiseCacheKey(zest_swapchain swapchain, const void *user_state, zest_size user_state_size);
-ZEST_API void zest_ForceRenderGraphOnGraphicsQueue();
-ZEST_API zest_frame_graph zest_EndRenderGraph();
-ZEST_API zest_frame_graph zest_EndRenderGraphAndWait();
+ZEST_API void zest_ForceFrameGraphOnGraphicsQueue();
+ZEST_API zest_frame_graph zest_EndFrameGraph();
+ZEST_API zest_frame_graph zest_EndFrameGraphAndWait();
 
 // --- Add pass nodes that execute user commands ---
 ZEST_API zest_pass_node zest_AddGraphicBlankScreen( const char *name);
@@ -3875,6 +3882,8 @@ typedef struct zest_report_t {
     zest_text_t message;
     zest_report_category category;
     int count;
+    const char *file_name;
+    int line_number;
 } zest_report_t;
 
 typedef struct zest_render_graph_semaphores_t {

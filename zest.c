@@ -6621,7 +6621,7 @@ void zest__log_entry_v(char *str, const char *text, va_list args)
     ZEST_ASSERT(str);
 }
 
-void zest__add_report(zest_report_category category, const char *entry, ...) {
+void zest__add_report(zest_report_category category, int line_number, const char *file_name, const char *entry, ...) {
     zest_text_t message = { 0 };
     va_list args;
     va_start(args, entry);
@@ -6635,6 +6635,8 @@ void zest__add_report(zest_report_category category, const char *entry, ...) {
     } else {
         zest_report_t report = { 0 };
         report.count = 1;
+        report.line_number = line_number;
+        report.file_name = file_name;
         report.message = message;
         report.category = category;
         zest_map_insert_key(ZestRenderer->reports, report_hash, report);
@@ -7790,7 +7792,7 @@ VkSemaphore zest__get_semaphore_reference(zest_frame_graph render_graph, zest_se
     return VK_NULL_HANDLE;
 }
 
-zest_key zest__hash_render_graph_cache_key(zest_render_graph_cache_key_t *cache_key) {
+zest_key zest__hash_frame_graph_cache_key(zest_render_graph_cache_key_t *cache_key) {
     zest_key key = zest_Hash(&cache_key->auto_state, sizeof(zest_render_graph_auto_state_t), ZEST_HASH_SEED);
     if (cache_key->user_state && cache_key->user_state_size) {
         key += zest_Hash(cache_key->user_state, cache_key->user_state_size, ZEST_HASH_SEED);
@@ -7798,7 +7800,7 @@ zest_key zest__hash_render_graph_cache_key(zest_render_graph_cache_key_t *cache_
     return key;
 }
 
-void zest__cache_render_graph(zest_frame_graph render_graph) {
+void zest__cache_frame_graph(zest_frame_graph render_graph) {
     ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     if (!render_graph->cache_key) return;    //Only cache if there's a key
     if (render_graph->error_status) return; //Don't cache a frame graph that had errors
@@ -7848,7 +7850,7 @@ zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource) 
     return NULL;
 }
 
-zest_frame_graph zest__get_cached_render_graph(zest_key key) {
+zest_frame_graph zest__get_cached_frame_graph(zest_key key) {
     if (zest_map_valid_key(ZestRenderer->cached_render_graphs, key)) {
         zest_cached_render_graph_t *cached_graph = zest_map_at_key(ZestRenderer->cached_render_graphs, key);
         return cached_graph->render_graph;
@@ -7866,13 +7868,13 @@ zest_render_graph_cache_key_t zest_InitialiseCacheKey(zest_swapchain swapchain, 
     return key;
 }
 
-bool zest_BeginRenderGraph(const char *name, zest_render_graph_cache_key_t *cache_key) {
+bool zest_BeginFrameGraph(const char *name, zest_render_graph_cache_key_t *cache_key) {
 	ZEST_ASSERT(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_building_render_graph));  //frame graph already being built. You cannot build a frame graph within another begin frame graph process.
 
     zest_key key = 0;
     if (cache_key) {
-        key = zest__hash_render_graph_cache_key(cache_key);
-        zest_frame_graph cached_graph = zest__get_cached_render_graph(key);
+        key = zest__hash_frame_graph_cache_key(cache_key);
+        zest_frame_graph cached_graph = zest__get_cached_frame_graph(key);
         if (cached_graph) {
             ZestRenderer->current_render_graph = cached_graph;
             return cached_graph;
@@ -7889,8 +7891,8 @@ bool zest_BeginRenderGraph(const char *name, zest_render_graph_cache_key_t *cach
     return true;
 }
 
-bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name, zest_render_graph_cache_key_t *cache_key) {
-    if (zest_BeginRenderGraph(name, cache_key)) {
+bool zest_BeginFrameGraphSwapchain(zest_swapchain swapchain, const char *name, zest_render_graph_cache_key_t *cache_key) {
+    if (zest_BeginFrameGraph(name, cache_key)) {
         zest_frame_graph render_graph = ZestRenderer->current_render_graph;
         if (ZEST__FLAGGED(render_graph->flags, zest_render_graph_is_cached)) {
 			if (!zest_AcquireSwapChainImage(swapchain)) {
@@ -7898,7 +7900,7 @@ bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name, zest_r
 				ZEST_PRINT("Unable to acquire the swap chain!");
 				return false;
 			}
-			zest__execute_render_graph(ZEST_FALSE);
+			zest__execute_frame_graph(ZEST_FALSE);
 
 			if (ZEST_VALID_HANDLE(render_graph->swapchain) && ZEST__FLAGGED(render_graph->flags, zest_render_graph_present_after_execute)) {
 				zest__present_frame(render_graph->swapchain);
@@ -7919,7 +7921,7 @@ bool zest_BeginRenderToScreen(zest_swapchain swapchain, const char *name, zest_r
     return true;
 }
 
-void zest_ForceRenderGraphOnGraphicsQueue() {
+void zest_ForceFrameGraphOnGraphicsQueue() {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);      //This function should only be called immediately after BeginRenderGraph/BeginRenderToScreen
     ZEST__FLAG(ZestRenderer->current_render_graph->flags, zest_render_graph_force_on_graphics_queue);
 }
@@ -8183,7 +8185,7 @@ Main compile phases:
 [Create_memory_barriers_for_outputs]
 [Create_render_passes]
 */
-zest_frame_graph zest__compile_render_graph() {
+zest_frame_graph zest__compile_frame_graph() {
 
     zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
@@ -8195,7 +8197,7 @@ zest_frame_graph zest__compile_render_graph() {
         if (pass_node->visit_state == zest_pass_node_unvisited) {
             if (zest__detect_cyclic_recursion(render_graph, pass_node)) {
                 ZEST__REPORT(zest_report_cyclic_dependency, zest_message_cyclic_dependency, render_graph->name, pass_node->name);
-                ZEST__FLAG(render_graph->error_status, zest_rgs_cyclic_dependency);
+                ZEST__FLAG(render_graph->error_status, zest_fgs_cyclic_dependency);
                 return render_graph;
             }
         }
@@ -8256,7 +8258,9 @@ zest_frame_graph zest__compile_render_graph() {
                     ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
                     a_pass_was_culled = true;
                     zest_map_foreach(j, pass_node->inputs) {
-                        ZEST_ASSERT(pass_node->inputs.data[j].resource_node->reference_count);  //Reference counts should never go below 0
+						ZEST__MAYBE_REPORT(pass_node->inputs.data[j].resource_node->reference_count == 0, zest_report_invalid_reference_counts, zest_message_pass_culled_not_consumed, render_graph->name);
+                        render_graph->error_status |= zest_fgs_critical_error;
+                        return render_graph;
                         pass_node->inputs.data[j].resource_node->reference_count--;
                     }
 					ZEST__REPORT(zest_report_pass_culled, zest_message_pass_culled_not_consumed, pass_node->name);
@@ -8281,7 +8285,11 @@ zest_frame_graph zest__compile_render_graph() {
                 zest_map_foreach(output_index, pass_node->outputs) {
                     zest_hash_pair pair = pass_node->outputs.map[output_index];
                     zest_resource_usage_t *usage = &pass_node->outputs.data[pair.index];
-                    ZEST_ASSERT(usage->resource_node);
+                    if (!ZEST_VALID_HANDLE(usage->resource_node)) {
+                        ZEST__REPORT(zest_fgs_critical_error, zest_message_usage_has_no_resource, render_graph->name);
+						render_graph->error_status |= zest_fgs_critical_error;
+						return render_graph;
+                    }
                     if (usage->resource_node->reference_count > 0 || ZEST__FLAGGED(usage->resource_node->flags, zest_resource_node_flag_essential_output)) {
                         zest_map_insert_linear_key(allocator, pass_group.outputs, pass_node->outputs.map[output_index].key, *usage);
                     }
@@ -8289,7 +8297,11 @@ zest_frame_graph zest__compile_render_graph() {
                 zest_map_foreach(input_index, pass_node->inputs) {
                     zest_hash_pair pair = pass_node->inputs.map[input_index];
                     zest_resource_usage_t *usage = &pass_node->inputs.data[pair.index];
-                    ZEST_ASSERT(usage->resource_node);
+                    if (!ZEST_VALID_HANDLE(usage->resource_node)) {
+                        ZEST__REPORT(zest_fgs_critical_error, zest_message_usage_has_no_resource, render_graph->name);
+						render_graph->error_status |= zest_fgs_critical_error;
+						return render_graph;
+                    }
                     zest_map_insert_linear_key(allocator, pass_group.inputs, pair.key, *usage);
                 }
                 if (pass_node->execution_callback.callback) {
@@ -8300,8 +8312,12 @@ zest_frame_graph zest__compile_render_graph() {
                 zest_map_insert_linear_key(allocator, render_graph->final_passes, pass_node->output_key, pass_group);
             } else {
                 zest_pass_group_t *pass_group = zest_map_at_key(render_graph->final_passes, pass_node->output_key);
-                ZEST_ASSERT(pass_group->queue_info.queue_family_index == pass_node->queue_info.queue_family_index);
-                ZEST_ASSERT(pass_group->queue_info.timeline_wait_stage == pass_node->queue_info.timeline_wait_stage);
+				if (pass_group->queue_info.queue_family_index != pass_node->queue_info.queue_family_index ||
+                    pass_group->queue_info.timeline_wait_stage != pass_node->queue_info.timeline_wait_stage) {
+					ZEST__REPORT(zest_fgs_critical_error, zest_message_multiple_swapchain_usage, render_graph->name);
+					render_graph->error_status |= zest_fgs_critical_error;
+					return render_graph;
+				}
                 if (pass_node->execution_callback.callback) {
                     has_execution_callback = true;
                 }
@@ -8310,7 +8326,11 @@ zest_frame_graph zest__compile_render_graph() {
                 zest_map_foreach(input_index, pass_node->inputs) {
                     zest_hash_pair pair = pass_node->inputs.map[input_index];
                     zest_resource_usage_t *usage = &pass_node->inputs.data[pair.index];
-                    ZEST_ASSERT(usage->resource_node);
+                    if (!ZEST_VALID_HANDLE(usage->resource_node)) {
+						ZEST__REPORT(zest_fgs_critical_error, zest_message_usage_has_no_resource, render_graph->name);
+						render_graph->error_status |= zest_fgs_critical_error;
+						return render_graph;
+                    }
                     zest_map_insert_linear_key(allocator, pass_group->inputs, pair.key, *usage);
                 }
             }
@@ -8323,7 +8343,7 @@ zest_frame_graph zest__compile_render_graph() {
     zest_uint final_passes = zest_map_size(render_graph->final_passes);
 
     if (!has_execution_callback) {
-        zest__set_rg_error_status(render_graph, zest_rgs_no_work_to_do);
+        zest__set_rg_error_status(render_graph, zest_fgs_no_work_to_do);
         return render_graph;
     }
 
@@ -8360,7 +8380,8 @@ zest_frame_graph zest__compile_render_graph() {
             zest_resource_usage_t *input_usage = &pass_node->inputs.data[j];
             zest_resource_node resource = input_usage->resource_node;
             zest_resource_versions_t *versions = zest_map_at_key(render_graph->resource_versions, resource->original_id);
-            ZEST_ASSERT(versions);
+            ZEST_ASSERT(versions);  //Bug, this shouldn't be possible, all resources should have a version
+
             zest_resource_node latest_version = zest_vec_back(versions->resources);
             if (!zest_map_valid_name(pass_node->inputs, latest_version->name)) {
                 latest_version->reference_count++;
@@ -8377,12 +8398,12 @@ zest_frame_graph zest__compile_render_graph() {
             zest_resource_versions_t *versions = zest__maybe_add_resource_version(resource);
             zest_resource_node latest_version = zest_vec_back(versions->resources);
             if (latest_version->id != resource->id) {
-                //This is the second time that the swap chain is used
-				//as output, this should not happen. Check that the passes
-				//that use the swapchain as output have exactly the same set of other
-				//ouputs so that the passes can be properly grouped together.
-                ZEST_ASSERT(resource->type != zest_resource_type_swap_chain_image); 
-                              //Add the versioned alias to the outputs instead
+                if (resource->type == zest_resource_type_swap_chain_image) {
+                    ZEST__REPORT(zest_fgs_critical_error, zest_message_multiple_swapchain_usage, render_graph->name);
+                    render_graph->error_status |= zest_fgs_critical_error;
+					return render_graph;
+                }
+			    //Add the versioned alias to the outputs instead
                 output_usage->resource_node = latest_version;
                 zest_map_linear_insert(ZestRenderer->render_graph_allocator[ZEST_FIF], pass_node->outputs, latest_version->name, *output_usage);
                 //Check if the user already added this as input:
@@ -8407,9 +8428,11 @@ zest_frame_graph zest__compile_render_graph() {
                 }
             }
 
-            //A resource should only have one producer in a valid graph.
-            //Check to make sure you haven't added the same output to a pass more than once
-            ZEST_ASSERT(output_usage->resource_node->producer_pass_idx == -1 || output_usage->resource_node->producer_pass_idx == i);
+            if (output_usage->resource_node->producer_pass_idx != -1 && output_usage->resource_node->producer_pass_idx != i) {
+				ZEST__REPORT(zest_fgs_critical_error, zest_message_resource_added_as_ouput_more_than_once, render_graph->name);
+				render_graph->error_status |= zest_fgs_critical_error;
+				return render_graph;
+            }
             output_usage->resource_node->producer_pass_idx = i;
         }
 
@@ -8488,6 +8511,7 @@ zest_frame_graph zest__compile_render_graph() {
         return render_graph;
     }
 
+    //Bug, pass count which is a count of all pass groups added to waves should equal the number of final passes.
     ZEST_ASSERT(pass_count == zest_map_size(render_graph->final_passes));
 
     //Create_command_batches
@@ -8502,6 +8526,7 @@ zest_frame_graph zest__compile_render_graph() {
         zest_execution_wave_t *wave = &render_graph->execution_waves[wave_index];
         //If the wave has more than one queue then the passes can run in parallel in separate submission batches
         zest_uint queue_type_count = zloc__count_bits(wave->queue_bits);
+        //This should be impossible to hit, if no queue bit
         ZEST_ASSERT(queue_type_count);  //Must be using at lease 1 queue
         if (queue_type_count > 1) {
             if (current_submission.batches[0].magic || current_submission.batches[1].magic || current_submission.batches[2].magic) {
@@ -8803,6 +8828,8 @@ zest_frame_graph zest__compile_render_graph() {
                     } else if (ZEST__NOT_FLAGGED(render_graph->flags, zest_render_graph_force_on_graphics_queue)) {
                         //This resource already belongs to a queue which means that it's an imported resource
                         //If the frame graph is on the graphics queue only then there's no need to acquire from a prior release.
+
+                        //It shouldn't be possible for transient resources to be considered for a barrier at this point. 
                         ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
                         dst_queue_family_index = current_state->queue_family_index;
                         if (src_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
@@ -8928,24 +8955,38 @@ zest_frame_graph zest__compile_render_graph() {
     return render_graph;
 }
 
-zest_frame_graph zest_EndRenderGraph() {
-    zest_frame_graph render_graph = zest__compile_render_graph();
+zest_frame_graph zest_EndFrameGraph() {
+    zest_frame_graph render_graph = zest__compile_frame_graph();
 
-	zest__cache_render_graph(render_graph);
+    if (render_graph->error_status != zest_fgs_critical_error) {
+        zest__cache_frame_graph(render_graph);
 
-    zest__execute_render_graph(ZEST_FALSE);
+        zest__execute_frame_graph(ZEST_FALSE);
 
-    if (ZEST_VALID_HANDLE(render_graph->swapchain) && ZEST__FLAGGED(render_graph->flags, zest_render_graph_present_after_execute)) {
-        zest__present_frame(render_graph->swapchain);
-    } 
+        if (ZEST_VALID_HANDLE(render_graph->swapchain) && ZEST__FLAGGED(render_graph->flags, zest_render_graph_present_after_execute)) {
+            zest__present_frame(render_graph->swapchain);
+        }
+    } else {
+        ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_work_was_submitted);
+    }
+
+    ZestRenderer->current_render_graph = 0;
+	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);  
 
     return render_graph;
 }
 
-zest_frame_graph zest_EndRenderGraphAndWait() {
-    zest_frame_graph render_graph = zest__compile_render_graph();
+zest_frame_graph zest_EndFrameGraphAndWait() {
+    zest_frame_graph render_graph = zest__compile_frame_graph();
 
-    zest__execute_render_graph(ZEST_TRUE);
+    if (render_graph->error_status != zest_fgs_critical_error) {
+        zest__execute_frame_graph(ZEST_TRUE);
+    } else {
+        ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_work_was_submitted);
+    }
+
+    ZestRenderer->current_render_graph = 0;
+	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);  
 
     return render_graph;
 }
@@ -9015,7 +9056,7 @@ void zest__deferr_image_destruction(zest_image_buffer_t *image_buffer) {
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF], *image_buffer);
 }
 
-void zest__execute_render_graph(zest_bool is_intraframe) {
+void zest__execute_frame_graph(zest_bool is_intraframe) {
     zest_frame_graph render_graph = ZestRenderer->current_render_graph;
     ZEST_ASSERT_HANDLE(render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zloc_linear_allocator_t *allocator = ZestRenderer->render_graph_allocator[ZEST_FIF];
@@ -9418,8 +9459,6 @@ void zest__execute_render_graph(zest_bool is_intraframe) {
 	}
 
     ZEST__FLAG(render_graph->flags, zest_render_graph_is_executed);
-    ZestRenderer->current_render_graph = 0;
-	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);  
 
     if (is_intraframe && *fence_count > 0) {
 		ZEST_VK_CHECK_RESULT(vkWaitForFences(ZestDevice->logical_device, *fence_count, fence, VK_TRUE, UINT64_MAX));
@@ -9561,8 +9600,8 @@ zest_text_t zest__vulkan_queue_flags_to_string(VkQueueFlags flags) {
 }
 
 void zest_PrintCachedRenderGraph(zest_render_graph_cache_key_t *cache_key) {
-    zest_key key = zest__hash_render_graph_cache_key(cache_key);
-    zest_frame_graph render_graph = zest__get_cached_render_graph(key);
+    zest_key key = zest__hash_frame_graph_cache_key(cache_key);
+    zest_frame_graph render_graph = zest__get_cached_frame_graph(key);
     if (render_graph) {
         zest_PrintCompiledRenderGraph(render_graph);
     }
@@ -10057,7 +10096,7 @@ void zest_FlagResourceAsEssential(zest_resource_node resource) {
 void zest_AddSwapchainToRenderTargetGroup(zest_output_group group) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_render_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);    //frame graph must have a swapchain, use zest_BeginRenderToScreen
+    ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);    //frame graph must have a swapchain, use zest_BeginFrameGraphSwapchain
     ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
     zest_vec_linear_push(ZestRenderer->render_graph_allocator[ZEST_FIF], group->resources, render_graph->swapchain_resource);
 }
@@ -10884,7 +10923,7 @@ zest_render_pass zest__create_render_pass() {
     return render_pass;
 }
 
-zest_render_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index) {
+zest_frame_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index) {
     zloc_linear_allocator_t *allocator = ZestRenderer->render_graph_allocator[ZEST_FIF];
 
     if (exe_details->requires_dynamic_render_pass) {
@@ -10953,7 +10992,7 @@ zest_render_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, ze
             //All attachments must have the same number of sample counts
             if (expected_samples != node->image_desc.numSamples) {
                 ZEST__REPORT(zest_report_invalid_render_pass, "Render pass is invalid. When processing the color attachments the number of samples for resource [%s] was not equal to the expected sample counts. Make sure they're the same for all attachments.", node->name);
-                return zest_rgs_invalid_render_pass;
+                return zest_fgs_invalid_render_pass;
             }
             if (!zest_map_valid_key(exe_details->attachment_indexes, (zest_key)node)) {
                 VkAttachmentDescription attachment = { 0 };
@@ -10990,7 +11029,7 @@ zest_render_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, ze
 			//Depth attachment must have the same sample count as the color attachments
             if (expected_samples != node->image_desc.numSamples) {
                 ZEST__REPORT(zest_report_invalid_render_pass, "Render pass is invalid. When processing the depth attachment the number of samples for resource [%s] was not equal to the expected sample counts. Make sure they're the same for all color and depth attachments.", node->name);
-                return zest_rgs_invalid_render_pass;
+                return zest_fgs_invalid_render_pass;
             }
             if (!zest_map_valid_key(exe_details->attachment_indexes, attachment_key)) {
                 VkAttachmentDescription attachment = { 0 };
@@ -11050,7 +11089,7 @@ zest_render_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, ze
         if (zest_vec_size(exe_details->resolve_attachment_info) > 0) {
             if (zest_vec_size(exe_details->resolve_attachment_info) != zest_vec_size(exe_details->color_attachment_info)) {
                 ZEST__REPORT(zest_report_invalid_render_pass, "Invalid render pass. If resolving, the number of resolve attachments must equal the number of color attachments");
-                return zest_rgs_invalid_render_pass;
+                return zest_fgs_invalid_render_pass;
             }
         }
 
@@ -11087,7 +11126,7 @@ zest_render_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, ze
             //The resolve attachment format must match the color attachment format that it's resolving from.
             if (node->image_desc.format != exe_details->color_attachment_info[c].resource_node->image_desc.format) {
                 ZEST__REPORT(zest_report_invalid_render_pass, "Invalid render pass. The resolve attachment for resource [%s] does not match the same color attachment.", node->name);
-                return zest_rgs_invalid_render_pass;
+                return zest_fgs_invalid_render_pass;
             }
         }
 
@@ -11166,7 +11205,7 @@ zest_render_graph_result zest__create_rg_render_pass(zest_pass_group_t *pass, ze
             exe_details->render_pass = *zest_map_at_key(ZestRenderer->render_passes, render_pass_hash);
         }
     }
-    return zest_rgs_success;
+    return zest_fgs_success;
 }
 
 zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id) {
@@ -11177,7 +11216,7 @@ zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id) {
     return &render_graph->submissions[submission_index].batches[queue_index];
 }
 
-void zest__set_rg_error_status(zest_frame_graph render_graph, zest_render_graph_result result) {
+void zest__set_rg_error_status(zest_frame_graph render_graph, zest_frame_graph_result result) {
     ZEST__FLAG(render_graph->error_status, result);
 	ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_render_graph);
 }
@@ -11398,7 +11437,7 @@ void zest_ConnectSwapChainOutput() {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_pass); //No current pass found. Make sure you call zest_BeginPass
     zest_pass_node pass = ZestRenderer->current_pass;
     zest_frame_graph render_graph = ZestRenderer->current_render_graph;
-    ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);  //Not a valid swapchain resource, did you call zest_BeginRenderToScreen?
+    ZEST_ASSERT_HANDLE(render_graph->swapchain_resource);  //Not a valid swapchain resource, did you call zest_BeginFrameGraphSwapchain?
     VkClearValue cv = { 0 };
     cv.color = render_graph->swapchain->vk_clear_color;
     // Assuming clear for swapchain if not explicitly loaded
@@ -16228,7 +16267,7 @@ void zest_PrintReports() {
         ZEST_PRINT("");
         zest_map_foreach(i, ZestRenderer->reports) {
             zest_report_t *report = &ZestRenderer->reports.data[i];
-            ZEST_PRINT("Count: %i. Message: %s", report->count, report->message.str);
+            ZEST_PRINT("Count: %i. Message in %s on line %i: %s", report->count, report->file_name, report->line_number, report->message.str);
             ZEST_PRINT("-------------------------------------------------");
         }
         ZEST_PRINT("");
