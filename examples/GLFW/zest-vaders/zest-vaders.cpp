@@ -1108,7 +1108,7 @@ void VadersGame::Update(float ellapsed) {
 	cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
 	cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(tfx_rendering.layer) > 0;
 	cache_info.draw_sprites = zest_GetLayerInstanceSize(billboard_layer) > 0;
-	zest_render_graph_cache_key_t cache_key = {};
+	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(swapchain, &cache_info, sizeof(RenderCacheInfo));
 
 	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, 0.f, .2f, 1.f);

@@ -104,8 +104,8 @@ RibbonBufferInfo GenerateRibbonInfo(uint32_t tessellation, uint32_t maxSegments,
 void InitImGuiApp(Ribbons *app);
 void BuildUI(Ribbons *app);
 void UpdateUniform3d(Ribbons *app);
-void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
-void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
-void UploadRibbonData(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data);
+void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
+void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
+void UploadRibbonData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
 zest_uint CountSegments(Ribbons *app);
 void UpdateRibbons(Ribbons *app);

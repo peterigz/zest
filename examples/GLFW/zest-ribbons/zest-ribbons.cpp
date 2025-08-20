@@ -116,7 +116,7 @@ RibbonBufferInfo GenerateRibbonInfo(uint32_t tessellation, uint32_t maxSegments,
 	return info;
 }
 
-void UploadRibbonData(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void UploadRibbonData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	Ribbons *app = (Ribbons*)user_data;
 
     zest_resource_node segment_buffer = zest_GetPassOutputResource(context, "Ribbon Segment Buffer");
@@ -130,7 +130,7 @@ void UploadRibbonData(VkCommandBuffer command_buffer, const zest_render_graph_co
 	}
 }
 
-void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	Ribbons *app = (Ribbons*)user_data;
 
     zest_buffer vertex_buffer = zest_GetPassInputBuffer(context, "Ribbon Vertex Buffer");
@@ -157,7 +157,7 @@ void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_render_graph
 
 //Every frame the compute shader needs to be dispatched which means that all the commands for the compute shader
 //need to be added to the command buffer
-void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	Ribbons *app = (Ribbons*)user_data;
 
 	zest_uint total_segments = CountSegments(app);

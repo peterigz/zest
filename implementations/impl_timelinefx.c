@@ -141,7 +141,7 @@ void zest_tfx_AddPassTask(zest_pass_node pass, tfx_render_resources_t *resources
 	zest_SetPassTask(pass, zest_tfx_DrawParticleLayer, resources);
 }
 
-void zest_tfx_DrawParticleLayer(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void zest_tfx_DrawParticleLayer(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	tfx_render_resources_t *tfx_resources = (tfx_render_resources_t *)user_data;
 	zest_layer layer = tfx_resources->layer;
 	ZEST_ASSERT_HANDLE(layer);	//Not a valid handle! Make sure you pass in the zest_layer in the user data

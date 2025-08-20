@@ -122,7 +122,7 @@ void InitExample(RenderTargetExample *example) {
 	example->timeline = zest_CreateExecutionTimeline();
 }
 
-void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
     RenderTargetExample *example = (RenderTargetExample*)user_data;
 	zest_resource_node downsampler = zest_GetPassInputResource(context, "Downsampler");
 	zest_resource_node render_target = zest_GetPassInputResource(context, "Upsampler");
@@ -152,7 +152,7 @@ void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_rend
 
 }
 
-void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t* context, void* user_data) {
+void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_frame_graph_context_t* context, void* user_data) {
 	RenderTargetExample* example = (RenderTargetExample*)user_data;
 	zest_resource_node downsampler_target = zest_GetPassInputResource(context, "Downsampler");
 
@@ -199,7 +199,7 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_render_gr
 	}
 }
 
-void zest_UpsampleCompute(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void zest_UpsampleCompute(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	RenderTargetExample *example = (RenderTargetExample *)user_data;
 	zest_resource_node upsampler_target = zest_GetPassOutputResource(context, "Upsampler");
 	zest_resource_node downsampler_target = zest_GetPassInputResource(context, "Downsampler");
@@ -316,7 +316,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	};
 
 	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
-	zest_render_graph_cache_key_t cache_key = {};
+	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(swapchain, 0, 0);
 
 	//Create the render graph
@@ -367,7 +367,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 		//---------------------------------Render Pass------------------------------------------------------
 		//zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
-		zest_pass_node graphics_pass = zest_AddGraphicBlankScreen("Blank Screen");
+		zest_pass_node graphics_pass = zest_BeginGraphicBlankScreen("Blank Screen");
 		//inputs
 		zest_ConnectInput(graphics_pass, upsampler, 0);
 		zest_ConnectInput(graphics_pass, downsampler, 0);

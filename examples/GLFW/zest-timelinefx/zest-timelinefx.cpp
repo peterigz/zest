@@ -182,7 +182,7 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
 	game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
 	game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(game->tfx_rendering.layer) > 0;
-	zest_render_graph_cache_key_t cache_key = {};
+	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(swapchain, &game->cache_info, sizeof(RenderCacheInfo));
 
 	zest_SetSwapchainClearColor(swapchain, 0.f, .1f, .2f, 1.f);

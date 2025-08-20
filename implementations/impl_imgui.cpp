@@ -53,7 +53,7 @@ zest_pass_node zest_imgui_BeginPass() {
 }
 
 // This is the function that will be called for your pass.
-void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
     zest_imgui imgui_info = &ZestRenderer->imgui_info;
     zest_buffer vertex_buffer = zest_GetPassInputResource(context, "Imgui Vertex Buffer")->storage_buffer;
     zest_buffer index_buffer = zest_GetPassInputResource(context, "Imgui Index Buffer")->storage_buffer;
@@ -61,7 +61,7 @@ void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_r
 }
 
 // This is the function that will be called for your pass.
-void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
     zest_imgui imgui_info = &ZestRenderer->imgui_info;
 
     if (!imgui_info->dirty[imgui_info->fif]) {
@@ -89,7 +89,7 @@ void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_rende
     imgui_info->dirty[imgui_info->fif] = 0;
 }
 
-void zest_imgui_RecordLayer(const zest_render_graph_context_t *context, zest_buffer vertex_buffer, zest_buffer index_buffer) {
+void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buffer vertex_buffer, zest_buffer index_buffer) {
     zest_imgui imgui_info = &ZestRenderer->imgui_info;
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 

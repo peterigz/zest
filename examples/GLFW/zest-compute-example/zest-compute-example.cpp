@@ -122,7 +122,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->loop_timer = zest_CreateTimer("Update Loop Timer", 60.0);
 }
 
-void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	//Grab the app object from the user_data that we set in the render graph when adding this function callback 
 	ImGuiApp *app = (ImGuiApp*)user_data;
 	//Get the pipeline from the template that we created. 
@@ -148,7 +148,7 @@ void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_render_grap
 	zest_Draw(command_buffer, PARTICLE_COUNT, 1, 0, 0);
 }
 
-void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	//Grab the app object from the user_data that we set in the render graph when adding the compute pass task
 	ImGuiApp *app = (ImGuiApp *)user_data;
 	//Mix the bindless descriptor set with the uniform buffer descriptor set
@@ -225,7 +225,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
 	app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-	zest_render_graph_cache_key_t cache_key = {};
+	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
 
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Compute Particles", &cache_key)) {

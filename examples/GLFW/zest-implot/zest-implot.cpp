@@ -68,7 +68,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectSwapChainOutput(imgui_pass);
 		} else {
 			//If there's no ImGui to render then just render a blank screen
-			zest_pass_node blank_pass = zest_AddGraphicBlankScreen("Draw Nothing");
+			zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
 			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 			zest_ConnectSwapChainOutput(blank_pass);
 		}

@@ -90,7 +90,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 
 	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
 	app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-	zest_render_graph_cache_key_t cache_key = {};
+	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
 
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
@@ -108,7 +108,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 			zest_ConnectSwapChainOutput(imgui_pass);
 		} else {
 			//If there's no ImGui to render then just render a blank screen
-			zest_pass_node blank_pass = zest_AddGraphicBlankScreen("Draw Nothing");
+			zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
 			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
 			zest_ConnectSwapChainOutput(blank_pass);
 		}

@@ -850,7 +850,7 @@ void UpdateVelocity2D(particle2d* particle, float time, float delta_time, float 
 	particle->position = { position.x, position.y, 0.f };
 }
 
-void UploadMeshData(VkCommandBuffer command_buffer, const zest_render_graph_context_t *context, void *user_data) {
+void UploadMeshData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	ImGuiApp *app = (ImGuiApp *)user_data;
 
 	zest_layer layers[3]{
