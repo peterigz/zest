@@ -18,11 +18,11 @@ struct TestResult {
     vec4 success;
 };
 
-layout(std430, set = 0, binding = 1) buffer TestBuffer {
+layout(std430, set = 0, binding = 4) buffer TestBuffer {
     TestData values[];
 } buffers[];
 
-layout(std430, set = 0, binding = 1) buffer VerifyBuffer {
+layout(std430, set = 0, binding = 4) buffer VerifyBuffer {
     TestResult result;
 } verify_buffers[];
 

@@ -136,7 +136,7 @@ void UploadBuffers(ComputeExample *example) {
 //Prepare the compute shader that will be used to playback the effects in the animation manager
 void PrepareComputeForEffectPlayback(ComputeExample *example) {
 	//Register a new compute shader
-	example->compute = zest__create_compute("Sprite data compute");
+	example->compute = zest__new_compute("Sprite data compute");
 	example->playback_shader = zest_AddShaderFromSPVFile("examples/assets/spv/sprite_data_playback.comp.spv", shaderc_compute_shader);
 
 	//Utilize a ComputeBuilder to make setting up the compute shader a lot easier
@@ -257,7 +257,7 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	render_resources.pipeline->pipeline_template.colorBlendAttachment = zest_PreMultiplyBlendState();
 	render_resources.pipeline->pipeline_template.depthStencil.depthWriteEnable = VK_FALSE;
 	render_resources.pipeline->pipeline_template.depthStencil.depthTestEnable = true;
-	zest_BuildPipeline(render_resources.pipeline);
+	zest__build_pipeline(render_resources.pipeline);
 
 	//Set up the draw layers we need in the renderer
 	zest_SetDrawCommandsClsColor(zest_GetCommandQueueDrawCommands("Default Draw Commands"), 0.f, 0.f, .2f, 1.f);

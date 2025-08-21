@@ -68,12 +68,12 @@ int test__resource_culling(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Resource Culling", 0)) {
 		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
-		zest_pass_node clear_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
+		zest_BeginGraphicBlankScreen("Draw Nothing");
 		zest_ConnectSwapChainOutput();
 		zest_EndPass();
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result |= frame_graph->error_status;
-		test->result |= frame_graph->culled_passes_count > 0 ? 1 : 0;
+		test->result |= frame_graph->culled_resources_count > 0 ? 1 : 0;
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -312,6 +312,11 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
+		if (!tests->compute_write) {
+			test->frame_count++;
+			test->result = -1;
+			return test->result;
+		}
 	}
 	if (!tests->compute_verify) {
 		shaderc_compiler_t compiler = shaderc_compiler_initialize();
@@ -323,6 +328,11 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_verify = zest_FinishCompute(&builder, "Buffer Verify");
+		if (!tests->compute_verify) {
+			test->frame_count++;
+			test->result = -1;
+			return test->result;
+		}
 	}
 	if (!tests->cpu_buffer) {
 		tests->cpu_buffer = zest_CreateCPUStorageBuffer(sizeof(TestResults), 0);
@@ -338,11 +348,13 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_pass_node write_pass = zest_BeginComputePass(tests->compute_write, "Write Pass");
 		zest_ConnectOutput(write_buffer);
 		zest_SetPassTask(zest_WriteBufferCompute, tests);
+		zest_EndPass();
 
 		zest_pass_node verify_pass = zest_BeginComputePass(tests->compute_verify, "Verify Pass");
 		zest_ConnectInput(write_buffer, 0);
 		zest_ConnectOutput(verify_buffer);
 		zest_SetPassTask(zest_VerifyBufferCompute, tests);
+		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
 		test->result |= frame_graph->error_status;
@@ -455,6 +467,11 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_verify = zest_FinishCompute(&builder, "Image Verify");
+		if (!tests->compute_verify) {
+			test->frame_count++;
+			test->result = 1;
+			return test->result;
+		}
 	}
 	if (!tests->cpu_buffer) {
 		tests->cpu_buffer = zest_CreateCPUStorageBuffer(sizeof(TestResults), 0);
@@ -577,6 +594,11 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
+		if (!tests->compute_write) {
+			test->frame_count++;
+			test->result = 1;
+			return test->result;
+		}
 	}
 
 	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, .1f, .2f, 1.f);
@@ -587,6 +609,7 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 		zest_pass_node pass_a = zest_BeginComputePass(tests->compute_write, "Pass A");
 		zest_ConnectOutput(output_a);
 		zest_SetPassTask(zest_WriteImageCompute, tests);
+		zest_EndPass();
 
 		zest_pass_node pass_b = zest_BeginGraphicBlankScreen("Pass B");
 		zest_ConnectInput(output_a, 0);
@@ -708,7 +731,7 @@ void InitialiseTests(ZestTests *tests) {
 	tests->vk_sampler_info = zest_CreateSamplerInfo();
 	tests->mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 
-	tests->current_test = 9;
+	tests->current_test = 4;
     zest_ResetValidationErrors();
 }
 

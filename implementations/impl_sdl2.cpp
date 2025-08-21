@@ -32,10 +32,11 @@ zest_window_t *zest_implsdl2_CreateWindowCallback(int x, int y, int width, int h
 	return window;
 }
 
-void zest_implsdl2_CreateWindowSurfaceCallback(zest_window_t* window) {
+VkResult zest_implsdl2_CreateWindowSurfaceCallback(zest_window_t* window) {
 	if (!SDL_Vulkan_CreateSurface((SDL_Window*)window->window_handle, ZestDevice->instance, &window->surface)) {
-		assert(0);	//Unable to create a vulkan surface in SDL
+		return VK_ERROR_UNKNOWN;
 	}
+	return VK_SUCCESS;
 }
 
 void zest_implsdl2_SetWindowSize(zest_window window, int width, int height) {

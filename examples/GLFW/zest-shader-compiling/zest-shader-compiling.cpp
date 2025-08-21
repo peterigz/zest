@@ -66,7 +66,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_SetPipelineVertShader(&custom_pipeline_template, "custom_vert.spv", 0);
 	zest_SetPipelineFragShader(&custom_pipeline_template, "custom_frag.spv", 0);
 	zest_EndPipelineTemplate(app->custom_pipeline, zest_GetStandardRenderPass(), &custom_pipeline_template);
-	zest_BuildPipeline(app->custom_pipeline);
+	zest__build_pipeline(app->custom_pipeline);
 	app->validation_result = nullptr;
 	app->mix_value = 0.f;
 

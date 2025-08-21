@@ -3,7 +3,7 @@
 #include <GLFW/glfw3.h>
 
 zest_window zest_implglfw_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char *title);
-void zest_implglfw_CreateWindowSurfaceCallback(zest_window window);
+VkResult zest_implglfw_CreateWindowSurfaceCallback(zest_window window);
 void zest_implglfw_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 void zest_implglfw_PollEventsCallback(void);
 void zest_implglfw_AddPlatformExtensionsCallback(void);
