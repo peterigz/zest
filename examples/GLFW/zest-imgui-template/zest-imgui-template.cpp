@@ -78,13 +78,25 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		if (ImGui::Button("Reset Renderer")) {
 			app->reset = true;
 		}
+		if (ImGui::Button("Glow Image")) {
+			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
+			app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/glow.png");
+			zest_ProcessTextureImages(app->test_texture);
+		}
+		if (ImGui::Button("Bunny Image")) {
+			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
+			app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
+			zest_ProcessTextureImages(app->test_texture);
+		}
 		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
 		//Test for memory leaks in zest
+		/*
 		for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
 			zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
 			ImGui::Text("Free Blocks: %i, Used Blocks: %i", stats.free_blocks, stats.used_blocks);
 			ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb), Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024, stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 		}
+		*/
 		ImGui::End();
 		ImGui::Render();
 		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
@@ -107,7 +119,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginFrameGraphSwapchain(swapchain, "ImGui", &cache_key)) {
+	if (zest_BeginFrameGraphSwapchain(swapchain, "ImGui", 0)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//If there was no imgui data to render then zest_imgui_BeginPass will return false
 		//Import our test texture with the Bunny sprite

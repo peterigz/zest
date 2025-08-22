@@ -1414,7 +1414,7 @@ typedef enum zest_texture_flag_bits {
     zest_texture_flag_dirty                               = 1 << 4,
     zest_texture_flag_descriptor_sets_created             = 1 << 5,
     zest_texture_flag_is_fif                              = 1 << 6,
-    zest_texture_flag_was_replaced                        = 1 << 7,
+    zest_texture_flag_discarded                           = 1 << 7,
 } zest_texture_flag_bits;
 
 typedef zest_uint zest_texture_flags;
@@ -3867,9 +3867,8 @@ typedef struct zest_texture_t {
     zest_bitmap_t texture_bitmap;
 
     // --- GPU data. When changing a texture that is in use, we double buffer then flip when ready
-    zest_image_buffer_t image_buffer[ZEST_MAX_FIF];
-    VkDescriptorImageInfo descriptor_image_info[ZEST_MAX_FIF];
-    zest_uint fif;
+    zest_image_buffer_t image_buffer;
+    VkDescriptorImageInfo descriptor_image_info;
     zest_descriptor_set debug_set;          //A descriptor set for simply sampling the texture
     zest_descriptor_set bindless_set;       //A descriptor set for a bindless layout
     zest_sampler sampler;
@@ -3887,7 +3886,6 @@ typedef struct zest_texture_t {
     zest_thread_access lock;
     void *user_data;
     void(*reprocess_callback)(zest_texture texture, void *user_data);
-    void(*cleanup_callback)(zest_texture texture, void *user_data);
 } zest_texture_t;
 
 typedef struct zest_image_collection_t {
@@ -4018,10 +4016,8 @@ typedef struct zest_renderer_t {
     VkFormat vk_depth_format;
 
     //For scheduled tasks
-    zest_texture *texture_refresh_queue[ZEST_MAX_FIF];
     zest_buffer *staging_buffers;
-    zest_map_textures texture_reprocess_queue;
-    zest_texture *texture_cleanup_queue;
+    zest_texture *texture_cleanup_queue[ZEST_MAX_FIF];
     zest_pipeline *pipeline_recreate_queue;
     zest_pipeline_handles_t *pipeline_destroy_queue;
     zest_destruction_queue_t deferred_resource_freeing_list;
@@ -4178,6 +4174,7 @@ ZEST_PRIVATE VkResult zest__create_texture_image_view(zest_texture texture, VkIm
 ZEST_PRIVATE VkResult zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__create_texture_debug_set(zest_texture texture);
 ZEST_PRIVATE void zest__maybe_create_image_collection(zest_texture texture);
+ZEST_PRIVATE void zest__schedule_free_texture(zest_texture texture);
 ZEST_PRIVATE void zest__tinyktxCallbackError(void *user, char const *msg);
 ZEST_PRIVATE void *zest__tinyktxCallbackAlloc(void *user, size_t size);
 ZEST_PRIVATE void zest__tinyktxCallbackFree(void *user, void *data);
@@ -4241,6 +4238,7 @@ ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc
 
 // --Maintenance_functions
 ZEST_PRIVATE void zest__delete_texture(zest_texture texture);
+ZEST_PRIVATE void zest__free_texture(zest_texture texture);
 ZEST_PRIVATE void zest__delete_font(zest_font_t *font);
 ZEST_PRIVATE void zest__cleanup_texture(zest_texture texture);
 ZEST_PRIVATE void zest__free_all_texture_images(zest_texture texture);
@@ -4988,7 +4986,6 @@ zest_texture_storage_type_render_target     Texture storage for a render target 
                                             for the texture. You can also choose from the following texture formats: 
                                             zest_texture_format_alpha = VK_FORMAT_R8_UNORM, zest_texture_format_rgba_unorm = VK_FORMAT_R8G8B8A8_UNORM, zest_texture_format_bgra_unorm = VK_FORMAT_B8G8R8A8_UNORM. */ 
 ZEST_API zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format format, zest_uint reserve_images);
-ZEST_API zest_texture zest_ReplaceTexture(zest_texture texture, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format format, zest_uint reserve_images);
 //The following are helper functions to create a texture of a given type. the texture will be set to use filtering by default
 ZEST_API zest_texture zest_CreateTexturePacked(const char *name, zest_texture_format format);
 ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_texture_format format);
@@ -5010,12 +5007,6 @@ ZEST_API void zest_RemoveTextureImage(zest_texture texture, zest_image image);
 ZEST_API void zest_RemoveTextureAnimation(zest_texture texture, zest_image first_image);
 //Set the format of the texture. You will need to reprocess the texture if you have processed it already with zest_ProcessTextureImages
 ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
-//Set the callback for the texture which is used whenever a texture is scheduled for reprocessing. This allows you to make changes to textures that 
-//might be in use.
-ZEST_API void zest_SetTextureReprocessCallback(zest_texture texture, void(*callback)(zest_texture texture, void *user_data));
-//Set the callback for a texture which is called after a texture has been scheduled for reprocessing. This lets you cleanup any out of date descriptor sets
-//that you might be using for the texture.
-ZEST_API void zest_SetTextureCleanupCallback(zest_texture texture, void(*callback)(zest_texture texture, void *user_data));
 //Set the user data for a texture. This is passed though to a texture reprocess callback which you can use to perform tasks such as updating any 
 //descriptor sets you've made that might use the texture
 ZEST_API void zest_SetTextureUserData(zest_texture texture, void *user_data);
@@ -5151,12 +5142,6 @@ ZEST_API zest_bitmap zest_GetTextureSingleBitmap(zest_texture texture);
 ZEST_API zest_texture zest_GetTexture(const char *name);
 //Returns true if the texture has a storage type of zest_texture_storage_type_bank or zest_texture_storage_type_single.
 ZEST_API zest_bool zest_TextureCanTile(zest_texture texture);
-//Schedule a texture to be reprocessed. This will ensure that it only gets processed (zest_ProcessTextureImages) when not in use.
-ZEST_API void zest_ScheduleTextureReprocess(zest_texture texture, void(*callback)(zest_texture texture, void *user_data));
-//Schedule a texture to clean up it's unused buffers. Textures are double buffered so that they can safely be changed whilst
-//in use. So you can call zest_ProcessTexture to reprocess and add any new images which will do so in the unused buffer index,
-//then you can call this function to schedule the cleanup of the old buffers when it's safe to do so.
-ZEST_API void zest_ScheduleTextureCleanOldBuffers(zest_texture texture);
 //Schedule a pipeline to be recreated. 
 ZEST_API void zest_SchedulePipelineRecreate(zest_pipeline pipeline);
 //Copies an area of a frame buffer such as from a render target, to a zest_texture.
