@@ -10,6 +10,7 @@
 
 struct RenderCacheInfo {
 	bool draw_imgui;
+	zest_texture test_texture;
 };
 
 struct ImGuiApp {

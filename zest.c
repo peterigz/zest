@@ -2535,12 +2535,6 @@ void zest__do_scheduled_tasks(void) {
 		zloc_FreeRemote(staging_buffer->buffer_allocator->allocator, staging_buffer);
     }
     zest_vec_clear(ZestRenderer->staging_buffers);
-
-    zest_vec_foreach(i, ZestRenderer->texture_cleanup_queue[ZEST_FIF]) {
-        zest_texture texture = ZestRenderer->texture_cleanup_queue[ZEST_FIF][i];
-		zest__free_texture(texture);
-    }
-    zest_vec_clear(ZestRenderer->texture_cleanup_queue[ZEST_FIF]);
 }
 
 void zest__exit_app(void) {
@@ -3990,20 +3984,6 @@ void zest__cleanup_pipeline_templates(void) {
     }
 }
 
-void zest__cleanup_textures() {
-    zest_map_foreach(i, ZestRenderer->textures) {
-        zest_texture texture = *zest_map_at_index(ZestRenderer->textures, i);
-        zest__cleanup_texture(texture);
-        zest__free_all_texture_images(texture);
-        ZEST__FREE(texture->image_collection);
-        zest_vec_free(texture->image_collection->buffer_copy_regions);
-        ZEST__UNFLAG(texture->flags, zest_texture_flag_ready);
-        zest_FreeText(&texture->name);
-        texture->magic = 0;
-        ZEST__FREE(texture);
-    }
-}
-
 void zest__cleanup_framebuffer(zest_frame_buffer_t* frame_buffer) {
     if (frame_buffer->color_buffer.image_handles.view != VK_NULL_HANDLE) vkDestroyImageView(ZestDevice->logical_device, frame_buffer->color_buffer.image_handles.view, &ZestDevice->allocation_callbacks);
     if (frame_buffer->depth_buffer.image_handles.view != VK_NULL_HANDLE) vkDestroyImageView(ZestDevice->logical_device, frame_buffer->depth_buffer.image_handles.view, &ZestDevice->allocation_callbacks);
@@ -4037,6 +4017,41 @@ void zest__cleanup_device(void) {
     zest_FreeText(&ZestDevice->log_path);
 }
 
+void zest__scan_memory_and_free_resources() {
+    zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
+    if (stats.used_blocks == 0) {
+        return;
+    }
+    void **memory_to_free = 0;
+    zest_vec_reserve(memory_to_free, (zest_uint)stats.used_blocks);
+    zloc_header *current_block = zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator));
+    while (!zloc__is_last_block_in_pool(current_block)) {
+        if (!zloc__is_free_block(current_block)) {
+            zest_size block_size = zloc__block_size(current_block);
+            void *allocation = (void *)((char *)current_block + zloc__BLOCK_POINTER_OFFSET);
+            if (ZEST_VALID_HANDLE(allocation)) {
+                zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
+                switch (struct_type) {
+                case zest_struct_type_texture:
+                    zest_vec_push(memory_to_free, allocation);
+                    break;
+                }
+            }
+        }
+        current_block = zloc__next_physical_block(current_block);
+    }
+    zest_vec_foreach(i, memory_to_free) {
+        void *allocation = memory_to_free[i];
+		zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
+		switch (struct_type) {
+		case zest_struct_type_texture:
+            zest__free_texture((zest_texture)allocation);
+			break;
+		}
+    }
+    zest_vec_free(memory_to_free);
+}
+
 void zest__cleanup_renderer() {
     zest_map_foreach(i, ZestRenderer->swapchains) {
         zest__cleanup_swapchain(ZestRenderer->swapchains.data[i], 0);
@@ -4044,13 +4059,13 @@ void zest__cleanup_renderer() {
 
     zest_uint cached_pipelines_size = zest_map_size(ZestRenderer->cached_pipelines);
 
+    zest__scan_memory_and_free_resources();
+
     zest__cleanup_pipelines();
 
     zest__cleanup_pipeline_templates();
 
     vkDestroyPipelineCache(ZestDevice->logical_device, ZestRenderer->pipeline_cache, &ZestDevice->allocation_callbacks);
-
-    zest__cleanup_textures();
 
     zest_map_foreach(i, ZestRenderer->samplers) {
         zest_sampler sampler = *zest_map_at_index(ZestRenderer->samplers, i);
@@ -4155,9 +4170,6 @@ void zest__cleanup_renderer() {
         zest_font font = ZestRenderer->fonts.data[i];
         zest_vec_free(font->characters);
         zest_FreeText(&font->name);
-        if (ZEST_VALID_HANDLE(font->texture)) {
-            zest__delete_texture(font->texture);
-        }
         ZEST__FREE(font);
     }
 
@@ -4218,7 +4230,6 @@ void zest__cleanup_renderer() {
         zest_vec_free(ZestRenderer->deferred_resource_freeing_list.images[fif]);
         zest_vec_free(ZestRenderer->deferred_resource_freeing_list.textures[fif]);
         zest_vec_free(ZestRenderer->deferred_resource_freeing_list.binding_indexes[fif]);
-		zest_vec_free(ZestRenderer->texture_cleanup_queue[fif]);
     }
 
     ZEST__FREE(ZestRenderer->utility_allocator);
@@ -4237,7 +4248,6 @@ void zest__cleanup_renderer() {
     zest_map_free(ZestRenderer->pipelines);
     zest_map_free(ZestRenderer->cached_pipelines);
     zest_map_free(ZestRenderer->layers);
-    zest_map_free(ZestRenderer->textures);
     zest_map_free(ZestRenderer->fonts);
     zest_vec_free(ZestRenderer->uniform_buffers);
     zest_map_free(ZestRenderer->computes);
@@ -10226,6 +10236,7 @@ zest_uint *zest_AcquireGlobalTextureMipIndexes(zest_texture texture, zest_global
         memset(mip_views, 0, zest_vec_size_in_bytes(mip_views));
     }
     zest_mip_index_collection mip_collection = { 0 };
+    mip_collection.binding_number = binding_number;
     ZEST_ASSERT(ZEST_VALID_HANDLE(texture->sampler));
     zest_set_layout global_layout = ZestRenderer->global_bindless_set_layout;
     for (int mip_index = 0; mip_index != texture->mip_levels; ++mip_index) {
@@ -10289,16 +10300,23 @@ void zest_ReleaseGlobalTextureIndex(zest_texture texture, zest_global_binding_nu
     }
 }
 
-void zest_ReleaseAllGlobalTextureIndex(zest_texture texture, zest_global_binding_number binding_number) {
+void zest_ReleaseAllGlobalTextureIndexes(zest_texture texture) {
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
-        if (texture->bindless_index[binding_number] != ZEST_INVALID) {
+        if (texture->bindless_index[i] != ZEST_INVALID) {
             zest__release_bindless_index(ZestRenderer->global_bindless_set_layout, (zest_global_binding_number)i, texture->bindless_index[i]);
             texture->bindless_index[i] = ZEST_INVALID;
         }
     }
+    zest_map_foreach(i, texture->image_buffer.mip_indexes) {
+        zest_mip_index_collection *mip_collection = &texture->image_buffer.mip_indexes.data[i];
+        zest_vec_foreach(j, mip_collection->mip_indexes) {
+            zest_uint index = mip_collection->mip_indexes[j];
+            zest_ReleaseGlobalBindlessIndex(index, mip_collection->binding_number);
+        }
+    }
 }
 
-void zest_ReleaseBindlessIndex(zest_uint index, zest_global_binding_number binding_number) {
+void zest_ReleaseGlobalBindlessIndex(zest_uint index, zest_global_binding_number binding_number) {
     ZEST_ASSERT(index != ZEST_INVALID);
     zest__release_bindless_index(ZestRenderer->global_bindless_set_layout, binding_number, index);
 }
@@ -11925,10 +11943,6 @@ zest_layer zest_GetLayer(const char* name) {
 }
 
 // --Texture and Image functions
-zest_map_textures* zest_GetTextures() {
-    return &ZestRenderer->textures;
-}
-
 zest_texture zest_NewTexture() {
     zest_texture_t blank = { 0 };
     zest_texture texture = ZEST__NEW_ALIGNED(zest_texture, 16);
@@ -12700,21 +12714,10 @@ void zest__free_all_texture_images(zest_texture texture) {
     zest_FreeBitmapData(&texture->texture_bitmap);
 }
 
-void zest__delete_texture(zest_texture texture) {
-    zest__cleanup_texture(texture);
-    zest__free_all_texture_images(texture);
-    ZEST__FREE(texture->image_collection);
-    ZEST__UNFLAG(texture->flags, zest_texture_flag_ready);
-    zest_map_remove(ZestRenderer->textures, texture->name.str);
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->textures, texture->name.str));
-    zest_FreeText(&texture->name);
-    texture->magic = 0;
-    ZEST__FREE(texture);
-}
-
 void zest__free_texture(zest_texture texture) {
     zest__cleanup_texture(texture);
     zest__free_all_texture_images(texture);
+	zest_ReleaseAllGlobalTextureIndexes(texture);
     ZEST__FREE(texture->image_collection);
     ZEST__UNFLAG(texture->flags, zest_texture_flag_ready);
     zest_FreeText(&texture->name);
@@ -12727,9 +12730,6 @@ void zest__delete_font(zest_font_t* font) {
     ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->fonts, font->name.str));
     zest_vec_free(font->characters);
     zest_FreeText(&font->name);
-    if (ZEST_VALID_HANDLE(font->texture)) {
-        zest__delete_texture(font->texture);
-    }
 }
 
 void zest__cleanup_texture(zest_texture texture) {
@@ -12777,10 +12777,6 @@ void zest__maybe_create_image_collection(zest_texture texture) {
         *texture->image_collection = (zest_image_collection_t){ 0 };
         texture->image_collection->magic = zest_INIT_MAGIC(zest_struct_type_image_collection);
     }
-}
-
-void zest__schedule_free_texture(zest_texture texture) {
-    zest_vec_push(ZestRenderer->texture_cleanup_queue[ZEST_FIF], texture);
 }
 
 void zest__tinyktxCallbackError(void *user, char const *msg) {
@@ -13733,12 +13729,6 @@ void zest_SetTextureStorageType(zest_texture texture, zest_texture_storage_type 
 }
 
 zest_texture zest_CreateTexture(const char* name, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format vk_image_format, zest_uint reserve_images) {
-    if (zest_map_valid_name(ZestRenderer->textures, name)) {
-        //If there is already a texture with that name then it will be replaced and the old one is discarded
-        zest_texture old_texture = *zest_map_at(ZestRenderer->textures, name);
-        ZEST__FLAG(old_texture->flags, zest_texture_flag_discarded);
-        zest__schedule_free_texture(old_texture);
-    }
     zest_texture texture = zest_NewTexture();
     zest_SetText(&texture->name, name);
     zest_SetTextureImageFormat(texture, vk_image_format);
@@ -13749,11 +13739,13 @@ zest_texture zest_CreateTexture(const char* name, zest_texture_storage_type stor
     if (storage_type == zest_texture_storage_type_single || storage_type == zest_texture_storage_type_bank) {
         zest_SetTextureWrappingRepeat(texture);
     }
+    for (int i = 0; i != zest_max_global_binding_number; ++i) {
+        texture->bindless_index[i] = ZEST_INVALID;
+    }
 	zest__maybe_create_image_collection(texture);
     if (reserve_images) {
         zest_vec_reserve(texture->image_collection->images, reserve_images);
     }        
-    zest_map_insert(ZestRenderer->textures, name, texture);
     return texture;
 }
 
@@ -13793,13 +13785,7 @@ zest_texture zest_LoadCubemap(const char *name, const char *file_name) {
     if (!image_collection) {
         return 0;
     }
-    zest_texture texture = 0;
-    if (zest_map_valid_name(ZestRenderer->textures, name)) {
-        texture = *zest_map_at(ZestRenderer->textures, name);
-        zest__cleanup_texture(texture);
-    } else {
-        texture = zest_NewTexture();
-    }
+	zest_texture texture = zest_NewTexture();
     zest_SetText(&texture->name, name);
     texture->image_collection = image_collection;
     texture->vk_image_format = image_collection->vk_format;
@@ -13851,8 +13837,6 @@ zest_texture zest_LoadCubemap(const char *name, const char *file_name) {
     zest_FreeBitmapArray(bitmap_array);
 	zloc_FreeRemote(staging_buffer->buffer_allocator->allocator, staging_buffer);
 
-    zest_map_insert(ZestRenderer->textures, name, texture);
-
     return texture;
 
     cleanup:
@@ -13862,7 +13846,7 @@ zest_texture zest_LoadCubemap(const char *name, const char *file_name) {
 	return NULL;
 }
 
-void zest_DeleteTexture(zest_texture texture) {
+void zest_FreeTexture(zest_texture texture) {
     ZEST_ASSERT_HANDLE(texture);	//Not a valid handle!
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.textures[ZEST_FIF], texture);
 }
@@ -13939,11 +13923,6 @@ zest_byte* zest_BitmapArrayLookUp(zest_bitmap_array_t* bitmap_array, zest_index 
 zest_image zest_GetImageFromTexture(zest_texture texture, zest_index index) {
     ZEST_ASSERT_HANDLE(texture);	//Not a valid handle!
     return texture->image_collection->images[index];
-}
-
-zest_texture zest_GetTexture(const char* name) {
-    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->textures, name));    //That name could not be found in the storage
-    return *zest_map_at(ZestRenderer->textures, name);
 }
 
 zest_bool zest_TextureCanTile(zest_texture texture) {
@@ -14515,7 +14494,7 @@ zest_font zest_LoadMSDFFont(const char* filename) {
 
 void zest_UnloadFont(zest_font font) {
     ZEST_ASSERT_HANDLE(font);	//Not a valid handle!
-    zest_DeleteTexture(font->texture);
+    zest_FreeTexture(font->texture);
     zest__delete_font(font);
 }
 

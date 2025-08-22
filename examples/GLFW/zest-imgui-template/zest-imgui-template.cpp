@@ -79,11 +79,14 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			app->reset = true;
 		}
 		if (ImGui::Button("Glow Image")) {
+			zest_FreeTexture(app->test_texture);
 			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
 			app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/glow.png");
 			zest_ProcessTextureImages(app->test_texture);
 		}
+		ImGui::Text("%p: %i", app->test_texture, app->test_texture->bindless_index[zest_combined_image_sampler_2d_binding]);
 		if (ImGui::Button("Bunny Image")) {
+			zest_FreeTexture(app->test_texture);
 			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
 			app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
 			zest_ProcessTextureImages(app->test_texture);
@@ -113,13 +116,14 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
 	app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+	//app->cache_info.test_texture = app->test_texture;
 	zest_frame_graph_cache_key_t cache_key = {};
 	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
 
 	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 	//if the window is resized for example.
-	if (zest_BeginFrameGraphSwapchain(swapchain, "ImGui", 0)) {
+	if (zest_BeginFrameGraphSwapchain(swapchain, "ImGui", &cache_key)) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//If there was no imgui data to render then zest_imgui_BeginPass will return false
 		//Import our test texture with the Bunny sprite

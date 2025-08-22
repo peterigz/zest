@@ -7,6 +7,7 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     zest_WaitForIdleDevice();
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+    zest_FreeTexture(imgui_info->font_texture);
 	imgui_info->font_texture = zest_CreateTexture(imgui_info->font_texture->name.str, zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
     zest_ResetTexture(imgui_info->font_texture);
     zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, font_bitmap);

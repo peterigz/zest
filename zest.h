@@ -2612,6 +2612,7 @@ typedef struct zest_buffer_t {
 } zest_buffer_t;
 
 typedef struct zest_mip_index_collection {
+    zest_global_binding_number binding_number;
     zest_uint *mip_indexes;
 } zest_mip_index_collection;
 
@@ -3938,7 +3939,6 @@ zest_hash_map(zest_pipeline_template) zest_map_pipelines;
 zest_hash_map(zest_pipeline) zest_map_cached_pipelines;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 zest_hash_map(zest_layer) zest_map_layers;
-zest_hash_map(zest_texture) zest_map_textures;
 zest_hash_map(zest_sampler) zest_map_samplers;
 zest_hash_map(zest_font) zest_map_fonts;
 zest_hash_map(zest_compute) zest_map_computes;
@@ -3997,7 +3997,6 @@ typedef struct zest_renderer_t {
     zest_map_pipelines pipelines;
     zest_map_cached_pipelines cached_pipelines;
     zest_map_layers layers;
-    zest_map_textures textures;
     zest_map_fonts fonts;
     zest_uniform_buffer *uniform_buffers;
     zest_map_computes computes;
@@ -4017,7 +4016,6 @@ typedef struct zest_renderer_t {
 
     //For scheduled tasks
     zest_buffer *staging_buffers;
-    zest_texture *texture_cleanup_queue[ZEST_MAX_FIF];
     zest_pipeline *pipeline_recreate_queue;
     zest_pipeline_handles_t *pipeline_destroy_queue;
     zest_destruction_queue_t deferred_resource_freeing_list;
@@ -4124,6 +4122,7 @@ ZEST_PRIVATE void zest__destroy_window_callback(zest_window window, void *user_d
 ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain, zest_bool for_recreation);
 ZEST_PRIVATE void zest__cleanup_device(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
+ZEST_PRIVATE void zest__scan_memory_and_free_resources();
 ZEST_PRIVATE void zest__clean_up_compute(zest_compute compute);
 ZEST_PRIVATE VkResult zest__recreate_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE VkResult zest__create_swapchain_image_views(zest_swapchain swapchain);
@@ -4139,7 +4138,6 @@ ZEST_PRIVATE void zest__create_debug_layout_and_pool(zest_uint max_texture_count
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__cleanup_pipelines(void);
 ZEST_PRIVATE void zest__cleanup_pipeline_templates(void);
-ZEST_PRIVATE void zest__cleanup_textures(void);
 ZEST_PRIVATE void zest__cleanup_framebuffer(zest_frame_buffer_t *frame_buffer);
 ZEST_PRIVATE void zest__refresh_pipeline_template(zest_pipeline_template pipeline);
 ZEST_PRIVATE VkResult zest__rebuild_pipeline(zest_pipeline pipeline);
@@ -4174,7 +4172,6 @@ ZEST_PRIVATE VkResult zest__create_texture_image_view(zest_texture texture, VkIm
 ZEST_PRIVATE VkResult zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__create_texture_debug_set(zest_texture texture);
 ZEST_PRIVATE void zest__maybe_create_image_collection(zest_texture texture);
-ZEST_PRIVATE void zest__schedule_free_texture(zest_texture texture);
 ZEST_PRIVATE void zest__tinyktxCallbackError(void *user, char const *msg);
 ZEST_PRIVATE void *zest__tinyktxCallbackAlloc(void *user, size_t size);
 ZEST_PRIVATE void zest__tinyktxCallbackFree(void *user, void *data);
@@ -4237,7 +4234,6 @@ ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc
 // --End Buffer allocation funcitons
 
 // --Maintenance_functions
-ZEST_PRIVATE void zest__delete_texture(zest_texture texture);
 ZEST_PRIVATE void zest__free_texture(zest_texture texture);
 ZEST_PRIVATE void zest__delete_font(zest_font_t *font);
 ZEST_PRIVATE void zest__cleanup_texture(zest_texture texture);
@@ -4442,7 +4438,7 @@ ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer layer);
 ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
 ZEST_API void zest_ReleaseGlobalTextureIndex(zest_texture texture, zest_global_binding_number binding_number);
 ZEST_API void zest_ReleaseAllGlobalTextureIndexes(zest_texture texture);
-ZEST_API void zest_ReleaseBindlessIndex(zest_uint index, zest_global_binding_number binding_number);
+ZEST_API void zest_ReleaseGlobalBindlessIndex(zest_uint index, zest_global_binding_number binding_number);
 ZEST_API VkDescriptorSet zest_vk_GetGlobalBindlessSet();
 ZEST_API zest_descriptor_set zest_GetGlobalBindlessSet();
 ZEST_API VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout();
@@ -4968,8 +4964,6 @@ ZEST_API zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float
 //        Use textures to load in images and sample in a shader to display on screen. They're also used in
 //        render targets and any other things where you want to create images.
 //-----------------------------------------------
-//Get the map containing all the textures (do we need this?)
-ZEST_API zest_map_textures *zest_GetTextures(void);
 //Create a new blank initialised texture. You probably don't need to call this much (maybe I should move to private function) Use the Create texture functions instead for most things
 ZEST_API zest_texture zest_NewTexture(void);
 //Create a new texture. Give the texture a unique name. There are a few ways that you can store images in the texture:
@@ -4995,7 +4989,7 @@ ZEST_API zest_texture zest_CreateTextureStorage(const char *name, int width, int
 //Load a cube map from a ktx file
 ZEST_API zest_texture zest_LoadCubemap(const char *name, const char *file_name);
 //Delete a texture from the renderer and free its resources. You must ensure that you don't try writing to the texture while deleting.
-ZEST_API void zest_DeleteTexture(zest_texture texture);
+ZEST_API void zest_FreeTexture(zest_texture texture);
 //Resetting a texture will remove all it's images and reset it back to it's "just created" status
 ZEST_API void zest_ResetTexture(zest_texture texture);
 //By default any images that you load into a texture will be stored so that you can rebuild the texture if you need to (for example, you may load in more images
@@ -5138,8 +5132,6 @@ ZEST_API void zest_TextureResize(zest_texture texture, zest_uint width, zest_uin
 ZEST_API zest_bool zest_TextureClear(zest_texture texture);
 //For single or storage textures, get the bitmap for the texture.
 ZEST_API zest_bitmap zest_GetTextureSingleBitmap(zest_texture texture);
-//Every texture you create is stored by name in the render, use this to retrieve one by name.
-ZEST_API zest_texture zest_GetTexture(const char *name);
 //Returns true if the texture has a storage type of zest_texture_storage_type_bank or zest_texture_storage_type_single.
 ZEST_API zest_bool zest_TextureCanTile(zest_texture texture);
 //Schedule a pipeline to be recreated. 
