@@ -7511,8 +7511,8 @@ VkResult zest__create_image_array(zest_uint width, zest_uint height, zest_uint m
 }
 
 VkResult zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout vk_image_layout, VkCommandBuffer cb) {
-    VkCommandBuffer command_buffer = cb; 
-    if (!command_buffer) {
+    VkCommandBuffer command_buffer = 0; 
+    if (!cb) {
         ZEST_VK_ASSERT_RESULT(zest__begin_single_time_commands(&command_buffer));
     }
 
@@ -7535,15 +7535,15 @@ VkResult zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, Vk
 
     vkCmdCopyBufferToImage(command_buffer, buffer, image, vk_image_layout, 1, &region);
 
-    if (!command_buffer) {
+    if (!cb) {
         ZEST_VK_ASSERT_RESULT(zest__end_single_time_commands(command_buffer));
     }
     return VK_SUCCESS;
 }
 
 VkResult zest__copy_buffer_regions_to_image(VkBufferImageCopy* regions, VkBuffer buffer, VkDeviceSize src_offset, VkImage image, VkCommandBuffer cb) {
-    VkCommandBuffer command_buffer = cb; 
-    if (!command_buffer) {
+    VkCommandBuffer command_buffer = cb ? cb : 0; 
+    if (!cb) {
         ZEST_VK_ASSERT_RESULT(zest__begin_single_time_commands(&command_buffer));
     }
 
@@ -7553,7 +7553,7 @@ VkResult zest__copy_buffer_regions_to_image(VkBufferImageCopy* regions, VkBuffer
 
     vkCmdCopyBufferToImage(command_buffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, zest_vec_size(regions), regions);
 
-    if (!command_buffer) {
+    if (!cb) {
         ZEST_VK_ASSERT_RESULT(zest__end_single_time_commands(command_buffer));
     }
     return VK_SUCCESS;
@@ -7565,8 +7565,8 @@ VkResult zest__generate_mipmaps(VkImage image, VkFormat vk_image_format, int32_t
 
     ZEST_ASSERT(format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT); //texture image format does not support linear blitting!
 
-    VkCommandBuffer command_buffer = cb; 
-    if (!command_buffer) {
+    VkCommandBuffer command_buffer = cb ? cb : 0; 
+    if (!cb) {
         ZEST_VK_ASSERT_RESULT(zest__begin_single_time_commands(&command_buffer));
     }
 
@@ -7639,7 +7639,7 @@ VkResult zest__generate_mipmaps(VkImage image, VkFormat vk_image_format, int32_t
 
     vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
 
-    if (!command_buffer) {
+    if (!cb) {
         ZEST_VK_ASSERT_RESULT(zest__end_single_time_commands(command_buffer));
     }
     return VK_SUCCESS;
@@ -7713,8 +7713,8 @@ void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFl
 }
 
 VkResult zest__transition_image_layout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, zest_uint mip_levels, zest_uint layerCount, VkCommandBuffer cb) {
-    VkCommandBuffer command_buffer = cb;
-    if (!command_buffer) {
+    VkCommandBuffer command_buffer = cb ? cb : 0;
+    if (!cb) {
         ZEST_VK_ASSERT_RESULT(zest__begin_single_time_commands(&command_buffer));
     }
 
@@ -7779,7 +7779,7 @@ VkResult zest__transition_image_layout(VkImage image, VkFormat format, VkImageLa
 
     vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
 
-    if (!command_buffer) {
+    if (!cb) {
         ZEST_VK_ASSERT_RESULT(zest__end_single_time_commands(command_buffer));
     }
 
@@ -13220,24 +13220,21 @@ VkResult zest__create_texture_image(zest_texture texture, zest_uint mip_levels, 
         memcpy(staging_buffer->data, zest_GetTextureSingleBitmap(texture)->data, (zest_size)image_size);
     }
 
-    VkResult result = zest__create_image(zest_GetTextureSingleBitmap(texture)->meta.width, zest_GetTextureSingleBitmap(texture)->meta.height, mip_levels, VK_SAMPLE_COUNT_1_BIT, texture->vk_image_format, VK_IMAGE_TILING_OPTIMAL, usage_flags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &texture->image_buffer[texture->fif].image_handles);
-    if (result != VK_SUCCESS) {
-        goto cleanup;
-    }
+    ZEST_CLEANUP_ON_FAIL(zest__create_image(zest_GetTextureSingleBitmap(texture)->meta.width, zest_GetTextureSingleBitmap(texture)->meta.height, mip_levels, VK_SAMPLE_COUNT_1_BIT, texture->vk_image_format, VK_IMAGE_TILING_OPTIMAL, usage_flags, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &texture->image_buffer[texture->fif].image_handles));
 
     texture->image_buffer[texture->fif].format = texture->vk_image_format;
     if (copy_bitmap) {
-        zest__transition_image_layout(texture->image_buffer[texture->fif].image_handles.image, texture->vk_image_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mip_levels, 1, command_buffer);
-        zest__copy_buffer_to_image(*zest_GetBufferDeviceBuffer(staging_buffer), staging_buffer->buffer_offset, texture->image_buffer[texture->fif].image_handles.image, (zest_uint)zest_GetTextureSingleBitmap(texture)->meta.width, (zest_uint)zest_GetTextureSingleBitmap(texture)->meta.height, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, command_buffer);
+        ZEST_CLEANUP_ON_FAIL(zest__transition_image_layout(texture->image_buffer[texture->fif].image_handles.image, texture->vk_image_format, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mip_levels, 1, command_buffer));
+        ZEST_CLEANUP_ON_FAIL(zest__copy_buffer_to_image(*zest_GetBufferDeviceBuffer(staging_buffer), staging_buffer->buffer_offset, texture->image_buffer[texture->fif].image_handles.image, (zest_uint)zest_GetTextureSingleBitmap(texture)->meta.width, (zest_uint)zest_GetTextureSingleBitmap(texture)->meta.height, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, command_buffer));
 		if (!command_buffer) {
 			zloc_FreeRemote(staging_buffer->buffer_allocator->allocator, staging_buffer);
 		} else {
 			zest_vec_push(ZestRenderer->staging_buffers, staging_buffer);
 		}
-        zest__generate_mipmaps(texture->image_buffer[texture->fif].image_handles.image, texture->vk_image_format, zest_GetTextureSingleBitmap(texture)->meta.width, zest_GetTextureSingleBitmap(texture)->meta.height, mip_levels, 1, vk_image_layout, command_buffer);
+        ZEST_CLEANUP_ON_FAIL(zest__generate_mipmaps(texture->image_buffer[texture->fif].image_handles.image, texture->vk_image_format, zest_GetTextureSingleBitmap(texture)->meta.width, zest_GetTextureSingleBitmap(texture)->meta.height, mip_levels, 1, vk_image_layout, command_buffer));
     }
     else {
-        zest__transition_image_layout(texture->image_buffer[texture->fif].image_handles.image, texture->vk_image_format, VK_IMAGE_LAYOUT_UNDEFINED, vk_image_layout, mip_levels, 1, command_buffer);
+        ZEST_CLEANUP_ON_FAIL(zest__transition_image_layout(texture->image_buffer[texture->fif].image_handles.image, texture->vk_image_format, VK_IMAGE_LAYOUT_UNDEFINED, vk_image_layout, mip_levels, 1, command_buffer));
     }
 
     return VK_SUCCESS;
@@ -13250,7 +13247,7 @@ VkResult zest__create_texture_image(zest_texture texture, zest_uint mip_levels, 
             zest_vec_push(ZestRenderer->staging_buffers, staging_buffer);
         }
     }
-    return result;
+    return ZestRenderer->last_result;
 }
 
 VkResult zest__create_texture_image_array(zest_texture texture, zest_uint mip_levels, VkCommandBuffer command_buffer) {
