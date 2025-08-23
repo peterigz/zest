@@ -3516,7 +3516,6 @@ typedef struct zest_frame_graph_semaphores_t {
 
 zest_hash_map(zest_frame_graph_semaphores) zest_map_rg_semaphores;
 zest_hash_map(zest_render_pass) zest_map_render_passes;
-zest_hash_map(zest_set_layout) zest_map_descriptor_layouts;
 zest_hash_map(zest_pipeline_template) zest_map_pipelines;
 zest_hash_map(zest_pipeline) zest_map_cached_pipelines;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
@@ -3586,7 +3585,6 @@ typedef struct zest_renderer_t {
     zest_map_cached_frame_graphs cached_frame_graphs;
     zest_map_cached_pipelines cached_pipelines;
     zest_map_samplers cached_samplers;
-    zest_map_descriptor_layouts descriptor_layouts;
 
     zest_map_pipelines pipeline_templates;
 
@@ -3826,12 +3824,12 @@ ZEST_PRIVATE void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffe
 
 // --Descriptor_set_functions
 ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets);
-ZEST_PRIVATE zest_set_layout zest__add_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout);
+ZEST_PRIVATE zest_set_layout zest__new_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout);
 ZEST_PRIVATE bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding);
 ZEST_PRIVATE VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_set_layout layout, zest_uint binding_index);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout_handle, zest_uint binding_number);
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout_handle, zest_uint binding_number, zest_uint index_to_release);
-ZEST_PRIVATE void zest__destroy_set_layout(zest_set_layout layout_handle);
+ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout_handle);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -4188,7 +4186,6 @@ ZEST_API void zest_BindComputePipeline(VkCommandBuffer command_buffer, zest_comp
 ZEST_API void zest_BindPipelineShaderResource(VkCommandBuffer command_buffer, zest_pipeline pipeline, zest_shader_resources shader_resources);
 //Retrieve a pipeline from the renderer storage. Just pass in the name of the pipeline you want to retrieve and the handle to the pipeline
 //will be returned.
-ZEST_API zest_pipeline zest_Pipeline(const char *name, zest_render_pass render_pass);
 ZEST_API zest_pipeline_template zest_PipelineTemplate(const char *name);
 ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, zest_render_pass render_pass);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
@@ -5158,10 +5155,6 @@ ZEST_API void zest_CloseWindow(const char *name);
 //-----------------------------------------------
 //Read a file from disk into memory. Set terminate to 1 if you want to add \0 to the end of the file in memory
 ZEST_API char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
-//Get a descriptor set layout by name.
-ZEST_API VkDescriptorSetLayout *zest_GetDescriptorSetLayoutVK(const char *name);
-//Get a descriptor set layout by name.
-ZEST_API zest_set_layout zest_GetDescriptorSetLayout(const char *name);
 //Get the swap chain extent which will basically be the size of the window returned in a VkExtend2d struct.
 ZEST_API VkExtent2D zest_GetSwapChainExtent(void);
 //Get the window size in a VkExtent2d. In most cases this is the same as the swap chain extent.

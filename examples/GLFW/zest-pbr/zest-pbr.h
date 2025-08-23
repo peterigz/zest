@@ -60,7 +60,6 @@ struct ImGuiApp {
 	zest_pipeline_template pbr_pipeline;
 	zest_pipeline_template skybox_pipeline;
 	zest_pipeline_template billboard_pipeline;
-	zest_pipeline_template brdibl_pipeline;
 
 	zest_uniform_buffer view_buffer;
 	zest_uniform_buffer lights_buffer;

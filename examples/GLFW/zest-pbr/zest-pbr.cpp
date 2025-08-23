@@ -13,8 +13,8 @@ void UpdateUniform3d(ImGuiApp *app) {
 void SetupBillboards(ImGuiApp *app) {
 	//Create and compile the shaders for our custom sprite pipeline
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_CreateShaderFromFile("examples/assets/shaders/billboard.frag", "billboard_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	zest_CreateShaderFromFile("examples/assets/shaders/billboard.vert", "billboard_vert.spv", shaderc_vertex_shader, true, compiler, 0);
+	zest_shader billboard_vert = zest_CreateShaderFromFile("examples/assets/shaders/billboard.vert", "billboard_vert.spv", shaderc_vertex_shader, true, compiler, 0);
+	zest_shader billboard_frag = zest_CreateShaderFromFile("examples/assets/shaders/billboard.frag", "billboard_frag.spv", shaderc_fragment_shader, true, compiler, 0);
 	shaderc_compiler_release(compiler);
 
 	//Create a pipeline that we can use to draw billboards
@@ -30,8 +30,8 @@ void SetupBillboards(ImGuiApp *app) {
 	zest_AddVertexAttribute(app->billboard_pipeline, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color));			        // Location 7: Instance Color
 
 	zest_SetPipelinePushConstantRange(app->billboard_pipeline, sizeof(billboard_push_constant_t), zest_shader_render_stages);
-	zest_SetPipelineVertShader(app->billboard_pipeline, "billboard_vert.spv", "spv/");
-	zest_SetPipelineFragShader(app->billboard_pipeline, "billboard_frag.spv", "spv/");
+	zest_SetPipelineVertShader(app->billboard_pipeline, billboard_vert);
+	zest_SetPipelineFragShader(app->billboard_pipeline, billboard_frag);
 	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_vk_GetUniformBufferLayout(app->view_buffer));
 	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_vk_GetGlobalBindlessLayout());
 	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
@@ -45,7 +45,7 @@ void SetupBillboards(ImGuiApp *app) {
 	app->billboard_push.texture_index = zest_GetTextureDescriptorIndex(app->sprites_texture, zest_combined_image_sampler_2d_binding);
 	app->billboard_layer = zest_CreateInstanceLayer("billboards", sizeof(zest_billboard_instance_t));
 
-	app->sprite_resources = zest_CreateShaderResources("Sprite resources");
+	app->sprite_resources = zest_CreateShaderResources();
 	zest_AddUniformBufferToResources(app->sprite_resources, app->view_buffer);
 	zest_AddGlobalBindlessSetToResources(app->sprite_resources);
 }
@@ -239,7 +239,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->old_camera_position = app->camera.position;
 
 	//We can use a timer to only update imgui 60 times per second
-	app->timer = zest_CreateTimer("Main loop timer", 60);
+	app->timer = zest_CreateTimer(60);
 	app->request_graph_print = false;
 	app->reset = false;
 
@@ -256,12 +256,10 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	//Compile the shaders we will use to render the particles
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_simple.vert", "pbr_simple_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_simple.frag", "pbr_simple_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/sky_box.vert", "sky_box_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/sky_box.frag", "sky_box_frag.spv", shaderc_fragment_shader, true, compiler, 0);
+	zest_shader pbr_irradiance_vert = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", shaderc_vertex_shader, true, compiler, 0);
+	zest_shader pbr_irradiance_frag = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", shaderc_fragment_shader, true, compiler, 0);
+	zest_shader skybox_vert = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/sky_box.vert", "sky_box_vert.spv", shaderc_vertex_shader, true, compiler, 0);
+	zest_shader skybox_frag = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/sky_box.frag", "sky_box_frag.spv", shaderc_fragment_shader, true, compiler, 0);
 	app->brd_shader = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/genbrdflut.comp", "genbrdflut_comp.spv", shaderc_compute_shader, true, compiler, 0);
 	app->irr_shader = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/irradiancecube.comp", "irradiancecube_comp.spv", shaderc_compute_shader, true, compiler, 0);
 	app->prefiltered_shader = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/prefilterenvmap.comp", "prefilterenvmap_comp.spv", shaderc_compute_shader, true, compiler, 0);
@@ -278,7 +276,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetGlobalBindlessLayout());
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetUniformBufferLayout(app->view_buffer));
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetUniformBufferLayout(app->lights_buffer));
-	zest_SetPipelineShaders(app->pbr_pipeline, "pbr_irradiance_vert.spv", "pbr_irradiance_frag.spv", 0);
+	zest_SetPipelineShaders(app->pbr_pipeline, pbr_irradiance_vert, pbr_irradiance_frag);
 	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_back);
 	zest_SetPipelineFrontFace(app->pbr_pipeline, zest_front_face_counter_clockwise);
 	zest_SetPipelineTopology(app->pbr_pipeline, zest_topology_triangle_list);
@@ -290,25 +288,16 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_vk_GetUniformBufferLayout(app->view_buffer));
 	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_vk_GetUniformBufferLayout(app->lights_buffer));
 	zest_SetPipelineFrontFace(app->skybox_pipeline, zest_front_face_clockwise);
-	zest_SetPipelineShaders(app->skybox_pipeline, "sky_box_vert.spv", "sky_box_frag.spv", 0);
+	zest_SetPipelineShaders(app->skybox_pipeline, skybox_vert, skybox_frag);
 	zest_SetPipelineDepthTest(app->skybox_pipeline, false, false);
 	zest_EndPipelineTemplate(app->skybox_pipeline);
 
-	app->brdibl_pipeline = zest_CopyPipelineTemplate("brd_ibl", zest_PipelineTemplate("pbr_mesh_pipeline"));
-	zest_ClearPipelineDescriptorLayouts(app->brdibl_pipeline);
-	zest_SetPipelineDepthTest(app->brdibl_pipeline, false, false);
-	zest_SetPipelineBlend(app->brdibl_pipeline, zest_BlendStateNone());
-	zest_SetPipelineCullMode(app->brdibl_pipeline, zest_cull_mode_none);
-	zest_SetPipelineShaders(app->brdibl_pipeline, "brdibl_vert.spv", "brdibl_frag.spv", 0);
-	zest_SetPipelineDepthTest(app->brdibl_pipeline, false, false);
-	zest_EndPipelineTemplate(app->brdibl_pipeline);
-
-	app->pbr_shader_resources = zest_CreateShaderResources("Mesh resources");
+	app->pbr_shader_resources = zest_CreateShaderResources();
 	zest_AddGlobalBindlessSetToResources(app->pbr_shader_resources);							//Set 0
 	zest_AddUniformBufferToResources(app->pbr_shader_resources, app->view_buffer);				//Set 1
 	zest_AddUniformBufferToResources(app->pbr_shader_resources, app->lights_buffer);			//Set 2
 
-	app->skybox_shader_resources = zest_CreateShaderResources("Sky Box resources");
+	app->skybox_shader_resources = zest_CreateShaderResources();
 	zest_AddGlobalBindlessSetToResources(app->skybox_shader_resources);							//Set 0
 	zest_AddUniformBufferToResources(app->skybox_shader_resources, app->view_buffer);			//Set 1
 	zest_AddUniformBufferToResources(app->skybox_shader_resources, app->lights_buffer);			//Set 2

@@ -4012,6 +4012,9 @@ void zest__free_handle(void *handle) {
     case zest_struct_type_font:
         zest__cleanup_font((zest_font)handle);
         break;
+    case zest_struct_type_set_layout:
+        zest__cleanup_set_layout((zest_set_layout)handle);
+        break;
     }
 
 }
@@ -4039,6 +4042,7 @@ void zest__scan_memory_and_free_resources() {
                 case zest_struct_type_shader_resources:
                 case zest_struct_type_compute:
                 case zest_struct_type_font:
+                case zest_struct_type_set_layout:
                     zest_vec_push(memory_to_free, allocation);
                     break;
                 }
@@ -4060,6 +4064,11 @@ void zest__cleanup_renderer() {
 
     zest_uint cached_pipelines_size = zest_map_size(ZestRenderer->cached_pipelines);
 
+	zest__cleanup_set_layout(ZestRenderer->texture_debug_layout);
+	zest__cleanup_set_layout(ZestRenderer->global_bindless_set_layout);
+    ZestRenderer->texture_debug_layout = 0;
+    ZestRenderer->global_bindless_set_layout = 0;
+
     zest__scan_memory_and_free_resources();
 
     zest__cleanup_pipelines();
@@ -4080,11 +4089,6 @@ void zest__cleanup_renderer() {
         zest_render_pass render_pass = *zest_map_at_index(ZestRenderer->cached_render_passes, i);
         vkDestroyRenderPass(ZestDevice->logical_device, render_pass->vk_render_pass, &ZestDevice->allocation_callbacks);
         ZEST__FREE(render_pass);
-    }
-
-    zest_map_foreach(i, ZestRenderer->descriptor_layouts) {
-        zest_set_layout layout = *zest_map_at_index(ZestRenderer->descriptor_layouts, i);
-        zest__destroy_set_layout(layout);
     }
 
 	for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
@@ -4189,7 +4193,6 @@ void zest__cleanup_renderer() {
     zest_map_free(ZestRenderer->buffer_allocators);
     zest_vec_free(ZestRenderer->used_buffers_ready_for_freeing);
     zest_map_free(ZestRenderer->cached_render_passes);
-    zest_map_free(ZestRenderer->descriptor_layouts);
     zest_map_free(ZestRenderer->pipeline_templates);
     zest_map_free(ZestRenderer->cached_pipelines);
     zest_map_free(ZestRenderer->cached_samplers);
@@ -4472,7 +4475,6 @@ zest_set_layout zest_FinishDescriptorSetLayout(zest_set_layout_builder_t *builde
     va_start(args, name);
     zest_SetTextfv(&layer_name, name, args);
     va_end(args);
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->descriptor_layouts, layer_name.str));
     ZEST_ASSERT(builder->bindings);     //must have bindings to create the layout
     zest_uint binding_count = (zest_uint)zest_vec_size(builder->bindings);
     ZEST_ASSERT(binding_count > 0);     //Must add bindings before finishing the descriptor layout builder
@@ -4493,7 +4495,7 @@ zest_set_layout zest_FinishDescriptorSetLayout(zest_set_layout_builder_t *builde
         goto cleanup;
     }
 
-    set_layout = zest__add_descriptor_set_layout(layer_name.str, layout);
+    set_layout = zest__new_descriptor_set_layout(layer_name.str, layout);
     if (!set_layout) {
         ZEST_PRINT("Failed to create a new set layout");
         goto cleanup;
@@ -4521,7 +4523,6 @@ zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_set_layout_builde
     va_start(args, name);
     zest_SetTextfv(&layer_name, name, args);
     va_end(args);
-    ZEST_ASSERT(!zest_map_valid_name(ZestRenderer->descriptor_layouts, layer_name.str));
     ZEST_ASSERT(builder->bindings);     //must have bindings to create the layout
     zest_uint binding_count = (zest_uint)zest_vec_size(builder->bindings);
 	ZEST_ASSERT(binding_count > 0);     //Must add bindings before finishing the descriptor layout builder
@@ -4549,7 +4550,7 @@ zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_set_layout_builde
         goto cleanup;
     }
 
-    set_layout = zest__add_descriptor_set_layout(layer_name.str, layout);
+    set_layout = zest__new_descriptor_set_layout(layer_name.str, layout);
     set_layout->binding_indexes = builder->binding_indexes;
     zest_vec_resize(set_layout->descriptor_indexes, zest_vec_size(builder->bindings));
     zest_vec_resize(set_layout->layout_bindings, binding_count);
@@ -4598,7 +4599,7 @@ ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout layout) {
     return set;
 }
 
-zest_set_layout zest__add_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout) {
+zest_set_layout zest__new_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout) {
     zest_set_layout descriptor_layout = ZEST__NEW(zest_set_layout);
     if (!descriptor_layout) {
         return 0;
@@ -4608,7 +4609,6 @@ zest_set_layout zest__add_descriptor_set_layout(const char *name, VkDescriptorSe
     descriptor_layout->magic = zest_INIT_MAGIC(zest_struct_type_set_layout);
     zest_SetText(&descriptor_layout->name, name);
     descriptor_layout->vk_layout = layout;
-    zest_map_insert(ZestRenderer->descriptor_layouts, name, descriptor_layout);
     return descriptor_layout;
 }
 
@@ -4659,7 +4659,7 @@ void zest__release_bindless_index(zest_set_layout layout_handle, zest_uint bindi
     zest_vec_push(manager->free_indices, index_to_release);
 }
 
-void zest__destroy_set_layout(zest_set_layout layout) {
+void zest__cleanup_set_layout(zest_set_layout layout) {
     ZEST_ASSERT_HANDLE(layout);  //Not a valid layout handle!
     zest_vec_free(layout->layout_bindings);
     vkDestroyDescriptorSetLayout(ZestDevice->logical_device, layout->vk_layout, &ZestDevice->allocation_callbacks);
@@ -6176,16 +6176,6 @@ zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) {
     return (zest_key)zest__get_hash(&hasher); 
 }
 
-VkDescriptorSetLayout *zest_GetDescriptorSetLayoutVK(const char* name) { 
-    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->descriptor_layouts, name));   //Must be a valid descriptor set layout, check the name is correct
-    return zest_map_at(ZestRenderer->descriptor_layouts, name)->vk_layout; 
-}
-
-zest_set_layout zest_GetDescriptorSetLayout(const char* name) { 
-    ZEST_ASSERT(zest_map_valid_name(ZestRenderer->descriptor_layouts, name));   //Must be a valid descriptor set layout, check the name is correct
-    return *zest_map_at(ZestRenderer->descriptor_layouts, name); 
-}
-
 zest_pipeline_template zest_PipelineTemplate(const char *name) {
     zest_key pipeline_key = zest_Hash(name, strlen(name), ZEST_HASH_SEED);
     ZEST_ASSERT(zest_map_valid_key(ZestRenderer->pipeline_templates, pipeline_key)); 
@@ -6210,18 +6200,6 @@ zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template template, zest_re
 	return pipeline;
 }
 
-zest_pipeline zest_Pipeline(const char* name, zest_render_pass render_pass) { 
-    zest_key pipeline_key = zest_Hash(name, strlen(name), ZEST_HASH_SEED);
-    ZEST_ASSERT(zest_map_valid_key(ZestRenderer->pipeline_templates, pipeline_key)); 
-    zest_cached_pipeline_key_t cached_pipeline = { pipeline_key, render_pass->vk_render_pass };
-    zest_key cached_pipeline_key = zest_Hash(&cached_pipeline, sizeof(cached_pipeline), ZEST_HASH_SEED);
-    if (zest_map_valid_key(ZestRenderer->cached_pipelines, cached_pipeline_key)) {
-		return *zest_map_at_key(ZestRenderer->cached_pipelines, cached_pipeline_key); 
-    }
-    zest_pipeline pipeline = 0;
-    ZestRenderer->last_result = zest__cache_pipeline(*zest_map_at_key(ZestRenderer->pipeline_templates, pipeline_key), render_pass, cached_pipeline_key, &pipeline);
-    return pipeline;
-}
 VkExtent2D zest_GetSwapChainExtent() { return ZestRenderer->main_swapchain->vk_extent; }
 VkExtent2D zest_GetWindowExtent(void) { return ZestRenderer->window_extent; }
 zest_uint zest_SwapChainWidth(void) { return ZestRenderer->main_swapchain->vk_extent.width; }
@@ -10145,6 +10123,9 @@ void zest_ReleaseGlobalTextureIndex(zest_texture texture, zest_global_binding_nu
 }
 
 void zest_ReleaseAllGlobalTextureIndexes(zest_texture texture) {
+    if (!ZestRenderer->global_bindless_set_layout) {
+        return;
+    }
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
         if (texture->bindless_index[i] != ZEST_INVALID) {
             zest__release_bindless_index(ZestRenderer->global_bindless_set_layout, (zest_global_binding_number)i, texture->bindless_index[i]);
@@ -12557,7 +12538,9 @@ void zest__cleanup_texture_vk_handles(zest_texture texture) {
 	if(texture->image_buffer.image_handles.view) vkDestroyImageView(ZestDevice->logical_device, texture->image_buffer.image_handles.view, &ZestDevice->allocation_callbacks);
 	if(texture->image_buffer.image_handles.image) vkDestroyImage(ZestDevice->logical_device, texture->image_buffer.image_handles.image, &ZestDevice->allocation_callbacks);
 	if(texture->image_buffer.image_handles.buffer) zest_FreeBuffer(texture->image_buffer.image_handles.buffer);
-    if (ZEST_VALID_HANDLE(texture->debug_set) && texture->debug_set->vk_descriptor_set) vkFreeDescriptorSets(ZestDevice->logical_device, ZestRenderer->texture_debug_layout->pool->vk_descriptor_pool, 1, &texture->debug_set->vk_descriptor_set);
+    if (ZestRenderer->texture_debug_layout) {
+        if (ZEST_VALID_HANDLE(texture->debug_set) && texture->debug_set->vk_descriptor_set) vkFreeDescriptorSets(ZestDevice->logical_device, ZestRenderer->texture_debug_layout->pool->vk_descriptor_pool, 1, &texture->debug_set->vk_descriptor_set);
+    }
 	texture->image_buffer.image_handles.buffer = 0;
 	texture->image_buffer.image_handles.view = VK_NULL_HANDLE;
 	texture->image_buffer.image_handles.image = VK_NULL_HANDLE;
