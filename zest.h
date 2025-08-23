@@ -3084,11 +3084,6 @@ typedef struct zest_pipeline_t {
 
 zest_hash_map(zest_pipeline) zest_map_pipeline_variations;
 
-typedef struct zest_pipeline_handles_t {                                         //Struct for storing pipeline handles for future destroying after a scheduled pipeline rebuild
-    VkPipeline pipeline;                                                         //The vulkan handle for the pipeline
-    VkPipelineLayout pipeline_layout;                                            //The vulkan handle for the pipeline layout
-} zest_pipeline_handles_t;
-
 typedef struct zest_sprite_instance_t {            //52 bytes
     zest_vec4 uv;                                  //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
     zest_vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
@@ -3606,8 +3601,6 @@ typedef struct zest_renderer_t {
 
     //For scheduled tasks
     zest_buffer *staging_buffers;
-    zest_pipeline *pipeline_recreate_queue;
-    zest_pipeline_handles_t *pipeline_destroy_queue;
     zest_destruction_queue_t deferred_resource_freeing_list;
 
     //Each texture has a simple descriptor set with a combined image sampler for debugging purposes
@@ -4719,8 +4712,6 @@ ZEST_API zest_bool zest_TextureClear(zest_texture texture);
 ZEST_API zest_bitmap zest_GetTextureSingleBitmap(zest_texture texture);
 //Returns true if the texture has a storage type of zest_texture_storage_type_bank or zest_texture_storage_type_single.
 ZEST_API zest_bool zest_TextureCanTile(zest_texture texture);
-//Schedule a pipeline to be recreated. 
-ZEST_API void zest_SchedulePipelineRecreate(zest_pipeline pipeline);
 //Copies an area of a frame buffer such as from a render target, to a zest_texture.
 ZEST_API zest_bool zest_CopyFramebufferToTexture(zest_frame_buffer_t *src_image, zest_texture texture, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 //Copies an area of a zest_texture to another zest_texture

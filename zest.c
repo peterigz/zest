@@ -2501,27 +2501,6 @@ void zest__do_scheduled_tasks(void) {
     }
     zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.frame_buffers[ZEST_FIF]);
 
-    if (zest_vec_size(ZestRenderer->pipeline_destroy_queue)) {
-        zest_vec_foreach(i, ZestRenderer->pipeline_destroy_queue) {
-            zest_pipeline_handles_t handles = ZestRenderer->pipeline_destroy_queue[i];
-			vkDestroyPipeline(ZestDevice->logical_device, handles.pipeline, &ZestDevice->allocation_callbacks);
-			vkDestroyPipelineLayout(ZestDevice->logical_device, handles.pipeline_layout, &ZestDevice->allocation_callbacks);
-        }
-        zest_vec_clear(ZestRenderer->pipeline_destroy_queue);
-    }
-
-    if (zest_vec_size(ZestRenderer->pipeline_recreate_queue)) {
-        zest_vec_foreach(i, ZestRenderer->pipeline_recreate_queue) {
-            zest_pipeline pipeline = ZestRenderer->pipeline_recreate_queue[i];
-            zest_pipeline_handles_t handles = {0};
-            handles.pipeline = pipeline->pipeline;
-            handles.pipeline_layout = pipeline->pipeline_layout;
-            zest_vec_push(ZestRenderer->pipeline_destroy_queue, handles);
-            zest__rebuild_pipeline(pipeline);
-        }
-        zest_vec_clear(ZestRenderer->pipeline_recreate_queue);
-    }
-
     zest_vec_foreach(i, ZestRenderer->staging_buffers) {
         zest_buffer staging_buffer = ZestRenderer->staging_buffers[i];
 		zloc_FreeRemote(staging_buffer->buffer_allocator->allocator, staging_buffer);
@@ -4204,8 +4183,6 @@ void zest__cleanup_renderer() {
     ZEST__FREE(ZestRenderer->global_set);
 
     zest_vec_free(ZestRenderer->staging_buffers);
-    zest_vec_free(ZestRenderer->pipeline_recreate_queue);
-    zest_vec_free(ZestRenderer->pipeline_destroy_queue);
     zest_vec_free(ZestRenderer->debug.frame_log);
     zest_map_free(ZestRenderer->reports);
 
@@ -13039,10 +13016,6 @@ void zest__delete_texture_layers(zest_texture texture) {
 
 VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture texture) {
     return &texture->descriptor_image_info;
-}
-
-void zest_SchedulePipelineRecreate(zest_pipeline pipeline) {
-    zest_vec_push(ZestRenderer->pipeline_recreate_queue, pipeline);
 }
 
 zest_bitmap zest_GetTextureSingleBitmap(zest_texture texture) {
