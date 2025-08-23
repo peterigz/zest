@@ -44,7 +44,7 @@
     --API functions
     [Essential_setup_functions]         Functions for initialising Zest
     [Vulkan_Helper_Functions]           Just general helper functions for working with Vulkan if you're doing more custom stuff
-    [Pipeline_related_vulkan_helpers]   Vulkan helper functions for setting up your own pipelines
+    [Pipeline_related_vulkan_helpers]   Vulkan helper functions for setting up your own pipeline_templates
     [Platform_dependent_callbacks]      These are used depending one whether you're using glfw, sdl or just the os directly
     [Buffer_functions]                  Functions for creating and using gpu buffers
     [General_Math_helper_functions]     Vector and matrix math functions
@@ -381,70 +381,6 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 //Shader_code
 //For nicer formatting of the shader code, but note that new lines are ignored when this becomes an actual string.
 #define ZEST_GLSL(version, shader) "#version " #version "\n" "#extension GL_EXT_nonuniform_qualifier : require\n" #shader
-//----------------------
-//Imgui vert shader
-//----------------------
-static const char *zest_shader_imgui_vert = ZEST_GLSL(450 core,
-
-layout(push_constant) uniform quad_index
-{
-    uint index1;
-    uint index2;
-    uint index3;
-    uint index4;
-	vec4 transform;
-	vec4 parameters;
-	vec4 parameters3;
-	vec4 camera;
-} pc;
-
-layout(location = 0) in vec2 in_position;
-layout(location = 1) in vec2 in_tex_coord;
-layout(location = 2) in vec4 in_color;
-
-layout(location = 0) out vec4 out_color;
-layout(location = 1) out vec3 out_uv;
-
-void main() {
-
-	gl_Position = vec4(in_position * pc.transform.xy + pc.transform.zw, 0.0, 1.0);
-
-	out_uv = vec3(in_tex_coord, pc.parameters.x);
-	out_color = in_color;
-}
-
-);
-
-//----------------------
-//Imgui fragment shader
-//----------------------
-static const char *zest_shader_imgui_frag = ZEST_GLSL(450 core,
-
-layout(location = 0) in vec4 in_color;
-layout(location = 1) in vec3 in_uv;
-
-layout(location = 0) out vec4 out_color;
-layout(set = 0, binding = 0) uniform sampler2DArray tex_sampler;
-
-//Not used by default by can be used in custom imgui image shaders
-layout(push_constant) uniform quad_index
-{
-    uint index1;
-    uint index2;
-    uint index3;
-    uint index4;
-	vec4 transform;
-	vec4 parameters;
-	vec4 parameters3;
-	vec4 camera;
-} pc;
-
-void main()
-{
-	out_color = in_color * texture(tex_sampler, in_uv);
-}
-
-);
 
 //----------------------
 //2d/3d billboard fragment shader
@@ -473,37 +409,6 @@ void main() {
     outColor.rgb = texel.rgb * in_frag_color.rgb * texel.a;
     //If in_frag_color.a is 0 then color will be additive. The higher the value of a the more alpha blended the color will be.
     outColor.a = texel.a * in_frag_color.a;
-}
-);
-
-//----------------------
-//2d/3d billboard fragment shader single alpha channel only
-//----------------------
-static const char *zest_shader_sprite_alpha_frag = ZEST_GLSL(450,
-layout(location = 0) in vec4 in_frag_color;
-layout(location = 1) in vec3 in_tex_coord;
-
-layout(location = 0) out vec4 outColor;
-
-layout(set = 1, binding = 0) uniform sampler2DArray texSampler;
-
-layout(push_constant) uniform quad_index
-{
-    uint index1;
-    uint index2;
-    uint index3;
-    uint index4;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec4 parameters3;
-    vec4 camera;
-} pc;
-
-void main() {
-    float texel = texture(texSampler, in_tex_coord).r;
-
-    outColor.rgb = in_frag_color.rgb * texel;
-    outColor.a = texel * in_frag_color.a;
 }
 );
 
@@ -604,282 +509,6 @@ void main() {
 );
 
 //----------------------
-//2d shape vertex shader
-//----------------------
-static const char *zest_shader_shape_vert = ZEST_GLSL(450,
-//Quad indexes
-const int indexes[6] = int[6]( 0, 1, 2, 2, 1, 3 );
-const vec2 vertex[4] = vec2[4]( 
-    vec2(-.5, -.5), vec2(-.5, .5), vec2(.5, -.5), vec2(.5, .5)
-);
-
-layout(set = 0, binding = 0) uniform UboView
-{
-    mat4 view;
-    mat4 proj;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec2 res;
-    uint millisecs;
-} uboView;
-
-layout(push_constant) uniform quad_index
-{
-    uint index1;
-    uint index2;
-    uint index3;
-    uint index4;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec4 parameters3;
-    vec4 camera;
-} pc;
-
-//Line instance data
-layout(location = 0) in vec4 rect;
-layout(location = 1) in vec4 parameters;
-layout(location = 2) in vec4 start_color;
-
-layout(location = 0) out vec4 out_frag_color;
-layout(location = 1) out vec4 p1;
-layout(location = 2) out vec4 p2;
-layout(location = 3) out float shape_type;
-layout(location = 4) out float millisecs;
-
-void main() {
-    int index = indexes[gl_VertexIndex];
-    shape_type = pc.parameters1.x;
-
-    vec2 vertex_position;
-    if (shape_type == 4) {
-        //line drawing
-        vec2 line = rect.zw - rect.xy;
-        vec2 normal = normalize(vec2(-line.y, line.x));
-        vertex_position = rect.xy + line * (vertex[index].x + .5) + normal * parameters.x * vertex[index].y;
-    }
-    else if (shape_type == 5) {
-        //Rect drawing
-        vec2 size = rect.zw - rect.xy;
-        vec2 position = size * .5 + rect.xy;
-        vertex_position = size.xy * vertex[index] + position;
-    }
-    else if (shape_type == 6) {
-        //line drawing
-        vec2 line = rect.zw - rect.xy;
-        vec2 normal = normalize(vec2(-line.y, line.x));
-        vertex_position = rect.xy + line * (vertex[index].x + .5) + normal * parameters.x * vertex[index].y;
-    }
-
-    mat4 modelView = uboView.view;
-    vec3 pos = vec3(vertex_position.x, vertex_position.y, 1);
-    gl_Position = uboView.proj * modelView * vec4(pos, 1.0);
-
-    //----------------
-    out_frag_color = start_color;
-    p1 = rect;
-    p2 = parameters;
-    millisecs = float(uboView.millisecs);
-}
-);
-
-//----------------------
-//2d shape frag shader
-//----------------------
-static const char *zest_shader_shape_frag = ZEST_GLSL(450,
-layout(location = 0) in vec4 fragColor;
-layout(location = 1) in vec4 p1;
-layout(location = 2) in vec4 p2;
-layout(location = 3) in float shape_type;
-layout(location = 4) in float millisecs;
-
-layout(location = 0) out vec4 outColor;
-
-float Line(in vec2 p, in vec2 a, in vec2 b) {
-    vec2 ba = b - a;
-    vec2 pa = p - a;
-    float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.);
-    return length(pa - h * ba);
-}
-
-float Fill(float sdf) {
-    //return step(0, -sdf);
-    return clamp(0.5 - sdf / fwidth(sdf), 0, 1);		//Anti Aliased
-}
-
-float Circle(vec2 p, float r)
-{
-    return length(p) - r;
-}
-
-float Stroke(float sdf, float width) {
-    return Fill(abs(sdf) - width);
-}
-
-float Difference(float sdf1, float sdf2) {
-    return max(sdf1, -sdf2);
-}
-
-float Union(float sdf1, float sdf2) {
-    return min(sdf1, sdf2);
-}
-
-float Intersection(float sdf1, float sdf2) {
-    return max(sdf1, sdf2);
-}
-
-float Trapezoid(in vec2 p, in vec2 a, in vec2 b, in float ra, float rb)
-{
-    float rba = rb - ra;
-    float baba = dot(b - a, b - a);
-    float papa = dot(p - a, p - a);
-    float paba = dot(p - a, b - a) / baba;
-    float x = sqrt(papa - paba * paba * baba);
-    float cax = max(0.0, x - ((paba < 0.5) ? ra : rb));
-    float cay = abs(paba - 0.5) - 0.5;
-    float k = rba * rba + baba;
-    float f = clamp((rba * (x - ra) + paba * baba) / k, 0.0, 1.0);
-    float cbx = x - ra - f * rba;
-    float cby = paba - f;
-    float s = (cbx < 0.0 && cay < 0.0) ? -1.0 : 1.0;
-    return s * sqrt(min(cax * cax + cay * cay * baba, cbx * cbx + cby * cby * baba));
-}
-
-float cro(in vec2 a, in vec2 b) { return a.x * b.y - a.y * b.x; }
-
-float UnevenCapsule(in vec2 p, in vec2 pa, in vec2 pb, in float ra, in float rb)
-{
-    p -= pa;
-    pb -= pa;
-    float h = dot(pb, pb);
-    vec2  q = vec2(dot(p, vec2(pb.y, -pb.x)), dot(p, pb)) / h;
-
-    //-----------
-
-    q.x = abs(q.x);
-
-    float b = ra - rb;
-    vec2  c = vec2(sqrt(h - b * b), b);
-
-    float k = cro(c, q);
-    float m = dot(c, q);
-    float n = dot(q, q);
-
-    if (k < 0.0) return sqrt(h * (n)) - ra;
-    else if (k > c.x) return sqrt(h * (n + 1.0 - 2.0 * q.y)) - rb;
-    return m - ra;
-}
-
-float OrientedBox(in vec2 p, in vec2 a, in vec2 b, float th)
-{
-    float l = length(b - a);
-    vec2  d = (b - a) / l;
-    vec2  q = (p - (a + b) * 0.5);
-    q = mat2(d.x, -d.y, d.y, d.x) * q;
-    q = abs(q) - vec2(l, th) * 0.5;
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-}
-
-void main() {
-
-    float brightness = 0;
-    if (shape_type == 4) {
-        //Line sdf seems to give perfectly fine results, UnevenCapsule would be more accurate though if widths change drastically over the course of the ribbon.
-        //float line_sdf = Line(gl_FragCoord.xy, p1.xy, p1.zw) - p2.x * .5; 
-        //float line_sdf = OrientedBox(gl_FragCoord.xy, p1.xy, p1.zw, p2.x); 
-        //float trap_sdf = UnevenCapsule(gl_FragCoord.xy, p1.xy, p1.zw, p2.x * .95, p2.x * .95); 
-        //brightness = Fill(line_sdf);
-        brightness = 1;
-    }
-    else if (shape_type == 5) {
-        brightness = 1;
-    }
-    else if (shape_type == 6) {
-        vec2 line = vec2(p1.xy - gl_FragCoord.xy);
-        brightness = step(5, mod(length(line) + (millisecs * 0.05), 10));
-    }
-
-    outColor = fragColor * brightness;
-    outColor.rgb *= fragColor.a;
-}
-);
-
-//----------------------
-//3d lines vert shader
-//----------------------
-static const char *zest_shader_3d_lines_vert = ZEST_GLSL(450,
-//Quad indexes
-const int indexes[] = int[](0, 1, 2, 0, 2, 3);
-const vec3 vertices[4] = vec3[]( 
-    vec3(0, -.5, 0),
-	vec3(0, -.5, 1),
-	vec3(0,  .5, 1),
-	vec3(0,  .5, 0)
-);
-
-layout(set = 0, binding = 0) uniform UboView
-{
-    mat4 view;
-    mat4 proj;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec2 res;
-    uint millisecs;
-} uboView;
-
-layout(push_constant) uniform quad_index
-{
-    uint font_texture_index;
-    uint index2;
-    uint index3;
-    uint index4;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec4 parameters3;
-    vec4 camera;
-} pc;
-
-//Instance
-layout(location = 0) in vec4 start;
-layout(location = 1) in vec4 end;
-layout(location = 2) in vec4 line_color;
-
-layout(location = 0) out vec4 out_frag_color;
-layout(location = 1) out vec4 p1;
-layout(location = 2) out vec4 p2;
-layout(location = 3) out vec3 out_end;
-layout(location = 4) out float millisecs;
-layout(location = 5) out float res;
-
-void main() {
-    vec4 clip0 = uboView.proj * uboView.view * vec4(start.xyz, 1.0);
-    vec4 clip1 = uboView.proj * uboView.view * vec4(end.xyz, 1.0);
-
-    vec2 screen0 = uboView.res * (0.5 * clip0.xy / clip0.w + 0.5);
-    vec2 screen1 = uboView.res * (0.5 * clip1.xy / clip1.w + 0.5);
-
-    int index = indexes[gl_VertexIndex];
-    vec3 vertex = vertices[index];
-
-    vec2 line = screen1 - screen0;
-    vec2 normal = normalize(vec2(-line.y, line.x));
-    //Note: lines made a bit thicker then the asked-for width so that there's room for anti-aliasing. Need to be more precise with this!
-    vec2 pt0 = screen0 + (start.w * 1.25) * (vertex.x * line + vertex.y * normal);
-    vec2 pt1 = screen1 + (end.w * 1.25) * (vertex.x * line + vertex.y * normal);
-    vec2 vertex_position = mix(pt0, pt1, vertex.z);
-    vec4 clip = mix(clip0, clip1, vertex.z);
-    gl_Position = vec4(clip.w * ((2.0 * vertex_position) / uboView.res - 1.0), clip.z, clip.w);
-
-    //----------------
-    out_frag_color = line_color;
-    p1 = vec4(screen0, 0, start.w);
-    p2 = vec4(screen1, 0, end.w);
-    out_end = p2.xyz;
-    millisecs = uboView.millisecs;
-    res = 1.0 / uboView.res.y;
-}
-);
-
-//----------------------
 //2d font frag shader
 //----------------------
 static const char *zest_shader_font_frag = ZEST_GLSL(450,
@@ -950,47 +579,6 @@ void main() {
         out_color.a = glyph.a;
     }
 
-}
-);
-
-//----------------------
-//3d lines frag shader
-//----------------------
-static const char *zest_shader_3d_lines_frag = ZEST_GLSL(450,
-layout(location = 0) in vec4 frag_color;
-layout(location = 1) in vec4 p1;
-layout(location = 2) in vec4 p2;
-layout(location = 3) in vec3 end;
-layout(location = 4) in float millisecs;
-layout(location = 5) in float res;
-
-layout(location = 0) out vec4 out_color;
-
-float Line(in vec2 p, in vec2 a, in vec2 b) {
-    vec2 ba = b - a;
-    vec2 pa = p - a;
-    float h = clamp(dot(pa, ba) / dot(ba, ba), 0., 1.);
-    return length(pa - h * ba);
-}
-
-float Fill(float sdf) {
-    //return step(0, -sdf);
-    return clamp(0.5 - sdf / fwidth(sdf), 0, 1);		//Anti Aliased
-    //return clamp( 0.5 - sdf, 0, 1 );
-}
-
-void main() {
-    vec3 line = vec3(p1.xyz - gl_FragCoord.xyz);
-    float animated_brightness = step(5, mod(length(line) + (millisecs * 0.05), 10));
-
-    //Line sdf seems to give perfectly fine results, UnevenCapsule would be more accurate though if widths change drastically over the course of the ribbon.
-    float radius = p2.w * .5;
-    float line_sdf = Line(gl_FragCoord.xy, p1.xy, p2.xy) - radius;
-
-    float brightness = Fill(line_sdf);
-
-    out_color = frag_color * brightness;
-    out_color.rgb *= frag_color.a;
 }
 );
 
@@ -3098,10 +2686,10 @@ typedef struct zest_binding_index_for_release_t {
 } zest_binding_index_for_release_t;
 
 typedef struct zest_destruction_queue_t {
-    zest_buffer *buffers[ZEST_MAX_FIF];
+    void **resources[ZEST_MAX_FIF];
     zest_image_buffer_t *images[ZEST_MAX_FIF];
-    zest_texture *textures[ZEST_MAX_FIF];
     zest_binding_index_for_release_t *binding_indexes[ZEST_MAX_FIF];
+	VkFramebuffer *frame_buffers[ZEST_MAX_FIF];             
 } zest_destruction_queue_t;
 
 typedef struct zest_semaphore_reference_t {
@@ -3217,7 +2805,6 @@ ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(VkPipelineStageFlags s
 ZEST_PRIVATE VkImageLayout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage);
 ZEST_PRIVATE VkImageAspectFlags zest__determine_aspect_flag(VkFormat format);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
-ZEST_PRIVATE void zest__deferr_buffer_destruction(zest_buffer storage_buffer);
 ZEST_PRIVATE void zest__deferr_image_destruction(zest_image_buffer_t *image_buffer);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type);
 ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource);
@@ -3472,17 +3059,16 @@ typedef struct zest_pipeline_template_t {
     VkVertexInputBindingDescription *bindingDescriptions;
     VkDynamicState *dynamicStates;
     zest_bool no_vertex_input;
-    zest_text_t shader_path_prefix;
     zest_text_t vertShaderFunctionName;
     zest_text_t fragShaderFunctionName;
-    zest_text_t vertShaderFile;
-    zest_text_t fragShaderFile;
+    zest_shader vertex_shader;
+    zest_shader fragment_shader;
 
     zest_key *cached_pipeline_keys;
 } zest_pipeline_template_t;
 
 typedef struct zest_pipeline_descriptor_writes_t {
-    VkWriteDescriptorSet *writes[ZEST_MAX_FIF];                       //Descriptor writes for creating the descriptor sets - is this needed here? only for certain pipelines, textures store their own
+    VkWriteDescriptorSet *writes[ZEST_MAX_FIF];                       //Descriptor writes for creating the descriptor sets - is this needed here? only for certain pipeline_templates, textures store their own
 } zest_pipeline_descriptor_writes_t;
 
 //A pipeline set is all of the necessary things required to setup and maintain a pipeline
@@ -3692,6 +3278,8 @@ typedef struct zest_imgui_t {
     int magic;
     zest_texture font_texture;
     zest_pipeline_template pipeline;
+    zest_shader vertex_shader;
+    zest_shader fragment_shader;
     zest_buffer vertex_staging_buffer[ZEST_MAX_FIF];
     zest_buffer index_staging_buffer[ZEST_MAX_FIF];
     zest_buffer vertex_device_buffer[ZEST_MAX_FIF];
@@ -3910,7 +3498,6 @@ typedef struct zest_shader_t {
     zest_text_t shader_code;
     zest_text_t name;
     shaderc_shader_kind type;
-    VkShaderStageFlagBits stage;
 } zest_shader_t;
 
 typedef struct zest_debug_t {
@@ -3938,19 +3525,24 @@ zest_hash_map(zest_set_layout) zest_map_descriptor_layouts;
 zest_hash_map(zest_pipeline_template) zest_map_pipelines;
 zest_hash_map(zest_pipeline) zest_map_cached_pipelines;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
-zest_hash_map(zest_layer) zest_map_layers;
 zest_hash_map(zest_sampler) zest_map_samplers;
-zest_hash_map(zest_font) zest_map_fonts;
-zest_hash_map(zest_compute) zest_map_computes;
-zest_hash_map(zest_shader) zest_map_shaders;
 zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
 zest_hash_map(zest_frame_graph) zest_map_frame_graphs;
 zest_hash_map(zest_report_t) zest_map_reports;
 zest_hash_map(zest_swapchain) zest_map_swapchains;
 zest_hash_map(zest_window) zest_map_windows;
-zest_hash_map(zest_timer) zest_map_timers;
-zest_hash_map(zest_shader_resources) zest_map_shader_resources;
 zest_hash_map(zest_cached_frame_graph_t) zest_map_cached_frame_graphs;
+
+typedef struct zest_builtin_shaders_t {
+    zest_shader sprite_frag;
+    zest_shader sprite_vert;
+    zest_shader font_frag;
+    zest_shader mesh_vert;
+    zest_shader mesh_instance_vert;
+    zest_shader mesh_instance_frag;
+    zest_shader swap_vert;
+    zest_shader swap_frag;
+} zest_builtin_shaders_t;
 
 typedef struct zest_renderer_t {
     int magic;
@@ -3978,6 +3570,9 @@ typedef struct zest_renderer_t {
 
     VkCommandBuffer utility_command_buffer[ZEST_MAX_FIF];
 
+    //Built in shaders that I'll probably remove soon
+    zest_builtin_shaders_t builtin_shaders;
+
     //Context data
     zest_frame_graph current_frame_graph;
     zest_pass_node current_pass;
@@ -3992,22 +3587,17 @@ typedef struct zest_renderer_t {
     zloc_linear_allocator_t *utility_allocator;
 
     //General Storage
-    zest_map_render_passes render_passes;
-    zest_map_descriptor_layouts descriptor_layouts;
-    zest_map_pipelines pipelines;
+    zest_map_render_passes cached_render_passes;
+    zest_map_cached_frame_graphs cached_frame_graphs;
     zest_map_cached_pipelines cached_pipelines;
-    zest_map_layers layers;
-    zest_map_fonts fonts;
-    zest_uniform_buffer *uniform_buffers;
-    zest_map_computes computes;
-    zest_map_shaders shaders;
-    zest_map_samplers samplers;
-    zest_map_rg_semaphores frame_graph_semaphores;
+    zest_map_samplers cached_samplers;
+    zest_map_descriptor_layouts descriptor_layouts;
+
+    zest_map_pipelines pipeline_templates;
+
     zest_map_swapchains swapchains;
     zest_map_windows windows;
-    zest_map_timers timers;
-    zest_map_shader_resources shader_resources;
-    zest_map_cached_frame_graphs cached_frame_graphs;
+    zest_map_rg_semaphores frame_graph_semaphores;
 
     zest_window current_window;
 
@@ -4019,7 +3609,6 @@ typedef struct zest_renderer_t {
     zest_pipeline *pipeline_recreate_queue;
     zest_pipeline_handles_t *pipeline_destroy_queue;
     zest_destruction_queue_t deferred_resource_freeing_list;
-	VkFramebuffer *old_frame_buffers[ZEST_MAX_FIF];             //For clearing up frame buffers from previous frames that aren't needed anymore
 
     //Each texture has a simple descriptor set with a combined image sampler for debugging purposes
     //allocated from this pool and using the layout
@@ -4122,15 +3711,15 @@ ZEST_PRIVATE void zest__destroy_window_callback(zest_window window, void *user_d
 ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain, zest_bool for_recreation);
 ZEST_PRIVATE void zest__cleanup_device(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
+ZEST_PRIVATE void zest__free_handle();
 ZEST_PRIVATE void zest__scan_memory_and_free_resources();
-ZEST_PRIVATE void zest__clean_up_compute(zest_compute compute);
+ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE VkResult zest__recreate_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE VkResult zest__create_swapchain_image_views(zest_swapchain swapchain);
 ZEST_PRIVATE VkResult zest__create_command_buffer_pools(void);
 ZEST_PRIVATE zest_frame_graph_semaphores zest__get_frame_graph_semaphores(const char *name);
 ZEST_PRIVATE VkCommandBuffer zest__get_next_command_buffer(zest_queue queue);
 ZEST_PRIVATE void zest__reset_queue_command_pool(zest_queue queue);
-ZEST_PRIVATE zest_uniform_buffer zest__add_uniform_buffer(zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__format_shader_code(zest_text_t *code);
 ZEST_PRIVATE void zest__compile_builtin_shaders(zest_bool compile_shaders);
@@ -4154,6 +3743,7 @@ ZEST_PRIVATE void zest__record_mesh_layer(zest_layer layer, zest_uint fif);
 ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
 ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
 ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);
+ZEST_PRIVATE void zest__cleanup_layer(zest_layer layer);
 
 // --Texture_internal_functions
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
@@ -4186,7 +3776,7 @@ ZEST_PRIVATE zest_layer zest__create_instance_layer(const char *name, zest_size 
 
 // --Font_layer_internal_functions
 ZEST_PRIVATE void zest__setup_font_texture(zest_font font);
-ZEST_PRIVATE zest_font zest__add_font(zest_font font);
+ZEST_PRIVATE void zest__cleanup_font(zest_font font);
 
 // --Mesh_layer_internal_functions
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
@@ -4234,11 +3824,11 @@ ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc
 // --End Buffer allocation funcitons
 
 // --Maintenance_functions
-ZEST_PRIVATE void zest__free_texture(zest_texture texture);
-ZEST_PRIVATE void zest__delete_font(zest_font_t *font);
 ZEST_PRIVATE void zest__cleanup_texture(zest_texture texture);
+ZEST_PRIVATE void zest__cleanup_texture_vk_handles(zest_texture texture);
 ZEST_PRIVATE void zest__free_all_texture_images(zest_texture texture);
 ZEST_PRIVATE void zest__reindex_texture_images(zest_texture texture);
+ZEST_PRIVATE void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer);
 // --End Maintenance functions
 
 // --Descriptor_set_functions
@@ -4249,7 +3839,6 @@ ZEST_PRIVATE VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_se
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout_handle, zest_uint binding_number);
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout_handle, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__destroy_set_layout(zest_set_layout layout_handle);
-ZEST_PRIVATE void zest__free_shader_resources(zest_shader_resources shader_resources);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -4445,10 +4034,10 @@ ZEST_API VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout();
 ZEST_API zest_set_layout zest_GetGlobalBindlessLayout();
 ZEST_API VkDescriptorSet zest_vk_GetGlobalUniformBufferDescriptorSet();
 //Create a new descriptor set shader_resources
-ZEST_API zest_shader_resources zest_CreateShaderResources(const char *name);
+ZEST_API zest_shader_resources zest_CreateShaderResources();
 //Delete shader resources from the renderer and free the memory. This does not free or destroy the actual
 //descriptor sets that you added to the resources
-ZEST_API void zest_DeleteShaderResources(const char *name);
+ZEST_API void zest_FreeShaderResources(zest_shader_resources shader_resources);
 //Add a descriptor set to a descriptor set shader_resources. Bundles are used for binding to a draw call so the descriptor sets can be passed in to the shaders
 //according to their set and binding number. So therefore it's important that you add the descriptor sets to the shader_resources in the same order
 //that you set up the descriptor set layouts. You must also specify the frame in flight for the descriptor set that you're addeding.
@@ -4485,6 +4074,8 @@ ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_cod
 ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options);
 //Creates a shader from a file containing the shader glsl code
 ZEST_API zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options);
+//Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
+ZEST_API zest_shader zest_CreateShaderSPVMemory(const unsigned char *shader_code, zest_uint spv_length, const char *name, shaderc_shader_kind type);
 //Reload a shader. Use this if you edited a shader file and you want to refresh it/hot reload it
 //The shader must have been created from a file with zest_CreateShaderFromFile. Once the shader is reloaded you can call
 //zest_CompileShader or zest_ValidateShader to recompile it. You'll then have to call zest_SchedulePipelineRecreate to recreate
@@ -4503,10 +4094,6 @@ ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_sha
 ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind type);
 //Add a shader to the renderer list of shaders.
 ZEST_API void zest_AddShader(zest_shader shader, const char *name);
-//Get a shader that was previously compiled and added to the renderer
-ZEST_API zest_shader zest_GetShader(const char *name);
-//Copy a shader that's stored in the renderer
-ZEST_API zest_shader zest_CopyShader(const char *name, const char *new_name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader shader);
 //Cache shader, only use from implementation, you shouldn't need to call this directly
@@ -4522,21 +4109,21 @@ ZEST_API zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets);
 
 //-----------------------------------------------
 //        Pipeline_related_vulkan_helpers
-//        Pipelines are essential to drawing things on screen. There are some builtin pipelines that Zest creates
+//        Pipelines are essential to drawing things on screen. There are some builtin pipeline_templates that Zest creates
 //        for sprite/billboard/mesh/font drawing. You can take a look in zest__prepare_standard_pipelines to see how
-//        the following functions are utilised, plus look at the exmaples for building your own custom pipelines.
+//        the following functions are utilised, plus look at the exmaples for building your own custom pipeline_templates.
 //-----------------------------------------------
 //Add a new pipeline template to the renderer and return its handle.
 ZEST_API zest_pipeline_template zest_BeginPipelineTemplate(const char *name);
 //Set the name of the file to use for the vert and frag shader in the zest_pipeline_template_create_info_t
-ZEST_API void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
-ZEST_API void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
-ZEST_API void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, const char *vertex_shader, const char *fragment_shader, const char *prefix);
+ZEST_API void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, zest_shader vert_shader);
+ZEST_API void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, zest_shader frag_shader);
+ZEST_API void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, zest_shader vertex_shader, zest_shader fragment_shader);
 ZEST_API void zest_SetPipelineFrontFace(zest_pipeline_template pipeline_template, zest_front_face front_face);
 ZEST_API void zest_SetPipelineTopology(zest_pipeline_template pipeline_template, zest_topology topology);
 ZEST_API void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template, zest_cull_mode cull_mode);
 //Set the name of both the fragment and vertex shader to the same file (frag and vertex shaders can be combined into the same spv)
-ZEST_API void zest_SetPipelineShader(zest_pipeline_template pipeline_template, const char *file, const char *prefix);
+ZEST_API void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader combined_vertex_and_fragment_shader);
 //Add a new VkVertexInputBindingDescription which is used to set the size of the struct (stride) and the vertex input rate.
 //You can add as many bindings as you need, just make sure you set the correct binding index for each one
 ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
@@ -4555,7 +4142,7 @@ ZEST_API zest_vertex_input_descriptions zest_NewVertexInputDescriptions();
 ZEST_API void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint location, VkFormat format, zest_uint offset);
 //Create a VkVertexInputAttributeDescription for adding to a zest_vertex_input_descriptions array. Just pass the binding and location in
 //the shader, the VkFormat and the offset into the struct that you're using for the vertex data. See zest__prepare_standard_pipelines
-//for examples of how the builtin pipelines do this
+//for examples of how the builtin pipeline_templates do this
 ZEST_API VkVertexInputAttributeDescription zest_CreateVertexInputDescription(zest_uint binding, zest_uint location, VkFormat format, zest_uint offset);
 //Set up the push contant that you might plan to use in the pipeline. Just pass in the size of the push constant struct, the offset and the shader
 //stage flags where the push constant will be used. Use this if you only want to set up a single push constant range
@@ -4745,6 +4332,8 @@ ZEST_API void zest_SetDeviceImagePoolSize(const char *name, VkImageUsageFlags im
 //Create a buffer specifically for use as a uniform buffer. This will also create a descriptor set for the uniform
 //buffers as well so it's ready for use in shaders.
 ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
+//Free a uniform buffer and all it's resources
+ZEST_API void zest_FreeUniformBuffer(zest_uniform_buffer uniform_buffer);
 //Standard builtin functions for updating a uniform buffer for use in 2d shaders where x,y coordinates represent a location on the screen. This will
 //update the current frame in flight. If you need to update a specific frame in flight then call zest_UpdateUniformBufferFIF.
 ZEST_API void zest_Update2dUniformBuffer(void);
@@ -4753,7 +4342,7 @@ ZEST_API void zest_Update2dUniformBuffer(void);
 ZEST_API void *zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer);
 //Get the VkDescriptorBufferInfo of a uniform buffer by name and specific frame in flight. Use ZEST_FIF you just want the current frame in flight
 ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfo(zest_uniform_buffer buffer);
-//Get the VkDescriptorSetLayout for a uniform buffer that you can use when creating pipelines. The buffer must have
+//Get the VkDescriptorSetLayout for a uniform buffer that you can use when creating pipeline_templates. The buffer must have
 //been properly initialised, use zest_CreateUniformBuffer for this.
 ZEST_API VkDescriptorSetLayout zest_vk_GetUniformBufferLayout(zest_uniform_buffer buffer);
 ZEST_API zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer buffer);
@@ -4787,10 +4376,6 @@ ZEST_API zest_layer zest_CreateBuiltin3dLineLayer(const char *name);
 ZEST_API zest_layer zest_CreateBuiltinBillboardLayer(const char *name);
 ZEST_API zest_layer zest_CreateMeshLayer(const char *name, zest_size vertex_type_size);
 ZEST_API zest_layer zest_CreateBuiltinInstanceMeshLayer(const char *name);
-//Insert a layer into storage. You can use this for custom layers of you're own
-ZEST_API void zest_InsertLayer(zest_layer layer);
-//Get a zest_layer by name
-ZEST_API zest_layer zest_GetLayer(const char *name);
 //-- End Command queue setup and creation
 
 //-----------------------------------------------
@@ -5158,12 +4743,10 @@ ZEST_API VkSamplerCreateInfo zest_CreateMippedSamplerInfo(zest_uint mip_levels);
 //-----------------------------------------------
 //Load a .zft file for use with drawing MSDF fonts
 ZEST_API zest_font zest_LoadMSDFFont(const char *filename);
-//Unload a zest_font and return it's memory to the allocator.
-ZEST_API void zest_UnloadFont(zest_font font);
-//Get a font that you previously loaded with zest_LoadMSDFFont. It's stored in the renderer with it's full path that you used to load the font
-ZEST_API zest_font zest_GetFont(const char *font);
 ZEST_API void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
 ZEST_API void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
+//Unload a zest_font and free all it's resources
+ZEST_API void zest_FreeFont(zest_font font);
 //-- End Fonts
 
 //-----------------------------------------------
@@ -5183,7 +4766,7 @@ ZEST_API zest_layer zest_CreateFIFInstanceLayer(const char *name, zest_size type
 //Create a new layer builder which you can use to build new custom layers to draw with using instances
 ZEST_API zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_size type_size);
 //Once you have configured your layer you can call this to create the layer ready for adding to a command queue
-ZEST_API zest_layer zest_BuildInstanceLayer(const char *name, zest_layer_builder_t *builder);
+ZEST_API zest_layer zest_FinishInstanceLayer(const char *name, zest_layer_builder_t *builder);
 //Create a layer specifically for drawing text using msdf font rendering. See the section Draw_MSDF_font_layers for commands 
 //yous can use to setup and draw text. Also see the fonts example.
 ZEST_API zest_layer zest_CreateFontLayer(const char *name);
@@ -5219,6 +4802,8 @@ ZEST_API zest_uint zest_GetInstanceLayerCount(zest_layer layer);
 ZEST_API void zest_NextInstance(zest_layer layer);
 //Allocate a new zest_layer and return it's handle. This is mainly used internally but will leave it in the API for now
 ZEST_API zest_layer zest_NewLayer();
+//Free a layer and all it's resources
+ZEST_API void zest_FreeLayer(zest_layer layer);
 //Set the viewport of a layer. This is important to set right as when the layer is drawn it needs to be clipped correctly and in a lot of cases match how the
 //uniform buffer is setup
 ZEST_API void zest_SetLayerViewPort(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
@@ -5527,6 +5112,8 @@ ZEST_API void zest_DispatchCompute(VkCommandBuffer command_buffer, zest_compute 
 ZEST_API void zest_ResetCompute(zest_compute compute);
 //Default always true condition for recording compute command buffers
 ZEST_API int zest_ComputeConditionAlwaysTrue(zest_compute compute);
+//Free a compute shader and all its resources
+ZEST_API void zest_FreeCompute(zest_compute compute);
 //--End Compute shaders
 
 //-----------------------------------------------
@@ -5541,9 +5128,8 @@ ZEST_API zest_bool zest_SwapchainWasRecreated(zest_swapchain swapchain);
 //        This is a simple API for a high resolution timer. You can use this to implement fixed step
 //        updating for your logic in the main loop, plus for anything else that you need to time.
 //-----------------------------------------------
-ZEST_API zest_timer zest_CreateTimer(const char *name, double update_frequency);                //Create a new timer and return its handle
-ZEST_API zest_timer zest_GetTimer(const char *name);                                            //Create a new timer and return its handle
-ZEST_API void zest_FreeTimer(const char *name);                                                 //Free a timer and its memory
+ZEST_API zest_timer zest_CreateTimer(double update_frequency);                                  //Create a new timer and return its handle
+ZEST_API void zest_FreeTimer(zest_timer timer);                                                 //Free a timer and its memory
 ZEST_API void zest_TimerSetUpdateFrequency(zest_timer timer, double update_frequency);          //Set the update frequency for timing loop functions, accumulators and such
 ZEST_API void zest_TimerSetMaxFrames(zest_timer timer, double frames);                          //Set the maximum amount of frames that can pass each update. This helps avoid simulations blowing up
 ZEST_API void zest_TimerReset(zest_timer timer);                                                //Set the clock time to now

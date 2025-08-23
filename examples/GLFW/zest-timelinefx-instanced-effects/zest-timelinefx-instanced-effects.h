@@ -87,7 +87,7 @@ struct ComputeExample {
 	zest_texture floor_texture;
 	zest_shader_resources floor_resources;
 
-	//Indexes for the compute shader pipelines
+	//Indexes for the compute shader pipeline_templates
 	zest_index compute_pipeline_3d;
 	zest_index bb_compute_pipeline_3d;
 

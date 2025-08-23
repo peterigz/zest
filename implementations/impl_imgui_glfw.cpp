@@ -22,6 +22,9 @@ zest_imgui zest_imgui_Initialise() {
 	zest_ProcessTextureImages(imgui_info->font_texture);
 	zest_FreeBitmap(font_bitmap);
 
+    imgui_info->vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
+    imgui_info->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
+
 	//ImGuiPipeline
 	zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate("pipeline_imgui");
 	imgui_pipeline->scissor.offset.x = 0;
@@ -32,8 +35,7 @@ zest_imgui zest_imgui_Initialise() {
 	zest_AddVertexAttribute(imgui_pipeline, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV
 	zest_AddVertexAttribute(imgui_pipeline, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col));    // Location 2: Color
 
-	zest_SetText(&imgui_pipeline->vertShaderFile, "imgui_vert.spv");
-	zest_SetText(&imgui_pipeline->fragShaderFile, "imgui_frag.spv");
+	zest_SetPipelineShaders(imgui_pipeline, imgui_info->vertex_shader, imgui_info->fragment_shader);
 
 	imgui_pipeline->scissor.extent = zest_GetSwapChainExtent();
 	imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;

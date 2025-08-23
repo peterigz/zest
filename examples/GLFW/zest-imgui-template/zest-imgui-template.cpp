@@ -30,7 +30,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_ProcessTextureImages(app->test_texture);
 
 	//We can use a timer to only update imgui 60 times per second
-	app->timer = zest_CreateTimer("Main loop timer", 60);
+	app->timer = zest_CreateTimer(60);
 	app->request_graph_print = true;
 	app->reset = false;
 }
