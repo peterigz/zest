@@ -121,7 +121,7 @@ void zest__os_poll_events() {
 
     POINT cursor_position;
     GetCursorPos(&cursor_position);
-    ScreenToClient(ZestRenderer->current_window->window_handle, &cursor_position);
+    ScreenToClient(ZestRenderer->main_window->window_handle, &cursor_position);
     double last_mouse_x = ZestApp->mouse_x;
     double last_mouse_y = ZestApp->mouse_y;
     ZestApp->mouse_x = (double)cursor_position.x;
@@ -274,7 +274,7 @@ void zest__os_add_platform_extensions() {
 
 void zest__get_window_size_callback(void* user_data, int* fb_width, int* fb_height, int* window_width, int* window_height) {
     RECT window_rect;
-    GetClientRect(ZestRenderer->current_window->window_handle, &window_rect);
+    GetClientRect(ZestRenderer->main_window->window_handle, &window_rect);
     *fb_width = window_rect.right - window_rect.left;
     *fb_height = window_rect.bottom - window_rect.top;
     *window_width = *fb_width;
@@ -282,7 +282,7 @@ void zest__get_window_size_callback(void* user_data, int* fb_width, int* fb_heig
 }
 
 void zest__os_set_window_title(const char* title) {
-    SetWindowText(ZestRenderer->current_window->window_handle, title);
+    SetWindowText(ZestRenderer->main_window->window_handle, title);
 }
 
 #else
@@ -1524,7 +1524,7 @@ void zest_ResetRenderer() {
     ZestRenderer->set_window_mode_callback = info->set_window_mode_callback;
     ZestRenderer->set_window_size_callback = info->set_window_size_callback;
 	zest__initialise_window(&ZestApp->create_info);
-    ZestRenderer->create_window_surface_callback(ZestRenderer->current_window);
+    ZestRenderer->create_window_surface_callback(ZestRenderer->main_window);
     zest__initialise_renderer(&ZestApp->create_info);
 }
 
@@ -1671,7 +1671,7 @@ VkResult zest__create_instance() {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validating Vulkan Instance");
 
     ZEST__FREE(available_extensions);
-    ZestRenderer->create_window_surface_callback(ZestRenderer->current_window);
+    ZestRenderer->create_window_surface_callback(ZestRenderer->main_window);
 
     zest_vec_free(enabled_validation_features);
 
@@ -1933,20 +1933,20 @@ zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device)
 zest_swapchain_support_details_t zest__query_swapchain_support(VkPhysicalDevice physical_device) {
     zest_swapchain_support_details_t details;
 
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, ZestRenderer->current_window->surface, &details.capabilities);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, ZestRenderer->main_window->surface, &details.capabilities);
 
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->current_window->surface, &details.formats_count, ZEST_NULL);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->surface, &details.formats_count, ZEST_NULL);
 
     if (details.formats_count != 0) {
         details.formats = ZEST__ALLOCATE(sizeof(VkSurfaceFormatKHR) * details.formats_count);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->current_window->surface, &details.formats_count, details.formats);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->surface, &details.formats_count, details.formats);
     }
 
-    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->current_window->surface, &details.present_modes_count, ZEST_NULL);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->surface, &details.present_modes_count, ZEST_NULL);
 
     if (details.present_modes_count != 0) {
         details.present_modes = ZEST__ALLOCATE(sizeof(VkPresentModeKHR) * details.present_modes_count);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->current_window->surface, &details.present_modes_count, details.present_modes);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->surface, &details.present_modes_count, details.present_modes);
     }
 
     return details;
@@ -2009,7 +2009,7 @@ VkResult zest__create_logical_device() {
         VkQueueFamilyProperties properties = ZestDevice->queue_families[i];
         // Find the primary graphics queue (must support presentation!)
         VkBool32 present_support = 0;
-        vkGetPhysicalDeviceSurfaceSupportKHR(ZestDevice->physical_device, i, ZestRenderer->current_window->surface, &present_support);
+        vkGetPhysicalDeviceSurfaceSupportKHR(ZestDevice->physical_device, i, ZestRenderer->main_window->surface, &present_support);
 
         if ((properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && present_support) {
             if (graphics_candidate == ZEST_INVALID) {
@@ -2390,8 +2390,7 @@ void zest__initialise_app(zest_create_info_t* create_info) {
 
 void zest__initialise_window(zest_create_info_t *create_info) {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create window with dimensions: %i, %i", create_info->screen_width, create_info->screen_height);
-    ZestRenderer->current_window = ZestRenderer->create_window_callback(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, ZEST__FLAGGED(create_info->flags, zest_init_flag_maximised), "Zest");
-    zest_map_insert(ZestRenderer->windows, create_info->title, ZestRenderer->current_window);
+    ZestRenderer->main_window = ZestRenderer->create_window_callback(create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, ZEST__FLAGGED(create_info->flags, zest_init_flag_maximised), "Zest");
 }
 
 void zest__end_thread(zest_work_queue_t *queue, void *data) {
@@ -3615,7 +3614,7 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain");
     zest_swapchain swapchain = zest__create_swapchain(create_info->title);
     ZestRenderer->main_swapchain = swapchain;
-    ZestRenderer->current_window->swapchain = swapchain;
+    ZestRenderer->main_window->swapchain = swapchain;
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
 
@@ -3688,8 +3687,7 @@ zest_swapchain zest__create_swapchain(const char *name) {
     *swapchain = (zest_swapchain_t){ 0 };
     swapchain->magic = zest_INIT_MAGIC(zest_struct_type_swapchain);
     swapchain->name = name;
-    zest_map_insert(ZestRenderer->swapchains, name, swapchain);
-    zest__initialise_swapchain(swapchain, ZestRenderer->current_window);
+    zest__initialise_swapchain(swapchain, ZestRenderer->main_window);
     zest__initialise_swapchain_semaphores(swapchain);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create swap chain image views");
     zest__create_swapchain_image_views(swapchain);
@@ -3707,13 +3705,13 @@ VkResult zest__initialise_swapchain(zest_swapchain swapchain, zest_window window
     VkSurfaceFormatKHR surfaceFormat = zest__choose_swapchain_format(swapchain_support_details.formats);
     VkPresentModeKHR presentMode = zest_choose_present_mode(swapchain_support_details.present_modes, ZestRenderer->flags & zest_renderer_flag_vsync_enabled); 
     VkExtent2D extent = zest_choose_swap_extent(&swapchain_support_details.capabilities);
-    ZestRenderer->dpi_scale = (float)extent.width / (float)ZestRenderer->current_window->window_width;
+    ZestRenderer->dpi_scale = (float)extent.width / (float)ZestRenderer->main_window->window_width;
     swapchain->format = (zest_texture_format)surfaceFormat.format;
 
     swapchain->vk_format = surfaceFormat.format;
     swapchain->vk_extent = extent;
-    ZestRenderer->window_extent.width = ZestRenderer->current_window->window_width;
-    ZestRenderer->window_extent.height = ZestRenderer->current_window->window_height;
+    ZestRenderer->window_extent.width = ZestRenderer->main_window->window_width;
+    ZestRenderer->window_extent.height = ZestRenderer->main_window->window_height;
 
     zest_uint image_count = swapchain_support_details.capabilities.minImageCount + 1;
 
@@ -3723,7 +3721,7 @@ VkResult zest__initialise_swapchain(zest_swapchain swapchain, zest_window window
 
     VkSwapchainCreateInfoKHR createInfo = { 0 };
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    createInfo.surface = ZestRenderer->current_window->surface;
+    createInfo.surface = ZestRenderer->main_window->surface;
 
     createInfo.minImageCount = image_count;
     createInfo.imageFormat = surfaceFormat.format;
@@ -4003,6 +4001,9 @@ void zest__free_handle(void *handle) {
     case zest_struct_type_pipeline_template:
         zest__cleanup_pipeline_template((zest_pipeline_template)handle);
         break;
+    case zest_struct_type_swapchain:
+        zest__cleanup_swapchain((zest_swapchain)handle, ZEST_FALSE);
+        break;
     }
 
 }
@@ -4032,6 +4033,7 @@ void zest__scan_memory_and_free_resources() {
                 case zest_struct_type_font:
                 case zest_struct_type_set_layout:
                 case zest_struct_type_pipeline_template:
+                case zest_struct_type_swapchain:
                     zest_vec_push(memory_to_free, allocation);
                     break;
                 }
@@ -4047,9 +4049,6 @@ void zest__scan_memory_and_free_resources() {
 }
 
 void zest__cleanup_renderer() {
-    zest_map_foreach(i, ZestRenderer->swapchains) {
-        zest__cleanup_swapchain(ZestRenderer->swapchains.data[i], 0);
-    }
 
     zest_uint cached_pipelines_size = zest_map_size(ZestRenderer->cached_pipelines);
 
@@ -4146,11 +4145,8 @@ void zest__cleanup_renderer() {
         ZEST__FREE(buffer_allocator);
     }
 
-    zest_map_foreach(i, ZestRenderer->windows) {
-        zest_window window = ZestRenderer->windows.data[i];
-        ZestRenderer->destroy_window_callback(window, ZestApp->user_data);
-        ZEST__FREE(window);
-    }
+	ZestRenderer->destroy_window_callback(ZestRenderer->main_window, ZestApp->user_data);
+	ZEST__FREE(ZestRenderer->main_window);
 
     zest_map_foreach(i, ZestRenderer->reports) {
         zest_report_t *report = &ZestRenderer->reports.data[i];
@@ -4183,8 +4179,6 @@ void zest__cleanup_renderer() {
     zest_map_free(ZestRenderer->cached_pipelines);
     zest_map_free(ZestRenderer->cached_samplers);
     zest_map_free(ZestRenderer->frame_graph_semaphores);
-    zest_map_free(ZestRenderer->swapchains);
-    zest_map_free(ZestRenderer->windows);
     zest_map_free(ZestRenderer->cached_frame_graphs);
 
     zest_FreeText(&ZestRenderer->shader_path_prefix);
@@ -4203,13 +4197,13 @@ VkResult zest__recreate_swapchain(zest_swapchain swapchain) {
         }
     }
 
-    zest__update_window_size(ZestRenderer->current_window, window_width, window_height);
+    zest__update_window_size(ZestRenderer->main_window, window_width, window_height);
     swapchain->screen_resolution_push.x = 1.f / fb_width;
     swapchain->screen_resolution_push.y = 1.f / fb_height;
 
     zest_WaitForIdleDevice();
 
-    zest__cleanup_swapchain(swapchain, 1);
+    zest__cleanup_swapchain(swapchain, ZEST_TRUE);
     zest__cleanup_pipelines();
     zest_map_free(ZestRenderer->cached_pipelines);
 
@@ -6179,10 +6173,10 @@ zest_uint zest_SwapChainWidth(void) { return ZestRenderer->main_swapchain->vk_ex
 zest_uint zest_SwapChainHeight(void) { return ZestRenderer->main_swapchain->vk_extent.height; }
 float zest_SwapChainWidthf(void) { return (float)ZestRenderer->main_swapchain->vk_extent.width; }
 float zest_SwapChainHeightf(void) { return (float)ZestRenderer->main_swapchain->vk_extent.height; }
-zest_uint zest_ScreenWidth() { return ZestRenderer->current_window->window_width; }
-zest_uint zest_ScreenHeight() { return ZestRenderer->current_window->window_height; }
-float zest_ScreenWidthf() { return (float)ZestRenderer->current_window->window_width; }
-float zest_ScreenHeightf() { return (float)ZestRenderer->current_window->window_height; }
+zest_uint zest_ScreenWidth() { return ZestRenderer->main_window->window_width; }
+zest_uint zest_ScreenHeight() { return ZestRenderer->main_window->window_height; }
+float zest_ScreenWidthf() { return (float)ZestRenderer->main_window->window_width; }
+float zest_ScreenHeightf() { return (float)ZestRenderer->main_window->window_height; }
 float zest_MouseXf() { return (float)ZestApp->mouse_x; }
 float zest_MouseYf() { return (float)ZestApp->mouse_y; }
 bool zest_MouseDown(zest_mouse_button button) { return (button & ZestApp->mouse_button) > 0; }
@@ -6347,7 +6341,7 @@ void zest_LogFPSToConsole(zest_bool yesno) {
 }
 
 void* zest_Window() {
-    return ZestRenderer->current_window->window_handle;
+    return ZestRenderer->main_window->window_handle;
 }
 
 void zest_SetFrameInFlight(zest_uint fif) {
@@ -7739,16 +7733,12 @@ zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags fla
 }
 
  zest_window zest_GetCurrentWindow() {
-     return ZestRenderer->current_window;
+     return ZestRenderer->main_window;
 }
 
- void zest_CloseWindow(const char *name) {
-     if (zest_map_valid_name(ZestRenderer->windows, name)) {
-         zest_window window = *zest_map_at(ZestRenderer->windows, name);
-         ZestRenderer->destroy_window_callback(window, ZestApp->user_data);
-         zest_map_remove(ZestRenderer->windows, name);
-         ZEST__FREE(window);
-     }
+ void zest_CloseWindow(zest_window window) {
+	 ZestRenderer->destroy_window_callback(window, ZestApp->user_data);
+	 ZEST__FREE(window);
 }
 
 char* zest_ReadEntireFile(const char* file_name, zest_bool terminate) {
@@ -11651,13 +11641,6 @@ zest_execution_timeline zest_CreateExecutionTimeline() {
 // --End frame graph functions
 
 // [Swapchain]
-zest_swapchain zest_GetSwapchain(const char *name) {
-    if (zest_map_valid_name(ZestRenderer->swapchains, name)) {
-        return *zest_map_at(ZestRenderer->swapchains, name);
-    }
-    return NULL;
-}
-
 zest_swapchain zest_GetMainWindowSwapchain() {
     return ZestRenderer->main_swapchain;
 }

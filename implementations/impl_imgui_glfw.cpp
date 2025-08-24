@@ -54,7 +54,7 @@ zest_imgui zest_imgui_Initialise() {
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
 
 	io.Fonts->SetTexID((ImTextureID)font_image);
-	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestRenderer->current_window->window_handle, true);
+	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestRenderer->main_window->window_handle, true);
 
     imgui_info->pipeline = imgui_pipeline;
 

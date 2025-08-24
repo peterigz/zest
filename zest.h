@@ -2935,7 +2935,6 @@ ZEST_API void zest_PrintCompiledRenderGraph(zest_frame_graph frame_graph);
 ZEST_API void zest_PrintCachedRenderGraph(zest_frame_graph_cache_key_t *cache_key);
 
 // --- [Swapchain_helpers]
-ZEST_API zest_swapchain zest_GetSwapchain(const char *name);
 ZEST_API zest_swapchain zest_GetMainWindowSwapchain();
 ZEST_API zest_texture_format zest_GetSwapchainFormat(zest_swapchain swapchain);
 ZEST_API void zest_SetSwapchainClearColor(zest_swapchain swapchain, float red, float green, float blue, float alpha);
@@ -3522,8 +3521,6 @@ zest_hash_map(zest_sampler) zest_map_samplers;
 zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
 zest_hash_map(zest_frame_graph) zest_map_frame_graphs;
 zest_hash_map(zest_report_t) zest_map_reports;
-zest_hash_map(zest_swapchain) zest_map_swapchains;
-zest_hash_map(zest_window) zest_map_windows;
 zest_hash_map(zest_cached_frame_graph_t) zest_map_cached_frame_graphs;
 
 typedef struct zest_builtin_shaders_t {
@@ -3594,11 +3591,9 @@ typedef struct zest_renderer_t {
     zest_map_cached_pipelines cached_pipelines;
     zest_map_samplers cached_samplers;
 
-    zest_map_swapchains swapchains;
-    zest_map_windows windows;
     zest_map_rg_semaphores frame_graph_semaphores;
 
-    zest_window current_window;
+    zest_window main_window;
 
     //Cache of the supported depth format
     VkFormat vk_depth_format;
@@ -5152,7 +5147,7 @@ ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer timer);                    
 ZEST_API void zest_SetWindowMode(zest_window window, zest_window_mode mode);
 ZEST_API void zest_SetWindowSize(zest_window window, zest_uint width, zest_uint height);
 ZEST_API zest_window zest_GetCurrentWindow();
-ZEST_API void zest_CloseWindow(const char *name);
+ZEST_API void zest_CloseWindow(zest_window window);
 
 //-----------------------------------------------
 //        General_Helper_functions

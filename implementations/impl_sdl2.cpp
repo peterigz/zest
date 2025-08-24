@@ -83,10 +83,10 @@ void zest_implsdl2_PollEventsCallback(void) {
 
 void zest_implsdl2_AddPlatformExtensionsCallback(void) {
 	zest_uint count;
-	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)ZestRenderer->current_window->window_handle, &count, nullptr);
+	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)ZestRenderer->main_window->window_handle, &count, nullptr);
 	const char **sdl_extensions = 0;
 	if (!sdl_extensions || zest__vec_header(sdl_extensions)->capacity < count) sdl_extensions = (const char**)zest__vec_reserve(sdl_extensions, sizeof(*sdl_extensions), count == 1 ? 8 : count); zest__vec_header(sdl_extensions)->current_size = count;
-	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)ZestRenderer->current_window->window_handle, &count, sdl_extensions);
+	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)ZestRenderer->main_window->window_handle, &count, sdl_extensions);
 	for (int i = 0; i != count; ++i) {
 		zest_AddInstanceExtension((char*)sdl_extensions[i]);
 	}
@@ -94,8 +94,8 @@ void zest_implsdl2_AddPlatformExtensionsCallback(void) {
 }
 
 void zest_implsdl2_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
-	SDL_GL_GetDrawableSize((SDL_Window*)ZestRenderer->current_window->window_handle, fb_width, fb_height);
-	SDL_GetWindowSize((SDL_Window*)ZestRenderer->current_window->window_handle, window_width, window_height);
+	SDL_GL_GetDrawableSize((SDL_Window*)ZestRenderer->main_window->window_handle, fb_width, fb_height);
+	SDL_GetWindowSize((SDL_Window*)ZestRenderer->main_window->window_handle, window_width, window_height);
 }
 
 void zest_implsdl2_DestroyWindowCallback(zest_window window, void *user_data) {

@@ -79,14 +79,14 @@ void zest_implglfw_SetWindowMode(zest_window window, zest_window_mode mode) {
 void zest_implglfw_PollEventsCallback(void) {
 	glfwPollEvents();
 	double mouse_x, mouse_y;
-	glfwGetCursorPos((GLFWwindow*)ZestRenderer->current_window->window_handle, &mouse_x, &mouse_y);
+	glfwGetCursorPos((GLFWwindow*)ZestRenderer->main_window->window_handle, &mouse_x, &mouse_y);
 	double last_mouse_x = ZestApp->mouse_x;
 	double last_mouse_y = ZestApp->mouse_y;
 	ZestApp->mouse_x = mouse_x;
 	ZestApp->mouse_y = mouse_y;
 	ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
 	ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
-	zest_MaybeQuit(glfwWindowShouldClose((GLFWwindow*)ZestRenderer->current_window->window_handle));
+	zest_MaybeQuit(glfwWindowShouldClose((GLFWwindow*)ZestRenderer->main_window->window_handle));
 }
 
 void zest_implglfw_AddPlatformExtensionsCallback(void) {
@@ -98,8 +98,8 @@ void zest_implglfw_AddPlatformExtensionsCallback(void) {
 }
 
 void zest_implglfw_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
-    glfwGetFramebufferSize((GLFWwindow*)ZestRenderer->current_window->window_handle, fb_width, fb_height);
-	glfwGetWindowSize((GLFWwindow*)ZestRenderer->current_window->window_handle, window_width, window_height);
+    glfwGetFramebufferSize((GLFWwindow*)ZestRenderer->main_window->window_handle, fb_width, fb_height);
+	glfwGetWindowSize((GLFWwindow*)ZestRenderer->main_window->window_handle, window_width, window_height);
 }
 
 void zest_implglfw_DestroyWindowCallback(zest_window window, void *user_data) {

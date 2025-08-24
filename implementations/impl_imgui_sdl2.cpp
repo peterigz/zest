@@ -59,7 +59,7 @@ zest_imgui zest_imgui_Initialise() {
 		imgui_info->vertex_device_buffer[fif] = zest_CreateVertexBuffer(1024 * 1024, fif);
 		imgui_info->index_device_buffer[fif] = zest_CreateIndexBuffer(1024 * 1024, fif);
 	}
-	ImGui_ImplSDL2_InitForVulkan((SDL_Window*)ZestRenderer->current_window->window_handle);
+	ImGui_ImplSDL2_InitForVulkan((SDL_Window*)ZestRenderer->main_window->window_handle);
 
 	return imgui_info;
 }
