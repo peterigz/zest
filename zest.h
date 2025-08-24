@@ -3516,7 +3516,6 @@ typedef struct zest_frame_graph_semaphores_t {
 
 zest_hash_map(zest_frame_graph_semaphores) zest_map_rg_semaphores;
 zest_hash_map(zest_render_pass) zest_map_render_passes;
-zest_hash_map(zest_pipeline_template) zest_map_pipelines;
 zest_hash_map(zest_pipeline) zest_map_cached_pipelines;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 zest_hash_map(zest_sampler) zest_map_samplers;
@@ -3537,6 +3536,14 @@ typedef struct zest_builtin_shaders_t {
     zest_shader swap_vert;
     zest_shader swap_frag;
 } zest_builtin_shaders_t;
+
+typedef struct zest_builtin_pipeline_templates_t {
+    zest_pipeline_template sprites;
+    zest_pipeline_template fonts;
+    zest_pipeline_template mesh;
+    zest_pipeline_template instanced_mesh;
+    zest_pipeline_template swap;
+} zest_builtin_pipeline_templates_t;
 
 typedef struct zest_renderer_t {
     int magic;
@@ -3566,6 +3573,7 @@ typedef struct zest_renderer_t {
 
     //Built in shaders that I'll probably remove soon
     zest_builtin_shaders_t builtin_shaders;
+    zest_builtin_pipeline_templates_t pipeline_templates;
 
     //Context data
     zest_frame_graph current_frame_graph;
@@ -3585,8 +3593,6 @@ typedef struct zest_renderer_t {
     zest_map_cached_frame_graphs cached_frame_graphs;
     zest_map_cached_pipelines cached_pipelines;
     zest_map_samplers cached_samplers;
-
-    zest_map_pipelines pipeline_templates;
 
     zest_map_swapchains swapchains;
     zest_map_windows windows;
@@ -3717,7 +3723,6 @@ ZEST_PRIVATE void zest__compile_builtin_shaders(zest_bool compile_shaders);
 ZEST_PRIVATE void zest__create_debug_layout_and_pool(zest_uint max_texture_count);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__cleanup_pipelines(void);
-ZEST_PRIVATE void zest__cleanup_pipeline_templates(void);
 ZEST_PRIVATE void zest__cleanup_framebuffer(zest_frame_buffer_t *frame_buffer);
 ZEST_PRIVATE void zest__refresh_pipeline_template(zest_pipeline_template pipeline);
 ZEST_PRIVATE VkResult zest__rebuild_pipeline(zest_pipeline pipeline);
@@ -3805,6 +3810,7 @@ ZEST_PRIVATE VkResult zest__cache_pipeline(zest_pipeline_template pipeline_templ
 ZEST_PRIVATE zest_uint zest__get_vk_format_size(VkFormat format);
 ZEST_PRIVATE void zest__destroy_pipeline(zest_pipeline p);
 ZEST_PRIVATE zest_bool zest__build_pipeline(zest_pipeline pipeline);
+ZEST_PRIVATE void zest__cleanup_pipeline_template(zest_pipeline_template pipeline);
 // --End Pipeline Helper Functions
 
 // --Buffer_allocation_funcitons
@@ -4185,15 +4191,12 @@ ZEST_API void zest_BindComputePipeline(VkCommandBuffer command_buffer, zest_comp
 //you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
 //resource that is marked as static.
 ZEST_API void zest_BindPipelineShaderResource(VkCommandBuffer command_buffer, zest_pipeline pipeline, zest_shader_resources shader_resources);
-//Retrieve a pipeline from the renderer storage. Just pass in the name of the pipeline you want to retrieve and the handle to the pipeline
-//will be returned.
-ZEST_API zest_pipeline_template zest_PipelineTemplate(const char *name);
 ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, zest_render_pass render_pass);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
 ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_template);
 //Delete a pipeline including the template and any cached versions of the pipeline
-ZEST_API void zest_DeletePipeline(zest_pipeline_template pipeline_template);
+ZEST_API void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template);
 //-- End Pipeline related
 
 //--End vulkan helper functions

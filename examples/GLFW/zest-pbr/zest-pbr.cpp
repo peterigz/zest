@@ -271,7 +271,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	SetupIrradianceCube(app);
 	SetupPrefilteredCube(app);
 
-	app->pbr_pipeline = zest_CopyPipelineTemplate("pbr_mesh_pipeline", zest_PipelineTemplate("pipeline_mesh_instance"));
+	app->pbr_pipeline = zest_CopyPipelineTemplate("pbr_mesh_pipeline", ZestRenderer->pipeline_templates.instanced_mesh);
 	zest_ClearPipelineDescriptorLayouts(app->pbr_pipeline);
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetGlobalBindlessLayout());
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetUniformBufferLayout(app->view_buffer));
@@ -282,7 +282,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_SetPipelineTopology(app->pbr_pipeline, zest_topology_triangle_list);
 	zest_EndPipelineTemplate(app->pbr_pipeline);
 
-	app->skybox_pipeline = zest_CopyPipelineTemplate("sky_box", zest_PipelineTemplate("pbr_mesh_pipeline"));
+	app->skybox_pipeline = zest_CopyPipelineTemplate("sky_box", app->pbr_pipeline);
 	zest_ClearPipelineDescriptorLayouts(app->skybox_pipeline);
 	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_vk_GetGlobalBindlessLayout());
 	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_vk_GetUniformBufferLayout(app->view_buffer));

@@ -77,7 +77,7 @@ void zest_imgui_Shutdown() {
 		zest_FreeBuffer(imgui_info->vertex_staging_buffer[fif]);
 	}
 	zest_FreeTexture(imgui_info->font_texture);
-	zest_DeletePipeline(imgui_info->pipeline);
+	zest_FreePipelineTemplate(imgui_info->pipeline);
 	zest_vec_free(imgui_info->draw_sets);
 	*imgui_info = { 0 };
 }
