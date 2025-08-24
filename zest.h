@@ -3785,6 +3785,7 @@ ZEST_PRIVATE VkResult zest__transition_image_layout(VkImage image, VkFormat form
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage image, VkAccessFlags from_access, VkAccessFlags to_access, VkImageLayout from_layout, VkImageLayout to_layout, VkImageAspectFlags aspect_flags, zest_uint target_mip_level, zest_uint mip_count);
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_base_image_memory_barrier(VkImage image);
 ZEST_PRIVATE VkBufferMemoryBarrier zest__create_buffer_memory_barrier( VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkDeviceSize offset, VkDeviceSize size);
+ZEST_PRIVATE void zest__insert_image_memory_barrier(VkCommandBuffer cmdbuffer, VkImage image, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkImageSubresourceRange subresourceRange);
 ZEST_PRIVATE void zest__place_fragment_barrier(VkCommandBuffer command_buffer, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE VkFormat zest__find_depth_format(void);
@@ -4704,7 +4705,7 @@ ZEST_API void zest_SetTextureImguiBlendType(zest_texture texture, zest_imgui_ble
 //Resize a single or storage texture.
 ZEST_API void zest_TextureResize(zest_texture texture, zest_uint width, zest_uint height);
 //Clear a texture
-ZEST_API zest_bool zest_TextureClear(zest_texture texture);
+ZEST_API zest_bool zest_TextureClear(zest_texture texture, VkCommandBuffer command_buffer);
 //For single or storage textures, get the bitmap for the texture.
 ZEST_API zest_bitmap zest_GetTextureSingleBitmap(zest_texture texture);
 //Returns true if the texture has a storage type of zest_texture_storage_type_bank or zest_texture_storage_type_single.
