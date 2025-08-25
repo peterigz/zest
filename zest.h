@@ -257,6 +257,7 @@ const char *zest__vulkan_error_string(VkResult errorCode);
 //Typedefs_for_numbers
 
 typedef unsigned int zest_uint;
+typedef unsigned int zest_handle;
 typedef int zest_index;
 typedef unsigned long long zest_ull;
 typedef uint16_t zest_u16;
@@ -275,6 +276,12 @@ typedef zest_uint zest_resource_id;
 
 //Handles. These are pointers that remain stable until the object is freed.
 #define ZEST__MAKE_HANDLE(handle) typedef struct handle##_t* handle;
+
+#define ZEST__MAKE_USER_HANDLE(handle) typedef struct { zest_handle value; } handle##_handle;
+#define ZEST_HANDLE_INDEX(handle) (handle & 0xFFFF)
+#define ZEST_HANDLE_GENERATION(handle) ((handle & 0xFFFF0000) >> 16)
+
+#define ZEST_CREATE_HANDLE(generation, index) ((generation << 16) + index)
 
 //For allocating a new object with handle. Only used internally.
 #define ZEST__NEW(type) ZEST__ALLOCATE(sizeof(type##_t))
@@ -1387,6 +1394,9 @@ ZEST__MAKE_HANDLE(zest_output_group);
 ZEST__MAKE_HANDLE(zest_render_pass)
 ZEST__MAKE_HANDLE(zest_mesh)
 
+ZEST__MAKE_USER_HANDLE(zest_shader_resources)
+ZEST__MAKE_USER_HANDLE(zest_texture)
+
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
     zest_uint graphics_family_index;
@@ -1464,6 +1474,30 @@ ZEST_PRIVATE inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t 
 #define zest_bucket_array_size(array) ((array)->current_size)
 #define zest_bucket_array_foreach(index, array) for (int index = 0; index != array.current_size; ++index)
 // --end of pocket bucket array
+
+// --Generic container used to store resources that use int handles
+typedef struct zest_resource_store_t {
+    void *data;
+    zest_uint current_size;
+    zest_uint capacity;
+    zest_uint struct_size;
+    zest_uint alignment;
+    zest_uint *generations;
+    zest_uint *free_slots;
+} zest_resource_store_t;
+
+ZEST_PRIVATE void zest__free_store(zest_resource_store_t *store);
+ZEST_PRIVATE void zest__reserve_store(zest_resource_store_t *store, zest_uint new_capacity);
+ZEST_PRIVATE void zest__clear_store(zest_resource_store_t *store);
+ZEST_PRIVATE zest_uint zest__grow_store_capacity(zest_resource_store_t *store, zest_uint size);
+ZEST_PRIVATE void zest__resize_store(zest_resource_store_t *store, zest_uint new_size);
+ZEST_PRIVATE void zest__resize_bytes_store(zest_resource_store_t *store, zest_uint new_size);
+ZEST_PRIVATE zest_uint zest__size_in_bytes_store(zest_resource_store_t *store);
+ZEST_PRIVATE zest_handle zest__add_store_resource(zest_resource_store_t *store);
+ZEST_PRIVATE void zest__remove_store_resource(zest_resource_store_t *store, zest_handle handle);
+ZEST_PRIVATE void *zest__get_store_resource(zest_resource_store_t *store, zest_handle handle);
+ZEST_PRIVATE void zest__initialise_store(zest_resource_store_t *store, zest_uint struct_size);
+
 
 // --Pocket_Hasher, converted to c from Stephen Brumme's XXHash code (https://github.com/stbrumme/xxhash) by Peter Rigby
 /*
@@ -2907,7 +2941,7 @@ ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_output_group group);
 ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image);
 
 // --- Import external resouces into the render graph ---
-ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture texture, zest_resource_image_provider provider);
+ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture_handle texture, zest_resource_image_provider provider);
 ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
 ZEST_API zest_resource_node zest_ImportFontResource(const zest_font font);
 
@@ -3211,7 +3245,7 @@ typedef struct zest_layer_instruction_t {
     };
     zest_index last_instance;                     //The last instance that was drawn in the previous instance instruction
     zest_pipeline_template pipeline_template;     //The pipeline template to draw the instances.
-    zest_shader_resources shader_resources;       //The descriptor set shader_resources used to draw with
+    zest_shader_resources_handle shader_resources;       //The descriptor set shader_resources used to draw with
     void *asset;                                  //Optional pointer to either texture, font etc
     zest_draw_mode draw_mode;
 } zest_layer_instruction_t ZEST_ALIGN_AFFIX(16);
@@ -3270,7 +3304,7 @@ typedef struct zest_layer_builder_t {
 //This struct must be filled and attached to the draw routine that implements imgui as user data
 typedef struct zest_imgui_t {
     int magic;
-    zest_texture font_texture;
+    zest_texture_handle font_texture;
     zest_pipeline_template pipeline;
     zest_shader vertex_shader;
     zest_shader fragment_shader;
@@ -3301,9 +3335,9 @@ typedef struct zest_font_character_t {
 typedef struct zest_font_t {
     int magic;
     zest_text_t name;
-    zest_texture texture;
+    zest_texture_handle texture;
     zest_pipeline_template pipeline_template;
-    zest_shader_resources shader_resources;
+    zest_shader_resources_handle shader_resources;
     float pixel_range;
     float miter_limit;
     float padding;
@@ -3413,14 +3447,14 @@ typedef struct zest_image_t {
     zest_vec2 scale;             //The scale of the image. 1.f if default, changing this will update the min/max coords
     zest_vec2 handle;            //The handle of the image. 0.5f is the center of the image
     float max_radius;            //You can load images and calculate the max radius of the image which is the furthest pixel from the center.
-    zest_texture texture;        //Pointer to the texture that this image belongs to
+    zest_texture_handle texture; //Handle to the texture that this image belongs to
 } zest_image_t;
 
 typedef struct zest_imgui_image_t {
     int magic;
     zest_image image;
     zest_pipeline_template pipeline;
-    zest_shader_resources shader_resources;
+    zest_shader_resources_handle shader_resources;
     zest_push_constants_t push_constants;
 } zest_imgui_image_t;
 
@@ -3431,21 +3465,28 @@ typedef struct zest_framebuffer_attachment_t {
     VkFormat format;
 } zest_framebuffer_attachment_t;
 
+typedef struct zest_texture_info_t {
+    zest_uint width;
+    zest_uint height;
+    zest_uint layer_count;
+    zest_uint mip_levels;
+} zest_texture_info_t;
+
 typedef struct zest_texture_t {
     int magic;
+    zest_texture_handle handle;
     VkImageLayout vk_image_layout;
     VkFormat vk_image_format;
     VkImageViewType vk_image_view_type;
     VkSamplerCreateInfo vk_sampler_info;
-    zest_uint mip_levels;
 
     zest_text_t name;
 
     zest_imgui_blendtype imgui_blend_type;
     zest_index image_index;                                    //Tracks the UID of image indexes in the list
 
-    zest_uint width;
-    zest_uint height;
+    zest_texture_info_t info;
+
     zest_image_t texture;
     zest_bitmap_t texture_bitmap;
 
@@ -3460,7 +3501,6 @@ typedef struct zest_texture_t {
 
     //Bitmap data for loading in from disk
     zest_image_collection image_collection;
-    zest_uint layer_count;
 
     zest_uint color_channels;
 
@@ -3585,13 +3625,16 @@ typedef struct zest_renderer_t {
     //Small utility allocator for per function tempory allocations
     zloc_linear_allocator_t *utility_allocator;
 
-    //General Storage
+    //General Cache Storage
     zest_map_render_passes cached_render_passes;
     zest_map_cached_frame_graphs cached_frame_graphs;
     zest_map_cached_pipelines cached_pipelines;
     zest_map_samplers cached_samplers;
+    zest_map_rg_semaphores cached_frame_graph_semaphores;
 
-    zest_map_rg_semaphores frame_graph_semaphores;
+    //Resource storage
+    zest_resource_store_t shader_resources;
+    zest_resource_store_t textures;
 
     zest_window main_window;
 
@@ -3703,7 +3746,9 @@ ZEST_PRIVATE void zest__destroy_window_callback(zest_window window, void *user_d
 ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain, zest_bool for_recreation);
 ZEST_PRIVATE void zest__cleanup_device(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
-ZEST_PRIVATE void zest__free_handle();
+ZEST_PRIVATE void zest__cleanup_shader_resource_store(void);
+ZEST_PRIVATE void zest__cleanup_texture_store(void);
+ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources();
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE VkResult zest__recreate_swapchain(zest_swapchain swapchain);
@@ -3737,6 +3782,7 @@ ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size ty
 ZEST_PRIVATE void zest__cleanup_layer(zest_layer layer);
 
 // --Texture_internal_functions
+ZEST_PRIVATE zest_texture_handle zest__new_texture(void);
 ZEST_PRIVATE zest_index zest__texture_image_index(zest_texture texture);
 ZEST_PRIVATE float zest__copy_animation_frames(zest_texture texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row);
 ZEST_PRIVATE void zest__delete_texture_layers(zest_texture texture);
@@ -3753,6 +3799,8 @@ ZEST_PRIVATE VkResult zest__create_texture_image_view(zest_texture texture, VkIm
 ZEST_PRIVATE VkResult zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer);
 ZEST_PRIVATE void zest__create_texture_debug_set(zest_texture texture);
 ZEST_PRIVATE void zest__maybe_create_image_collection(zest_texture texture);
+ZEST_PRIVATE zest_bitmap zest__get_bitmap(zest_texture texture, zest_index bitmap_index);
+ZEST_PRIVATE zest_bitmap zest__get_texture_single_bitmap(zest_texture texture);
 ZEST_PRIVATE void zest__tinyktxCallbackError(void *user, char const *msg);
 ZEST_PRIVATE void *zest__tinyktxCallbackAlloc(void *user, size_t size);
 ZEST_PRIVATE void zest__tinyktxCallbackFree(void *user, void *data);
@@ -3819,6 +3867,7 @@ ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc
 // --Maintenance_functions
 ZEST_PRIVATE void zest__cleanup_texture(zest_texture texture);
 ZEST_PRIVATE void zest__cleanup_texture_vk_handles(zest_texture texture);
+ZEST_PRIVATE void zest__release_all_global_texture_indexes(zest_texture texture);
 ZEST_PRIVATE void zest__free_all_texture_images(zest_texture texture);
 ZEST_PRIVATE void zest__reindex_texture_images(zest_texture texture);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer);
@@ -3994,7 +4043,7 @@ ZEST_API void zest_AddSetBuilderCombinedImageSampler(zest_descriptor_set_builder
 //Add an array of samplers to a set builder
 ZEST_API void zest_AddSetBuilderCombinedImageSamplers(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uint count, const VkDescriptorImageInfo *p_image_infos);
 //Add a combined image and sampler to a descriptor set builder using a texture
-ZEST_API void zest_AddSetBuilderTexture(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_texture texture);
+ZEST_API void zest_AddSetBuilderTexture(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_texture_handle texture);
 //Add a VkDescriptorImageInfo from a zest_texture (or render target) to a descriptor set builder.
 ZEST_API void zest_AddSetBuilderDirectImageWrite(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, VkDescriptorType type, const VkDescriptorImageInfo *image_info);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a uniform buffer.
@@ -4006,20 +4055,20 @@ ZEST_API void zest_AddSetBuilderStorageBuffer( zest_descriptor_set_builder_t *bu
 ZEST_API zest_descriptor_set zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update);
 ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout layout);
 ZEST_API zest_uint zest_AcquireBindlessStorageBufferIndex(zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
-ZEST_API zest_uint zest_AcquireBindlessTextureIndex(zest_texture texture, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number);
-ZEST_API zest_uint zest_AcquireGlobalCombinedSampler2d(zest_texture texture);
-ZEST_API zest_uint zest_AcquireGlobalCombinedSampler3d(zest_texture texture);
-ZEST_API zest_uint zest_AcquireGlobalCombinedSamplerCube(zest_texture texture);
-ZEST_API zest_uint zest_AcquireGlobalCombinedSamplerArray(zest_texture texture);
-ZEST_API zest_uint zest_AcquireGlobalSampledImage(zest_texture texture);
-ZEST_API zest_uint zest_AcquireGlobalSampler(zest_texture texture);
-ZEST_API zest_uint zest_AcquireGlobalStorageSampler(zest_texture texture);
+ZEST_API zest_uint zest_AcquireBindlessTextureIndex(zest_texture_handle texture, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number);
+ZEST_API zest_uint zest_AcquireGlobalCombinedSampler2d(zest_texture_handle texture);
+ZEST_API zest_uint zest_AcquireGlobalCombinedSampler3d(zest_texture_handle texture);
+ZEST_API zest_uint zest_AcquireGlobalCombinedSamplerCube(zest_texture_handle texture);
+ZEST_API zest_uint zest_AcquireGlobalCombinedSamplerArray(zest_texture_handle texture);
+ZEST_API zest_uint zest_AcquireGlobalSampledImage(zest_texture_handle texture);
+ZEST_API zest_uint zest_AcquireGlobalSampler(zest_texture_handle texture);
+ZEST_API zest_uint zest_AcquireGlobalStorageSampler(zest_texture_handle texture);
 ZEST_API zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer);
-ZEST_API zest_uint *zest_AcquireGlobalTextureMipIndexes(zest_texture texture, zest_global_binding_number binding_number);
+ZEST_API zest_uint *zest_AcquireGlobalTextureMipIndexes(zest_texture_handle texture, zest_global_binding_number binding_number);
 ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer layer);
 ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
-ZEST_API void zest_ReleaseGlobalTextureIndex(zest_texture texture, zest_global_binding_number binding_number);
-ZEST_API void zest_ReleaseAllGlobalTextureIndexes(zest_texture texture);
+ZEST_API void zest_ReleaseGlobalTextureIndex(zest_texture_handle texture, zest_global_binding_number binding_number);
+ZEST_API void zest_ReleaseAllGlobalTextureIndexes(zest_texture_handle texture);
 ZEST_API void zest_ReleaseGlobalBindlessIndex(zest_uint index, zest_global_binding_number binding_number);
 ZEST_API VkDescriptorSet zest_vk_GetGlobalBindlessSet();
 ZEST_API zest_descriptor_set zest_GetGlobalBindlessSet();
@@ -4027,28 +4076,28 @@ ZEST_API VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout();
 ZEST_API zest_set_layout zest_GetGlobalBindlessLayout();
 ZEST_API VkDescriptorSet zest_vk_GetGlobalUniformBufferDescriptorSet();
 //Create a new descriptor set shader_resources
-ZEST_API zest_shader_resources zest_CreateShaderResources();
+ZEST_API zest_shader_resources_handle zest_CreateShaderResources();
 //Delete shader resources from the renderer and free the memory. This does not free or destroy the actual
 //descriptor sets that you added to the resources
-ZEST_API void zest_FreeShaderResources(zest_shader_resources shader_resources);
+ZEST_API void zest_FreeShaderResources(zest_shader_resources_handle shader_resources);
 //Add a descriptor set to a descriptor set shader_resources. Bundles are used for binding to a draw call so the descriptor sets can be passed in to the shaders
 //according to their set and binding number. So therefore it's important that you add the descriptor sets to the shader_resources in the same order
 //that you set up the descriptor set layouts. You must also specify the frame in flight for the descriptor set that you're addeding.
 //Use zest_AddDescriptorSetsToResources to add all frames in flight by passing an array of desriptor sets
-ZEST_API void zest_AddDescriptorSetToResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set, zest_uint fif);
+ZEST_API void zest_AddDescriptorSetToResources(zest_shader_resources_handle shader_resources, zest_descriptor_set descriptor_set, zest_uint fif);
 //Add the descriptor set for a uniform buffer to a shader resource
-ZEST_API void zest_AddUniformBufferToResources(zest_shader_resources shader_resources, zest_uniform_buffer buffer);
+ZEST_API void zest_AddUniformBufferToResources(zest_shader_resources_handle shader_resources, zest_uniform_buffer buffer);
 //Add the descriptor set for a uniform buffer to a shader resource
-ZEST_API void zest_AddGlobalBindlessSetToResources(zest_shader_resources shader_resources);
+ZEST_API void zest_AddGlobalBindlessSetToResources(zest_shader_resources_handle shader_resources);
 //Add the descriptor set for a uniform buffer to a shader resource
-ZEST_API void zest_AddBindlessSetToResources(zest_shader_resources shader_resources, zest_descriptor_set set);
+ZEST_API void zest_AddBindlessSetToResources(zest_shader_resources_handle shader_resources, zest_descriptor_set set);
 //Clear all the descriptor sets in a shader resources object. This does not free the memory, call zest_FreeShaderResources to do that.
-ZEST_API void zest_ClearShaderResources(zest_shader_resources shader_resources);
+ZEST_API void zest_ClearShaderResources(zest_shader_resources_handle shader_resources);
 //Update the descriptor set in a shader_resources. You'll need this whenever you update a descriptor set for whatever reason. Pass the index of the
 //descriptor set in the shader_resources that you want to update.
-ZEST_API void zest_UpdateShaderResources(zest_shader_resources shader_resources, zest_descriptor_set descriptor_set, zest_uint index, zest_uint fif);
+ZEST_API void zest_UpdateShaderResources(zest_shader_resources_handle shader_resources, zest_descriptor_set descriptor_set, zest_uint index, zest_uint fif);
 //Helper function to validate
-ZEST_API bool zest_ValidateShaderResource(zest_shader_resources shader_resources);
+ZEST_API bool zest_ValidateShaderResource(zest_shader_resources_handle shader_resources);
 //Update a VkDescriptorSet with an array of descriptor writes. For when the images/buffers in a descriptor set have changed, the corresponding descriptor set will need to be updated.
 ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
 //Create a VkViewport, generally used when building a render pass.
@@ -4096,7 +4145,7 @@ ZEST_API void zest_CacheShader(zest_shader shader);
 //pass in an empty array of VkDescriptorSets. Set this array up as simple an 0 pointer and the function will allocate the space for the
 //descriptor sets. This means that it's a good idea to not use a local variable. Call zest_ClearShaderResourceDescriptorSets after you've
 //bound the pipeline.
-ZEST_API zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources shader_resources, VkDescriptorSet **draw_sets);
+ZEST_API zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources_handle shader_resources, VkDescriptorSet **draw_sets);
 ZEST_API void zest_ClearShaderResourceDescriptorSets(VkDescriptorSet *draw_sets);
 ZEST_API zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets);
 
@@ -4185,7 +4234,7 @@ ZEST_API void zest_BindComputePipeline(VkCommandBuffer command_buffer, zest_comp
 //Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
 //you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
 //resource that is marked as static.
-ZEST_API void zest_BindPipelineShaderResource(VkCommandBuffer command_buffer, zest_pipeline pipeline, zest_shader_resources shader_resources);
+ZEST_API void zest_BindPipelineShaderResource(VkCommandBuffer command_buffer, zest_pipeline pipeline, zest_shader_resources_handle shader_resources);
 ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, zest_render_pass render_pass);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
@@ -4538,8 +4587,6 @@ ZEST_API zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float
 //        Use textures to load in images and sample in a shader to display on screen. They're also used in
 //        render targets and any other things where you want to create images.
 //-----------------------------------------------
-//Create a new blank initialised texture. You probably don't need to call this much (maybe I should move to private function) Use the Create texture functions instead for most things
-ZEST_API zest_texture zest_NewTexture(void);
 //Create a new texture. Give the texture a unique name. There are a few ways that you can store images in the texture:
 /*
 zest_texture_storage_type_packed            Pack all of the images into a sprite sheet and onto multiple layers in an image array on the GPU
@@ -4553,31 +4600,31 @@ zest_texture_storage_type_render_target     Texture storage for a render target 
                                             you don't have to worry about it set use filtering to 1 if you want to generate mipmaps 
                                             for the texture. You can also choose from the following texture formats: 
                                             zest_texture_format_alpha = VK_FORMAT_R8_UNORM, zest_texture_format_rgba_unorm = VK_FORMAT_R8G8B8A8_UNORM, zest_texture_format_bgra_unorm = VK_FORMAT_B8G8R8A8_UNORM. */ 
-ZEST_API zest_texture zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format format, zest_uint reserve_images);
+ZEST_API zest_texture_handle zest_CreateTexture(const char *name, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format format, zest_uint reserve_images);
 //The following are helper functions to create a texture of a given type. the texture will be set to use filtering by default
-ZEST_API zest_texture zest_CreateTexturePacked(const char *name, zest_texture_format format);
-ZEST_API zest_texture zest_CreateTextureSpritesheet(const char *name, zest_texture_format format);
-ZEST_API zest_texture zest_CreateTextureSingle(const char *name, zest_texture_format format);
-ZEST_API zest_texture zest_CreateTextureBank(const char *name, zest_texture_format format);
-ZEST_API zest_texture zest_CreateTextureStorage(const char *name, int width, int height, zest_texture_format format, VkImageViewType view_type, zest_bool with_mip_maps);
+ZEST_API zest_texture_handle zest_CreateTexturePacked(const char *name, zest_texture_format format);
+ZEST_API zest_texture_handle zest_CreateTextureSpritesheet(const char *name, zest_texture_format format);
+ZEST_API zest_texture_handle zest_CreateTextureSingle(const char *name, zest_texture_format format);
+ZEST_API zest_texture_handle zest_CreateTextureBank(const char *name, zest_texture_format format);
+ZEST_API zest_texture_handle zest_CreateTextureStorage(const char *name, int width, int height, zest_texture_format format, VkImageViewType view_type, zest_bool with_mip_maps);
 //Load a cube map from a ktx file
-ZEST_API zest_texture zest_LoadCubemap(const char *name, const char *file_name);
+ZEST_API zest_texture_handle zest_LoadCubemap(const char *name, const char *file_name);
 //Delete a texture from the renderer and free its resources. You must ensure that you don't try writing to the texture while deleting.
-ZEST_API void zest_FreeTexture(zest_texture texture);
+ZEST_API void zest_FreeTexture(zest_texture_handle texture);
 //Resetting a texture will remove all it's images and reset it back to it's "just created" status
-ZEST_API void zest_ResetTexture(zest_texture texture);
+ZEST_API void zest_ResetTexture(zest_texture_handle texture);
 //By default any images that you load into a texture will be stored so that you can rebuild the texture if you need to (for example, you may load in more images
 //to pack in to the sprite sheets at a later time). But if you want to free up the memory then you can just free them with this function.
-ZEST_API void zest_FreeTextureBitmaps(zest_texture texture);
+ZEST_API void zest_FreeTextureBitmaps(zest_texture_handle texture);
 //Remove a specific zest_image from the texture
-ZEST_API void zest_RemoveTextureImage(zest_texture texture, zest_image image);
+ZEST_API void zest_RemoveTextureImage(zest_texture_handle texture, zest_image image);
 //Remove a specific animation from the texture. Pass in the first frame of the animation with a zest_image
-ZEST_API void zest_RemoveTextureAnimation(zest_texture texture, zest_image first_image);
+ZEST_API void zest_RemoveTextureAnimation(zest_texture_handle texture, zest_image first_image);
 //Set the format of the texture. You will need to reprocess the texture if you have processed it already with zest_ProcessTextureImages
-ZEST_API void zest_SetTextureImageFormat(zest_texture texture, zest_texture_format format);
+ZEST_API void zest_SetTextureImageFormat(zest_texture_handle texture, zest_texture_format format);
 //Set the user data for a texture. This is passed though to a texture reprocess callback which you can use to perform tasks such as updating any 
 //descriptor sets you've made that might use the texture
-ZEST_API void zest_SetTextureUserData(zest_texture texture, void *user_data);
+ZEST_API void zest_SetTextureUserData(zest_texture_handle texture, void *user_data);
 //Create a blank zest_image. This is more for internal usage, prefer the zest_AddTextureImage functions. Will leave these in the API for now though
 ZEST_API zest_image_t zest_NewImage(void);
 ZEST_API zest_imgui_image_t zest_NewImGuiImage(void);
@@ -4640,24 +4687,22 @@ ZEST_API float zest_FindBitmapRadius(zest_bitmap image);
 ZEST_API void zest_DestroyBitmapArray(zest_bitmap_array_t *bitmap_array);
 //Get a bitmap from a bitmap array with the given index
 ZEST_API zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t *bitmap_array, zest_index index);
-//Get a bitmap from a texture with the given index
-ZEST_API zest_bitmap zest_GetBitmap(zest_texture texture, zest_index bitmap_index);
 //Get a zest_image from a texture by it's index
-ZEST_API zest_image zest_GetImageFromTexture(zest_texture texture, zest_index index);
+ZEST_API zest_image zest_GetImageFromTexture(zest_texture_handle texture, zest_index index);
 //Add an image to a texture from a file. This uses stb_image to load the image so must be in a format that stb image can load
-ZEST_API zest_image zest_AddTextureImageFile(zest_texture texture, const char* filename);
+ZEST_API zest_image zest_AddTextureImageFile(zest_texture_handle texture, const char* filename);
 //Add an image to a texture using a zest_bitmap_t
-ZEST_API zest_image zest_AddTextureImageBitmap(zest_texture texture, zest_bitmap bitmap_to_load);
+ZEST_API zest_image zest_AddTextureImageBitmap(zest_texture_handle texture, zest_bitmap bitmap_to_load);
 //Add an image to a texture from a buffer.
-ZEST_API zest_image zest_AddTextureImageMemory(zest_texture texture, const char* name, const unsigned char* buffer, int buffer_size);
+ZEST_API zest_image zest_AddTextureImageMemory(zest_texture_handle texture, const char* name, const unsigned char* buffer, int buffer_size);
 //Add a sequence of images (in a sprite sheet) to a texture from a file. specify the width and height of each frame (they must all be the same size), the number of frames in the animation.
 //You can also pass in a pointer to a float where the max radius can be set (the max radius is the furthest pixel from the center of the frame). Lastly you can specify
 //whether the animation runs row by row, set to 0 to read column by column.
-ZEST_API zest_image zest_AddTextureAnimationFile(zest_texture texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_image zest_AddTextureAnimationFile(zest_texture_handle texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 //Add an animation from a bitmap.
-ZEST_API zest_image zest_AddTextureAnimationBitmap(zest_texture texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_image zest_AddTextureAnimationBitmap(zest_texture_handle texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 //Add an animation from a buffer in memory.
-ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture_handle texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 //After adding all the images you want to a texture, you will then need to process the texture which will create all of the necessary GPU resources and upload the texture to the GPU.
 //You can then use the image handles to draw the images along with the descriptor set - either the one that gets created automatically with the the texture to draw sprites and billboards
 //or your own descriptor set.
@@ -4665,10 +4710,10 @@ ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture texture, const c
 //index so some drawcalls will use the outdated texture, some the new. Call before any draw calls are made or better still,
 //just call zest_ScheduleTextureReprocess which will recreate the texture between frames and then schedule a cleanup the next
 //frame after.
-ZEST_API void zest_ProcessTextureImages(zest_texture texture);
-ZEST_API zest_uint zest_GetTextureDescriptorIndex(zest_texture texture, zest_global_binding_number binding_number);
+ZEST_API void zest_ProcessTextureImages(zest_texture_handle texture);
+ZEST_API zest_uint zest_GetTextureDescriptorIndex(zest_texture_handle texture, zest_global_binding_number binding_number);
 //Get the descriptor image info for the texture that you can use to build a descriptor set with
-ZEST_API VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture texture);
+ZEST_API VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture_handle texture);
 //Create and allocate a bitmap array. Bitmap arrays are exactly as they sound, an array of bitmaps. These are used to copy an array of bitmaps into a GPU texture array. These are
 //primarily used in the creation of textures that use zest_texture_storage_type_packed and zest_texture_storage_type_bank.
 ZEST_API void zest_CreateBitmapArray(zest_bitmap_array_t *images, int width, int height, int channels, zest_uint size_of_array);
@@ -4678,44 +4723,46 @@ ZEST_API void zest_FreeBitmapArray(zest_bitmap_array_t *images);
 //Set the handle of an image. This dictates where the image will be positioned when you draw it with zest_DrawSprite/zest_DrawBillboard. 0.5, 0.5 will center the image at the position you draw it.
 ZEST_API void zest_SetImageHandle(zest_image image, float x, float y);
 //Change the storage type of the texture. You will need to call zest_ProcessTextureImages after calling this function.
-ZEST_API void zest_SetTextureStorageType(zest_texture texture, zest_texture_storage_type value);
+ZEST_API void zest_SetTextureStorageType(zest_texture_handle texture, zest_texture_storage_type value);
 //Set whether you want the texture to use mip map filtering or not. You will need to call zest_ProcessTextureImages after calling this function.
-ZEST_API void zest_SetTextureUseFiltering(zest_texture texture, zest_bool value);
+ZEST_API void zest_SetTextureUseFiltering(zest_texture_handle texture, zest_bool value);
 //Add a border to the images that get packed into the texture. This can make filtered textures look better.
-ZEST_API void zest_SetTexturePackedBorder(zest_texture texture, zest_uint value);
+ZEST_API void zest_SetTexturePackedBorder(zest_texture_handle texture, zest_uint value);
 //Set the texture wrapping for sampling textures in the shader. If you want textures to repeat then this is more relavent for texture banks or single image textures.
 //Just pass in the VkSamplerAddressMode for each dimension u,v,w
-ZEST_API void zest_SetTextureWrapping(zest_texture texture, VkSamplerAddressMode u, VkSamplerAddressMode v, VkSamplerAddressMode w);
+ZEST_API void zest_SetTextureWrapping(zest_texture_handle texture, VkSamplerAddressMode u, VkSamplerAddressMode v, VkSamplerAddressMode w);
 //Helper functions for setting the texture wrapping to the one you want.
-ZEST_API void zest_SetTextureWrappingClamp(zest_texture texture);
-ZEST_API void zest_SetTextureWrappingBorder(zest_texture texture);
-ZEST_API void zest_SetTextureWrappingRepeat(zest_texture texture);
+ZEST_API void zest_SetTextureWrappingClamp(zest_texture_handle texture);
+ZEST_API void zest_SetTextureWrappingBorder(zest_texture_handle texture);
+ZEST_API void zest_SetTextureWrappingRepeat(zest_texture_handle texture);
 //Set the size of each layer in a packed texture. When all of the images are processed in a texture, they will be packed into layers of a given size. By default that size is 1024, but you
 //can change that here.
-ZEST_API void zest_SetTextureLayerSize(zest_texture texture, zest_uint size);
+ZEST_API void zest_SetTextureLayerSize(zest_texture_handle texture, zest_uint size);
 //Toggle whether or not you want the max radius to be calculated for each image/animation that you load into the texture. The max_radius will be recorded in zest_image->max_radius.
-ZEST_API void zest_SetTextureMaxRadiusOnLoad(zest_texture texture, zest_bool yesno);
+ZEST_API void zest_SetTextureMaxRadiusOnLoad(zest_texture_handle texture, zest_bool yesno);
 //Set the zest_imgui_blendtype of the texture. If you use dear imgui and are drawing render targets then this can be useful if you need to alter how the render target is blended when drawn.
 //zest_imgui_blendtype_none                Just draw with standard alpha blend
 //zest_imgui_blendtype_pass                Force the alpha channel to 1
 //zest_imgui_blendtype_premultiply        Divide the color channels by the alpha channel
-ZEST_API void zest_SetTextureImguiBlendType(zest_texture texture, zest_imgui_blendtype blend_type);
+ZEST_API void zest_SetTextureImguiBlendType(zest_texture_handle texture, zest_imgui_blendtype blend_type);
 //Resize a single or storage texture.
-ZEST_API void zest_TextureResize(zest_texture texture, zest_uint width, zest_uint height);
+ZEST_API void zest_TextureResize(zest_texture_handle texture, zest_uint width, zest_uint height);
 //Clear a texture
-ZEST_API zest_bool zest_TextureClear(zest_texture texture, VkCommandBuffer command_buffer);
-//For single or storage textures, get the bitmap for the texture.
-ZEST_API zest_bitmap zest_GetTextureSingleBitmap(zest_texture texture);
+ZEST_API zest_bool zest_TextureClear(zest_texture_handle texture, VkCommandBuffer command_buffer);
 //Returns true if the texture has a storage type of zest_texture_storage_type_bank or zest_texture_storage_type_single.
-ZEST_API zest_bool zest_TextureCanTile(zest_texture texture);
-//Copies an area of a frame buffer such as from a render target, to a zest_texture.
-ZEST_API zest_bool zest_CopyFramebufferToTexture(zest_frame_buffer_t *src_image, zest_texture texture, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
+ZEST_API zest_bool zest_TextureCanTile(zest_texture_handle texture);
+//Copies an area of a frame buffer such as from a render target, to a zest_texture_handle.
+ZEST_API zest_bool zest_CopyFramebufferToTexture(zest_frame_buffer_t *src_image, zest_texture_handle texture, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 //Copies an area of a zest_texture to another zest_texture
-ZEST_API zest_bool zest_CopyTextureToTexture(zest_texture src_image, zest_texture target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
+ZEST_API zest_bool zest_CopyTextureToTexture(zest_texture_handle src_image, zest_texture_handle target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 //Copies an area of a zest_texture to a zest_bitmap_t.
-ZEST_API zest_bool zest_CopyTextureToBitmap(zest_texture src_image, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel);
+ZEST_API zest_bool zest_CopyTextureToBitmap(zest_texture_handle src_image, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel);
 //Get the current layout of the texture
-ZEST_API VkImageLayout zest_GetTextureLayout(zest_texture texture);
+ZEST_API VkImageLayout zest_GetTextureLayout(zest_texture_handle texture);
+//Get the size of the texture as a vec3. x and y is the width and height and z is the array size if it's a texture array
+ZEST_API zest_texture_info_t zest_GetTextureInfo(zest_texture_handle texture);
+//Get the debug decriptor set for a simple draw of the texture
+ZEST_API VkDescriptorSet zest_GetTextureDebugDescriptorSet(zest_texture_handle texture);
 
 // --Sampler functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
@@ -4860,7 +4907,7 @@ ZEST_API void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float 
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources shader_resources,  zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources_handle shader_resources,  zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
@@ -4913,7 +4960,7 @@ ZEST_API void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor set must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_Set3DLineDrawing(zest_layer line_layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
+ZEST_API void zest_Set3DLineDrawing(zest_layer line_layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
 //Draw a 3d line. pass in the layer to draw to and the 3d start and end points plus the width of the line.
 ZEST_API void zest_Draw3DLine(zest_layer layer, float start_point[3], float end_point[3], float width);
 //--End Draw line layers
@@ -4979,7 +5026,7 @@ ZEST_API void zest_GrowMeshVertexBuffers(zest_layer layer);
 //Grow the mesh index buffers. You must update the buffer->memory_in_use so that it can decide if a buffer needs growing
 ZEST_API void zest_GrowMeshIndexBuffers(zest_layer layer);
 //Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
-ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
+ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
 //Helper funciton Push a vertex to the vertex staging buffer. It will automatically grow the buffers if needed
 ZEST_API void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters);
 //Helper funciton Push an index to the index staging buffer. It will automatically grow the buffers if needed
@@ -5001,7 +5048,7 @@ ZEST_API void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
 ZEST_API void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
-ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources shader_resources, zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
 ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color color);
 //Push an index to a mesh to build triangles

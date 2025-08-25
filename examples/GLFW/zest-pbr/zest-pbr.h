@@ -71,20 +71,20 @@ struct ImGuiApp {
 	irr_push_constant_t irr_push_constant;
 	prefiltered_push_constant_t prefiltered_push_constant;
 
-	zest_shader_resources sprite_resources;
-	zest_shader_resources pbr_shader_resources;
-	zest_shader_resources skybox_shader_resources;
+	zest_shader_resources_handle sprite_resources;
+	zest_shader_resources_handle pbr_shader_resources;
+	zest_shader_resources_handle skybox_shader_resources;
 
 	zest_shader brd_shader;
 	zest_shader irr_shader;
 	zest_shader prefiltered_shader;
 
-	zest_texture imgui_font_texture;
-	zest_texture sprites_texture;
-	zest_texture skybox_texture;
-	zest_texture brd_texture;
-	zest_texture irr_texture;
-	zest_texture prefiltered_texture;
+	zest_texture_handle imgui_font_texture;
+	zest_texture_handle sprites_texture;
+	zest_texture_handle skybox_texture;
+	zest_texture_handle brd_texture;
+	zest_texture_handle irr_texture;
+	zest_texture_handle prefiltered_texture;
 
 	zest_compute brd_compute;
 	zest_compute irr_compute;

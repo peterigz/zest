@@ -120,8 +120,9 @@ void zest_DispatchIrradianceSetup(VkCommandBuffer command_buffer, const zest_fra
 	
 	zest_SendCustomComputePushConstants(command_buffer, app->irr_compute, &app->irr_push_constant);
 
-	zest_uint group_count_x = (app->irr_texture->width + local_size - 1) / local_size;
-	zest_uint group_count_y = (app->irr_texture->height + local_size - 1) / local_size;
+	zest_texture_info_t info = zest_GetTextureInfo(app->irr_texture);
+	zest_uint group_count_x = (info.width + local_size - 1) / local_size;
+	zest_uint group_count_y = (info.height + local_size - 1) / local_size;
 
 	//Dispatch the compute shader
 	zest_DispatchCompute(command_buffer, app->irr_compute, group_count_x, group_count_y, 6);
@@ -163,17 +164,19 @@ void zest_DispatchPrefilteredSetup(VkCommandBuffer command_buffer, const zest_fr
 
 	// Bind the pipeline once before the loop
 	zest_BindComputePipeline(command_buffer, app->prefiltered_compute, sets, 1);
+	
+	zest_texture_info_t texture_info = zest_GetTextureInfo(app->prefiltered_texture);
 
 	app->prefiltered_push_constant.source_env_index = app->skybox_bindless_index;
 	app->prefiltered_push_constant.num_samples = 32;
-	for (zest_uint m = 0; m < app->prefiltered_texture->mip_levels; m++) {
-		app->prefiltered_push_constant.roughness = (float)m / (float)(app->prefiltered_texture->mip_levels - 1);
+	for (zest_uint m = 0; m < texture_info.mip_levels; m++) {
+		app->prefiltered_push_constant.roughness = (float)m / (float)(texture_info.mip_levels - 1);
 		app->prefiltered_push_constant.prefiltered_index = app->prefiltered_mip_indexes[m];
 
 		zest_SendCustomComputePushConstants(command_buffer, app->prefiltered_compute, &app->prefiltered_push_constant);
 
-		float mip_width = static_cast<float>(app->prefiltered_texture->width * powf(0.5f, (float)m));
-		float mip_height = static_cast<float>(app->prefiltered_texture->height * powf(0.5f, (float)m));
+		float mip_width = static_cast<float>(texture_info.width * powf(0.5f, (float)m));
+		float mip_height = static_cast<float>(texture_info.height * powf(0.5f, (float)m));
 		zest_uint group_count_x = (zest_uint)ceilf(mip_width / local_size);
 		zest_uint group_count_y = (zest_uint)ceilf(mip_height / local_size);
 

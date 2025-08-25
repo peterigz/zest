@@ -8,7 +8,7 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
     zest_FreeTexture(imgui_info->font_texture);
-	imgui_info->font_texture = zest_CreateTexture(imgui_info->font_texture->name.str, zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
+	imgui_info->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
     zest_ResetTexture(imgui_info->font_texture);
     zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, font_bitmap);
     zest_ProcessTextureImages(imgui_info->font_texture);
@@ -131,16 +131,17 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buff
 
 				zest_pipeline pipeline = zest_PipelineWithTemplate(imgui_info->pipeline, context->render_pass);
                 switch (ZEST_STRUCT_MAGIC_TYPE(current_image->magic)) {
-                case zest_struct_type_image:
-                    if (last_pipeline != imgui_info->pipeline || last_descriptor_set != current_image->texture->debug_set->vk_descriptor_set) {
-                        last_descriptor_set = current_image->texture->debug_set->vk_descriptor_set;
+                case zest_struct_type_image: {
+                    VkDescriptorSet texture_set = zest_GetTextureDebugDescriptorSet(current_image->texture);
+                    if (last_pipeline != imgui_info->pipeline || last_descriptor_set != texture_set) {
+                        last_descriptor_set = texture_set;
                         zest_BindPipeline(command_buffer, pipeline, &last_descriptor_set, 1);
                         last_pipeline = imgui_info->pipeline;
                     }
                     push_constants->parameters2.x = (float)current_image->layer;
                     break;
-                case zest_struct_type_imgui_image:
-                {
+                }
+                case zest_struct_type_imgui_image: {
                     zest_imgui_image_t *imgui_image = (zest_imgui_image_t *)pcmd->TextureId;
                     //The imgui image must have its image, pipeline and shader resources defined
                     ZEST_ASSERT(imgui_image->image);
