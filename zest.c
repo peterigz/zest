@@ -3628,6 +3628,7 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     zest__initialise_store(&ZestRenderer->textures, sizeof(zest_texture_t));
     zest__initialise_store(&ZestRenderer->uniform_buffers, sizeof(zest_uniform_buffer_t));
     zest__initialise_store(&ZestRenderer->timers, sizeof(zest_timer_t));
+    zest__initialise_store(&ZestRenderer->layers, sizeof(zest_layer_t));
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
 
@@ -3982,9 +3983,6 @@ void zest__cleanup_device(void) {
 void zest__free_handle(void *handle) {
     zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(handle);
     switch (struct_type) {
-    case zest_struct_type_layer:
-        zest__cleanup_layer((zest_layer)handle);
-        break;
     case zest_struct_type_shader:
         zest_FreeShader((zest_shader)handle);
         break;
@@ -4019,7 +4017,6 @@ void zest__scan_memory_and_free_resources() {
             if (ZEST_VALID_HANDLE(allocation)) {
                 zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
                 switch (struct_type) {
-                case zest_struct_type_layer:
                 case zest_struct_type_shader:
                 case zest_struct_type_compute:
                 case zest_struct_type_set_layout:
@@ -4086,6 +4083,17 @@ void zest__cleanup_timer_store() {
     zest__free_store(&ZestRenderer->timers);
 }
 
+void zest__cleanup_layer_store() {
+    zest_layer_t *layers = ZestRenderer->layers.data;
+    for (int i = 0; i != ZestRenderer->layers.current_size; ++i) {
+        if (ZEST_VALID_HANDLE(&layers[i])) {
+            zest_layer resource = &layers[i];
+            zest__cleanup_layer(resource);
+        }
+    }
+    zest__free_store(&ZestRenderer->layers);
+}
+
 void zest__cleanup_renderer() {
 
     zest_uint cached_pipelines_size = zest_map_size(ZestRenderer->cached_pipelines);
@@ -4099,6 +4107,7 @@ void zest__cleanup_renderer() {
     zest__cleanup_texture_store();
     zest__cleanup_uniform_buffer_store();
     zest__cleanup_timer_store();
+    zest__cleanup_layer_store();
 
     zest__scan_memory_and_free_resources();
 
@@ -5928,7 +5937,8 @@ zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources_handle handle, 
     return zest_vec_size(*draw_sets);
 }
 
-zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, bool last_frame) {
+zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer_handle, bool last_frame) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);       //Not a valid layer handle
     return layer->memory_refs[last_frame ? layer->prev_fif : layer->fif].device_vertex_data->array_index;
 }
@@ -7991,11 +8001,11 @@ zest_image_handles_t zest__swapchain_resource_provider(zest_resource_node resour
 
 zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource) {
     zest_layer layer = (zest_layer)resource->user_data;
-    ZEST_ASSERT_HANDLE(layer);  //Not a valid layer handle
+    ZEST_ASSERT_HANDLE(layer);       //Not a valid layer handle
     layer->vertex_buffer_node = resource;
-    zest_EndInstanceInstructions(layer); //Make sure the staging buffer memory in use is up to date
+    zest__end_instance_instructions(layer); //Make sure the staging buffer memory in use is up to date
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-		zest_size layer_size = zest_GetLayerInstanceSize(layer);
+		zest_size layer_size = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
         if (layer_size == 0) return NULL;
         layer->fif = ZEST_FIF;
         layer->dirty[ZEST_FIF] = 1;
@@ -10211,7 +10221,8 @@ zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer) {
     return array_index;
 }
 
-void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer layer) {
+void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);   //Must be a valid layer handle
     ZEST_ASSERT(ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif));   //Layer must have been created with a persistant vertex buffer
     zest_ForEachFrameInFlight(fif) {
@@ -10354,8 +10365,10 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
     return zest__add_frame_graph_resource(&node);
 }
 
-zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif) {
-    zest_size layer_size = zest_GetLayerInstanceSize(layer);
+zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer_handle layer_handle, zest_bool prev_fif) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    ZEST_ASSERT_HANDLE(layer);      //Not a valid layer
+    zest_size layer_size = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
     if (layer_size == 0) {
         return NULL;
     }
@@ -10504,24 +10517,26 @@ void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data) {
     pass->execution_callback = callback_data;
 }
 
-void zest_SetPassInstanceLayerUpload(zest_layer layer) {
+void zest_SetPassInstanceLayerUpload(zest_layer_handle layer_handle) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);        //No current pass found, make sure you call zest_BeginPass
     zest_pass_node pass = ZestRenderer->current_pass;
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    ZEST_ASSERT_HANDLE(layer);      //Not a valid layer
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif) && layer->dirty[layer->fif] == 0) {
         return;
     }
     zest_pass_execution_callback_t callback_data;
     callback_data.callback = zest_UploadInstanceLayerData;
-    callback_data.user_data = layer;
+    callback_data.user_data = (void*)(uintptr_t)layer_handle.value;
     pass->execution_callback = callback_data;
 }
 
-void zest_SetPassInstanceLayer(zest_layer layer) {
+void zest_SetPassInstanceLayer(zest_layer_handle layer_handle) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);        //No current pass found, make sure you call zest_BeginPass
     zest_pass_node pass = ZestRenderer->current_pass;
     zest_pass_execution_callback_t callback_data;
     callback_data.callback = zest_DrawInstanceLayer;
-    callback_data.user_data = layer;
+    callback_data.user_data = (void*)(uintptr_t)layer_handle.value;
     pass->execution_callback = callback_data;
 }
 
@@ -11775,47 +11790,29 @@ void zest_SetSwapchainClearColor(zest_swapchain swapchain, float red, float gree
     swapchain->vk_clear_color = (VkClearColorValue){red, green, blue, alpha};
 }
 
-zest_layer zest__create_instance_layer(const char *name, zest_size instance_type_size, zest_uint initial_instance_count) {
-    zest_layer layer = zest_NewLayer();
+zest_layer_handle zest__create_instance_layer(const char *name, zest_size instance_type_size, zest_uint initial_instance_count) {
+    zest_layer layer;
+    zest_layer_handle handle = zest__new_layer(&layer);
     layer->name = name;
-    zest_InitialiseInstanceLayer(layer, instance_type_size, initial_instance_count);
-    return layer;
+    zest__initialise_instance_layer(layer, instance_type_size, initial_instance_count);
+    return handle;
 }
 
-zest_layer zest_CreateBuiltinSpriteLayer(const char* name) {
-    zest_layer layer = zest_NewLayer();
-    layer->name = name;
-    zest_InitialiseInstanceLayer(layer, sizeof(zest_sprite_instance_t), 1000);
-    return layer;
-}
-
-zest_layer zest_CreateBuiltin3dLineLayer(const char* name) {
-    zest_layer layer = zest_NewLayer();
-    layer->name = name;
-    zest_InitialiseInstanceLayer(layer, sizeof(zest_line_instance_t), 1000);
-    return layer;
-}
-
-zest_layer zest_CreateBuiltinBillboardLayer(const char* name) {
-    zest_layer layer = zest_NewLayer();
-    layer->name = name;
-    zest_InitialiseInstanceLayer(layer, sizeof(zest_billboard_instance_t), 1000);
-    return layer;
-}
-
-zest_layer zest_CreateMeshLayer(const char* name, zest_size vertex_type_size) {
+zest_layer_handle zest_CreateMeshLayer(const char* name, zest_size vertex_type_size) {
     ZEST_ASSERT(ZestRenderer);  //Initialise Zest first!
-    zest_layer layer = zest_NewLayer();
+    zest_layer layer;
+    zest_layer_handle handle = zest__new_layer(&layer);
     layer->name = name;
     zest__initialise_mesh_layer(layer, sizeof(zest_textured_vertex_t), 1000);
-    return layer;
+    return handle;
 }
 
-zest_layer zest_CreateBuiltinInstanceMeshLayer(const char* name) {
-    zest_layer layer = zest_NewLayer();
+zest_layer_handle zest_CreateInstanceMeshLayer(const char* name) {
+    zest_layer layer;
+    zest_layer_handle handle = zest__new_layer(&layer);
     layer->name = name;
-    zest_InitialiseInstanceLayer(layer, sizeof(zest_mesh_instance_t), 1000);
-    return layer;
+    zest__initialise_instance_layer(layer, sizeof(zest_mesh_instance_t), 1000);
+    return handle;
 }
 
 void zest__reset_query_pool(VkCommandBuffer command_buffer, VkQueryPool query_pool, zest_uint count) {
@@ -14418,7 +14415,8 @@ VkDescriptorSet zest_GetTextureDebugDescriptorSet(zest_texture_handle handle) {
 //-- End Texture and Image Functions
 
 void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
-	zest_layer layer = (zest_layer)user_data;
+	zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
 
     ZEST__MAYBE_REPORT(!ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadInstanceLayerData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", ZestRenderer->current_frame_graph->name);
 
@@ -14455,7 +14453,17 @@ zest_layer_instruction_t zest__layer_instruction() {
     return instruction;
 }
 
-void zest_ResetInstanceLayerDrawing(zest_layer layer) {
+void zest__reset_instance_layer_drawing(zest_layer layer) {
+    zest_vec_clear(layer->draw_instructions[layer->fif]);
+    layer->memory_refs[layer->fif].staging_instance_data->memory_in_use = 0;
+    layer->current_instruction = zest__layer_instruction();
+    layer->memory_refs[layer->fif].instance_count = 0;
+    layer->memory_refs[layer->fif].instance_ptr = layer->memory_refs[layer->fif].staging_instance_data->data;
+    layer->memory_refs[layer->fif].staging_instance_data->memory_in_use = 0;
+}
+
+void zest_ResetInstanceLayerDrawing(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	            //Not a valid handle!
     zest_vec_clear(layer->draw_instructions[layer->fif]);
     layer->memory_refs[layer->fif].staging_instance_data->memory_in_use = 0;
@@ -14465,7 +14473,8 @@ void zest_ResetInstanceLayerDrawing(zest_layer layer) {
     layer->memory_refs[layer->fif].staging_instance_data->memory_in_use = 0;
 }
 
-zest_uint zest_GetInstanceLayerCount(zest_layer layer) {
+zest_uint zest_GetInstanceLayerCount(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     return layer->memory_refs[layer->fif].instance_count;
 }
@@ -14513,24 +14522,32 @@ void zest__reset_mesh_layer_drawing(zest_layer layer) {
     layer->memory_refs[layer->fif].index_ptr = layer->memory_refs[layer->fif].staging_index_data->data;
 }
 
-void zest_StartInstanceInstructions(zest_layer layer) {
+void zest__start_instance_instructions(zest_layer layer) {
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].instance_count ? layer->memory_refs[layer->fif].instance_count : 0;
 }
 
-void zest_ResetLayer(zest_layer layer) {
+void zest_StartInstanceInstructions(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    layer->current_instruction.start_index = layer->memory_refs[layer->fif].instance_count ? layer->memory_refs[layer->fif].instance_count : 0;
+}
+
+void zest_ResetLayer(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
 }
 
-void zest_ResetInstanceLayer(zest_layer layer) {
+void zest_ResetInstanceLayer(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif));   //You must have created the layer with zest_CreateFIFInstanceLayer
                                                                             //if you want to manually reset the layer
     layer->prev_fif = layer->fif;
     layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
     layer->dirty[layer->fif] = 1;
-    zest_ResetInstanceLayerDrawing(layer);
+    zest__reset_instance_layer_drawing(layer);
 }
 
 void zest__start_mesh_instructions(zest_layer layer) {
@@ -14538,8 +14555,7 @@ void zest__start_mesh_instructions(zest_layer layer) {
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].index_count ? layer->memory_refs[layer->fif].index_count : 0;
 }
 
-void zest_EndInstanceInstructions(zest_layer layer) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+void zest__end_instance_instructions(zest_layer layer) {
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         layer->fif = ZEST_FIF;
     }
@@ -14556,8 +14572,15 @@ void zest_EndInstanceInstructions(zest_layer layer) {
     layer->memory_refs[layer->fif].staging_instance_data->memory_in_use = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
 }
 
-zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer) {
+void zest_EndInstanceInstructions(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest__end_instance_instructions(layer);
+}
+
+zest_bool zest_MaybeEndInstanceInstructions(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    ZEST_ASSERT_HANDLE(layer);	            //Not a valid handle!
     if (layer->current_instruction.total_instances) {
         layer->last_draw_mode = zest_draw_mode_none;
         zest_vec_push(layer->draw_instructions[layer->fif], layer->current_instruction);
@@ -14571,12 +14594,13 @@ zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer) {
     return 1;
 }
 
-zest_size zest_GetLayerInstanceSize(zest_layer layer) {
+zest_size zest_GetLayerInstanceSize(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    ZEST_ASSERT_HANDLE(layer);	            //Not a valid handle!
 	return layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
 }
 
 void zest__end_mesh_instructions(zest_layer layer) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     if (layer->current_instruction.total_indexes) {
         layer->last_draw_mode = zest_draw_mode_none;
         zest_vec_push(layer->draw_instructions[layer->fif], layer->current_instruction);
@@ -14603,7 +14627,8 @@ void zest__update_instance_layer_resolution(zest_layer layer) {
 }
 
 void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
-    zest_layer layer = (zest_layer)user_data;
+    zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle! Make sure you pass in the zest_layer in the user data
 
     if (!layer->vertex_buffer_node) return; //It could be that the frame graph culled the pass because it was unreferenced or disabled
@@ -14646,7 +14671,7 @@ void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_frame_gra
         vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
     }
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-		zest_ResetInstanceLayerDrawing(layer);
+		zest__reset_instance_layer_drawing(layer);
     }
 }
 
@@ -14690,11 +14715,12 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
 }
 
 void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
-    zest_layer layer = (zest_layer)user_data;
+    zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle! Make sure you pass in the zest_layer in the user data
     if (layer->vertex_data && layer->index_data) {
-        zest_BindMeshVertexBuffer(command_buffer, layer);
-        zest_BindMeshIndexBuffer(command_buffer, layer);
+        zest_BindMeshVertexBuffer(command_buffer, layer_handle);
+        zest_BindMeshIndexBuffer(command_buffer, layer_handle);
     } else {
         ZEST_PRINT("No Vertex/Index data found in mesh layer [%s]!", layer->name);
         return;
@@ -14741,12 +14767,13 @@ void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_frame
         vkCmdDrawIndexed(command_buffer, layer->index_count, current->total_instances, 0, 0, current->start_index);
     }
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-		zest_ResetInstanceLayerDrawing(layer);
+		zest__reset_instance_layer_drawing(layer);
     }
 }
 
 //Start general instance layer functionality -----
-void zest_NextInstance(zest_layer layer) {
+void zest_NextInstance(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     zest_byte* instance_ptr = (zest_byte*)layer->memory_refs[layer->fif].instance_ptr + layer->instance_struct_size;
     //Make sure we're not trying to write outside of the buffer range
@@ -14769,7 +14796,8 @@ void zest_NextInstance(zest_layer layer) {
     layer->memory_refs[layer->fif].instance_ptr = instance_ptr;
 }
 
-zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zest_uint amount) {
+zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer_handle layer_handle, void *src, zest_uint amount) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     if (!amount) return 0;
     zest_draw_buffer_result result = zest_draw_buffer_result_ok;
@@ -14796,7 +14824,8 @@ zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zes
     return result;
 }
 
-void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
+void zest_DrawInstanceInstruction(zest_layer_handle layer_handle, zest_uint amount) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->memory_refs[layer->fif].instance_count += amount;
     layer->current_instruction.total_instances += amount;
@@ -14809,32 +14838,37 @@ void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
 // End general instance layer functionality -----
 
 //-- Draw Layers API
-zest_layer zest_NewLayer() {
-    zest_layer_t blank_layer = { 0 };
-    zest_layer layer = ZEST__NEW_ALIGNED(zest_layer, 16);
-    *layer = blank_layer;
+zest_layer_handle zest__new_layer(zest_layer *out_layer) {
+    zest_layer_handle handle = (zest_layer_handle){zest__add_store_resource(&ZestRenderer->layers)};
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, handle.value);
+    *layer = (zest_layer_t){ 0 };
     layer->magic = zest_INIT_MAGIC(zest_struct_type_layer);
-    ZEST_ASSERT(sizeof(*layer) == sizeof(blank_layer));
-    return layer;
+    layer->handle = handle;
+    *out_layer = layer;
+    return handle;
 }
 
-void zest_FreeLayer(zest_layer layer) {
-    ZEST_ASSERT_HANDLE(layer);  //Not a valid layer handle
+void zest_FreeLayer(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.resources[ZEST_FIF], layer);
 }
 
-void zest_SetLayerViewPort(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid layer handle!
+void zest_SetLayerViewPort(zest_layer_handle layer_handle, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
     layer->viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
 }
 
-void zest_SetLayerScissor(zest_layer layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height) {
+void zest_SetLayerScissor(zest_layer_handle layer_handle, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid layer handle!
     layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, offset_x, offset_y);
 }
 
-void zest_SetLayerSizeToSwapchain(zest_layer layer, zest_swapchain swapchain) {
+void zest_SetLayerSizeToSwapchain(zest_layer_handle layer_handle, zest_swapchain swapchain) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	    //Not a valid layer handle!
     ZEST_ASSERT_HANDLE(swapchain);	//Not a valid swapchain handle!
     layer->scissor = zest_CreateRect2D(swapchain->vk_extent.width, swapchain->vk_extent.height, 0, 0);
@@ -14842,45 +14876,54 @@ void zest_SetLayerSizeToSwapchain(zest_layer layer, zest_swapchain swapchain) {
 
 }
 
-void zest_SetLayerSize(zest_layer layer, float width, float height) {
+void zest_SetLayerSize(zest_layer_handle layer_handle, float width, float height) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->layer_size.x = width;
     layer->layer_size.y = height;
 }
 
-void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha) {
+void zest_SetLayerColor(zest_layer_handle layer_handle, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->current_color = zest_ColorSet(red, green, blue, alpha);
 }
 
-void zest_SetLayerColorf(zest_layer layer, float red, float green, float blue, float alpha) {
+void zest_SetLayerColorf(zest_layer_handle layer_handle, float red, float green, float blue, float alpha) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->current_color = zest_ColorSet((zest_byte)(red * 255.f), (zest_byte)(green * 255.f), (zest_byte)(blue * 255.f), (zest_byte)(alpha * 255.f));
 }
 
-void zest_SetLayerIntensity(zest_layer layer, float value) {
+void zest_SetLayerIntensity(zest_layer_handle layer_handle, float value) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->intensity = value;
 }
 
-void zest_SetLayerChanged(zest_layer layer) {
+void zest_SetLayerChanged(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     zest_ForEachFrameInFlight(i) {
         layer->dirty[i] = 1;
     }
 }
 
-zest_bool zest_LayerHasChanged(zest_layer layer) {
+zest_bool zest_LayerHasChanged(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     return layer->dirty[layer->fif];
 }
 
-void zest_SetLayerUserData(zest_layer layer, void *data) {
+void zest_SetLayerUserData(zest_layer_handle layer_handle, void *data) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->user_data = data;
 }
 
-void zest_UploadLayerStagingData(zest_layer layer, const zest_frame_graph_context_t *context) {
+void zest_UploadLayerStagingData(zest_layer_handle layer_handle, const zest_frame_graph_context_t *context) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);  //This function must be called within a task callback in a frame graph
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
 
     ZEST__MAYBE_REPORT(!ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadLayerStagingData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", ZestRenderer->current_frame_graph->name);
@@ -14910,8 +14953,9 @@ void zest_UploadLayerStagingData(zest_layer layer, const zest_frame_graph_contex
     }
 }
 
-zest_buffer zest_GetLayerResourceBuffer(zest_layer layer) {
+zest_buffer zest_GetLayerResourceBuffer(zest_layer_handle layer_handle) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);  //This function must be called within a task callback in a frame graph
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         return layer->memory_refs[layer->fif].device_vertex_data;
@@ -14926,32 +14970,36 @@ zest_buffer zest_GetLayerResourceBuffer(zest_layer layer) {
     return NULL;
 }
 
-zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer layer) {
+zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
     return layer->memory_refs[layer->fif].staging_instance_data;
 }
 
-zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer) {
+zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
     return layer->memory_refs[layer->fif].staging_index_data;
 }
 //-- End Draw Layers
 
 //-- Start Instance Drawing API
-zest_layer zest_CreateInstanceLayer(const char* name, zest_size type_size) {
+zest_layer_handle zest_CreateInstanceLayer(const char* name, zest_size type_size) {
     zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(type_size);
     return zest_FinishInstanceLayer(name, &builder);
 }
 
-zest_layer zest_CreateFIFInstanceLayer(const char* name, zest_size type_size, zest_uint id) {
+zest_layer_handle zest_CreateFIFInstanceLayer(const char* name, zest_size type_size, zest_uint id) {
     zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(type_size);
     builder.initial_count = 1000;
-    zest_layer layer = zest_FinishInstanceLayer(name, &builder);
+    zest_layer_handle layer_handle = zest_FinishInstanceLayer(name, &builder);
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
     zest_ForEachFrameInFlight(fif) {
         layer->memory_refs[fif].device_vertex_data = zest_CreateUniqueVertexStorageBuffer(layer->memory_refs[fif].staging_instance_data->size, fif, id);
     }
     ZEST__FLAG(layer->flags, zest_layer_flag_manual_fif);
-    return layer;
+    return layer_handle;
 }
 
 zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_size type_size) {
@@ -14962,12 +15010,12 @@ zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_size type_size) {
     return builder;
 }
 
-zest_layer zest_FinishInstanceLayer(const char *name, zest_layer_builder_t *builder) {
-    zest_layer layer = zest__create_instance_layer(name, builder->type_size, builder->initial_count);
-    return layer;
+zest_layer_handle zest_FinishInstanceLayer(const char *name, zest_layer_builder_t *builder) {
+    zest_layer_handle layer_handle = zest__create_instance_layer(name, builder->type_size, builder->initial_count);
+    return layer_handle;
 }
 
-void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size) {
+void zest__initialise_instance_layer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size) {
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->current_color.r = 255;
     layer->current_color.g = 255;
@@ -14998,86 +15046,18 @@ void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_ui
         layer->memory_refs[fif].instance_ptr = layer->memory_refs[fif].staging_instance_data->data;
     }
 
-    zest_SetLayerViewPort(layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
+    layer->scissor = zest_CreateRect2D(zest_SwapChainWidth(), zest_SwapChainHeight(), 0, 0);
+    layer->viewport = zest_CreateViewport(0.f, 0.f, zest_SwapChainWidthf(), zest_SwapChainHeightf(), 0.f, 1.f);
 }
-
-zest_layer zest_CreateFontLayer(const char *name) {
-    zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(sizeof(zest_sprite_instance_t));
-    zest_layer layer = zest_FinishInstanceLayer(name, &builder);
-    return layer;
-}
-
-void zest_DrawSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT_HANDLE(image);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);    //Call zest_StartSpriteDrawing before calling this function
-
-    zest_sprite_instance_t* sprite = (zest_sprite_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
-
-    sprite->size_handle = zest_Pack16bit4SScaled(sx, sy, hx, hy, 4096.f, 128.f);
-    sprite->position_rotation = zest_Vec4Set(x, y, stretch, r);
-    sprite->uv = image->uv;
-    sprite->alignment = alignment;
-    sprite->color = layer->current_color;
-    sprite->intensity_texture_array = image->layer;
-    sprite->intensity_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-
-    zest_NextInstance(layer);
-}
-
-void zest_DrawSpritePacked(zest_layer layer, zest_image image, float x, float y, float r, zest_u64 size_handle, zest_uint alignment, float stretch) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT_HANDLE(image);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);    //Call zest_StartSpriteDrawing before calling this function
-
-    zest_sprite_instance_t* sprite = (zest_sprite_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
-
-    sprite->size_handle = size_handle;
-    sprite->position_rotation = zest_Vec4Set(x, y, stretch, r);
-    sprite->uv = image->uv;
-    sprite->alignment = alignment;
-    sprite->color = layer->current_color;
-    sprite->intensity_texture_array = image->layer;
-    sprite->intensity_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-
-    zest_NextInstance(layer);
-}
-
-void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float x, float y, float width, float height, float scale_x, float scale_y, float offset_x, float offset_y) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT_HANDLE(image);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);    //Call zest_StartSpriteDrawing before calling this function
-
-    zest_sprite_instance_t* sprite = (zest_sprite_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
-
-    if (offset_x || offset_y) {
-        offset_x = fmodf(offset_x, (float)image->width) / image->width;
-        offset_y = fmodf(offset_y, (float)image->height) / image->height;
-        offset_x *= scale_x;
-        offset_y *= scale_y;
-    }
-    scale_x *= width / (float)image->width;
-    scale_y *= height / (float)image->height;
-    sprite->uv = zest_Vec4Set(-offset_x, -offset_y, scale_x - offset_x, scale_y - offset_y);
-
-    sprite->size_handle = zest_Pack16bit4SScaledZWPacked(width, height, 0, 4096.f);
-    sprite->position_rotation = zest_Vec4Set(x, y, 0.f, 0.f);
-    sprite->alignment = 0;
-    sprite->color = layer->current_color;
-    sprite->intensity_texture_array = (image->layer << 24);
-    sprite->intensity_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-
-    zest_NextInstance(layer);
-}
-//-- End Sprite Drawing API
 
 //-- Start Instance Drawing API
-void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources_handle handle, zest_pipeline_template pipeline) {
+void zest_SetInstanceDrawing(zest_layer_handle layer_handle, zest_shader_resources_handle handle, zest_pipeline_template pipeline) {
     zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
     ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_EndInstanceInstructions(layer);
-    zest_StartInstanceInstructions(layer);
+    zest__end_instance_instructions(layer);
+    zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
 
     //The number of shader resources must match the number of descriptor layouts set in the pipeline.
@@ -15087,116 +15067,24 @@ void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources_handle hand
     layer->last_draw_mode = zest_draw_mode_instance;
 }
 
-void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
+void zest_SetLayerDrawingViewport(zest_layer_handle layer_handle, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_EndInstanceInstructions(layer);
-    zest_StartInstanceInstructions(layer);
+    zest__end_instance_instructions(layer);
+    zest__start_instance_instructions(layer);
     layer->current_instruction.scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
     layer->current_instruction.viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
     layer->current_instruction.draw_mode = zest_draw_mode_viewport;
 }
 
-void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size) {
+void zest_SetLayerPushConstants(zest_layer_handle layer_handle, void *push_constants, zest_size size) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(size <= 128);   //Push constant size must not exceed 128 bytes
     memcpy(layer->current_instruction.push_constant, push_constants, size);
 }
 
-//-- Start Billboard Drawing API
-void zest_DrawBillboard(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], float handle[2], float stretch, zest_uint alignment_type, float sx, float sy) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT_HANDLE(image);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);    //Call zest_StartSpriteDrawing before calling this function
-
-    zest_billboard_instance_t* billboard = (zest_billboard_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
-
-    billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
-    billboard->rotations_stretch = zest_Vec4Set(angles[0], angles[1], angles[2], stretch);
-    billboard->uv = image->uv_packed;
-    billboard->scale_handle = zest_Pack16bit4SScaled(sx, sy, handle[0], handle[1], 256.f, 128.f);
-    billboard->alignment = alignment;
-    billboard->color = layer->current_color;
-    billboard->intensity_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-
-    zest_NextInstance(layer);
-}
-
-void zest_DrawBillboardPacked(zest_layer layer, zest_image image, float position[3], zest_uint alignment, float angles[3], zest_u64 scale_handle, float stretch, zest_uint alignment_type) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT_HANDLE(image);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);    //Call zest_StartSpriteDrawing before calling this function
-
-    zest_billboard_instance_t* billboard = (zest_billboard_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
-
-    billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
-    billboard->rotations_stretch = zest_Vec4Set(angles[0], angles[1], angles[2], stretch);
-    billboard->uv = image->uv_packed;
-    billboard->scale_handle = scale_handle;
-    billboard->alignment = alignment;
-    billboard->color = layer->current_color;
-    billboard->intensity_texture_array = (image->layer << 24) + (alignment_type << 22) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-
-    zest_NextInstance(layer);
-}
-
-void zest_DrawBillboardSimple(zest_layer layer, zest_image image, float position[3], float angle, float sx, float sy) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT_HANDLE(image);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
-
-    zest_billboard_instance_t* billboard = (zest_billboard_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
-
-    billboard->scale_handle = zest_Pack16bit4SScaled(sx, sy, 0.5f, 0.5f, 256.f, 128.f);
-    billboard->position = zest_Vec3Set(position[0], position[1], position[2]);
-    billboard->rotations_stretch = zest_Vec4Set( 0.f, 0.f, angle, 0.f );
-    billboard->uv = image->uv_packed;
-    billboard->alignment = 16711680;        //x = 0.f, y = 1.f, z = 0.f;
-    billboard->color = layer->current_color;
-    billboard->intensity_texture_array = (image->layer << 24) + (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-
-    zest_NextInstance(layer);
-}
-//-- End Billboard Drawing API
-
-
-//-- Start 3D Line Drawing API
-void zest_Set3DLineDrawing(zest_layer layer, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
-    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, resource_handle.value);
-    ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
-    ZEST_ASSERT_HANDLE(layer);	     //Not a valid layer handle!
-    zest_EndInstanceInstructions(layer);
-    zest_StartInstanceInstructions(layer);
-    layer->current_instruction.pipeline_template = pipeline;
-	layer->current_instruction.shader_resources = resource_handle;
-    layer->current_instruction.scissor = layer->scissor;
-    layer->current_instruction.viewport = layer->viewport;
-    layer->current_instruction.draw_mode = zest_draw_mode_line_instance;
-    layer->last_draw_mode = zest_draw_mode_line_instance;
-}
-
-void zest_Draw3DLine(zest_layer layer, float start_point[3], float end_point[3], float width) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_line_instance || layer->current_instruction.draw_mode == zest_draw_mode_dashed_line);	//Call zest_StartSpriteDrawing before calling this function
-
-    zest_line_instance_t* line = (zest_line_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
-
-    line->start.x = start_point[0];
-    line->start.y = start_point[1];
-    line->start.z = start_point[2];
-    line->end.x = end_point[0];
-    line->end.y = end_point[1];
-    line->end.z = end_point[2];
-    line->start.w = width;
-    line->end.w = width;
-    line->start_color = layer->current_color;
-    line->end_color = layer->current_color;
-
-    zest_NextInstance(layer);
-}
-//-- End Line Drawing API
-
 //-- Start Mesh Drawing API
-
 void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity) {
     mesh_layer->current_color.r = 255;
     mesh_layer->current_color.g = 255;
@@ -15230,7 +15118,8 @@ void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_
 		mesh_layer->memory_refs[fif].staging_index_data = mesh_layer->memory_refs[fif].staging_index_data;
     }
 
-    zest_SetLayerViewPort(mesh_layer, 0, 0, zest_SwapChainWidth(), zest_SwapChainHeight(), zest_SwapChainWidthf(), zest_SwapChainHeightf());
+    mesh_layer->scissor = zest_CreateRect2D(zest_SwapChainWidth(), zest_SwapChainHeight(), 0, 0);
+    mesh_layer->viewport = zest_CreateViewport(0.f, 0.f, zest_SwapChainWidthf(), zest_SwapChainHeightf(), 0.f, 1.f);
     zest_ForEachFrameInFlight(fif) {
         zest_vec_clear(mesh_layer->draw_instructions[fif]);
         mesh_layer->memory_refs[fif].staging_vertex_data->memory_in_use = 0;
@@ -15243,7 +15132,8 @@ void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_
     }
 }
 
-void zest_BindMeshVertexBuffer(VkCommandBuffer command_buffer, zest_layer layer) {
+void zest_BindMeshVertexBuffer(VkCommandBuffer command_buffer, zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->vertex_data);    //There's no vertex data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->vertex_data;
@@ -15251,36 +15141,42 @@ void zest_BindMeshVertexBuffer(VkCommandBuffer command_buffer, zest_layer layer)
     vkCmdBindVertexBuffers(command_buffer, 0, 1, zest_GetBufferDeviceBuffer(buffer), offsets);
 }
 
-void zest_BindMeshIndexBuffer(VkCommandBuffer command_buffer, zest_layer layer) {
+void zest_BindMeshIndexBuffer(VkCommandBuffer command_buffer, zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->index_data);    //There's no index data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->index_data;
     vkCmdBindIndexBuffer(command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->buffer_offset, VK_INDEX_TYPE_UINT32);
 }
 
-zest_buffer zest_GetVertexWriteBuffer(zest_layer layer) {
+zest_buffer zest_GetVertexWriteBuffer(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     return layer->memory_refs[layer->fif].staging_vertex_data;
 }
 
-zest_buffer zest_GetIndexWriteBuffer(zest_layer layer) {
+zest_buffer zest_GetIndexWriteBuffer(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     return layer->memory_refs[layer->fif].staging_index_data;
 }
 
-void zest_GrowMeshVertexBuffers(zest_layer layer) {
+void zest_GrowMeshVertexBuffers(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_size memory_in_use = zest_GetVertexWriteBuffer(layer)->memory_in_use;
+    zest_size memory_in_use = zest_GetVertexWriteBuffer(layer_handle)->memory_in_use;
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_vertex_data, layer->vertex_struct_size, memory_in_use);
 }
 
-void zest_GrowMeshIndexBuffers(zest_layer layer) {
+void zest_GrowMeshIndexBuffers(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_size memory_in_use = zest_GetVertexWriteBuffer(layer)->memory_in_use;
+    zest_size memory_in_use = zest_GetVertexWriteBuffer(layer_handle)->memory_in_use;
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_index_data, sizeof(zest_uint), memory_in_use);
 }
 
-void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters) {
+void zest_PushVertex(zest_layer_handle layer_handle, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     zest_textured_vertex_t vertex = { 0 };
     vertex.pos = zest_Vec3Set(pos_x, pos_y, pos_z);
@@ -15311,7 +15207,8 @@ void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, fl
     layer->memory_refs[layer->fif].vertex_ptr = vertex_ptr;
 }
 
-void zest_PushIndex(zest_layer layer, zest_uint offset) {
+void zest_PushIndex(zest_layer_handle layer_handle, zest_uint offset) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     zest_uint index = layer->memory_refs[layer->fif].vertex_count + offset;
     zest_uint* index_ptr = (zest_uint*)layer->memory_refs[layer->fif].index_ptr;
@@ -15339,9 +15236,10 @@ void zest_PushIndex(zest_layer layer, zest_uint offset) {
     layer->memory_refs[layer->fif].index_ptr = index_ptr;
 }
 
-void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
+void zest_SetMeshDrawing(zest_layer_handle layer_handle, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
     zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, resource_handle.value);
     ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
     zest__end_mesh_instructions(layer);
@@ -15352,46 +15250,17 @@ void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources_handle resource
     layer->last_draw_mode = zest_draw_mode_mesh;
 }
 
-void zest_DrawTexturedPlane(zest_layer layer, zest_image image, float x, float y, float z, float width, float height, float scale_x, float scale_y, float offset_x, float offset_y) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT_HANDLE(image);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_mesh);    //You must call zest_SetMeshDrawing before calling this function and also make sure you're passing in the correct mesh layer
-    zest_vec4 uv = zest_Vec4Set(0.f, 0.f, 1.f, 1.f);
-    if (offset_x || offset_y) {
-        offset_x = fmodf(offset_x, (float)image->width) / image->width;
-        offset_y = fmodf(offset_y, (float)image->height) / image->height;
-        offset_x *= scale_x;
-        offset_y *= scale_y;
-    }
-
-    scale_x *= width / (float)image->width;
-    scale_y *= height / (float)image->height;
-    uv.z = (uv.z * scale_x) - offset_x;
-    uv.w = (uv.w * scale_y) - offset_y;
-    uv.x -= offset_x;
-    uv.y -= offset_y;
-
-    zest_PushIndex(layer, 0);
-    zest_PushVertex(layer, x, y, z, layer->intensity, uv.x, uv.y, layer->current_color, image->layer);
-    zest_PushIndex(layer, 0);
-    zest_PushVertex(layer, x + width, y, z, layer->intensity, uv.z, uv.y, layer->current_color, image->layer);
-    zest_PushIndex(layer, 0);
-    zest_PushIndex(layer, 0);
-    zest_PushIndex(layer, -1);
-    zest_PushVertex(layer, x, y, z + height, layer->intensity, uv.x, uv.w, layer->current_color, image->layer);
-    zest_PushIndex(layer, 0);
-    zest_PushVertex(layer, x + width, y, z + height, layer->intensity, uv.z, uv.w, layer->current_color, image->layer);
-}
 //-- End Mesh Drawing API
 
 //-- Instanced_mesh_drawing
-void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
+void zest_SetInstanceMeshDrawing(zest_layer_handle layer_handle, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
     zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, resource_handle.value);
     ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
-    zest_EndInstanceInstructions(layer);
-    zest_StartInstanceInstructions(layer);
+    zest__end_instance_instructions(layer);
+    zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
 	layer->current_instruction.shader_resources = resource_handle;
     layer->current_instruction.draw_mode = zest_draw_mode_mesh_instance;
@@ -15553,7 +15422,8 @@ void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh) {
     }
 }
 
-void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
+void zest_AddMeshToLayer(zest_layer_handle layer_handle, zest_mesh src_mesh) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(zest_MeshVertexDataSize(src_mesh), src_mesh->vertices);
     zest_buffer index_staging_buffer = zest_CreateStagingBuffer(zest_MeshIndexDataSize(src_mesh), src_mesh->indexes);
@@ -15568,7 +15438,8 @@ void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
     zest_FreeBuffer(index_staging_buffer);
 }
 
-void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]) {
+void zest_DrawInstancedMesh(zest_layer_handle layer_handle, float pos[3], float rot[3], float scale[3]) {
+    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
 
@@ -15580,7 +15451,7 @@ void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float 
     instance->color = layer->current_color;
     instance->parameters = 0;
 
-    zest_NextInstance(layer);
+    zest_NextInstance(layer_handle);
 }
 
 zest_mesh zest_CreateCylinder(int sides, float radius, float height, zest_color color, zest_bool cap) {

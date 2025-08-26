@@ -53,9 +53,9 @@ struct ImGuiApp {
 	zest_timer_handle timer;
 	zest_camera_t camera;
 
-	zest_layer cube_layer;
-	zest_layer skybox_layer;
-	zest_layer billboard_layer;
+	zest_layer_handle cube_layer;
+	zest_layer_handle skybox_layer;
+	zest_layer_handle billboard_layer;
 
 	zest_pipeline_template pbr_pipeline;
 	zest_pipeline_template skybox_pipeline;

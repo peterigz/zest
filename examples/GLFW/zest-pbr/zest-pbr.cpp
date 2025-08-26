@@ -317,8 +317,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_AddUniformBufferToResources(app->skybox_shader_resources, app->view_buffer);			//Set 1
 	zest_AddUniformBufferToResources(app->skybox_shader_resources, app->lights_buffer);			//Set 2
 
-	app->cube_layer = zest_CreateBuiltinInstanceMeshLayer("Cube Layer");
-	app->skybox_layer = zest_CreateBuiltinInstanceMeshLayer("Sky Box Layer");
+	app->cube_layer = zest_CreateInstanceMeshLayer("Cube Layer");
+	app->skybox_layer = zest_CreateInstanceMeshLayer("Sky Box Layer");
 	zest_mesh cube = zest_CreateCube(1.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh sphere = zest_CreateSphere(100, 100, 1.f, zest_ColorSet(0, 50, 100, 255));
 	zest_mesh cone = zest_CreateCone(50, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255));
@@ -352,25 +352,27 @@ void UpdateLights(ImGuiApp *app, float timer) {
 	buffer_data->exposure = 4.5f;
 	buffer_data->gamma = 2.2f;
 
+	/*
 	zest_SetInstanceDrawing(app->billboard_layer, app->sprite_resources, app->billboard_pipeline);
 	zest_SetLayerColor(app->billboard_layer, 255, 255, 255, 255);
 	zest_DrawBillboardSimple(app->billboard_layer, app->light, &buffer_data->lights[0].x, 0.f, 1.f, 1.f);
 	zest_DrawBillboardSimple(app->billboard_layer, app->light, &buffer_data->lights[1].x, 0.f, 1.f, 1.f);
 	zest_DrawBillboardSimple(app->billboard_layer, app->light, &buffer_data->lights[2].x, 0.f, 1.f, 1.f);
 	zest_DrawBillboardSimple(app->billboard_layer, app->light, &buffer_data->lights[3].x, 0.f, 1.f, 1.f);
+	*/
 }
 
 void UploadMeshData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	ImGuiApp *app = (ImGuiApp *)user_data;
 
-	zest_layer layers[3]{
+	zest_layer_handle layers[3]{
 		app->cube_layer,
 		app->skybox_layer,
 		app->billboard_layer
 	};
 
 	for (int i = 0; i != 3; ++i) {
-		zest_layer layer = layers[i];
+		zest_layer_handle layer = layers[i];
 		zest_UploadLayerStagingData(layer, context);
 	}
 }
@@ -550,7 +552,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectInput(skybox_texture_resource, 0);
 			zest_ConnectInput(skybox_layer_resource, 0);
 			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_DrawInstanceMeshLayer, app->skybox_layer);
+			zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->skybox_layer);
 			zest_EndPass();
 		}
 		//--------------------------------------------------------------------------------------------------
@@ -562,7 +564,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectInput(irradiance_texture_resource, 0);
 			zest_ConnectInput(prefiltered_texture_resource, 0);
 			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_DrawInstanceMeshLayer, app->cube_layer);
+			zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->cube_layer);
 			zest_EndPass();
 		}
 		//--------------------------------------------------------------------------------------------------
@@ -572,7 +574,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectInput(billboard_layer_resource, 0);
 			zest_ConnectInput(billboard_texture_resource, 0);
 			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_DrawInstanceLayer, app->billboard_layer);
+			zest_SetPassTask(zest_DrawInstanceLayer, &app->billboard_layer);
 			zest_EndPass();
 		}
 		//--------------------------------------------------------------------------------------------------

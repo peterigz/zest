@@ -398,9 +398,9 @@ void InitImGuiApp(ImGuiApp* app) {
 	zest_CameraSetPitch(&app->camera, zest_Radians(0.f));
 	zest_CameraUpdateFront(&app->camera);
 
-	app->mesh_layer = zest_CreateBuiltinInstanceMeshLayer("Meshes");
-	app->move_widget_layer = zest_CreateBuiltinInstanceMeshLayer("Move Widget");
-	app->scale_widget_layer = zest_CreateBuiltinInstanceMeshLayer("Scale Widget");
+	app->mesh_layer = zest_CreateInstanceMeshLayer("Meshes");
+	app->move_widget_layer = zest_CreateInstanceMeshLayer("Move Widget");
+	app->scale_widget_layer = zest_CreateInstanceMeshLayer("Scale Widget");
 	app->line_layer = zest_CreateInstanceLayer("3d lines", sizeof(zest_line_instance_t));
 
 	float arrow_radius = 0.01f;
