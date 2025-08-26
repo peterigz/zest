@@ -2658,6 +2658,14 @@ bool zest__create_worker_thread(zest_storage_t * storage, int thread_index) {
 #endif
 }
 
+// --Uniform buffers
+void zest__add_set_builder_uniform_buffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer uniform_buffer, zest_uint fif) {
+    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    VkDescriptorBufferInfo buffer_info = uniform_buffer->descriptor_info[fif];
+    zest_AddSetBuilderWrite(builder, dst_binding, dst_array_element, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, NULL, &buffer_info, NULL);
+}
+// --End Uniform buffers
+
 // --Buffer & Memory Management
 void zest__add_host_memory_pool(zest_size size) {
     ZEST_ASSERT(ZestDevice->memory_pool_count < 32);    //Reached the max number of memory pools
@@ -3618,10 +3626,9 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
 
     zest__initialise_store(&ZestRenderer->shader_resources, sizeof(zest_shader_resources_t));
     zest__initialise_store(&ZestRenderer->textures, sizeof(zest_texture_t));
+    zest__initialise_store(&ZestRenderer->uniform_buffers, sizeof(zest_uniform_buffer_t));
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
-
-	ZestRenderer->uniform_buffer = zest_CreateUniformBuffer("Zest Uniform Buffer", sizeof(zest_uniform_buffer_data_t));
 
     //Create a global bindless descriptor set for storage buffers and texture samplers
     zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder();
@@ -3974,9 +3981,6 @@ void zest__cleanup_device(void) {
 void zest__free_handle(void *handle) {
     zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(handle);
     switch (struct_type) {
-    case zest_struct_type_uniform_buffer:
-        zest__cleanup_uniform_buffer((zest_uniform_buffer)handle);
-        break;
     case zest_struct_type_timer:
         zest_FreeTimer((zest_timer)handle);
         break;
@@ -3988,9 +3992,6 @@ void zest__free_handle(void *handle) {
         break;
     case zest_struct_type_compute:
         zest__cleanup_compute((zest_compute)handle);
-        break;
-    case zest_struct_type_font:
-        zest__cleanup_font((zest_font)handle);
         break;
     case zest_struct_type_set_layout:
         zest__cleanup_set_layout((zest_set_layout)handle);
@@ -4020,12 +4021,10 @@ void zest__scan_memory_and_free_resources() {
             if (ZEST_VALID_HANDLE(allocation)) {
                 zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
                 switch (struct_type) {
-                case zest_struct_type_uniform_buffer:
                 case zest_struct_type_timer:
                 case zest_struct_type_layer:
                 case zest_struct_type_shader:
                 case zest_struct_type_compute:
-                case zest_struct_type_font:
                 case zest_struct_type_set_layout:
                 case zest_struct_type_pipeline_template:
                 case zest_struct_type_swapchain:
@@ -4058,7 +4057,7 @@ void zest__cleanup_shader_resource_store() {
 }
 
 void zest__cleanup_texture_store() {
-    zest_texture_t *textures = (zest_shader_resources)ZestRenderer->textures.data;
+    zest_texture_t *textures = ZestRenderer->textures.data;
     for (int i = 0; i != ZestRenderer->textures.current_size; ++i) {
         if (ZEST_VALID_HANDLE(&textures[i])) {
             zest_texture resource = &textures[i];
@@ -4066,6 +4065,17 @@ void zest__cleanup_texture_store() {
         }
     }
     zest__free_store(&ZestRenderer->textures);
+}
+
+void zest__cleanup_uniform_buffer_store() {
+    zest_uniform_buffer_t *uniform_buffers = ZestRenderer->uniform_buffers.data;
+    for (int i = 0; i != ZestRenderer->uniform_buffers.current_size; ++i) {
+        if (ZEST_VALID_HANDLE(&uniform_buffers[i])) {
+            zest_uniform_buffer resource = &uniform_buffers[i];
+            zest__cleanup_uniform_buffer(resource);
+        }
+    }
+    zest__free_store(&ZestRenderer->uniform_buffers);
 }
 
 void zest__cleanup_renderer() {
@@ -4079,6 +4089,7 @@ void zest__cleanup_renderer() {
 
     zest__cleanup_shader_resource_store();
     zest__cleanup_texture_store();
+    zest__cleanup_uniform_buffer_store();
 
     zest__scan_memory_and_free_resources();
 
@@ -4327,11 +4338,12 @@ void zest__reset_queue_command_pool(zest_queue queue) {
     queue->next_buffer = 0;
 }
 
-zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size) {
-    zest_uniform_buffer_t blank = { 0 };
-    zest_uniform_buffer uniform_buffer = ZEST__NEW(zest_uniform_buffer);
-    *uniform_buffer = blank;
+zest_uniform_buffer_handle zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size) {
+    zest_uniform_buffer_handle handle = { zest__add_store_resource(&ZestRenderer->uniform_buffers) };
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    *uniform_buffer = (zest_uniform_buffer_t){ 0 };
     uniform_buffer->magic = zest_INIT_MAGIC(zest_struct_type_uniform_buffer);
+    uniform_buffer->handle = handle;
     zest_buffer_info_t buffer_info = { 0 };
     buffer_info.usage_flags = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -4348,28 +4360,17 @@ zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform
         uniform_buffer->descriptor_info[fif].range = uniform_buffer->buffer[fif]->size;
 
 		zest_descriptor_set_builder_t uniform_set_builder = zest_BeginDescriptorSetBuilder(uniform_buffer->set_layout);
-		zest_AddSetBuilderUniformBuffer(&uniform_set_builder, 0, 0, uniform_buffer, fif);
+		zest__add_set_builder_uniform_buffer(&uniform_set_builder, 0, 0, uniform_buffer, fif);
 		uniform_buffer->descriptor_set[fif] = zest_FinishDescriptorSet(uniform_buffer->set_layout->pool, &uniform_set_builder, uniform_buffer->descriptor_set[fif]);
 
     }
-    return uniform_buffer;
+    return handle;
 }
 
-void zest_FreeUniformBuffer(zest_uniform_buffer uniform_buffer) {
+void zest_FreeUniformBuffer(zest_uniform_buffer_handle handle) {
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
     ZEST_ASSERT_HANDLE(uniform_buffer); //Not a valid uniform buffer
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.resources[ZEST_FIF], uniform_buffer);
-}
-
-void zest_Update2dUniformBuffer() {
-    zest_uniform_buffer_data_t* ubo_ptr = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(ZestRenderer->uniform_buffer);
-    zest_vec3 eye = { .x = 0.f, .y = 0.f, .z = -1 };
-    zest_vec3 center = { 0 };
-    zest_vec3 up = { .x = 0.f, .y = -1.f, .z = 0.f };
-    ubo_ptr->view = zest_LookAt(eye, center, up);
-    ubo_ptr->proj = zest_Ortho(0.f, (float)ZestRenderer->main_swapchain->vk_extent.width / ZestRenderer->dpi_scale, 0.f, -(float)ZestRenderer->main_swapchain->vk_extent.height / ZestRenderer->dpi_scale, -1000.f, 1000.f);
-    ubo_ptr->screen_size.x = zest_ScreenWidthf();
-    ubo_ptr->screen_size.y = zest_ScreenHeightf();
-    ubo_ptr->millisecs = zest_Millisecs() % 1000;
 }
 
 zest_set_layout_builder_t zest_BeginSetLayoutBuilder() {
@@ -4672,6 +4673,10 @@ void zest__cleanup_set_layout(zest_set_layout layout) {
 	ZEST__FREE(layout);
 }
 
+void zest__add_descriptor_set_to_resources(zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif) {
+	zest_vec_push(resources->sets[fif], descriptor_set);
+}
+
 VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(zest_uint count, VkDescriptorSetLayoutBinding* bindings) {
     ZEST_ASSERT(bindings);    //must have bindings to create the layout
 
@@ -4908,10 +4913,10 @@ void zest_AddSetBuilderDirectImageWrite( zest_descriptor_set_builder_t *builder,
     zest_AddSetBuilderWrite(builder, dst_binding, dst_array_element, 1, type, image_info, NULL, NULL);
 }
 
-void zest_AddSetBuilderUniformBuffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer uniform_buffer, zest_uint fif) {
+void zest_AddSetBuilderUniformBuffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer_handle handle, zest_uint fif) {
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
     ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
-    VkDescriptorBufferInfo buffer_info = uniform_buffer->descriptor_info[fif];
-    zest_AddSetBuilderWrite(builder, dst_binding, dst_array_element, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, NULL, &buffer_info, NULL);
+    zest__add_set_builder_uniform_buffer(builder, dst_binding, dst_array_element, uniform_buffer, fif);
 }
 
 void zest_AddSetBuilderStorageBuffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_buffer storage_buffer) {
@@ -4992,11 +4997,12 @@ void zest_AddDescriptorSetToResources(zest_shader_resources_handle handle, zest_
 	zest_vec_push(resources->sets[fif], descriptor_set);
 }
 
-void zest_AddUniformBufferToResources(zest_shader_resources_handle handle, zest_uniform_buffer buffer) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
+void zest_AddUniformBufferToResources(zest_shader_resources_handle shader_resources_handle, zest_uniform_buffer_handle buffer_handle) {
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, shader_resources_handle.value);
     ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, buffer_handle.value);
     zest_ForEachFrameInFlight(fif) {
-        zest_AddDescriptorSetToResources(handle, buffer->descriptor_set[fif], fif);
+        zest__add_descriptor_set_to_resources(shader_resources, uniform_buffer->descriptor_set[fif], fif);
     }
 }
 
@@ -5004,7 +5010,7 @@ void zest_AddGlobalBindlessSetToResources(zest_shader_resources_handle handle) {
     zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
     ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
     zest_ForEachFrameInFlight(fif) {
-        zest_AddDescriptorSetToResources(handle, ZestRenderer->global_set, fif);
+        zest__add_descriptor_set_to_resources(shader_resources, ZestRenderer->global_set, fif);
     }
 }
 
@@ -5012,7 +5018,7 @@ void zest_AddBindlessSetToResources(zest_shader_resources_handle handle, zest_de
     zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
     ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
     zest_ForEachFrameInFlight(fif) {
-        zest_AddDescriptorSetToResources(handle, set, fif);
+        zest__add_descriptor_set_to_resources(shader_resources, set, fif);
     }
 }
 
@@ -6176,8 +6182,8 @@ zest_vertex_input_descriptions zest_NewVertexInputDescriptions() {
     return descriptions;
 }
 
-void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint location, VkFormat format, zest_uint offset) {
-    zest_vec_push(pipeline_template->attributeDescriptions, zest_CreateVertexInputDescription(0, location, format, offset));
+void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint location, VkFormat format, zest_uint offset) {
+    zest_vec_push(pipeline_template->attributeDescriptions, zest_CreateVertexInputDescription(binding, location, format, offset));
 }
 
 zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) { 
@@ -6234,70 +6240,59 @@ void zest_GetMouseSpeed(double* x, double* y) {
     *y = ZestApp->mouse_delta_y * ellapsed_in_seconds;
 }
 
-VkDescriptorBufferInfo* zest_GetUniformBufferInfo(zest_uniform_buffer buffer) {
-    ZEST_ASSERT_HANDLE(buffer);  //Not a valid uniform buffer
-    return &buffer->descriptor_info[ZEST_FIF];
+VkDescriptorBufferInfo* zest_GetUniformBufferInfo(zest_uniform_buffer_handle handle) {
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    return &uniform_buffer->descriptor_info[ZEST_FIF];
 }
 
-VkDescriptorSetLayout zest_vk_GetUniformBufferLayout(zest_uniform_buffer buffer) {
-    ZEST_ASSERT_HANDLE(buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(buffer->set_layout); //The buffer is not properly initialised, no descriptor set found
-    return buffer->set_layout->vk_layout;
+VkDescriptorSetLayout zest_vk_GetUniformBufferLayout(zest_uniform_buffer_handle handle) {
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    ZEST_ASSERT_HANDLE(uniform_buffer->set_layout); //The buffer is not properly initialised, no descriptor set found
+    return uniform_buffer->set_layout->vk_layout;
 }
 
-zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer buffer) {
-    ZEST_ASSERT_HANDLE(buffer);  //Not a valid uniform buffer
-    return buffer->set_layout;
+zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer_handle handle) {
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    return uniform_buffer->set_layout;
 }
 
-VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer buffer) {
-    ZEST_ASSERT_HANDLE(buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(buffer->descriptor_set[ZEST_FIF]);  //The buffer is not properly initialised, no descriptor set found
-    return buffer->descriptor_set[ZEST_FIF]->vk_descriptor_set;
+VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer_handle handle) {
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    ZEST_ASSERT_HANDLE(uniform_buffer->descriptor_set[ZEST_FIF]);  //The buffer is not properly initialised, no descriptor set found
+    return uniform_buffer->descriptor_set[ZEST_FIF]->vk_descriptor_set;
 }
 
-zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer buffer) {
-    ZEST_ASSERT_HANDLE(buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(buffer->descriptor_set[ZEST_FIF]);  //The buffer is not properly initialised, no descriptor set found
-    return buffer->descriptor_set[ZEST_FIF];
+zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer_handle handle) {
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    ZEST_ASSERT_HANDLE(uniform_buffer->descriptor_set[ZEST_FIF]);  //The buffer is not properly initialised, no descriptor set found
+    return uniform_buffer->descriptor_set[ZEST_FIF];
 }
 
-zest_descriptor_set zest_GetFIFUniformBufferSet(zest_uniform_buffer buffer, zest_uint fif) {
+zest_descriptor_set zest_GetFIFUniformBufferSet(zest_uniform_buffer_handle handle, zest_uint fif) {
     ZEST_ASSERT(fif < ZEST_MAX_FIF);
-    ZEST_ASSERT_HANDLE(buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(buffer->descriptor_set[fif]);  //The buffer is not properly initialised, no descriptor set found
-    return buffer->descriptor_set[fif];
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    ZEST_ASSERT_HANDLE(uniform_buffer->descriptor_set[fif]);  //The buffer is not properly initialised, no descriptor set found
+    return uniform_buffer->descriptor_set[fif];
 }
 
-VkDescriptorSet zest_vk_GetFIFUniformBufferSet(zest_uniform_buffer buffer, zest_uint fif) {
+VkDescriptorSet zest_vk_GetFIFUniformBufferSet(zest_uniform_buffer_handle handle, zest_uint fif) {
     ZEST_ASSERT(fif < ZEST_MAX_FIF);
-    ZEST_ASSERT_HANDLE(buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(buffer->descriptor_set[fif]);  //The buffer is not properly initialised, no descriptor set found
-    return buffer->descriptor_set[fif]->vk_descriptor_set;
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    ZEST_ASSERT_HANDLE(uniform_buffer->descriptor_set[fif]);  //The buffer is not properly initialised, no descriptor set found
+    return uniform_buffer->descriptor_set[fif]->vk_descriptor_set;
 }
 
-void* zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer) {
+void* zest_GetUniformBufferData(zest_uniform_buffer_handle handle) {
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
     return uniform_buffer->buffer[ZEST_FIF]->data;
-}
-
-zest_descriptor_set zest_GetDefaultUniformBufferSet() {
-    return ZestRenderer->uniform_buffer->descriptor_set[ZEST_FIF];
-}
-
-VkDescriptorSet zest_vk_GetDefaultUniformBufferSet() {
-    return ZestRenderer->uniform_buffer->descriptor_set[ZEST_FIF]->vk_descriptor_set;
-}
-
-zest_set_layout zest_GetDefaultUniformBufferLayout() {
-    return ZestRenderer->uniform_buffer->set_layout;
-}
-
-VkDescriptorSetLayout zest_vk_GetDefaultUniformBufferLayout() {
-    return ZestRenderer->uniform_buffer->set_layout->vk_layout;
-}
-
-zest_uniform_buffer zest_GetDefaultUniformBuffer() {
-    return ZestRenderer->uniform_buffer;
 }
 
 void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer) {
@@ -6952,6 +6947,7 @@ void zest__create_debug_layout_and_pool(zest_uint max_texture_count) {
 void zest__prepare_standard_pipelines() {
 
     //2d sprite rendering
+    /*
     ZestRenderer->pipeline_templates.sprites = zest_BeginPipelineTemplate("pipeline_2d_sprites");
     zest_pipeline_template sprites = ZestRenderer->pipeline_templates.sprites;
     zest_AddVertexInputBindingDescription(sprites, 0, sizeof(zest_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
@@ -6972,7 +6968,6 @@ void zest__prepare_standard_pipelines() {
     zest_EndPipelineTemplate(sprites);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "2d sprites pipeline");
 
-    /*
     //Sprites with 1 channel textures
     zest_pipeline_template sprite_instance_pipeline_alpha = zest_CopyPipelineTemplate("pipeline_2d_sprites_alpha", sprite_instance_pipeline);
     zest_SetPipelineShaders(sprite_instance_pipeline_alpha, "sprite_vert.spv", "sprite_alpha_frag.spv", ZestRenderer->shader_path_prefix.str);
@@ -7000,7 +6995,6 @@ void zest__prepare_standard_pipelines() {
     line3d_instance_pipeline->colorBlendAttachment = zest_PreMultiplyBlendState();
     line3d_instance_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF 3D Lines pipeline");
-    */
 
     //Font Texture
     ZestRenderer->pipeline_templates.fonts = zest_CopyPipelineTemplate("pipeline_fonts", sprites);
@@ -7079,6 +7073,7 @@ void zest__prepare_standard_pipelines() {
     instanced_mesh->inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Instance Mesh pipeline");
+    */
 
     //Final Render Pipelines
     ZestRenderer->pipeline_templates.swap = zest_BeginPipelineTemplate("pipeline_swap_chain");
@@ -10258,10 +10253,6 @@ zest_descriptor_set zest_GetGlobalBindlessSet() {
     return ZestRenderer->global_set;
 }
 
-VkDescriptorSet zest_vk_GetGlobalUniformBufferDescriptorSet() {
-    return ZestRenderer->uniform_buffer->descriptor_set[ZEST_FIF]->vk_descriptor_set;
-}
-
 zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_description_t *description, zest_bool assign_bindless, zest_bool image_view_binding_only) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = ZestRenderer->current_frame_graph;
@@ -10379,14 +10370,6 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
     resource->buffer_provider = zest__instance_layer_resource_provider;
     layer->vertex_buffer_node = resource;
     return resource;
-}
-
-zest_resource_node zest_ImportFontResource(const zest_font font) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
-    ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    zest_frame_graph frame_graph = ZestRenderer->current_frame_graph;
-    return zest_ImportImageResource(texture->name.str, font->texture, 0);
 }
 
 zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer) {
@@ -12701,7 +12684,7 @@ void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
         zest_FreeBuffer(uniform_buffer->buffer[fif]);
         ZEST__FREE(uniform_buffer->descriptor_set[fif]);
     }
-    ZEST__FREE(uniform_buffer);
+    zest__remove_store_resource(&ZestRenderer->uniform_buffers, uniform_buffer->handle.value);
 }
 
 void zest__create_texture_debug_set(zest_texture texture) {
@@ -14425,88 +14408,6 @@ VkDescriptorSet zest_GetTextureDebugDescriptorSet(zest_texture_handle handle) {
 }
 //-- End Texture and Image Functions
 
-//-- Fonts
-zest_font zest_LoadMSDFFont(const char* filename) {
-    zest_font_t blank_font = { 0 };
-    zest_font font = ZEST__NEW(zest_font);
-    *font = blank_font;
-    font->magic = zest_INIT_MAGIC(zest_struct_type_font);
-
-    char* font_data = zest_ReadEntireFile(filename, 0);
-    ZEST_ASSERT(font_data);            //File not found
-    zest_vec_resize(font->characters, 256);
-    font->characters['\n'].flags = zest_character_flag_new_line;
-
-    zest_font_character_t c;
-    zest_uint character_count = 0;
-    zest_uint file_version = 0;
-
-    zest_uint position = 0;
-    char magic_number[6];
-    memcpy(magic_number, font_data + position, 6);
-    position += 6;
-    ZEST_ASSERT(strcmp((const char*)magic_number, "!TSEZ") == 0);        //Not a valid ztf file
-
-    memcpy(&character_count, font_data + position, sizeof(zest_uint));
-    position += sizeof(zest_uint);
-    memcpy(&file_version, font_data + position, sizeof(zest_uint));
-    position += sizeof(zest_uint);
-    memcpy(&font->pixel_range, font_data + position, sizeof(float));
-    position += sizeof(float);
-    memcpy(&font->miter_limit, font_data + position, sizeof(float));
-    position += sizeof(float);
-    memcpy(&font->padding, font_data + position, sizeof(float));
-    position += sizeof(float);
-
-    for (zest_uint i = 0; i != character_count; ++i) {
-        memcpy(&c, font_data + position, sizeof(zest_font_character_t));
-        position += sizeof(zest_font_character_t);
-
-        font->max_yoffset = ZEST__MAX(fabsf(c.yoffset), font->max_yoffset);
-
-        const char key = c.character[0];
-        c.uv_packed = zest_Pack16bit4SNorm(c.uv.x, c.uv.y, c.uv.z, c.uv.w);
-        font->characters[key] = c;
-    }
-
-    memcpy(&font->font_size, font_data + position, sizeof(float));
-    position += sizeof(float);
-
-    zest_uint image_size;
-
-    memcpy(&image_size, font_data + position, sizeof(zest_uint));
-    position += sizeof(zest_uint);
-    zest_byte* image_data = 0;
-    zest_vec_resize(image_data, image_size);
-    size_t buffer_size;
-    memcpy(&buffer_size, font_data + position, sizeof(size_t));
-    position += sizeof(size_t);
-    memcpy(image_data, font_data + position, buffer_size);
-
-    font->texture = zest_CreateTextureSingle(filename, zest_texture_format_rgba_unorm);
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
-
-    zest_bitmap bitmap = zest__get_texture_single_bitmap(texture);
-
-    stbi_set_flip_vertically_on_load(1);
-    zest_LoadBitmapImageMemory(bitmap, image_data, image_size, 0);
-
-    zest_image_t* image = &texture->texture;
-    image->width = bitmap->meta.width;
-    image->height = bitmap->meta.height;
-
-    zest_vec_free(image_data);
-    zest_vec_free(font_data);
-
-    zest_SetText(&font->name, filename);
-
-    zest__setup_font_texture(font);
-    stbi_set_flip_vertically_on_load(0);
-
-    return font;
-}
-
 void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	zest_layer layer = (zest_layer)user_data;
 
@@ -14536,98 +14437,6 @@ void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_fra
         zest_UploadBuffer(&instance_upload, command_buffer);
     }
 }
-
-
-void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
-	//Grab the app object from the user_data that we set in the frame graph when adding this function callback 
-	zest_layer layer = (zest_layer)user_data;
-    ZEST_ASSERT_HANDLE(layer);       //Not a valid layer. Make sure that you pass in the font layer to the zest_AddPassTask function
-
-	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
-    if (!device_buffer) {
-        return;
-    }
-	VkDeviceSize instance_data_offsets[] = { device_buffer->buffer_offset };
-	vkCmdBindVertexBuffers(command_buffer, 0, 1, &device_buffer->vk_buffer, instance_data_offsets);
-    bool has_instruction_view_port = false;
-
-	VkDescriptorSet sets[] = {
-		zest_vk_GetGlobalUniformBufferDescriptorSet(),
-		zest_vk_GetGlobalBindlessSet()
-	};
-
-    zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
-        zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
-
-        if (current->draw_mode == zest_draw_mode_viewport) {
-            vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
-            vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
-            has_instruction_view_port = true;
-            continue;
-        } else if(!has_instruction_view_port) {
-            vkCmdSetViewport(command_buffer, 0, 1, &layer->viewport);
-            vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
-        }
-
-        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
-        if (pipeline) {
-            zest_BindPipeline(command_buffer, pipeline, sets, 2);
-        } else {
-            continue;
-        }
-
-		vkCmdPushConstants(
-			command_buffer,
-			pipeline->pipeline_layout,
-			zest_PipelinePushConstantStageFlags(pipeline, 0),
-			zest_PipelinePushConstantOffset(pipeline, 0),
-			zest_PipelinePushConstantSize(pipeline, 0),
-			&current->push_constant);
-
-        vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
-    }
-	zest_ResetInstanceLayerDrawing(layer);
-}
-
-void zest_FreeFont(zest_font font) {
-    ZEST_ASSERT_HANDLE(font);
-    zest_vec_push(ZestRenderer->deferred_resource_freeing_list.resources[ZEST_FIF], font);
-}
-
-void zest__setup_font_texture(zest_font font) {
-    ZEST_ASSERT_HANDLE(font);	//Not a valid handle!
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
-
-    if (ZEST__FLAGGED(texture->flags, zest_texture_flag_ready)) {
-        zest__cleanup_texture_vk_handles(texture);
-    }
-
-	texture->flags &= ~zest_texture_flag_use_filtering;
-    zest__process_texture_images(texture, 0);
-
-    zest_AcquireGlobalCombinedSampler2d(font->texture);
-
-    font->pipeline_template = ZestRenderer->pipeline_templates.fonts;
-	font->shader_resources = zest_CreateShaderResources(font->name.str);
-    zest_ForEachFrameInFlight(fif) {
-        zest_AddDescriptorSetToResources(font->shader_resources, ZestRenderer->uniform_buffer->descriptor_set[fif], fif);
-        zest_AddDescriptorSetToResources(font->shader_resources, ZestRenderer->global_set, fif);
-    }
-    zest_ValidateShaderResource(font->shader_resources);
-}
-
-void zest__cleanup_font(zest_font font) {
-	zest_vec_free(font->characters);
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
-    if (ZEST_VALID_HANDLE(texture)) {
-        zest__cleanup_texture(texture);
-    }
-	zest_FreeShaderResources(font->shader_resources);
-	zest_FreeText(&font->name);
-	ZEST__FREE(font);
-}
-//-- End Fonts
 
 //-- Draw Layers
 //-- internal
@@ -15252,236 +15061,6 @@ void zest_DrawTexturedSprite(zest_layer layer, zest_image image, float x, float 
     zest_NextInstance(layer);
 }
 //-- End Sprite Drawing API
-
-//-- Start Font Drawing API
-void zest_SetMSDFFontDrawing(zest_layer layer, zest_font font) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT_HANDLE(font);	//Not a valid handle!
-    zest_EndInstanceInstructions(layer);
-    zest_StartInstanceInstructions(layer);
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource. Make sure the font is properly loaded
-    ZEST_ASSERT(ZEST__FLAGGED(texture->flags, zest_texture_flag_ready));        //Make sure the font is properly loaded or wasn't recently deleted
-    layer->current_instruction.pipeline_template = font->pipeline_template;
-	layer->current_instruction.shader_resources = font->shader_resources;
-    layer->current_instruction.draw_mode = zest_draw_mode_text;
-    layer->current_instruction.asset = font;
-    zest_font_push_constants_t push = { 0 };
-
-    //Font defaults.
-    push.shadow_vector.x = 1.f;
-    push.shadow_vector.y = 1.f;
-    push.shadow_smoothing = 0.2f;
-    push.shadow_clipping = 0.f;
-    push.radius = 25.f;
-    push.bleed = 0.25f; 
-    push.aa_factor = 5.f;
-    push.thickness = 5.5f;
-    push.font_texture_index = texture->bindless_index[zest_combined_image_sampler_2d_binding];
-
-    (*(zest_font_push_constants_t*)layer->current_instruction.push_constant) = push;
-    layer->last_draw_mode = zest_draw_mode_text;
-}
-
-void zest_SetMSDFFontShadow(zest_layer layer, float shadow_length, float shadow_smoothing, float shadow_clipping) {
-    zest_vec2 shadow = zest_NormalizeVec2(zest_Vec2Set(1.f, 1.f));
-    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
-    push->shadow_vector.x = shadow.x * shadow_length;
-    push->shadow_vector.y = shadow.y * shadow_length;
-    push->shadow_smoothing = shadow_smoothing;
-    push->shadow_clipping = shadow_clipping;
-}
-
-void zest_SetMSDFFontShadowColor(zest_layer layer, float red, float green, float blue, float alpha) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
-    push->shadow_color = zest_Vec4Set(red, green, blue, alpha);
-}
-
-void zest_TweakMSDFFont(zest_layer layer, float bleed, float thickness, float aa_factor, float radius) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
-    push->radius = radius;
-    push->bleed = bleed;
-    push->aa_factor = aa_factor;
-    push->thickness = thickness;
-}
-
-void zest_SetMSDFFontBleed(zest_layer layer, float bleed) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
-    push->bleed = bleed;
-}
-
-void zest_SetMSDFFontThickness(zest_layer layer, float thickness) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
-    push->thickness = thickness;
-}
-
-void zest_SetMSDFFontAAFactor(zest_layer layer, float aa_factor) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
-    push->aa_factor = aa_factor;
-}
-
-void zest_SetMSDFFontRadius(zest_layer layer, float radius) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
-    push->radius = radius;
-}
-
-void zest_SetMSDFFontDetail(zest_layer layer, float bleed) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    zest_font_push_constants_t *push = (zest_font_push_constants_t *)layer->current_instruction.push_constant;
-    push->bleed = bleed;
-}
-
-float zest_DrawMSDFText(zest_layer layer, const char* text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_text);        //Call zest_StartFontDrawing before calling this function
-
-    zest_font font = (zest_font)(layer->current_instruction.asset);
-
-    size_t length = strlen(text);
-    if (length <= 0) {
-        return 0;
-    }
-
-    float scaled_line_height = font->font_size * size;
-    float scaled_offset = font->max_yoffset * size;
-    x -= zest_TextWidth(font, text, size, letter_spacing) * handle_x;
-    y -= (scaled_line_height * handle_y) - scaled_offset;
-
-    float xpos = x;
-
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
-
-    for (int i = 0; i != length; ++i) {
-        zest_sprite_instance_t* font_instance = (zest_sprite_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
-        zest_font_character_t* character = &font->characters[text[i]];
-
-        if (character->flags > 0) {
-            xpos += character->xadvance * size + letter_spacing;
-            continue;
-        }
-
-        float width = character->width * size;
-        float height = character->height * size;
-        float xoffset = character->xoffset * size;
-        float yoffset = character->yoffset * size;
-
-        float uv_width = texture->texture.width * (character->uv.z - character->uv.x);
-        float uv_height = texture->texture.height * (character->uv.y - character->uv.w);
-        float scale = width / uv_width;
-
-		font_instance->size_handle = zest_Pack16bit4SScaledZWPacked(width, height, 0, 4096.f);
-        font_instance->position_rotation = zest_Vec4Set(xpos + xoffset, y + yoffset, 0.f, 0.f);
-        font_instance->uv = character->uv;
-        font_instance->alignment = 1;
-        font_instance->color = layer->current_color;
-        font_instance->intensity_texture_array = 0;
-		font_instance->intensity_texture_array = (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-
-        zest_NextInstance(layer);
-
-        xpos += character->xadvance * size + letter_spacing;
-    }
-
-    return xpos;
-}
-
-float zest_DrawMSDFParagraph(zest_layer layer, const char* text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float line_height) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
-    ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_text);        //Call zest_StartFontDrawing before calling this function
-
-    zest_font font = (zest_font)(layer->current_instruction.asset);
-
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
-
-    size_t length = strlen(text);
-    if (length <= 0) {
-        return 0;
-    }
-
-    float scaled_line_height = line_height * font->font_size * size;
-    float scaled_offset = font->max_yoffset * size;
-    float paragraph_height = scaled_line_height * (handle_y);
-    for (int i = 0; i != length; ++i) {
-        zest_font_character_t* character = &font->characters[text[i]];
-        if (character->flags == zest_character_flag_new_line) {
-            paragraph_height += scaled_line_height;
-        }
-    }
-
-    x -= zest_TextWidth(font, text, size, letter_spacing) * handle_x;
-    y -= (paragraph_height * handle_y) - scaled_offset;
-
-    float xpos = x;
-
-    for (int i = 0; i != length; ++i) {
-        zest_sprite_instance_t* font_instance = (zest_sprite_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
-        zest_font_character_t* character = &font->characters[text[i]];
-
-        if (character->flags == zest_character_flag_skip) {
-            xpos += character->xadvance * size + letter_spacing;
-            continue;
-        }
-        else if (character->flags == zest_character_flag_new_line) {
-            y += scaled_line_height;
-            xpos = x;
-            continue;
-        }
-
-        float width = character->width * size;
-        float height = character->height * size;
-        float xoffset = character->xoffset * size;
-        float yoffset = character->yoffset * size;
-
-        float uv_width = texture->texture.width * (character->uv.z - character->uv.x);
-        float uv_height = texture->texture.height * (character->uv.y - character->uv.w);
-        float scale = width / uv_width;
-
-		font_instance->size_handle = zest_Pack16bit4SScaledZWPacked(width, height, 0, 4096.f);
-        font_instance->position_rotation = zest_Vec4Set(xpos + xoffset, y + yoffset, 0.f, 0.f);
-        font_instance->uv = character->uv;
-        font_instance->alignment = 1;
-        font_instance->color = layer->current_color;
-		font_instance->intensity_texture_array = (zest_uint)(layer->intensity * 0.125f * 4194303.f);
-
-        zest_NextInstance(layer);
-
-        xpos += character->xadvance * size + letter_spacing;
-    }
-
-    return xpos;
-}
-
-float zest_TextWidth(zest_font font, const char* text, float font_size, float letter_spacing) {
-    ZEST_ASSERT_HANDLE(font);	//Not a valid handle!
-
-    float width = 0;
-    float max_width = 0;
-
-    size_t length = strlen(text);
-
-    for (int i = 0; i != length; ++i) {
-        zest_font_character_t* character = &font->characters[text[i]];
-
-        if (character->flags == zest_character_flag_new_line) {
-            width = 0;
-        }
-
-        width += character->xadvance * font_size + letter_spacing;
-        max_width = ZEST__MAX(width, max_width);
-    }
-
-    return max_width;
-}
-//-- End Font Drawing API
-
 
 //-- Start Instance Drawing API
 void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources_handle handle, zest_pipeline_template pipeline) {
@@ -16575,7 +16154,6 @@ const char *zest__struct_type_to_string(zest_struct_type struct_type) {
 	case zest_struct_type_imgui_image             : return "imgui_image"; break;
 	case zest_struct_type_image_collection        : return "image_collection"; break;
 	case zest_struct_type_sampler                 : return "sampler"; break;
-	case zest_struct_type_font                    : return "font"; break;
 	case zest_struct_type_layer                   : return "layer"; break;
 	case zest_struct_type_pipeline                : return "pipeline"; break;
 	case zest_struct_type_pipeline_template       : return "pipeline_template"; break;

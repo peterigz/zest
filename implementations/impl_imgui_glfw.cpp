@@ -31,9 +31,9 @@ zest_imgui zest_imgui_Initialise() {
 	imgui_pipeline->scissor.offset.y = 0;
 	zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_push_constants_t), zest_shader_render_stages);
 	zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
-	zest_AddVertexAttribute(imgui_pipeline, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
-	zest_AddVertexAttribute(imgui_pipeline, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV
-	zest_AddVertexAttribute(imgui_pipeline, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col));    // Location 2: Color
+	zest_AddVertexAttribute(imgui_pipeline, 0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
+	zest_AddVertexAttribute(imgui_pipeline, 0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV
+	zest_AddVertexAttribute(imgui_pipeline, 0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col));    // Location 2: Color
 
 	zest_SetPipelineShaders(imgui_pipeline, imgui_info->vertex_shader, imgui_info->fragment_shader);
 

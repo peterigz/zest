@@ -30,7 +30,6 @@
         [Draw_layer_internal_functions]
         [Texture_internal_functions]
         [General_layer_internal_functions]
-        [Font_layer_internal_functions]
         [Mesh_layer_internal_functions]
         [General_Helper_Functions]
         [Pipeline_Helper_Functions]
@@ -782,7 +781,6 @@ typedef enum zest_struct_type {
     zest_struct_type_imgui_image             = 3 << 16,
     zest_struct_type_image_collection        = 4 << 16,
     zest_struct_type_sampler                 = 5 << 16,
-    zest_struct_type_font                    = 6 << 16,
     zest_struct_type_layer                   = 7 << 16,
     zest_struct_type_pipeline                = 8 << 16,
     zest_struct_type_pipeline_template       = 9 << 16,
@@ -1331,7 +1329,6 @@ typedef struct zest_image_collection_t zest_image_collection_t;
 typedef struct zest_bitmap_t zest_bitmap_t;
 typedef struct zest_image_t zest_image_t;
 typedef struct zest_sampler_t zest_sampler_t;
-typedef struct zest_font_t zest_font_t;
 typedef struct zest_layer_t zest_layer_t;
 typedef struct zest_pipeline_t zest_pipeline_t;
 typedef struct zest_pipeline_template_t zest_pipeline_template_t;
@@ -1366,7 +1363,6 @@ ZEST__MAKE_HANDLE(zest_image_collection)
 ZEST__MAKE_HANDLE(zest_bitmap)
 ZEST__MAKE_HANDLE(zest_image)
 ZEST__MAKE_HANDLE(zest_sampler)
-ZEST__MAKE_HANDLE(zest_font)
 ZEST__MAKE_HANDLE(zest_layer)
 ZEST__MAKE_HANDLE(zest_pipeline)
 ZEST__MAKE_HANDLE(zest_pipeline_template)
@@ -1396,6 +1392,7 @@ ZEST__MAKE_HANDLE(zest_mesh)
 
 ZEST__MAKE_USER_HANDLE(zest_shader_resources)
 ZEST__MAKE_USER_HANDLE(zest_texture)
+ZEST__MAKE_USER_HANDLE(zest_uniform_buffer)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -2943,7 +2940,6 @@ ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_res
 // --- Import external resouces into the render graph ---
 ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_texture_handle texture, zest_resource_image_provider provider);
 ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
-ZEST_API zest_resource_node zest_ImportFontResource(const zest_font font);
 
 // --- Manual Barrier Functions
 ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
@@ -3029,6 +3025,7 @@ typedef struct zest_descriptor_set_builder_t {
 
 typedef struct zest_uniform_buffer_t {
     int magic;
+    zest_uniform_buffer_handle handle;
     zest_buffer buffer[ZEST_MAX_FIF];
     VkDescriptorBufferInfo descriptor_info[ZEST_MAX_FIF];
     zest_descriptor_set descriptor_set[ZEST_MAX_FIF];
@@ -3222,18 +3219,6 @@ typedef struct zest_push_constants_t {             //128 bytes seems to be the l
     zest_vec4 global;                              //Can be set every frame for all current draw instructions
 } zest_push_constants_t ZEST_ALIGN_AFFIX(16);
 
-typedef struct zest_font_push_constants_t {             //128 bytes seems to be the limit for push constants on AMD cards, NVidia 256 bytes
-    zest_vec4 shadow_color;
-    zest_vec2 shadow_vector;
-    float shadow_smoothing;
-    float shadow_clipping;
-    float radius;
-    float bleed;
-    float aa_factor;
-    float thickness;
-    zest_uint font_texture_index;
-} zest_font_push_constants_t ZEST_ALIGN_AFFIX(16);
-
 typedef struct zest_layer_instruction_t {
     char push_constant[128];                      //Each draw instruction can have different values in the push constants push_constants
     VkRect2D scissor;                             //The drawinstruction can also clip whats drawn
@@ -3317,36 +3302,6 @@ typedef struct zest_imgui_t {
     zest_push_constants_t push_constants;
     VkDescriptorSet *draw_sets;
 } zest_imgui_t;
-
-typedef struct zest_font_character_t {
-    char character[4];
-    float width;
-    float height;
-    float xoffset;
-    float yoffset;
-    float xadvance;
-    zest_uint flags;
-    float reserved1;
-    zest_vec4 uv;
-    zest_u64 uv_packed;
-    float reserved2[2];
-} zest_font_character_t;
-
-typedef struct zest_font_t {
-    int magic;
-    zest_text_t name;
-    zest_texture_handle texture;
-    zest_pipeline_template pipeline_template;
-    zest_shader_resources_handle shader_resources;
-    float pixel_range;
-    float miter_limit;
-    float padding;
-    float font_size;
-    float max_yoffset;
-    zest_uint character_count;
-    zest_uint character_offset;
-    zest_font_character_t *characters;
-} zest_font_t;
 
 typedef struct zest_compute_push_constant_t {
     //z is reserved for the quad_count;
@@ -3596,8 +3551,6 @@ typedef struct zest_renderer_t {
     VkExtent2D window_extent;
     float dpi_scale;
 
-    zest_uniform_buffer uniform_buffer;
-
     zest_set_layout global_bindless_set_layout;
     zest_descriptor_set global_set;
 
@@ -3635,6 +3588,7 @@ typedef struct zest_renderer_t {
     //Resource storage
     zest_resource_store_t shader_resources;
     zest_resource_store_t textures;
+    zest_resource_store_t uniform_buffers;
 
     zest_window main_window;
 
@@ -3748,6 +3702,7 @@ ZEST_PRIVATE void zest__cleanup_device(void);
 ZEST_PRIVATE void zest__cleanup_renderer(void);
 ZEST_PRIVATE void zest__cleanup_shader_resource_store(void);
 ZEST_PRIVATE void zest__cleanup_texture_store(void);
+ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(void);
 ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources();
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
@@ -3813,10 +3768,6 @@ ZEST_PRIVATE VkFormat zest__convert_tktx_format(TinyKtx_Format format);
 // --General_layer_internal_functions
 ZEST_PRIVATE zest_layer zest__create_instance_layer(const char *name, zest_size instance_type_size, zest_uint initial_instance_count);
 
-// --Font_layer_internal_functions
-ZEST_PRIVATE void zest__setup_font_texture(zest_font font);
-ZEST_PRIVATE void zest__cleanup_font(zest_font font);
-
 // --Mesh_layer_internal_functions
 ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
 
@@ -3864,6 +3815,9 @@ ZEST_PRIVATE void zest__on_add_pool(void *user_data, void *block);
 ZEST_PRIVATE void zest__on_split_block(void *user_data, zloc_header* block, zloc_header *trimmed_block, zest_size remote_size);
 // --End Buffer allocation funcitons
 
+// --Uniform_buffers
+// --End Uniform Buffers
+
 // --Maintenance_functions
 ZEST_PRIVATE void zest__cleanup_texture(zest_texture texture);
 ZEST_PRIVATE void zest__cleanup_texture_vk_handles(zest_texture texture);
@@ -3881,6 +3835,7 @@ ZEST_PRIVATE VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_se
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout_handle, zest_uint binding_number);
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout_handle, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout_handle);
+ZEST_PRIVATE void zest__add_descriptor_set_to_resources(zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -4047,7 +4002,7 @@ ZEST_API void zest_AddSetBuilderTexture(zest_descriptor_set_builder_t *builder, 
 //Add a VkDescriptorImageInfo from a zest_texture (or render target) to a descriptor set builder.
 ZEST_API void zest_AddSetBuilderDirectImageWrite(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, VkDescriptorType type, const VkDescriptorImageInfo *image_info);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a uniform buffer.
-ZEST_API void zest_AddSetBuilderUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer uniform_buffer, zest_uint fif);
+ZEST_API void zest_AddSetBuilderUniformBuffer(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer_handle uniform_buffer, zest_uint fif);
 //Add a VkDescriptorBufferInfo from a zest_descriptor_buffer to a descriptor set builder as a storage buffer.
 ZEST_API void zest_AddSetBuilderStorageBuffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_buffer storage_buffer);
 //Build a zest_descriptor_set_t using a builder that you made using the AddBuilder command. The layout that you pass to this function must be configured properly.
@@ -4074,7 +4029,6 @@ ZEST_API VkDescriptorSet zest_vk_GetGlobalBindlessSet();
 ZEST_API zest_descriptor_set zest_GetGlobalBindlessSet();
 ZEST_API VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout();
 ZEST_API zest_set_layout zest_GetGlobalBindlessLayout();
-ZEST_API VkDescriptorSet zest_vk_GetGlobalUniformBufferDescriptorSet();
 //Create a new descriptor set shader_resources
 ZEST_API zest_shader_resources_handle zest_CreateShaderResources();
 //Delete shader resources from the renderer and free the memory. This does not free or destroy the actual
@@ -4086,7 +4040,7 @@ ZEST_API void zest_FreeShaderResources(zest_shader_resources_handle shader_resou
 //Use zest_AddDescriptorSetsToResources to add all frames in flight by passing an array of desriptor sets
 ZEST_API void zest_AddDescriptorSetToResources(zest_shader_resources_handle shader_resources, zest_descriptor_set descriptor_set, zest_uint fif);
 //Add the descriptor set for a uniform buffer to a shader resource
-ZEST_API void zest_AddUniformBufferToResources(zest_shader_resources_handle shader_resources, zest_uniform_buffer buffer);
+ZEST_API void zest_AddUniformBufferToResources(zest_shader_resources_handle shader_resources, zest_uniform_buffer_handle buffer);
 //Add the descriptor set for a uniform buffer to a shader resource
 ZEST_API void zest_AddGlobalBindlessSetToResources(zest_shader_resources_handle shader_resources);
 //Add the descriptor set for a uniform buffer to a shader resource
@@ -4181,7 +4135,7 @@ ZEST_API void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeli
 ZEST_API zest_vertex_input_descriptions zest_NewVertexInputDescriptions();
 //Add a VkVertexInputeAttributeDescription to a zest_vertex_input_descriptions array. You can use zest_CreateVertexInputDescription
 //helper function to create the description
-ZEST_API void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint location, VkFormat format, zest_uint offset);
+ZEST_API void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint location, VkFormat format, zest_uint offset);
 //Create a VkVertexInputAttributeDescription for adding to a zest_vertex_input_descriptions array. Just pass the binding and location in
 //the shader, the VkFormat and the offset into the struct that you're using for the vertex data. See zest__prepare_standard_pipelines
 //for examples of how the builtin pipeline_templates do this
@@ -4369,32 +4323,27 @@ ZEST_API void zest_SetDeviceBufferPoolSize(const char *name, VkBufferUsageFlags 
 ZEST_API void zest_SetDeviceImagePoolSize(const char *name, VkImageUsageFlags image_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size);
 //Create a buffer specifically for use as a uniform buffer. This will also create a descriptor set for the uniform
 //buffers as well so it's ready for use in shaders.
-ZEST_API zest_uniform_buffer zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
+ZEST_API zest_uniform_buffer_handle zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
 //Free a uniform buffer and all it's resources
-ZEST_API void zest_FreeUniformBuffer(zest_uniform_buffer uniform_buffer);
+ZEST_API void zest_FreeUniformBuffer(zest_uniform_buffer_handle uniform_buffer);
 //Standard builtin functions for updating a uniform buffer for use in 2d shaders where x,y coordinates represent a location on the screen. This will
 //update the current frame in flight. If you need to update a specific frame in flight then call zest_UpdateUniformBufferFIF.
 ZEST_API void zest_Update2dUniformBuffer(void);
 //Get a pointer to a uniform buffer. This will return a void* which you can cast to whatever struct your storing in the uniform buffer. This will get the buffer
 //with the current frame in flight index.
-ZEST_API void *zest_GetUniformBufferData(zest_uniform_buffer uniform_buffer);
+ZEST_API void *zest_GetUniformBufferData(zest_uniform_buffer_handle uniform_buffer);
 //Get the VkDescriptorBufferInfo of a uniform buffer by name and specific frame in flight. Use ZEST_FIF you just want the current frame in flight
-ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfo(zest_uniform_buffer buffer);
+ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfo(zest_uniform_buffer_handle buffer);
 //Get the VkDescriptorSetLayout for a uniform buffer that you can use when creating pipeline_templates. The buffer must have
 //been properly initialised, use zest_CreateUniformBuffer for this.
-ZEST_API VkDescriptorSetLayout zest_vk_GetUniformBufferLayout(zest_uniform_buffer buffer);
-ZEST_API zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer buffer);
+ZEST_API VkDescriptorSetLayout zest_vk_GetUniformBufferLayout(zest_uniform_buffer_handle buffer);
+ZEST_API zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer_handle buffer);
 //Get the VkDescriptorSet in a uniform buffer. You can use this when binding a pipeline for a draw call or compute
 //dispatch etc. 
-ZEST_API VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer buffer);
-ZEST_API zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer buffer);
-ZEST_API zest_descriptor_set zest_GetFIFUniformBufferSet(zest_uniform_buffer buffer, zest_uint fif);
-ZEST_API VkDescriptorSet zest_vk_GetFIFUniformBufferSet(zest_uniform_buffer buffer, zest_uint fif);
-ZEST_API zest_descriptor_set zest_GetDefaultUniformBufferSet();
-ZEST_API zest_set_layout zest_GetDefaultUniformBufferLayout();
-ZEST_API VkDescriptorSet zest_vk_GetDefaultUniformBufferSet();
-ZEST_API VkDescriptorSetLayout zest_vk_GetDefaultUniformBufferLayout();
-ZEST_API zest_uniform_buffer zest_GetDefaultUniformBuffer();
+ZEST_API VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer_handle buffer);
+ZEST_API zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer_handle buffer);
+ZEST_API zest_descriptor_set zest_GetFIFUniformBufferSet(zest_uniform_buffer_handle buffer, zest_uint fif);
+ZEST_API VkDescriptorSet zest_vk_GetFIFUniformBufferSet(zest_uniform_buffer_handle buffer, zest_uint fif);
 //Bind a vertex buffer. For use inside a draw routine callback function.
 ZEST_API void zest_BindVertexBuffer(VkCommandBuffer command_buffer, zest_buffer buffer);
 //Bind an index buffer. For use inside a draw routine callback function.
@@ -4773,17 +4722,6 @@ ZEST_API VkSamplerCreateInfo zest_CreateMippedSamplerInfo(zest_uint mip_levels);
 //-- End Images and textures
 
 //-----------------------------------------------
-//-- Fonts
-//-----------------------------------------------
-//Load a .zft file for use with drawing MSDF fonts
-ZEST_API zest_font zest_LoadMSDFFont(const char *filename);
-ZEST_API void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
-ZEST_API void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
-//Unload a zest_font and free all it's resources
-ZEST_API void zest_FreeFont(zest_font font);
-//-- End Fonts
-
-//-----------------------------------------------
 //-- Draw_Layers_API
 //-----------------------------------------------
 
@@ -4801,9 +4739,6 @@ ZEST_API zest_layer zest_CreateFIFInstanceLayer(const char *name, zest_size type
 ZEST_API zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_size type_size);
 //Once you have configured your layer you can call this to create the layer ready for adding to a command queue
 ZEST_API zest_layer zest_FinishInstanceLayer(const char *name, zest_layer_builder_t *builder);
-//Create a layer specifically for drawing text using msdf font rendering. See the section Draw_MSDF_font_layers for commands 
-//yous can use to setup and draw text. Also see the fonts example.
-ZEST_API zest_layer zest_CreateFontLayer(const char *name);
 // --Initialise a layer for drawing instanced data like billboards or other mesh instances. This function will create a buffer to store instance data that can
 //be uploaded to the GPU for drawing each frame
 ZEST_API void zest_InitialiseInstanceLayer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
@@ -4819,6 +4754,8 @@ ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
 ZEST_API void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
 //End a set of draw instructs for a standard zest_layer
 ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
+//Callback that can be used to upload layer data to the gpu
+ZEST_API void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
 //For layers that are manually flipping the frame in flight, we can use this to only end the instructions if the last know fif for the layer
 //is not equal to the current one. Returns true if the instructions were ended false if not. If true then you can assume that the staging
 //buffer for the layer can then be uploaded to the gpu. This should be called in an upload buffer callback in any custom draw routine/layer.
@@ -4846,8 +4783,6 @@ ZEST_API void zest_SetLayerScissor(zest_layer layer, int offset_x, int offset_y,
 ZEST_API void zest_SetLayerSizeToSwapchain(zest_layer layer, zest_swapchain swapchain);
 //Set the size of the layer. Called internally to set it to the window size. Can this be internal?
 ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
-//Get a layer from the renderer by name.
-ZEST_API zest_layer zest_GetLayer(const char *name);
 //Set the layer color. This is used to apply color to the sprite/font/billboard that you're drawing or you can use it in your own draw routines that use zest_layers.
 //Note that the alpha value here is actually a transition between additive and alpha blending. Where 0 is the most additive and 1 is the most alpha blending. Anything
 //imbetween is a combination of the 2.
@@ -4964,51 +4899,6 @@ ZEST_API void zest_Set3DLineDrawing(zest_layer line_layer, zest_shader_resources
 //Draw a 3d line. pass in the layer to draw to and the 3d start and end points plus the width of the line.
 ZEST_API void zest_Draw3DLine(zest_layer layer, float start_point[3], float end_point[3], float width);
 //--End Draw line layers
-
-//-----------------------------------------------
-//        Draw_MSDF_font_layers
-//        Draw fonts at any scale using multi channel signed distance fields. This uses a zest font format
-//        ".zft" which contains a character map with uv coords and a png containing the MSDF image for
-//        sampling. You can use a simple application for generating these files in the examples:
-//        zest-msdf-font-maker
-//-----------------------------------------------
-//Before drawing any fonts you must call this function in order to set the font you want to use. the zest_font handle can be used to get the vk_descriptor_set and pipeline. See
-//zest-fonts for an example.
-ZEST_API void zest_SetMSDFFontDrawing(zest_layer font_layer, zest_font font);
-//Set the shadow parameters of your font drawing. This only applies to the current call of zest_SetMSDFFontDrawing. For each text that you want different settings for you must
-//call a separate zest_SetMSDFFontDrawing to start a new font drawing instruction.
-ZEST_API void zest_SetMSDFFontShadow(zest_layer font_layer, float shadow_length, float shadow_smoothing, float shadow_clipping);
-ZEST_API void zest_SetMSDFFontShadowColor(zest_layer font_layer, float red, float green, float blue, float alpha);
-//Alter the parameters in the shader to tweak the font details and how it's drawn. This can be useful especially for drawing small scaled fonts.
-//bleed: Simulates ink bleeding so higher numbers fatten the font but in a more subtle way then altering the thickness.
-//thickness: Makes the font bolder with higher numbers. around 5.f
-//aa_factor: The amount to alias the font. Lower numbers work better for smaller fonts
-//radius: Scale the distance measured to the font edge. Higher numbers make the font thinner
-ZEST_API void zest_TweakMSDFFont(zest_layer font_layer, float bleed, float thickness, float aa_factor, float radius);
-//The following functions just let you tweak an individual parameter of the font drawing
-ZEST_API void zest_SetMSDFFontBleed(zest_layer font_layer, float bleed);
-ZEST_API void zest_SetMSDFFontThickness(zest_layer font_layer, float thickness);
-ZEST_API void zest_SetMSDFFontAAFactor(zest_layer font_layer, float aa_factor);
-ZEST_API void zest_SetMSDFFontRadius(zest_layer font_layer, float radius);
-//Draw a single line of text using an MSDF font. You must call zest_SetMSDFFontDrawing before calling this command to specify which font you want to use to draw with and the zest_layer
-//that you pass to the function must match the same layer set with that command.
-//text:                    The string that you want to display
-//x, y:                    The position on the screen.
-//handle_x, handle_y    How the text is justified. 0.5, 0.5 would center the text at the position. 0, 0 would left justify and 1, 0 would right justify.
-//size:                    The size of the font in pixels.
-//letter_spacing        The amount of spacing imbetween letters
-ZEST_API float zest_DrawMSDFText(zest_layer font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing);
-//Draw a paragraph of text using an MSDF font. You must call zest_SetMSDFFontDrawing before calling this command to specify which font you want to use to draw with and the zest_layer
-//that you pass to the function must match the same layer set with that command. Use \n to start new lines in the paragraph.
-//text:                    The string that you want to display
-//x, y:                    The position on the screen.
-//handle_x, handle_y    How the text is justified. 0.5, 0.5 would center the text at the position. 0, 0 would left justify and 1, 0 would right justify.
-//size:                    The size of the font in pixels.
-//letter_spacing        The amount of spacing imbetween letters
-ZEST_API float zest_DrawMSDFParagraph(zest_layer font_layer, const char *text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, float line_height);
-//Get the width of a line of text in pixels given the zest_font, test font size and letter spacing that you pass to the function.
-ZEST_API float zest_TextWidth(zest_font font, const char *text, float font_size, float letter_spacing);
-//-- End Draw MSDF font layers
 
 //-----------------------------------------------
 //        Draw_mesh_layers

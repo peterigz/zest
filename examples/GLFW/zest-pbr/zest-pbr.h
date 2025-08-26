@@ -61,8 +61,8 @@ struct ImGuiApp {
 	zest_pipeline_template skybox_pipeline;
 	zest_pipeline_template billboard_pipeline;
 
-	zest_uniform_buffer view_buffer;
-	zest_uniform_buffer lights_buffer;
+	zest_uniform_buffer_handle view_buffer;
+	zest_uniform_buffer_handle lights_buffer;
 
 	RenderCacheInfo cache_info;
 
