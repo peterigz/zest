@@ -3627,6 +3627,7 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     zest__initialise_store(&ZestRenderer->shader_resources, sizeof(zest_shader_resources_t));
     zest__initialise_store(&ZestRenderer->textures, sizeof(zest_texture_t));
     zest__initialise_store(&ZestRenderer->uniform_buffers, sizeof(zest_uniform_buffer_t));
+    zest__initialise_store(&ZestRenderer->timers, sizeof(zest_timer_t));
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
 
@@ -3981,9 +3982,6 @@ void zest__cleanup_device(void) {
 void zest__free_handle(void *handle) {
     zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(handle);
     switch (struct_type) {
-    case zest_struct_type_timer:
-        zest_FreeTimer((zest_timer)handle);
-        break;
     case zest_struct_type_layer:
         zest__cleanup_layer((zest_layer)handle);
         break;
@@ -4021,7 +4019,6 @@ void zest__scan_memory_and_free_resources() {
             if (ZEST_VALID_HANDLE(allocation)) {
                 zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
                 switch (struct_type) {
-                case zest_struct_type_timer:
                 case zest_struct_type_layer:
                 case zest_struct_type_shader:
                 case zest_struct_type_compute:
@@ -4078,6 +4075,17 @@ void zest__cleanup_uniform_buffer_store() {
     zest__free_store(&ZestRenderer->uniform_buffers);
 }
 
+void zest__cleanup_timer_store() {
+    zest_timer_t *timers = ZestRenderer->timers.data;
+    for (int i = 0; i != ZestRenderer->timers.current_size; ++i) {
+        if (ZEST_VALID_HANDLE(&timers[i])) {
+            zest_timer resource = &timers[i];
+            zest_FreeTimer(resource->handle);
+        }
+    }
+    zest__free_store(&ZestRenderer->timers);
+}
+
 void zest__cleanup_renderer() {
 
     zest_uint cached_pipelines_size = zest_map_size(ZestRenderer->cached_pipelines);
@@ -4090,6 +4098,7 @@ void zest__cleanup_renderer() {
     zest__cleanup_shader_resource_store();
     zest__cleanup_texture_store();
     zest__cleanup_uniform_buffer_store();
+    zest__cleanup_timer_store();
 
     zest__scan_memory_and_free_resources();
 
@@ -16361,48 +16370,61 @@ zest_bool zest_SetErrorLogPath(const char* path) {
 //-- End Debug helpers
 
 //-- Timer functions
-zest_timer zest_CreateTimer(double update_frequency) {
-    zest_timer timer = ZEST__NEW(zest_timer);
+zest_timer_handle zest_CreateTimer(double update_frequency) {
+    zest_timer_handle handle = { zest__add_store_resource(&ZestRenderer->timers) };
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, handle.value);
     *timer = (zest_timer_t){ 0 };
     timer->magic = zest_INIT_MAGIC(zest_struct_type_timer);
-    zest_TimerSetUpdateFrequency(timer, update_frequency);
-    zest_TimerSetMaxFrames(timer, 4.0);
-    zest_TimerReset(timer);
-    return timer;
+    timer->handle = handle;
+    timer->update_frequency = update_frequency;
+    timer->update_tick_length = ZEST_MICROSECS_SECOND / timer->update_frequency;
+    timer->update_time = 1.f / timer->update_frequency;
+    timer->ticker = zest_Microsecs() - timer->update_tick_length;
+    timer->max_elapsed_time = timer->update_tick_length * 4.0;
+    timer->start_time = (double)zest_Microsecs();
+    timer->current_time = (double)zest_Microsecs();
+    return handle;
 }
 
-void zest_FreeTimer(zest_timer timer) {
+void zest_FreeTimer(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
 	ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
-	ZEST__FREE(timer);
+    zest__remove_store_resource(&ZestRenderer->timers, timer_handle.value);
 }
 
-void zest_TimerReset(zest_timer timer) {
+void zest_TimerReset(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     timer->start_time = (double)zest_Microsecs();
     timer->current_time = (double)zest_Microsecs();
 }
 
-double zest_TimerDeltaTime(zest_timer timer) {
+double zest_TimerDeltaTime(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     return timer->delta_time;
 }
 
-void zest_TimerTick(zest_timer timer) {
+void zest_TimerTick(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     timer->delta_time = (double)zest_Microsecs() - timer->start_time;
 }
 
-double zest_TimerUpdateTime(zest_timer timer) {
+double zest_TimerUpdateTime(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     return timer->update_time;
 }
 
-double zest_TimerFrameLength(zest_timer timer) {
+double zest_TimerFrameLength(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     return timer->update_tick_length;
 }
 
-double zest_TimerAccumulate(zest_timer timer) {
+double zest_TimerAccumulate(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     double new_time = (double)zest_Microsecs();
     double frame_time = fabs(new_time - timer->current_time);
@@ -16416,12 +16438,14 @@ double zest_TimerAccumulate(zest_timer timer) {
     return frame_time;
 }
 
-int zest_TimerPendingTicks(zest_timer timer) {
+int zest_TimerPendingTicks(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     return (int)(timer->accumulator / timer->update_tick_length);
 }
 
-void zest_TimerUnAccumulate(zest_timer timer) {
+void zest_TimerUnAccumulate(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     timer->accumulator -= timer->update_tick_length;
     timer->accumulator_delta = timer->accumulator_delta - timer->accumulator;
@@ -16430,27 +16454,32 @@ void zest_TimerUnAccumulate(zest_timer timer) {
     timer->seconds_passed += timer->update_time * 1000.f;
 }
 
-zest_bool zest_TimerDoUpdate(zest_timer timer) {
+zest_bool zest_TimerDoUpdate(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     return timer->accumulator >= timer->update_tick_length;
 }
 
-double zest_TimerLerp(zest_timer timer) {
+double zest_TimerLerp(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     return timer->update_count > 1 ? 1.f : timer->lerp;
 }
 
-void zest_TimerSet(zest_timer timer) {
+void zest_TimerSet(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     timer->lerp = timer->accumulator / timer->update_tick_length;
 }
 
-void zest_TimerSetMaxFrames(zest_timer timer, double frames) {
+void zest_TimerSetMaxFrames(zest_timer_handle timer_handle, double frames) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     timer->max_elapsed_time = timer->update_tick_length * frames;
 }
 
-void zest_TimerSetUpdateFrequency(zest_timer timer, double frequency) {
+void zest_TimerSetUpdateFrequency(zest_timer_handle timer_handle, double frequency) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     timer->update_frequency = frequency;
     timer->update_tick_length = ZEST_MICROSECS_SECOND / timer->update_frequency;
@@ -16458,12 +16487,14 @@ void zest_TimerSetUpdateFrequency(zest_timer timer, double frequency) {
     timer->ticker = zest_Microsecs() - timer->update_tick_length;
 }
 
-double zest_TimerUpdateFrequency(zest_timer timer) {
+double zest_TimerUpdateFrequency(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     return timer->update_frequency;
 }
 
-zest_bool zest_TimerUpdateWasRun(zest_timer timer) {
+zest_bool zest_TimerUpdateWasRun(zest_timer_handle timer_handle) {
+    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
     ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
     return timer->update_count > 0;
 }

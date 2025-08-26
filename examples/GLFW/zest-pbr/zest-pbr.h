@@ -50,7 +50,7 @@ struct prefiltered_push_constant_t {
 
 struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
-	zest_timer timer;
+	zest_timer_handle timer;
 	zest_camera_t camera;
 
 	zest_layer cube_layer;

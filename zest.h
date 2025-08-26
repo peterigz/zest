@@ -1393,6 +1393,7 @@ ZEST__MAKE_HANDLE(zest_mesh)
 ZEST__MAKE_USER_HANDLE(zest_shader_resources)
 ZEST__MAKE_USER_HANDLE(zest_texture)
 ZEST__MAKE_USER_HANDLE(zest_uniform_buffer)
+ZEST__MAKE_USER_HANDLE(zest_timer)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -2103,6 +2104,7 @@ typedef struct zest_memory_stats_t {
 
 typedef struct zest_timer_t {
     int magic;
+    zest_timer_handle handle;
     double start_time;
     double delta_time;
     double update_frequency;
@@ -3589,6 +3591,7 @@ typedef struct zest_renderer_t {
     zest_resource_store_t shader_resources;
     zest_resource_store_t textures;
     zest_resource_store_t uniform_buffers;
+    zest_resource_store_t timers;
 
     zest_window main_window;
 
@@ -3703,6 +3706,7 @@ ZEST_PRIVATE void zest__cleanup_renderer(void);
 ZEST_PRIVATE void zest__cleanup_shader_resource_store(void);
 ZEST_PRIVATE void zest__cleanup_texture_store(void);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(void);
+ZEST_PRIVATE void zest__cleanup_timer_store(void);
 ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources();
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
@@ -5052,23 +5056,23 @@ ZEST_API zest_bool zest_SwapchainWasRecreated(zest_swapchain swapchain);
 //        This is a simple API for a high resolution timer. You can use this to implement fixed step
 //        updating for your logic in the main loop, plus for anything else that you need to time.
 //-----------------------------------------------
-ZEST_API zest_timer zest_CreateTimer(double update_frequency);                                  //Create a new timer and return its handle
-ZEST_API void zest_FreeTimer(zest_timer timer);                                                 //Free a timer and its memory
-ZEST_API void zest_TimerSetUpdateFrequency(zest_timer timer, double update_frequency);          //Set the update frequency for timing loop functions, accumulators and such
-ZEST_API void zest_TimerSetMaxFrames(zest_timer timer, double frames);                          //Set the maximum amount of frames that can pass each update. This helps avoid simulations blowing up
-ZEST_API void zest_TimerReset(zest_timer timer);                                                //Set the clock time to now
-ZEST_API double zest_TimerDeltaTime(zest_timer timer);                                          //The amount of time passed since the last tick
-ZEST_API void zest_TimerTick(zest_timer timer);                                                 //Update the delta time
-ZEST_API double zest_TimerUpdateTime(zest_timer timer);                                         //Gets the update time (1.f / update_frequency)
-ZEST_API double zest_TimerFrameLength(zest_timer timer);                                        //Gets the update_tick_length (1000.f / update_frequency)
-ZEST_API double zest_TimerAccumulate(zest_timer timer);                                         //Accumulate the amount of time that has passed since the last render
-ZEST_API int zest_TimerPendingTicks(zest_timer timer);                                          //Returns the number of times the update loop will run this frame.
-ZEST_API void zest_TimerUnAccumulate(zest_timer timer);                                         //Unaccumulate 1 tick length from the accumulator. While the accumulator is more then the tick length an update should be done
-ZEST_API zest_bool zest_TimerDoUpdate(zest_timer timer);                                        //Return true if accumulator is more or equal to the update_tick_length
-ZEST_API double zest_TimerLerp(zest_timer timer);                                               //Return the current tween/lerp value
-ZEST_API void zest_TimerSet(zest_timer timer);                                                  //Set the current tween value
-ZEST_API double zest_TimerUpdateFrequency(zest_timer timer);                                    //Get the update frequency set in the timer
-ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer timer);                                    //Returns true if an update loop was run
+ZEST_API zest_timer_handle zest_CreateTimer(double update_frequency);                                  //Create a new timer and return its handle
+ZEST_API void zest_FreeTimer(zest_timer_handle timer);                                                 //Free a timer and its memory
+ZEST_API void zest_TimerSetUpdateFrequency(zest_timer_handle timer, double update_frequency);          //Set the update frequency for timing loop functions, accumulators and such
+ZEST_API void zest_TimerSetMaxFrames(zest_timer_handle timer, double frames);                          //Set the maximum amount of frames that can pass each update. This helps avoid simulations blowing up
+ZEST_API void zest_TimerReset(zest_timer_handle timer);                                                //Set the clock time to now
+ZEST_API double zest_TimerDeltaTime(zest_timer_handle timer);                                          //The amount of time passed since the last tick
+ZEST_API void zest_TimerTick(zest_timer_handle timer);                                                 //Update the delta time
+ZEST_API double zest_TimerUpdateTime(zest_timer_handle timer);                                         //Gets the update time (1.f / update_frequency)
+ZEST_API double zest_TimerFrameLength(zest_timer_handle timer);                                        //Gets the update_tick_length (1000.f / update_frequency)
+ZEST_API double zest_TimerAccumulate(zest_timer_handle timer);                                         //Accumulate the amount of time that has passed since the last render
+ZEST_API int zest_TimerPendingTicks(zest_timer_handle timer);                                          //Returns the number of times the update loop will run this frame.
+ZEST_API void zest_TimerUnAccumulate(zest_timer_handle timer);                                         //Unaccumulate 1 tick length from the accumulator. While the accumulator is more then the tick length an update should be done
+ZEST_API zest_bool zest_TimerDoUpdate(zest_timer_handle timer);                                        //Return true if accumulator is more or equal to the update_tick_length
+ZEST_API double zest_TimerLerp(zest_timer_handle timer);                                               //Return the current tween/lerp value
+ZEST_API void zest_TimerSet(zest_timer_handle timer);                                                  //Set the current tween value
+ZEST_API double zest_TimerUpdateFrequency(zest_timer_handle timer);                                    //Get the update frequency set in the timer
+ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer_handle timer);                                    //Returns true if an update loop was run
 //Help macros for starting/ending an update loop if you prefer.
 #define zest_StartTimerLoop(timer) 	zest_TimerAccumulate(timer);   \
 		int pending_ticks = zest_TimerPendingTicks(timer);	\

@@ -376,7 +376,7 @@ void UploadMeshData(VkCommandBuffer command_buffer, const zest_frame_graph_conte
 }
 
 void UpdateCameraPosition(ImGuiApp *app) {
-	float speed = 5.f * (float)app->timer->update_time;
+	float speed = 5.f * (float)zest_TimerUpdateTime(app->timer);
 	app->old_camera_position = app->camera.position;
 	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
 		ImGui::SetWindowFocus(nullptr);
