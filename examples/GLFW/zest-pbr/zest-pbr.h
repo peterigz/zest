@@ -75,9 +75,9 @@ struct ImGuiApp {
 	zest_shader_resources_handle pbr_shader_resources;
 	zest_shader_resources_handle skybox_shader_resources;
 
-	zest_shader brd_shader;
-	zest_shader irr_shader;
-	zest_shader prefiltered_shader;
+	zest_shader_handle brd_shader;
+	zest_shader_handle irr_shader;
+	zest_shader_handle prefiltered_shader;
 
 	zest_texture_handle imgui_font_texture;
 	zest_texture_handle sprites_texture;

@@ -13,8 +13,8 @@ void UpdateUniform3d(ImGuiApp *app) {
 void SetupBillboards(ImGuiApp *app) {
 	//Create and compile the shaders for our custom sprite pipeline
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_shader billboard_vert = zest_CreateShaderFromFile("examples/assets/shaders/billboard.vert", "billboard_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_shader billboard_frag = zest_CreateShaderFromFile("examples/assets/shaders/billboard.frag", "billboard_frag.spv", shaderc_fragment_shader, true, compiler, 0);
+	zest_shader_handle billboard_vert = zest_CreateShaderFromFile("examples/assets/shaders/billboard.vert", "billboard_vert.spv", shaderc_vertex_shader, true, compiler, 0);
+	zest_shader_handle billboard_frag = zest_CreateShaderFromFile("examples/assets/shaders/billboard.frag", "billboard_frag.spv", shaderc_fragment_shader, true, compiler, 0);
 	shaderc_compiler_release(compiler);
 
 	//Create a pipeline that we can use to draw billboards
@@ -259,10 +259,10 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	//Compile the shaders we will use to render the particles
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_shader pbr_irradiance_vert = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_shader pbr_irradiance_frag = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	zest_shader skybox_vert = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/sky_box.vert", "sky_box_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_shader skybox_frag = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/sky_box.frag", "sky_box_frag.spv", shaderc_fragment_shader, true, compiler, 0);
+	zest_shader_handle pbr_irradiance_vert = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", shaderc_vertex_shader, true, compiler, 0);
+	zest_shader_handle pbr_irradiance_frag = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", shaderc_fragment_shader, true, compiler, 0);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/sky_box.vert", "sky_box_vert.spv", shaderc_vertex_shader, true, compiler, 0);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/sky_box.frag", "sky_box_frag.spv", shaderc_fragment_shader, true, compiler, 0);
 	app->brd_shader = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/genbrdflut.comp", "genbrdflut_comp.spv", shaderc_compute_shader, true, compiler, 0);
 	app->irr_shader = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/irradiancecube.comp", "irradiancecube_comp.spv", shaderc_compute_shader, true, compiler, 0);
 	app->prefiltered_shader = zest_CreateShaderFromFile("examples/GLFW/zest-pbr/shaders/prefilterenvmap.comp", "prefilterenvmap_comp.spv", shaderc_compute_shader, true, compiler, 0);

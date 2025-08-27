@@ -1395,6 +1395,7 @@ ZEST__MAKE_USER_HANDLE(zest_texture)
 ZEST__MAKE_USER_HANDLE(zest_uniform_buffer)
 ZEST__MAKE_USER_HANDLE(zest_timer)
 ZEST__MAKE_USER_HANDLE(zest_layer)
+ZEST__MAKE_USER_HANDLE(zest_shader)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -3094,8 +3095,8 @@ typedef struct zest_pipeline_template_t {
     zest_bool no_vertex_input;
     zest_text_t vertShaderFunctionName;
     zest_text_t fragShaderFunctionName;
-    zest_shader vertex_shader;
-    zest_shader fragment_shader;
+    zest_shader_handle vertex_shader;
+    zest_shader_handle fragment_shader;
 
     zest_key *cached_pipeline_keys;
 } zest_pipeline_template_t;
@@ -3192,6 +3193,14 @@ typedef struct zest_ImDrawVert_t
     zest_uint col;
 } zest_ImDrawVert_t;
 
+typedef struct zest_push_constants_t {             //128 bytes seems to be the limit for push constants on AMD cards, NVidia 256 bytes
+    zest_uint descriptor_index[4];
+    zest_vec4 parameters1;                         //Can be used for anything
+    zest_vec4 parameters2;                         //Can be used for anything
+    zest_vec4 parameters3;                         //Can be used for anything
+    zest_vec4 global;                              //Can be set every frame for all current draw instructions
+} zest_push_constants_t ZEST_ALIGN_AFFIX(16);
+
 typedef struct zest_layer_buffers_t {
     union {
 		zest_buffer staging_vertex_data;
@@ -3213,14 +3222,6 @@ typedef struct zest_layer_buffers_t {
     zest_uint last_index;
     zest_uint vertex_count;
 } zest_layer_buffers_t;
-
-typedef struct zest_push_constants_t {             //128 bytes seems to be the limit for push constants on AMD cards, NVidia 256 bytes
-    zest_uint descriptor_index[4];
-    zest_vec4 parameters1;                         //Can be used for anything
-    zest_vec4 parameters2;                         //Can be used for anything
-    zest_vec4 parameters3;                         //Can be used for anything
-    zest_vec4 global;                              //Can be set every frame for all current draw instructions
-} zest_push_constants_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_layer_instruction_t {
     char push_constant[128];                      //Each draw instruction can have different values in the push constants push_constants
@@ -3295,8 +3296,8 @@ typedef struct zest_imgui_t {
     int magic;
     zest_texture_handle font_texture;
     zest_pipeline_template pipeline;
-    zest_shader vertex_shader;
-    zest_shader fragment_shader;
+    zest_shader_handle vertex_shader;
+    zest_shader_handle fragment_shader;
     zest_buffer vertex_staging_buffer[ZEST_MAX_FIF];
     zest_buffer index_staging_buffer[ZEST_MAX_FIF];
     zest_buffer vertex_device_buffer[ZEST_MAX_FIF];
@@ -3319,7 +3320,7 @@ struct zest_compute_t {
     VkFence fence[ZEST_MAX_FIF];                              // Synchronization fence to avoid rewriting compute CB if still in use
     zest_set_layout bindless_layout;               // The bindless descriptor set layout to use in the compute shader
     VkPipelineLayout pipeline_layout;                         // Layout of the compute pipeline
-    zest_shader *shaders;                                     // List of compute shaders to use
+    zest_shader_handle *shaders;                                     // List of compute shaders to use
     VkPipeline pipeline;                                      // Compute pipeline
     zest_descriptor_infos_for_binding_t *descriptor_infos;    // All the buffers/images that are bound to the compute shader
     //zest_uint queue_family_index;                            // Family index of the graphics queue, used for barriers
@@ -3346,7 +3347,7 @@ typedef struct zest_compute_builder_t {
     zest_map_descriptor_pool_sizes descriptor_pool_sizes;
     zest_set_layout *non_bindless_layouts;
     zest_set_layout bindless_layout;
-    zest_shader *shaders;
+    zest_shader_handle *shaders;
     VkPipelineLayoutCreateInfo layout_create_info;
     zest_uint push_constant_size;
     zest_compute_flags flags;
@@ -3485,6 +3486,7 @@ typedef struct zest_image_collection_t {
 
 typedef struct zest_shader_t {
     int magic;
+    zest_shader_handle handle;
     char *spv;
     zest_size spv_size;
     zest_text_t file_path;
@@ -3523,14 +3525,14 @@ zest_hash_map(zest_report_t) zest_map_reports;
 zest_hash_map(zest_cached_frame_graph_t) zest_map_cached_frame_graphs;
 
 typedef struct zest_builtin_shaders_t {
-    zest_shader sprite_frag;
-    zest_shader sprite_vert;
-    zest_shader font_frag;
-    zest_shader mesh_vert;
-    zest_shader mesh_instance_vert;
-    zest_shader mesh_instance_frag;
-    zest_shader swap_vert;
-    zest_shader swap_frag;
+    zest_shader_handle sprite_frag;
+    zest_shader_handle sprite_vert;
+    zest_shader_handle font_frag;
+    zest_shader_handle mesh_vert;
+    zest_shader_handle mesh_instance_vert;
+    zest_shader_handle mesh_instance_frag;
+    zest_shader_handle swap_vert;
+    zest_shader_handle swap_frag;
 } zest_builtin_shaders_t;
 
 typedef struct zest_builtin_pipeline_templates_t {
@@ -3595,6 +3597,7 @@ typedef struct zest_renderer_t {
     zest_resource_store_t uniform_buffers;
     zest_resource_store_t timers;
     zest_resource_store_t layers;
+    zest_resource_store_t shaders;
 
     zest_window main_window;
 
@@ -3711,6 +3714,7 @@ ZEST_PRIVATE void zest__cleanup_texture_store(void);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(void);
 ZEST_PRIVATE void zest__cleanup_timer_store(void);
 ZEST_PRIVATE void zest__cleanup_layer_store(void);
+ZEST_PRIVATE void zest__cleanup_shader_store(void);
 ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources();
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
@@ -3839,6 +3843,12 @@ ZEST_PRIVATE void zest__free_all_texture_images(zest_texture texture);
 ZEST_PRIVATE void zest__reindex_texture_images(zest_texture texture);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer);
 // --End Maintenance functions
+
+// --Shader_functions
+ZEST_PRIVATE zest_shader_handle zest__new_shader(shaderc_shader_kind type);
+ZEST_PRIVATE void zest__update_shader_spv(zest_shader shader, shaderc_compilation_result_t result);
+ZEST_API void zest__cache_shader(zest_shader shader);
+// --End Shader functions
 
 // --Descriptor_set_functions
 ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets);
@@ -4075,38 +4085,32 @@ ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offse
 ZEST_API void zest_SetScreenSizedViewport(const zest_frame_graph_context_t *context, float min_depth, float max_depth);
 //Create a scissor and view port command. Must be called within a command buffer
 ZEST_API void zest_Clip(VkCommandBuffer command_buffer, float x, float y, float width, float height, float minDepth, float maxDepth);
-//Create a new shader handle
-ZEST_API zest_shader zest_NewShader(shaderc_shader_kind type);
 //Validate a shader from a string and add it to the library of shaders in the renderer
 ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name, shaderc_compiler_t compiler);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options);
+ZEST_API zest_shader_handle zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options);
 //Creates a shader from a file containing the shader glsl code
-ZEST_API zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options);
+ZEST_API zest_shader_handle zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader zest_CreateShaderSPVMemory(const unsigned char *shader_code, zest_uint spv_length, const char *name, shaderc_shader_kind type);
+ZEST_API zest_shader_handle zest_CreateShaderSPVMemory(const unsigned char *shader_code, zest_uint spv_length, const char *name, shaderc_shader_kind type);
 //Reload a shader. Use this if you edited a shader file and you want to refresh it/hot reload it
 //The shader must have been created from a file with zest_CreateShaderFromFile. Once the shader is reloaded you can call
 //zest_CompileShader or zest_ValidateShader to recompile it. You'll then have to call zest_SchedulePipelineRecreate to recreate
 //the pipeline that uses the shader. Returns true if the shader was successfully loaded.
-ZEST_API zest_bool zest_ReloadShader(zest_shader shader);
+ZEST_API zest_bool zest_ReloadShader(zest_shader_handle shader);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_bool zest_CompileShader(zest_shader shader, shaderc_compiler_t compiler);
-//Update an existing shader with a new version
-ZEST_API void zest_UpdateShaderSPV(zest_shader shader, shaderc_compilation_result_t result);
+ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader, shaderc_compiler_t compiler);
 //Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 
 //pass in the full path to the file relative to the executable being run.
-ZEST_API zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind type);
+ZEST_API zest_shader_handle zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind type);
 //Add an spv shader straight from memory and return a handle to the shader. Note that the name should just be the name of the shader, 
 //If a path prefix is set (ZestRenderer->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
-ZEST_API zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind type);
+ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind type);
 //Add a shader to the renderer list of shaders.
-ZEST_API void zest_AddShader(zest_shader shader, const char *name);
+ZEST_API void zest_AddShader(zest_shader_handle shader, const char *name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
-ZEST_API void zest_FreeShader(zest_shader shader);
-//Cache shader, only use from implementation, you shouldn't need to call this directly
-ZEST_API void zest_CacheShader(zest_shader shader);
+ZEST_API void zest_FreeShader(zest_shader_handle shader);
 
 //Set up shader resources ready to be bound to a pipeline when calling zest_BindPipeline or zest_BindpipelineCB. You should always 
 //pass in an empty array of VkDescriptorSets. Set this array up as simple an 0 pointer and the function will allocate the space for the
@@ -4125,14 +4129,14 @@ ZEST_API zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets);
 //Add a new pipeline template to the renderer and return its handle.
 ZEST_API zest_pipeline_template zest_BeginPipelineTemplate(const char *name);
 //Set the name of the file to use for the vert and frag shader in the zest_pipeline_template_create_info_t
-ZEST_API void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, zest_shader vert_shader);
-ZEST_API void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, zest_shader frag_shader);
-ZEST_API void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, zest_shader vertex_shader, zest_shader fragment_shader);
+ZEST_API void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, zest_shader_handle vert_shader);
+ZEST_API void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, zest_shader_handle frag_shader);
+ZEST_API void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, zest_shader_handle vertex_shader, zest_shader_handle fragment_shader);
 ZEST_API void zest_SetPipelineFrontFace(zest_pipeline_template pipeline_template, zest_front_face front_face);
 ZEST_API void zest_SetPipelineTopology(zest_pipeline_template pipeline_template, zest_topology topology);
 ZEST_API void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template, zest_cull_mode cull_mode);
 //Set the name of both the fragment and vertex shader to the same file (frag and vertex shaders can be combined into the same spv)
-ZEST_API void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader combined_vertex_and_fragment_shader);
+ZEST_API void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader_handle combined_vertex_and_fragment_shader);
 //Add a new VkVertexInputBindingDescription which is used to set the size of the struct (stride) and the vertex input rate.
 //You can add as many bindings as you need, just make sure you set the correct binding index for each one
 ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
@@ -4931,7 +4935,7 @@ ZEST_API zest_compute_builder_t zest_BeginComputeBuilder();
 ZEST_API void zest_SetComputeBindlessLayout(zest_compute_builder_t *builder, zest_set_layout bindless_layout);
 ZEST_API void zest_AddComputeSetLayout(zest_compute_builder_t *builder, zest_set_layout layout);
 //Add a shader to the compute builder. This will be the shader that is executed on the GPU. Pass a file path where to find the shader.
-ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, zest_shader shader);
+ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, zest_shader_handle shader);
 //If you're using a push constant then you can set it's size in the builder here.
 ZEST_API void zest_SetComputePushConstantSize(zest_compute_builder_t *builder, zest_uint size);
 //You must set a command buffer update callback. This is called when the command queue tries to execute the compute shader. Here you can bind buffers and upload

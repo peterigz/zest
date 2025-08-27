@@ -3629,6 +3629,7 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     zest__initialise_store(&ZestRenderer->uniform_buffers, sizeof(zest_uniform_buffer_t));
     zest__initialise_store(&ZestRenderer->timers, sizeof(zest_timer_t));
     zest__initialise_store(&ZestRenderer->layers, sizeof(zest_layer_t));
+    zest__initialise_store(&ZestRenderer->shaders, sizeof(zest_shader_t));
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
 
@@ -3983,9 +3984,6 @@ void zest__cleanup_device(void) {
 void zest__free_handle(void *handle) {
     zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(handle);
     switch (struct_type) {
-    case zest_struct_type_shader:
-        zest_FreeShader((zest_shader)handle);
-        break;
     case zest_struct_type_compute:
         zest__cleanup_compute((zest_compute)handle);
         break;
@@ -4017,7 +4015,6 @@ void zest__scan_memory_and_free_resources() {
             if (ZEST_VALID_HANDLE(allocation)) {
                 zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
                 switch (struct_type) {
-                case zest_struct_type_shader:
                 case zest_struct_type_compute:
                 case zest_struct_type_set_layout:
                 case zest_struct_type_pipeline_template:
@@ -4094,6 +4091,17 @@ void zest__cleanup_layer_store() {
     zest__free_store(&ZestRenderer->layers);
 }
 
+void zest__cleanup_shader_store() {
+    zest_shader_t *shaders = ZestRenderer->shaders.data;
+    for (int i = 0; i != ZestRenderer->shaders.current_size; ++i) {
+        if (ZEST_VALID_HANDLE(&shaders[i])) {
+            zest_shader resource = &shaders[i];
+            zest_FreeShader(resource->handle);
+        }
+    }
+    zest__free_store(&ZestRenderer->shaders);
+}
+
 void zest__cleanup_renderer() {
 
     zest_uint cached_pipelines_size = zest_map_size(ZestRenderer->cached_pipelines);
@@ -4108,6 +4116,7 @@ void zest__cleanup_renderer() {
     zest__cleanup_uniform_buffer_store();
     zest__cleanup_timer_store();
     zest__cleanup_layer_store();
+    zest__cleanup_shader_store();
 
     zest__scan_memory_and_free_resources();
 
@@ -5244,26 +5253,31 @@ zest_pipeline zest__create_pipeline() {
     return pipeline;
 }
 
-void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, zest_shader vertex_shader) {
+void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, zest_shader_handle shader_handle) {
+    zest_shader vertex_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
     ZEST_ASSERT_HANDLE(vertex_shader);  //Not a valid vertex shader handle
-    pipeline_template->vertex_shader = vertex_shader;
+    pipeline_template->vertex_shader = shader_handle;
 }
 
-void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, zest_shader fragment_shader) {
+void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, zest_shader_handle shader_handle) {
+    zest_shader fragment_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
     ZEST_ASSERT_HANDLE(fragment_shader);	//Not a valid fragment shader handle
-    pipeline_template->fragment_shader = fragment_shader;
+    pipeline_template->fragment_shader = shader_handle;
 }
 
-void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, zest_shader vertex_shader, zest_shader fragment_shader) {
+void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, zest_shader_handle vertex_shader_handle, zest_shader_handle fragment_shader_handle) {
+    zest_shader vertex_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, vertex_shader_handle.value);
+    zest_shader fragment_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, fragment_shader_handle.value);
     ZEST_ASSERT_HANDLE(vertex_shader);       //Not a valid vertex shader handle
     ZEST_ASSERT_HANDLE(fragment_shader);     //Not a valid fragment shader handle
-    pipeline_template->vertex_shader = vertex_shader;
-    pipeline_template->fragment_shader = fragment_shader;
+    pipeline_template->vertex_shader = vertex_shader_handle;
+    pipeline_template->fragment_shader = fragment_shader_handle;
 }
 
-void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader combined_vertex_and_fragment_shader) {
+void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader_handle combined_vertex_and_fragment_shader_handle) {
+    zest_shader combined_vertex_and_fragment_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, combined_vertex_and_fragment_shader_handle.value);
     ZEST_ASSERT_HANDLE(combined_vertex_and_fragment_shader);       //Not a valid shader handle
-    pipeline_template->vertex_shader = combined_vertex_and_fragment_shader;
+    pipeline_template->vertex_shader = combined_vertex_and_fragment_shader_handle;
 }
 
 void zest_SetPipelineFrontFace(zest_pipeline_template pipeline_template, zest_front_face front_face) {
@@ -5579,8 +5593,8 @@ VkResult zest__build_pipeline(zest_pipeline pipeline) {
 
     VkShaderModule vert_shader_module = { 0 };
     VkShaderModule frag_shader_module = { 0 };
-	zest_shader vert_shader = pipeline->pipeline_template->vertex_shader;
-	zest_shader frag_shader = pipeline->pipeline_template->fragment_shader;
+    zest_shader vert_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, pipeline->pipeline_template->vertex_shader.value);
+    zest_shader frag_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, pipeline->pipeline_template->fragment_shader.value);
     if (ZEST_VALID_HANDLE(vert_shader)) {
         if (!vert_shader->spv) {
             ZEST_APPEND_LOG(ZestDevice->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", vert_shader->name.str, pipeline->pipeline_template->name.str);
@@ -5728,13 +5742,14 @@ VkResult zest__rebuild_pipeline(zest_pipeline pipeline) {
     return zest__build_pipeline(pipeline);
 }
 
-zest_shader zest_NewShader(shaderc_shader_kind type) {
-    zest_shader_t blank_shader = { 0 };
-    zest_shader shader = ZEST__NEW(zest_shader);
-    *shader = blank_shader;
+zest_shader_handle zest__new_shader(shaderc_shader_kind type) {
+    zest_shader_handle handle = (zest_shader_handle){ zest__add_store_resource(&ZestRenderer->shaders) };
+    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, handle.value);
+    *shader = (zest_shader_t){ 0 };
     shader->magic = zest_INIT_MAGIC(zest_struct_type_shader);
+    shader->handle = handle;
     shader->type = type;
-    return shader;
+    return handle;
 }
 
 shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name, shaderc_compiler_t compiler) {
@@ -5742,11 +5757,12 @@ shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shader
     return result;
 }
 
-zest_bool zest_CompileShader(zest_shader shader, shaderc_compiler_t compiler) {
+zest_bool zest_CompileShader(zest_shader_handle shader_handle, shaderc_compiler_t compiler) {
+    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
     shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", NULL);
     if (shaderc_result_get_compilation_status(result) == shaderc_compilation_status_success) {
 		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Successfully compiled shader: %s.", shader->name.str);
-        zest_UpdateShaderSPV(shader, result);
+        zest__update_shader_spv(shader, result);
         return 1;
     }
 	const char *error_message = shaderc_result_get_error_message(result);
@@ -5754,16 +5770,20 @@ zest_bool zest_CompileShader(zest_shader shader, shaderc_compiler_t compiler) {
     return 0;
 }
 
-zest_shader zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options) {
+zest_shader_handle zest_CreateShaderFromFile(const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options) {
     char *shader_code = zest_ReadEntireFile(file, ZEST_TRUE);
     ZEST_ASSERT(shader_code);   //Unable to load the shader code, check the path is valid
-    zest_shader shader = zest_CreateShader(shader_code, type, name, ZEST_FALSE, disable_caching, compiler, options);
+    zest_shader_handle shader_handle = zest_CreateShader(shader_code, type, name, ZEST_FALSE, disable_caching, compiler, options);
+	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+	ZEST_ASSERT_HANDLE(shader); //Not a valid shader handle
     zest_SetText(&shader->file_path, file);
     zest_vec_free(shader_code);
-    return shader;
+    return shader_handle;
 }
 
-zest_bool zest_ReloadShader(zest_shader shader) {
+zest_bool zest_ReloadShader(zest_shader_handle shader_handle) {
+	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+	ZEST_ASSERT_HANDLE(shader); //Not a valid shader handle
     ZEST_ASSERT(zest_TextLength(&shader->file_path));    //The shader must have a file path set.
     char *shader_code = zest_ReadEntireFile(shader->file_path.str, ZEST_TRUE);
     if (!shader_code) {
@@ -5773,7 +5793,7 @@ zest_bool zest_ReloadShader(zest_shader shader) {
     return 1;
 }
 
-zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options) {
+zest_shader_handle zest_CreateShader(const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool format_code, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options) {
     ZEST_ASSERT(name);     //You must give the shader a name
     zest_text_t shader_name = { 0 };
     if (zest_TextSize(&ZestRenderer->shader_path_prefix)) {
@@ -5782,7 +5802,9 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
     else {
         zest_SetTextf(&shader_name, "%s", name);
     }
-    zest_shader shader = zest_NewShader(type);
+    zest_shader_handle shader_handle = zest__new_shader(type);
+    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+    ZEST_ASSERT_HANDLE(shader);
     shader->name = shader_name;
     if (!disable_caching && ZestApp->create_info.flags & zest_init_flag_cache_shaders) {
         shader->spv = zest_ReadEntireFile(shader->name.str, ZEST_FALSE);
@@ -5793,13 +5815,13 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
                 zest__format_shader_code(&shader->shader_code);
             }
 			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Loaded shader %s from cache.", name);
-            return shader;
+            return shader_handle;
         }
     }
     
     if(!compiler) {
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Was unable to load the shader from the cached shaders location and compiler is disabled, so cannot go any further with shader %s", name);
-        return shader;
+        return shader_handle;
     }
 
 	zest_SetText(&shader->shader_code, shader_code);
@@ -5812,7 +5834,7 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
 		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
 		ZEST_PRINT("Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
         shaderc_result_release(result);
-        zest_FreeShader(shader);
+        zest_FreeShader(shader_handle);
         ZEST_ASSERT(0); //There's a bug in this shader that needs fixing. You can check the log file for the error message
     }
 
@@ -5824,16 +5846,17 @@ zest_shader zest_CreateShader(const char *shader_code, shaderc_shader_kind type,
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compiled shader %s and added to renderer shaders.", name);
     shaderc_result_release(result);
     if (!disable_caching && ZestApp->create_info.flags & zest_init_flag_cache_shaders) {
-        zest_CacheShader(shader);
+        zest__cache_shader(shader);
     }
-    return shader;
+    return shader_handle;
 }
 
-void zest_CacheShader(zest_shader shader) {
+void zest__cache_shader(zest_shader shader) {
     zest__create_folder(ZestRenderer->shader_path_prefix.str);
     FILE *shader_file = zest__open_file(shader->name.str, "wb");
     if (shader_file == NULL) {
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to open file for writing: %s", shader->name.str);
+        return;
     }
     size_t written = fwrite(shader->spv, 1, shader->spv_size, shader_file);
     if (written != shader->spv_size) {
@@ -5843,7 +5866,7 @@ void zest_CacheShader(zest_shader shader) {
     fclose(shader_file);
 }
 
-zest_shader zest_CreateShaderSPVMemory(const unsigned char *shader_code, zest_uint spv_length, const char *name, shaderc_shader_kind type) {
+zest_shader_handle zest_CreateShaderSPVMemory(const unsigned char *shader_code, zest_uint spv_length, const char *name, shaderc_shader_kind type) {
     ZEST_ASSERT(shader_code);   //No shader code!
     ZEST_ASSERT(name);     //You must give the shader a name
     zest_text_t shader_name = { 0 };
@@ -5852,15 +5875,17 @@ zest_shader zest_CreateShaderSPVMemory(const unsigned char *shader_code, zest_ui
     } else {
         zest_SetTextf(&shader_name, "%s", name);
     }
-    zest_shader shader = zest_NewShader(type);
+    zest_shader_handle shader_handle = zest__new_shader(type);
+    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+    ZEST_ASSERT_HANDLE(shader);
     zest_vec_resize(shader->spv, spv_length);
     memcpy(shader->spv, shader_code, spv_length);
     shader->spv_size = spv_length;
     zest_FreeText(&shader_name);
-    return shader;
+    return shader_handle;
 }
 
-void zest_UpdateShaderSPV(zest_shader shader, shaderc_compilation_result_t result) {
+void zest__update_shader_spv(zest_shader shader, shaderc_compilation_result_t result) {
     zest_uint spv_size = (zest_uint)shaderc_result_get_length(result);
     const char *spv_binary = shaderc_result_get_bytes(result);
     shader->spv_size = spv_size;
@@ -5868,24 +5893,26 @@ void zest_UpdateShaderSPV(zest_shader shader, shaderc_compilation_result_t resul
     memcpy(shader->spv, spv_binary, spv_size);
 }
 
-zest_shader zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind type) {
+zest_shader_handle zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind type) {
     ZEST_ASSERT(filename);     //You must give the shader a name
-    zest_shader shader = zest_NewShader(type);
+    zest_shader_handle shader_handle = zest__new_shader(type);
+    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+    ZEST_ASSERT_HANDLE(shader);
     shader->spv = zest_ReadEntireFile(filename, ZEST_FALSE);
     ZEST_ASSERT(shader->spv);   //File not found, could not load this shader!
     shader->spv_size = zest_vec_size(shader->spv);
 	zest_SetText(&shader->name, filename);
 	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Loaded shader %s and added to renderer shaders.", filename);
-	return shader;
-    zest_FreeShader(shader);
-    return 0;
+	return shader_handle;
 }
 
-zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind type) {
+zest_shader_handle zest_AddShaderFromSPVMemory(const char *name, const void *buffer, zest_uint size, shaderc_shader_kind type) {
     ZEST_ASSERT(name);     //You must give the shader a name
     ZEST_ASSERT(!strstr(name, "/"));    //name must not contain /, the shader will be prefixed with the cache folder automatically
     if (buffer && size) {
-		zest_shader shader = zest_NewShader(type);
+		zest_shader_handle shader_handle = zest__new_shader(type);
+		zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+		ZEST_ASSERT_HANDLE(shader);
 		if (zest_TextSize(&ZestRenderer->shader_path_prefix)) {
 			zest_SetTextf(&shader->name, "%s%s", ZestRenderer->shader_path_prefix, name);
 		}
@@ -5896,12 +5923,14 @@ zest_shader zest_AddShaderFromSPVMemory(const char *name, const void *buffer, ze
 		memcpy(shader->spv, buffer, size);
         ZEST_APPEND_LOG(ZestDevice->log_path.str, "Read shader %s from memory and added to renderer shaders.", name);
         shader->spv_size = size;
-        return shader;
+        return shader_handle;
     }
-    return 0;
+    return (zest_shader_handle){ 0 };
 }
 
-void zest_AddShader(zest_shader shader, const char *name) {
+void zest_AddShader(zest_shader_handle shader_handle, const char *name) {
+	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+	ZEST_ASSERT_HANDLE(shader); //Not a valid shader handle
     if (name) {
 		ZEST_ASSERT(!strstr(name, "/"));    //name must not contain /, the shader will be prefixed with the cache folder automatically
         if (zest_TextSize(&ZestRenderer->shader_path_prefix)) {
@@ -5916,14 +5945,16 @@ void zest_AddShader(zest_shader shader, const char *name) {
     }
 }
 
-void zest_FreeShader(zest_shader shader) {
+void zest_FreeShader(zest_shader_handle shader_handle) {
+	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+	ZEST_ASSERT_HANDLE(shader);
     zest_FreeText(&shader->name);
     zest_FreeText(&shader->shader_code);
     zest_FreeText(&shader->file_path);
     if (shader->spv) {
         zest_vec_free(shader->spv);
     }
-    ZEST__FREE(shader);
+    zest__remove_store_resource(&ZestRenderer->shaders, shader_handle.value);
 }
 
 zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources_handle handle, VkDescriptorSet **draw_sets) {
@@ -14507,7 +14538,7 @@ void zest__cleanup_layer(zest_layer layer) {
 		zest_FreeBuffer(layer->memory_refs[fif].staging_index_data);
 		zest_vec_free(layer->draw_instructions[fif]);
 	}
-	ZEST__FREE(layer);
+    zest__remove_store_resource(&ZestRenderer->layers, layer->handle.value);
 }
 
 void zest__reset_mesh_layer_drawing(zest_layer layer) {
@@ -15793,9 +15824,11 @@ void zest_AddComputeSetLayout(zest_compute_builder_t *builder, zest_set_layout l
     zest_vec_push(builder->non_bindless_layouts, layout);
 }
 
-zest_index zest_AddComputeShader(zest_compute_builder_t* builder, zest_shader shader) {
+zest_index zest_AddComputeShader(zest_compute_builder_t* builder, zest_shader_handle shader_handle) {
+	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+	ZEST_ASSERT_HANDLE(shader);
     zest_text_t path_text = { 0 };
-    zest_vec_push(builder->shaders, shader);
+    zest_vec_push(builder->shaders, shader_handle);
     return zest_vec_last_index(builder->shaders);
 }
 
@@ -15868,7 +15901,9 @@ zest_compute zest_FinishCompute(zest_compute_builder_t *builder, const char *nam
     compute->shaders = builder->shaders;
     VkShaderModule shader_module = { 0 };
     zest_vec_foreach(i, compute->shaders) {
-        zest_shader shader = compute->shaders[i];
+        zest_shader_handle shader_handle = compute->shaders[i];
+		zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+		ZEST_ASSERT_HANDLE(shader); //Not a valid shader handle in the builder list of shaders
 
         ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
         VkShaderModule shader_module = 0;
