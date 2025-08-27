@@ -40,7 +40,7 @@ zest_imgui zest_imgui_Initialise() {
 	imgui_pipeline->scissor.extent = zest_GetSwapChainExtent();
 	imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
 	zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
-	zest_AddPipelineDescriptorLayout(imgui_pipeline, ZestRenderer->texture_debug_layout->vk_layout);
+	zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_vk_GetDebugLayout());
 	zest_EndPipelineTemplate(imgui_pipeline);
 
 	imgui_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;

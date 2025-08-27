@@ -2660,7 +2660,6 @@ bool zest__create_worker_thread(zest_storage_t * storage, int thread_index) {
 
 // --Uniform buffers
 void zest__add_set_builder_uniform_buffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer uniform_buffer, zest_uint fif) {
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
     VkDescriptorBufferInfo buffer_info = uniform_buffer->descriptor_info[fif];
     zest_AddSetBuilderWrite(builder, dst_binding, dst_array_element, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, NULL, &buffer_info, NULL);
 }
@@ -3631,6 +3630,7 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     zest__initialise_store(&ZestRenderer->layers, sizeof(zest_layer_t));
     zest__initialise_store(&ZestRenderer->shaders, sizeof(zest_shader_t));
     zest__initialise_store(&ZestRenderer->compute_pipelines, sizeof(zest_compute_t));
+    zest__initialise_store(&ZestRenderer->set_layouts, sizeof(zest_set_layout_t));
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
 
@@ -3985,9 +3985,6 @@ void zest__cleanup_device(void) {
 void zest__free_handle(void *handle) {
     zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(handle);
     switch (struct_type) {
-    case zest_struct_type_set_layout:
-        zest__cleanup_set_layout((zest_set_layout)handle);
-        break;
     case zest_struct_type_pipeline_template:
         zest__cleanup_pipeline_template((zest_pipeline_template)handle);
         break;
@@ -4014,7 +4011,6 @@ void zest__scan_memory_and_free_resources() {
                 zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
                 switch (struct_type) {
                 case zest_struct_type_pipeline_template:
-                case zest_struct_type_set_layout:
                 case zest_struct_type_swapchain:
                     zest_vec_push(memory_to_free, allocation);
                     break;
@@ -4110,14 +4106,23 @@ void zest__cleanup_compute_store() {
     zest__free_store(&ZestRenderer->compute_pipelines);
 }
 
+void zest__cleanup_set_layout_store() {
+    zest_set_layout_t *set_layouts = ZestRenderer->set_layouts.data;
+    for (int i = 0; i != ZestRenderer->set_layouts.current_size; ++i) {
+        if (ZEST_VALID_HANDLE(&set_layouts[i])) {
+            zest_set_layout resource = &set_layouts[i];
+            zest__cleanup_set_layout(resource);
+        }
+    }
+    zest__free_store(&ZestRenderer->set_layouts);
+}
+
 void zest__cleanup_renderer() {
 
     zest_uint cached_pipelines_size = zest_map_size(ZestRenderer->cached_pipelines);
 
-	zest__cleanup_set_layout(ZestRenderer->texture_debug_layout);
-	zest__cleanup_set_layout(ZestRenderer->global_bindless_set_layout);
-    ZestRenderer->texture_debug_layout = 0;
-    ZestRenderer->global_bindless_set_layout = 0;
+    ZestRenderer->texture_debug_layout = (zest_set_layout_handle){ 0 };
+    ZestRenderer->global_bindless_set_layout = (zest_set_layout_handle){ 0 };
 
     zest__cleanup_shader_resource_store();
     zest__cleanup_texture_store();
@@ -4126,6 +4131,7 @@ void zest__cleanup_renderer() {
     zest__cleanup_layer_store();
     zest__cleanup_shader_store();
     zest__cleanup_compute_store();
+    zest__cleanup_set_layout_store();
 
     zest__scan_memory_and_free_resources();
 
@@ -4376,7 +4382,7 @@ void zest__reset_queue_command_pool(zest_queue queue) {
 
 zest_uniform_buffer_handle zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size) {
     zest_uniform_buffer_handle handle = { zest__add_store_resource(&ZestRenderer->uniform_buffers) };
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     *uniform_buffer = (zest_uniform_buffer_t){ 0 };
     uniform_buffer->magic = zest_INIT_MAGIC(zest_struct_type_uniform_buffer);
     uniform_buffer->handle = handle;
@@ -4389,6 +4395,7 @@ zest_uniform_buffer_handle zest_CreateUniformBuffer(const char *name, zest_size 
 	uniform_buffer->set_layout = zest_FinishDescriptorSetLayout(&uniform_layout_builder, "Layout for: %s", name);
 	zest_CreateDescriptorPoolForLayout(uniform_buffer->set_layout, ZEST_MAX_FIF, 0);
 
+    zest_set_layout set_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, uniform_buffer->set_layout.value);
     zest_ForEachFrameInFlight(fif) {
         uniform_buffer->buffer[fif] = zest_CreateBuffer(uniform_struct_size, &buffer_info, ZEST_NULL);
         uniform_buffer->descriptor_info[fif].buffer = *zest_GetBufferDeviceBuffer(uniform_buffer->buffer[fif]);
@@ -4397,15 +4404,14 @@ zest_uniform_buffer_handle zest_CreateUniformBuffer(const char *name, zest_size 
 
 		zest_descriptor_set_builder_t uniform_set_builder = zest_BeginDescriptorSetBuilder(uniform_buffer->set_layout);
 		zest__add_set_builder_uniform_buffer(&uniform_set_builder, 0, 0, uniform_buffer, fif);
-		uniform_buffer->descriptor_set[fif] = zest_FinishDescriptorSet(uniform_buffer->set_layout->pool, &uniform_set_builder, uniform_buffer->descriptor_set[fif]);
+		uniform_buffer->descriptor_set[fif] = zest_FinishDescriptorSet(set_layout->pool, &uniform_set_builder, uniform_buffer->descriptor_set[fif]);
 
     }
     return handle;
 }
 
 void zest_FreeUniformBuffer(zest_uniform_buffer_handle handle) {
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer); //Not a valid uniform buffer
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.resources[ZEST_FIF], uniform_buffer);
 }
 
@@ -4501,12 +4507,12 @@ void zest_AddLayoutBuilderStorageBufferBindless(zest_set_layout_builder_t *build
     zest_AddLayoutBuilderBindingBindless(builder, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, max_buffer_count, shader_stages, binding_flags, 0);
 }
 
-zest_set_layout zest_FinishDescriptorSetLayout(zest_set_layout_builder_t *builder, const char *name, ...) {
+zest_set_layout_handle zest_FinishDescriptorSetLayout(zest_set_layout_builder_t *builder, const char *name, ...) {
     ZEST_ASSERT(name);  //Give the descriptor set a unique name
-    zest_text_t layer_name = { 0 };
+    zest_text_t layout_name = { 0 };
     va_list args;
     va_start(args, name);
-    zest_SetTextfv(&layer_name, name, args);
+    zest_SetTextfv(&layout_name, name, args);
     va_end(args);
     ZEST_ASSERT(builder->bindings);     //must have bindings to create the layout
     zest_uint binding_count = (zest_uint)zest_vec_size(builder->bindings);
@@ -4518,21 +4524,13 @@ zest_set_layout zest_FinishDescriptorSetLayout(zest_set_layout_builder_t *builde
     layoutInfo.flags = builder->create_flags;
     layoutInfo.pNext = 0;   
 
-    VkDescriptorSetLayout layout;
+    VkDescriptorSetLayout layout = 0;
+    zest_set_layout_handle handle = { 0 };
 	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_descriptor_layout);
-    VkResult result = vkCreateDescriptorSetLayout(ZestDevice->logical_device, &layoutInfo, &ZestDevice->allocation_callbacks, &layout);
+    ZEST_CLEANUP_ON_FAIL(vkCreateDescriptorSetLayout(ZestDevice->logical_device, &layoutInfo, &ZestDevice->allocation_callbacks, &layout));
 
-    zest_set_layout set_layout = 0;
-    if (result != VK_SUCCESS) {
-        ZEST_VK_PRINT_RESULT(result);
-        goto cleanup;
-    }
-
-    set_layout = zest__new_descriptor_set_layout(layer_name.str, layout);
-    if (!set_layout) {
-        ZEST_PRINT("Failed to create a new set layout");
-        goto cleanup;
-    }
+    handle = zest__new_descriptor_set_layout(layout_name.str, layout);
+    zest_set_layout set_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, handle.value);
 
     set_layout->binding_indexes = builder->binding_indexes;
     zest_vec_resize(set_layout->layout_bindings, binding_count);
@@ -4545,11 +4543,11 @@ zest_set_layout zest_FinishDescriptorSetLayout(zest_set_layout_builder_t *builde
 
 cleanup:
     zest_vec_free(builder->bindings);
-    zest_FreeText(&layer_name);
-    return set_layout;
+    zest_FreeText(&layout_name);
+    return handle;
 }
 
-zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, VkDescriptorPoolCreateFlags additional_pool_flags, const char *name, ...) {
+zest_set_layout_handle zest_FinishDescriptorSetLayoutForBindless(zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, VkDescriptorPoolCreateFlags additional_pool_flags, const char *name, ...) {
     ZEST_ASSERT(name);  //Give the descriptor set a unique name
     zest_text_t layer_name = { 0 };
     va_list args;
@@ -4574,16 +4572,13 @@ zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_set_layout_builde
     layoutInfo.pNext = &binding_flags_create_info;   
 
     VkDescriptorSetLayout layout;
+    zest_set_layout_handle handle = { 0 };
 	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_descriptor_layout);
-    VkResult result = vkCreateDescriptorSetLayout(ZestDevice->logical_device, &layoutInfo, &ZestDevice->allocation_callbacks, &layout);
+    ZEST_CLEANUP_ON_FAIL(vkCreateDescriptorSetLayout(ZestDevice->logical_device, &layoutInfo, &ZestDevice->allocation_callbacks, &layout));
 
-    zest_set_layout set_layout = 0;
-    if (result != VK_SUCCESS) {
-        ZEST_VK_PRINT_RESULT(result);
-        goto cleanup;
-    }
 
-    set_layout = zest__new_descriptor_set_layout(layer_name.str, layout);
+    handle = zest__new_descriptor_set_layout(layer_name.str, layout);
+    zest_set_layout set_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, handle.value);
     set_layout->binding_indexes = builder->binding_indexes;
     zest_vec_resize(set_layout->descriptor_indexes, zest_vec_size(builder->bindings));
     zest_vec_resize(set_layout->layout_bindings, binding_count);
@@ -4599,15 +4594,15 @@ zest_set_layout zest_FinishDescriptorSetLayoutForBindless(zest_set_layout_builde
     zest_vec_free(builder->bindings);
     zest_vec_free(builder->binding_flags);
 
-    zest_CreateDescriptorPoolForLayoutBindless(set_layout, 1, VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT);
+    zest_CreateDescriptorPoolForLayoutBindless(handle, 1, VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT);
 
     cleanup:
     zest_FreeText(&layer_name);
-    return set_layout;
+    return handle;
 }
 
-ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout layout) {
-    ZEST_ASSERT_HANDLE(layout);  //Not a valid layout
+ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout_handle layout_handle) {
+    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
     ZEST_ASSERT(layout->vk_layout != VK_NULL_HANDLE && "VkDescriptorSetLayout in wrapper is null.");
     ZEST_ASSERT(layout->pool->vk_descriptor_pool != VK_NULL_HANDLE && "VkDescriptorPool in wrapper is null.");
     // max_sets_in_pool was set during pool creation, usually 1 for a global bindless set.
@@ -4632,28 +4627,26 @@ ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout layout) {
     return set;
 }
 
-zest_set_layout zest__new_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout) {
-    zest_set_layout descriptor_layout = ZEST__NEW(zest_set_layout);
-    if (!descriptor_layout) {
-        return 0;
-    }
+zest_set_layout_handle zest__new_descriptor_set_layout(const char *name, VkDescriptorSetLayout layout) {
+    zest_set_layout_handle handle = (zest_set_layout_handle){ zest__add_store_resource(&ZestRenderer->set_layouts) };
+    zest_set_layout descriptor_layout = (zest_set_layout)zest__get_store_resource(&ZestRenderer->set_layouts, handle.value);
     *descriptor_layout = (zest_set_layout_t){ 0 };
     descriptor_layout->name.str = 0;
     descriptor_layout->magic = zest_INIT_MAGIC(zest_struct_type_set_layout);
+    descriptor_layout->handle = handle;
     zest_SetText(&descriptor_layout->name, name);
     descriptor_layout->vk_layout = layout;
-    return descriptor_layout;
+    return handle;
 }
 
 
-zest_uint zest__acquire_bindless_index(zest_set_layout layout_handle, zest_uint binding_number) {
-    ZEST_ASSERT_HANDLE(layout_handle);   //Not a valid layout handle!
-    if (binding_number >= zest_vec_size(layout_handle->descriptor_indexes)) {
-        ZEST_PRINT("Attempted to acquire index for out-of-bounds binding_number %u for layout '%s'. Are you sure this is a layout that's configured for bindless descriptors?", binding_number, layout_handle->name.str);
+zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest_uint binding_number) {
+    if (binding_number >= zest_vec_size(layout->descriptor_indexes)) {
+        ZEST_PRINT("Attempted to acquire index for out-of-bounds binding_number %u for layout '%s'. Are you sure this is a layout that's configured for bindless descriptors?", binding_number, layout->name.str);
         return ZEST_INVALID; 
     }
 
-    zest_descriptor_indices_t *manager = &layout_handle->descriptor_indexes[binding_number];
+    zest_descriptor_indices_t *manager = &layout->descriptor_indexes[binding_number];
 
     if (zest_vec_size(manager->free_indices) > 0) {
         zest_uint index = zest_vec_back(manager->free_indices); // Reuse from free list
@@ -4664,26 +4657,27 @@ zest_uint zest__acquire_bindless_index(zest_set_layout layout_handle, zest_uint 
             return manager->next_new_index++; // Allocate a new one sequentially
         } else {
             ZEST_PRINT("Ran out of bindless indices for binding %u (type %d, capacity %u) in layout '%s'!",
-                binding_number, manager->descriptor_type, manager->capacity, layout_handle->name.str);
+                binding_number, manager->descriptor_type, manager->capacity, layout->name.str);
             return ZEST_INVALID;
         }
     }
 }
 
-void zest__release_bindless_index(zest_set_layout layout_handle, zest_uint binding_number, zest_uint index_to_release) {
-    ZEST_ASSERT_HANDLE(layout_handle);   //Not a valid layout handle!
+void zest__release_bindless_index(zest_set_layout_handle layout_handle, zest_uint binding_number, zest_uint index_to_release) {
+    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
+    ZEST_ASSERT_HANDLE(layout);   //Not a valid layout handle!
     if (index_to_release == ZEST_INVALID) return;
 
-    if (binding_number >= zest_vec_size(layout_handle->descriptor_indexes)) {
-        ZEST_PRINT("Attempted to release index for out-of-bounds binding_number %u for layout '%s'. Check that layout is actually intended for bindless.", binding_number, layout_handle->name.str);
+    if (binding_number >= zest_vec_size(layout->descriptor_indexes)) {
+        ZEST_PRINT("Attempted to release index for out-of-bounds binding_number %u for layout '%s'. Check that layout is actually intended for bindless.", binding_number, layout->name.str);
         return;
     }
 
-    zest_descriptor_indices_t *manager = &layout_handle->descriptor_indexes[binding_number];
+    zest_descriptor_indices_t *manager = &layout->descriptor_indexes[binding_number];
 
     zest_vec_foreach(i, manager->free_indices) {
         if (index_to_release == manager->free_indices[i]) {
-			ZEST_PRINT("Attempted to release index for binding_number %u for layout '%s' that is already free. Make sure the binding number is correct.", binding_number, layout_handle->name.str);
+			ZEST_PRINT("Attempted to release index for binding_number %u for layout '%s' that is already free. Make sure the binding number is correct.", binding_number, layout->name.str);
             return;
         }
     }
@@ -4693,7 +4687,6 @@ void zest__release_bindless_index(zest_set_layout layout_handle, zest_uint bindi
 }
 
 void zest__cleanup_set_layout(zest_set_layout layout) {
-    ZEST_ASSERT_HANDLE(layout);  //Not a valid layout handle!
     zest_vec_free(layout->layout_bindings);
     vkDestroyDescriptorSetLayout(ZestDevice->logical_device, layout->vk_layout, &ZestDevice->allocation_callbacks);
     zest_FreeText(&layout->name);
@@ -4706,7 +4699,7 @@ void zest__cleanup_set_layout(zest_set_layout layout) {
         vkDestroyDescriptorPool(ZestDevice->logical_device, layout->pool->vk_descriptor_pool, &ZestDevice->allocation_callbacks);
     }
     ZEST__FREE(layout->pool);
-	ZEST__FREE(layout);
+    zest__remove_store_resource(&ZestRenderer->set_layouts, layout->handle.value);
 }
 
 void zest__add_descriptor_set_to_resources(zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif) {
@@ -4816,9 +4809,9 @@ VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet des
     return write;
 }
 
-zest_descriptor_set_builder_t zest_BeginDescriptorSetBuilder(zest_set_layout layout) {
+zest_descriptor_set_builder_t zest_BeginDescriptorSetBuilder(zest_set_layout_handle layout_handle) {
     zest_descriptor_set_builder_t builder = { 0 };
-    builder.associated_layout = layout;
+    builder.associated_layout = layout_handle;
     return builder;
 }
 
@@ -4831,11 +4824,11 @@ VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_set_layout layo
     return NULL;
 }
 
-// The new general-purpose write function
 void zest_AddSetBuilderWrite( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uint descriptor_count, VkDescriptorType descriptor_type, const VkDescriptorImageInfo *p_image_infos, const VkDescriptorBufferInfo *p_buffer_infos, const VkBufferView *p_texel_buffer_views) {
+    zest_set_layout associated_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, builder->associated_layout.value);
     // Verify that the descriptor write complies with the associated descriptor set layout
-    ZEST_ASSERT(builder != NULL && builder->associated_layout != NULL);
-    const VkDescriptorSetLayoutBinding *layout_binding = zest__get_layout_binding_info(builder->associated_layout, dst_binding); 
+    ZEST_ASSERT(builder != NULL && associated_layout != NULL);
+    const VkDescriptorSetLayoutBinding *layout_binding = zest__get_layout_binding_info(associated_layout, dst_binding); 
 
     ZEST_ASSERT(layout_binding != NULL); // Binding must exist in the layout
 
@@ -4932,8 +4925,7 @@ void zest_AddSetBuilderCombinedImageSampler( zest_descriptor_set_builder_t *buil
 }
 
 void zest_AddSetBuilderTexture(zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     VkDescriptorImageInfo image_info = { 0 };
     image_info.sampler = texture->sampler->vk_sampler;
     image_info.imageView = texture->image_buffer.image_handles.view;
@@ -4950,8 +4942,7 @@ void zest_AddSetBuilderDirectImageWrite( zest_descriptor_set_builder_t *builder,
 }
 
 void zest_AddSetBuilderUniformBuffer( zest_descriptor_set_builder_t *builder, zest_uint dst_binding, zest_uint dst_array_element, zest_uniform_buffer_handle handle, zest_uint fif) {
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     zest__add_set_builder_uniform_buffer(builder, dst_binding, dst_array_element, uniform_buffer, fif);
 }
 
@@ -4962,8 +4953,9 @@ void zest_AddSetBuilderStorageBuffer( zest_descriptor_set_builder_t *builder, ze
 }
 
 zest_descriptor_set zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update ) {
+    zest_set_layout associated_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, builder->associated_layout.value);
     ZEST_ASSERT_HANDLE(pool);    //Must be a valid desriptor pool
-    ZEST_ASSERT(builder != NULL && builder->associated_layout != NULL);
+    ZEST_ASSERT(builder != NULL && associated_layout != NULL);
 
     if (!ZEST_VALID_HANDLE(new_set_to_populate_or_update)) {
         zest_descriptor_set_t blank = { 0 };
@@ -4979,7 +4971,7 @@ zest_descriptor_set zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_des
         allocation_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocation_info.descriptorPool = pool->vk_descriptor_pool;
         allocation_info.descriptorSetCount = 1;
-        allocation_info.pSetLayouts = &(builder->associated_layout->vk_layout); // Assuming your layout struct holds the Vk handle
+        allocation_info.pSetLayouts = &(associated_layout->vk_layout); // Assuming your layout struct holds the Vk handle
 
         VkResult result = vkAllocateDescriptorSets(ZestDevice->logical_device, &allocation_info, &target_set);
         if (result != VK_SUCCESS) {
@@ -5010,14 +5002,14 @@ cleanup:
 
 zest_shader_resources_handle zest_CreateShaderResources() {
     zest_shader_resources_handle handle = { zest__add_store_resource(&ZestRenderer->shader_resources) };
-    zest_shader_resources bundle = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
+    zest_shader_resources bundle = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     *bundle = (zest_shader_resources_t){ 0 };
     bundle->magic = zest_INIT_MAGIC(zest_struct_type_shader_resources);
     return handle;
 }
 
 void zest_FreeShaderResources(zest_shader_resources_handle handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     if (ZEST_VALID_HANDLE(shader_resources)) {
         zest_ForEachFrameInFlight(fif) {
             zest_vec_free(shader_resources->sets[fif]);
@@ -5028,53 +5020,47 @@ void zest_FreeShaderResources(zest_shader_resources_handle handle) {
 }
 
 void zest_AddDescriptorSetToResources(zest_shader_resources_handle handle, zest_descriptor_set descriptor_set, zest_uint fif) {
-    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
+    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
 	zest_vec_push(resources->sets[fif], descriptor_set);
 }
 
 void zest_AddUniformBufferToResources(zest_shader_resources_handle shader_resources_handle, zest_uniform_buffer_handle buffer_handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, shader_resources_handle.value);
-    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, buffer_handle.value);
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, shader_resources_handle.value);
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, buffer_handle.value);
     zest_ForEachFrameInFlight(fif) {
         zest__add_descriptor_set_to_resources(shader_resources, uniform_buffer->descriptor_set[fif], fif);
     }
 }
 
 void zest_AddGlobalBindlessSetToResources(zest_shader_resources_handle handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
-    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     zest_ForEachFrameInFlight(fif) {
         zest__add_descriptor_set_to_resources(shader_resources, ZestRenderer->global_set, fif);
     }
 }
 
 void zest_AddBindlessSetToResources(zest_shader_resources_handle handle, zest_descriptor_set set) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
-    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     zest_ForEachFrameInFlight(fif) {
         zest__add_descriptor_set_to_resources(shader_resources, set, fif);
     }
 }
 
 void zest_UpdateShaderResources(zest_shader_resources_handle handle, zest_descriptor_set descriptor_set, zest_uint index, zest_uint fif) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
-    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
 	ZEST_ASSERT(index < zest_vec_size(shader_resources->sets));    //Must be a valid index for the descriptor set in the resources that you want to update.
 	shader_resources->sets[fif][index] = descriptor_set;
 }
 
 void zest_ClearShaderResources(zest_shader_resources_handle handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
-    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     if (!shader_resources) return;
     zest_vec_clear(shader_resources->sets);
 }
 
 bool zest_ValidateShaderResource(zest_shader_resources_handle handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
-    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     zest_ForEachFrameInFlight(fif) {
         zest_uint set_size = zest_vec_size(shader_resources->sets[fif]);
         zest_vec_foreach(i, shader_resources->sets[fif]) {
@@ -5096,7 +5082,8 @@ zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets) {
     return pool;
 }
 
-void zest_CreateDescriptorPoolForLayout(zest_set_layout layout, zest_uint max_set_count, VkDescriptorPoolCreateFlags pool_flags) {
+void zest_CreateDescriptorPoolForLayout(zest_set_layout_handle layout_handle, zest_uint max_set_count, VkDescriptorPoolCreateFlags pool_flags) {
+    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
     ZEST_ASSERT(max_set_count > 0); //Must set a set count for the pool
 
     zest_hash_map(zest_uint) descriptor_types;
@@ -5160,7 +5147,8 @@ void zest_CreateDescriptorPoolForLayout(zest_set_layout layout, zest_uint max_se
     layout->pool = pool;
 }
 
-void zest_CreateDescriptorPoolForLayoutBindless(zest_set_layout layout, zest_uint max_set_count, VkDescriptorPoolCreateFlags pool_flags) {
+void zest_CreateDescriptorPoolForLayoutBindless(zest_set_layout_handle layout_handle, zest_uint max_set_count, VkDescriptorPoolCreateFlags pool_flags) {
+    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
     ZEST_ASSERT(max_set_count > 0); //Must set a set count for the pool
 
 	zest_hash_map(zest_uint) descriptor_types;
@@ -5263,20 +5251,23 @@ zest_pipeline zest__create_pipeline() {
 }
 
 void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, zest_shader_handle shader_handle) {
-    zest_shader vertex_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+    ZEST_ASSERT_HANDLE(pipeline_template);
+    zest_shader vertex_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     ZEST_ASSERT_HANDLE(vertex_shader);  //Not a valid vertex shader handle
     pipeline_template->vertex_shader = shader_handle;
 }
 
 void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, zest_shader_handle shader_handle) {
-    zest_shader fragment_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+    ZEST_ASSERT_HANDLE(pipeline_template);
+    zest_shader fragment_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     ZEST_ASSERT_HANDLE(fragment_shader);	//Not a valid fragment shader handle
     pipeline_template->fragment_shader = shader_handle;
 }
 
 void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, zest_shader_handle vertex_shader_handle, zest_shader_handle fragment_shader_handle) {
-    zest_shader vertex_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, vertex_shader_handle.value);
-    zest_shader fragment_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, fragment_shader_handle.value);
+    ZEST_ASSERT_HANDLE(pipeline_template);
+    zest_shader vertex_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, vertex_shader_handle.value);
+    zest_shader fragment_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, fragment_shader_handle.value);
     ZEST_ASSERT_HANDLE(vertex_shader);       //Not a valid vertex shader handle
     ZEST_ASSERT_HANDLE(fragment_shader);     //Not a valid fragment shader handle
     pipeline_template->vertex_shader = vertex_shader_handle;
@@ -5284,7 +5275,8 @@ void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, zest_shad
 }
 
 void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader_handle combined_vertex_and_fragment_shader_handle) {
-    zest_shader combined_vertex_and_fragment_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, combined_vertex_and_fragment_shader_handle.value);
+    ZEST_ASSERT_HANDLE(pipeline_template);
+    zest_shader combined_vertex_and_fragment_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, combined_vertex_and_fragment_shader_handle.value);
     ZEST_ASSERT_HANDLE(combined_vertex_and_fragment_shader);       //Not a valid shader handle
     pipeline_template->vertex_shader = combined_vertex_and_fragment_shader_handle;
 }
@@ -5522,8 +5514,7 @@ VkPipelineColorBlendAttachmentState zest_ImGuiBlendState() {
 }
 
 void zest_BindPipelineShaderResource(VkCommandBuffer command_buffer, zest_pipeline pipeline, zest_shader_resources_handle handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
-    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     zest_vec_foreach(set_index, shader_resources->sets[ZEST_FIF]) {
         zest_descriptor_set set = shader_resources->sets[ZEST_FIF][set_index];
         ZEST_ASSERT_HANDLE(set);     //Not a valid desriptor set in the shaer resource. Did you set all frames in flight?
@@ -5541,8 +5532,7 @@ void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_t* pipeline
 }
 
 void zest_BindComputePipeline(VkCommandBuffer command_buffer, zest_compute_handle compute_handle, VkDescriptorSet *descriptor_set, zest_uint set_count) {
-    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
-    ZEST_ASSERT_HANDLE(compute);                 //Not a valid compute handle
+    zest_compute compute = (zest_compute)zest__get_store_resource_checked(&ZestRenderer->compute_pipelines, compute_handle.value);
     ZEST_ASSERT(set_count && descriptor_set);   //No descriptor sets. Must bind the pipeline with a valid desriptor set
     vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline);
     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline_layout, 0, set_count, descriptor_set, 0, 0);
@@ -5603,8 +5593,8 @@ VkResult zest__build_pipeline(zest_pipeline pipeline) {
 
     VkShaderModule vert_shader_module = { 0 };
     VkShaderModule frag_shader_module = { 0 };
-    zest_shader vert_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, pipeline->pipeline_template->vertex_shader.value);
-    zest_shader frag_shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, pipeline->pipeline_template->fragment_shader.value);
+    zest_shader vert_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, pipeline->pipeline_template->vertex_shader.value);
+    zest_shader frag_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, pipeline->pipeline_template->fragment_shader.value);
     if (ZEST_VALID_HANDLE(vert_shader)) {
         if (!vert_shader->spv) {
             ZEST_APPEND_LOG(ZestDevice->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", vert_shader->name.str, pipeline->pipeline_template->name.str);
@@ -5742,19 +5732,13 @@ void zest__cleanup_pipeline_template(zest_pipeline_template pipeline_template) {
     ZEST__FREE(pipeline_template);
 }
 
-void zest__refresh_pipeline_template(zest_pipeline_template pipeline_template) {
-    //Note: not setting this for pipeline_templates messes with scaling, but not sure if some pipeline_templates need this to be fixed
-    pipeline_template->scissor.extent = zest_GetSwapChainExtent();
-    zest__update_pipeline_template(pipeline_template);
-}
-
 VkResult zest__rebuild_pipeline(zest_pipeline pipeline) {
     return zest__build_pipeline(pipeline);
 }
 
 zest_shader_handle zest__new_shader(shaderc_shader_kind type) {
     zest_shader_handle handle = (zest_shader_handle){ zest__add_store_resource(&ZestRenderer->shaders) };
-    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, handle.value);
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, handle.value);
     *shader = (zest_shader_t){ 0 };
     shader->magic = zest_INIT_MAGIC(zest_struct_type_shader);
     shader->handle = handle;
@@ -5768,7 +5752,7 @@ shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shader
 }
 
 zest_bool zest_CompileShader(zest_shader_handle shader_handle, shaderc_compiler_t compiler) {
-    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), shader->type, shader->name.str, "main", NULL);
     if (shaderc_result_get_compilation_status(result) == shaderc_compilation_status_success) {
 		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Successfully compiled shader: %s.", shader->name.str);
@@ -5784,16 +5768,14 @@ zest_shader_handle zest_CreateShaderFromFile(const char *file, const char *name,
     char *shader_code = zest_ReadEntireFile(file, ZEST_TRUE);
     ZEST_ASSERT(shader_code);   //Unable to load the shader code, check the path is valid
     zest_shader_handle shader_handle = zest_CreateShader(shader_code, type, name, ZEST_FALSE, disable_caching, compiler, options);
-	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-	ZEST_ASSERT_HANDLE(shader); //Not a valid shader handle
+	zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     zest_SetText(&shader->file_path, file);
     zest_vec_free(shader_code);
     return shader_handle;
 }
 
 zest_bool zest_ReloadShader(zest_shader_handle shader_handle) {
-	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-	ZEST_ASSERT_HANDLE(shader); //Not a valid shader handle
+	zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     ZEST_ASSERT(zest_TextLength(&shader->file_path));    //The shader must have a file path set.
     char *shader_code = zest_ReadEntireFile(shader->file_path.str, ZEST_TRUE);
     if (!shader_code) {
@@ -5813,8 +5795,7 @@ zest_shader_handle zest_CreateShader(const char *shader_code, shaderc_shader_kin
         zest_SetTextf(&shader_name, "%s", name);
     }
     zest_shader_handle shader_handle = zest__new_shader(type);
-    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-    ZEST_ASSERT_HANDLE(shader);
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     shader->name = shader_name;
     if (!disable_caching && ZestApp->create_info.flags & zest_init_flag_cache_shaders) {
         shader->spv = zest_ReadEntireFile(shader->name.str, ZEST_FALSE);
@@ -5886,8 +5867,7 @@ zest_shader_handle zest_CreateShaderSPVMemory(const unsigned char *shader_code, 
         zest_SetTextf(&shader_name, "%s", name);
     }
     zest_shader_handle shader_handle = zest__new_shader(type);
-    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-    ZEST_ASSERT_HANDLE(shader);
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     zest_vec_resize(shader->spv, spv_length);
     memcpy(shader->spv, shader_code, spv_length);
     shader->spv_size = spv_length;
@@ -5906,8 +5886,7 @@ void zest__update_shader_spv(zest_shader shader, shaderc_compilation_result_t re
 zest_shader_handle zest_AddShaderFromSPVFile(const char *filename, shaderc_shader_kind type) {
     ZEST_ASSERT(filename);     //You must give the shader a name
     zest_shader_handle shader_handle = zest__new_shader(type);
-    zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-    ZEST_ASSERT_HANDLE(shader);
+    zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     shader->spv = zest_ReadEntireFile(filename, ZEST_FALSE);
     ZEST_ASSERT(shader->spv);   //File not found, could not load this shader!
     shader->spv_size = zest_vec_size(shader->spv);
@@ -5921,8 +5900,7 @@ zest_shader_handle zest_AddShaderFromSPVMemory(const char *name, const void *buf
     ZEST_ASSERT(!strstr(name, "/"));    //name must not contain /, the shader will be prefixed with the cache folder automatically
     if (buffer && size) {
 		zest_shader_handle shader_handle = zest__new_shader(type);
-		zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-		ZEST_ASSERT_HANDLE(shader);
+		zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
 		if (zest_TextSize(&ZestRenderer->shader_path_prefix)) {
 			zest_SetTextf(&shader->name, "%s%s", ZestRenderer->shader_path_prefix, name);
 		}
@@ -5939,8 +5917,7 @@ zest_shader_handle zest_AddShaderFromSPVMemory(const char *name, const void *buf
 }
 
 void zest_AddShader(zest_shader_handle shader_handle, const char *name) {
-	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-	ZEST_ASSERT_HANDLE(shader); //Not a valid shader handle
+	zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     if (name) {
 		ZEST_ASSERT(!strstr(name, "/"));    //name must not contain /, the shader will be prefixed with the cache folder automatically
         if (zest_TextSize(&ZestRenderer->shader_path_prefix)) {
@@ -5956,8 +5933,7 @@ void zest_AddShader(zest_shader_handle shader_handle, const char *name) {
 }
 
 void zest_FreeShader(zest_shader_handle shader_handle) {
-	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-	ZEST_ASSERT_HANDLE(shader);
+	zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     zest_FreeText(&shader->name);
     zest_FreeText(&shader->shader_code);
     zest_FreeText(&shader->file_path);
@@ -5968,8 +5944,7 @@ void zest_FreeShader(zest_shader_handle shader_handle) {
 }
 
 zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources_handle handle, VkDescriptorSet **draw_sets) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
-    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     zest_vec_foreach(set_index, shader_resources->sets[ZEST_FIF]) {
         zest_descriptor_set set = shader_resources->sets[ZEST_FIF][set_index];
         ZEST_ASSERT_HANDLE(set);     //Not a valid descriptor set in the shader resource. Make sure all frame in flights are set
@@ -5979,8 +5954,7 @@ zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources_handle handle, 
 }
 
 zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer_handle, bool last_frame) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);       //Not a valid layer handle
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     return layer->memory_refs[last_frame ? layer->prev_fif : layer->fif].device_vertex_data->array_index;
 }
 
@@ -6253,22 +6227,21 @@ zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) {
     return (zest_key)zest__get_hash(&hasher); 
 }
 
-zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template template, zest_render_pass render_pass) {
-    ZEST_ASSERT_HANDLE(template);        //Not a valid pipeline template!
+zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, zest_render_pass render_pass) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);  //Must be called within a frame graph
-    if (zest_vec_size(template->descriptorSetLayouts) == 0) {
-        ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has no descriptor set layouts configured. You can add descriptor layouts when building the pipeline with zest_AddPipelineTemplateDescriptorLayout.", template->name.str);
+    if (zest_vec_size(pipeline_template->descriptorSetLayouts) == 0) {
+        ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has no descriptor set layouts configured. You can add descriptor layouts when building the pipeline with zest_AddPipelineTemplateDescriptorLayout.", pipeline_template->name.str);
         return NULL;
     }
-    template->multisampling.rasterizationSamples = (VkSampleCountFlagBits)render_pass->sample_count;
-    zest_key pipeline_key = (zest_key)template;
+    pipeline_template->multisampling.rasterizationSamples = (VkSampleCountFlagBits)render_pass->sample_count;
+    zest_key pipeline_key = (zest_key)pipeline_template;
     zest_cached_pipeline_key_t cached_pipeline = { pipeline_key, render_pass->vk_render_pass };
     zest_key cached_pipeline_key = zest_Hash(&cached_pipeline, sizeof(cached_pipeline), ZEST_HASH_SEED);
     if (zest_map_valid_key(ZestRenderer->cached_pipelines, cached_pipeline_key)) {
 		return *zest_map_at_key(ZestRenderer->cached_pipelines, cached_pipeline_key); 
     }
     zest_pipeline pipeline = 0;
-    ZestRenderer->last_result = zest__cache_pipeline(template, render_pass, cached_pipeline_key, &pipeline);
+    ZestRenderer->last_result = zest__cache_pipeline(pipeline_template, render_pass, cached_pipeline_key, &pipeline);
 	return pipeline;
 }
 
@@ -6301,57 +6274,45 @@ void zest_GetMouseSpeed(double* x, double* y) {
 }
 
 VkDescriptorBufferInfo* zest_GetUniformBufferInfo(zest_uniform_buffer_handle handle) {
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     return &uniform_buffer->descriptor_info[ZEST_FIF];
 }
 
 VkDescriptorSetLayout zest_vk_GetUniformBufferLayout(zest_uniform_buffer_handle handle) {
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(uniform_buffer->set_layout); //The buffer is not properly initialised, no descriptor set found
-    return uniform_buffer->set_layout->vk_layout;
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
+    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, uniform_buffer->set_layout.value);
+    return layout->vk_layout;
 }
 
-zest_set_layout zest_GetUniformBufferLayout(zest_uniform_buffer_handle handle) {
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+zest_set_layout_handle zest_GetUniformBufferLayout(zest_uniform_buffer_handle handle) {
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     return uniform_buffer->set_layout;
 }
 
 VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer_handle handle) {
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(uniform_buffer->descriptor_set[ZEST_FIF]);  //The buffer is not properly initialised, no descriptor set found
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     return uniform_buffer->descriptor_set[ZEST_FIF]->vk_descriptor_set;
 }
 
 zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer_handle handle) {
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(uniform_buffer->descriptor_set[ZEST_FIF]);  //The buffer is not properly initialised, no descriptor set found
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     return uniform_buffer->descriptor_set[ZEST_FIF];
 }
 
 zest_descriptor_set zest_GetFIFUniformBufferSet(zest_uniform_buffer_handle handle, zest_uint fif) {
     ZEST_ASSERT(fif < ZEST_MAX_FIF);
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(uniform_buffer->descriptor_set[fif]);  //The buffer is not properly initialised, no descriptor set found
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     return uniform_buffer->descriptor_set[fif];
 }
 
 VkDescriptorSet zest_vk_GetFIFUniformBufferSet(zest_uniform_buffer_handle handle, zest_uint fif) {
     ZEST_ASSERT(fif < ZEST_MAX_FIF);
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
-    ZEST_ASSERT_HANDLE(uniform_buffer->descriptor_set[fif]);  //The buffer is not properly initialised, no descriptor set found
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     return uniform_buffer->descriptor_set[fif]->vk_descriptor_set;
 }
 
 void* zest_GetUniformBufferData(zest_uniform_buffer_handle handle) {
-    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource(&ZestRenderer->uniform_buffers, handle.value);
-    ZEST_ASSERT_HANDLE(uniform_buffer);  //Not a valid uniform buffer
+    zest_uniform_buffer uniform_buffer = (zest_uniform_buffer)zest__get_store_resource_checked(&ZestRenderer->uniform_buffers, handle.value);
     return uniform_buffer->buffer[ZEST_FIF]->data;
 }
 
@@ -6374,8 +6335,7 @@ void zest_SendPushConstants(VkCommandBuffer command_buffer, zest_pipeline pipeli
 }
 
 void zest_SendCustomComputePushConstants(VkCommandBuffer command_buffer, zest_compute_handle compute_handle, const void *push_constant) {
-    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
-    ZEST_ASSERT_HANDLE(compute);    //Not a valid compute object
+    zest_compute compute = (zest_compute)zest__get_store_resource_checked(&ZestRenderer->compute_pipelines, compute_handle.value);
     vkCmdPushConstants(command_buffer, compute->pipeline_layout, compute->pushConstantRange.stageFlags, 0, compute->pushConstantRange.size, push_constant);
 }
 
@@ -6400,14 +6360,12 @@ void zest_DispatchCompute(VkCommandBuffer command_buffer, zest_compute_handle co
 }
 
 void zest_ResetCompute(zest_compute_handle compute_handle) {
-    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
-    ZEST_ASSERT_HANDLE(compute);    //Not a valid compute object
+    zest_compute compute = (zest_compute)zest__get_store_resource_checked(&ZestRenderer->compute_pipelines, compute_handle.value);
     compute->fif = (compute->fif + 1) % ZEST_MAX_FIF;
 }
 
 void zest_FreeCompute(zest_compute_handle compute_handle) {
-    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
-    ZEST_ASSERT_HANDLE(compute);    //Not a valid compute object
+    zest_compute compute = (zest_compute)zest__get_store_resource_checked(&ZestRenderer->compute_pipelines, compute_handle.value);
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.resources[ZEST_FIF], compute);
 }
 
@@ -6683,14 +6641,6 @@ void zest__remove_store_resource(zest_resource_store_t *store, zest_handle handl
 	zest_vec_push(store->free_slots, index);                                                                               
 }                                                                                                                             
 
-void *zest__get_store_resource(zest_resource_store_t *store, zest_handle handle) {
-	zest_uint index = ZEST_HANDLE_INDEX(handle);                                                                               
-	zest_uint generation = ZEST_HANDLE_GENERATION(handle);                                                                     
-	if (index < store->capacity && store->generations[index] == generation) {
-		return (void*)((char*)store->data + index * store->struct_size); 
-	}                                                                                                                         
-	return NULL;                                                                                                             
-}
 
 void zest__initialise_store(zest_resource_store_t *store, zest_uint struct_size) {
     ZEST_ASSERT(!store->data);   //Must be an empty store
@@ -7140,6 +7090,7 @@ void zest__prepare_standard_pipelines() {
     zest_pipeline_template swap = ZestRenderer->pipeline_templates.swap;
     swap->scissor.extent = zest_GetSwapChainExtent();
     zest_SetPipelinePushConstantRange(swap, sizeof(zest_vec2), VK_SHADER_STAGE_VERTEX_BIT);
+    zest_SetPipelineBlend(swap, zest_PreMultiplyBlendStateForSwap());
     swap->no_vertex_input = ZEST_TRUE;
     zest_SetPipelineVertShader(swap, ZestRenderer->builtin_shaders.swap_vert);
     zest_SetPipelineFragShader(swap, ZestRenderer->builtin_shaders.swap_frag);
@@ -8042,7 +7993,6 @@ zest_image_handles_t zest__swapchain_resource_provider(zest_resource_node resour
 
 zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource) {
     zest_layer layer = (zest_layer)resource->user_data;
-    ZEST_ASSERT_HANDLE(layer);       //Not a valid layer handle
     layer->vertex_buffer_node = resource;
     zest__end_instance_instructions(layer); //Make sure the staging buffer memory in use is up to date
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
@@ -10041,15 +9991,16 @@ void zest_EmptyRenderPass(VkCommandBuffer command_buffer, const zest_frame_graph
 zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image_view_only) {
     zest_frame_graph frame_graph = ZestRenderer->current_frame_graph;
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    if (!ZEST_VALID_HANDLE(frame_graph->bindless_layout)) {
+    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, frame_graph->bindless_layout.value);
+    if (!ZEST_VALID_HANDLE(bindless_layout)) {
         ZEST_PRINT("ERROR: frame graph %s doesn't have a bindless layout assigned, but you're tring to add a resource that uses a binding number.", frame_graph->name);
         return ZEST_INVALID;
     }
 
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);   //resource must be a image
     zest_uint binding_number = ZEST_INVALID;
-	zest_vec_foreach(i, frame_graph->bindless_layout->layout_bindings) {
-		VkDescriptorSetLayoutBinding *binding = &frame_graph->bindless_layout->layout_bindings[i];
+	zest_vec_foreach(i, bindless_layout->layout_bindings) {
+		VkDescriptorSetLayoutBinding *binding = &bindless_layout->layout_bindings[i];
 		if (!image_view_only && resource->image_desc.usage & VK_IMAGE_USAGE_SAMPLED_BIT && binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
 			binding_number = binding->binding;
 			break;
@@ -10068,15 +10019,16 @@ zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image
 zest_uint zest__get_buffer_binding_number(zest_resource_node resource) {
     zest_frame_graph frame_graph = ZestRenderer->current_frame_graph;
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    if (!ZEST_VALID_HANDLE(frame_graph->bindless_layout)) {
+    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, frame_graph->bindless_layout.value);
+    if (!ZEST_VALID_HANDLE(bindless_layout)) {
         ZEST_PRINT("ERROR: frame graph %s doesn't have a bindless layout assigned, but you're tring to add a resource that uses a binding number.", frame_graph->name);
         return ZEST_INVALID;
     }
     ZEST_ASSERT(resource->type == zest_resource_type_buffer);   //resource must be a buffer
 
     zest_uint binding_number = ZEST_INVALID;
-	zest_vec_foreach(i, frame_graph->bindless_layout->layout_bindings) {
-		VkDescriptorSetLayoutBinding *binding = &frame_graph->bindless_layout->layout_bindings[i];
+	zest_vec_foreach(i, bindless_layout->layout_bindings) {
+		VkDescriptorSetLayoutBinding *binding = &bindless_layout->layout_bindings[i];
 		if (resource->buffer_desc.buffer_info.usage_flags & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT && 
 			binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
 			binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC
@@ -10094,10 +10046,9 @@ zest_uint zest__get_buffer_binding_number(zest_resource_node resource) {
     return binding_number;
 }
 
-zest_uint zest_AcquireBindlessTextureIndex(zest_texture_handle handle, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
-    ZEST_ASSERT_HANDLE(layout);  //Must be a valid handle to a descriptor set layout
+zest_uint zest_AcquireBindlessTextureIndex(zest_texture_handle handle, zest_set_layout_handle layout_handle, zest_descriptor_set set, zest_global_binding_number target_binding_number) {
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
+    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
     ZEST_ASSERT_HANDLE(texture->sampler);   //The texture must have a valid sampler
 
     zest_uint binding_number = ZEST_INVALID;
@@ -10139,8 +10090,8 @@ zest_uint zest_AcquireBindlessTextureIndex(zest_texture_handle handle, zest_set_
     return array_index;
 }
 
-zest_uint zest_AcquireBindlessStorageBufferIndex(zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number) {
-    ZEST_ASSERT_HANDLE(layout);  //Must be a valid handle to a descriptor set layout
+zest_uint zest_AcquireBindlessStorageBufferIndex(zest_buffer buffer, zest_set_layout_handle layout_handle, zest_descriptor_set set, zest_uint target_binding_number) {
+    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
 
     zest_uint binding_number = ZEST_INVALID;
     zest_vec_foreach(i, layout->layout_bindings) {
@@ -10165,29 +10116,25 @@ zest_uint zest_AcquireBindlessStorageBufferIndex(zest_buffer buffer, zest_set_la
 }
 
 zest_uint zest_AcquireGlobalCombinedSampler2d(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->bindless_index[zest_combined_image_sampler_2d_binding] = zest_AcquireBindlessTextureIndex(handle, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, zest_combined_image_sampler_2d_binding);
     return texture->bindless_index[zest_combined_image_sampler_2d_binding];
 }
 
 zest_uint zest_AcquireGlobalCombinedSampler3d(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->bindless_index[zest_combined_image_sampler_3d_binding] = zest_AcquireBindlessTextureIndex(handle, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, zest_combined_image_sampler_3d_binding);
     return texture->bindless_index[zest_combined_image_sampler_3d_binding];
 }
 
 zest_uint zest_AcquireGlobalCombinedSamplerCube(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->bindless_index[zest_combined_image_sampler_cube_binding] = zest_AcquireBindlessTextureIndex(handle, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, zest_combined_image_sampler_cube_binding);
     return texture->bindless_index[zest_combined_image_sampler_cube_binding];
 }
 
 zest_uint zest_AcquireGlobalCombinedSamplerArray(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->bindless_index[zest_combined_image_sampler_array_binding] = zest_AcquireBindlessTextureIndex(handle, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, zest_combined_image_sampler_array_binding);
     return texture->bindless_index[zest_combined_image_sampler_array_binding];
 }
@@ -10205,8 +10152,7 @@ zest_uint zest_AcquireGlobalStorageSampler(zest_texture_handle handle) {
 }
 
 zest_uint *zest_AcquireGlobalTextureMipIndexes(zest_texture_handle handle, zest_global_binding_number binding_number) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     ZEST_ASSERT(texture->info.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
 
     if (zest_map_valid_key(texture->image_buffer.mip_indexes, (zest_key)binding_number)) {
@@ -10222,7 +10168,7 @@ zest_uint *zest_AcquireGlobalTextureMipIndexes(zest_texture_handle handle, zest_
     zest_mip_index_collection mip_collection = { 0 };
     mip_collection.binding_number = binding_number;
     ZEST_ASSERT(ZEST_VALID_HANDLE(texture->sampler));
-    zest_set_layout global_layout = ZestRenderer->global_bindless_set_layout;
+    zest_set_layout global_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout.value);
     for (int mip_index = 0; mip_index != texture->info.mip_levels; ++mip_index) {
         VkImageView mip_view = VK_NULL_HANDLE;
         if (mip_views[mip_index]) {
@@ -10250,7 +10196,8 @@ zest_uint *zest_AcquireGlobalTextureMipIndexes(zest_texture_handle handle, zest_
 }
 
 zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer) {
-    zest_uint array_index = zest__acquire_bindless_index(ZestRenderer->global_bindless_set_layout, zest_storage_buffer_binding);
+    zest_set_layout global_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout.value);
+    zest_uint array_index = zest__acquire_bindless_index(global_layout, zest_storage_buffer_binding);
 
     VkDescriptorBufferInfo buffer_info = zest_vk_GetBufferInfo(buffer);
 
@@ -10263,8 +10210,7 @@ zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer) {
 }
 
 void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);   //Must be a valid layer handle
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT(ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif));   //Layer must have been created with a persistant vertex buffer
     zest_ForEachFrameInFlight(fif) {
         zest_AcquireGlobalStorageBufferIndex(layer->memory_refs[fif].device_vertex_data);
@@ -10279,8 +10225,7 @@ void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer) {
 }
 
 void zest_ReleaseGlobalTextureIndex(zest_texture_handle handle, zest_global_binding_number binding_number) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     ZEST_ASSERT(binding_number < zest_max_global_binding_number);
     if (texture->bindless_index[binding_number] != ZEST_INVALID) {
         zest__release_bindless_index(ZestRenderer->global_bindless_set_layout, binding_number, texture->bindless_index[binding_number]);
@@ -10288,8 +10233,7 @@ void zest_ReleaseGlobalTextureIndex(zest_texture_handle handle, zest_global_bind
 }
 
 void zest_ReleaseAllGlobalTextureIndexes(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest__release_all_global_texture_indexes(texture);
 }
 
@@ -10302,11 +10246,17 @@ VkDescriptorSet zest_vk_GetGlobalBindlessSet() {
     return ZestRenderer->global_set->vk_descriptor_set;
 }
 
-VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout() {
-    return ZestRenderer->global_bindless_set_layout->vk_layout;
+VkDescriptorSetLayout zest_vk_GetDebugLayout() {
+    zest_set_layout set_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->texture_debug_layout.value);
+    return set_layout->vk_layout;
 }
 
-zest_set_layout zest_GetGlobalBindlessLayout() {
+VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout() {
+    zest_set_layout global_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout.value);
+    return global_layout->vk_layout;
+}
+
+zest_set_layout_handle zest_GetGlobalBindlessLayout() {
     return ZestRenderer->global_bindless_set_layout;
 }
 
@@ -10407,15 +10357,13 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
 }
 
 zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer_handle layer_handle, zest_bool prev_fif) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);      //Not a valid layer
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_size layer_size = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
     if (layer_size == 0) {
         return NULL;
     }
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = ZestRenderer->current_frame_graph;
-    ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle
     ZEST__MAYBE_FLAG(layer->flags, zest_layer_flag_use_prev_fif, prev_fif);
     zest_resource_node resource = 0;
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
@@ -10456,7 +10404,6 @@ zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, 
 
 zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_texture texture) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture handle
     zest_frame_graph frame_graph = ZestRenderer->current_frame_graph;
     zest_resource_node_t node = { 0 };
     node.name = name;
@@ -10480,8 +10427,7 @@ zest_resource_node_t zest__create_import_image_resource_node(const char *name, z
 }
 
 zest_resource_node zest_ImportImageResource(const char *name, zest_texture_handle handle, zest_resource_image_provider provider) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = ZestRenderer->current_frame_graph;
     zest_resource_node_t node = zest__create_import_image_resource_node(name, texture);
@@ -10561,8 +10507,7 @@ void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data) {
 void zest_SetPassInstanceLayerUpload(zest_layer_handle layer_handle) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);        //No current pass found, make sure you call zest_BeginPass
     zest_pass_node pass = ZestRenderer->current_pass;
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);      //Not a valid layer
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif) && layer->dirty[layer->fif] == 0) {
         return;
     }
@@ -10674,8 +10619,7 @@ zest_pass_node zest_BeginComputePass(zest_compute_handle compute_handle, const c
     ZEST_ASSERT(!ZestRenderer->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
     bool force_graphics_queue = (ZestRenderer->current_frame_graph->flags & zest_frame_graph_force_on_graphics_queue) > 0;
     zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_compute);
-    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
-    ZEST_ASSERT_HANDLE(compute);    //Not a valid compute object
+    zest_compute compute = (zest_compute)zest__get_store_resource_checked(&ZestRenderer->compute_pipelines, compute_handle.value);
     node->compute = compute;
     node->queue_info.timeline_wait_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     ZestRenderer->current_pass = node;
@@ -10728,9 +10672,10 @@ zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context_t *
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
     zest_frame_graph frame_graph = context->frame_graph;
     if (resource->bindless_index[binding_number] != ZEST_INVALID) return resource->bindless_index[binding_number];
-    zest_uint bindless_index = zest__acquire_bindless_index(frame_graph->bindless_layout, binding_number);
+    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, frame_graph->bindless_layout.value);
+    zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
     VkDescriptorImageInfo image_buffer_info = { 0 };
-    VkDescriptorType descriptor_type = frame_graph->bindless_layout->descriptor_indexes[binding_number].descriptor_type;
+    VkDescriptorType descriptor_type = bindless_layout->descriptor_indexes[binding_number].descriptor_type;
     ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
     ZEST_ASSERT(ZEST_VALID_HANDLE(resource->sampler));
     if (resource->image_desc.mip_levels == 1 || base_mip_only) {
@@ -10771,7 +10716,7 @@ zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context_t *
 }
 
 zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context_t *context, zest_resource_node resource, zest_global_binding_number binding_number) {
-    ZEST_ASSERT_HANDLE(context->frame_graph->bindless_layout);  //No bindless layout has been set in the frame graph
+    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, context->frame_graph->bindless_layout.value);
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
     ZEST_ASSERT(resource->image_desc.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
     ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
@@ -10792,7 +10737,7 @@ zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context_t 
             VkResult result = zest__create_image_view(resource->image_buffer.image_handles.image, resource->image_desc.format, VK_IMAGE_ASPECT_COLOR_BIT, 1, mip_index, VK_IMAGE_VIEW_TYPE_2D, 1, &mip_view);
 			mip_views[mip_index] = result == VK_SUCCESS ? mip_view : VK_NULL_HANDLE;
         } 
-		zest_uint bindless_index = zest__acquire_bindless_index(frame_graph->bindless_layout, binding_number);
+		zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
 		zest_vec_linear_push(ZestRenderer->frame_graph_allocator[ZEST_FIF], resource->mip_level_bindless_indexes, bindless_index);
 
 		VkDescriptorImageInfo mip_buffer_info;
@@ -10800,7 +10745,7 @@ zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context_t 
 		mip_buffer_info.imageView = mip_view;
 		mip_buffer_info.sampler = resource->sampler->vk_sampler;
 
-		VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(frame_graph->bindless_set->vk_descriptor_set, &mip_buffer_info, binding_number, frame_graph->bindless_layout->descriptor_indexes[binding_number].descriptor_type);
+		VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(frame_graph->bindless_set->vk_descriptor_set, &mip_buffer_info, binding_number, bindless_layout->descriptor_indexes[binding_number].descriptor_type);
 		write.dstArrayElement = bindless_index;
 		vkUpdateDescriptorSets(ZestDevice->logical_device, 1, &write, 0, 0);
 
@@ -10813,11 +10758,12 @@ zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context_t 
 }
 
 zest_uint zest_GetTransientBufferBindlessIndex(const zest_frame_graph_context_t *context, zest_resource_node resource) {
+    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, context->frame_graph->bindless_layout.value);
     ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle
     ZEST_ASSERT(resource->type == zest_resource_type_buffer);   //Must be a buffer resource type for this bindlesss index acquisition
     if (resource->bindless_index[0] != ZEST_INVALID) return resource->bindless_index[0];
     zest_frame_graph frame_graph = context->frame_graph;
-	zest_uint bindless_index = zest__acquire_bindless_index(frame_graph->bindless_layout, zest_storage_buffer_binding);
+	zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, zest_storage_buffer_binding);
 	VkDescriptorBufferInfo buffer_info;
 	buffer_info.buffer = resource->storage_buffer->vk_buffer;
 	buffer_info.offset = resource->storage_buffer->buffer_offset;
@@ -11878,7 +11824,7 @@ VkQueryPool zest__create_query_pool(zest_uint timestamp_count) {
 // --Texture and Image functions
 zest_texture_handle zest__new_texture() {
     zest_texture_handle handle = { zest__add_store_resource(&ZestRenderer->textures) };
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     *texture = (zest_texture_t){ 0 };
     texture->magic = zest_INIT_MAGIC(zest_struct_type_texture);
     texture->name.str = 0;
@@ -12402,8 +12348,7 @@ zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_index
 }
 
 zest_image zest_AddTextureImageFile(zest_texture_handle handle, const char* filename) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest_image image = zest_CreateImage();
     zest__maybe_create_image_collection(texture);
     zest_vec_push(texture->image_collection->images, image);
@@ -12436,8 +12381,7 @@ zest_image zest_AddTextureImageFile(zest_texture_handle handle, const char* file
 }
 
 zest_image zest_AddTextureImageBitmap(zest_texture_handle handle, zest_bitmap bitmap_to_load) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest_image image = zest_CreateImage();
     zest__maybe_create_image_collection(texture);
     zest_vec_push(texture->image_collection->images, image);
@@ -12471,8 +12415,7 @@ zest_image zest_AddTextureImageBitmap(zest_texture_handle handle, zest_bitmap bi
 }
 
 zest_image zest_AddTextureImageMemory(zest_texture_handle handle, const char* name, const unsigned char* buffer, int buffer_size) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest_image image = zest_CreateImage();
     zest__maybe_create_image_collection(texture);
     zest_vec_push(texture->image_collection->images, image);
@@ -12506,8 +12449,7 @@ zest_image zest_AddTextureImageMemory(zest_texture_handle handle, const char* na
 }
 
 zest_image zest_AddTextureAnimationFile(zest_texture_handle handle, const char* filename, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest_bitmap_t spritesheet = { 0 };
     float max_radius;
 
@@ -12536,8 +12478,7 @@ zest_image zest_AddTextureAnimationFile(zest_texture_handle handle, const char* 
 }
 
 zest_image zest_AddTextureAnimationBitmap(zest_texture_handle handle, zest_bitmap spritesheet, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
 
     float max_radius;
 
@@ -12565,8 +12506,7 @@ zest_image zest_AddTextureAnimationBitmap(zest_texture_handle handle, zest_bitma
 }
 
 zest_image zest_AddTextureAnimationMemory(zest_texture_handle handle, const char* name, unsigned char* buffer, int buffer_size, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
 
     float max_radius;
     zest_bitmap_t spritesheet = { 0 };
@@ -12662,7 +12602,7 @@ void zest__free_all_texture_images(zest_texture texture) {
 }
 
 void zest__release_all_global_texture_indexes(zest_texture texture) {
-    if (!ZestRenderer->global_bindless_set_layout) {
+    if (!ZestRenderer->global_bindless_set_layout.value) {
         return;
     }
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
@@ -12694,8 +12634,9 @@ void zest__cleanup_texture_vk_handles(zest_texture texture) {
 	if(texture->image_buffer.image_handles.view) vkDestroyImageView(ZestDevice->logical_device, texture->image_buffer.image_handles.view, &ZestDevice->allocation_callbacks);
 	if(texture->image_buffer.image_handles.image) vkDestroyImage(ZestDevice->logical_device, texture->image_buffer.image_handles.image, &ZestDevice->allocation_callbacks);
 	if(texture->image_buffer.image_handles.buffer) zest_FreeBuffer(texture->image_buffer.image_handles.buffer);
-    if (ZestRenderer->texture_debug_layout) {
-        if (ZEST_VALID_HANDLE(texture->debug_set) && texture->debug_set->vk_descriptor_set) vkFreeDescriptorSets(ZestDevice->logical_device, ZestRenderer->texture_debug_layout->pool->vk_descriptor_pool, 1, &texture->debug_set->vk_descriptor_set);
+    zest_set_layout debug_layout = (zest_set_layout)zest__get_store_resource(&ZestRenderer->set_layouts, ZestRenderer->texture_debug_layout.value);
+    if (debug_layout) {
+        if (ZEST_VALID_HANDLE(texture->debug_set) && texture->debug_set->vk_descriptor_set) vkFreeDescriptorSets(ZestDevice->logical_device, debug_layout->pool->vk_descriptor_pool, 1, &texture->debug_set->vk_descriptor_set);
     }
 	texture->image_buffer.image_handles.buffer = 0;
 	texture->image_buffer.image_handles.view = VK_NULL_HANDLE;
@@ -12725,7 +12666,6 @@ void zest__reindex_texture_images(zest_texture texture) {
 }
 
 void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
-    ZEST_ASSERT_HANDLE(uniform_buffer); //Not a valid uniform buffer
     zest_ForEachFrameInFlight(fif) {
         zest_buffer buffer = uniform_buffer->buffer[fif];
         vkDestroyBuffer(ZestDevice->logical_device, buffer->vk_buffer, &ZestDevice->allocation_callbacks);
@@ -12740,7 +12680,8 @@ void zest__create_texture_debug_set(zest_texture texture) {
 	zest_descriptor_set set = texture->debug_set;
     zest_descriptor_set_builder_t set_builder = zest_BeginDescriptorSetBuilder(ZestRenderer->texture_debug_layout);
 	zest_AddSetBuilderCombinedImageSampler(&set_builder, 0, 0, texture->sampler->vk_sampler, texture->descriptor_image_info.imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    texture->debug_set = zest_FinishDescriptorSet(ZestRenderer->texture_debug_layout->pool, &set_builder, set);
+    zest_set_layout debug_layout = (zest_set_layout)zest__get_store_resource(&ZestRenderer->set_layouts, ZestRenderer->texture_debug_layout.value);
+    texture->debug_set = zest_FinishDescriptorSet(debug_layout->pool, &set_builder, set);
 }
 
 void zest__maybe_create_image_collection(zest_texture texture) {
@@ -13137,15 +13078,13 @@ VkResult zest__process_texture_images(zest_texture texture, VkCommandBuffer comm
 // --End Internal Texture functions
 
 void zest_ProcessTextureImages(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     ZEST_ASSERT_HANDLE(texture->image_collection);  //Texture hasn't been properly initialised, no image collection found
     zest__process_texture_images(texture, 0);
 }
 
 zest_uint zest_GetTextureDescriptorIndex(zest_texture_handle handle, zest_global_binding_number binding_number) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     return texture->bindless_index[binding_number];
 }
 
@@ -13157,8 +13096,7 @@ void zest__delete_texture_layers(zest_texture texture) {
 }
 
 VkDescriptorImageInfo *zest_GetTextureDescriptorImageInfo(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     return &texture->descriptor_image_info;
 }
 
@@ -13694,8 +13632,7 @@ void zest__update_texture_single_image_meta(zest_texture texture, zest_uint widt
 }
 
 void zest_SetTextureUseFiltering(zest_texture_handle handle, zest_bool value) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
 
     if (value) {
         texture->flags |= zest_texture_flag_use_filtering;
@@ -13706,21 +13643,18 @@ void zest_SetTextureUseFiltering(zest_texture_handle handle, zest_bool value) {
 }
 
 void zest_SetTexturePackedBorder(zest_texture_handle handle, zest_uint value) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->image_collection->packed_border_size = value;
 }
 
 void zest_SetTextureStorageType(zest_texture_handle handle, zest_texture_storage_type value) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->storage_type = value;
 }
 
 zest_texture_handle zest_CreateTexture(const char* name, zest_texture_storage_type storage_type, zest_bool use_filtering, zest_texture_format vk_image_format, zest_uint reserve_images) {
     zest_texture_handle handle = zest__new_texture();
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->handle = handle;
     zest_SetText(&texture->name, name);
     zest_SetTextureImageFormat(handle, vk_image_format);
@@ -13759,8 +13693,7 @@ zest_texture_handle zest_CreateTextureBank(const char* name, zest_texture_format
 
 zest_texture_handle zest_CreateTextureStorage(const char* name, int width, int height, zest_texture_format format, VkImageViewType view_type, zest_bool with_mip_maps) {
     zest_texture_handle handle = zest_CreateTexture(name, zest_texture_storage_type_storage, with_mip_maps, format, 1);
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
 
     texture->texture.width = width;
     texture->texture.height = height;
@@ -13782,8 +13715,7 @@ zest_texture_handle zest_LoadCubemap(const char *name, const char *file_name) {
         return (zest_texture_handle){ 0 };
     }
 	zest_texture_handle handle = zest__new_texture();
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
 
     zest_SetText(&texture->name, name);
     texture->image_collection = image_collection;
@@ -13846,27 +13778,23 @@ zest_texture_handle zest_LoadCubemap(const char *name, const char *file_name) {
 }
 
 void zest_FreeTexture(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.resources[ZEST_FIF], texture);
 }
 
 void zest_ResetTexture(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest__free_all_texture_images(texture);
     zest__cleanup_texture_vk_handles(texture);
 }
 
 void zest_FreeTextureBitmaps(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest__free_all_texture_images(texture);
 }
 
 void zest_RemoveTextureImage(zest_texture_handle handle, zest_image image) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     ZEST_ASSERT((zest_uint)image->index < zest_vec_size(texture->image_collection->images));    //Image not within range of image indexes in the texture
     zest_FreeBitmapData(&texture->image_collection->image_bitmaps[image->index]);
     zest_vec_erase(texture->image_collection->image_bitmaps, &texture->image_collection->image_bitmaps[image->index]);
@@ -13876,8 +13804,7 @@ void zest_RemoveTextureImage(zest_texture_handle handle, zest_image image) {
 }
 
 void zest_RemoveTextureAnimation(zest_texture_handle handle, zest_image first_image) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     ZEST_ASSERT(first_image->frames > 1);    //Must be an animation image that you're deleting and also note that you must pass in the first frame of the image
     for (zest_uint i = 0; i < first_image->frames; ++i) {
         zest_FreeBitmapData(&texture->image_collection->image_bitmaps[first_image->index + i]);
@@ -13889,8 +13816,7 @@ void zest_RemoveTextureAnimation(zest_texture_handle handle, zest_image first_im
 }
 
 void zest_SetTextureImageFormat(zest_texture_handle handle, zest_texture_format format) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     if (texture->image_collection) {
 		ZEST_ASSERT(zest_vec_size(texture->image_collection->images) == 0);    //You cannot change the image format of a texture that already has images
     }
@@ -13917,8 +13843,7 @@ void zest_SetTextureImageFormat(zest_texture_handle handle, zest_texture_format 
 }
 
 void zest_SetTextureUserData(zest_texture_handle handle, void *user_data) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->user_data = user_data;
 }
 
@@ -13928,60 +13853,52 @@ zest_byte* zest_BitmapArrayLookUp(zest_bitmap_array_t* bitmap_array, zest_index 
 }
 
 zest_image zest_GetImageFromTexture(zest_texture_handle handle, zest_index index) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     return texture->image_collection->images[index];
 }
 
 zest_bool zest_TextureCanTile(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     return texture->storage_type == zest_texture_storage_type_bank || texture->storage_type == zest_texture_storage_type_single;
 }
 
 void zest_SetTextureWrapping(zest_texture_handle handle, VkSamplerAddressMode u, VkSamplerAddressMode v, VkSamplerAddressMode w) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->vk_sampler_info.addressModeU = u;
     texture->vk_sampler_info.addressModeV = v;
     texture->vk_sampler_info.addressModeW = w;
 }
 
 void zest_SetTextureWrappingClamp(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->vk_sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     texture->vk_sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     texture->vk_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 }
 
 void zest_SetTextureWrappingBorder(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->vk_sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     texture->vk_sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
     texture->vk_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 }
 
 void zest_SetTextureWrappingRepeat(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->vk_sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     texture->vk_sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     texture->vk_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 }
 
 void zest_SetTextureLayerSize(zest_texture_handle handle, zest_uint size) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest_uint next_pow2 = (zest_uint)ZEST__NEXTPOW2(size);
     ZEST_ASSERT(ZEST__POW2(next_pow2));
     texture->info.width = next_pow2;
 }
 
 void zest_SetTextureMaxRadiusOnLoad(zest_texture_handle handle, zest_bool yesno) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     if (yesno) {
         ZEST__FLAG(texture->flags, zest_texture_flag_get_max_radius);
     }
@@ -13991,14 +13908,12 @@ void zest_SetTextureMaxRadiusOnLoad(zest_texture_handle handle, zest_bool yesno)
 }
 
 void zest_SetTextureImguiBlendType(zest_texture_handle handle, zest_imgui_blendtype blend_type) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     texture->imgui_blend_type = blend_type;
 }
 
 void zest_TextureResize(zest_texture_handle handle, zest_uint width, zest_uint height) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     ZEST_ASSERT(width > 0 && height > 0);
     ZEST_ASSERT(texture->storage_type == zest_texture_storage_type_single || texture->storage_type == zest_texture_storage_type_storage);
     zest_ResetTexture(handle);
@@ -14013,8 +13928,7 @@ void zest_TextureResize(zest_texture_handle handle, zest_uint width, zest_uint h
 }
 
 zest_bool zest_TextureClear(zest_texture_handle handle, VkCommandBuffer cb) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     VkCommandBuffer command_buffer = cb;
     if (!cb) {
         ZEST_RETURN_FALSE_ON_FAIL(zest__begin_single_time_commands(&command_buffer));
@@ -14062,8 +13976,7 @@ zest_bool zest_TextureClear(zest_texture_handle handle, VkCommandBuffer cb) {
 }
 
 zest_bool zest_CopyFramebufferToTexture(zest_frame_buffer_t* src_image, zest_texture_handle handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
 
     VkCommandBuffer copy_command = 0;
     ZEST_RETURN_FALSE_ON_FAIL(zest__begin_single_time_commands(&copy_command));
@@ -14168,9 +14081,9 @@ zest_bool zest_CopyFramebufferToTexture(zest_frame_buffer_t* src_image, zest_tex
 }
 
 zest_bool zest_CopyTextureToTexture(zest_texture_handle src_handle, zest_texture_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
-    zest_texture src_image = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, src_handle.value);
+    zest_texture src_image = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, src_handle.value);
     ZEST_ASSERT_HANDLE(src_image);    //Not a valid texture resource
-    zest_texture dst_image = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, dst_handle.value);
+    zest_texture dst_image = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, dst_handle.value);
     ZEST_ASSERT_HANDLE(dst_image);	    //Not a valid handle!
     VkCommandBuffer copy_command = 0; 
     ZEST_RETURN_FALSE_ON_FAIL(zest__begin_single_time_commands(&copy_command));
@@ -14275,7 +14188,7 @@ zest_bool zest_CopyTextureToTexture(zest_texture_handle src_handle, zest_texture
 }
 
 zest_bool zest_CopyTextureToBitmap(zest_texture_handle src_handle, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel) {
-    zest_texture src_image = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, src_handle.value);
+    zest_texture src_image = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, src_handle.value);
     ZEST_ASSERT_HANDLE(src_image);    //Not a valid texture resource
     VkCommandBuffer copy_command = 0;
     ZEST_RETURN_FALSE_ON_FAIL(zest__begin_single_time_commands(&copy_command));
@@ -14439,27 +14352,24 @@ zest_bool zest_CopyTextureToBitmap(zest_texture_handle src_handle, zest_bitmap i
 }
 
 VkImageLayout zest_GetTextureLayout(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     return texture->vk_image_layout;
 }
 
 zest_texture_info_t zest_GetTextureInfo(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     return texture->info;
 }
 
 VkDescriptorSet zest_GetTextureDebugDescriptorSet(zest_texture_handle handle) {
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
+    zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     return texture->debug_set->vk_descriptor_set;
 }
 //-- End Texture and Image Functions
 
 void zest_UploadInstanceLayerData(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
 	zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
 
     ZEST__MAYBE_REPORT(!ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadInstanceLayerData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", ZestRenderer->current_frame_graph->name);
 
@@ -14506,8 +14416,7 @@ void zest__reset_instance_layer_drawing(zest_layer layer) {
 }
 
 void zest_ResetInstanceLayerDrawing(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	            //Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_vec_clear(layer->draw_instructions[layer->fif]);
     layer->memory_refs[layer->fif].staging_instance_data->memory_in_use = 0;
     layer->current_instruction = zest__layer_instruction();
@@ -14517,8 +14426,7 @@ void zest_ResetInstanceLayerDrawing(zest_layer_handle layer_handle) {
 }
 
 zest_uint zest_GetInstanceLayerCount(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     return layer->memory_refs[layer->fif].instance_count;
 }
 
@@ -14554,7 +14462,6 @@ void zest__cleanup_layer(zest_layer layer) {
 }
 
 void zest__reset_mesh_layer_drawing(zest_layer layer) {
-    ZEST_ASSERT_HANDLE(layer);	            //Not a valid handle!
     zest_vec_clear(layer->draw_instructions[layer->fif]);
     layer->memory_refs[layer->fif].staging_vertex_data->memory_in_use = 0;
     layer->memory_refs[layer->fif].staging_index_data->memory_in_use = 0;
@@ -14566,25 +14473,21 @@ void zest__reset_mesh_layer_drawing(zest_layer layer) {
 }
 
 void zest__start_instance_instructions(zest_layer layer) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].instance_count ? layer->memory_refs[layer->fif].instance_count : 0;
 }
 
 void zest_StartInstanceInstructions(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].instance_count ? layer->memory_refs[layer->fif].instance_count : 0;
 }
 
 void zest_ResetLayer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
 }
 
 void zest_ResetInstanceLayer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT(ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif));   //You must have created the layer with zest_CreateFIFInstanceLayer
                                                                             //if you want to manually reset the layer
     layer->prev_fif = layer->fif;
@@ -14594,7 +14497,6 @@ void zest_ResetInstanceLayer(zest_layer_handle layer_handle) {
 }
 
 void zest__start_mesh_instructions(zest_layer layer) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].index_count ? layer->memory_refs[layer->fif].index_count : 0;
 }
 
@@ -14616,14 +14518,12 @@ void zest__end_instance_instructions(zest_layer layer) {
 }
 
 void zest_EndInstanceInstructions(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest__end_instance_instructions(layer);
 }
 
 zest_bool zest_MaybeEndInstanceInstructions(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	            //Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     if (layer->current_instruction.total_instances) {
         layer->last_draw_mode = zest_draw_mode_none;
         zest_vec_push(layer->draw_instructions[layer->fif], layer->current_instruction);
@@ -14638,8 +14538,7 @@ zest_bool zest_MaybeEndInstanceInstructions(zest_layer_handle layer_handle) {
 }
 
 zest_size zest_GetLayerInstanceSize(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	            //Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
 	return layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
 }
 
@@ -14671,8 +14570,7 @@ void zest__update_instance_layer_resolution(zest_layer layer) {
 
 void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
     zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle! Make sure you pass in the zest_layer in the user data
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
 
     if (!layer->vertex_buffer_node) return; //It could be that the frame graph culled the pass because it was unreferenced or disabled
     if (!layer->vertex_buffer_node->storage_buffer) return;
@@ -14719,7 +14617,6 @@ void zest_DrawInstanceLayer(VkCommandBuffer command_buffer, const zest_frame_gra
 }
 
 void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     VkCommandBuffer command_buffer = 0;
 
     bool has_instruction_view_port = false;
@@ -14759,8 +14656,7 @@ void zest__record_mesh_layer(zest_layer layer, zest_uint fif) {
 
 void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
     zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle! Make sure you pass in the zest_layer in the user data
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     if (layer->vertex_data && layer->index_data) {
         zest_BindMeshVertexBuffer(command_buffer, layer_handle);
         zest_BindMeshIndexBuffer(command_buffer, layer_handle);
@@ -14816,8 +14712,7 @@ void zest_DrawInstanceMeshLayer(VkCommandBuffer command_buffer, const zest_frame
 
 //Start general instance layer functionality -----
 void zest_NextInstance(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_byte* instance_ptr = (zest_byte*)layer->memory_refs[layer->fif].instance_ptr + layer->instance_struct_size;
     //Make sure we're not trying to write outside of the buffer range
     ZEST_ASSERT(instance_ptr >= (zest_byte*)layer->memory_refs[layer->fif].staging_instance_data->data && instance_ptr <= (zest_byte*)layer->memory_refs[layer->fif].staging_instance_data->end);
@@ -14840,8 +14735,7 @@ void zest_NextInstance(zest_layer_handle layer_handle) {
 }
 
 zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer_handle layer_handle, void *src, zest_uint amount) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     if (!amount) return 0;
     zest_draw_buffer_result result = zest_draw_buffer_result_ok;
     zest_size size_in_bytes_to_copy = amount * layer->instance_struct_size;
@@ -14868,8 +14762,7 @@ zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer_handle layer_handle, 
 }
 
 void zest_DrawInstanceInstruction(zest_layer_handle layer_handle, zest_uint amount) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->memory_refs[layer->fif].instance_count += amount;
     layer->current_instruction.total_instances += amount;
     zest_size size_in_bytes_to_draw = amount * layer->instance_struct_size;
@@ -14883,7 +14776,7 @@ void zest_DrawInstanceInstruction(zest_layer_handle layer_handle, zest_uint amou
 //-- Draw Layers API
 zest_layer_handle zest__new_layer(zest_layer *out_layer) {
     zest_layer_handle handle = (zest_layer_handle){zest__add_store_resource(&ZestRenderer->layers)};
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, handle.value);
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, handle.value);
     *layer = (zest_layer_t){ 0 };
     layer->magic = zest_INIT_MAGIC(zest_struct_type_layer);
     layer->handle = handle;
@@ -14892,27 +14785,23 @@ zest_layer_handle zest__new_layer(zest_layer *out_layer) {
 }
 
 void zest_FreeLayer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.resources[ZEST_FIF], layer);
 }
 
 void zest_SetLayerViewPort(zest_layer_handle layer_handle, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
     layer->viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
 }
 
 void zest_SetLayerScissor(zest_layer_handle layer_handle, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid layer handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, offset_x, offset_y);
 }
 
 void zest_SetLayerSizeToSwapchain(zest_layer_handle layer_handle, zest_swapchain swapchain) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	    //Not a valid layer handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(swapchain);	//Not a valid swapchain handle!
     layer->scissor = zest_CreateRect2D(swapchain->vk_extent.width, swapchain->vk_extent.height, 0, 0);
     layer->viewport = zest_CreateViewport(0.f, 0.f, (float)swapchain->vk_extent.width, (float)swapchain->vk_extent.height, 0.f, 1.f);
@@ -14920,54 +14809,46 @@ void zest_SetLayerSizeToSwapchain(zest_layer_handle layer_handle, zest_swapchain
 }
 
 void zest_SetLayerSize(zest_layer_handle layer_handle, float width, float height) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->layer_size.x = width;
     layer->layer_size.y = height;
 }
 
 void zest_SetLayerColor(zest_layer_handle layer_handle, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->current_color = zest_ColorSet(red, green, blue, alpha);
 }
 
 void zest_SetLayerColorf(zest_layer_handle layer_handle, float red, float green, float blue, float alpha) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->current_color = zest_ColorSet((zest_byte)(red * 255.f), (zest_byte)(green * 255.f), (zest_byte)(blue * 255.f), (zest_byte)(alpha * 255.f));
 }
 
 void zest_SetLayerIntensity(zest_layer_handle layer_handle, float value) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->intensity = value;
 }
 
 void zest_SetLayerChanged(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_ForEachFrameInFlight(i) {
         layer->dirty[i] = 1;
     }
 }
 
 zest_bool zest_LayerHasChanged(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     return layer->dirty[layer->fif];
 }
 
 void zest_SetLayerUserData(zest_layer_handle layer_handle, void *data) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     layer->user_data = data;
 }
 
 void zest_UploadLayerStagingData(zest_layer_handle layer_handle, const zest_frame_graph_context_t *context) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);  //This function must be called within a task callback in a frame graph
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
 
     ZEST__MAYBE_REPORT(!ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadLayerStagingData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", ZestRenderer->current_frame_graph->name);
 
@@ -14998,8 +14879,7 @@ void zest_UploadLayerStagingData(zest_layer_handle layer_handle, const zest_fram
 
 zest_buffer zest_GetLayerResourceBuffer(zest_layer_handle layer_handle) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);  //This function must be called within a task callback in a frame graph
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         return layer->memory_refs[layer->fif].device_vertex_data;
     } else if(ZEST_VALID_HANDLE(layer->vertex_buffer_node)) {
@@ -15014,14 +14894,12 @@ zest_buffer zest_GetLayerResourceBuffer(zest_layer_handle layer_handle) {
 }
 
 zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     return layer->memory_refs[layer->fif].staging_instance_data;
 }
 
 zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     return layer->memory_refs[layer->fif].staging_index_data;
 }
 //-- End Draw Layers
@@ -15036,8 +14914,7 @@ zest_layer_handle zest_CreateFIFInstanceLayer(const char* name, zest_size type_s
     zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(type_size);
     builder.initial_count = 1000;
     zest_layer_handle layer_handle = zest_FinishInstanceLayer(name, &builder);
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);   //Not a valid layer handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_ForEachFrameInFlight(fif) {
         layer->memory_refs[fif].device_vertex_data = zest_CreateUniqueVertexStorageBuffer(layer->memory_refs[fif].staging_instance_data->size, fif, id);
     }
@@ -15059,7 +14936,6 @@ zest_layer_handle zest_FinishInstanceLayer(const char *name, zest_layer_builder_
 }
 
 void zest__initialise_instance_layer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size) {
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     layer->current_color.r = 255;
     layer->current_color.g = 255;
     layer->current_color.b = 255;
@@ -15095,10 +14971,8 @@ void zest__initialise_instance_layer(zest_layer layer, zest_size type_size, zest
 
 //-- Start Instance Drawing API
 void zest_SetInstanceDrawing(zest_layer_handle layer_handle, zest_shader_resources_handle handle, zest_pipeline_template pipeline) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, handle.value);
-    ZEST_ASSERT_HANDLE(shader_resources);   //Not a valid shader resource handle
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
@@ -15111,8 +14985,7 @@ void zest_SetInstanceDrawing(zest_layer_handle layer_handle, zest_shader_resourc
 }
 
 void zest_SetLayerDrawingViewport(zest_layer_handle layer_handle, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
@@ -15121,8 +14994,7 @@ void zest_SetLayerDrawingViewport(zest_layer_handle layer_handle, int x, int y, 
 }
 
 void zest_SetLayerPushConstants(zest_layer_handle layer_handle, void *push_constants, zest_size size) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT(size <= 128);   //Push constant size must not exceed 128 bytes
     memcpy(layer->current_instruction.push_constant, push_constants, size);
 }
@@ -15176,8 +15048,7 @@ void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_
 }
 
 void zest_BindMeshVertexBuffer(VkCommandBuffer command_buffer, zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT(layer->vertex_data);    //There's no vertex data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->vertex_data;
     VkDeviceSize offsets[] = { buffer->buffer_offset };
@@ -15185,42 +15056,36 @@ void zest_BindMeshVertexBuffer(VkCommandBuffer command_buffer, zest_layer_handle
 }
 
 void zest_BindMeshIndexBuffer(VkCommandBuffer command_buffer, zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT(layer->index_data);    //There's no index data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->index_data;
     vkCmdBindIndexBuffer(command_buffer, *zest_GetBufferDeviceBuffer(buffer), buffer->buffer_offset, VK_INDEX_TYPE_UINT32);
 }
 
 zest_buffer zest_GetVertexWriteBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     return layer->memory_refs[layer->fif].staging_vertex_data;
 }
 
 zest_buffer zest_GetIndexWriteBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     return layer->memory_refs[layer->fif].staging_index_data;
 }
 
 void zest_GrowMeshVertexBuffers(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_size memory_in_use = zest_GetVertexWriteBuffer(layer_handle)->memory_in_use;
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_vertex_data, layer->vertex_struct_size, memory_in_use);
 }
 
 void zest_GrowMeshIndexBuffers(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_size memory_in_use = zest_GetVertexWriteBuffer(layer_handle)->memory_in_use;
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_index_data, sizeof(zest_uint), memory_in_use);
 }
 
 void zest_PushVertex(zest_layer_handle layer_handle, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_textured_vertex_t vertex = { 0 };
     vertex.pos = zest_Vec3Set(pos_x, pos_y, pos_z);
     vertex.intensity = intensity;
@@ -15251,8 +15116,7 @@ void zest_PushVertex(zest_layer_handle layer_handle, float pos_x, float pos_y, f
 }
 
 void zest_PushIndex(zest_layer_handle layer_handle, zest_uint offset) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_uint index = layer->memory_refs[layer->fif].vertex_count + offset;
     zest_uint* index_ptr = (zest_uint*)layer->memory_refs[layer->fif].index_ptr;
     *index_ptr = index;
@@ -15280,10 +15144,9 @@ void zest_PushIndex(zest_layer_handle layer_handle, zest_uint offset) {
 }
 
 void zest_SetMeshDrawing(zest_layer_handle layer_handle, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
-    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, resource_handle.value);
+    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, resource_handle.value);
     ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
     zest__end_mesh_instructions(layer);
     zest__start_mesh_instructions(layer);
@@ -15297,10 +15160,9 @@ void zest_SetMeshDrawing(zest_layer_handle layer_handle, zest_shader_resources_h
 
 //-- Instanced_mesh_drawing
 void zest_SetInstanceMeshDrawing(zest_layer_handle layer_handle, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
-    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource(&ZestRenderer->shader_resources, resource_handle.value);
+    zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, resource_handle.value);
     ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
@@ -15466,8 +15328,7 @@ void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh) {
 }
 
 void zest_AddMeshToLayer(zest_layer_handle layer_handle, zest_mesh src_mesh) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(zest_MeshVertexDataSize(src_mesh), src_mesh->vertices);
     zest_buffer index_staging_buffer = zest_CreateStagingBuffer(zest_MeshIndexDataSize(src_mesh), src_mesh->indexes);
     layer->index_count = zest_vec_size(src_mesh->indexes);
@@ -15482,8 +15343,7 @@ void zest_AddMeshToLayer(zest_layer_handle layer_handle, zest_mesh src_mesh) {
 }
 
 void zest_DrawInstancedMesh(zest_layer_handle layer_handle, float pos[3], float rot[3], float scale[3]) {
-    zest_layer layer = (zest_layer)zest__get_store_resource(&ZestRenderer->layers, layer_handle.value);
-    ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
 
     zest_mesh_instance_t* instance = (zest_mesh_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
@@ -15803,7 +15663,7 @@ zest_mesh zest_CreateRoundedRectangle(float width, float height, float radius, i
 //Compute shaders
 zest_compute zest__new_compute(const char* name) {
     zest_compute_handle handle = (zest_compute_handle){ zest__add_store_resource(&ZestRenderer->compute_pipelines) };
-    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, handle.value);
+    zest_compute compute = (zest_compute)zest__get_store_resource_checked(&ZestRenderer->compute_pipelines, handle.value);
     *compute = (zest_compute_t){ 0 };
     compute->magic = zest_INIT_MAGIC(zest_struct_type_compute);
     compute->handle = handle;
@@ -15817,19 +15677,16 @@ zest_compute_builder_t zest_BeginComputeBuilder() {
     return builder;
 }
 
-void zest_SetComputeBindlessLayout(zest_compute_builder_t *builder, zest_set_layout bindless_layout) {
-    ZEST_ASSERT_HANDLE(bindless_layout); //Not a valid descriptor set layout!
+void zest_SetComputeBindlessLayout(zest_compute_builder_t *builder, zest_set_layout_handle bindless_layout) {
     builder->bindless_layout = bindless_layout;
 }
 
-void zest_AddComputeSetLayout(zest_compute_builder_t *builder, zest_set_layout layout) {
-    ZEST_ASSERT_HANDLE(layout); //Not a valid descriptor set layout!
-    zest_vec_push(builder->non_bindless_layouts, layout);
+void zest_AddComputeSetLayout(zest_compute_builder_t *builder, zest_set_layout_handle layout_handle) {
+    zest_vec_push(builder->non_bindless_layouts, layout_handle);
 }
 
 zest_index zest_AddComputeShader(zest_compute_builder_t* builder, zest_shader_handle shader_handle) {
-	zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-	ZEST_ASSERT_HANDLE(shader);
+	zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
     zest_text_t path_text = { 0 };
     zest_vec_push(builder->shaders, shader_handle);
     return zest_vec_last_index(builder->shaders);
@@ -15873,11 +15730,13 @@ zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const ch
     }
     pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     VkDescriptorSetLayout *set_layouts = 0;
-    if (compute->bindless_layout) {
-        zest_vec_push(set_layouts, compute->bindless_layout->vk_layout);
+    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, compute->bindless_layout.value);
+    if (bindless_layout) {
+        zest_vec_push(set_layouts, bindless_layout->vk_layout);
     }
     zest_vec_foreach(i, builder->non_bindless_layouts) {
-        zest_vec_push(set_layouts, builder->non_bindless_layouts[i]->vk_layout);
+		zest_set_layout non_bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, builder->non_bindless_layouts[i].value);
+        zest_vec_push(set_layouts, non_bindless_layout->vk_layout);
     }
     pipeline_layout_create_info.setLayoutCount = zest_vec_size(set_layouts);
     pipeline_layout_create_info.pSetLayouts = set_layouts;
@@ -15897,8 +15756,7 @@ zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const ch
     VkShaderModule shader_module = { 0 };
     zest_vec_foreach(i, compute->shaders) {
         zest_shader_handle shader_handle = compute->shaders[i];
-		zest_shader shader = (zest_shader)zest__get_store_resource(&ZestRenderer->shaders, shader_handle.value);
-		ZEST_ASSERT_HANDLE(shader); //Not a valid shader handle in the builder list of shaders
+		zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
 
         ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
         VkShaderModule shader_module = 0;
@@ -16214,7 +16072,7 @@ zest_bool zest_SetErrorLogPath(const char* path) {
 //-- Timer functions
 zest_timer_handle zest_CreateTimer(double update_frequency) {
     zest_timer_handle handle = { zest__add_store_resource(&ZestRenderer->timers) };
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, handle.value);
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, handle.value);
     *timer = (zest_timer_t){ 0 };
     timer->magic = zest_INIT_MAGIC(zest_struct_type_timer);
     timer->handle = handle;
@@ -16229,45 +16087,38 @@ zest_timer_handle zest_CreateTimer(double update_frequency) {
 }
 
 void zest_FreeTimer(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-	ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     zest__remove_store_resource(&ZestRenderer->timers, timer_handle.value);
 }
 
 void zest_TimerReset(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     timer->start_time = (double)zest_Microsecs();
     timer->current_time = (double)zest_Microsecs();
 }
 
 double zest_TimerDeltaTime(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     return timer->delta_time;
 }
 
 void zest_TimerTick(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     timer->delta_time = (double)zest_Microsecs() - timer->start_time;
 }
 
 double zest_TimerUpdateTime(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     return timer->update_time;
 }
 
 double zest_TimerFrameLength(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     return timer->update_tick_length;
 }
 
 double zest_TimerAccumulate(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     double new_time = (double)zest_Microsecs();
     double frame_time = fabs(new_time - timer->current_time);
     frame_time = ZEST__MIN(frame_time, ZEST_MICROSECS_SECOND);
@@ -16281,14 +16132,12 @@ double zest_TimerAccumulate(zest_timer_handle timer_handle) {
 }
 
 int zest_TimerPendingTicks(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     return (int)(timer->accumulator / timer->update_tick_length);
 }
 
 void zest_TimerUnAccumulate(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     timer->accumulator -= timer->update_tick_length;
     timer->accumulator_delta = timer->accumulator_delta - timer->accumulator;
     timer->update_count++;
@@ -16297,32 +16146,27 @@ void zest_TimerUnAccumulate(zest_timer_handle timer_handle) {
 }
 
 zest_bool zest_TimerDoUpdate(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     return timer->accumulator >= timer->update_tick_length;
 }
 
 double zest_TimerLerp(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     return timer->update_count > 1 ? 1.f : timer->lerp;
 }
 
 void zest_TimerSet(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     timer->lerp = timer->accumulator / timer->update_tick_length;
 }
 
 void zest_TimerSetMaxFrames(zest_timer_handle timer_handle, double frames) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     timer->max_elapsed_time = timer->update_tick_length * frames;
 }
 
 void zest_TimerSetUpdateFrequency(zest_timer_handle timer_handle, double frequency) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     timer->update_frequency = frequency;
     timer->update_tick_length = ZEST_MICROSECS_SECOND / timer->update_frequency;
     timer->update_time = 1.f / timer->update_frequency;
@@ -16330,14 +16174,12 @@ void zest_TimerSetUpdateFrequency(zest_timer_handle timer_handle, double frequen
 }
 
 double zest_TimerUpdateFrequency(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     return timer->update_frequency;
 }
 
 zest_bool zest_TimerUpdateWasRun(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource(&ZestRenderer->timers, timer_handle.value);
-    ZEST_ASSERT_HANDLE(timer);	//Not a valid handle!
+    zest_timer timer = (zest_timer)zest__get_store_resource_checked(&ZestRenderer->timers, timer_handle.value);
     return timer->update_count > 0;
 }
 //-- End Timer Functions
