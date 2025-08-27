@@ -159,7 +159,7 @@ void zest_DispatchPrefilteredSetup(VkCommandBuffer command_buffer, const zest_fr
 	const zest_uint local_size = 8;
 
 	VkDescriptorSet sets[] = {
-		ZestRenderer->global_set->vk_descriptor_set,
+		zest_vk_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop

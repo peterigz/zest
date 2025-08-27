@@ -3630,6 +3630,7 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     zest__initialise_store(&ZestRenderer->timers, sizeof(zest_timer_t));
     zest__initialise_store(&ZestRenderer->layers, sizeof(zest_layer_t));
     zest__initialise_store(&ZestRenderer->shaders, sizeof(zest_shader_t));
+    zest__initialise_store(&ZestRenderer->compute_pipelines, sizeof(zest_compute_t));
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
 
@@ -3984,9 +3985,6 @@ void zest__cleanup_device(void) {
 void zest__free_handle(void *handle) {
     zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(handle);
     switch (struct_type) {
-    case zest_struct_type_compute:
-        zest__cleanup_compute((zest_compute)handle);
-        break;
     case zest_struct_type_set_layout:
         zest__cleanup_set_layout((zest_set_layout)handle);
         break;
@@ -4015,9 +4013,8 @@ void zest__scan_memory_and_free_resources() {
             if (ZEST_VALID_HANDLE(allocation)) {
                 zest_struct_type struct_type = (zest_struct_type)ZEST_STRUCT_TYPE(allocation);
                 switch (struct_type) {
-                case zest_struct_type_compute:
-                case zest_struct_type_set_layout:
                 case zest_struct_type_pipeline_template:
+                case zest_struct_type_set_layout:
                 case zest_struct_type_swapchain:
                     zest_vec_push(memory_to_free, allocation);
                     break;
@@ -4102,6 +4099,17 @@ void zest__cleanup_shader_store() {
     zest__free_store(&ZestRenderer->shaders);
 }
 
+void zest__cleanup_compute_store() {
+    zest_compute_t *compute_pipelines = ZestRenderer->compute_pipelines.data;
+    for (int i = 0; i != ZestRenderer->compute_pipelines.current_size; ++i) {
+        if (ZEST_VALID_HANDLE(&compute_pipelines[i])) {
+            zest_compute resource = &compute_pipelines[i];
+            zest__cleanup_compute(resource);
+        }
+    }
+    zest__free_store(&ZestRenderer->compute_pipelines);
+}
+
 void zest__cleanup_renderer() {
 
     zest_uint cached_pipelines_size = zest_map_size(ZestRenderer->cached_pipelines);
@@ -4117,6 +4125,7 @@ void zest__cleanup_renderer() {
     zest__cleanup_timer_store();
     zest__cleanup_layer_store();
     zest__cleanup_shader_store();
+    zest__cleanup_compute_store();
 
     zest__scan_memory_and_free_resources();
 
@@ -5531,7 +5540,8 @@ void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_t* pipeline
     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline_layout, 0, set_count, descriptor_set, 0, 0);
 }
 
-void zest_BindComputePipeline(VkCommandBuffer command_buffer, zest_compute compute, VkDescriptorSet *descriptor_set, zest_uint set_count) {
+void zest_BindComputePipeline(VkCommandBuffer command_buffer, zest_compute_handle compute_handle, VkDescriptorSet *descriptor_set, zest_uint set_count) {
+    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
     ZEST_ASSERT_HANDLE(compute);                 //Not a valid compute handle
     ZEST_ASSERT(set_count && descriptor_set);   //No descriptor sets. Must bind the pipeline with a valid desriptor set
     vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->pipeline);
@@ -6363,11 +6373,9 @@ void zest_SendPushConstants(VkCommandBuffer command_buffer, zest_pipeline pipeli
     vkCmdPushConstants(command_buffer, pipeline->pipeline_layout, pipeline->pipeline_template->pushConstantRange.stageFlags, pipeline->pipeline_template->pushConstantRange.offset, pipeline->pipeline_template->pushConstantRange.size, data);
 }
 
-void zest_SendComputePushConstants(VkCommandBuffer command_buffer, zest_compute compute) {
-    vkCmdPushConstants(command_buffer, compute->pipeline_layout, compute->pushConstantRange.stageFlags, 0, compute->pushConstantRange.size, &compute->push_constants);
-}
-
-void zest_SendCustomComputePushConstants(VkCommandBuffer command_buffer, zest_compute compute, const void *push_constant) {
+void zest_SendCustomComputePushConstants(VkCommandBuffer command_buffer, zest_compute_handle compute_handle, const void *push_constant) {
+    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
+    ZEST_ASSERT_HANDLE(compute);    //Not a valid compute object
     vkCmdPushConstants(command_buffer, compute->pipeline_layout, compute->pushConstantRange.stageFlags, 0, compute->pushConstantRange.size, push_constant);
 }
 
@@ -6387,21 +6395,23 @@ void zest_DrawIndexed(VkCommandBuffer command_buffer, zest_uint index_count, zes
     vkCmdDrawIndexed(command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 
-void zest_DispatchCompute(VkCommandBuffer command_buffer, zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+void zest_DispatchCompute(VkCommandBuffer command_buffer, zest_compute_handle compute_handle, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
     vkCmdDispatch(command_buffer, group_count_x, group_count_y, group_count_z);
 }
 
-void zest_ResetCompute(zest_compute compute) {
-    ZEST_ASSERT_HANDLE(compute);	//Not a valid handle!
+void zest_ResetCompute(zest_compute_handle compute_handle) {
+    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
+    ZEST_ASSERT_HANDLE(compute);    //Not a valid compute object
     compute->fif = (compute->fif + 1) % ZEST_MAX_FIF;
 }
 
-void zest_FreeCompute(zest_compute compute) {
-    ZEST_ASSERT_HANDLE(compute);	//Not a valid handle!
+void zest_FreeCompute(zest_compute_handle compute_handle) {
+    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
+    ZEST_ASSERT_HANDLE(compute);    //Not a valid compute object
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.resources[ZEST_FIF], compute);
 }
 
-int zest_ComputeConditionAlwaysTrue(zest_compute layer) {
+int zest_ComputeConditionAlwaysTrue(zest_compute_handle layer) {
     return 1;
 }
 
@@ -10659,11 +10669,13 @@ zest_pass_node zest_BeginRenderPass(const char *name) {
     return node;
 }
 
-zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name) {
+zest_pass_node zest_BeginComputePass(zest_compute_handle compute_handle, const char *name) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     ZEST_ASSERT(!ZestRenderer->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
     bool force_graphics_queue = (ZestRenderer->current_frame_graph->flags & zest_frame_graph_force_on_graphics_queue) > 0;
     zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_compute);
+    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
+    ZEST_ASSERT_HANDLE(compute);    //Not a valid compute object
     node->compute = compute;
     node->queue_info.timeline_wait_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     ZestRenderer->current_pass = node;
@@ -15790,20 +15802,11 @@ zest_mesh zest_CreateRoundedRectangle(float width, float height, float radius, i
 
 //Compute shaders
 zest_compute zest__new_compute(const char* name) {
-    zest_compute compute = ZEST__NEW_ALIGNED(zest_compute, 16);
+    zest_compute_handle handle = (zest_compute_handle){ zest__add_store_resource(&ZestRenderer->compute_pipelines) };
+    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, handle.value);
     *compute = (zest_compute_t){ 0 };
     compute->magic = zest_INIT_MAGIC(zest_struct_type_compute);
-    compute->group_count_x = 1;
-    compute->group_count_y = 1;
-    compute->group_count_z = 1;
-    compute->extra_cleanup_callback = ZEST_NULL;
-    compute->push_constants.parameters.x = 0.f;
-    compute->push_constants.parameters.y = 0.f;
-    compute->push_constants.parameters.z = 0.f;
-    compute->push_constants.parameters.w = 0.f;
-    zest_ForEachFrameInFlight(i) {
-        compute->fence[i] = VK_NULL_HANDLE;
-    }
+    compute->handle = handle;
     return compute;
 }
 
@@ -15837,14 +15840,6 @@ void zest_SetComputePushConstantSize(zest_compute_builder_t* builder, zest_uint 
     builder->push_constant_size = size;
 }
 
-void zest_SetComputeCommandBufferUpdateCallback(zest_compute_builder_t* builder, void(*command_buffer_update_callback)(zest_compute compute, VkCommandBuffer command_buffer)) {
-    builder->command_buffer_update_callback = command_buffer_update_callback;
-}
-
-void zest_SetComputeExtraCleanUpCallback(zest_compute_builder_t* builder, void(*extra_cleanup_callback)(zest_compute compute)) {
-    builder->extra_cleanup_callback = extra_cleanup_callback;
-}
-
 void zest_SetComputeUserData(zest_compute_builder_t* builder, void* data) {
     builder->user_data = data;
 }
@@ -15857,7 +15852,7 @@ void zest_SetComputePrimaryRecorder(zest_compute_builder_t *builder) {
     ZEST__FLAG(builder->flags, zest_compute_flag_primary_recorder);
 }
 
-zest_compute zest_FinishCompute(zest_compute_builder_t *builder, const char *name) {
+zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const char *name) {
 	zest_compute compute = zest__new_compute(name);
     compute->user_data = builder->user_data;
     compute->flags = builder->flags;
@@ -15929,27 +15924,12 @@ zest_compute zest_FinishCompute(zest_compute_builder_t *builder, const char *nam
         compute->pipeline =  pipeline;
     }
 
-    // Fence for compute CB sync
-    VkFenceCreateInfo fence_create_info = { 0 };
-    fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    zest_ForEachFrameInFlight(i) {
-		ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_fence);
-        ZEST_CLEANUP_ON_FAIL(vkCreateFence(ZestDevice->logical_device, &fence_create_info, &ZestDevice->allocation_callbacks, &compute->fence[i]));
-    }
-
-    compute->group_count_x = 64;
-    compute->group_count_y = 1;
     ZEST__FLAG(compute->flags, zest_compute_flag_sync_required);
     ZEST__FLAG(compute->flags, zest_compute_flag_rewrite_command_buffer);
     ZEST__MAYBE_FLAG(compute->flags, zest_compute_flag_manual_fif, builder->flags & zest_compute_flag_manual_fif);
 
     VkSemaphoreCreateInfo semaphore_info = { 0 };
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-    if (builder->command_buffer_update_callback) {
-        compute->command_buffer_update_callback = builder->command_buffer_update_callback;
-    }
 
     ZEST__FLAG(compute->flags, zest_compute_flag_is_active);
 
@@ -15961,57 +15941,13 @@ cleanup:
         zest__cleanup_compute(compute);
         compute = 0;
     }
-    return compute;
-}
-
-zest_bool zest_RunCompute(zest_compute compute) {
-    ZEST_ASSERT_HANDLE(compute);	//Not a valid handle!
-    ZEST_ASSERT(ZEST__FLAGGED(compute->flags, zest_compute_flag_primary_recorder)); //Compute must have been initialised with zest_SetComputePrimaryRecorder
-    //Todo: handle this better. User should be able to decide what to do on a timeout
-    ZEST_RETURN_FALSE_ON_FAIL(vkWaitForFences(ZestDevice->logical_device, 1, &compute->fence[ZEST_FIF], VK_TRUE, UINT64_MAX));
-    vkResetFences(ZestDevice->logical_device, 1, &compute->fence[ZEST_FIF]);
-
-    if (ZEST__FLAGGED(compute->flags, zest_compute_flag_rewrite_command_buffer)) {
-        VkCommandBufferBeginInfo begin_info = { 0 };
-        begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-        ZEST_ASSERT(0); //Need to re-do this.. or not...
-        ZEST_ASSERT(compute->command_buffer_update_callback);        //You must set a call back for command_buffer_update_callback so that you can build the command buffer for the compute shader
-    }
-
-    VkSubmitInfo compute_submit_info = { 0 };
-    compute_submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    compute_submit_info.commandBufferCount = 1;
-
-    //Make sure you're ending the command buffer at the end of your command_buffer_update_callback before calling this. Use vkEndCommandBuffer
-    ZEST_RETURN_FALSE_ON_FAIL(vkQueueSubmit(compute->queue, 1, &compute_submit_info, compute->fence[ZEST_FIF]));
-    return ZEST_TRUE;
-}
-
-void zest_WaitForCompute(zest_compute compute) {
-    ZEST_ASSERT_HANDLE(compute);	//Not a valid handle!
-    vkWaitForFences(ZestDevice->logical_device, 1, &compute->fence[ZEST_FIF], VK_TRUE, UINT64_MAX);
-}
-
-void zest_UpdateComputeDescriptors(zest_compute compute, zest_uint fif) {
-    ZEST_ASSERT_HANDLE(compute);	//Not a valid handle!
-    compute->descriptor_update_callback(compute, fif);
+    return compute->handle;
 }
 
 void zest__cleanup_compute(zest_compute compute) {
-    zest_ForEachFrameInFlight(i) {
-        if (compute->fence[i]) {
-            vkDestroyFence(ZestDevice->logical_device, compute->fence[i], &ZestDevice->allocation_callbacks);
-        }
-    }
 	if(compute->pipeline) vkDestroyPipeline(ZestDevice->logical_device, compute->pipeline, &ZestDevice->allocation_callbacks);
     if(compute->pipeline_layout) vkDestroyPipelineLayout(ZestDevice->logical_device, compute->pipeline_layout, &ZestDevice->allocation_callbacks);
-    if (compute->extra_cleanup_callback) {
-        compute->extra_cleanup_callback(compute);
-    }
-
-    ZEST__FREE(compute);
+    zest__remove_store_resource(&ZestRenderer->compute_pipelines, compute->handle.value);
 }
 //--End Compute shaders
 

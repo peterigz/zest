@@ -86,9 +86,9 @@ struct ImGuiApp {
 	zest_texture_handle irr_texture;
 	zest_texture_handle prefiltered_texture;
 
-	zest_compute brd_compute;
-	zest_compute irr_compute;
-	zest_compute prefiltered_compute;
+	zest_compute_handle brd_compute;
+	zest_compute_handle irr_compute;
+	zest_compute_handle prefiltered_compute;
 
 	zest_uint skybox_bindless_index;
 	zest_uint brd_bindless_index;

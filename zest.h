@@ -1396,6 +1396,7 @@ ZEST__MAKE_USER_HANDLE(zest_uniform_buffer)
 ZEST__MAKE_USER_HANDLE(zest_timer)
 ZEST__MAKE_USER_HANDLE(zest_layer)
 ZEST__MAKE_USER_HANDLE(zest_shader)
+ZEST__MAKE_USER_HANDLE(zest_compute)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -2915,7 +2916,7 @@ ZEST_API zest_frame_graph zest_EndFrameGraphAndWait();
 // --- Add pass nodes that execute user commands ---
 ZEST_API zest_pass_node zest_BeginGraphicBlankScreen( const char *name);
 ZEST_API zest_pass_node zest_BeginRenderPass(const char *name);
-ZEST_API zest_pass_node zest_BeginComputePass(zest_compute compute, const char *name);
+ZEST_API zest_pass_node zest_BeginComputePass(zest_compute_handle compute, const char *name);
 ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
 ZEST_API void zest_EndPass();
 
@@ -3308,39 +3309,21 @@ typedef struct zest_imgui_t {
     VkDescriptorSet *draw_sets;
 } zest_imgui_t;
 
-typedef struct zest_compute_push_constant_t {
-    //z is reserved for the quad_count;
-    zest_vec4 parameters;
-} zest_compute_push_constant_t;
-
 typedef struct zest_compute_t zest_compute_t;
 struct zest_compute_t {
     int magic;
+    zest_compute_handle handle;
     VkQueue queue;                                            // Separate queue for compute commands (queue family may differ from the one used for graphics)
-    VkFence fence[ZEST_MAX_FIF];                              // Synchronization fence to avoid rewriting compute CB if still in use
-    zest_set_layout bindless_layout;               // The bindless descriptor set layout to use in the compute shader
+    zest_set_layout bindless_layout;                          // The bindless descriptor set layout to use in the compute shader
     VkPipelineLayout pipeline_layout;                         // Layout of the compute pipeline
-    zest_shader_handle *shaders;                                     // List of compute shaders to use
+    zest_shader_handle *shaders;                              // List of compute shaders to use
     VkPipeline pipeline;                                      // Compute pipeline
-    zest_descriptor_infos_for_binding_t *descriptor_infos;    // All the buffers/images that are bound to the compute shader
-    //zest_uint queue_family_index;                            // Family index of the graphics queue, used for barriers
-    zest_uint group_count_x;
-    zest_uint group_count_y;
-    zest_uint group_count_z;
-    zest_compute_push_constant_t push_constants;
     VkPushConstantRange pushConstantRange;
 
     void *compute_data;                                       // Connect this to any custom data that is required to get what you need out of the compute process.
     void *user_data;                                          // Custom user data
     zest_compute_flags flags;
     zest_uint fif;                                            // Used for manual frame in flight compute
-
-    // Over ride the descriptor udpate function with a customised one
-    void(*descriptor_update_callback)(zest_compute compute, zest_uint fif);
-    // Over ride the command buffer update function with a customised one
-    void(*command_buffer_update_callback)(zest_compute compute, VkCommandBuffer command_buffer);
-    // Additional cleanup function callback for the extra compute_data you're using
-    void(*extra_cleanup_callback)(zest_compute compute);
 };
 
 typedef struct zest_compute_builder_t {
@@ -3352,10 +3335,6 @@ typedef struct zest_compute_builder_t {
     zest_uint push_constant_size;
     zest_compute_flags flags;
     void *user_data;
-
-    //void(*descriptor_update_callback)(zest_compute compute, zest_uint fif);
-    void(*command_buffer_update_callback)(zest_compute compute, VkCommandBuffer command_buffer);
-    void(*extra_cleanup_callback)(zest_compute compute);
 } zest_compute_builder_t;
 
 typedef struct zest_sampler_t {
@@ -3598,6 +3577,7 @@ typedef struct zest_renderer_t {
     zest_resource_store_t timers;
     zest_resource_store_t layers;
     zest_resource_store_t shaders;
+    zest_resource_store_t compute_pipelines;
 
     zest_window main_window;
 
@@ -3715,6 +3695,7 @@ ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(void);
 ZEST_PRIVATE void zest__cleanup_timer_store(void);
 ZEST_PRIVATE void zest__cleanup_layer_store(void);
 ZEST_PRIVATE void zest__cleanup_shader_store(void);
+ZEST_PRIVATE void zest__cleanup_compute_store(void);
 ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources();
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
@@ -4201,7 +4182,7 @@ ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
 //a command buffer then call zest_BindPipelineCB instead.
 ZEST_API void zest_BindPipeline(VkCommandBuffer command_buffer, zest_pipeline_t* pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
 //Bind a pipeline for a compute shader
-ZEST_API void zest_BindComputePipeline(VkCommandBuffer command_buffer, zest_compute compute, VkDescriptorSet *descriptor_set, zest_uint set_count);
+ZEST_API void zest_BindComputePipeline(VkCommandBuffer command_buffer, zest_compute_handle compute, VkDescriptorSet *descriptor_set, zest_uint set_count);
 //Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
 //you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
 //resource that is marked as static.
@@ -4938,11 +4919,6 @@ ZEST_API void zest_AddComputeSetLayout(zest_compute_builder_t *builder, zest_set
 ZEST_API zest_index zest_AddComputeShader(zest_compute_builder_t *builder, zest_shader_handle shader);
 //If you're using a push constant then you can set it's size in the builder here.
 ZEST_API void zest_SetComputePushConstantSize(zest_compute_builder_t *builder, zest_uint size);
-//You must set a command buffer update callback. This is called when the command queue tries to execute the compute shader. Here you can bind buffers and upload
-//data to the gpu for use by the compute shader and then dispatch the shader. See zest-compute-example.
-ZEST_API void zest_SetComputeCommandBufferUpdateCallback(zest_compute_builder_t *builder, void(*command_buffer_update_callback)(zest_compute compute, VkCommandBuffer command_buffer));
-//If you require any custom clean up done for the compute shader then you can sepcify a callback for that here.
-ZEST_API void zest_SetComputeExtraCleanUpCallback(zest_compute_builder_t *builder, void(*extra_cleanup_callback)(zest_compute compute));
 //Set any pointer to custom user data here. You will be able to access this in the callback functions.
 ZEST_API void zest_SetComputeUserData(zest_compute_builder_t *builder, void *data);
 //Sets the compute shader to manually record so you have to specify when the compute shader should be recorded
@@ -4953,28 +4929,19 @@ ZEST_API void zest_SetComputePrimaryRecorder(zest_compute_builder_t *builder);
 //Once you have finished calling the builder commands you will need to call this to actually build the compute shader. Pass a pointer to the builder and the zest_compute
 //handle that you got from calling zest__new_compute. You can then use this handle to add the compute shader to a command queue with zest_NewComputeSetup in a
 //command queue context (see the section on Command queue setup and creation)
-ZEST_API zest_compute zest_FinishCompute(zest_compute_builder_t *builder, const char *name);
-//You don't have to execute the compute shader as part of a command queue, you can also use this command to run the compute shader separately
-ZEST_API zest_bool zest_RunCompute(zest_compute compute);
-//After calling zest_RunCompute you can call this command to wait for a message from the GPU that it's finished executing
-ZEST_API void zest_WaitForCompute(zest_compute compute);
-//If at anytime you resize buffers used in a compute shader then you will need to update it's descriptor infos so that the compute shader connects to the new
-//resized buffer. You can call this function which will just call the callback function you specified when creating the compute shader.
-ZEST_API void zest_UpdateComputeDescriptors(zest_compute compute, zest_uint fif);
-//Send the push constants defined in a compute shader. Use inside a compute update command buffer callback function
-ZEST_API void zest_SendComputePushConstants(VkCommandBuffer command_buffer, zest_compute compute);
+ZEST_API zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const char *name);
 //Send custom push constants. Use inside a compute update command buffer callback function. The push constatns you pass in to the 
 //function must be the same size that you set when creating the compute shader
-ZEST_API void zest_SendCustomComputePushConstants(VkCommandBuffer command_buffer, zest_compute compute, const void *push_constant);
+ZEST_API void zest_SendCustomComputePushConstants(VkCommandBuffer command_buffer, zest_compute_handle compute, const void *push_constant);
 //Helper function to dispatch a compute shader so you can call this instead of vkCmdDispatch. Specify a command buffer for use in one off dispataches
-ZEST_API void zest_DispatchCompute(VkCommandBuffer command_buffer, zest_compute compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
+ZEST_API void zest_DispatchCompute(VkCommandBuffer command_buffer, zest_compute_handle compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 //Reset compute when manual_fif is being used. This means that you can chose when you want a compute command buffer
 //to be recorded again. 
-ZEST_API void zest_ResetCompute(zest_compute compute);
+ZEST_API void zest_ResetCompute(zest_compute_handle compute);
 //Default always true condition for recording compute command buffers
-ZEST_API int zest_ComputeConditionAlwaysTrue(zest_compute compute);
+ZEST_API int zest_ComputeConditionAlwaysTrue(zest_compute_handle compute);
 //Free a compute shader and all its resources
-ZEST_API void zest_FreeCompute(zest_compute compute);
+ZEST_API void zest_FreeCompute(zest_compute_handle compute);
 //--End Compute shaders
 
 //-----------------------------------------------
