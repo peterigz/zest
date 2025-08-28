@@ -3,7 +3,7 @@
 
 //Dear ImGui helper functions
 void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned char *pixels) {
-	zest_imgui imgui_info = zest_GetImGuiInfo();
+    zest_imgui imgui_info = &ZestRenderer->imgui_info;
     zest_WaitForIdleDevice();
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
@@ -27,17 +27,17 @@ zest_pass_node zest_imgui_BeginPass() {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
-		zest_imgui imgui_info = zest_GetImGuiInfo();
+        zest_imgui imgui_info = &ZestRenderer->imgui_info;
         //Declare resources
-        zest_resource_id imgui_font_texture = zest_ImportImageResource("Imgui Font", imgui_info->font_texture, 0);
-		zest_resource_id imgui_vertex_buffer = zest_imgui_ImportVertexResources("Imgui Vertex Buffer");
-		zest_resource_id imgui_index_buffer = zest_imgui_ImportIndexResources("Imgui Index Buffer");
+        zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", ZestRenderer->imgui_info.font_texture, 0);
+		zest_resource_node imgui_vertex_buffer = zest_imgui_ImportVertexResources("Imgui Vertex Buffer");
+		zest_resource_node imgui_index_buffer = zest_imgui_ImportIndexResources("Imgui Index Buffer");
         //Transfer Pass
         zest_BeginTransferPass("Upload ImGui"); {
             zest_ConnectOutput(imgui_vertex_buffer);
             zest_ConnectOutput(imgui_index_buffer);
             //task
-            zest_SetPassTask(zest_imgui_UploadImGuiPass, imgui_info);
+            zest_SetPassTask(zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
             zest_EndPass();
         }
         //Graphics Pass for ImGui outputting to the output passed in to this function
@@ -55,15 +55,15 @@ zest_pass_node zest_imgui_BeginPass() {
 
 // This is the function that will be called for your pass.
 void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
-	zest_imgui imgui_info = zest_GetImGuiInfo();
-    zest_buffer vertex_buffer = zest_GetPassInputBuffer(context, "Imgui Vertex Buffer");
-    zest_buffer index_buffer = zest_GetPassInputBuffer(context, "Imgui Index Buffer");
+    zest_imgui imgui_info = &ZestRenderer->imgui_info;
+    zest_buffer vertex_buffer = zest_GetPassInputResource(context, "Imgui Vertex Buffer")->storage_buffer;
+    zest_buffer index_buffer = zest_GetPassInputResource(context, "Imgui Index Buffer")->storage_buffer;
     zest_imgui_RecordLayer(context, vertex_buffer, index_buffer);
 }
 
 // This is the function that will be called for your pass.
 void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
-	zest_imgui imgui_info = zest_GetImGuiInfo();
+    zest_imgui imgui_info = &ZestRenderer->imgui_info;
 
     if (!imgui_info->dirty[imgui_info->fif]) {
         return;
@@ -71,8 +71,8 @@ void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_frame
 
     zest_buffer staging_vertex = imgui_info->vertex_staging_buffer[imgui_info->fif];
     zest_buffer staging_index = imgui_info->index_staging_buffer[imgui_info->fif];
-    zest_buffer vertex_buffer = zest_GetPassOutputBuffer(context, "Imgui Vertex Buffer");
-    zest_buffer index_buffer = zest_GetPassOutputBuffer(context, "Imgui Index Buffer");
+    zest_buffer vertex_buffer = zest_GetPassOutputResource(context, "Imgui Vertex Buffer")->storage_buffer;
+    zest_buffer index_buffer = zest_GetPassOutputResource(context, "Imgui Index Buffer")->storage_buffer;
 
     zest_buffer_uploader_t index_upload = { 0, staging_index, index_buffer, 0 };
     zest_buffer_uploader_t vertex_upload = { 0, staging_vertex, vertex_buffer, 0 };
@@ -91,7 +91,7 @@ void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_frame
 }
 
 void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buffer vertex_buffer, zest_buffer index_buffer) {
-	zest_imgui imgui_info = zest_GetImGuiInfo();
+    zest_imgui imgui_info = &ZestRenderer->imgui_info;
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
     VkCommandBuffer command_buffer = context->command_buffer;
@@ -191,37 +191,37 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buff
 }
 
 zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource) {
-	zest_imgui imgui_info = zest_GetImGuiInfo();
+	zest_imgui imgui_info = &ZestRenderer->imgui_info;
     return imgui_info->vertex_device_buffer[imgui_info->fif];
 }
 
 zest_buffer zest_imgui_IndexBufferProvider(zest_resource_node resource) {
-	zest_imgui imgui_info = zest_GetImGuiInfo();
+	zest_imgui imgui_info = &ZestRenderer->imgui_info;
     return imgui_info->index_device_buffer[imgui_info->fif];
 }
 
-zest_resource_id zest_imgui_ImportVertexResources(const char *name) {
+zest_resource_node zest_imgui_ImportVertexResources(const char *name) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     if (imgui_draw_data) {
-		zest_imgui imgui_info = zest_GetImGuiInfo();
-		zest_resource_id resource_id = zest_ImportBufferResource(name, imgui_info->vertex_device_buffer[imgui_info->fif], zest_imgui_VertexBufferProvider);
-        return resource_id;
+		zest_imgui imgui_info = &ZestRenderer->imgui_info;
+		zest_resource_node node = zest_ImportBufferResource(name, imgui_info->vertex_device_buffer[imgui_info->fif], zest_imgui_VertexBufferProvider);
+        return node;
     }
     return NULL;
 }
 
-zest_resource_id zest_imgui_ImportIndexResources(const char *name) {
+zest_resource_node zest_imgui_ImportIndexResources(const char *name) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     if (imgui_draw_data) {
-		zest_imgui imgui_info = zest_GetImGuiInfo();
-		zest_resource_id resource_id = zest_ImportBufferResource(name, imgui_info->index_device_buffer[imgui_info->fif], zest_imgui_IndexBufferProvider);
-        return resource_id;
+		zest_imgui imgui_info = &ZestRenderer->imgui_info;
+		zest_resource_node node = zest_ImportBufferResource(name, imgui_info->index_device_buffer[imgui_info->fif], zest_imgui_IndexBufferProvider);
+        return node;
     }
     return NULL;
 }
 
 void zest_imgui_UpdateBuffers() {
-	zest_imgui imgui_info = zest_GetImGuiInfo();
+    zest_imgui imgui_info = &ZestRenderer->imgui_info;
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
 	imgui_info->fif = (imgui_info->fif + 1) % ZEST_MAX_FIF;

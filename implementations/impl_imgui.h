@@ -6,8 +6,8 @@
 #include <imgui/misc/freetype/imgui_freetype.h>
 
 void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buffer vertex_buffer, zest_buffer index_buffer);
-zest_resource_id zest_imgui_ImportVertexResources(const char *name);
-zest_resource_id zest_imgui_ImportIndexResources(const char *name);
+zest_resource_node zest_imgui_ImportVertexResources(const char *name);
+zest_resource_node zest_imgui_ImportIndexResources(const char *name);
 void zest_imgui_UpdateBuffers();
 void zest_imgui_DrawImage(zest_image image, VkDescriptorSet set, float width, float height);
 void zest_imgui_DrawImage2(zest_image image, float width, float height);
