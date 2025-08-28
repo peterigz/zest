@@ -2,7 +2,7 @@
 #include "imgui_internal.h"
 
 zest_imgui zest_imgui_Initialise() {
-	zest_imgui imgui_info = &ZestRenderer->imgui_info;
+	zest_imgui imgui_info = zest_GetImGuiInfo();
 	ZEST_ASSERT(!imgui_info->vertex_staging_buffer[0]);	//imgui already initialised!
 	ZEST_ASSERT(!imgui_info->index_staging_buffer[0]);
 	memset(imgui_info, 0, sizeof(zest_imgui_t));
@@ -10,7 +10,8 @@ zest_imgui zest_imgui_Initialise() {
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());
-	io.DisplayFramebufferScale = ImVec2(ZestRenderer->dpi_scale, ZestRenderer->dpi_scale);
+	float dpi_scale = zest_GetDPIScale();
+	io.DisplayFramebufferScale = ImVec2(dpi_scale, dpi_scale);
 	unsigned char* pixels;
 	int width, height;
 	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
@@ -51,10 +52,9 @@ zest_imgui zest_imgui_Initialise() {
 	imgui_pipeline->colorBlendAttachment = zest_ImGuiBlendState();
 	imgui_pipeline->depthStencil.depthTestEnable = VK_FALSE;
 	imgui_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-	ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
 
 	io.Fonts->SetTexID((ImTextureID)font_image);
-	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)ZestRenderer->main_window->window_handle, true);
+	ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)zest_GetCurrentWindow()->window_handle, true);
 
     imgui_info->pipeline = imgui_pipeline;
 
@@ -69,7 +69,7 @@ zest_imgui zest_imgui_Initialise() {
 void zest_imgui_Shutdown() {
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
-	zest_imgui imgui_info = &ZestRenderer->imgui_info;
+	zest_imgui imgui_info = zest_GetImGuiInfo();
 	zest_ForEachFrameInFlight(fif) {
 		zest_FreeBuffer(imgui_info->index_device_buffer[fif]);
 		zest_FreeBuffer(imgui_info->vertex_device_buffer[fif]);
