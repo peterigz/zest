@@ -45,10 +45,10 @@ struct ZestTests {
 	int current_test;
 	VkSamplerCreateInfo vk_sampler_info;
 	VkSamplerCreateInfo mipped_sampler_info;
-	zest_texture texture;
+	zest_texture_handle texture;
 	TestPushConstants push;
-	zest_compute compute_write;
-	zest_compute compute_verify;
+	zest_compute_handle compute_write;
+	zest_compute_handle compute_verify;
 	zest_buffer cpu_buffer;
 	zest_uint cpu_buffer_index;
 	zest_create_info_t simple_create_info;

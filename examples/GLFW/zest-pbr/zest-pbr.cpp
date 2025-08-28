@@ -57,7 +57,7 @@ void zest_DispatchBRDSetup(VkCommandBuffer command_buffer, const zest_frame_grap
 	const zest_uint local_size_y = 8;
 
 	VkDescriptorSet sets[] = {
-		ZestRenderer->global_set->vk_descriptor_set,
+		zest_vk_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -96,7 +96,6 @@ void SetupBRDFLUT(ImGuiApp *app) {
 	zest_EndPass();
 
 	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
-	zest_PrintCompiledRenderGraph(frame_graph);
 }
 
 void zest_DispatchIrradianceSetup(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
@@ -105,7 +104,7 @@ void zest_DispatchIrradianceSetup(VkCommandBuffer command_buffer, const zest_fra
 	const zest_uint local_size = 8;
 
 	VkDescriptorSet sets[] = {
-		ZestRenderer->global_set->vk_descriptor_set,
+		zest_vk_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -150,7 +149,6 @@ void SetupIrradianceCube(ImGuiApp *app) {
 	zest_EndPass();
 
 	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
-	zest_PrintCompiledRenderGraph(frame_graph);
 }
 
 void zest_DispatchPrefilteredSetup(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
@@ -208,12 +206,11 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 	zest_EndPass();
 
 	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
-	zest_PrintCompiledRenderGraph(frame_graph);
 }
 
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
-	zest_imgui_Initialise();
+	zest_imgui_InitialiseForGLFW();
 	//Implement a dark style
 	zest_imgui_DarkStyle();
 	
@@ -643,6 +640,7 @@ int main(void) {
 
 	//Start the main loop
 	zest_Start();
+	zest_imgui_ShutdownGLFW();
 	zest_Shutdown();
 
 	return 0;

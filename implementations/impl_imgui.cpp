@@ -1,17 +1,80 @@
 #include "impl_imgui.h"
 #include "imgui_internal.h"
 
+zest_imgui_t *ZestImGui = 0;
+
+zest_imgui_t *zest_imgui_Initialise() {
+    ZestImGui = (zest_imgui_t*)zest_AllocateMemory(sizeof(zest_imgui_t));
+    memset(ZestImGui, 0, sizeof(zest_imgui_t));
+    ZestImGui->magic = zest_INIT_MAGIC(zest_struct_type_imgui);
+    ImGui::CreateContext();
+    ImGuiIO &io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());
+    io.DisplayFramebufferScale = ImVec2(ZestRenderer->dpi_scale, ZestRenderer->dpi_scale);
+    unsigned char *pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    int upload_size = width * height * 4 * sizeof(char);
+
+    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+    ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
+    zest_image font_image = zest_AddTextureImageBitmap(ZestImGui->font_texture, font_bitmap);
+    zest_ProcessTextureImages(ZestImGui->font_texture);
+    zest_FreeBitmap(font_bitmap);
+
+    ZestImGui->vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
+    ZestImGui->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
+
+    //ImGuiPipeline
+    zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate("pipeline_imgui");
+    imgui_pipeline->scissor.offset.x = 0;
+    imgui_pipeline->scissor.offset.y = 0;
+    zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_push_constants_t), zest_shader_render_stages);
+    zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
+    zest_AddVertexAttribute(imgui_pipeline, 0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
+    zest_AddVertexAttribute(imgui_pipeline, 0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV
+    zest_AddVertexAttribute(imgui_pipeline, 0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col));    // Location 2: Color
+
+    zest_SetPipelineShaders(imgui_pipeline, ZestImGui->vertex_shader, ZestImGui->fragment_shader);
+
+    imgui_pipeline->scissor.extent = zest_GetSwapChainExtent();
+    imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
+    zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
+    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_vk_GetDebugLayout());
+    zest_EndPipelineTemplate(imgui_pipeline);
+
+    imgui_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    imgui_pipeline->rasterizer.cullMode = VK_CULL_MODE_NONE;
+    imgui_pipeline->rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    imgui_pipeline->inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    imgui_pipeline->colorBlendAttachment = zest_ImGuiBlendState();
+    imgui_pipeline->depthStencil.depthTestEnable = VK_FALSE;
+    imgui_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
+
+    io.Fonts->SetTexID((ImTextureID)font_image);
+
+    ZestImGui->pipeline = imgui_pipeline;
+
+    zest_ForEachFrameInFlight(fif) {
+        ZestImGui->vertex_device_buffer[fif] = zest_CreateUniqueVertexBuffer(1024 * 1024, fif, 0xDEA41);
+        ZestImGui->index_device_buffer[fif] = zest_CreateUniqueIndexBuffer(1024 * 1024, fif, 0xDEA41);
+    }
+
+    return ZestImGui;
+}
+
 //Dear ImGui helper functions
 void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned char *pixels) {
-    zest_imgui imgui_info = &ZestRenderer->imgui_info;
     zest_WaitForIdleDevice();
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-    zest_FreeTexture(imgui_info->font_texture);
-	imgui_info->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
-    zest_ResetTexture(imgui_info->font_texture);
-    zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, font_bitmap);
-    zest_ProcessTextureImages(imgui_info->font_texture);
+    zest_FreeTexture(ZestImGui->font_texture);
+	ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
+    zest_ResetTexture(ZestImGui->font_texture);
+    zest_image font_image = zest_AddTextureImageBitmap(ZestImGui->font_texture, font_bitmap);
+    zest_ProcessTextureImages(ZestImGui->font_texture);
     zest_FreeBitmap(font_bitmap);
     
     ImGuiIO &io = ImGui::GetIO();
@@ -27,9 +90,8 @@ zest_pass_node zest_imgui_BeginPass() {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     
     if (imgui_draw_data && imgui_draw_data->TotalVtxCount > 0 && imgui_draw_data->TotalIdxCount > 0) {
-        zest_imgui imgui_info = &ZestRenderer->imgui_info;
         //Declare resources
-        zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", ZestRenderer->imgui_info.font_texture, 0);
+        zest_resource_node imgui_font_texture = zest_ImportImageResource("Imgui Font", ZestImGui->font_texture, 0);
 		zest_resource_node imgui_vertex_buffer = zest_imgui_ImportVertexResources("Imgui Vertex Buffer");
 		zest_resource_node imgui_index_buffer = zest_imgui_ImportIndexResources("Imgui Index Buffer");
         //Transfer Pass
@@ -37,7 +99,7 @@ zest_pass_node zest_imgui_BeginPass() {
             zest_ConnectOutput(imgui_vertex_buffer);
             zest_ConnectOutput(imgui_index_buffer);
             //task
-            zest_SetPassTask(zest_imgui_UploadImGuiPass, &ZestRenderer->imgui_info);
+            zest_SetPassTask(zest_imgui_UploadImGuiPass, ZestImGui);
             zest_EndPass();
         }
         //Graphics Pass for ImGui outputting to the output passed in to this function
@@ -55,29 +117,27 @@ zest_pass_node zest_imgui_BeginPass() {
 
 // This is the function that will be called for your pass.
 void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
-    zest_imgui imgui_info = &ZestRenderer->imgui_info;
-    zest_buffer vertex_buffer = zest_GetPassInputResource(context, "Imgui Vertex Buffer")->storage_buffer;
-    zest_buffer index_buffer = zest_GetPassInputResource(context, "Imgui Index Buffer")->storage_buffer;
+    zest_buffer vertex_buffer = zest_GetPassInputBuffer(context, "Imgui Vertex Buffer");
+    zest_buffer index_buffer = zest_GetPassInputBuffer(context, "Imgui Index Buffer");
     zest_imgui_RecordLayer(context, vertex_buffer, index_buffer);
 }
 
 // This is the function that will be called for your pass.
 void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
-    zest_imgui imgui_info = &ZestRenderer->imgui_info;
 
-    if (!imgui_info->dirty[imgui_info->fif]) {
+    if (!ZestImGui->dirty[ZestImGui->fif]) {
         return;
     }
 
-    zest_buffer staging_vertex = imgui_info->vertex_staging_buffer[imgui_info->fif];
-    zest_buffer staging_index = imgui_info->index_staging_buffer[imgui_info->fif];
-    zest_buffer vertex_buffer = zest_GetPassOutputResource(context, "Imgui Vertex Buffer")->storage_buffer;
-    zest_buffer index_buffer = zest_GetPassOutputResource(context, "Imgui Index Buffer")->storage_buffer;
+    zest_buffer staging_vertex = ZestImGui->vertex_staging_buffer[ZestImGui->fif];
+    zest_buffer staging_index = ZestImGui->index_staging_buffer[ZestImGui->fif];
+    zest_buffer vertex_buffer = zest_GetPassOutputBuffer(context, "Imgui Vertex Buffer");
+    zest_buffer index_buffer = zest_GetPassOutputBuffer(context, "Imgui Index Buffer");
 
     zest_buffer_uploader_t index_upload = { 0, staging_index, index_buffer, 0 };
     zest_buffer_uploader_t vertex_upload = { 0, staging_vertex, vertex_buffer, 0 };
 
-    if (staging_vertex->memory_in_use && staging_index->memory_in_use) {
+    if (zest_BufferMemoryInUse(staging_vertex) && zest_BufferMemoryInUse(staging_index)) {
         zest_AddCopyCommand(&vertex_upload, staging_vertex, vertex_buffer, 0);
         zest_AddCopyCommand(&index_upload, staging_index, index_buffer, 0);
     }
@@ -87,11 +147,10 @@ void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_frame
     zest_UploadBuffer(&vertex_upload, command_buffer);
     zest_UploadBuffer(&index_upload, command_buffer);
 
-    imgui_info->dirty[imgui_info->fif] = 0;
+    ZestImGui->dirty[ZestImGui->fif] = 0;
 }
 
 void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buffer vertex_buffer, zest_buffer index_buffer) {
-    zest_imgui imgui_info = &ZestRenderer->imgui_info;
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
     VkCommandBuffer command_buffer = context->command_buffer;
@@ -120,48 +179,48 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buff
             {
                 const ImDrawCmd *pcmd = &cmd_list->CmdBuffer[j];
 
-                zest_image_t *current_image = (zest_image_t *)pcmd->TextureId;
+                zest_image current_image = (zest_image)pcmd->TextureId;
                 if (!current_image) {
                     //This means we're trying to draw a render target
                     assert(pcmd->UserCallbackData);
                     ZEST_ASSERT(0); //Needs reimplementing
                 }
 
-                zest_push_constants_t *push_constants = &imgui_info->push_constants;
+                zest_push_constants_t *push_constants = &ZestImGui->push_constants;
 
-				zest_pipeline pipeline = zest_PipelineWithTemplate(imgui_info->pipeline, context->render_pass);
-                switch (ZEST_STRUCT_MAGIC_TYPE(current_image->magic)) {
+				zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context->render_pass);
+                switch (ZEST_STRUCT_TYPE(current_image)) {
                 case zest_struct_type_image: {
-                    VkDescriptorSet texture_set = zest_GetTextureDebugDescriptorSet(current_image->texture);
-                    if (last_pipeline != imgui_info->pipeline || last_descriptor_set != texture_set) {
+                    VkDescriptorSet texture_set = zest_GetImageDebugDescriptorSet(current_image);
+                    if (last_pipeline != ZestImGui->pipeline || last_descriptor_set != texture_set) {
                         last_descriptor_set = texture_set;
                         zest_BindPipeline(command_buffer, pipeline, &last_descriptor_set, 1);
-                        last_pipeline = imgui_info->pipeline;
+                        last_pipeline = ZestImGui->pipeline;
                     }
-                    push_constants->parameters2.x = (float)current_image->layer;
+                    push_constants->parameters2.x = (float)zest_ImageLayerIndex(current_image);
                     break;
                 }
                 case zest_struct_type_imgui_image: {
                     zest_imgui_image_t *imgui_image = (zest_imgui_image_t *)pcmd->TextureId;
                     //The imgui image must have its image, pipeline and shader resources defined
                     ZEST_ASSERT(imgui_image->image);
-                    zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &imgui_info->draw_sets);
-					pipeline = zest_PipelineWithTemplate(imgui_info->pipeline, context->render_pass);
-                    zest_BindPipeline(command_buffer, pipeline, imgui_info->draw_sets, set_count);
+                    zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &ZestImGui->draw_sets);
+					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context->render_pass);
+                    zest_BindPipeline(command_buffer, pipeline, ZestImGui->draw_sets, set_count);
                     last_descriptor_set = VK_NULL_HANDLE;
                     last_pipeline = imgui_image->pipeline;
                     push_constants = &imgui_image->push_constants;
-                    push_constants->parameters2.x = (float)imgui_image->image->layer;
+                    push_constants->parameters2.x = (float)zest_ImageLayerIndex(current_image);
                 }
                 break;
                 default:
                     //Invalid image
-					pipeline = zest_PipelineWithTemplate(imgui_info->pipeline, context->render_pass);
+					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context->render_pass);
                     ZEST_PRINT_WARNING("%s", "Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
                     continue;
                 }
 
-                vkCmdPushConstants(command_buffer, pipeline->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), push_constants);
+                zest_SendPushConstants(command_buffer, pipeline, push_constants);
 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
@@ -191,20 +250,17 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buff
 }
 
 zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource) {
-	zest_imgui imgui_info = &ZestRenderer->imgui_info;
-    return imgui_info->vertex_device_buffer[imgui_info->fif];
+    return ZestImGui->vertex_device_buffer[ZestImGui->fif];
 }
 
 zest_buffer zest_imgui_IndexBufferProvider(zest_resource_node resource) {
-	zest_imgui imgui_info = &ZestRenderer->imgui_info;
-    return imgui_info->index_device_buffer[imgui_info->fif];
+    return ZestImGui->index_device_buffer[ZestImGui->fif];
 }
 
 zest_resource_node zest_imgui_ImportVertexResources(const char *name) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     if (imgui_draw_data) {
-		zest_imgui imgui_info = &ZestRenderer->imgui_info;
-		zest_resource_node node = zest_ImportBufferResource(name, imgui_info->vertex_device_buffer[imgui_info->fif], zest_imgui_VertexBufferProvider);
+		zest_resource_node node = zest_ImportBufferResource(name, ZestImGui->vertex_device_buffer[ZestImGui->fif], zest_imgui_VertexBufferProvider);
         return node;
     }
     return NULL;
@@ -213,53 +269,50 @@ zest_resource_node zest_imgui_ImportVertexResources(const char *name) {
 zest_resource_node zest_imgui_ImportIndexResources(const char *name) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
     if (imgui_draw_data) {
-		zest_imgui imgui_info = &ZestRenderer->imgui_info;
-		zest_resource_node node = zest_ImportBufferResource(name, imgui_info->index_device_buffer[imgui_info->fif], zest_imgui_IndexBufferProvider);
+		zest_resource_node node = zest_ImportBufferResource(name, ZestImGui->index_device_buffer[ZestImGui->fif], zest_imgui_IndexBufferProvider);
         return node;
     }
     return NULL;
 }
 
 void zest_imgui_UpdateBuffers() {
-    zest_imgui imgui_info = &ZestRenderer->imgui_info;
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
-	imgui_info->fif = (imgui_info->fif + 1) % ZEST_MAX_FIF;
-	zest_FreeBuffer(imgui_info->vertex_staging_buffer[imgui_info->fif]);
-	zest_FreeBuffer(imgui_info->index_staging_buffer[imgui_info->fif]);
+	ZestImGui->fif = (ZestImGui->fif + 1) % ZEST_MAX_FIF;
+	zest_FreeBuffer(ZestImGui->vertex_staging_buffer[ZestImGui->fif]);
+	zest_FreeBuffer(ZestImGui->index_staging_buffer[ZestImGui->fif]);
 
     if (imgui_draw_data) {
-        imgui_info->dirty[imgui_info->fif] = 1;
+        ZestImGui->dirty[ZestImGui->fif] = 1;
 		zest_size index_memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 		zest_size vertex_memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
-		imgui_info->vertex_staging_buffer[imgui_info->fif] = zest_CreateStagingBuffer(vertex_memory_in_use, 0);
-		imgui_info->index_staging_buffer[imgui_info->fif] = zest_CreateStagingBuffer(index_memory_in_use, 0);
-		zest_buffer vertex_buffer = imgui_info->vertex_staging_buffer[imgui_info->fif];
-		zest_buffer index_buffer = imgui_info->index_staging_buffer[imgui_info->fif];
-        vertex_buffer->memory_in_use = vertex_memory_in_use;
-        index_buffer->memory_in_use = index_memory_in_use;
-		zest_buffer device_vertex_buffer = imgui_info->vertex_device_buffer[imgui_info->fif];
-		zest_buffer device_index_buffer = imgui_info->index_device_buffer[imgui_info->fif];
+		ZestImGui->vertex_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(vertex_memory_in_use, 0);
+		ZestImGui->index_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(index_memory_in_use, 0);
+		zest_buffer vertex_buffer = ZestImGui->vertex_staging_buffer[ZestImGui->fif];
+		zest_buffer index_buffer = ZestImGui->index_staging_buffer[ZestImGui->fif];
+        zest_SetBufferMemoryInUse(vertex_buffer, vertex_memory_in_use);
+        zest_SetBufferMemoryInUse(index_buffer, index_memory_in_use);
+		zest_buffer device_vertex_buffer = ZestImGui->vertex_device_buffer[ZestImGui->fif];
+		zest_buffer device_index_buffer = ZestImGui->index_device_buffer[ZestImGui->fif];
         ZEST_ASSERT(vertex_buffer); //Make sure you call zest_imgui_Initialise first!
         ZEST_ASSERT(index_buffer);	//Make sure you call zest_imgui_Initialise first!
 
 
-		imgui_info->push_constants.parameters1 = zest_Vec4Set(2.0f / zest_ScreenWidthf(), 2.0f / zest_ScreenHeightf(), -1.f, -1.f);
-		imgui_info->push_constants.parameters2 = zest_Vec4Set1(0.f);
+		ZestImGui->push_constants.parameters1 = zest_Vec4Set(2.0f / zest_ScreenWidthf(), 2.0f / zest_ScreenHeightf(), -1.f, -1.f);
+		ZestImGui->push_constants.parameters2 = zest_Vec4Set1(0.f);
 
-        if (index_buffer->memory_in_use > device_index_buffer->size) {
-            if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), index_buffer->memory_in_use)) {
-				imgui_info->index_device_buffer[imgui_info->fif] = device_index_buffer;
+        if (index_memory_in_use > zest_BufferSize(device_index_buffer)) {
+            if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), zest_BufferMemoryInUse(index_buffer))) {
+				ZestImGui->index_device_buffer[ZestImGui->fif] = device_index_buffer;
             }
         }
-        if (vertex_buffer->memory_in_use > device_vertex_buffer->size) {
-			zest_size memory_in_use = device_vertex_buffer->memory_in_use;
-            if (zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawVert), vertex_buffer->memory_in_use)) {
-				imgui_info->vertex_device_buffer[imgui_info->fif] = device_vertex_buffer;
+        if (vertex_memory_in_use > zest_BufferSize(device_vertex_buffer)) {
+            if (zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawVert), zest_BufferMemoryInUse(vertex_buffer))) {
+				ZestImGui->vertex_device_buffer[ZestImGui->fif] = device_vertex_buffer;
             }
         }
-        ImDrawIdx *idxDst = (ImDrawIdx *)index_buffer->data;
-        ImDrawVert *vtxDst = (ImDrawVert *)vertex_buffer->data;
+        ImDrawIdx *idxDst = (ImDrawIdx *)zest_BufferData(index_buffer);
+        ImDrawVert *vtxDst = (ImDrawVert *)zest_BufferData(vertex_buffer);
 
         for (int n = 0; n < imgui_draw_data->CmdListsCount; n++) {
             const ImDrawList *cmd_list = imgui_draw_data->CmdLists[n];
@@ -273,8 +326,8 @@ void zest_imgui_UpdateBuffers() {
 
 void zest_imgui_DrawImage(zest_image image, VkDescriptorSet set, float width, float height) {
     using namespace ImGui;
-
-    ImVec2 image_size((float)image->width, (float)image->height);
+    zest_extent_t image_extent = zest_ImageDimensions(image);
+    ImVec2 image_size((float)image_extent.width, (float)image_extent.height);
     float ratio = image_size.x / image_size.y;
     image_size.x = ratio > 1 ? width : width * ratio;
     image_size.y = ratio > 1 ? height / ratio : height;
@@ -282,27 +335,31 @@ void zest_imgui_DrawImage(zest_image image, VkDescriptorSet set, float width, fl
     ImGuiWindow *window = GetCurrentWindow();
     const ImRect image_bb(window->DC.CursorPos + image_offset, window->DC.CursorPos + image_offset + image_size);
     ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
-    window->DrawList->AddImage((ImTextureID)image, image_bb.Min, image_bb.Max, ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w), GetColorU32(tint_col));
+    zest_vec4 uv = zest_ImageUV(image);
+    window->DrawList->AddImage((ImTextureID)image, image_bb.Min, image_bb.Max, ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w), GetColorU32(tint_col));
 }
 
 void zest_imgui_DrawImage2(zest_image image, float width, float height) {
-    ImGui::Image((ImTextureID)image, ImVec2(width, height), ImVec2(image->uv.x, image->uv.y), ImVec2(image->uv.z, image->uv.w));
+    zest_vec4 uv = zest_ImageUV(image);
+    ImGui::Image((ImTextureID)image, ImVec2(width, height), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
 }
 
 void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y) {
 
-    ImVec2 zw(image->uv.z, image->uv.w);
-    zest_vec4 uv = image->uv;
-    if (zest_TextureCanTile(image->texture)) {
+    zest_texture_handle texture_handle = zest_ImageTextureHandle(image);
+    zest_vec4 uv = zest_ImageUV(image);
+    zest_extent_t image_size = zest_ImageDimensions(image);
+    ImVec2 zw(uv.z, uv.w);
+    if (zest_TextureCanTile(texture_handle)) {
         if (tile) {
             if (offset_x || offset_y) {
-                offset_x = offset_x / float(image->width);
-                offset_y = offset_y / float(image->height);
+                offset_x = offset_x / float(image_size.width);
+                offset_y = offset_y / float(image_size.height);
                 offset_x *= scale_x;
                 offset_y *= scale_y;
             }
-            scale_x *= width / float(image->width);
-            scale_y *= height / float(image->height);
+            scale_x *= width / float(image_size.width);
+            scale_y *= height / float(image_size.height);
             zw.x = (uv.z * scale_x) - offset_x;
             zw.y = (uv.w * scale_y) - offset_y;
             uv.x -= offset_x;
@@ -316,16 +373,19 @@ void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bo
 bool zest_imgui_DrawButton(zest_image image, const char *user_texture_id, float width, float height, int frame_padding) {
     using namespace ImGui;
 
+    zest_vec4 uv = zest_ImageUV(image);
+    zest_extent_t image_dimensions = zest_ImageDimensions(image);
+
     ImVec2 size(width, height);
-    ImVec2 image_size((float)image->width, (float)image->height);
-    float ratio = image_size.x / image_size.y;
-    image_size.x = ratio > 1 ? width : width * ratio;
-    image_size.y = ratio > 1 ? height / ratio : height;
-    ImVec2 image_offset((width - image_size.x) * .5f, (height - image_size.y) * .5f);
+    ImVec2 image_size((float)image_dimensions.width, (float)image_dimensions.height);
+    float ratio = image_dimensions.width / image_dimensions.height;
+    image_dimensions.width = ratio > 1.f ? width : width * ratio;
+    image_dimensions.height = ratio > 1.f ? height / ratio : height;
+    ImVec2 image_offset((width - image_dimensions.width) * .5f, (height - image_dimensions.height) * .5f);
     ImVec4 bg_col(0.f, 0.f, 0.f, 0.f);
     ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
-    ImVec2 uv0(image->uv.x, image->uv.y);
-    ImVec2 uv1(image->uv.z, image->uv.w);
+    ImVec2 uv0(uv.x, uv.y);
+    ImVec2 uv1(uv.z, uv.w);
 
     ImGuiWindow *window = GetCurrentWindow();
     if (window->SkipItems)
@@ -457,5 +517,19 @@ void zest_imgui_DarkStyle() {
     style.WindowMinSize.x = 32.f;
     style.WindowMinSize.y = 32.f;
     style.ChildBorderSize = 1.f;
+}
+
+void zest_imgui_Shutdown() {
+	ImGui::DestroyContext();
+	zest_ForEachFrameInFlight(fif) {
+		zest_FreeBuffer(ZestImGui->index_device_buffer[fif]);
+		zest_FreeBuffer(ZestImGui->vertex_device_buffer[fif]);
+		zest_FreeBuffer(ZestImGui->index_staging_buffer[fif]);
+		zest_FreeBuffer(ZestImGui->vertex_staging_buffer[fif]);
+	}
+	zest_FreeTexture(ZestImGui->font_texture);
+	zest_FreePipelineTemplate(ZestImGui->pipeline);
+	zest_vec_free(ZestImGui->draw_sets);
+    zest_FreeMemory(ZestImGui);
 }
 //--End Dear ImGui helper functions

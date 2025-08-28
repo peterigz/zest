@@ -4,6 +4,7 @@ zest_window_t *zest_implglfw_CreateWindowCallback(int x, int y, int width, int h
 	ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
 
 	zest_window_t *window = zest_AllocateWindow();
+	ZestRenderer->main_window = window;
 
 	glfwInit();
 
@@ -11,20 +12,18 @@ zest_window_t *zest_implglfw_CreateWindowCallback(int x, int y, int width, int h
 	if (maximised)
 		glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
 
-	window->window_width = width;
-	window->window_height = height;
-
-	window->window_handle = glfwCreateWindow(width, height, title, 0, 0);
+	zest_UpdateWindowSize(window, width, height);
+	GLFWwindow *window_handle = glfwCreateWindow(width, height, title, 0, 0);
+	zest_SetWindowHandle(window, window_handle);
 	if (!maximised) {
-		glfwSetWindowPos((GLFWwindow*)window->window_handle, x, y);
+		glfwSetWindowPos(window_handle, x, y);
 	}
-	glfwSetWindowUserPointer((GLFWwindow*)window->window_handle, ZestApp);
+	glfwSetWindowUserPointer(window_handle, ZestApp);
 
 	if (maximised) {
 		int width, height;
-		glfwGetWindowSize((GLFWwindow*)window->window_handle, &width, &height);
-		window->window_width = width;
-		window->window_height = height;
+		glfwGetWindowSize(window_handle, &width, &height);
+		zest_UpdateWindowSize(window, width, height);
 	}
 
 	return window;
@@ -32,19 +31,23 @@ zest_window_t *zest_implglfw_CreateWindowCallback(int x, int y, int width, int h
 
 VkResult zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
-	return glfwCreateWindowSurface(ZestDevice->instance, (GLFWwindow *)window->window_handle, &ZestDevice->allocation_callbacks, &window->surface);
+	GLFWwindow *handle = (GLFWwindow *)zest_Window();
+	VkSurfaceKHR surface;
+	VkResult result = glfwCreateWindowSurface(ZestDevice->instance, handle, &ZestDevice->allocation_callbacks, &surface);
+	zest_SetWindowSurface(surface);
+	return result;
 }
 
 void zest_implglfw_SetWindowSize(zest_window window, int width, int height) {
 	ZEST_ASSERT_HANDLE(window);	//Not a valid window handle!
-	GLFWwindow *handle = (GLFWwindow *)window->window_handle;
+	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 
 	glfwSetWindowSize(handle, width, height);
 }
 
 void zest_implglfw_SetWindowMode(zest_window window, zest_window_mode mode) {
 	ZEST_ASSERT_HANDLE(window);	//Not a valid window handle!
-	GLFWwindow *handle = (GLFWwindow *)window->window_handle;
+	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 	static int last_x, last_y, last_width, last_height;
 
 	switch (mode) {
@@ -73,20 +76,21 @@ void zest_implglfw_SetWindowMode(zest_window window, zest_window_mode mode) {
 		glfwSetWindowAttrib(handle, GLFW_DECORATED, GLFW_FALSE);
 	break;
 	}
-	window->mode = mode;
+	zest_SetWindowMode(zest_GetCurrentWindow(), mode);
 }
 
 void zest_implglfw_PollEventsCallback(void) {
 	glfwPollEvents();
 	double mouse_x, mouse_y;
-	glfwGetCursorPos((GLFWwindow*)ZestRenderer->main_window->window_handle, &mouse_x, &mouse_y);
+	GLFWwindow *handle = (GLFWwindow *)zest_Window();
+	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
 	double last_mouse_x = ZestApp->mouse_x;
 	double last_mouse_y = ZestApp->mouse_y;
 	ZestApp->mouse_x = mouse_x;
 	ZestApp->mouse_y = mouse_y;
 	ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
 	ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
-	zest_MaybeQuit(glfwWindowShouldClose((GLFWwindow*)ZestRenderer->main_window->window_handle));
+	zest_MaybeQuit(glfwWindowShouldClose(handle));
 }
 
 void zest_implglfw_AddPlatformExtensionsCallback(void) {
@@ -98,13 +102,16 @@ void zest_implglfw_AddPlatformExtensionsCallback(void) {
 }
 
 void zest_implglfw_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
-    glfwGetFramebufferSize((GLFWwindow*)ZestRenderer->main_window->window_handle, fb_width, fb_height);
-	glfwGetWindowSize((GLFWwindow*)ZestRenderer->main_window->window_handle, window_width, window_height);
+	GLFWwindow *handle = (GLFWwindow *)zest_Window();
+    glfwGetFramebufferSize(handle, fb_width, fb_height);
+	glfwGetWindowSize(handle, window_width, window_height);
 }
 
 void zest_implglfw_DestroyWindowCallback(zest_window window, void *user_data) {
-	glfwDestroyWindow((GLFWwindow*)window->window_handle);
-    vkDestroySurfaceKHR(ZestDevice->instance, window->surface, &ZestDevice->allocation_callbacks);
+	GLFWwindow *handle = (GLFWwindow *)zest_Window();
+	VkSurfaceKHR surface = zest_WindowSurface();
+	glfwDestroyWindow(handle);
+    vkDestroySurfaceKHR(ZestDevice->instance, surface, &ZestDevice->allocation_callbacks);
 }
 
 void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {

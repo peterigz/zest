@@ -1344,12 +1344,10 @@ typedef struct zest_device_memory_pool_t zest_device_memory_pool_t;
 typedef struct zest_timer_t zest_timer_t;
 typedef struct zest_window_t zest_window_t;
 typedef struct zest_shader_t zest_shader_t;
-typedef struct zest_debug_t zest_debug_t;
 typedef struct zest_frame_graph_semaphores_t zest_frame_graph_semaphores_t;
 typedef struct zest_frame_graph_t zest_frame_graph_t;
 typedef struct zest_pass_node_t zest_pass_node_t;
 typedef struct zest_resource_node_t zest_resource_node_t;
-typedef struct zest_imgui_t zest_imgui_t;
 typedef struct zest_queue_t zest_queue_t;
 typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 typedef struct zest_swapchain_t zest_swapchain_t;
@@ -1378,7 +1376,6 @@ ZEST__MAKE_HANDLE(zest_device_memory_pool)
 ZEST__MAKE_HANDLE(zest_timer)
 ZEST__MAKE_HANDLE(zest_window)
 ZEST__MAKE_HANDLE(zest_shader)
-ZEST__MAKE_HANDLE(zest_imgui)
 ZEST__MAKE_HANDLE(zest_queue)
 ZEST__MAKE_HANDLE(zest_execution_timeline)
 ZEST__MAKE_HANDLE(zest_frame_graph_semaphores)
@@ -2064,6 +2061,11 @@ typedef struct zest_bounding_box_t {
     zest_vec3 max_bounds;
 } zest_bounding_box_t;
 
+typedef struct zest_extent_t {
+    float width;
+    float height;
+} zest_extent_t;
+
 //Note that using alignas on windows causes a crash in release mode relating to the allocator.
 //Not sure why though. We need the align as on Mac otherwise metal complains about the alignment
 //in the shaders
@@ -2119,25 +2121,6 @@ typedef struct zest_memory_stats_t {
     zest_uint filter_count;
 } zest_memory_stats_t;
 
-typedef struct zest_timer_t {
-    int magic;
-    zest_timer_handle handle;
-    double start_time;
-    double delta_time;
-    double update_frequency;
-    double update_tick_length;
-    double update_time;
-    double ticker;
-    double accumulator;
-    double accumulator_delta;
-    double current_time;
-    double lerp;
-    double time_passed;
-    double seconds_passed;
-    double max_elapsed_time;
-    int update_count;
-} zest_timer_t;
-
 typedef struct zest_camera_t {
     zest_vec3 position;
     zest_vec3 up;
@@ -2149,6 +2132,11 @@ typedef struct zest_camera_t {
     float ortho_scale;
     zest_camera_flags flags;
 } zest_camera_t;
+
+typedef struct zest_debug_t {
+    zest_uint function_depth;
+    zest_log_entry_t *frame_log;
+} zest_debug_t;
 
 // --Vulkan Buffer Management
 typedef struct zest_buffer_type_t {
@@ -2192,33 +2180,7 @@ typedef struct zest_buffer_usage_t {
 
 zest_hash_map(zest_buffer_pool_size_t) zest_map_buffer_pool_sizes;
 
-//A simple buffer struct for creating and mapping GPU memory
-typedef struct zest_device_memory_pool_t {
-    int magic;
-    VkBufferCreateInfo buffer_info;
-    zest_memory_pool_flags flags;
-    VkBuffer vk_buffer;
-    VkDeviceMemory memory;
-    VkDeviceSize size;
-    VkDeviceSize minimum_allocation_size;
-    VkDeviceSize alignment;
-    VkImageUsageFlags usage_flags;
-    VkMemoryPropertyFlags property_flags;
-    zest_uint memory_type_index;
-    void* mapped;
-    const char *name;
-} zest_device_memory_pool_t;
-
 typedef void* zest_pool_range;
-
-typedef struct zest_buffer_allocator_t {
-    int magic;
-    zest_buffer_info_t buffer_info;
-    zloc_allocator *allocator;
-    zest_size alignment;
-    zest_device_memory_pool *memory_pools;
-    zest_pool_range *range_pools;
-} zest_buffer_allocator_t;
 
 typedef struct zest_buffer_details_t {
     VkDeviceSize size;
@@ -2227,27 +2189,6 @@ typedef struct zest_buffer_details_t {
     zest_buffer_allocator buffer_allocator;
     zest_size memory_in_use;
 } zest_buffer_details_t;
-
-typedef struct zest_buffer_t {
-    VkDeviceSize size;
-    VkDeviceSize memory_offset;
-    VkDeviceSize buffer_offset;
-    int magic;
-    union {
-        VkBuffer vk_buffer;
-        VkImage vk_image;
-    };
-    zest_device_memory_pool memory_pool;
-    zest_buffer_allocator buffer_allocator;
-    zest_size memory_in_use;
-    zest_uint array_index;
-    void *data;
-    void *end;
-    //For releasing/acquiring in the render graph:
-    zest_uint owner_queue_family;
-    VkPipelineStageFlags last_stage_mask;
-    VkAccessFlags last_access_mask;
-} zest_buffer_t;
 
 typedef struct zest_mip_index_collection {
     zest_global_binding_number binding_number;
@@ -2292,14 +2233,6 @@ typedef struct zest_buffer_uploader_t {
 
 // --End Vulkan Buffer Management
 
-typedef struct zest_descriptor_pool_t {
-    int magic;
-    VkDescriptorPool vk_descriptor_pool;
-    zest_uint max_sets;
-    zest_uint allocations;
-    VkDescriptorPoolSize *vk_pool_sizes;
-} zest_descriptor_pool_t;
-
 typedef struct zest_swapchain_support_details_t {
     VkSurfaceCapabilitiesKHR capabilities;
     VkSurfaceFormatKHR *formats;
@@ -2332,43 +2265,6 @@ typedef struct zest_frame_buffer_t {
     zest_image_buffer_t color_buffer, depth_buffer;
     VkSampler sampler;
 } zest_frame_buffer_t;
-
-typedef struct zest_swapchain_t {
-    int magic;
-    zest_window window;
-    const char *name;
-    zest_texture_format format;
-
-    VkSwapchainKHR vk_swapchain;
-    VkFormat vk_format;
-    VkExtent2D vk_extent;
-    zest_vec2 screen_resolution_push;
-
-    VkClearColorValue vk_clear_color;
-
-    //Color buffer
-    VkImage *vk_images;
-    VkImageView *vk_image_views;
-
-    //Syncronization
-    VkSemaphore *vk_render_finished_semaphore;
-    VkSemaphore vk_image_available_semaphore[ZEST_MAX_FIF];
-    zest_uint current_image_frame;
-    zest_uint image_count;
-
-    zest_swapchain_flags flags;
-} zest_swapchain_t;
-
-typedef struct zest_window_t {
-    int magic;
-    void *window_handle;
-    VkSurfaceKHR surface;
-    zest_swapchain swapchain;
-    zest_uint window_width;
-    zest_uint window_height;
-    zest_bool framebuffer_resized;
-    zest_window_mode mode;
-} zest_window_t;
 
 zest_hash_map(VkDescriptorPoolSize) zest_map_descriptor_pool_sizes;
 
@@ -2417,6 +2313,14 @@ typedef struct zest_create_info_t {
 
 zest_hash_map(zest_queue) zest_map_queue_value;
 
+typedef struct zest_vulkan_memory_info_t {
+    zest_millisecs timestamp;
+    zest_uint context_info;
+} zest_vulkan_memory_info_t;
+
+zest_hash_map(const char *) zest_map_queue_names;
+zest_hash_map(zest_text_t) zest_map_validation_errors;
+
 typedef struct zest_queue_t {
     VkQueue vk_queue;
     zest_uint family_index;
@@ -2427,19 +2331,10 @@ typedef struct zest_queue_t {
     zest_u64 current_count[ZEST_MAX_FIF];
     zest_u64 signal_value;
     zest_bool has_waited;
-
     VkCommandPool command_pool[ZEST_MAX_FIF];
     VkCommandBuffer *command_buffers[ZEST_MAX_FIF];
     zest_uint next_buffer;
 } zest_queue_t;
-
-typedef struct zest_vulkan_memory_info_t {
-    zest_millisecs timestamp;
-    zest_uint context_info;
-} zest_vulkan_memory_info_t;
-
-zest_hash_map(const char *) zest_map_queue_names;
-zest_hash_map(zest_text_t) zest_map_validation_errors;
 
 typedef struct zest_device_t {
     int magic;
@@ -2591,23 +2486,6 @@ typedef struct zest_pass_queue_info_t {
     zest_device_queue_type queue_type;
 }zest_pass_queue_info_t;
 
-typedef struct zest_pass_node_t {
-    int magic;
-    zest_id id;
-    const char *name;
-
-    zest_pass_queue_info_t queue_info;
-    
-    zest_map_resource_usages inputs;
-    zest_map_resource_usages outputs;
-    zest_key output_key;
-    zest_pass_execution_callback_t execution_callback;
-    zest_compute compute;
-    zest_pass_flags flags;
-    zest_pass_type type;
-    zest_pass_node_visit_state visit_state;
-} zest_pass_node_t;
-
 typedef struct zest_execution_barriers_t {
     VkImageMemoryBarrier *acquire_image_barriers;
     VkBufferMemoryBarrier *acquire_buffer_barriers;
@@ -2675,60 +2553,6 @@ typedef struct zest_pass_group_t {
  typedef zest_buffer(*zest_resource_buffer_provider)(zest_resource_node resource);
  typedef zest_image_handles_t(*zest_resource_image_provider)(zest_resource_node resource);
 
-typedef struct zest_resource_node_t {
-    int magic;
-    const char *name;
-    zest_resource_type type;
-    zest_id id;                                     // Unique identifier within the graph
-    zest_uint version;
-    zest_uint original_id;
-    zest_frame_graph frame_graph;
-    zest_resource_node aliased_resource;
-    zest_swapchain swapchain;
-
-	zest_buffer_description_t buffer_desc; // Used if transient buffer
-    zest_image_description_t image_desc;
-    zest_vec4 clear_color;
-
-    zest_image_buffer_t image_buffer;
-    zest_buffer storage_buffer;
-    zest_uint bindless_index[zest_max_global_binding_number];   //The index to use in the shader
-    zest_uint *mip_level_bindless_indexes;                      //The mip indexes to use in the shader
-    zest_sampler sampler;
-
-    zest_uint reference_count;
-
-    zest_uint current_state_index;
-    zest_uint current_queue_family_index;
-    VkAccessFlags current_access_mask;
-    VkPipelineStageFlags last_stage_mask;
-    VkImageLayout current_layout;                   // The current layout of the image in the resource
-    VkImageLayout final_layout;                     // Layout resource should be in after last use in this graph
-    VkImageLayout *linked_layout;                   // A link to the layout in the texture so that the layout in the texture can be updated as it's transitioned in the render graph
-
-    zest_resource_state_t *journey;                 // List of the different states this resource has over the render graph, used to build barriers where needed
-    int producer_pass_idx;                          // Index of the pass that writes/creates this resource (-1 if imported)
-    int *consumer_pass_indices;                     // Dynamic array of pass indices that read this
-    zest_resource_node_flags flags;                 // Imported/Transient Etc.
-    zest_uint first_usage_pass_idx;                 // For lifetime tracking
-    zest_uint last_usage_pass_idx;                  // For lifetime tracking
-
-    zest_resource_buffer_provider buffer_provider;
-    zest_resource_image_provider image_provider;
-    void *user_data;
-} zest_resource_node_t;
-
-typedef struct zest_output_group_t {
-    int magic;
-    zest_resource_node *resources;
-} zest_output_group_t;
-
-typedef struct zest_execution_timeline_t {
-    int magic;
-    VkSemaphore semaphore;
-    zest_u64 current_value;
-} zest_execution_timeline_t;
-
 typedef struct zest_binding_index_for_release_t {
     zest_set_layout_handle layout;
     zest_uint binding_index;
@@ -2785,51 +2609,6 @@ static const VkPipelineStageFlags zest__queue_semaphore_wait_stages[ZEST_QUEUE_C
 	VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 	VK_PIPELINE_STAGE_TRANSFER_BIT
 };
-
-zest_hash_map(zest_pass_group_t) zest_map_passes;
-zest_hash_map(zest_resource_versions_t) zest_map_resource_versions;
-
-typedef struct zest_frame_graph_t {
-    int magic;
-    zest_frame_graph_flags flags;
-    zest_frame_graph_result error_status;
-    zest_uint culled_passes_count;
-    zest_uint culled_resources_count;
-    const char *name;
-
-    zest_bucket_array_t potential_passes; 
-    zest_map_passes final_passes; 
-    zest_bucket_array_t resources; 
-    zest_map_resource_versions resource_versions;
-    zest_resource_node *resources_to_update;
-    zest_pass_group_t **pass_execution_order;
-
-    zest_execution_timeline *wait_on_timelines;
-    zest_execution_timeline *signal_timelines;
-    zest_frame_graph_semaphores semaphores;
-
-    zest_execution_wave_t *execution_waves;         // Execution order after compilation
-
-    zest_resource_node swapchain_resource;          // Handle to the current swapchain image resource
-    zest_swapchain swapchain;                       // Handle to the current swapchain image resource
-    zest_uint id_counter;
-    zest_descriptor_pool descriptor_pool;           //Descriptor pool for execution nodes within the graph.
-    zest_set_layout_handle bindless_layout;
-    zest_descriptor_set bindless_set;
-
-    zest_wave_submission_t *submissions;
-
-    void *user_data;
-    zest_frame_graph_context_t context;
-    zest_key cache_key;
-
-    VkQueryPool query_pool;                                          //For profiling
-    zest_uint timestamp_count;
-    zest_query_state query_state[ZEST_MAX_FIF];                      //For checking if the timestamp query is ready
-    zest_gpu_timestamp_t *timestamps[ZEST_MAX_FIF];                  //The last recorded frame durations for the whole render pipeline
-
-    VkPipelineStageFlags *fif_wait_stage_flags[ZEST_MAX_FIF];        //Stage state_flags relavent to the incoming semaphores
-} zest_frame_graph_t;
 
 typedef struct zest_cached_frame_graph_t {
     void *memory;
@@ -3011,29 +2790,6 @@ typedef struct zest_descriptor_indices_t {
     VkDescriptorType descriptor_type;
 } zest_descriptor_indices_t;
 
-typedef struct zest_descriptor_set_t {
-    int magic;
-    VkDescriptorSet vk_descriptor_set;
-} zest_descriptor_set_t;
-
-typedef struct zest_set_layout_t {
-    int magic;
-    zest_set_layout_handle handle;
-    VkDescriptorSetLayoutBinding *layout_bindings;
-    VkDescriptorSetLayout vk_layout;
-    zest_text_t name;
-    zest_u64 binding_indexes;
-    VkDescriptorSetLayoutCreateFlags create_flags;
-    zest_descriptor_pool pool;
-    zest_descriptor_indices_t *descriptor_indexes;
-} zest_set_layout_t;
-
-typedef struct zest_shader_resources_t {
-    int magic;
-    zest_descriptor_set *sets[ZEST_MAX_FIF];
-    VkDescriptorSet *binding_sets;
-} zest_shader_resources_t ZEST_ALIGN_AFFIX(16);
-
 typedef struct zest_descriptor_set_builder_t {
     VkWriteDescriptorSet *writes;
     zest_set_layout_handle associated_layout;
@@ -3042,15 +2798,6 @@ typedef struct zest_descriptor_set_builder_t {
     VkDescriptorBufferInfo *buffer_infos_storage;
     VkBufferView *texel_buffer_view_storage;
 } zest_descriptor_set_builder_t;
-
-typedef struct zest_uniform_buffer_t {
-    int magic;
-    zest_uniform_buffer_handle handle;
-    zest_buffer buffer[ZEST_MAX_FIF];
-    VkDescriptorBufferInfo descriptor_info[ZEST_MAX_FIF];
-    zest_descriptor_set descriptor_set[ZEST_MAX_FIF];
-    zest_set_layout_handle set_layout;
-} zest_uniform_buffer_t;
 
 typedef struct zest_descriptor_infos_for_binding_t {
     VkDescriptorBufferInfo descriptor_buffer_info;
@@ -3067,12 +2814,6 @@ typedef struct zest_uniform_buffer_data_t {
     zest_vec2 screen_size;
     zest_uint millisecs;
 } zest_uniform_buffer_data_t;
-
-typedef struct zest_render_pass_t {
-    int magic;
-    VkRenderPass vk_render_pass;
-    VkSampleCountFlags sample_count;
-} zest_render_pass_t;
 
 typedef struct zest_cached_pipeline_key_t {
 	zest_key pipeline_key;
@@ -3120,17 +2861,6 @@ typedef struct zest_pipeline_template_t {
 typedef struct zest_pipeline_descriptor_writes_t {
     VkWriteDescriptorSet *writes[ZEST_MAX_FIF];                       //Descriptor writes for creating the descriptor sets - is this needed here? only for certain pipeline_templates, textures store their own
 } zest_pipeline_descriptor_writes_t;
-
-//A pipeline set is all of the necessary things required to setup and maintain a pipeline
-typedef struct zest_pipeline_t {
-    int magic;
-    zest_pipeline_template pipeline_template;
-    VkPipeline pipeline;                                                         //The vulkan handle for the pipeline
-    VkPipelineLayout pipeline_layout;                                            //The vulkan handle for the pipeline layout
-    void(*rebuild_pipeline_function)(void*);                                     //Override the function to rebuild the pipeline when the swap chain is recreated
-    zest_pipeline_set_flags flags;                                               //Flag bits
-    VkRenderPass render_pass;
-} zest_pipeline_t;
 
 zest_hash_map(zest_pipeline) zest_map_pipeline_variations;
 
@@ -3194,12 +2924,6 @@ typedef struct zest_vertex_t {
     zest_uint group;
 } zest_vertex_t;
 
-typedef struct zest_mesh_t {
-    int magic;
-    zest_vertex_t* vertices;
-    zest_uint* indexes;
-} zest_mesh_t;
-
 //We just have a copy of the ImGui Draw vert here so that we can setup things things for imgui
 //should anyone choose to use it
 typedef struct zest_ImDrawVert_t
@@ -3255,91 +2979,11 @@ typedef struct zest_layer_instruction_t {
     zest_draw_mode draw_mode;
 } zest_layer_instruction_t ZEST_ALIGN_AFFIX(16);
 
-typedef struct zest_layer_t {
-    int magic;
-    zest_layer_handle handle;
-
-    const char *name;
-
-    zest_uint fif;
-    zest_uint prev_fif;
-
-    zest_layer_buffers_t memory_refs[ZEST_MAX_FIF];
-    zest_bool dirty[ZEST_MAX_FIF];
-    zest_uint initial_instance_pool_size;
-    zest_buffer_uploader_t vertex_upload;
-    zest_buffer_uploader_t index_upload;
-    zest_descriptor_set bindless_set;
-
-    zest_buffer vertex_data;
-    zest_buffer index_data;
-
-    zest_layer_instruction_t current_instruction;
-
-    union {
-        struct { zest_size instance_struct_size; };
-        struct { zest_size vertex_struct_size; };
-    };
-
-    zest_color current_color;
-    float intensity;
-
-    zest_vec2 layer_size;
-    zest_vec2 screen_scale;
-    zest_uint index_count;
-
-    VkRect2D scissor;
-    VkViewport viewport;
-
-    zest_layer_instruction_t *draw_instructions[ZEST_MAX_FIF];
-    zest_draw_mode last_draw_mode;
-
-    zest_resource_node vertex_buffer_node;  
-    zest_resource_node index_buffer_node;
-
-    zest_layer_flags flags;
-    void *user_data;
-} zest_layer_t ZEST_ALIGN_AFFIX(16);
-
 //Todo: do we need this now?
 typedef struct zest_layer_builder_t {
     zest_size type_size;
     zest_uint initial_count;
 } zest_layer_builder_t;
-
-//This struct must be filled and attached to the draw routine that implements imgui as user data
-typedef struct zest_imgui_t {
-    int magic;
-    zest_texture_handle font_texture;
-    zest_pipeline_template pipeline;
-    zest_shader_handle vertex_shader;
-    zest_shader_handle fragment_shader;
-    zest_buffer vertex_staging_buffer[ZEST_MAX_FIF];
-    zest_buffer index_staging_buffer[ZEST_MAX_FIF];
-    zest_buffer vertex_device_buffer[ZEST_MAX_FIF];
-    zest_buffer index_device_buffer[ZEST_MAX_FIF];
-    zest_uint fif;
-    zest_uint dirty[ZEST_MAX_FIF];
-    zest_push_constants_t push_constants;
-    VkDescriptorSet *draw_sets;
-} zest_imgui_t;
-
-typedef struct zest_compute_t zest_compute_t;
-struct zest_compute_t {
-    int magic;
-    zest_compute_handle handle;
-    VkQueue queue;                                            // Separate queue for compute commands (queue family may differ from the one used for graphics)
-    zest_set_layout_handle bindless_layout;                          // The bindless descriptor set layout to use in the compute shader
-    VkPipelineLayout pipeline_layout;                         // Layout of the compute pipeline
-    zest_shader_handle *shaders;                              // List of compute shaders to use
-    VkPipeline pipeline;                                      // Compute pipeline
-    VkPushConstantRange pushConstantRange;
-
-    void *compute_data;                                       // Connect this to any custom data that is required to get what you need out of the compute process.
-    void *user_data;                                          // Custom user data
-    zest_compute_flags flags;
-    zest_uint fif;                                            // Used for manual frame in flight compute
-};
 
 typedef struct zest_compute_builder_t {
     zest_map_descriptor_pool_sizes descriptor_pool_sizes;
@@ -3352,12 +2996,6 @@ typedef struct zest_compute_builder_t {
     void *user_data;
 } zest_compute_builder_t;
 
-typedef struct zest_sampler_t {
-    int magic;
-    VkSampler vk_sampler;
-    VkSamplerCreateInfo create_info;
-} zest_sampler_t;
-
 zest_hash_map(zest_descriptor_set_builder_t) zest_map_texture_descriptor_builders;
 
 typedef struct zest_bitmap_meta_t {
@@ -3369,14 +3007,6 @@ typedef struct zest_bitmap_meta_t {
     size_t offset;
 } zest_bitmap_meta_t;
 
-typedef struct zest_bitmap_t {
-    int magic;
-    zest_bitmap_meta_t meta;
-    zest_text_t name;
-    zest_byte *data;
-    zest_bool is_imported;
-} zest_bitmap_t;
-
 typedef struct zest_bitmap_array_t {
     const char *name;
     zest_uint size_of_array;
@@ -3384,25 +3014,6 @@ typedef struct zest_bitmap_array_t {
     size_t total_mem_size;
     zest_byte *data;
 } zest_bitmap_array_t;
-
-typedef struct zest_image_t {
-    int magic;
-    zest_index index;            //index within the QulkanTexture
-    zest_text_t name;            //Filename of the image
-    zest_uint width;
-    zest_uint height;
-    zest_vec4 uv;                //UV coords are set after the ProcessImages function is called and the images are packed into the texture
-    zest_u64 uv_packed;          //UV packed into 16bit floats
-    zest_index layer;            //the layer index of the image when it's packed into an image/texture array
-    zest_uint frames;            //Will be one if this is a single image or more if it's part of and animation
-    zest_uint top, left;         //the top left location of the image on the layer or spritesheet
-    zest_vec2 min;               //The minimum coords of the vertices in the quad of the image
-    zest_vec2 max;               //The maximum coords of the vertices in the quad of the image
-    zest_vec2 scale;             //The scale of the image. 1.f if default, changing this will update the min/max coords
-    zest_vec2 handle;            //The handle of the image. 0.5f is the center of the image
-    float max_radius;            //You can load images and calculate the max radius of the image which is the furthest pixel from the center.
-    zest_texture_handle texture; //Handle to the texture that this image belongs to
-} zest_image_t;
 
 typedef struct zest_imgui_image_t {
     int magic;
@@ -3426,74 +3037,6 @@ typedef struct zest_texture_info_t {
     zest_uint mip_levels;
 } zest_texture_info_t;
 
-typedef struct zest_texture_t {
-    int magic;
-    zest_texture_handle handle;
-    VkImageLayout vk_image_layout;
-    VkFormat vk_image_format;
-    VkImageViewType vk_image_view_type;
-    VkSamplerCreateInfo vk_sampler_info;
-
-    zest_text_t name;
-
-    zest_imgui_blendtype imgui_blend_type;
-    zest_index image_index;                                    //Tracks the UID of image indexes in the list
-
-    zest_texture_info_t info;
-
-    zest_image_t texture;
-    zest_bitmap_t texture_bitmap;
-
-    // --- GPU data. When changing a texture that is in use, we double buffer then flip when ready
-    zest_image_buffer_t image_buffer;
-    VkDescriptorImageInfo descriptor_image_info;
-    zest_descriptor_set debug_set;          //A descriptor set for simply sampling the texture
-    zest_descriptor_set bindless_set;       //A descriptor set for a bindless layout
-    zest_sampler sampler;
-    zest_uint bindless_index[zest_max_global_binding_number];
-    // --- 
-
-    //Bitmap data for loading in from disk
-    zest_image_collection image_collection;
-
-    zest_uint color_channels;
-
-    zest_texture_storage_type storage_type;
-    zest_texture_flags flags;
-    zest_thread_access lock;
-    void *user_data;
-    void(*reprocess_callback)(zest_texture texture, void *user_data);
-} zest_texture_t;
-
-typedef struct zest_image_collection_t {
-    int magic;
-    VkFormat vk_format; 
-    zest_bitmap_t *image_bitmaps;
-    zest_image *images;
-    zest_bitmap_t *layers;
-    zest_bitmap_array_t bitmap_array;
-    VkBufferImageCopy *buffer_copy_regions;
-    zest_uint packed_border_size;
-    zest_uint layer_count;
-    zest_image_collection_flags flags;
-} zest_image_collection_t;
-
-typedef struct zest_shader_t {
-    int magic;
-    zest_shader_handle handle;
-    char *spv;
-    zest_size spv_size;
-    zest_text_t file_path;
-    zest_text_t shader_code;
-    zest_text_t name;
-    shaderc_shader_kind type;
-} zest_shader_t;
-
-typedef struct zest_debug_t {
-    zest_uint function_depth;
-    zest_log_entry_t *frame_log;
-} zest_debug_t;
-
 typedef struct zest_report_t {
     zest_text_t message;
     zest_report_category category;
@@ -3501,12 +3044,6 @@ typedef struct zest_report_t {
     const char *file_name;
     int line_number;
 } zest_report_t;
-
-typedef struct zest_frame_graph_semaphores_t {
-    int magic;
-    VkSemaphore vk_semaphores[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
-    zest_size values[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
-} zest_frame_graph_semaphores_t;
 
 zest_hash_map(zest_frame_graph_semaphores) zest_map_rg_semaphores;
 zest_hash_map(zest_render_pass) zest_map_render_passes;
@@ -3631,11 +3168,6 @@ typedef struct zest_renderer_t {
     void(*create_window_surface_callback)(zest_window window);
     void(*set_window_mode_callback)(zest_window window, zest_window_mode mode);
     void(*set_window_size_callback)(zest_window window, int width, int height);
-
-	//Related to implementations
-
-    //Imgui
-    zest_imgui_t imgui_info;
 
     //Slang
     void *slang_info;
@@ -4369,6 +3901,14 @@ ZEST_API void zest_FreeMemory(void *allocation);
 //When you free buffers the Vulkan buffer is added to a list that is either freed at the end of the program
 //or you can call this to free them whenever you want.
 ZEST_API void zest_FlushUsedBuffers();
+//Get the mapped data of a buffer. For CPU visible buffers only
+ZEST_API void *zest_BufferData(zest_buffer buffer);
+//Get the capacity of a buffer
+ZEST_API zest_size zest_BufferSize(zest_buffer buffer);
+//Returns the amount of memory current in use by the buffer
+ZEST_API zest_size zest_BufferMemoryInUse(zest_buffer buffer);
+//Set the current amount of memory in the buffer that you're actually using
+ZEST_API void zest_SetBufferMemoryInUse(zest_buffer buffer, zest_size size);
 //--End Buffer related
 
 //Helper functions for creating the builtin layers. these can be called separately outside of a command queue setup context
@@ -4723,6 +4263,16 @@ ZEST_API VkImageLayout zest_GetTextureLayout(zest_texture_handle texture);
 ZEST_API zest_texture_info_t zest_GetTextureInfo(zest_texture_handle texture);
 //Get the debug decriptor set for a simple draw of the texture
 ZEST_API VkDescriptorSet zest_GetTextureDebugDescriptorSet(zest_texture_handle texture);
+//Get the debug decriptor set for a simple draw of the texture from an image
+ZEST_API VkDescriptorSet zest_GetImageDebugDescriptorSet(zest_image image);
+//Get the layer index that the image exists on in the texture
+ZEST_API zest_index zest_ImageLayerIndex(zest_image image);
+//Get the dimensions of the image
+ZEST_API zest_extent_t zest_ImageDimensions(zest_image image);
+//Get the uv coords of the image
+ZEST_API zest_vec4 zest_ImageUV(zest_image image);
+//Get the texture handle where the image exists
+ZEST_API zest_texture_handle zest_ImageTextureHandle(zest_image image);
 
 // --Sampler functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
@@ -5003,8 +4553,15 @@ ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer_handle timer);             
 //-----------------------------------------------
 ZEST_API void zest_SetWindowMode(zest_window window, zest_window_mode mode);
 ZEST_API void zest_SetWindowSize(zest_window window, zest_uint width, zest_uint height);
-ZEST_API zest_window zest_GetCurrentWindow();
+ZEST_API void zest_UpdateWindowSize(zest_window window, zest_uint width, zest_uint height);
+ZEST_API void zest_SetWindowHandle(zest_window window, void *handle);
+ZEST_API zest_window zest_GetCurrentWindow(void);
 ZEST_API void zest_CloseWindow(zest_window window);
+ZEST_API VkSurfaceKHR zest_WindowSurface(void);
+ZEST_API void zest_SetWindowSurface(VkSurfaceKHR surface);
+//Return a pointer to the window handle stored in the zest_window_t. This could be anything so it's up to you to cast to the right data type. For example, if you're
+//using GLFW then you would cast it to a GLFWwindow*
+ZEST_API void *zest_Window(void);
 
 //-----------------------------------------------
 //        General_Helper_functions
@@ -5072,9 +4629,6 @@ ZEST_API void zest_EnableVSync(void);
 ZEST_API void zest_DisableVSync(void);
 //Log the current FPS to the console once every second
 ZEST_API void zest_LogFPSToConsole(zest_bool yesno);
-//Return a pointer to the window handle stored in the zest_window_t. This could be anything so it's up to you to cast to the right data type. For example, if you're
-//using GLFW then you would cast it to a GLFWwindow*
-ZEST_API void *zest_Window(void);
 //Set the current frame in flight. You should only use this if you want to execute a floating command queue that contains resources that only have a single frame in flight.
 //Once you're done you can call zest_RestoreFrameInFlight
 ZEST_API void zest_SetFrameInFlight(zest_uint fif);
