@@ -3,7 +3,7 @@
 
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
-	zest_imgui_Initialise();
+	zest_imgui_InitialiseForGLFW();
 	//Implement a dark style
 	zest_imgui_DarkStyle();
 	
@@ -84,14 +84,14 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/glow.png");
 			zest_ProcessTextureImages(app->test_texture);
 		}
-		ImGui::Text("%p: %i", app->test_texture, app->test_texture->bindless_index[zest_combined_image_sampler_2d_binding]);
 		if (ImGui::Button("Bunny Image")) {
 			zest_FreeTexture(app->test_texture);
 			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
 			app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
 			zest_ProcessTextureImages(app->test_texture);
 		}
-		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(app->test_image->uv.x, app->test_image->uv.y), ImVec2(app->test_image->uv.z, app->test_image->uv.w));
+		zest_vec4 uv = zest_ImageUV(app->test_image);
+		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
 		//Test for memory leaks in zest
 		/*
 		for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
@@ -183,6 +183,7 @@ int main(void) {
 
 	//Start the main loop
 	zest_Start();
+	zest_imgui_ShutdownGLFW();
 	zest_Shutdown();
 
 	return 0;

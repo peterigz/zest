@@ -10,15 +10,15 @@
 
 struct RenderCacheInfo {
 	bool draw_imgui;
-	zest_texture test_texture;
+	zest_texture_handle test_texture;
 };
 
 struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
-	zest_texture imgui_font_texture;
-	zest_texture test_texture;
+	zest_texture_handle imgui_font_texture;
+	zest_texture_handle test_texture;
 	zest_image test_image;
-	zest_timer timer;
+	zest_timer_handle timer;
 	RenderCacheInfo cache_info;
 	bool sync_refresh;
 	bool request_graph_print;
