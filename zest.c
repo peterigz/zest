@@ -6940,6 +6940,16 @@ float zest_LinearToSRGB(float value) {
     return powf(value, 2.2f);
 }
 
+zest_bool zest_IsValidComputeHandle(zest_compute_handle compute_handle) {
+    zest_compute compute = (zest_compute)zest__get_store_resource(&ZestRenderer->compute_pipelines, compute_handle.value);
+    return ZEST_VALID_HANDLE(compute);
+}
+
+zest_bool zest_IsValidTextureHandle(zest_texture_handle texture_handle) {
+    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->compute_pipelines, texture_handle.value);
+    return ZEST_VALID_HANDLE(texture);
+}
+
 zest_uint zest__grow_capacity(void* T, zest_uint size) {
     zest_uint new_capacity = T ? (size + size / 2) : 8;
     return new_capacity > size ? new_capacity : size;
@@ -10141,6 +10151,11 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
     return ZEST_TRUE;
 }
 
+zest_key zest_GetPassOutputKey(zest_pass_node pass) {
+    ZEST_ASSERT_HANDLE(pass);   //Not a valid pass node handle
+    return pass->output_key;
+}
+
 bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph) {
     return ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_executed);
 }
@@ -10279,6 +10294,80 @@ void zest_PrintCachedRenderGraph(zest_frame_graph_cache_key_t *cache_key) {
     if (frame_graph) {
         zest_PrintCompiledRenderGraph(frame_graph);
     }
+}
+
+zest_frame_graph_result zest_GetFrameGraphResult(zest_frame_graph frame_graph) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    return frame_graph->error_status;
+}
+
+zest_uint zest_GetFrameGraphCulledResourceCount(zest_frame_graph frame_graph) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    return frame_graph->culled_resources_count;
+}
+
+zest_uint zest_GetFrameGraphFinalPassCount(zest_frame_graph frame_graph) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    return zest_map_size(frame_graph->final_passes);
+}
+
+zest_uint zest_GetFrameGraphPassTransientCreateCount(zest_frame_graph frame_graph, zest_key output_key) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    if (zest_map_valid_key(frame_graph->final_passes, output_key)) {
+		zest_pass_group_t *final_pass = zest_map_at_key(frame_graph->final_passes, output_key);
+        return zest_vec_size(final_pass->transient_resources_to_create);
+    }
+    return 0;
+}
+
+zest_uint zest_GetFrameGraphPassTransientFreeCount(zest_frame_graph frame_graph, zest_key output_key) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    if (zest_map_valid_key(frame_graph->final_passes, output_key)) {
+		zest_pass_group_t *final_pass = zest_map_at_key(frame_graph->final_passes, output_key);
+        return zest_vec_size(final_pass->transient_resources_to_free);
+    }
+    return 0;
+}
+
+zest_uint zest_GetFrameGraphCulledPassesCount(zest_frame_graph frame_graph) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    return frame_graph->culled_passes_count;
+}
+
+zest_uint zest_GetFrameGraphSubmissionCount(zest_frame_graph frame_graph) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    return zest_vec_size(frame_graph->submissions);
+}
+
+zest_uint zest_GetFrameGraphSubmissionBatchCount(zest_frame_graph frame_graph, zest_uint submission_index) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    if (submission_index < zest_vec_size(frame_graph->submissions)) {
+        return zest_vec_size(frame_graph->submissions[submission_index].batches);
+    }
+    return 0;
+}
+
+zest_uint zest_GetSubmissionBatchPassCount(const zest_submission_batch_t *batch) {
+    return zest_vec_size(batch->pass_indices);
+}
+
+const zest_submission_batch_t *zest_GetFrameGraphSubmissionBatch(zest_frame_graph frame_graph, zest_uint submission_index, zest_uint batch_index) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    if (submission_index < zest_vec_size(frame_graph->submissions)) {
+		zest_wave_submission_t *submission = &frame_graph->submissions[submission_index];
+        if (batch_index < zest_vec_size(submission->batches)) {
+            return &submission->batches[batch_index];
+        }
+    }
+    return NULL;
+}
+
+const zest_pass_group_t *zest_GetFrameGraphFinalPass(zest_frame_graph frame_graph, zest_uint pass_index) {
+    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+    if (pass_index < zest_map_size(frame_graph->final_passes)) {
+        return &frame_graph->final_passes.data[pass_index];
+    }
+    return NULL;
 }
 
 void zest_PrintCompiledRenderGraph(zest_frame_graph frame_graph) {
@@ -11287,6 +11376,16 @@ VkImage zest_GetResourceImage(zest_resource_node resource_node) {
         return resource_node->image_buffer.image_handles.image;
 	}
 	return VK_NULL_HANDLE;
+}
+
+zest_resource_type zest_GetResourceType(zest_resource_node resource_node) {
+	ZEST_ASSERT_HANDLE(resource_node);   //Not a valid resource handle!
+	return resource_node->type;
+}
+
+zest_image_description_t zest_GetResourceImageDescription(zest_resource_node resource_node) {
+	ZEST_ASSERT_HANDLE(resource_node);   //Not a valid resource handle!
+	return resource_node->image_desc;
 }
 
 void zest_BlitImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage) {

@@ -2691,6 +2691,8 @@ ZEST_API zest_uint zest_GetResourceMipLevels(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceWidth(zest_resource_node resource);
 ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
 ZEST_API VkImage zest_GetResourceImage(zest_resource_node resource_node);
+ZEST_API zest_resource_type zest_GetResourceType(zest_resource_node resource_node);
+ZEST_API zest_image_description_t zest_GetResourceImageDescription(zest_resource_node resource_node);
 ZEST_API void zest_BlitImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 ZEST_API void zest_CopyImageMip(VkCommandBuffer command_buffer, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
@@ -2758,7 +2760,21 @@ ZEST_API bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph);
 // --- Syncronization Helpers ---
 ZEST_API zest_execution_timeline zest_CreateExecutionTimeline();
 
+// -- General pass and resource getters/setters
+ZEST_API zest_key zest_GetPassOutputKey(zest_pass_node pass);
+
 // --- Render graph debug functions ---
+ZEST_API zest_frame_graph_result zest_GetFrameGraphResult(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphFinalPassCount(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphPassTransientCreateCount(zest_frame_graph frame_graph, zest_key output_key);
+ZEST_API zest_uint zest_GetFrameGraphPassTransientFreeCount(zest_frame_graph frame_graph, zest_key output_key);
+ZEST_API zest_uint zest_GetFrameGraphCulledResourceCount(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphCulledPassesCount(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphSubmissionCount(zest_frame_graph frame_graph);
+ZEST_API zest_uint zest_GetFrameGraphSubmissionBatchCount(zest_frame_graph frame_graph, zest_uint submission_index);
+ZEST_API zest_uint zest_GetSubmissionBatchPassCount(const zest_submission_batch_t *batch);
+ZEST_API const zest_submission_batch_t *zest_GetFrameGraphSubmissionBatch(zest_frame_graph frame_graph, zest_uint submission_index, zest_uint batch_index);
+ZEST_API const zest_pass_group_t *zest_GetFrameGraphFinalPass(zest_frame_graph frame_graph, zest_uint pass_index);
 ZEST_API void zest_PrintCompiledRenderGraph(zest_frame_graph frame_graph);
 ZEST_API void zest_PrintCachedRenderGraph(zest_frame_graph_cache_key_t *cache_key);
 
@@ -4651,6 +4667,9 @@ ZEST_API zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags);
 ZEST_API zest_bool zest_GPUHasDeviceLocalHostVisible(VkDeviceSize mimimum_size);
 //Convert a linear color value to an srgb color space value
 ZEST_API float zest_LinearToSRGB(float value);
+//Check for valid handles:
+ZEST_API zest_bool zest_IsValidComputeHandle(zest_compute_handle compute_handle);
+ZEST_API zest_bool zest_IsValidTextureHandle(zest_texture_handle texture_handle);
 //--End General Helper functions
 
 //-----------------------------------------------
