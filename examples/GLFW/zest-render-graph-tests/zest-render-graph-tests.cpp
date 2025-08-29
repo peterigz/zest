@@ -5,7 +5,7 @@
 int test__empty_graph(ZestTests *tests, Test *test) {
 	if (zest_BeginFrameGraph("Blank Screen", 0)) {
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -17,7 +17,7 @@ int test__single_pass(ZestTests *tests, Test *test) {
 	if (zest_BeginFrameGraph("Single Pass Test", 0)) {
 		zest_pass_node clear_pass = zest_BeginRenderPass("Empty Pass");
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -31,7 +31,7 @@ int test__blank_screen(ZestTests *tests, Test *test) {
 		zest_ConnectSwapChainOutput();
 		zest_EndPass();
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -56,7 +56,7 @@ int test__pass_culling(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -72,8 +72,8 @@ int test__resource_culling(ZestTests *tests, Test *test) {
 		zest_ConnectSwapChainOutput();
 		zest_EndPass();
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
-		test->result |= frame_graph->culled_resources_count > 0 ? 1 : 0;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+		test->result |= zest_GetFrameGraphCulledResourceCount(frame_graph) > 0 ? 1 : 0;
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -106,8 +106,8 @@ int test__chained_pass_culling(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		if (frame_graph->culled_passes_count == 2) {
-			test->result |= frame_graph->error_status;
+		if (zest_GetFrameGraphCulledPassesCount(frame_graph) == 2) {
+			test->result |= zest_GetFrameGraphResult(frame_graph);
 		}
 	}
 	test->result |= zest_GetValidationErrorCount();
@@ -133,15 +133,13 @@ int test__transient_image(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
-		if (zest_map_size(frame_graph->final_passes) == 2) {
-			zest_pass_group_t *final_pass_a = zest_map_at_key(frame_graph->final_passes, pass_a->output_key);
-			zest_pass_group_t *final_pass_b = zest_map_at_key(frame_graph->final_passes, pass_b->output_key);
-			zest_uint create_size = zest_vec_size(final_pass_a->transient_resources_to_create);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+		if (zest_GetFrameGraphFinalPassCount(frame_graph) == 2) {
+			zest_uint create_size = zest_GetFrameGraphPassTransientCreateCount(frame_graph, zest_GetPassOutputKey(pass_a));
 			if (create_size != 1) {
 				test->result = 1;
 			}
-			zest_uint free_size = zest_vec_size(final_pass_b->transient_resources_to_free);
+			zest_uint free_size = zest_GetFrameGraphPassTransientFreeCount(frame_graph, zest_GetPassOutputKey(pass_b));
 			if (free_size != 1) {
 				test->result = 1;
 			}
@@ -157,7 +155,7 @@ int test__transient_image(ZestTests *tests, Test *test) {
 //Input/Output Test: A pass that takes a pre-existing resource (e.g., a user-created buffer) as input and writes to a 
 //final output resource (e.g., the swapchain).
 int test__import_image(ZestTests *tests, Test *test) {
-	if (!tests->texture) {
+	if (!zest_IsValidTextureHandle(tests->texture)) {
 		tests->texture = zest_CreateTexturePacked("Sprite Texture", zest_texture_format_rgba_unorm);
 		zest_image player_image = zest_AddTextureImageFile(tests->texture, "examples/assets/vaders/player.png");
 		zest_ProcessTextureImages(tests->texture);
@@ -171,7 +169,7 @@ int test__import_image(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -201,14 +199,13 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		//zest_PrintCompiledRenderGraph(frame_graph);
-		test->result |= frame_graph->error_status;
-		if (zest_vec_size(frame_graph->submissions) == 1) {
-			zest_wave_submission_t *submission = &frame_graph->submissions[0];
-			if (zest_vec_size(submission->batches) == 1) {
-				zest_submission_batch_t *batch = &submission->batches[0];
-				zest_pass_group_t *grouped_pass = &frame_graph->final_passes.data[batch->pass_indices[0]];
-                zest_execution_details_t *exe_details = &grouped_pass->execution_details;
-				zest_execution_barriers_t *barriers = &exe_details->barriers;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+		if (zest_GetFrameGraphSubmissionCount(frame_graph)) {
+			if (zest_GetFrameGraphSubmissionBatchCount(frame_graph, 0)) {
+				const zest_submission_batch_t *batch = zest_GetFrameGraphSubmissionBatch(frame_graph, 0, 0);
+				const zest_pass_group_t *grouped_pass = zest_GetFrameGraphFinalPass(frame_graph, batch->pass_indices[0]);
+                const zest_execution_details_t *exe_details = &grouped_pass->execution_details;
+				const zest_execution_barriers_t *barriers = &exe_details->barriers;
 				zest_uint acquire_size = zest_vec_size(barriers->acquire_image_barriers);
 				zest_uint release_size = zest_vec_size(barriers->release_image_barriers);
 				if (acquire_size == 1 && release_size == 1) {
@@ -242,7 +239,7 @@ void zest_WriteBufferCompute(VkCommandBuffer command_buffer, const zest_frame_gr
 	const zest_uint local_size_y = 8;
 
 	VkDescriptorSet sets[] = {
-		ZestRenderer->global_set->vk_descriptor_set,
+		zest_vk_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -273,7 +270,7 @@ void zest_VerifyBufferCompute(VkCommandBuffer command_buffer, const zest_frame_g
 	const zest_uint local_size_y = 8;
 
 	VkDescriptorSet sets[] = {
-		ZestRenderer->global_set->vk_descriptor_set,
+		zest_vk_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -302,9 +299,9 @@ void zest_VerifyBufferCompute(VkCommandBuffer command_buffer, const zest_frame_g
 * Also tests executing and waiting to finish
 */
 int test__buffer_read_write(ZestTests *tests, Test *test) {
-	if (!tests->compute_write) {
+	if (!zest_IsValidComputeHandle(tests->compute_write)) {
 		shaderc_compiler_t compiler = shaderc_compiler_initialize();
-		zest_shader shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/buffer_write.comp", "buffer_write.spv", shaderc_compute_shader, 1, compiler, 0);
+		zest_shader_handle shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/buffer_write.comp", "buffer_write.spv", shaderc_compute_shader, 1, compiler, 0);
 		shaderc_compiler_release(compiler);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder();
 		zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
@@ -312,15 +309,15 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
-		if (!tests->compute_write) {
+		if (!zest_IsValidComputeHandle(tests->compute_write)) {
 			test->frame_count++;
 			test->result = -1;
 			return test->result;
 		}
 	}
-	if (!tests->compute_verify) {
+	if (!zest_IsValidComputeHandle(tests->compute_verify)) {
 		shaderc_compiler_t compiler = shaderc_compiler_initialize();
-		zest_shader shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/buffer_verify.comp", "buffer_verify.spv", shaderc_compute_shader, 1, compiler, 0);
+		zest_shader_handle shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/buffer_verify.comp", "buffer_verify.spv", shaderc_compute_shader, 1, compiler, 0);
 		shaderc_compiler_release(compiler);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder();
 		zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
@@ -328,7 +325,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_verify = zest_FinishCompute(&builder, "Buffer Verify");
-		if (!tests->compute_verify) {
+		if (!zest_IsValidComputeHandle(tests->compute_verify)) {
 			test->frame_count++;
 			test->result = -1;
 			return test->result;
@@ -357,8 +354,8 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
-		test->result |= frame_graph->error_status;
-		TestData *test_data = (TestData *)tests->cpu_buffer->data;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+		TestData *test_data = (TestData *)zest_BufferData(tests->cpu_buffer);
 		if (test_data->vec.x != 1.f) {
 			test->result = 1;
 		}
@@ -392,13 +389,14 @@ int test__multi_reader_barrier(ZestTests *tests, Test *test) {
 		zest_ConnectSwapChainOutput();
 		zest_EndPass();
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 		int failed = 0;
-		if (zest_vec_size(frame_graph->submissions) == 1) {
-			if (zest_vec_size(frame_graph->submissions[0].batches) == 1) {
-				if (zest_vec_size(frame_graph->submissions[0].batches[0].pass_indices) == 2) {
-					zest_pass_group_t *pass_group_a = &frame_graph->final_passes.data[frame_graph->submissions[0].batches[0].pass_indices[0]];
-					zest_pass_group_t *pass_group_b = &frame_graph->final_passes.data[frame_graph->submissions[0].batches[0].pass_indices[1]];
+		if (zest_GetFrameGraphSubmissionCount(frame_graph) == 1) {
+			if (zest_GetFrameGraphSubmissionBatchCount(frame_graph, 0) == 1) {
+				const zest_submission_batch_t *batch = zest_GetFrameGraphSubmissionBatch(frame_graph, 0, 0);
+				if (zest_vec_size(batch->pass_indices) == 2) {
+					const zest_pass_group_t *pass_group_a = zest_GetFrameGraphFinalPass(frame_graph, batch->pass_indices[0]);
+					const zest_pass_group_t *pass_group_b = zest_GetFrameGraphFinalPass(frame_graph, batch->pass_indices[1]);
 					if (zest_vec_size(pass_group_a->passes) == 1 && zest_vec_size(pass_group_b->passes) == 2) {
 						int check = pass_group_a->passes[0] == pass_a ? 1 : 0;
 						check += pass_group_b->passes[0] == pass_b ? 1 : 0;
@@ -425,7 +423,7 @@ void zest_VerifyImageCompute(VkCommandBuffer command_buffer, const zest_frame_gr
 	const zest_uint local_size_y = 8;
 
 	VkDescriptorSet sets[] = {
-		ZestRenderer->global_set->vk_descriptor_set,
+		zest_vk_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -457,9 +455,9 @@ Image Write / Read(Clear Color) :
 */
 int test__image_read_write(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
-	if (!tests->compute_verify) {
+	if (!zest_IsValidComputeHandle(tests->compute_verify)) {
 		shaderc_compiler_t compiler = shaderc_compiler_initialize();
-		zest_shader shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/image_verify.comp", "image_verify.spv", shaderc_compute_shader, 1, compiler, 0);
+		zest_shader_handle shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/image_verify.comp", "image_verify.spv", shaderc_compute_shader, 1, compiler, 0);
 		shaderc_compiler_release(compiler);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder();
 		zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
@@ -467,7 +465,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_verify = zest_FinishCompute(&builder, "Image Verify");
-		if (!tests->compute_verify) {
+		if (!zest_IsValidComputeHandle(tests->compute_verify)) {
 			test->frame_count++;
 			test->result = 1;
 			return test->result;
@@ -496,8 +494,8 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 
 		zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
 
-		TestData *test_data = (TestData *)tests->cpu_buffer->data;
-		test->result |= frame_graph->error_status;
+		TestData *test_data = (TestData *)zest_BufferData(tests->cpu_buffer);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 		if (test_data->vec.x == 0.f) {
 			test->result = 1;
 		}
@@ -529,17 +527,18 @@ int test__depth_attachment(ZestTests *tests, Test *test) {
 		zest_EndPass();
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
 		test->result = 1;
-		if (zest_map_size(frame_graph->final_passes) == 1) {
-			zest_pass_group_t *pass_group = &frame_graph->final_passes.data[0];
+		if (zest_GetFrameGraphFinalPassCount(frame_graph) == 1) {
+			const zest_pass_group_t *pass_group = zest_GetFrameGraphFinalPass(frame_graph, 0);
 			if (zest_vec_size(pass_group->execution_details.attachment_resource_nodes) == 2) {
 				zest_resource_node swapchain_resource = pass_group->execution_details.attachment_resource_nodes[0];
 				zest_resource_node depth_resource = pass_group->execution_details.attachment_resource_nodes[1];
-				if (swapchain_resource->type == zest_resource_type_swap_chain_image && depth_resource->type == zest_resource_type_depth) {
+				if (zest_GetResourceType(swapchain_resource) == zest_resource_type_swap_chain_image && 
+					zest_GetResourceType(depth_resource) == zest_resource_type_depth) {
 					test->result = 0;
 				}
 			}
 		}
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -555,7 +554,7 @@ void zest_WriteImageCompute(VkCommandBuffer command_buffer, const zest_frame_gra
 	const zest_uint local_size_y = 8;
 
 	VkDescriptorSet sets[] = {
-		ZestRenderer->global_set->vk_descriptor_set,
+		zest_vk_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -569,8 +568,9 @@ void zest_WriteImageCompute(VkCommandBuffer command_buffer, const zest_frame_gra
 
 	zest_SendCustomComputePushConstants(command_buffer, tests->compute_write, &push);
 
-	zest_uint group_count_x = (write_buffer->image_desc.width + local_size_x - 1) / local_size_x;
-	zest_uint group_count_y = (write_buffer->image_desc.height + local_size_y - 1) / local_size_y;
+	zest_image_description_t image_desc = zest_GetResourceImageDescription(write_buffer);
+	zest_uint group_count_x = (image_desc.width + local_size_x - 1) / local_size_x;
+	zest_uint group_count_y = (image_desc.height + local_size_y - 1) / local_size_y;
 
 	//Dispatch the compute shader
 	zest_DispatchCompute(command_buffer, tests->compute_write, group_count_x, group_count_y, 1);
@@ -584,9 +584,9 @@ Multi-Queue Synchronization:
 * The graph must handle the queue ownership transfer and synchronization (semaphores).
 */
 int test__multi_queue_sync(ZestTests *tests, Test *test) {
-	if (!tests->compute_write) {
+	if (!zest_IsValidComputeHandle(tests->compute_write)) {
 		shaderc_compiler_t compiler = shaderc_compiler_initialize();
-		zest_shader shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/image_write2.comp", "image_write.spv", shaderc_compute_shader, 1, compiler, 0);
+		zest_shader_handle shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/image_write2.comp", "image_write.spv", shaderc_compute_shader, 1, compiler, 0);
 		shaderc_compiler_release(compiler);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder();
 		zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
@@ -594,7 +594,7 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
-		if (!tests->compute_write) {
+		if (!zest_IsValidComputeHandle(tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;
 			return test->result;
@@ -617,7 +617,7 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -640,8 +640,8 @@ int test__pass_grouping(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
-		zest_uint final_pass_count = zest_map_size(frame_graph->final_passes);
+		test->result |= zest_GetFrameGraphResult(frame_graph);
+		zest_uint final_pass_count = zest_GetFrameGraphFinalPassCount(frame_graph);
 		test->result |= final_pass_count == 1 ? 0 : 1;
 	}
 	test->result |= zest_GetValidationErrorCount();
@@ -674,7 +674,7 @@ int test__cyclic_dependency(ZestTests *tests, Test *test) {
 		zest_EndPass();
 
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 	}
 	test->result |= zest_GetValidationErrorCount();
 	test->frame_count++;
@@ -693,7 +693,7 @@ int test__simple_caching(ZestTests *tests, Test *test) {
 		zest_ConnectSwapChainOutput();
 		zest_EndPass();
 		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		test->result |= frame_graph->error_status;
+		test->result |= zest_GetFrameGraphResult(frame_graph);
 	} else {
 		test->cache_count++;
 	}
@@ -731,15 +731,15 @@ void InitialiseTests(ZestTests *tests) {
 	tests->vk_sampler_info = zest_CreateSamplerInfo();
 	tests->mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 
-	tests->current_test = 4;
+	tests->current_test = 0;
     zest_ResetValidationErrors();
 }
 
 void ResetTests(ZestTests *tests) {
-	tests->texture = NULL;
-	tests->compute_verify = NULL;
-	tests->compute_write = NULL;
-	tests->cpu_buffer = NULL;
+	tests->texture = { 0 };
+	tests->compute_verify = { 0 };
+	tests->compute_write = { 0 };
+	tests->cpu_buffer = { 0 };
 }
 
 void UpdateCallback(zest_microsecs elapsed, void* user_data) {
