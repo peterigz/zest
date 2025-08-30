@@ -230,10 +230,12 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
-void zest_WriteBufferCompute(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
+void zest_WriteBufferCompute(const zest_frame_graph_context_t *context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
 	zest_resource_node write_buffer = zest_GetPassOutputResource(context, "Write Buffer");
 	ZEST_ASSERT_HANDLE(write_buffer);
+
+	VkCommandBuffer command_buffer = context->command_buffer;
 
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
@@ -259,12 +261,14 @@ void zest_WriteBufferCompute(VkCommandBuffer command_buffer, const zest_frame_gr
 	zest_DispatchCompute(command_buffer, tests->compute_write, group_count_x, 1, 1);
 }
 
-void zest_VerifyBufferCompute(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
+void zest_VerifyBufferCompute(const zest_frame_graph_context_t *context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
 	zest_resource_node write_buffer = zest_GetPassInputResource(context, "Write Buffer");
 	zest_resource_node verify_buffer = zest_GetPassOutputResource(context, "Verify Buffer");
 	ZEST_ASSERT_HANDLE(write_buffer);
 	ZEST_ASSERT_HANDLE(verify_buffer);
+
+	VkCommandBuffer command_buffer = context->command_buffer;
 
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
@@ -433,7 +437,7 @@ void zest_VerifyImageCompute(VkCommandBuffer command_buffer, const zest_frame_gr
 
 	// Update push constants for the current dispatch
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
-	push.index1 = zest_GetTransientImageBindlessIndex(context, read_image, ZEST_TRUE, zest_combined_image_sampler_2d_binding);
+	push.index1 = zest_GetTransientImageBindlessIndex(context, read_image, zest_combined_image_sampler_2d_binding);
 	push.index2 = tests->cpu_buffer_index;
 	push.index3 = zest_ScreenWidth();
 	push.index4 = zest_ScreenHeight();
@@ -564,7 +568,7 @@ void zest_WriteImageCompute(VkCommandBuffer command_buffer, const zest_frame_gra
 
 	// Update push constants for the current dispatch
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
-	push.index1 = zest_GetTransientImageBindlessIndex(context, write_buffer, true, zest_storage_image_binding);
+	push.index1 = zest_GetTransientImageBindlessIndex(context, write_buffer, zest_storage_image_binding);
 
 	zest_SendCustomComputePushConstants(command_buffer, tests->compute_write, &push);
 

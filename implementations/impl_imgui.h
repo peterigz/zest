@@ -25,7 +25,7 @@ typedef struct zest_imgui_t {
 extern zest_imgui_t *ZestImGui;
 
 zest_imgui_t *zest_imgui_Initialise();
-void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buffer vertex_buffer, zest_buffer index_buffer);
+void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer vertex_buffer, zest_buffer index_buffer);
 zest_resource_node zest_imgui_ImportVertexResources(const char *name);
 zest_resource_node zest_imgui_ImportIndexResources(const char *name);
 void zest_imgui_UpdateBuffers();
@@ -37,8 +37,8 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
 zest_pass_node zest_imgui_BeginPass();
 zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource);
 zest_buffer zest_imgui_IndexBufferProvider(zest_resource_node resource);
-void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
-void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data);
+void zest_imgui_DrawImGuiRenderPass(const zest_frame_graph_context context, void *user_data);
+void zest_imgui_UploadImGuiPass(const zest_frame_graph_context context, void *user_data);
 void zest_imgui_DarkStyle();
 bool zest_imgui_HasGuiToDraw();
 void zest_imgui_Shutdown();

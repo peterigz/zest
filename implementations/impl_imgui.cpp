@@ -116,14 +116,14 @@ zest_pass_node zest_imgui_BeginPass() {
 }
 
 // This is the function that will be called for your pass.
-void zest_imgui_DrawImGuiRenderPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
+void zest_imgui_DrawImGuiRenderPass(const zest_frame_graph_context context, void *user_data) {
     zest_buffer vertex_buffer = zest_GetPassInputBuffer(context, "Imgui Vertex Buffer");
     zest_buffer index_buffer = zest_GetPassInputBuffer(context, "Imgui Index Buffer");
     zest_imgui_RecordLayer(context, vertex_buffer, index_buffer);
 }
 
 // This is the function that will be called for your pass.
-void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
+void zest_imgui_UploadImGuiPass(const zest_frame_graph_context context, void *user_data) {
 
     if (!ZestImGui->dirty[ZestImGui->fif]) {
         return;
@@ -144,25 +144,22 @@ void zest_imgui_UploadImGuiPass(VkCommandBuffer command_buffer, const zest_frame
 
     zest_uint vertex_size = zest_vec_size(vertex_upload.buffer_copies);
 
-    zest_UploadBuffer(&vertex_upload, command_buffer);
-    zest_UploadBuffer(&index_upload, command_buffer);
+    zest_UploadBuffer(&vertex_upload, context);
+    zest_UploadBuffer(&index_upload, context);
 
     ZestImGui->dirty[ZestImGui->fif] = 0;
 }
 
-void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buffer vertex_buffer, zest_buffer index_buffer) {
+void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer vertex_buffer, zest_buffer index_buffer) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
-    VkCommandBuffer command_buffer = context->command_buffer;
-
-    zest_BindVertexBuffer(command_buffer, vertex_buffer);
-    zest_BindIndexBuffer(command_buffer, index_buffer);
+    zest_BindVertexBuffer(context, vertex_buffer);
+    zest_BindIndexBuffer(context, index_buffer);
 
     zest_pipeline_template last_pipeline = ZEST_NULL;
     VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
 
-    VkViewport view = zest_CreateViewport(0.f, 0.f, zest_SwapChainWidthf(), zest_SwapChainHeightf(), 0.f, 1.f);
-    vkCmdSetViewport(command_buffer, 0, 1, &view);
+    zest_SetScreenSizedViewport(context, 0, 1);
     
     if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
 
@@ -188,13 +185,13 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buff
 
                 zest_push_constants_t *push_constants = &ZestImGui->push_constants;
 
-				zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context->render_pass);
+				zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context);
                 switch (ZEST_STRUCT_TYPE(current_image)) {
                 case zest_struct_type_image: {
                     VkDescriptorSet texture_set = zest_GetImageDebugDescriptorSet(current_image);
                     if (last_pipeline != ZestImGui->pipeline || last_descriptor_set != texture_set) {
                         last_descriptor_set = texture_set;
-                        zest_BindPipeline(command_buffer, pipeline, &last_descriptor_set, 1);
+                        zest_BindPipeline(context, pipeline, &last_descriptor_set, 1);
                         last_pipeline = ZestImGui->pipeline;
                     }
                     push_constants->parameters2.x = (float)zest_ImageLayerIndex(current_image);
@@ -205,8 +202,8 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buff
                     //The imgui image must have its image, pipeline and shader resources defined
                     ZEST_ASSERT(imgui_image->image);
                     zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &ZestImGui->draw_sets);
-					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context->render_pass);
-                    zest_BindPipeline(command_buffer, pipeline, ZestImGui->draw_sets, set_count);
+					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context);
+                    zest_BindPipeline(context, pipeline, ZestImGui->draw_sets, set_count);
                     last_descriptor_set = VK_NULL_HANDLE;
                     last_pipeline = imgui_image->pipeline;
                     push_constants = &imgui_image->push_constants;
@@ -215,12 +212,12 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buff
                 break;
                 default:
                     //Invalid image
-					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context->render_pass);
+					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context);
                     ZEST_PRINT_WARNING("%s", "Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
                     continue;
                 }
 
-                zest_SendPushConstants(command_buffer, pipeline, push_constants);
+                zest_SendPushConstants(context, pipeline, push_constants);
 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
@@ -232,21 +229,21 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buff
                     continue;
                 }
 
-                VkRect2D scissor_rect;
+                zest_scissor_rect_t scissor_rect;
                 scissor_rect.offset.x = ZEST__MAX((int32_t)(clip_min.x), 0);
                 scissor_rect.offset.y = ZEST__MAX((int32_t)(clip_min.y), 0);
                 scissor_rect.extent.width = (zest_uint)(clip_max.x - clip_min.x);
                 scissor_rect.extent.height = (zest_uint)(clip_max.y - clip_min.y);
 
-                vkCmdSetScissor(command_buffer, 0, 1, &scissor_rect);
-                vkCmdDrawIndexed(command_buffer, pcmd->ElemCount, 1, index_offset + pcmd->IdxOffset, vertex_offset, 0);
+                zest_cmd_Scissor(context, &scissor_rect);
+                zest_DrawIndexed(context, pcmd->ElemCount, 1, index_offset + pcmd->IdxOffset, vertex_offset, 0);
             }
             index_offset += cmd_list->IdxBuffer.Size;
             vertex_offset += cmd_list->VtxBuffer.Size;
         }
     }
-    VkRect2D scissor = { { 0, 0 }, { zest_SwapChainWidth(), zest_SwapChainHeight() } };
-    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+    zest_scissor_rect_t scissor = { { 0, 0 }, { zest_SwapChainWidth(), zest_SwapChainHeight() } };
+	zest_cmd_Scissor(context, &scissor);
 }
 
 zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource) {
