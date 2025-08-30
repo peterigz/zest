@@ -297,8 +297,8 @@ void InitTimelineFXRenderResources(tfx_render_resources_t &render_resources, con
 	render_resources.uniform_buffer_descriptor_set = zest_CreateUniformDescriptorSet(render_resources.uniform_buffer_3d);
 
 	int shape_count = tfx_GetShapeCountInLibrary(library_path);
-	render_resources.particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, shape_count);
-	render_resources.color_ramps_texture = zest_CreateTextureBank("Particle Color Ramps", zest_texture_format_rgba_unorm);
+	render_resources.particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, zest_texture_flag_use_filtering, zest_format_r8g8b8a8_unorm, shape_count);
+	render_resources.color_ramps_texture = zest_CreateTextureBank("Particle Color Ramps", zest_format_r8g8b8a8_unorm);
 	zest_SetTextureUseFiltering(render_resources.color_ramps_texture, false);
 
 	//Compile the shaders we will use to render the particles
@@ -376,7 +376,7 @@ void InitExample(ComputeExample *example) {
 	InitTimelineFXRenderResources(example->tfx_rendering, "examples/assets/instanced_effects.tfx");
 
 	//Create a new texture for storing a floor texture, use storage type bank so we can use texture wrapping.
-	example->floor_texture = zest_CreateTexture("Floor texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
+	example->floor_texture = zest_CreateTexture("Floor texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 	//Load in the floor image from file and add it to the texture
 	example->floor_image = zest_AddTextureImageFile(example->floor_texture, "examples/assets/checker.png");
 	//Process the texture which will create the resources on the GPU for sampling from the floor image texture

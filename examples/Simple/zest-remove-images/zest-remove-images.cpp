@@ -15,7 +15,7 @@ struct App {
 
 void InitialiseApp(App *app) {
 	//Create a new texture to store the images
-	app->texture = zest_CreateTexturePacked("Test texture", zest_texture_format_rgba_unorm);
+	app->texture = zest_CreateTexturePacked("Test texture", zest_format_r8g8b8a8_unorm);
 	//Add an animation to the texture
 	app->animation= zest_AddTextureAnimationFile(app->texture, "examples/assets/vaders/vader_bullet_64_64_16.png", 16, 16, 64, 0, 1);
 	//Add a couple of images to the texture

@@ -37,7 +37,7 @@ void SetupBillboards(ImGuiApp *app) {
 	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
 	zest_EndPipelineTemplate(app->billboard_pipeline);
 
-	app->sprites_texture = zest_CreateTexturePacked("Sprites Texture", zest_texture_format_rgba_unorm);
+	app->sprites_texture = zest_CreateTexturePacked("Sprites Texture", zest_format_r8g8b8a8_unorm);
 	app->light = zest_AddTextureImageFile(app->sprites_texture, "examples/assets/glow.png");
 	zest_ProcessTextureImages(app->sprites_texture);
 
@@ -77,7 +77,7 @@ void zest_DispatchBRDSetup(VkCommandBuffer command_buffer, const zest_frame_grap
 }
 
 void SetupBRDFLUT(ImGuiApp *app) {
-	app->brd_texture = zest_CreateTextureStorage("brd ibl", 512, 512, zest_texture_format_rg_hdr, VK_IMAGE_VIEW_TYPE_2D, false);
+	app->brd_texture = zest_CreateTextureStorage("brd ibl", 512, 512, zest_format_r16g16_sfloat, VK_IMAGE_VIEW_TYPE_2D, false);
 	app->brd_bindless_index = zest_AcquireGlobalStorageSampler(app->brd_texture);
 	zest_AcquireGlobalCombinedSampler2d(app->brd_texture);
 
@@ -128,7 +128,7 @@ void zest_DispatchIrradianceSetup(VkCommandBuffer command_buffer, const zest_fra
 }
 
 void SetupIrradianceCube(ImGuiApp *app) {
-	app->irr_texture = zest_CreateTextureStorage("irradiance", 64, 64, zest_texture_format_rgba32, VK_IMAGE_VIEW_TYPE_CUBE, false);
+	app->irr_texture = zest_CreateTextureStorage("irradiance", 64, 64, zest_format_r32g32b32a32_sfloat, VK_IMAGE_VIEW_TYPE_CUBE, false);
 	app->irr_bindless_index = zest_AcquireGlobalStorageSampler(app->irr_texture);
 	zest_AcquireGlobalCombinedSamplerCube(app->irr_texture);
 
@@ -184,7 +184,7 @@ void zest_DispatchPrefilteredSetup(VkCommandBuffer command_buffer, const zest_fr
 }
 
 void SetupPrefilteredCube(ImGuiApp *app) {
-	app->prefiltered_texture = zest_CreateTextureStorage("prefiltered", 512, 512, zest_texture_format_rgba_hdr, VK_IMAGE_VIEW_TYPE_CUBE, true);
+	app->prefiltered_texture = zest_CreateTextureStorage("prefiltered", 512, 512, zest_format_r16g16b16a16_sfloat, VK_IMAGE_VIEW_TYPE_CUBE, true);
 	app->prefiltered_bindless_index = zest_AcquireGlobalStorageSampler(app->prefiltered_texture);
 	app->prefiltered_mip_indexes = zest_AcquireGlobalTextureMipIndexes(app->prefiltered_texture, zest_storage_image_binding);
 	zest_AcquireGlobalCombinedSamplerCube(app->prefiltered_texture);
@@ -509,7 +509,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
 
 	zest_image_resource_info_t depth_info = {
-		zest_texture_format_depth,
+		zest_format_d16_unorm,
 		zest_resource_usage_hint_none,
 		zest_ScreenWidth(),
 		zest_ScreenHeight(),

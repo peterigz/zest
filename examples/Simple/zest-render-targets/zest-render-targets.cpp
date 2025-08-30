@@ -12,13 +12,13 @@ void InitExample(RenderTargetExample *example) {
 	example->mipped_sampler = zest_GetSampler(&mipped_sampler_info);
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_shader downsampler_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", shaderc_compute_shader, 1, compiler, 0);
-	zest_shader upsampler_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", shaderc_compute_shader, 1, compiler, 0);
-	zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/upsample.frag", "upsample_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
-	zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.vert", "blur_vert.spv", shaderc_vertex_shader, 1, compiler, 0);
-	zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/composite.frag", "composite_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
-	zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/bloom_pass.frag", "bloom_pass_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
-	zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/pass.frag", "pass_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
+	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", shaderc_compute_shader, 1, compiler, 0);
+	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", shaderc_compute_shader, 1, compiler, 0);
+	zest_shader_handle upsample_frag = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/upsample.frag", "upsample_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
+	zest_shader_handle blur_vert = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/blur.vert", "blur_vert.spv", shaderc_vertex_shader, 1, compiler, 0);
+	zest_shader_handle composite_frag = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/composite.frag", "composite_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
+	zest_shader_handle bloom_pass_frag = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/bloom_pass.frag", "bloom_pass_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
+	zest_shader_handle pass_frag = zest_CreateShaderFromFile("examples/Simple/zest-render-targets/shaders/pass.frag", "pass_frag.spv", shaderc_fragment_shader, 1, compiler, 0);
 	shaderc_compiler_release(compiler);
 
 	//Make a pipeline to handle the blur effect
@@ -26,8 +26,8 @@ void InitExample(RenderTargetExample *example) {
 	//Set the push constant range for the fragment shader 
 	zest_SetPipelinePushConstantRange(example->downsample_pipeline, sizeof(zest_mip_push_constants_t), zest_shader_fragment_stage);
 	//Set the vert and frag shaders for the blur effect
-	zest_SetPipelineVertShader(example->downsample_pipeline, "blur_vert.spv", 0);
-	zest_SetPipelineFragShader(example->downsample_pipeline, "upsampler_frag.spv", 0);
+	zest_SetPipelineVertShader(example->downsample_pipeline, blur_vert);
+	zest_SetPipelineFragShader(example->downsample_pipeline, upsample_frag);
 	//Add a descriptor set layout for the pipeline, it only needs a single sampler for the fragment shader.
 	//Clear the current layouts that are in the pipeline.
 	zest_ClearPipelineDescriptorLayouts(example->downsample_pipeline);
@@ -42,39 +42,39 @@ void InitExample(RenderTargetExample *example) {
 	//We're not using any uniform buffers
 	example->downsample_pipeline->uniforms = 0;
 
-    example->upsample_pipeline = zest_CopyPipelineTemplate("up sampler", zest_PipelineTemplate("downsampler"));
-	zest_SetPipelineVertShader(example->upsample_pipeline, "blur_vert.spv", 0);
-	zest_SetPipelineFragShader(example->upsample_pipeline, "upsample_frag.spv", 0);
+    example->upsample_pipeline = zest_CopyPipelineTemplate("up sampler", example->downsample_pipeline);
+	zest_SetPipelineVertShader(example->upsample_pipeline, blur_vert);
+	zest_SetPipelineFragShader(example->upsample_pipeline, upsample_frag);
     zest_ClearPipelineDescriptorLayouts(example->upsample_pipeline);
 	zest_AddPipelineDescriptorLayout(example->upsample_pipeline, zest_vk_GetGlobalBindlessLayout());
     zest_EndPipelineTemplate(example->upsample_pipeline);
     example->upsample_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
-    example->bloom_pass_pipeline = zest_CopyPipelineTemplate("pipeline_bloom_pass", zest_PipelineTemplate("downsampler"));
-    zest_SetText(&example->bloom_pass_pipeline->vertShaderFile, "blur_vert.spv");
-    zest_SetText(&example->bloom_pass_pipeline->fragShaderFile, "bloom_pass_frag.spv");
+    example->bloom_pass_pipeline = zest_CopyPipelineTemplate("pipeline_bloom_pass", example->downsample_pipeline);
+	zest_SetPipelineVertShader(example->upsample_pipeline, blur_vert);
+	zest_SetPipelineFragShader(example->upsample_pipeline, bloom_pass_frag);
     zest_ClearPipelineDescriptorLayouts(example->bloom_pass_pipeline);
 	zest_AddPipelineDescriptorLayout(example->bloom_pass_pipeline, zest_vk_GetGlobalBindlessLayout());
 	zest_SetPipelinePushConstantRange(example->bloom_pass_pipeline, sizeof(BloomPushConstants), zest_shader_fragment_stage);
     zest_EndPipelineTemplate(example->bloom_pass_pipeline);
     example->bloom_pass_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
 
-    example->composite_pipeline = zest_CopyPipelineTemplate("pipeline_pass_through", zest_PipelineTemplate("pipeline_swap_chain"));
-    zest_SetText(&example->composite_pipeline->vertShaderFile, "blur_vert.spv");
-    zest_SetText(&example->composite_pipeline->fragShaderFile, "pass_frag.spv");
+    example->composite_pipeline = zest_BeginPipelineTemplate("pipeline_pass_through");
+	zest_SetPipelineVertShader(example->upsample_pipeline, blur_vert);
+	zest_SetPipelineFragShader(example->upsample_pipeline, pass_frag);
     zest_ClearPipelineDescriptorLayouts(example->composite_pipeline);
 	zest_AddPipelineDescriptorLayout(example->composite_pipeline, zest_vk_GetGlobalBindlessLayout());
 	zest_SetPipelinePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), zest_shader_fragment_stage);
     zest_EndPipelineTemplate(example->composite_pipeline);
-    example->composite_pipeline->colorBlendAttachment = zest_AdditiveBlendState();
+    zest_SetPipelineBlend(example->composite_pipeline, zest_AdditiveBlendState());
 
-	example->render_target_resources = zest_CreateShaderResources("Example resources");
+	example->render_target_resources = zest_CreateShaderResources();
 	zest_AddGlobalBindlessSetToResources(example->render_target_resources);
 
 	example->font_layer = zest_CreateFontLayer("Example fonts");
 
 	//Load the images into a texture
-	example->texture = zest_CreateTexturePacked("Statue texture", zest_texture_format_rgba_srgb);
+	example->texture = zest_CreateTexturePacked("Statue texture", zest_format_r8g8b8a8_srgb);
 	example->image = zest_AddTextureImageFile(example->texture, "examples/assets/texture.jpg");
 	example->wabbit = zest_AddTextureImageFile(example->texture, "examples/assets/wabbit_alpha.png");
 	zest_SetTextureLayerSize(example->texture, 2048);
@@ -157,8 +157,8 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_frame_gra
 	zest_resource_node downsampler_target = zest_GetPassInputResource(context, "Downsampler");
 
 	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
-	zest_uint* sampler_mip_indices = zest_GetTransientMipBindlessIndexes(context, downsampler_target, zest_binding_type_combined_image_sampler);
-	zest_uint* storage_mip_indices = zest_GetTransientMipBindlessIndexes(context, downsampler_target, zest_binding_type_storage_image);
+	zest_uint* sampler_mip_indices = zest_GetTransientMipBindlessIndexes(context, downsampler_target, zest_combined_image_sampler_2d_binding);
+	zest_uint* storage_mip_indices = zest_GetTransientMipBindlessIndexes(context, downsampler_target, zest_storage_image_binding);
 
 	BlurPushConstants push = { 0 };
 
@@ -169,7 +169,7 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_frame_gra
 	const zest_uint local_size_y = 8;
 
 	VkDescriptorSet sets[] = {
-		ZestRenderer->global_set->vk_descriptor_set,
+		zest_vk_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -308,7 +308,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_DrawMSDFText(example->font_layer, "With HDR texture", zest_ScreenWidth() * .5f, zest_ScreenHeightf() * .75f, .5f, .5f, 80.f, 0.f);
 
 	zest_image_resource_info_t image_info = {
-		zest_texture_format_rgba_hdr,
+		zest_format_r16g16b16a16_sfloat,
 		zest_resource_usage_hint_copyable,
 		zest_ScreenWidth(),
 		zest_ScreenHeight(),
@@ -331,50 +331,57 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		zest_resource_node upsampler = zest_AddTransientImageResource("Upsampler", &image_info);
 
 		//---------------------------------Transfer Pass----------------------------------------------------
-		zest_pass_node upload_font_data = zest_BeginTransferPass("Upload Font Data");
-		//outputs
-		zest_ConnectOutput(upload_font_data, font_layer_resources);
-		//tasks
-		zest_SetPassTask(upload_font_data, zest_UploadInstanceLayerData, example->font_layer);
+		zest_BeginTransferPass("Upload Font Data"); {
+			//outputs
+			zest_ConnectOutput(font_layer_resources);
+			//tasks
+			zest_SetPassTask(zest_UploadInstanceLayerData, &example->font_layer);
+			zest_EndPass();
+		}
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Draw Base Pass---------------------------------------------------
-		zest_pass_node render_target_pass = zest_BeginRenderPass("Graphics Pass");
-		zest_ConnectInput(render_target_pass, font_layer_resources, 0);
-		zest_ConnectInput(render_target_pass, font_layer_texture, 0);
-		zest_ConnectOutput(render_target_pass, downsampler);
-		//tasks
-		zest_SetPassTask(render_target_pass, zest_DrawFonts, example->font_layer);
+		zest_BeginRenderPass("Graphics Pass"); {
+			zest_ConnectInput(font_layer_resources, 0);
+			zest_ConnectInput(font_layer_texture, 0);
+			zest_ConnectOutput(downsampler);
+			//tasks
+			zest_SetPassTask(zest_DrawFonts, &example->font_layer);
+			zest_EndPass();
+		}
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Downsample Pass--------------------------------------------------
-		zest_pass_node downsampler_pass = zest_BeginComputePass(example->downsampler_compute, "Downsampler Pass");
-		//The stage should be assumed based on the pass queue type.
-		zest_ConnectInput(downsampler_pass, downsampler, 0);
-		zest_ConnectOutput(downsampler_pass, downsampler);
-		//tasks
-		zest_SetPassTask(downsampler_pass, zest_DownsampleCompute, example);
+		zest_BeginComputePass(example->downsampler_compute, "Downsampler Pass"); {
+			//The stage should be assumed based on the pass queue type.
+			zest_ConnectInput(downsampler, 0);
+			zest_ConnectOutput(downsampler);
+			//tasks
+			zest_SetPassTask(zest_DownsampleCompute, example);
+		}
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Upsample Pass----------------------------------------------------
-		zest_pass_node upsampler_pass = zest_BeginComputePass(example->upsampler_compute, "Upsampler Pass");
-		//The stage should be assumed based on the pass queue type.
-		zest_ConnectInput(upsampler_pass, downsampler, 0);
-		zest_ConnectOutput(upsampler_pass, upsampler);
-		//tasks
-		zest_SetPassTask(upsampler_pass, zest_UpsampleCompute, example);
+		zest_BeginComputePass(example->upsampler_compute, "Upsampler Pass"); {
+			//The stage should be assumed based on the pass queue type.
+			zest_ConnectInput(downsampler, 0);
+			zest_ConnectOutput(upsampler);
+			//tasks
+			zest_SetPassTask(zest_UpsampleCompute, example);
+		}
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
 		//zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
-		zest_pass_node graphics_pass = zest_BeginGraphicBlankScreen("Blank Screen");
-		//inputs
-		zest_ConnectInput(graphics_pass, upsampler, 0);
-		zest_ConnectInput(graphics_pass, downsampler, 0);
-		//outputs
-		zest_ConnectSwapChainOutput(graphics_pass);
-		//tasks
-		zest_SetPassTask(graphics_pass, zest_DrawRenderTargetSimple, example);
+		zest_BeginGraphicBlankScreen("Blank Screen"); {
+			//inputs
+			zest_ConnectInput(upsampler, 0);
+			zest_ConnectInput(downsampler, 0);
+			//outputs
+			zest_ConnectSwapChainOutput();
+			//tasks
+			zest_SetPassTask(zest_DrawRenderTargetSimple, example);
+		}
 		//--------------------------------------------------------------------------------------------------
 
 		//End and execute the render graph

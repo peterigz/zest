@@ -353,10 +353,10 @@ void InitImGuiApp(ImGuiApp* app) {
 	//Rebuild the Zest font texture
 	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
 
-	app->floor_texture = zest_CreateTexture("Floor texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
+	app->floor_texture = zest_CreateTexture("Floor texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 	app->floor_image = zest_AddTextureImageFile(app->floor_texture, "examples/assets/checker.png");
 	zest_ProcessTextureImages(app->floor_texture);
-	app->sprite_texture = zest_CreateTexture("Sprite texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_texture_format_rgba_unorm, 10);
+	app->sprite_texture = zest_CreateTexture("Sprite texture", zest_texture_storage_type_bank, zest_texture_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 	app->sprite = zest_AddTextureImageFile(app->sprite_texture, "examples/assets/wabbit_alpha.png");
 	zest_ProcessTextureImages(app->sprite_texture);
 	app->mesh_pipeline = zest_PipelineTemplate("pipeline_mesh");
@@ -1205,7 +1205,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
 
 	zest_image_resource_info_t depth_info = {
-		zest_texture_format_depth,
+		zest_format_d16_unorm,
 		zest_resource_usage_hint_msaa,
 		zest_ScreenWidth(),
 		zest_ScreenHeight(),

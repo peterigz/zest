@@ -41,7 +41,7 @@ int test__blank_screen(ZestTests *tests, Test *test) {
 //Unused Pass Culling: Define two passes, A and B. Pass A writes to a resource, but that resource is never used as an input to Pass B or as a final
 //output. Verify that Pass A is culled and never executed.
 int test__pass_culling(ZestTests *tests, Test *test) {
-	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
+	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Pass Culling", 0)) {
 		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
@@ -65,7 +65,7 @@ int test__pass_culling(ZestTests *tests, Test *test) {
 
 //Unused Resource Culling: Declare a resource that is never used by any pass. The graph should compile and run without trying to allocate memory for it.
 int test__resource_culling(ZestTests *tests, Test *test) {
-	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
+	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Resource Culling", 0)) {
 		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 		zest_BeginGraphicBlankScreen("Draw Nothing");
@@ -83,7 +83,7 @@ int test__resource_culling(ZestTests *tests, Test *test) {
 //Chained Culling: Pass A writes to Resource X. Pass B reads from Resource X and writes to Resource Y. If Resource Y is not used as a final output, both
 //Pass A and Pass B should be culled.
 int test__chained_pass_culling(ZestTests *tests, Test *test) {
-	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
+	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Chained Pass Culling", 0)) {
 		zest_resource_node output_x = zest_AddTransientImageResource("Output X", &info);
 		zest_resource_node output_y = zest_AddTransientImageResource("Output Y", &info);
@@ -118,7 +118,7 @@ int test__chained_pass_culling(ZestTests *tests, Test *test) {
 //Transient Resource Test: Pass A writes to a transient texture. Pass B reads from that texture. Verify the data is passed correctly. The graph should
 //manage the creation and destruction of the transient texture in the appropriate passes.
 int test__transient_image(ZestTests *tests, Test *test) {
-	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
+	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Transient Image", 0)) {
 		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
@@ -156,7 +156,7 @@ int test__transient_image(ZestTests *tests, Test *test) {
 //final output resource (e.g., the swapchain).
 int test__import_image(ZestTests *tests, Test *test) {
 	if (!zest_IsValidTextureHandle(tests->texture)) {
-		tests->texture = zest_CreateTexturePacked("Sprite Texture", zest_texture_format_rgba_unorm);
+		tests->texture = zest_CreateTexturePacked("Sprite Texture", zest_format_r8g8b8a8_unorm);
 		zest_image player_image = zest_AddTextureImageFile(tests->texture, "examples/assets/vaders/player.png");
 		zest_ProcessTextureImages(tests->texture);
 	}
@@ -183,7 +183,7 @@ Automatic Barrier Test(Layout Transition) :
 * The graph must insert the correct pipeline barrier to transition the texture layout between passes.
 */
 int test__image_barrier_tests(ZestTests *tests, Test *test) {
-	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
+	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Transient Image", 0)) {
 		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
@@ -370,7 +370,7 @@ Multi-Reader Barrier Test: Pass A writes to a resource. Passes B and C both read
 The graph should correctly synchronize this so B and C only execute after A is complete.
 */
 int test__multi_reader_barrier(ZestTests *tests, Test *test) {
-	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
+	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Multi Reader Barrier", 0)) {
 		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
@@ -454,7 +454,7 @@ Image Write / Read(Clear Color) :
 * Pass B(Compute) : Reads the image pixels and verifies they match the clear color.
 */
 int test__image_read_write(ZestTests *tests, Test *test) {
-	zest_image_resource_info_t info = {zest_texture_format_rgba_unorm};
+	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (!zest_IsValidComputeHandle(tests->compute_verify)) {
 		shaderc_compiler_t compiler = shaderc_compiler_initialize();
 		zest_shader_handle shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/image_verify.comp", "image_verify.spv", shaderc_compute_shader, 1, compiler, 0);
@@ -515,8 +515,8 @@ Depth Attachment Test:
 * Verify the final image shows correct occlusion.
 */
 int test__depth_attachment(ZestTests *tests, Test *test) {
-	zest_image_resource_info_t info = { zest_texture_format_rgba_unorm };
-	zest_image_resource_info_t depth_info = { zest_texture_format_depth };
+	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
+	zest_image_resource_info_t depth_info = { zest_format_d16_unorm };
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Blank Screen", 0)) {
 		zest_resource_node depth = zest_AddTransientImageResource("Depth Buffer", &depth_info);
 		zest_FlagResourceAsEssential(depth);
@@ -602,7 +602,7 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	}
 
 	zest_SetSwapchainClearColor(zest_GetMainWindowSwapchain(), 0.f, .1f, .2f, 1.f);
-	zest_image_resource_info_t info = { zest_texture_format_rgba_unorm };
+	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Multi Queue Sync", 0)) {
 		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
@@ -654,7 +654,7 @@ Cyclic Dependency : Create a graph where Pass A depends on Pass B's output, and 
 cycle and return an error instead of crashing.
 */
 int test__cyclic_dependency(ZestTests *tests, Test *test) {
-	zest_image_resource_info_t info = { zest_texture_format_rgba_unorm };
+	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Cyclic Dependency", 0)) {
 		zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 		zest_resource_node output_b = zest_AddTransientImageResource("Output B", &info);

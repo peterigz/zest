@@ -16,12 +16,12 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Set up the compute shader example starts here
 	//Prepare a couple of textures:
 	//Particle image for point sprites
-	app->particle_texture = zest_CreateTextureSingle("particle", zest_texture_format_rgba_unorm);
+	app->particle_texture = zest_CreateTextureSingle("particle", zest_format_r8g8b8a8_unorm);
 	app->particle_texture->vk_image_view_type = VK_IMAGE_VIEW_TYPE_2D;
 	zest_AddTextureImageFile(app->particle_texture, "examples/assets/particle.png");
 	zest_ProcessTextureImages(app->particle_texture);
 	//A gradient texture to sample the colour from
-	app->gradient_texture = zest_CreateTextureSingle("gradient", zest_texture_format_rgba_unorm);
+	app->gradient_texture = zest_CreateTextureSingle("gradient", zest_format_r8g8b8a8_unorm);
 	app->gradient_texture->vk_image_view_type = VK_IMAGE_VIEW_TYPE_2D;
 	zest_AddTextureImageFile(app->gradient_texture, "examples/assets/gradient.png");
 	zest_ProcessTextureImages(app->gradient_texture);

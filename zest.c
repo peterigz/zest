@@ -7566,7 +7566,6 @@ void zest__prepare_standard_pipelines() {
     //Final Render Pipelines
     ZestRenderer->pipeline_templates.swap = zest_BeginPipelineTemplate("pipeline_swap_chain");
     zest_pipeline_template swap = ZestRenderer->pipeline_templates.swap;
-    swap->scissor.extent = zest_GetSwapChainExtent();
     zest_SetPipelinePushConstantRange(swap, sizeof(zest_vec2), VK_SHADER_STAGE_VERTEX_BIT);
     zest_SetPipelineBlend(swap, zest_PreMultiplyBlendStateForSwap());
     swap->no_vertex_input = ZEST_TRUE;
@@ -8298,7 +8297,7 @@ zest_create_info_t zest_CreateInfo() {
         .fence_wait_timeout_ms = 250,
         .max_fence_timeout_ms = ZEST_SECONDS_IN_MILLISECONDS(10),
         .thread_count = zest_GetDefaultThreadCount(),
-        .color_format = zest_texture_format_bgra_unorm,
+        .color_format = zest_format_b8g8r8a8_unorm,
         .flags = zest_init_flag_enable_vsync | zest_init_flag_cache_shaders,
         .destroy_window_callback = zest__destroy_window_callback,
         .get_window_size_callback = zest__get_window_size_callback,
@@ -10897,7 +10896,7 @@ zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_r
     description.height = info->height ? info->height : zest_ScreenHeight();
     description.numSamples = (info->usage_hints & zest_resource_usage_hint_msaa) ? ZestDevice->msaa_samples : VK_SAMPLE_COUNT_1_BIT;
     description.mip_levels = info->mip_levels ? info->mip_levels : 1;
-	description.format = info->format == zest_texture_format_depth ? ZestRenderer->vk_depth_format : (VkFormat)info->format;
+	description.format = info->format == zest_format_d16_unorm ? ZestRenderer->vk_depth_format : (VkFormat)info->format;
     description.aspect_flags = zest__determine_aspect_flag(description.format);
 	zest_resource_node resource = zest__add_transient_image_resource(name, &description, 0, ZEST_TRUE);
     zest__interpret_hints(resource, info->usage_hints);
@@ -12756,7 +12755,7 @@ void zest_ConvertBitmap(zest_bitmap  src, zest_texture_format format, zest_byte 
     zest_size new_pos = 0;
 
     zest_uint order[3] = { 1, 2, 3 };
-    if (format == zest_texture_format_bgra_unorm) {
+    if (format == zest_format_b8g8r8a8_unorm) {
         order[0] = 3; order[2] = 1;
     }
 
@@ -12800,11 +12799,11 @@ void zest_ConvertBitmap(zest_bitmap  src, zest_texture_format format, zest_byte 
 }
 
 void zest_ConvertBitmapToBGRA(zest_bitmap  src, zest_byte alpha_level) {
-    zest_ConvertBitmap(src, zest_texture_format_bgra_unorm, alpha_level);
+    zest_ConvertBitmap(src, zest_format_b8g8r8a8_unorm, alpha_level);
 }
 
 void zest_ConvertBitmapToRGBA(zest_bitmap  src, zest_byte alpha_level) {
-    zest_ConvertBitmap(src, zest_texture_format_rgba_unorm, alpha_level);
+    zest_ConvertBitmap(src, zest_format_r8g8b8a8_unorm, alpha_level);
 }
 
 void zest_ConvertBGRAToRGBA(zest_bitmap  src) {
@@ -14408,18 +14407,18 @@ void zest_SetTextureImageFormat(zest_texture_handle handle, zest_texture_format 
     }
     texture->vk_image_format = (VkFormat)format;
     switch (format) {
-    case zest_texture_format_rgba_unorm:
-    case zest_texture_format_bgra_unorm:
-    case zest_texture_format_rgba_srgb:
-    case zest_texture_format_bgra_srgb: 
-    case zest_texture_format_rgba32: 
-    case zest_texture_format_rgba_hdr: {
+    case zest_format_r8g8b8a8_unorm:
+    case zest_format_b8g8r8a8_unorm:
+    case zest_format_r8g8b8a8_srgb:
+    case zest_format_b8g8r8a8_srgb: 
+    case zest_format_r32g32b32a32_sfloat: 
+    case zest_format_r16g16b16a16_sfloat: {
         texture->color_channels = 4;
     } break;
-    case zest_texture_format_rg_hdr: {
+    case zest_format_r16g16_sfloat: {
         texture->color_channels = 2;
     } break;
-    case zest_texture_format_alpha: {
+    case zest_format_r8_unorm: {
         texture->color_channels = 1;
     } break;
     default: {

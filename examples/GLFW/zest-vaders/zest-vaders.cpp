@@ -198,7 +198,7 @@ void VadersGame::Init() {
 	//Renderer specific - initialise the texture
 	float max_radius = 0;
 	//Create a texture to store our player and enemy sprite images
-	sprite_texture = zest_CreateTexturePacked("Sprite Texture", zest_texture_format_rgba_unorm);
+	sprite_texture = zest_CreateTexturePacked("Sprite Texture", zest_format_r8g8b8a8_unorm);
 	//Add all of the images and animations into the texture
 	player_image = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/player.png");
 	vader_image1 = zest_AddTextureImageFile(sprite_texture, "examples/assets/vaders/vader.png");

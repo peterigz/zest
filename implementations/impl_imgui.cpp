@@ -17,7 +17,7 @@ zest_imgui_t *zest_imgui_Initialise() {
     int upload_size = width * height * 4 * sizeof(char);
 
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-    ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
+    ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_format_r8g8b8a8_unorm, 10);
     zest_image font_image = zest_AddTextureImageBitmap(ZestImGui->font_texture, font_bitmap);
     zest_ProcessTextureImages(ZestImGui->font_texture);
     zest_FreeBitmap(font_bitmap);
@@ -71,7 +71,7 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
     zest_FreeTexture(ZestImGui->font_texture);
-	ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_texture_format_rgba_unorm, 10);
+	ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_format_r8g8b8a8_unorm, 10);
     zest_ResetTexture(ZestImGui->font_texture);
     zest_image font_image = zest_AddTextureImageBitmap(ZestImGui->font_texture, font_bitmap);
     zest_ProcessTextureImages(ZestImGui->font_texture);
