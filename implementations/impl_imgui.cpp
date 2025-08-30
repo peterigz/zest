@@ -37,7 +37,7 @@ zest_imgui_t *zest_imgui_Initialise() {
 
     zest_SetPipelineShaders(imgui_pipeline, ZestImGui->vertex_shader, ZestImGui->fragment_shader);
 
-    imgui_pipeline->scissor.extent = zest_GetSwapChainExtent();
+    imgui_pipeline->scissor.extent = { zest_SwapChainWidth(), zest_SwapChainHeight() };
     imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
     zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
     zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_vk_GetDebugLayout());
