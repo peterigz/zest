@@ -39,8 +39,8 @@ struct RenderTargetExample {
 	zest_layer_handle font_layer;				            //Font layer for drawing some text to the top layer
 	zest_texture_handle texture;				            //A texture to store the images
 	zest_shader_resources_handle sprite_shader_resources;	//Shader resources for the sprite drawing
-	zest_image image;					            //Handle to the statue image
-	zest_image wabbit;					            //Handle to the rabbit image that we'll bounce around the screen
+	zest_atlas_region image;					            //Handle to the statue image
+	zest_atlas_region wabbit;					            //Handle to the rabbit image that we'll bounce around the screen
 	zest_font font;						            //Handle to the font
 	BlurPushConstants blur_push_constants;	        //The push constants containing the texture size and the direction of the blur
 	BloomPushConstants bloom_constants;		        //The push constants containing the bloom thresholds

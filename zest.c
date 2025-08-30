@@ -35,27 +35,6 @@ typedef struct zest_output_group_t {
     zest_resource_node *resources;
 } zest_output_group_t;
 
-typedef struct zest_swapchain_t {
-    int magic;
-    zest_window window;
-    const char *name;
-    zest_texture_format format;
-    VkSwapchainKHR vk_swapchain;
-    VkFormat vk_format;
-    VkExtent2D vk_extent;
-    zest_vec2 screen_resolution_push;
-    VkClearColorValue vk_clear_color;
-    //Color buffer
-    VkImage *vk_images;
-    VkImageView *vk_image_views;
-    //Syncronization
-    VkSemaphore *vk_render_finished_semaphore;
-    VkSemaphore vk_image_available_semaphore[ZEST_MAX_FIF];
-    zest_uint current_image_frame;
-    zest_uint image_count;
-    zest_swapchain_flags flags;
-} zest_swapchain_t;
-
 typedef struct zest_execution_timeline_t {
     int magic;
     VkSemaphore semaphore;
@@ -283,7 +262,7 @@ typedef struct zest_bitmap_t {
     zest_bool is_imported;
 } zest_bitmap_t;
 
-typedef struct zest_image_t {
+typedef struct zest_atlas_region_t {
     int magic;
     zest_index index;            //index within the QulkanTexture
     zest_text_t name;            //Filename of the image
@@ -300,13 +279,13 @@ typedef struct zest_image_t {
     zest_vec2 handle;            //The handle of the image. 0.5f is the center of the image
     float max_radius;            //You can load images and calculate the max radius of the image which is the furthest pixel from the center.
     zest_texture_handle texture; //Handle to the texture that this image belongs to
-} zest_image_t;
+} zest_atlas_region_t;
 
 typedef struct zest_image_collection_t {
     int magic;
     VkFormat vk_format;
     zest_bitmap_t *image_bitmaps;
-    zest_image *images;
+    zest_atlas_region *regions;
     zest_bitmap_t *layers;
     zest_bitmap_array_t bitmap_array;
     VkBufferImageCopy *buffer_copy_regions;
@@ -314,6 +293,27 @@ typedef struct zest_image_collection_t {
     zest_uint layer_count;
     zest_image_collection_flags flags;
 } zest_image_collection_t;
+
+typedef struct zest_swapchain_t {
+    int magic;
+    zest_window window;
+    const char *name;
+    zest_texture_format format;
+    VkSwapchainKHR vk_swapchain;
+    VkFormat vk_format;
+    VkExtent2D vk_extent;
+    zest_vec2 screen_resolution_push;
+    VkClearColorValue vk_clear_color;
+    //Color buffer
+    VkImage *vk_images;
+    VkImageView *vk_image_views;
+    //Syncronization
+    VkSemaphore *vk_render_finished_semaphore;
+    VkSemaphore vk_image_available_semaphore[ZEST_MAX_FIF];
+    zest_uint current_image_frame;
+    zest_uint image_count;
+    zest_swapchain_flags flags;
+} zest_swapchain_t;
 
 typedef struct zest_texture_t {
     int magic;
@@ -330,7 +330,7 @@ typedef struct zest_texture_t {
 
     zest_texture_info_t info;
 
-    zest_image_t texture;
+    zest_atlas_region_t texture;
     zest_bitmap_t texture_bitmap;
 
     // --- GPU data. When changing a texture that is in use, we double buffer then flip when ready
@@ -12447,8 +12447,8 @@ zest_texture_handle zest__new_texture() {
     return handle;
 }
 
-zest_image_t zest_NewImage(void) {
-    zest_image_t image = { 0 };
+zest_atlas_region_t zest_NewImage(void) {
+    zest_atlas_region_t image = { 0 };
     image.magic = zest_INIT_MAGIC(zest_struct_type_image);
     return image;
 }
@@ -12459,9 +12459,9 @@ zest_imgui_image_t zest_NewImGuiImage(void) {
     return imgui_image;
 }
 
-zest_image zest_CreateImage() {
-    zest_image_t blank_image = zest_NewImage();
-    zest_image image = ZEST__NEW_ALIGNED(zest_image, 16);
+zest_atlas_region zest_CreateImage() {
+    zest_atlas_region_t blank_image = zest_NewImage();
+    zest_atlas_region image = ZEST__NEW_ALIGNED(zest_atlas_region, 16);
     *image = blank_image;
     image->magic = zest_INIT_MAGIC(zest_struct_type_image);
     image->scale = zest_Vec2Set1(1.f);
@@ -12475,8 +12475,8 @@ zest_image zest_CreateImage() {
     return image;
 }
 
-zest_image zest_CreateAnimation(zest_uint frames) {
-    zest_image image = (zest_image)ZEST__ALLOCATE_ALIGNED(sizeof(zest_image_t) * frames, 16);
+zest_atlas_region zest_CreateAnimation(zest_uint frames) {
+    zest_atlas_region image = (zest_atlas_region)ZEST__ALLOCATE_ALIGNED(sizeof(zest_atlas_region_t) * frames, 16);
     ZEST_ASSERT(image); //Couldn't allocate the image. Out of memory?
     image->frames = frames;
     return image;
@@ -12932,12 +12932,12 @@ zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_index
     return image;
 }
 
-zest_image zest_AddTextureImageFile(zest_texture_handle handle, const char* filename) {
+zest_atlas_region zest_AddTextureImageFile(zest_texture_handle handle, const char* filename) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
-    zest_image image = zest_CreateImage();
+    zest_atlas_region image = zest_CreateImage();
     zest__maybe_create_image_collection(texture);
-    zest_vec_push(texture->image_collection->images, image);
-    texture->image_index = zest_vec_last_index(texture->image_collection->images);
+    zest_vec_push(texture->image_collection->regions, image);
+    texture->image_index = zest_vec_last_index(texture->image_collection->regions);
     image->index = texture->image_index;
     if (texture->storage_type == zest_texture_storage_type_single) {
         if (zest_vec_size(texture->image_collection->image_bitmaps)) {
@@ -12965,12 +12965,12 @@ zest_image zest_AddTextureImageFile(zest_texture_handle handle, const char* file
     return image;
 }
 
-zest_image zest_AddTextureImageBitmap(zest_texture_handle handle, zest_bitmap bitmap_to_load) {
+zest_atlas_region zest_AddTextureImageBitmap(zest_texture_handle handle, zest_bitmap bitmap_to_load) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
-    zest_image image = zest_CreateImage();
+    zest_atlas_region image = zest_CreateImage();
     zest__maybe_create_image_collection(texture);
-    zest_vec_push(texture->image_collection->images, image);
-    texture->image_index = zest_vec_last_index(texture->image_collection->images);
+    zest_vec_push(texture->image_collection->regions, image);
+    texture->image_index = zest_vec_last_index(texture->image_collection->regions);
     image->index = texture->image_index;
     zest_bitmap_t image_copy = { 0 };
     image_copy.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
@@ -12999,12 +12999,12 @@ zest_image zest_AddTextureImageBitmap(zest_texture_handle handle, zest_bitmap bi
     return image;
 }
 
-zest_image zest_AddTextureImageMemory(zest_texture_handle handle, const char* name, const unsigned char* buffer, int buffer_size) {
+zest_atlas_region zest_AddTextureImageMemory(zest_texture_handle handle, const char* name, const unsigned char* buffer, int buffer_size) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
-    zest_image image = zest_CreateImage();
+    zest_atlas_region image = zest_CreateImage();
     zest__maybe_create_image_collection(texture);
-    zest_vec_push(texture->image_collection->images, image);
-    texture->image_index = zest_vec_last_index(texture->image_collection->images);
+    zest_vec_push(texture->image_collection->regions, image);
+    texture->image_index = zest_vec_last_index(texture->image_collection->regions);
     image->index = texture->image_index;
     if (texture->storage_type == zest_texture_storage_type_single) {
         if (zest_vec_size(texture->image_collection->image_bitmaps)) {
@@ -13033,7 +13033,7 @@ zest_image zest_AddTextureImageMemory(zest_texture_handle handle, const char* na
     return image;
 }
 
-zest_image zest_AddTextureAnimationFile(zest_texture_handle handle, const char* filename, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
+zest_atlas_region zest_AddTextureAnimationFile(zest_texture_handle handle, const char* filename, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     zest_bitmap_t spritesheet = { 0 };
     float max_radius;
@@ -13045,7 +13045,7 @@ zest_image zest_AddTextureAnimationFile(zest_texture_handle handle, const char* 
 
     zest_uint animation_area = spritesheet.meta.width * spritesheet.meta.height;
     zest_uint frame_area = width * height;
-    zest_index first_index = zest_vec_size(texture->image_collection->images);
+    zest_index first_index = zest_vec_size(texture->image_collection->regions);
 
     ZEST_ASSERT(frames <= animation_area / frame_area);    // ERROR: The animation being loaded is the wrong size for the number of frames that you want to load for the specified width and height.
     ZEST_ASSERT(spritesheet.meta.width >= width);               // ERROR: The animation being loaded is not wide enough for the width of each frame specified.
@@ -13058,11 +13058,11 @@ zest_image zest_AddTextureAnimationFile(zest_texture_handle handle, const char* 
         *_max_radius = max_radius;
     }
 
-    zest_SetText(&texture->image_collection->images[first_index]->name, filename);
-    return texture->image_collection->images[first_index];
+    zest_SetText(&texture->image_collection->regions[first_index]->name, filename);
+    return texture->image_collection->regions[first_index];
 }
 
-zest_image zest_AddTextureAnimationBitmap(zest_texture_handle handle, zest_bitmap spritesheet, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
+zest_atlas_region zest_AddTextureAnimationBitmap(zest_texture_handle handle, zest_bitmap spritesheet, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
 
     float max_radius;
@@ -13074,7 +13074,7 @@ zest_image zest_AddTextureAnimationBitmap(zest_texture_handle handle, zest_bitma
     zest_uint animation_area = spritesheet->meta.width * spritesheet->meta.height;
     zest_uint frame_area = width * height;
 
-    zest_index first_index = zest_vec_size(texture->image_collection->images);
+    zest_index first_index = zest_vec_size(texture->image_collection->regions);
 
     ZEST_ASSERT(frames <= animation_area / frame_area);    // ERROR: The animation being loaded is the wrong size for the number of frames that you want to load for the specified width and height.
     ZEST_ASSERT(spritesheet->meta.width >= width);            // ERROR: The animation being loaded is not wide enough for the width of each frame specified.
@@ -13086,11 +13086,11 @@ zest_image zest_AddTextureAnimationBitmap(zest_texture_handle handle, zest_bitma
         *_max_radius = max_radius;
     }
 
-    zest_SetText(&texture->image_collection->images[first_index]->name, spritesheet->name.str);
-    return texture->image_collection->images[first_index];
+    zest_SetText(&texture->image_collection->regions[first_index]->name, spritesheet->name.str);
+    return texture->image_collection->regions[first_index];
 }
 
-zest_image zest_AddTextureAnimationMemory(zest_texture_handle handle, const char* name, unsigned char* buffer, int buffer_size, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
+zest_atlas_region zest_AddTextureAnimationMemory(zest_texture_handle handle, const char* name, unsigned char* buffer, int buffer_size, int width, int height, zest_uint frames, float* _max_radius, zest_bool row_by_row) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
 
     float max_radius;
@@ -13104,7 +13104,7 @@ zest_image zest_AddTextureAnimationMemory(zest_texture_handle handle, const char
     zest_uint animation_area = spritesheet.meta.width * spritesheet.meta.height;
     zest_uint frame_area = width * height;
 
-    zest_index first_index = zest_vec_size(texture->image_collection->images);
+    zest_index first_index = zest_vec_size(texture->image_collection->regions);
 
     ZEST_ASSERT(frames <= animation_area / frame_area);    //ERROR: The animation being loaded is the wrong size for the number of frames that you want to load for the specified width and height.
     ZEST_ASSERT(spritesheet.meta.width >= width);                // ERROR: The animation being loaded is not wide enough for the width of each frame specified.
@@ -13117,8 +13117,8 @@ zest_image zest_AddTextureAnimationMemory(zest_texture_handle handle, const char
         *_max_radius = max_radius;
     }
 
-    zest_SetText(&texture->image_collection->images[first_index]->name, name);
-    return texture->image_collection->images[first_index];
+    zest_SetText(&texture->image_collection->regions[first_index]->name, name);
+    return texture->image_collection->regions[first_index];
 }
 
 float zest__copy_animation_frames(zest_texture texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, zest_bool row_by_row) {
@@ -13127,9 +13127,9 @@ float zest__copy_animation_frames(zest_texture texture, zest_bitmap spritesheet,
 
     zest_uint frame_count = 0;
     float max_radius = 0;
-    zest_image_t blank_image = zest_NewImage();
+    zest_atlas_region_t blank_image = zest_NewImage();
     blank_image.magic = zest_INIT_MAGIC(zest_struct_type_image);
-    zest_image frame = zest_CreateAnimation(frames);
+    zest_atlas_region frame = zest_CreateAnimation(frames);
 
     for (zest_uint r = 0; r != (row_by_row ? rows : cols); ++r) {
         for (zest_uint c = 0; c != (row_by_row ? cols : rows); ++c) {
@@ -13137,8 +13137,8 @@ float zest__copy_animation_frames(zest_texture texture, zest_bitmap spritesheet,
                 break;
             }
             *frame = blank_image;
-            zest_vec_push(texture->image_collection->images, frame);
-            texture->image_index = zest_vec_last_index(texture->image_collection->images);
+            zest_vec_push(texture->image_collection->regions, frame);
+            texture->image_index = zest_vec_last_index(texture->image_collection->regions);
             frame->index = texture->image_index;
             zest_bitmap_t new_bitmap = { 0 };
             new_bitmap.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
@@ -13172,13 +13172,13 @@ void zest__free_all_texture_images(zest_texture texture) {
     }
     zest__delete_texture_layers(texture);
     zest_uint i = 0;
-    while (i < zest_vec_size(texture->image_collection->images)) {
-        zest_image image = texture->image_collection->images[i];
+    while (i < zest_vec_size(texture->image_collection->regions)) {
+        zest_atlas_region image = texture->image_collection->regions[i];
         i += image->frames;
         zest_FreeText(&image->name);
         ZEST__FREE(image);
     }
-    zest_vec_free(texture->image_collection->images);
+    zest_vec_free(texture->image_collection->regions);
     zest_vec_free(texture->image_collection->image_bitmaps);
     zest_vec_free(texture->image_collection->buffer_copy_regions);
     zest_FreeBitmapArray(&texture->image_collection->bitmap_array);
@@ -13244,8 +13244,8 @@ void zest__cleanup_texture_vk_handles(zest_texture texture) {
 
 void zest__reindex_texture_images(zest_texture texture) {
     zest_index index = 0;
-    zest_vec_foreach(i, texture->image_collection->images) {
-        texture->image_collection->images[i]->index = index++;
+    zest_vec_foreach(i, texture->image_collection->regions) {
+        texture->image_collection->regions[i]->index = index++;
     }
     texture->image_index = index;
 }
@@ -13546,7 +13546,7 @@ zest_image_collection zest__load_ktx(const char *file_path) {
 }
 
 VkResult zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer) {
-    if (zest_vec_empty(texture->image_collection->images) && texture->storage_type != zest_texture_storage_type_storage && texture->storage_type != zest_texture_storage_type_single) {
+    if (zest_vec_empty(texture->image_collection->regions) && texture->storage_type != zest_texture_storage_type_storage && texture->storage_type != zest_texture_storage_type_single) {
         return VK_SUCCESS;
     }
 
@@ -13554,7 +13554,7 @@ VkResult zest__process_texture_images(zest_texture texture, VkCommandBuffer comm
         zest__pack_images(texture, texture->info.width);
     }
     else if (texture->storage_type == zest_texture_storage_type_bank) {
-        zest__make_image_bank(texture, texture->image_collection->images[0]->width);
+        zest__make_image_bank(texture, texture->image_collection->regions[0]->width);
     }
     else if (texture->storage_type == zest_texture_storage_type_sprite_sheet) {
         zest__make_sprite_sheet(texture);
@@ -13580,7 +13580,7 @@ VkResult zest__process_texture_images(zest_texture texture, VkCommandBuffer comm
     else if (texture->storage_type == zest_texture_storage_type_sprite_sheet) {
 
         if (texture->flags & zest_texture_flag_use_filtering)
-            mip_levels = (zest_uint)floor(log2(ZEST__MAX(texture->image_collection->images[0]->width, texture->image_collection->images[0]->height))) + 1;
+            mip_levels = (zest_uint)floor(log2(ZEST__MAX(texture->image_collection->regions[0]->width, texture->image_collection->regions[0]->height))) + 1;
         else
             mip_levels = 1;
 
@@ -13606,7 +13606,7 @@ VkResult zest__process_texture_images(zest_texture texture, VkCommandBuffer comm
     else if (texture->storage_type == zest_texture_storage_type_single) {
 
         if (texture->flags & zest_texture_flag_use_filtering)
-            mip_levels = (zest_uint)floor(log2(ZEST__MAX(texture->image_collection->images[0]->width, texture->image_collection->images[0]->height))) + 1;
+            mip_levels = (zest_uint)floor(log2(ZEST__MAX(texture->image_collection->regions[0]->width, texture->image_collection->regions[0]->height))) + 1;
         else
             mip_levels = 1;
 
@@ -13690,7 +13690,7 @@ zest_bitmap zest__get_texture_single_bitmap(zest_texture texture) {
         return &texture->texture_bitmap;
     }
 
-    if (zest_vec_size(texture->image_collection->images) > 0) {
+    if (zest_vec_size(texture->image_collection->regions) > 0) {
         return &texture->image_collection->image_bitmaps[0];
     }
 
@@ -13873,12 +13873,12 @@ void zest_FreeBitmapArray(zest_bitmap_array_t* images) {
 void zest__make_image_bank(zest_texture texture, zest_uint size) {
 
     //array_texture = gli::texture2d_array(gli::FORMAT_RGBA8_UNORM_PACK8, gli::texture2d_array::extent_type(size, size), images.size());
-    zest_CreateBitmapArray(&texture->image_collection->bitmap_array, size, size, 4, zest_vec_size(texture->image_collection->images));
+    zest_CreateBitmapArray(&texture->image_collection->bitmap_array, size, size, 4, zest_vec_size(texture->image_collection->regions));
 
     zest_uint id = 0;
 
-    zest_vec_foreach(i, texture->image_collection->images) {
-        zest_image image = texture->image_collection->images[i];
+    zest_vec_foreach(i, texture->image_collection->regions) {
+        zest_atlas_region image = texture->image_collection->regions[i];
 
         image->uv.x = 0;
         image->uv.y = 0;
@@ -13944,8 +13944,8 @@ void zest__make_sprite_sheet(zest_texture texture) {
 
     zest_uint id = 0;
     zest_uint max_width = 0, max_height = 0;
-    zest_vec_foreach(i, texture->image_collection->images) {
-        zest_image image = texture->image_collection->images[i];
+    zest_vec_foreach(i, texture->image_collection->regions) {
+        zest_atlas_region image = texture->image_collection->regions[i];
 		ZEST_ASSERT(image->width <= texture->info.width && image->height <= texture->info.height);   //This image will not pack into the texture because it's bigger then the texture layer size.
 																													//Use zest_SetTextureLayerSize to set a bigger layer size after creating the texture.
         stbrp_rect rect;
@@ -14007,7 +14007,7 @@ void zest__make_sprite_sheet(zest_texture texture) {
         stbrp_rect* rect = &current_rects[i];
 
         if (rect->was_packed) {
-            zest_image image = texture->image_collection->images[rect->id];
+            zest_atlas_region image = texture->image_collection->regions[rect->id];
 
             float rect_x = (float)rect->x + texture->image_collection->packed_border_size;
             float rect_y = (float)rect->y + texture->image_collection->packed_border_size;
@@ -14041,8 +14041,8 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
 
     zest_uint max_width = 0;
     int max_size = texture->info.width;
-    zest_vec_foreach(i, texture->image_collection->images) {
-        zest_image image = texture->image_collection->images[i];
+    zest_vec_foreach(i, texture->image_collection->regions) {
+        zest_atlas_region image = texture->image_collection->regions[i];
         stbrp_rect rect;
 		ZEST_ASSERT(image->width <= texture->info.width && image->height <= texture->info.height);   //This image will not pack into the texture because it's bigger then the texture layer size.
 																													//Use zest_SetTextureLayerSize to set a bigger layer size after creating the texture.
@@ -14120,7 +14120,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
             stbrp_rect* rect = &current_rects[i];
 
             if (rect->was_packed) {
-                zest_image image = texture->image_collection->images[rect->id];
+                zest_atlas_region image = texture->image_collection->regions[rect->id];
 
                 float rect_x = (float)rect->x + texture->image_collection->packed_border_size;
                 float rect_y = (float)rect->y + texture->image_collection->packed_border_size;
@@ -14181,7 +14181,7 @@ void zest__pack_images(zest_texture texture, zest_uint size) {
 
 }
 
-void zest_SetImageHandle(zest_image image, float x, float y) {
+void zest_SetImageHandle(zest_atlas_region image, float x, float y) {
     if (image->handle.x == x && image->handle.y == y)
         return;
     image->handle.x = x;
@@ -14189,7 +14189,7 @@ void zest_SetImageHandle(zest_image image, float x, float y) {
     zest__update_image_vertices(image);
 }
 
-void zest__update_image_vertices(zest_image image) {
+void zest__update_image_vertices(zest_atlas_region image) {
     image->min.x = image->width * (0.f - image->handle.x) * image->scale.x;
     image->min.y = image->height * (0.f - image->handle.y) * image->scale.y;
     image->max.x = image->width * (1.f - image->handle.x) * image->scale.x;
@@ -14197,7 +14197,7 @@ void zest__update_image_vertices(zest_image image) {
 }
 
 void zest__update_texture_single_image_meta(zest_texture texture, zest_uint width, zest_uint height) {
-    zest_image_t image = zest_NewImage();
+    zest_atlas_region_t image = zest_NewImage();
     image.width = width;
     image.height = height;
     zest__update_image_vertices(&image);
@@ -14208,12 +14208,12 @@ void zest__update_texture_single_image_meta(zest_texture texture, zest_uint widt
 	image.uv_packed = zest_Pack16bit4SNorm(image.uv.x, image.uv.y, image.uv.z, image.uv.w);
     image.texture = texture->handle;
     image.layer = 0;
-    if (zest_vec_empty(texture->image_collection->images)) {
-        zest_vec_push(texture->image_collection->images, zest_CreateImage());
+    if (zest_vec_empty(texture->image_collection->regions)) {
+        zest_vec_push(texture->image_collection->regions, zest_CreateImage());
         texture->image_index = 0;
     }
-    ZEST_ASSERT(zest_vec_size(texture->image_collection->images) > 0);
-    *texture->image_collection->images[0] = image;
+    ZEST_ASSERT(zest_vec_size(texture->image_collection->regions) > 0);
+    *texture->image_collection->regions[0] = image;
 }
 
 void zest_SetTextureUseFiltering(zest_texture_handle handle, zest_bool value) {
@@ -14255,7 +14255,7 @@ zest_texture_handle zest_CreateTexture(const char* name, zest_texture_storage_ty
     }
 	zest__maybe_create_image_collection(texture);
     if (reserve_images) {
-        zest_vec_reserve(texture->image_collection->images, reserve_images);
+        zest_vec_reserve(texture->image_collection->regions, reserve_images);
     }        
     return handle;
 }
@@ -14378,24 +14378,24 @@ void zest_FreeTextureBitmaps(zest_texture_handle handle) {
     zest__free_all_texture_images(texture);
 }
 
-void zest_RemoveTextureImage(zest_texture_handle handle, zest_image image) {
+void zest_RemoveTextureImage(zest_texture_handle handle, zest_atlas_region image) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
-    ZEST_ASSERT((zest_uint)image->index < zest_vec_size(texture->image_collection->images));    //Image not within range of image indexes in the texture
+    ZEST_ASSERT((zest_uint)image->index < zest_vec_size(texture->image_collection->regions));    //Image not within range of image indexes in the texture
     zest_FreeBitmapData(&texture->image_collection->image_bitmaps[image->index]);
     zest_vec_erase(texture->image_collection->image_bitmaps, &texture->image_collection->image_bitmaps[image->index]);
-    zest_vec_erase(texture->image_collection->images, &texture->image_collection->images[image->index]);
+    zest_vec_erase(texture->image_collection->regions, &texture->image_collection->regions[image->index]);
     ZEST__FREE(image);
     zest__reindex_texture_images(texture);
 }
 
-void zest_RemoveTextureAnimation(zest_texture_handle handle, zest_image first_image) {
+void zest_RemoveTextureAnimation(zest_texture_handle handle, zest_atlas_region first_image) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     ZEST_ASSERT(first_image->frames > 1);    //Must be an animation image that you're deleting and also note that you must pass in the first frame of the image
     for (zest_uint i = 0; i < first_image->frames; ++i) {
         zest_FreeBitmapData(&texture->image_collection->image_bitmaps[first_image->index + i]);
     }
     zest_vec_erase_range(texture->image_collection->image_bitmaps, &texture->image_collection->image_bitmaps[first_image->index], &texture->image_collection->image_bitmaps[first_image->index + first_image->frames]);
-    zest_vec_erase_range(texture->image_collection->images, &texture->image_collection->images[first_image->index], &texture->image_collection->images[first_image->index + first_image->frames]);
+    zest_vec_erase_range(texture->image_collection->regions, &texture->image_collection->regions[first_image->index], &texture->image_collection->regions[first_image->index + first_image->frames]);
     ZEST__FREE(first_image);
     zest__reindex_texture_images(texture);
 }
@@ -14403,7 +14403,7 @@ void zest_RemoveTextureAnimation(zest_texture_handle handle, zest_image first_im
 void zest_SetTextureImageFormat(zest_texture_handle handle, zest_texture_format format) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
     if (texture->image_collection) {
-		ZEST_ASSERT(zest_vec_size(texture->image_collection->images) == 0);    //You cannot change the image format of a texture that already has images
+		ZEST_ASSERT(zest_vec_size(texture->image_collection->regions) == 0);    //You cannot change the image format of a texture that already has images
     }
     texture->vk_image_format = (VkFormat)format;
     switch (format) {
@@ -14437,9 +14437,9 @@ zest_byte* zest_BitmapArrayLookUp(zest_bitmap_array_t* bitmap_array, zest_index 
     return bitmap_array->data + bitmap_array->meta[index].offset;
 }
 
-zest_image zest_GetImageFromTexture(zest_texture_handle handle, zest_index index) {
+zest_atlas_region zest_GetImageFromTexture(zest_texture_handle handle, zest_index index) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, handle.value);
-    return texture->image_collection->images[index];
+    return texture->image_collection->regions[index];
 }
 
 zest_bool zest_TextureCanTile(zest_texture_handle handle) {
@@ -14951,27 +14951,27 @@ VkDescriptorSet zest_GetTextureDebugDescriptorSet(zest_texture_handle handle) {
     return texture->debug_set->vk_descriptor_set;
 }
 
-VkDescriptorSet zest_GetImageDebugDescriptorSet(zest_image image) {
+VkDescriptorSet zest_GetImageDebugDescriptorSet(zest_atlas_region image) {
     zest_texture texture = (zest_texture)zest__get_store_resource_checked(&ZestRenderer->textures, image->texture.value);
     return texture->debug_set->vk_descriptor_set;
 }
 
-zest_index zest_ImageLayerIndex(zest_image image) {
+zest_index zest_ImageLayerIndex(zest_atlas_region image) {
     ZEST_ASSERT_HANDLE(image);  //Not a valid image handle
     return image->layer;
 }
 
-zest_extent_t zest_ImageDimensions(zest_image image) {
+zest_extent_t zest_ImageDimensions(zest_atlas_region image) {
     ZEST_ASSERT_HANDLE(image);  //Not a valid image handle
     return (zest_extent_t) { (float)image->width, (float)image->height };
 }
 
-zest_vec4 zest_ImageUV(zest_image image) {
+zest_vec4 zest_ImageUV(zest_atlas_region image) {
     ZEST_ASSERT_HANDLE(image);  //Not a valid image handle
     return image->uv;
 }
 
-zest_texture_handle zest_ImageTextureHandle(zest_image image) {
+zest_texture_handle zest_ImageTextureHandle(zest_atlas_region image) {
     ZEST_ASSERT_HANDLE(image);  //Not a valid image handle
     return image->texture;
 }

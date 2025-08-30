@@ -1518,7 +1518,7 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 typedef struct zest_texture_t zest_texture_t;
 typedef struct zest_image_collection_t zest_image_collection_t;
 typedef struct zest_bitmap_t zest_bitmap_t;
-typedef struct zest_image_t zest_image_t;
+typedef struct zest_atlas_region_t zest_atlas_region_t;
 typedef struct zest_sampler_t zest_sampler_t;
 typedef struct zest_layer_t zest_layer_t;
 typedef struct zest_pipeline_t zest_pipeline_t;
@@ -1550,7 +1550,7 @@ typedef struct zest_mesh_t zest_mesh_t;
 ZEST__MAKE_HANDLE(zest_texture)
 ZEST__MAKE_HANDLE(zest_image_collection)
 ZEST__MAKE_HANDLE(zest_bitmap)
-ZEST__MAKE_HANDLE(zest_image)
+ZEST__MAKE_HANDLE(zest_atlas_region)
 ZEST__MAKE_HANDLE(zest_sampler)
 ZEST__MAKE_HANDLE(zest_layer)
 ZEST__MAKE_HANDLE(zest_pipeline)
@@ -3224,7 +3224,7 @@ typedef struct zest_bitmap_array_t {
 
 typedef struct zest_imgui_image_t {
     int magic;
-    zest_image image;
+    zest_atlas_region image;
     zest_pipeline_template pipeline;
     zest_shader_resources_handle shader_resources;
     zest_push_constants_t push_constants;
@@ -3500,7 +3500,7 @@ ZEST_PRIVATE zest_byte zest__calculate_texture_layers(stbrp_rect *rects, zest_ui
 ZEST_PRIVATE void zest__make_image_bank(zest_texture texture, zest_uint size);
 ZEST_PRIVATE void zest__make_sprite_sheet(zest_texture texture);
 ZEST_PRIVATE void zest__pack_images(zest_texture texture, zest_uint size);
-ZEST_PRIVATE void zest__update_image_vertices(zest_image image);
+ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
 ZEST_PRIVATE void zest__update_texture_single_image_meta(zest_texture texture, zest_uint width, zest_uint height);
 ZEST_PRIVATE VkResult zest__create_texture_image_view(zest_texture texture, VkImageViewType view_type, zest_uint mip_levels, zest_uint layer_count);
 ZEST_PRIVATE VkResult zest__process_texture_images(zest_texture texture, VkCommandBuffer command_buffer);
@@ -4323,20 +4323,20 @@ ZEST_API void zest_ResetTexture(zest_texture_handle texture);
 //By default any images that you load into a texture will be stored so that you can rebuild the texture if you need to (for example, you may load in more images
 //to pack in to the sprite sheets at a later time). But if you want to free up the memory then you can just free them with this function.
 ZEST_API void zest_FreeTextureBitmaps(zest_texture_handle texture);
-//Remove a specific zest_image from the texture
-ZEST_API void zest_RemoveTextureImage(zest_texture_handle texture, zest_image image);
-//Remove a specific animation from the texture. Pass in the first frame of the animation with a zest_image
-ZEST_API void zest_RemoveTextureAnimation(zest_texture_handle texture, zest_image first_image);
+//Remove a specific zest_atlas_region from the texture
+ZEST_API void zest_RemoveTextureImage(zest_texture_handle texture, zest_atlas_region image);
+//Remove a specific animation from the texture. Pass in the first frame of the animation with a zest_atlas_region
+ZEST_API void zest_RemoveTextureAnimation(zest_texture_handle texture, zest_atlas_region first_image);
 //Set the format of the texture. You will need to reprocess the texture if you have processed it already with zest_ProcessTextureImages
 ZEST_API void zest_SetTextureImageFormat(zest_texture_handle texture, zest_texture_format format);
 //Set the user data for a texture. This is passed though to a texture reprocess callback which you can use to perform tasks such as updating any 
 //descriptor sets you've made that might use the texture
 ZEST_API void zest_SetTextureUserData(zest_texture_handle texture, void *user_data);
-//Create a blank zest_image. This is more for internal usage, prefer the zest_AddTextureImage functions. Will leave these in the API for now though
-ZEST_API zest_image_t zest_NewImage(void);
+//Create a blank zest_atlas_region. This is more for internal usage, prefer the zest_AddTextureImage functions. Will leave these in the API for now though
+ZEST_API zest_atlas_region_t zest_NewImage(void);
 ZEST_API zest_imgui_image_t zest_NewImGuiImage(void);
-ZEST_API zest_image zest_CreateImage(void);
-ZEST_API zest_image zest_CreateAnimation(zest_uint frames);
+ZEST_API zest_atlas_region zest_CreateImage(void);
+ZEST_API zest_atlas_region zest_CreateAnimation(zest_uint frames);
 //Load a bitmap from a file. Set color_channels to 0 to auto detect the number of channels
 ZEST_API void zest_LoadBitmapImage(zest_bitmap image, const char *file, int color_channels);
 //Load a bitmap from a memory buffer. Set color_channels to 0 to auto detect the number of channels. Pass in a pointer to the memory buffer containing
@@ -4394,22 +4394,22 @@ ZEST_API float zest_FindBitmapRadius(zest_bitmap image);
 ZEST_API void zest_DestroyBitmapArray(zest_bitmap_array_t *bitmap_array);
 //Get a bitmap from a bitmap array with the given index
 ZEST_API zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t *bitmap_array, zest_index index);
-//Get a zest_image from a texture by it's index
-ZEST_API zest_image zest_GetImageFromTexture(zest_texture_handle texture, zest_index index);
+//Get a zest_atlas_region from a texture by it's index
+ZEST_API zest_atlas_region zest_GetImageFromTexture(zest_texture_handle texture, zest_index index);
 //Add an image to a texture from a file. This uses stb_image to load the image so must be in a format that stb image can load
-ZEST_API zest_image zest_AddTextureImageFile(zest_texture_handle texture, const char* filename);
+ZEST_API zest_atlas_region zest_AddTextureImageFile(zest_texture_handle texture, const char* filename);
 //Add an image to a texture using a zest_bitmap_t
-ZEST_API zest_image zest_AddTextureImageBitmap(zest_texture_handle texture, zest_bitmap bitmap_to_load);
+ZEST_API zest_atlas_region zest_AddTextureImageBitmap(zest_texture_handle texture, zest_bitmap bitmap_to_load);
 //Add an image to a texture from a buffer.
-ZEST_API zest_image zest_AddTextureImageMemory(zest_texture_handle texture, const char* name, const unsigned char* buffer, int buffer_size);
+ZEST_API zest_atlas_region zest_AddTextureImageMemory(zest_texture_handle texture, const char* name, const unsigned char* buffer, int buffer_size);
 //Add a sequence of images (in a sprite sheet) to a texture from a file. specify the width and height of each frame (they must all be the same size), the number of frames in the animation.
 //You can also pass in a pointer to a float where the max radius can be set (the max radius is the furthest pixel from the center of the frame). Lastly you can specify
 //whether the animation runs row by row, set to 0 to read column by column.
-ZEST_API zest_image zest_AddTextureAnimationFile(zest_texture_handle texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_atlas_region zest_AddTextureAnimationFile(zest_texture_handle texture, const char* filename, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 //Add an animation from a bitmap.
-ZEST_API zest_image zest_AddTextureAnimationBitmap(zest_texture_handle texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_atlas_region zest_AddTextureAnimationBitmap(zest_texture_handle texture, zest_bitmap spritesheet, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 //Add an animation from a buffer in memory.
-ZEST_API zest_image zest_AddTextureAnimationMemory(zest_texture_handle texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
+ZEST_API zest_atlas_region zest_AddTextureAnimationMemory(zest_texture_handle texture, const char* name, unsigned char *buffer, int buffer_size, int width, int height, zest_uint frames, float *max_radius, zest_bool row_by_row);
 //After adding all the images you want to a texture, you will then need to process the texture which will create all of the necessary GPU resources and upload the texture to the GPU.
 //You can then use the image handles to draw the images along with the descriptor set - either the one that gets created automatically with the the texture to draw sprites and billboards
 //or your own descriptor set.
@@ -4428,7 +4428,7 @@ ZEST_API void zest_InitialiseBitmapArray(zest_bitmap_array_t *images, zest_uint 
 //Free a bitmap array and return memory resources to the allocator
 ZEST_API void zest_FreeBitmapArray(zest_bitmap_array_t *images);
 //Set the handle of an image. This dictates where the image will be positioned when you draw it with zest_DrawSprite/zest_DrawBillboard. 0.5, 0.5 will center the image at the position you draw it.
-ZEST_API void zest_SetImageHandle(zest_image image, float x, float y);
+ZEST_API void zest_SetImageHandle(zest_atlas_region image, float x, float y);
 //Change the storage type of the texture. You will need to call zest_ProcessTextureImages after calling this function.
 ZEST_API void zest_SetTextureStorageType(zest_texture_handle texture, zest_texture_storage_type value);
 //Set whether you want the texture to use mip map filtering or not. You will need to call zest_ProcessTextureImages after calling this function.
@@ -4445,7 +4445,7 @@ ZEST_API void zest_SetTextureWrappingRepeat(zest_texture_handle texture);
 //Set the size of each layer in a packed texture. When all of the images are processed in a texture, they will be packed into layers of a given size. By default that size is 1024, but you
 //can change that here.
 ZEST_API void zest_SetTextureLayerSize(zest_texture_handle texture, zest_uint size);
-//Toggle whether or not you want the max radius to be calculated for each image/animation that you load into the texture. The max_radius will be recorded in zest_image->max_radius.
+//Toggle whether or not you want the max radius to be calculated for each image/animation that you load into the texture. The max_radius will be recorded in zest_atlas_region->max_radius.
 ZEST_API void zest_SetTextureMaxRadiusOnLoad(zest_texture_handle texture, zest_bool yesno);
 //Set the zest_imgui_blendtype of the texture. If you use dear imgui and are drawing render targets then this can be useful if you need to alter how the render target is blended when drawn.
 //zest_imgui_blendtype_none                Just draw with standard alpha blend
@@ -4471,15 +4471,15 @@ ZEST_API zest_texture_info_t zest_GetTextureInfo(zest_texture_handle texture);
 //Get the debug decriptor set for a simple draw of the texture
 ZEST_API VkDescriptorSet zest_GetTextureDebugDescriptorSet(zest_texture_handle texture);
 //Get the debug decriptor set for a simple draw of the texture from an image
-ZEST_API VkDescriptorSet zest_GetImageDebugDescriptorSet(zest_image image);
+ZEST_API VkDescriptorSet zest_GetImageDebugDescriptorSet(zest_atlas_region image);
 //Get the layer index that the image exists on in the texture
-ZEST_API zest_index zest_ImageLayerIndex(zest_image image);
+ZEST_API zest_index zest_ImageLayerIndex(zest_atlas_region image);
 //Get the dimensions of the image
-ZEST_API zest_extent_t zest_ImageDimensions(zest_image image);
+ZEST_API zest_extent_t zest_ImageDimensions(zest_atlas_region image);
 //Get the uv coords of the image
-ZEST_API zest_vec4 zest_ImageUV(zest_image image);
+ZEST_API zest_vec4 zest_ImageUV(zest_atlas_region image);
 //Get the texture handle where the image exists
-ZEST_API zest_texture_handle zest_ImageTextureHandle(zest_image image);
+ZEST_API zest_texture_handle zest_ImageTextureHandle(zest_atlas_region image);
 
 // --Sampler functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler

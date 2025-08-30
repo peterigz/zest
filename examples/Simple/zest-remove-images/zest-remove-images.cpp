@@ -4,9 +4,9 @@
 
 struct App {
 	zest_texture texture;					//Handle to the texture containing the images
-	zest_image image1;						//Handle to a test image
-	zest_image image2;						//Handle to a test image
-	zest_image animation;					//Handle to a test animation
+	zest_atlas_region image1;						//Handle to a test image
+	zest_atlas_region image2;						//Handle to a test image
+	zest_atlas_region animation;					//Handle to a test animation
 	zest_pipeline_template sprite_pipeline;			//Handle to the sprite handle to save looking it up each frame
 	zest_shader_resources shader_resources;	//Shader resources contain the information required for the pipeline and shaders to find the buffers and textures required to draw the sprites
 	zest_timer timer;						//Time to delete images after a few seconds

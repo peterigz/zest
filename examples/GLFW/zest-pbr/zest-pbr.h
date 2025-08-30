@@ -100,7 +100,7 @@ struct ImGuiApp {
 	zest_vec3 old_camera_position;
 	zest_vec3 new_camera_position;
 
-	zest_image light;
+	zest_atlas_region light;
 	float ellapsed_time;
 	bool sync_refresh;
 	bool request_graph_print;

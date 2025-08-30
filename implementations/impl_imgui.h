@@ -29,10 +29,10 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context_t *context, zest_buff
 zest_resource_node zest_imgui_ImportVertexResources(const char *name);
 zest_resource_node zest_imgui_ImportIndexResources(const char *name);
 void zest_imgui_UpdateBuffers();
-void zest_imgui_DrawImage(zest_image image, VkDescriptorSet set, float width, float height);
-void zest_imgui_DrawImage2(zest_image image, float width, float height);
-void zest_imgui_DrawTexturedRect(zest_image image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
-bool zest_imgui_DrawButton(zest_image image, const char* user_texture_id, float width, float height, int frame_padding);
+void zest_imgui_DrawImage(zest_atlas_region image, VkDescriptorSet set, float width, float height);
+void zest_imgui_DrawImage2(zest_atlas_region image, float width, float height);
+void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
+bool zest_imgui_DrawButton(zest_atlas_region image, const char* user_texture_id, float width, float height, int frame_padding);
 void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned char* pixels);
 zest_pass_node zest_imgui_BeginPass();
 zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource);

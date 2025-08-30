@@ -18,7 +18,7 @@ zest_imgui zest_imgui_Initialise() {
 
 	zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	imgui_info->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_format_r8g8b8a8_unorm, 10);
-	zest_image font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, font_bitmap);
+	zest_atlas_region font_image = zest_AddTextureImageBitmap(imgui_info->font_texture, font_bitmap);
 	zest_ProcessTextureImages(imgui_info->font_texture);
 	zest_FreeBitmap(font_bitmap);
 

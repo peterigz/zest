@@ -443,8 +443,8 @@ struct ImGuiApp {
 	zest_texture imgui_font_texture;
 	zest_texture floor_texture;
 	zest_texture sprite_texture;
-	zest_image floor_image;
-	zest_image sprite;
+	zest_atlas_region floor_image;
+	zest_atlas_region sprite;
 	zest_timer timer;
 	zest_layer mesh_layer;
 	zest_layer lines_2d;

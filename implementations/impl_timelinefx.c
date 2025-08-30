@@ -50,7 +50,7 @@ void zest_tfx_UpdateUniformBuffer(tfx_render_resources_t *resources) {
 }
 
 void zest_tfx_GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
-	zest_image image = (zest_image)(ptr)+offset;
+	zest_atlas_region image = (zest_atlas_region)(ptr)+offset;
 	image_data->uv.x = image->uv.x;
 	image_data->uv.y = image->uv.y;
 	image_data->uv.z = image->uv.z;

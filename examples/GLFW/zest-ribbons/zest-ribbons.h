@@ -82,7 +82,7 @@ struct Ribbons {
 	camera_push_constant camera_push;
 	ribbon_drawing_push_constants ribbon_push_constants;
 	zest_texture ribbon_texture;
-	zest_image ribbon_image;
+	zest_atlas_region ribbon_image;
 	zest_uint index_count;
 	float seconds_passed;
 

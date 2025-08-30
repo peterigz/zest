@@ -83,7 +83,7 @@ struct ComputeExample {
 
 	zest_layer mesh_layer;			//To draw the floor plain
 	zest_pipeline mesh_pipeline;
-	zest_image floor_image;
+	zest_atlas_region floor_image;
 	zest_texture floor_texture;
 	zest_shader_resources floor_resources;
 

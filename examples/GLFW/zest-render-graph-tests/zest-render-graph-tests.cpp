@@ -157,7 +157,7 @@ int test__transient_image(ZestTests *tests, Test *test) {
 int test__import_image(ZestTests *tests, Test *test) {
 	if (!zest_IsValidTextureHandle(tests->texture)) {
 		tests->texture = zest_CreateTexturePacked("Sprite Texture", zest_format_r8g8b8a8_unorm);
-		zest_image player_image = zest_AddTextureImageFile(tests->texture, "examples/assets/vaders/player.png");
+		zest_atlas_region player_image = zest_AddTextureImageFile(tests->texture, "examples/assets/vaders/player.png");
 		zest_ProcessTextureImages(tests->texture);
 	}
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Import Image", 0)) {

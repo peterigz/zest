@@ -12,7 +12,7 @@
 struct ImGuiApp {
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;
-	zest_image test_image;
+	zest_atlas_region test_image;
 	zest_timer timer;
 	bool sync_refresh;
 };

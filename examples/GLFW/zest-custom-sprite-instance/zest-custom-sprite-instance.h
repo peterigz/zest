@@ -27,8 +27,8 @@ struct ImGuiApp {
 	zest_texture imgui_font_texture;
 	zest_texture test_texture;
 	zest_texture color_ramps_texture;
-	zest_image test_image;
-	zest_image color_ramps_image;
+	zest_atlas_region test_image;
+	zest_atlas_region color_ramps_image;
 	zest_bitmap color_ramps_bitmap;
 	zest_set_layout custom_descriptor_set_layout;
 	zest_descriptor_set_t custom_descriptor_set;
@@ -45,7 +45,7 @@ struct ImGuiApp {
 };
 
 void InitImGuiApp(ImGuiApp *app);
-void zest_DrawCustomSprite(zest_layer layer, zest_image image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_vec2 lerp_values);
+void zest_DrawCustomSprite(zest_layer layer, zest_atlas_region image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_vec2 lerp_values);
 
 static const char *custom_frag_shader = ZEST_GLSL(450 core,
 const float intensity_max_value = 128.0 / 32767.0;

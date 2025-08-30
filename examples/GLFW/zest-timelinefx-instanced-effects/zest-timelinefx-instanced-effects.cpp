@@ -38,14 +38,14 @@ void ShapeLoader(const char* filename, tfx_image_data_t *image_data, void *raw_i
 	if (image_data->animation_frames > 1) {
 		float max_radius;
 		//Add the spritesheet to the texture in our renderer
-		zest_image anim = zest_AddTextureAnimationBitmap(example->tfx_rendering.particle_texture, &bitmap, (tfxU32)image_data->image_size.x, (tfxU32)image_data->image_size.y, (tfxU32)image_data->animation_frames, &max_radius, 1);
+		zest_atlas_region anim = zest_AddTextureAnimationBitmap(example->tfx_rendering.particle_texture, &bitmap, (tfxU32)image_data->image_size.x, (tfxU32)image_data->image_size.y, (tfxU32)image_data->animation_frames, &max_radius, 1);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 		image_data->ptr = anim;
 	}
 	else {
 		//Add the bitmap to the texture in our renderer
-		zest_image image = zest_AddTextureImageBitmap(example->tfx_rendering.particle_texture, &bitmap);
+		zest_atlas_region image = zest_AddTextureImageBitmap(example->tfx_rendering.particle_texture, &bitmap);
 		//Important step: you need to point the ImageData.ptr to the appropriate handle in the renderer to point to the texture of the particle shape
 		//You'll need to use this in your render function to tell your renderer which texture to use to draw the particle
 		image_data->ptr = image;
@@ -62,7 +62,7 @@ The callback requires the following parameters:
 * returns tfx_vec4_t		//Must return a tfx_vec4_t containing the uv coords. These will be added to the tfx_gpu_image_data_t
 */
 void GetUV(void *ptr, tfx_gpu_image_data_t *image_data, int offset) {
-	zest_image image = (static_cast<zest_image>(ptr) + offset);
+	zest_atlas_region image = (static_cast<zest_atlas_region>(ptr) + offset);
 	image_data->uv = { image->uv.x, image->uv.y, image->uv.z, image->uv.w };
 	image_data->texture_array_index = image->layer;
 	image_data->max_radius = image->max_radius;

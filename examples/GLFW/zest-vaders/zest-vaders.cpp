@@ -63,7 +63,7 @@ struct Vader {
 	float time = 0.f;
 	float speed = 1.f;
 	float direction;
-	zest_image image;
+	zest_atlas_region image;
 	int turning = 0;
 	int health = 5;
 	float chance_to_shoot;
@@ -98,13 +98,13 @@ struct VadersGame {
 	int current_buffer = 0;
 	float noise_offset = 0.f;
 
-	zest_image player_image;
-	zest_image vader_image1;
-	zest_image vader_image2;
-	zest_image vader_image3;
-	zest_image big_vader_image;
-	zest_image vader_bullet_image;
-	zest_image vader_bullet_glow_image;
+	zest_atlas_region player_image;
+	zest_atlas_region vader_image1;
+	zest_atlas_region vader_image2;
+	zest_atlas_region vader_image3;
+	zest_atlas_region big_vader_image;
+	zest_atlas_region vader_bullet_image;
+	zest_atlas_region vader_bullet_glow_image;
 
 	float margin_x;
 	float margin_y;

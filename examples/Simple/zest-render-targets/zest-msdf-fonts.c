@@ -62,7 +62,7 @@ void zest_LoadMSDFFont(const char *filename, zest_font_t *font) {
     stbi_set_flip_vertically_on_load(1);
     zest_LoadBitmapImageMemory(bitmap, image_data, image_size, 0);
 
-    zest_image_t *image = &texture->texture;
+    zest_atlas_region_t *image = &texture->texture;
     image->width = bitmap->meta.width;
     image->height = bitmap->meta.height;
 

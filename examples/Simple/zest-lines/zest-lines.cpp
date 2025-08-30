@@ -2,7 +2,7 @@
 
 typedef struct zest_example {
 	zest_texture texture;						//A handle to the texture that will contain the bunny image
-	zest_image image;							//A handle to image in the texture for the bunny image
+	zest_atlas_region image;							//A handle to image in the texture for the bunny image
 	zest_pipeline_template line_pipeline_template;		//The builtin sprite pipeline that will drawing sprites
 	zest_layer line_layer;						//The builtin sprite layer that contains the vertex buffer for drawing the sprites
 	zest_descriptor_set line_descriptor;		//Hanlde for the billboard descriptor
