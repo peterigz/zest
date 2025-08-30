@@ -92,12 +92,12 @@ void RecordComputeSprites(struct zest_work_queue_t *queue, void *data) {
 	zest_SetViewport(command_buffer, draw_routine);
 
 	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
-	zest_BindVertexBuffer(command_buffer, example.sprite_buffer->buffer[0]);
+	zest_cmd_BindVertexBuffer(command_buffer, example.sprite_buffer->buffer[0]);
 
 	//Draw all the sprites in the buffer that is built by the compute shader
-	zest_BindPipelineShaderResource(command_buffer, example.tfx_rendering.pipeline, example.tfx_rendering.shader_resource, ZEST_FIF);
-	zest_SendPushConstants(command_buffer, example.tfx_rendering.pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_push_constants_t), &example.push_contants);
-	zest_Draw(command_buffer, 6, tfx_GetTotalSpritesThatNeedDrawing(example.animation_manager_3d), 0, 0);
+	zest_cmd_BindPipelineShaderResource(command_buffer, example.tfx_rendering.pipeline, example.tfx_rendering.shader_resource, ZEST_FIF);
+	zest_cmd_SendPushConstants(command_buffer, example.tfx_rendering.pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_push_constants_t), &example.push_contants);
+	zest_cmd_Draw(command_buffer, 6, tfx_GetTotalSpritesThatNeedDrawing(example.animation_manager_3d), 0, 0);
 
 	zest_EndRecording(draw_routine->recorder, ZEST_FIF);
 }
@@ -117,19 +117,19 @@ void UploadBuffers(ComputeExample *example) {
 
 	//Upload the sprite data. This contains all pre-recorded sprites for all animations that you might want to play.
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetSpriteDataSizeInBytes(animation_manager), tfx_GetSpriteDataBufferPointer(animation_manager));
-	zest_CopyBuffer(staging_buffer, example->sprite_data_buffer->buffer[0], tfx_GetSpriteDataSizeInBytes(animation_manager));
+	zest_cmd_CopyBuffer(staging_buffer, example->sprite_data_buffer->buffer[0], tfx_GetSpriteDataSizeInBytes(animation_manager));
 	zest_FreeBuffer(staging_buffer);
 
 	//Upload the emitter properties for each animation you're using. This contains the sprite handle and any flags that might be relavent.
 	zest_buffer emitter_properties_buffer = zest_GetBufferFromDescriptorBuffer(example->emitter_properties_buffer);
 	staging_buffer = zest_CreateStagingBuffer(tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager), tfx_GetAnimationEmitterPropertiesBufferPointer(animation_manager));
-	zest_CopyBuffer(staging_buffer, emitter_properties_buffer, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager));
+	zest_cmd_CopyBuffer(staging_buffer, emitter_properties_buffer, tfx_GetAnimationEmitterPropertySizeInBytes(animation_manager));
 	zest_FreeBuffer(staging_buffer);
 
 	//Upload the image data containing all the UV coords and texture array index that the compute shader will use to build the sprite
 	//buffer each frame
 	staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(example->gpu_image_data), tfx_GetGPUShapesArray(example->gpu_image_data));
-	zest_CopyBuffer(staging_buffer, example->image_data_buffer->buffer[0], tfx_GetGPUShapesSizeInBytes(example->gpu_image_data));
+	zest_cmd_CopyBuffer(staging_buffer, example->image_data_buffer->buffer[0], tfx_GetGPUShapesSizeInBytes(example->gpu_image_data));
 	zest_FreeBuffer(staging_buffer);
 }
 
@@ -185,7 +185,7 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 		}
 
 		//Bind the compute shader pipeline
-		zest_BindComputePipeline(compute, example->compute_pipeline_3d);
+		zest_cmd_BindComputePipeline(compute, example->compute_pipeline_3d);
 		//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
 		//from there we copy to the GPU.
 		zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[ZEST_FIF], example->offsets_buffer->buffer[ZEST_FIF], tfx_GetOffsetsSizeInBytes(example->animation_manager_3d), 1);
@@ -207,7 +207,7 @@ void SpriteComputeFunction(zest_command_queue_compute compute_routine) {
 
 		//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
 		//For example if there are 1024 sprites, if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
-		zest_DispatchCompute(compute, (metrics.total_sprites_to_draw / 128) + 1, 1, 1);
+		zest_cmd_DispatchCompute(compute, (metrics.total_sprites_to_draw / 128) + 1, 1, 1);
 	}
 
 	//We want the compute shader to finish before the vertex shader is run so we put a barrier here.
@@ -272,7 +272,7 @@ void UpdateTimelineFXImageData(tfx_render_resources_t &tfx_rendering, tfx_gpu_sh
 	//Upload the timelinefx image data to the image data buffer created
 	zest_buffer image_data_buffer = zest_GetBufferFromDescriptorBuffer(tfx_rendering.image_data);
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(gpu_shapes), tfx_GetGPUShapesArray(gpu_shapes));
-	zest_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(tfx_rendering.image_data), tfx_GetGPUShapesSizeInBytes(gpu_shapes));
+	zest_cmd_CopyBuffer(staging_buffer, zest_GetBufferFromDescriptorBuffer(tfx_rendering.image_data), tfx_GetGPUShapesSizeInBytes(gpu_shapes));
 	zest_FreeBuffer(staging_buffer);
 }
 

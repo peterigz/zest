@@ -129,7 +129,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//outputs
 		zest_ConnectSwapChainOutput(graphics_pass);
 		//tasks
-		zest_SetPassTask(graphics_pass, zest_DrawInstanceLayer, example->line_layer);
+		zest_SetPassTask(graphics_pass, zest_cmd_DrawInstanceLayer, example->line_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//Compile and execute the render graph

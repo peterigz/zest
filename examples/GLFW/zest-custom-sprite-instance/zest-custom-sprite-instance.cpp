@@ -168,7 +168,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		//Outputs
 		zest_ConnectSwapChainOutput(graphics_pass);
 		//Tasks
-		zest_SetPassTask(graphics_pass, zest_DrawInstanceLayer, app->custom_layer);
+		zest_SetPassTask(graphics_pass, zest_cmd_DrawInstanceLayer, app->custom_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//------------------------ ImGui Pass ----------------------------------------------------------------

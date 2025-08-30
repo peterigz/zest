@@ -1173,7 +1173,7 @@ void VadersGame::Update(float ellapsed) {
 		//outputs
 		zest_ConnectSwapChainOutput(billboards_pass);
 		//Task
-		zest_SetPassTask(billboards_pass, zest_DrawInstanceLayer, billboard_layer);
+		zest_SetPassTask(billboards_pass, zest_cmd_DrawInstanceLayer, billboard_layer);
 
 		//------------------------ Fonts Pass ----------------------------------------------------------------
 		zest_pass_node fonts_pass = zest_BeginRenderPass("Fonts Pass");

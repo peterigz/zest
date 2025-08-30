@@ -125,7 +125,7 @@ void zest_tfx_UpdateTimelineFXImageData(tfx_render_resources_t *tfx_rendering, t
 	zest_buffer image_data_buffer = tfx_rendering->image_data;
 	tfx_gpu_shapes shapes = tfx_GetLibraryGPUShapes(library);
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
-	zest_CopyBufferOneTime(staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
+	zest_cmd_CopyBufferOneTime(staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
 	zest_FreeBuffer(staging_buffer);
 }
 
@@ -148,16 +148,16 @@ void zest_tfx_DrawParticleLayer(VkCommandBuffer command_buffer, const zest_frame
 
 	zest_buffer device_buffer = layer->memory_refs[layer->fif].device_vertex_data;
 	zest_buffer prev_buffer = layer->memory_refs[layer->prev_fif].device_vertex_data;
-	zest_BindVertexBuffer(command_buffer, device_buffer);
+	zest_cmd_BindVertexBuffer(command_buffer, device_buffer);
 
 	zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
 		zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
 
-		zest_SetScreenSizedViewport(context, 0.f, 1.f);
+		zest_cmd_SetScreenSizedViewport(context, 0.f, 1.f);
 
 		zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
 		if (pipeline && ZEST_VALID_HANDLE(current->shader_resources)) {
-			zest_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
+			zest_cmd_BindPipelineShaderResource(command_buffer, pipeline, current->shader_resources);
 		} else {
 			continue;
 		}
@@ -168,9 +168,9 @@ void zest_tfx_DrawParticleLayer(VkCommandBuffer command_buffer, const zest_frame
 		push_constants->image_data_index = zest_GetBufferDescriptorIndex(tfx_resources->image_data);
 		push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(layer, true);
 
-		zest_SendPushConstants(command_buffer, pipeline, push_constants);
+		zest_cmd_SendPushConstants(command_buffer, pipeline, push_constants);
 
-		zest_DrawLayerInstruction(command_buffer, 6, current);
+		zest_cmd_DrawLayerInstruction(command_buffer, 6, current);
 	}
 }
 

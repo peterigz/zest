@@ -1264,22 +1264,22 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_ConnectInput(scale_pass, scale_mesh_data_index, 0);
 		zest_ConnectInput(scale_pass, scale_mesh_data_vertex, 0);
 		zest_ConnectGroupedOutput(scale_pass, group);
-		zest_SetPassTask(scale_pass, zest_DrawInstanceMeshLayer, app->scale_widget_layer);
+		zest_SetPassTask(scale_pass, zest_cmd_DrawInstanceMeshLayer, app->scale_widget_layer);
 
 		zest_pass_node move_pass = zest_BeginRenderPass("Move Pass");
 		zest_ConnectInput(move_pass, move_widget_layer_resources, 0);
 		zest_ConnectInput(move_pass, move_mesh_data_index, 0);
 		zest_ConnectInput(move_pass, move_mesh_data_vertex, 0);
 		zest_ConnectGroupedOutput(move_pass, group);
-		zest_SetPassTask(move_pass, zest_DrawInstanceMeshLayer, app->move_widget_layer);
+		zest_SetPassTask(move_pass, zest_cmd_DrawInstanceMeshLayer, app->move_widget_layer);
 
 		zest_pass_node line_pass = zest_BeginRenderPass("Line Pass");
 		zest_ConnectInput(line_pass, line_layer_resources, 0);
 		//outputs
 		zest_ConnectGroupedOutput(line_pass, group);
 		//tasks
-		zest_SetPassTask(line_pass, zest_DrawInstanceLayer, app->line_layer);
-		//zest_AddPassTask(graphics_pass, zest_DrawInstanceMeshLayer, app->mesh_layer);
+		zest_SetPassTask(line_pass, zest_cmd_DrawInstanceLayer, app->line_layer);
+		//zest_AddPassTask(graphics_pass, zest_cmd_DrawInstanceMeshLayer, app->mesh_layer);
 		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
 			zest_ConnectGroupedOutput(imgui_pass, group);

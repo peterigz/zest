@@ -46,7 +46,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//might be used in the GPU, it's purely for updating by the compute shader only
 	app->particle_buffer = zest_CreateVertexStorageBuffer(storage_buffer_size, 0);
 	//Copy the staging buffer to the desciptor buffer
-	zest_CopyBufferOneTime(staging_buffer, app->particle_buffer, storage_buffer_size);
+	zest_cmd_CopyBufferOneTime(staging_buffer, app->particle_buffer, storage_buffer_size);
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 
@@ -132,20 +132,20 @@ void RecordComputeSprites(VkCommandBuffer command_buffer, const zest_frame_graph
 		zest_vk_GetGlobalBindlessSet()
 	};
 	//Bind the pipeline with the descriptor set
-	zest_BindPipeline(command_buffer, pipeline, sets, 1);
+	zest_cmd_BindPipeline(command_buffer, pipeline, sets, 1);
 	//The shader needs to know the indexes into the descriptor array for the textures so we use push constants to
 	//do. You could also use a uniform buffer if you wanted.
 	ParticleFragmentPush push;
 	push.particle_index = app->particle_texture->descriptor_array_index;
 	push.gradient_index = app->gradient_texture->descriptor_array_index;
 	//Send the the push constant
-	zest_SendPushConstants(command_buffer, pipeline, &push);
+	zest_cmd_SendPushConstants(command_buffer, pipeline, &push);
 	//Set the viewport with this helper function
-	zest_SetScreenSizedViewport(context, 0.f, 1.f);
+	zest_cmd_SetScreenSizedViewport(context, 0.f, 1.f);
 	//Bind the vertex buffer with the particle buffer containing the location of all the point sprite particles
-	zest_BindVertexBuffer(command_buffer, app->particle_buffer);
+	zest_cmd_BindVertexBuffer(command_buffer, app->particle_buffer);
 	//Draw the point sprites
-	zest_Draw(command_buffer, PARTICLE_COUNT, 1, 0, 0);
+	zest_cmd_Draw(command_buffer, PARTICLE_COUNT, 1, 0, 0);
 }
 
 void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
@@ -157,9 +157,9 @@ void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_grap
 		zest_vk_GetUniformBufferSet(app->compute_uniform_buffer)
 	};
 	//Bind the compute pipeline
-	zest_BindComputePipeline(command_buffer, app->compute, sets, 2);
+	zest_cmd_BindComputePipeline(command_buffer, app->compute, sets, 2);
 	//Dispatch the compute shader
-	zest_DispatchCompute(command_buffer, app->compute, PARTICLE_COUNT / 256, 1, 1);
+	zest_cmd_DispatchCompute(command_buffer, app->compute, PARTICLE_COUNT / 256, 1, 1);
 }
 
 void UpdateComputeUniformBuffers(ImGuiApp *app) {

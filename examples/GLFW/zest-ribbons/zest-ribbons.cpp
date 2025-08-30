@@ -123,10 +123,10 @@ void UploadRibbonData(VkCommandBuffer command_buffer, const zest_frame_graph_con
     zest_resource_node ribbon_instance_buffer = zest_GetPassOutputResource(context, "Ribbon Instance Buffer");
 
 	if (segment_buffer->storage_buffer) {
-		zest_CopyBuffer(command_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF], segment_buffer->storage_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF]->memory_in_use);
+		zest_cmd_CopyBuffer(command_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF], segment_buffer->storage_buffer, app->ribbon_segment_staging_buffer[ZEST_FIF]->memory_in_use);
 	}
 	if (ribbon_instance_buffer->storage_buffer) {
-		zest_CopyBuffer(command_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF], ribbon_instance_buffer->storage_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF]->memory_in_use);
+		zest_cmd_CopyBuffer(command_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF], ribbon_instance_buffer->storage_buffer, app->ribbon_instance_staging_buffer[ZEST_FIF]->memory_in_use);
 	}
 }
 
@@ -137,8 +137,8 @@ void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_frame_graph_
     zest_buffer index_buffer = zest_GetPassInputBuffer(context, "Ribbon Index Buffer");
 
 	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
-	zest_BindVertexBuffer(command_buffer, vertex_buffer);
-	zest_BindIndexBuffer(command_buffer, index_buffer);
+	zest_cmd_BindVertexBuffer(command_buffer, vertex_buffer);
+	zest_cmd_BindIndexBuffer(command_buffer, index_buffer);
 
 	zest_pipeline pipeline = zest_PipelineWithTemplate(app->ribbon_pipeline, context->render_pass);
 
@@ -147,12 +147,12 @@ void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_frame_graph_
 		zest_vk_GetGlobalBindlessSet()
 	};
 	//Draw all the sprites in the buffer that is built by the compute shader
-	zest_BindPipeline(command_buffer, pipeline, sets, 2);
-	zest_SendPushConstants(command_buffer, pipeline, &app->ribbon_push_constants);
-	zest_SetScreenSizedViewport(context, 0.f, 1.f);
+	zest_cmd_BindPipeline(command_buffer, pipeline, sets, 2);
+	zest_cmd_SendPushConstants(command_buffer, pipeline, &app->ribbon_push_constants);
+	zest_cmd_SetScreenSizedViewport(context, 0.f, 1.f);
 
 	//zest_DrawIndexedIndirect(command_buffer, app->ribbon_draw_commands);
-	zest_DrawIndexed(command_buffer, app->index_count, 1, 0, 0, 0);
+	zest_cmd_DrawIndexed(command_buffer, app->index_count, 1, 0, 0, 0);
 }
 
 //Every frame the compute shader needs to be dispatched which means that all the commands for the compute shader
@@ -168,7 +168,7 @@ void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_grap
 	};
 
 	//Bind the compute shader pipeline
-	zest_BindComputePipeline(command_buffer, app->ribbon_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_buffer, app->ribbon_compute, sets, 1);
 
     zest_resource_node segment_buffer = zest_GetPassInputResource(context, "Ribbon Segment Buffer");
     zest_resource_node ribbon_instance_buffer = zest_GetPassInputResource(context, "Ribbon Instance Buffer");
@@ -181,11 +181,11 @@ void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_grap
 	app->camera_push.index_buffer_index = zest_GetTransientBufferBindlessIndex(context, index_buffer);
 
 	//Send the push constants in the compute object to the shader
-	zest_SendCustomComputePushConstants(command_buffer, app->ribbon_compute, &app->camera_push);
+	zest_cmd_SendCustomComputePushConstants(command_buffer, app->ribbon_compute, &app->camera_push);
 
 	//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
 	//For example if there are 1024 sprites, if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
-	zest_DispatchCompute(command_buffer, app->ribbon_compute, ((SEGMENT_COUNT * app->ribbon_count) / 128) + 1, 1, 1);
+	zest_cmd_DispatchCompute(command_buffer, app->ribbon_compute, ((SEGMENT_COUNT * app->ribbon_count) / 128) + 1, 1, 1);
 }
 
 //Basic function for updating the uniform buffer

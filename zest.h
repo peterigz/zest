@@ -65,6 +65,7 @@
     [Window_functions]                  Open/close and edit window modes/size
     [General_Helper_functions]          General API functions - get screen dimensions some vulkan helper functions
     [Debug_Helpers]                     Functions for debugging and outputting queues to the console.
+    [Command_buffer_functions]          GPU command buffer commands
 */
 
 #define ZEST_DEBUGGING
@@ -2894,12 +2895,7 @@ ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
 ZEST_API zest_image zest_GetResourceImage(zest_resource_node resource_node);
 ZEST_API zest_resource_type zest_GetResourceType(zest_resource_node resource_node);
 ZEST_API zest_image_description_t zest_GetResourceImageDescription(zest_resource_node resource_node);
-ZEST_API void zest_BlitImageMip(const zest_frame_graph_context context, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
-ZEST_API void zest_CopyImageMip(const zest_frame_graph_context context, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
-
-// -- Helper functions to insert barrier functions within pass callbacks
-ZEST_API void zest_InsertComputeImageBarrier(const zest_frame_graph_context context, zest_resource_node resource, zest_uint base_mip);
 
 // -- Creating and Executing the render graph
 ZEST_API bool zest_BeginFrameGraph(const char *name, zest_frame_graph_cache_key_t *cache_key);
@@ -3545,7 +3541,6 @@ ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage imag
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_base_image_memory_barrier(VkImage image);
 ZEST_PRIVATE VkBufferMemoryBarrier zest__create_buffer_memory_barrier( VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkDeviceSize offset, VkDeviceSize size);
 ZEST_PRIVATE void zest__insert_image_memory_barrier(VkCommandBuffer cmdbuffer, VkImage image, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkImageSubresourceRange subresourceRange);
-ZEST_PRIVATE void zest__place_fragment_barrier(VkCommandBuffer command_buffer, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE VkFormat zest__find_depth_format(void);
 ZEST_PRIVATE zest_bool zest__has_stencil_format(VkFormat format);
@@ -3825,11 +3820,6 @@ ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
 ZEST_API VkViewport zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
 //Create a VkRect2D, generally used when building a render pass.
 ZEST_API VkRect2D zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
-//Set a screen sized viewport and scissor command in the render pass
-ZEST_API void zest_SetScreenSizedViewport(const zest_frame_graph_context context, float min_depth, float max_depth);
-ZEST_API void zest_cmd_Scissor(const zest_frame_graph_context context, zest_scissor_rect_t *scissor);
-//Create a scissor and view port command. Must be called within a command buffer
-ZEST_API void zest_Clip(const zest_frame_graph_context context, float x, float y, float width, float height, float minDepth, float maxDepth);
 //Validate a shader from a string and add it to the library of shaders in the renderer
 ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name, shaderc_compiler_t compiler);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
@@ -3857,7 +3847,7 @@ ZEST_API void zest_AddShader(zest_shader_handle shader, const char *name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader_handle shader);
 
-//Set up shader resources ready to be bound to a pipeline when calling zest_BindPipeline or zest_BindpipelineCB. You should always 
+//Set up shader resources ready to be bound to a pipeline when calling zest_cmd_BindPipeline or zest_BindpipelineCB. You should always 
 //pass in an empty array of VkDescriptorSets. Set this array up as simple an 0 pointer and the function will allocate the space for the
 //descriptor sets. This means that it's a good idea to not use a local variable. Call zest_ClearShaderResourceDescriptorSets after you've
 //bound the pipeline.
@@ -3936,18 +3926,6 @@ ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendStateForSwap(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState(void);
 ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
-//Bind a pipeline for use in a draw routing. Once you have built the pipeline at some point you will want to actually use it to draw things.
-//In order to do that you can bind the pipeline using this function. Just pass in the pipeline handle and a zest_shader_resources. Note that the
-//descriptor sets in the shader_resources must be compatible with the layout that is being using in the pipeline. The command buffer used in the binding will be
-//whatever is defined in ZestRenderer->current_command_buffer which will be set when the command queue is recorded. If you need to specify
-//a command buffer then call zest_BindPipelineCB instead.
-ZEST_API void zest_BindPipeline(const zest_frame_graph_context context, zest_pipeline_t* pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
-//Bind a pipeline for a compute shader
-ZEST_API void zest_BindComputePipeline(const zest_frame_graph_context context, zest_compute_handle compute, VkDescriptorSet *descriptor_set, zest_uint set_count);
-//Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
-//you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
-//resource that is marked as static.
-ZEST_API void zest_BindPipelineShaderResource(const zest_frame_graph_context context, zest_pipeline pipeline, zest_shader_resources_handle shader_resources);
 ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, const zest_frame_graph_context context);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
@@ -4044,12 +4022,6 @@ ZEST_API zest_buffer_info_t zest_CreateDrawCommandsBufferInfo(zest_bool host_vis
 ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zest_size minimum_bytes);
 //Resize a buffer if the new size if more than the current size of the buffer. Returns true if the buffer was resized successfully.
 ZEST_API zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size);
-//Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
-//the size as well that you want to copy
-ZEST_API zest_bool zest_CopyBufferOneTime(zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
-//Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
-//one off copy with a separate command buffer
-ZEST_API void zest_CopyBuffer(const zest_frame_graph_context context, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
 //Copy data to a staging buffer
 void zest_StageData(void *src_data, zest_buffer dst_staging_buffer, zest_size size);
 //Flush the memory of - in most cases - a staging buffer so that it's memory is made available immediately to the device
@@ -4062,11 +4034,10 @@ ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer buffer);
 ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer buffer);
 ZEST_API VkDescriptorBufferInfo zest_vk_GetBufferInfo(zest_buffer buffer);
 //When creating your own draw routines you will probably need to upload data from a staging buffer to a GPU buffer like a vertex buffer. You can
-//use this command with zest_UploadBuffer to upload the buffers that you need. You can call zest_AddCopyCommand multiple times depending on
-//how many buffers you need to upload data for and then call zest_UploadBuffer passing the zest_buffer_uploader_t to copy all the buffers in
+//use this command with zest_cmd_UploadBuffer to upload the buffers that you need. You can call zest_AddCopyCommand multiple times depending on
+//how many buffers you need to upload data for and then call zest_cmd_UploadBuffer passing the zest_buffer_uploader_t to copy all the buffers in
 //one go. For examples see the builtin draw layers that do this like: zest__update_instance_layer_buffers_callback
 ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer_t *source_buffer, zest_buffer_t *target_buffer, VkDeviceSize target_offset);
-ZEST_API zest_bool zest_UploadBuffer(zest_buffer_uploader_t *uploader, const zest_frame_graph_context context);
 //Get the default pool size that is set for a specific pool hash.
 ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_key hash);
 //Get the default pool size that is set for a specific combination of usage, property and image flags
@@ -4103,10 +4074,6 @@ ZEST_API VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer_handle 
 ZEST_API zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer_handle buffer);
 ZEST_API zest_descriptor_set zest_GetFIFUniformBufferSet(zest_uniform_buffer_handle buffer, zest_uint fif);
 ZEST_API VkDescriptorSet zest_vk_GetFIFUniformBufferSet(zest_uniform_buffer_handle buffer, zest_uint fif);
-//Bind a vertex buffer. For use inside a draw routine callback function.
-ZEST_API void zest_BindVertexBuffer(const zest_frame_graph_context context, zest_buffer buffer);
-//Bind an index buffer. For use inside a draw routine callback function.
-ZEST_API void zest_BindIndexBuffer(const zest_frame_graph_context context, zest_buffer buffer);
 ZEST_API zest_uint zest_GetBufferDescriptorIndex(zest_buffer buffer);
 //Should only be used in zest implementations only
 ZEST_API void *zest_AllocateMemory(zest_size size);
@@ -4460,14 +4427,8 @@ ZEST_API void zest_SetTextureMaxRadiusOnLoad(zest_texture_handle texture, zest_b
 ZEST_API void zest_SetTextureImguiBlendType(zest_texture_handle texture, zest_imgui_blendtype blend_type);
 //Resize a single or storage texture.
 ZEST_API void zest_TextureResize(zest_texture_handle texture, zest_uint width, zest_uint height);
-//Clear a texture
-ZEST_API zest_bool zest_TextureClear(zest_texture_handle texture, const zest_frame_graph_context context);
 //Returns true if the texture has a storage type of zest_texture_storage_type_bank or zest_texture_storage_type_single.
 ZEST_API zest_bool zest_TextureCanTile(zest_texture_handle texture);
-//Copies an area of a zest_texture to another zest_texture
-ZEST_API zest_bool zest_CopyTextureToTexture(zest_texture_handle src_image, zest_texture_handle target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
-//Copies an area of a zest_texture to a zest_bitmap_t.
-ZEST_API zest_bool zest_CopyTextureToBitmap(zest_texture_handle src_image, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel);
 //Get the current layout of the texture
 ZEST_API VkImageLayout zest_GetTextureLayout(zest_texture_handle texture);
 //Get the size of the texture as a vec3. x and y is the width and height and z is the array size if it's a texture array
@@ -4519,8 +4480,6 @@ ZEST_API void zest_StartInstanceInstructions(zest_layer_handle layer);
 ZEST_API void zest_ResetLayer(zest_layer_handle layer);
 //Same as ResetLayer but specifically for an instance layer
 ZEST_API void zest_ResetInstanceLayer(zest_layer_handle layer);
-//Record the secondary buffers of an instance layer
-ZEST_API void zest_DrawInstanceLayer(const zest_frame_graph_context context, void *user_data);
 //End a set of draw instructs for a standard zest_layer
 ZEST_API void zest_EndInstanceInstructions(zest_layer_handle layer);
 //Callback that can be used to upload layer data to the gpu
@@ -4608,9 +4567,6 @@ ZEST_API void zest_SetLayerPushConstants(zest_layer_handle layer, void *push_con
 //        Mesh layers let you upload a vertex and index buffer to draw meshes. I set this up primarily for
 //        use with Dear ImGui
 //-----------------------------------------------
-//Get the vertex staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
-void zest_BindMeshVertexBuffer(const zest_frame_graph_context context, zest_layer_handle layer);
-void zest_BindMeshIndexBuffer(const zest_frame_graph_context context, zest_layer_handle layer);
 ZEST_API zest_buffer zest_GetVertexWriteBuffer(zest_layer_handle layer);
 //Get the index staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
 ZEST_API zest_buffer zest_GetIndexWriteBuffer(zest_layer_handle layer);
@@ -4632,7 +4588,6 @@ ZEST_API void zest_PushIndex(zest_layer_handle layer, zest_uint offset);
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
-ZEST_API void zest_DrawInstanceMeshLayer(const zest_frame_graph_context context, void *user_data);
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer_handle layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
 ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color color);
@@ -4707,11 +4662,6 @@ ZEST_API void zest_SetComputePrimaryRecorder(zest_compute_builder_t *builder);
 //handle that you got from calling zest__new_compute. You can then use this handle to add the compute shader to a command queue with zest_NewComputeSetup in a
 //command queue context (see the section on Command queue setup and creation)
 ZEST_API zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const char *name);
-//Send custom push constants. Use inside a compute update command buffer callback function. The push constatns you pass in to the 
-//function must be the same size that you set when creating the compute shader
-ZEST_API void zest_SendCustomComputePushConstants(const zest_frame_graph_context context, zest_compute_handle compute, const void *push_constant);
-//Helper function to dispatch a compute shader so you can call this instead of vkCmdDispatch. Specify a command buffer for use in one off dispataches
-ZEST_API void zest_DispatchCompute(const zest_frame_graph_context context, zest_compute_handle compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 //Reset compute when manual_fif is being used. This means that you can chose when you want a compute command buffer
 //to be recorded again. 
 ZEST_API void zest_ResetCompute(zest_compute_handle compute);
@@ -4822,18 +4772,6 @@ ZEST_API void zest_GetMouseSpeed(double *x, double *y);
 ZEST_API void zest_WaitForIdleDevice(void);
 //If you pass true to this function (or any value other then 0) then the zest_app_flag_quit_application meaning the main loop with break at the end of the next frame.
 ZEST_API void zest_MaybeQuit(zest_bool condition);
-//Send push constants. For use inside a draw routine callback function. pass in the pipeline,
-//and a pointer to the data containing the push constants. The data MUST match the push constant range in the pipeline
-ZEST_API void zest_SendPushConstants(const zest_frame_graph_context context, zest_pipeline pipeline, void *data);
-//Helper function to send the standard zest_push_constants_t push constants struct.
-ZEST_API void zest_SendStandardPushConstants(const zest_frame_graph_context context, zest_pipeline_t *pipeline_layout, void *data);
-//Helper function to record the vulkan command vkCmdDraw. Will record with the current command buffer being used in the active command queue. For use inside
-//a draw routine callback function
-ZEST_API void zest_Draw(const zest_frame_graph_context context, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
-ZEST_API void zest_DrawLayerInstruction(const zest_frame_graph_context context, zest_uint vertex_count, zest_layer_instruction_t *instruction);
-//Helper function to record the vulkan command vkCmdDrawIndexed. Will record with the current command buffer being used in the active command queue. For use inside
-//a draw routine callback function
-ZEST_API void zest_DrawIndexed(const zest_frame_graph_context context, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 //Enable vsync so that the frame rate is limited to the current monitor refresh rate. Will cause the swap chain to be rebuilt.
 ZEST_API void zest_EnableVSync(void);
 //Disable vsync so that the frame rate is not limited to the current monitor refresh rate, frames will render as fast as they can. Will cause the swap chain to be rebuilt.
@@ -4883,6 +4821,74 @@ ZEST_API void zest_PrintMemoryBlocks(zloc_header *first_block, zest_bool output_
 ZEST_API zest_uint zest_GetValidationErrorCount();
 ZEST_API void zest_ResetValidationErrors();
 //--End Debug Helpers
+
+//-----------------------------------------------
+// Command_buffer_functions
+// All these functions are called inside a frame graph context in callbacks in order to perform commands
+// on the GPU. These all require a platform specific implementation
+//-----------------------------------------------
+ZEST_API void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
+ZEST_API void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
+// -- Helper functions to insert barrier functions within pass callbacks
+ZEST_API void zest_cmd_InsertComputeImageBarrier(const zest_frame_graph_context context, zest_resource_node resource, zest_uint base_mip);
+//Set a screen sized viewport and scissor command in the render pass
+ZEST_API void zest_cmd_SetScreenSizedViewport(const zest_frame_graph_context context, float min_depth, float max_depth);
+ZEST_API void zest_cmd_Scissor(const zest_frame_graph_context context, zest_scissor_rect_t *scissor);
+//Create a scissor and view port command. Must be called within a command buffer
+ZEST_API void zest_cmd_Clip(const zest_frame_graph_context context, float x, float y, float width, float height, float minDepth, float maxDepth);
+//Bind a pipeline for use in a draw routing. Once you have built the pipeline at some point you will want to actually use it to draw things.
+//In order to do that you can bind the pipeline using this function. Just pass in the pipeline handle and a zest_shader_resources. Note that the
+//descriptor sets in the shader_resources must be compatible with the layout that is being using in the pipeline. The command buffer used in the binding will be
+//whatever is defined in ZestRenderer->current_command_buffer which will be set when the command queue is recorded. If you need to specify
+//a command buffer then call zest_BindPipelineCB instead.
+ZEST_API void zest_cmd_BindPipeline(const zest_frame_graph_context context, zest_pipeline pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
+//Bind a pipeline for a compute shader
+ZEST_API void zest_cmd_BindComputePipeline(const zest_frame_graph_context context, zest_compute_handle compute, VkDescriptorSet *descriptor_set, zest_uint set_count);
+//Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
+//you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
+//resource that is marked as static.
+ZEST_API void zest_cmd_BindPipelineShaderResource(const zest_frame_graph_context context, zest_pipeline pipeline, zest_shader_resources_handle shader_resources);
+//Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
+//the size as well that you want to copy
+ZEST_API zest_bool zest_cmd_CopyBufferOneTime(zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size);
+//Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
+//one off copy with a separate command buffer
+ZEST_API void zest_cmd_CopyBuffer(const zest_frame_graph_context context, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
+ZEST_API zest_bool zest_cmd_UploadBuffer(zest_buffer_uploader_t *uploader, const zest_frame_graph_context context);
+//Bind a vertex buffer. For use inside a draw routine callback function.
+ZEST_API void zest_cmd_BindVertexBuffer(const zest_frame_graph_context context, zest_buffer buffer);
+//Bind an index buffer. For use inside a draw routine callback function.
+ZEST_API void zest_cmd_BindIndexBuffer(const zest_frame_graph_context context, zest_buffer buffer);
+//Clear a texture
+ZEST_API zest_bool zest_cmd_TextureClear(zest_texture_handle texture, const zest_frame_graph_context context);
+//Copies an area of a zest_texture to another zest_texture
+ZEST_API zest_bool zest_cmd_CopyTextureToTexture(zest_texture_handle src_image, zest_texture_handle target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
+//Copies an area of a zest_texture to a zest_bitmap_t.
+ZEST_API zest_bool zest_cmd_CopyTextureToBitmap(zest_texture_handle src_image, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel);
+//Record the secondary buffers of an instance layer
+ZEST_API void zest_cmd_DrawInstanceLayer(const zest_frame_graph_context context, void *user_data);
+//Get the vertex staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
+ZEST_API void zest_cmd_BindMeshVertexBuffer(const zest_frame_graph_context context, zest_layer_handle layer);
+ZEST_API void zest_cmd_BindMeshIndexBuffer(const zest_frame_graph_context context, zest_layer_handle layer);
+ZEST_API void zest_cmd_DrawInstanceMeshLayer(const zest_frame_graph_context context, void *user_data);
+//Send custom push constants. Use inside a compute update command buffer callback function. The push constatns you pass in to the 
+//function must be the same size that you set when creating the compute shader
+ZEST_API void zest_cmd_SendCustomComputePushConstants(const zest_frame_graph_context context, zest_compute_handle compute, const void *push_constant);
+//Helper function to dispatch a compute shader so you can call this instead of vkCmdDispatch. Specify a command buffer for use in one off dispataches
+ZEST_API void zest_cmd_DispatchCompute(const zest_frame_graph_context context, zest_compute_handle compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
+//Send push constants. For use inside a draw routine callback function. pass in the pipeline,
+//and a pointer to the data containing the push constants. The data MUST match the push constant range in the pipeline
+ZEST_API void zest_cmd_SendPushConstants(const zest_frame_graph_context context, zest_pipeline pipeline, void *data);
+//Helper function to send the standard zest_push_constants_t push constants struct.
+ZEST_API void zest_cmd_SendStandardPushConstants(const zest_frame_graph_context context, zest_pipeline_t *pipeline_layout, void *data);
+//Helper function to record the vulkan command vkCmdDraw. Will record with the current command buffer being used in the active command queue. For use inside
+//a draw routine callback function
+ZEST_API void zest_cmd_Draw(const zest_frame_graph_context context, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
+ZEST_API void zest_cmd_DrawLayerInstruction(const zest_frame_graph_context context, zest_uint vertex_count, zest_layer_instruction_t *instruction);
+//Helper function to record the vulkan command vkCmdDrawIndexed. Will record with the current command buffer being used in the active command queue. For use inside
+//a draw routine callback function
+ZEST_API void zest_cmd_DrawIndexed(const zest_frame_graph_context context, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
+
 
 #ifdef __cplusplus
 }

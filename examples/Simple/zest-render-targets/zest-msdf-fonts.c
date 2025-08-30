@@ -110,7 +110,7 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_frame_graph_conte
 
         zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context->render_pass);
         if (pipeline) {
-            zest_BindPipeline(command_buffer, pipeline, sets, 2);
+            zest_cmd_BindPipeline(command_buffer, pipeline, sets, 2);
         } else {
             continue;
         }

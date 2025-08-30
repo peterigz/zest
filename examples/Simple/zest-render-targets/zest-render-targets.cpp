@@ -130,10 +130,10 @@ void zest_DrawRenderTargetSimple(VkCommandBuffer command_buffer, const zest_fram
 	zest_uint up_bindless_index = zest_GetTransientImageBindlessIndex(context, render_target, ZEST_TRUE, zest_binding_type_combined_image_sampler);
 	zest_uint down_bindless_index = zest_GetTransientImageBindlessIndex(context, downsampler, ZEST_TRUE, zest_binding_type_combined_image_sampler);
 
-	zest_SetScreenSizedViewport(context, 0.f, 1.f);
+	zest_cmd_SetScreenSizedViewport(context, 0.f, 1.f);
 
 	zest_pipeline pipeline = zest_PipelineWithTemplate(example->composite_pipeline, context->render_pass);
-	zest_BindPipelineShaderResource(context->command_buffer, pipeline, example->render_target_resources);
+	zest_cmd_BindPipelineShaderResource(context->command_buffer, pipeline, example->render_target_resources);
 
 	CompositePushConstants push;
 	push.base_index = down_bindless_index;
@@ -173,7 +173,7 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_frame_gra
 	};
 
 	// Bind the pipeline once before the loop
-	zest_BindComputePipeline(command_buffer, example->downsampler_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_buffer, example->downsampler_compute, sets, 1);
 
 	zest_uint mip_levels = zest_GetResourceMipLevels(downsampler_target);
 	for (zest_uint mip_index = 1; mip_index != mip_levels; ++mip_index) {
@@ -189,12 +189,12 @@ void zest_DownsampleCompute(VkCommandBuffer command_buffer, const zest_frame_gra
 		current_width = ZEST__MAX(1u, current_width >> 1);
 		current_height = ZEST__MAX(1u, current_height >> 1);
 
-		zest_SendCustomComputePushConstants(command_buffer, example->downsampler_compute, &push);
+		zest_cmd_SendCustomComputePushConstants(command_buffer, example->downsampler_compute, &push);
 
 		//Dispatch the compute shader
-		zest_DispatchCompute(command_buffer, example->downsampler_compute, group_count_x, group_count_y, 1);
+		zest_cmd_DispatchCompute(command_buffer, example->downsampler_compute, group_count_x, group_count_y, 1);
 		if (mip_index < mip_levels - 1) {
-			zest_InsertComputeImageBarrier(command_buffer, downsampler_target, mip_index);
+			zest_cmd_InsertComputeImageBarrier(command_buffer, downsampler_target, mip_index);
 		}
 	}
 }
@@ -221,10 +221,10 @@ void zest_UpsampleCompute(VkCommandBuffer command_buffer, const zest_frame_graph
 	zest_uint mip_levels = zest_GetResourceMipLevels(upsampler_target);
 	zest_uint mip_to_blit = mip_levels - 1;
 
-	zest_CopyImageMip(command_buffer, downsampler_target, upsampler_target, mip_to_blit, zest_pipeline_compute_stage);
+	zest_cmd_CopyImageMip(command_buffer, downsampler_target, upsampler_target, mip_to_blit, zest_pipeline_compute_stage);
 
 	// Bind the pipeline once before the loop
-	zest_BindComputePipeline(command_buffer, example->upsampler_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_buffer, example->upsampler_compute, sets, 1);
 
 	zest_uint resource_width = zest_GetResourceWidth(upsampler_target);
 	zest_uint resource_height = zest_GetResourceHeight(upsampler_target);
@@ -242,12 +242,12 @@ void zest_UpsampleCompute(VkCommandBuffer command_buffer, const zest_frame_graph
 		zest_uint group_count_x = (current_width + local_size_x - 1) / local_size_x;
 		zest_uint group_count_y = (current_height + local_size_y - 1) / local_size_y;
 
-		zest_SendCustomComputePushConstants(command_buffer, example->upsampler_compute, &push);
+		zest_cmd_SendCustomComputePushConstants(command_buffer, example->upsampler_compute, &push);
 
 		//Dispatch the compute shader
-		zest_DispatchCompute(command_buffer, example->upsampler_compute, group_count_x, group_count_y, 1);
+		zest_cmd_DispatchCompute(command_buffer, example->upsampler_compute, group_count_x, group_count_y, 1);
 		if (mip_index > 0) {
-			zest_InsertComputeImageBarrier(command_buffer, upsampler_target, mip_index);
+			zest_cmd_InsertComputeImageBarrier(command_buffer, upsampler_target, mip_index);
 		}
 	}
 }

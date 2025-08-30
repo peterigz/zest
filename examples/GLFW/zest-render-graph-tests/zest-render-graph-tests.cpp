@@ -245,7 +245,7 @@ void zest_WriteBufferCompute(const zest_frame_graph_context_t *context, void *us
 	};
 
 	// Bind the pipeline once before the loop
-	zest_BindComputePipeline(command_buffer, tests->compute_write, sets, 1);
+	zest_cmd_BindComputePipeline(command_buffer, tests->compute_write, sets, 1);
 
 	TestPushConstants push;
 
@@ -253,12 +253,12 @@ void zest_WriteBufferCompute(const zest_frame_graph_context_t *context, void *us
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
 	push.index1 = zest_GetTransientBufferBindlessIndex(context, write_buffer);
 
-	zest_SendCustomComputePushConstants(command_buffer, tests->compute_write, &push);
+	zest_cmd_SendCustomComputePushConstants(command_buffer, tests->compute_write, &push);
 
 	zest_uint group_count_x = (1000 + local_size_x - 1) / local_size_x;
 
 	//Dispatch the compute shader
-	zest_DispatchCompute(command_buffer, tests->compute_write, group_count_x, 1, 1);
+	zest_cmd_DispatchCompute(command_buffer, tests->compute_write, group_count_x, 1, 1);
 }
 
 void zest_VerifyBufferCompute(const zest_frame_graph_context_t *context, void *user_data) {
@@ -278,7 +278,7 @@ void zest_VerifyBufferCompute(const zest_frame_graph_context_t *context, void *u
 	};
 
 	// Bind the pipeline once before the loop
-	zest_BindComputePipeline(command_buffer, tests->compute_verify, sets, 1);
+	zest_cmd_BindComputePipeline(command_buffer, tests->compute_verify, sets, 1);
 
 	TestPushConstants push;
 
@@ -287,12 +287,12 @@ void zest_VerifyBufferCompute(const zest_frame_graph_context_t *context, void *u
 	push.index1 = zest_GetTransientBufferBindlessIndex(context, write_buffer);
 	push.index2 = zest_GetTransientBufferBindlessIndex(context, verify_buffer);
 
-	zest_SendCustomComputePushConstants(command_buffer, tests->compute_verify, &push);
+	zest_cmd_SendCustomComputePushConstants(command_buffer, tests->compute_verify, &push);
 
 	zest_uint group_count_x = (1000 + local_size_x - 1) / local_size_x;
 
 	//Dispatch the compute shader
-	zest_DispatchCompute(command_buffer, tests->compute_verify, group_count_x, 1, 1);
+	zest_cmd_DispatchCompute(command_buffer, tests->compute_verify, group_count_x, 1, 1);
 }
 
 /*
@@ -431,7 +431,7 @@ void zest_VerifyImageCompute(VkCommandBuffer command_buffer, const zest_frame_gr
 	};
 
 	// Bind the pipeline once before the loop
-	zest_BindComputePipeline(command_buffer, tests->compute_verify, sets, 1);
+	zest_cmd_BindComputePipeline(command_buffer, tests->compute_verify, sets, 1);
 
 	TestPushConstants push;
 
@@ -442,13 +442,13 @@ void zest_VerifyImageCompute(VkCommandBuffer command_buffer, const zest_frame_gr
 	push.index3 = zest_ScreenWidth();
 	push.index4 = zest_ScreenHeight();
 
-	zest_SendCustomComputePushConstants(command_buffer, tests->compute_verify, &push);
+	zest_cmd_SendCustomComputePushConstants(command_buffer, tests->compute_verify, &push);
 
 	zest_uint group_count_x = (zest_ScreenWidth() + local_size_x - 1) / local_size_x;
 	zest_uint group_count_y = (zest_ScreenHeight() + local_size_y - 1) / local_size_y;
 
 	//Dispatch the compute shader
-	zest_DispatchCompute(command_buffer, tests->compute_verify, group_count_x, group_count_y, 1);
+	zest_cmd_DispatchCompute(command_buffer, tests->compute_verify, group_count_x, group_count_y, 1);
 }
 
 
@@ -562,7 +562,7 @@ void zest_WriteImageCompute(VkCommandBuffer command_buffer, const zest_frame_gra
 	};
 
 	// Bind the pipeline once before the loop
-	zest_BindComputePipeline(command_buffer, tests->compute_write, sets, 1);
+	zest_cmd_BindComputePipeline(command_buffer, tests->compute_write, sets, 1);
 
 	TestPushConstants push;
 
@@ -570,14 +570,14 @@ void zest_WriteImageCompute(VkCommandBuffer command_buffer, const zest_frame_gra
 	// Note: You may need to update the BlurPushConstants struct to remove dst_mip_index
 	push.index1 = zest_GetTransientImageBindlessIndex(context, write_buffer, zest_storage_image_binding);
 
-	zest_SendCustomComputePushConstants(command_buffer, tests->compute_write, &push);
+	zest_cmd_SendCustomComputePushConstants(command_buffer, tests->compute_write, &push);
 
 	zest_image_description_t image_desc = zest_GetResourceImageDescription(write_buffer);
 	zest_uint group_count_x = (image_desc.width + local_size_x - 1) / local_size_x;
 	zest_uint group_count_y = (image_desc.height + local_size_y - 1) / local_size_y;
 
 	//Dispatch the compute shader
-	zest_DispatchCompute(command_buffer, tests->compute_write, group_count_x, group_count_y, 1);
+	zest_cmd_DispatchCompute(command_buffer, tests->compute_write, group_count_x, group_count_y, 1);
 }
 
 

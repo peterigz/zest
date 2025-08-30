@@ -166,7 +166,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//outputs
 		zest_ConnectSwapChainOutput(billboard_pass);
 		//tasks
-		zest_SetPassTask(billboard_pass, zest_DrawInstanceLayer, example->billboard_layer);
+		zest_SetPassTask(billboard_pass, zest_cmd_DrawInstanceLayer, example->billboard_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//---------------------------------Render Pass------------------------------------------------------
@@ -177,7 +177,7 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 		//outputs
 		zest_ConnectSwapChainOutput(sprite_pass);
 		//tasks
-		zest_SetPassTask(sprite_pass, zest_DrawInstanceLayer, example->sprite_layer);
+		zest_SetPassTask(sprite_pass, zest_cmd_DrawInstanceLayer, example->sprite_layer);
 		//--------------------------------------------------------------------------------------------------
 
 		//Compile and execute the render graph

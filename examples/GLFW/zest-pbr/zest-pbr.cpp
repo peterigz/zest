@@ -61,19 +61,19 @@ void zest_DispatchBRDSetup(const zest_frame_graph_context context, void *user_da
 	};
 
 	// Bind the pipeline once before the loop
-	zest_BindComputePipeline(context, app->brd_compute, sets, 1);
+	zest_cmd_BindComputePipeline(context, app->brd_compute, sets, 1);
 
 	zest_uint push;
 
 	push = zest_GetTextureDescriptorIndex(app->brd_texture, zest_storage_image_binding);
 
-	zest_SendCustomComputePushConstants(context, app->brd_compute, &push);
+	zest_cmd_SendCustomComputePushConstants(context, app->brd_compute, &push);
 
 	zest_uint group_count_x = (512 + local_size_x - 1) / local_size_x;
 	zest_uint group_count_y = (512 + local_size_y - 1) / local_size_y;
 
 	//Dispatch the compute shader
-	zest_DispatchCompute(context, app->brd_compute, group_count_x, group_count_y, 1);
+	zest_cmd_DispatchCompute(context, app->brd_compute, group_count_x, group_count_y, 1);
 }
 
 void SetupBRDFLUT(ImGuiApp *app) {
@@ -108,7 +108,7 @@ void zest_DispatchIrradianceSetup(const zest_frame_graph_context context, void *
 	};
 
 	// Bind the pipeline once before the loop
-	zest_BindComputePipeline(context, app->irr_compute, sets, 1);
+	zest_cmd_BindComputePipeline(context, app->irr_compute, sets, 1);
 
 	app->irr_push_constant.source_env_index = app->skybox_bindless_index;
 	app->irr_push_constant.irr_index = app->irr_bindless_index;
@@ -117,14 +117,14 @@ void zest_DispatchIrradianceSetup(const zest_frame_graph_context context, void *
 	app->irr_push_constant.delta_phi = delta_phi;
 	app->irr_push_constant.delta_theta = delta_theta;
 	
-	zest_SendCustomComputePushConstants(context, app->irr_compute, &app->irr_push_constant);
+	zest_cmd_SendCustomComputePushConstants(context, app->irr_compute, &app->irr_push_constant);
 
 	zest_texture_info_t info = zest_GetTextureInfo(app->irr_texture);
 	zest_uint group_count_x = (info.width + local_size - 1) / local_size;
 	zest_uint group_count_y = (info.height + local_size - 1) / local_size;
 
 	//Dispatch the compute shader
-	zest_DispatchCompute(context, app->irr_compute, group_count_x, group_count_y, 6);
+	zest_cmd_DispatchCompute(context, app->irr_compute, group_count_x, group_count_y, 6);
 }
 
 void SetupIrradianceCube(ImGuiApp *app) {
@@ -161,7 +161,7 @@ void zest_DispatchPrefilteredSetup(const zest_frame_graph_context context, void 
 	};
 
 	// Bind the pipeline once before the loop
-	zest_BindComputePipeline(context, app->prefiltered_compute, sets, 1);
+	zest_cmd_BindComputePipeline(context, app->prefiltered_compute, sets, 1);
 	
 	zest_texture_info_t texture_info = zest_GetTextureInfo(app->prefiltered_texture);
 
@@ -171,7 +171,7 @@ void zest_DispatchPrefilteredSetup(const zest_frame_graph_context context, void 
 		app->prefiltered_push_constant.roughness = (float)m / (float)(texture_info.mip_levels - 1);
 		app->prefiltered_push_constant.prefiltered_index = app->prefiltered_mip_indexes[m];
 
-		zest_SendCustomComputePushConstants(context, app->prefiltered_compute, &app->prefiltered_push_constant);
+		zest_cmd_SendCustomComputePushConstants(context, app->prefiltered_compute, &app->prefiltered_push_constant);
 
 		float mip_width = static_cast<float>(texture_info.width * powf(0.5f, (float)m));
 		float mip_height = static_cast<float>(texture_info.height * powf(0.5f, (float)m));
@@ -179,7 +179,7 @@ void zest_DispatchPrefilteredSetup(const zest_frame_graph_context context, void 
 		zest_uint group_count_y = (zest_uint)ceilf(mip_height / local_size);
 
 		//Dispatch the compute shader
-		zest_DispatchCompute(context, app->prefiltered_compute, group_count_x, group_count_y, 6);
+		zest_cmd_DispatchCompute(context, app->prefiltered_compute, group_count_x, group_count_y, 6);
 	}
 }
 
@@ -549,7 +549,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectInput(skybox_texture_resource, 0);
 			zest_ConnectInput(skybox_layer_resource, 0);
 			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->skybox_layer);
+			zest_SetPassTask(zest_cmd_DrawInstanceMeshLayer, &app->skybox_layer);
 			zest_EndPass();
 		}
 		//--------------------------------------------------------------------------------------------------
@@ -561,7 +561,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectInput(irradiance_texture_resource, 0);
 			zest_ConnectInput(prefiltered_texture_resource, 0);
 			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->cube_layer);
+			zest_SetPassTask(zest_cmd_DrawInstanceMeshLayer, &app->cube_layer);
 			zest_EndPass();
 		}
 		//--------------------------------------------------------------------------------------------------
@@ -571,7 +571,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectInput(billboard_layer_resource, 0);
 			zest_ConnectInput(billboard_texture_resource, 0);
 			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_DrawInstanceLayer, &app->billboard_layer);
+			zest_SetPassTask(zest_cmd_DrawInstanceLayer, &app->billboard_layer);
 			zest_EndPass();
 		}
 		//--------------------------------------------------------------------------------------------------
