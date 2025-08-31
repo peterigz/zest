@@ -509,7 +509,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
 
 	zest_image_resource_info_t depth_info = {
-		zest_format_d16_unorm,
+		zest_format_depth,
 		zest_resource_usage_hint_none,
 		zest_ScreenWidth(),
 		zest_ScreenHeight(),

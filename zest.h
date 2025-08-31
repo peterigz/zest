@@ -990,6 +990,35 @@ typedef enum {
     zest_compare_op_always,
 } zest_compare_op;
 
+typedef enum {
+    zest_image_tiling_optimal,
+    zest_image_tiling_linear,
+} zest_image_tiling;
+
+typedef enum {
+    zest_sample_count_1_bit = 0x00000001,
+    zest_sample_count_2_bit = 0x00000002,
+    zest_sample_count_4_bit = 0x00000004,
+    zest_sample_count_8_bit = 0x00000008,
+    zest_sample_count_16_bit = 0x00000010,
+    zest_sample_count_32_bit = 0x00000020,
+    zest_sample_count_64_bit = 0x00000040,
+} zest_sample_count_bits;
+
+typedef enum {
+    zest_image_aspect_none = 0,
+    zest_image_aspect_color_bit = 0x00000001,
+    zest_image_aspect_depth_bit = 0x00000002,
+    zest_image_aspect_stencil_bit = 0x00000004,
+    zest_image_aspect_metadata_bit = 0x00000008,
+    zest_image_aspect_plane_0_bit = 0x00000010,
+    zest_image_aspect_plane_1_bit = 0x00000020,
+    zest_image_aspect_plane_2_bit = 0x00000040,
+} zest_image_aspect_flag_bits;
+
+typedef zest_uint zest_image_aspect_flags;
+typedef zest_uint zest_sample_count_flags;
+
 typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
 
 typedef enum {
@@ -2432,12 +2461,12 @@ typedef struct zest_image_description_t {
     zest_uint width;
 	zest_uint height;
 	zest_uint mip_levels;
-	VkSampleCountFlagBits numSamples;
-	VkImageTiling tiling;
-	VkImageUsageFlags usage;
-	VkMemoryPropertyFlags properties;
-    VkFormat format;
-    VkImageAspectFlags aspect_flags;
+	zest_sample_count_flags num_samples;
+	zest_image_tiling tiling;
+	zest_image_usage_flags usage;
+	zest_memory_property_flags properties;
+    zest_texture_format format;
+    zest_image_aspect_flags aspect_flags;
 } zest_image_description_t;
 
 //Simple stuct for uploading buffers from the staging buffer to the device local buffers
@@ -2834,7 +2863,7 @@ ZEST_API zest_bool zest_AcquireSwapChainImage(zest_swapchain swapchain);
 // --- Internal render graph function ---
 ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(VkPipelineStageFlags stages_to_check, VkQueueFlags queue_family_capabilities);
 ZEST_PRIVATE VkImageLayout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage);
-ZEST_PRIVATE VkImageAspectFlags zest__determine_aspect_flag(VkFormat format);
+ZEST_PRIVATE zest_image_aspect_flags zest__determine_aspect_flag(zest_texture_format format);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
 ZEST_PRIVATE void zest__deferr_image_destruction(zest_image image);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type);
@@ -3348,7 +3377,7 @@ typedef struct zest_renderer_t {
     zest_window main_window;
 
     //Cache of the supported depth format
-    VkFormat vk_depth_format;
+    zest_texture_format depth_format;
 
     //For scheduled tasks
     zest_buffer *staging_buffers;
@@ -3529,9 +3558,9 @@ ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size v
 
 // --General_Helper_Functions
 ZEST_PRIVATE VkResult zest__create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, zest_uint mip_levels_this_view, zest_uint base_mip, VkImageViewType viewType, zest_uint layerCount, VkImageView *image_jiew);
-ZEST_PRIVATE VkResult zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory);
-ZEST_PRIVATE VkResult zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, zest_image image);
-ZEST_PRIVATE VkResult zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits numSamples, VkFormat format, VkImageCreateFlags flags, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, zest_image image);
+ZEST_PRIVATE VkResult zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits num_samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory);
+ZEST_PRIVATE VkResult zest__create_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits num_samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, zest_image image);
+ZEST_PRIVATE VkResult zest__create_image_array(zest_uint width, zest_uint height, zest_uint mipLevels, zest_uint layers, VkSampleCountFlagBits num_samples, VkFormat format, VkImageCreateFlags flags, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, zest_image image);
 ZEST_PRIVATE VkResult zest__create_transient_image(zest_resource_node node);
 ZEST_PRIVATE void zest__create_transient_buffer(zest_resource_node node);
 ZEST_PRIVATE VkResult zest__copy_buffer_to_image(VkBuffer buffer, VkDeviceSize src_offset, VkImage image, zest_uint width, zest_uint height, VkImageLayout vk_image_layout, VkCommandBuffer command_buffer);
