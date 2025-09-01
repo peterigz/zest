@@ -33,7 +33,7 @@ VkResult zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 	VkSurfaceKHR surface;
-	VkResult result = glfwCreateWindowSurface(ZestDevice->instance, handle, &ZestDevice->allocation_callbacks, &surface);
+	VkResult result = glfwCreateWindowSurface(zest_GetVKInstance(), handle, zest_GetVKAllocationCallbacks(), &surface);
 	zest_SetWindowSurface(surface);
 	return result;
 }
@@ -111,7 +111,7 @@ void zest_implglfw_DestroyWindowCallback(zest_window window, void *user_data) {
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 	VkSurfaceKHR surface = zest_WindowSurface();
 	glfwDestroyWindow(handle);
-    vkDestroySurfaceKHR(ZestDevice->instance, surface, &ZestDevice->allocation_callbacks);
+    vkDestroySurfaceKHR(zest_GetVKInstance(), surface, zest_GetVKAllocationCallbacks());
 }
 
 void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {
