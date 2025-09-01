@@ -1694,6 +1694,7 @@ typedef struct zest_frame_graph_context_t zest_frame_graph_context_t;
 
 //Backends
 typedef struct zest_device_backend_t zest_device_backend_t;
+typedef struct zest_window_backend_t zest_window_backend_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_texture)
@@ -1730,6 +1731,7 @@ ZEST__MAKE_HANDLE(zest_mesh)
 ZEST__MAKE_HANDLE(zest_frame_graph_context)
 
 ZEST__MAKE_HANDLE(zest_device_backend)
+ZEST__MAKE_HANDLE(zest_window_backend)
 
 ZEST__MAKE_USER_HANDLE(zest_shader_resources)
 ZEST__MAKE_USER_HANDLE(zest_texture)
@@ -5015,8 +5017,12 @@ ZEST_API void zest_cmd_DrawLayerInstruction(const zest_frame_graph_context conte
 //a draw routine callback function
 ZEST_API void zest_cmd_DrawIndexed(const zest_frame_graph_context context, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 
+// Platform_access_functions
+#if defined(ZEST_VULKAN)
 ZEST_API VkInstance zest_GetVKInstance();
 ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
+#endif
+// -- End platform access functions
 
 #ifdef __cplusplus
 }

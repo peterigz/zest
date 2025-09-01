@@ -91,10 +91,14 @@ typedef struct zest_shader_t {
     shaderc_shader_kind type;
 } zest_shader_t;
 
+typedef struct zest_window_backend_t {
+    VkSurfaceKHR surface;
+} zest_window_backend_t;
+
 typedef struct zest_window_t {
     int magic;
     void *window_handle;
-    VkSurfaceKHR surface;
+    zest_window_backend backend;
     zest_swapchain swapchain;
     zest_uint window_width;
     zest_uint window_height;
@@ -689,7 +693,7 @@ FILE* zest__open_file(const char* file_name, const char* mode) {
 void zest__destroy_window_callback(zest_window window, void* user_data) {
     ZEST_PRINT_FUNCTION;
     DestroyWindow(window->window_handle);
-    vkDestroySurfaceKHR(ZestDevice->backend->instance, window->surface, &ZestDevice->backend->allocation_callbacks);
+    vkDestroySurfaceKHR(ZestDevice->backend->instance, window->backend->surface, &ZestDevice->backend->allocation_callbacks);
     PostQuitMessage(0);
 }
 
@@ -777,11 +781,9 @@ zest_window zest__os_create_window(int x, int y, int width, int height, zest_boo
 
     zest_window_instance = GetModuleHandle(NULL);
 
-    zest_window window = ZEST__NEW(zest_window);
+    zest_window window = zest_AllocateWindow();
     WNDCLASS window_class = { 0 };
-    memset(window, 0, sizeof(zest_window_t));
 
-    window->magic = zest_INIT_MAGIC(zest_struct_type_window);
     window->window_width = width;
     window->window_height = height;
 
@@ -872,7 +874,7 @@ VkResult zest__os_create_window_surface(zest_window window) {
     surface_create_info.hinstance = zest_window_instance;
     surface_create_info.hwnd = window->window_handle;
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
-    ZEST_VK_ASSERT_RESULT(vkCreateWin32SurfaceKHR(ZestDevice->backend->instance, &surface_create_info, &ZestDevice->backend->allocation_callbacks, &window->surface));
+    ZEST_VK_ASSERT_RESULT(vkCreateWin32SurfaceKHR(ZestDevice->backend->instance, &surface_create_info, &ZestDevice->backend->allocation_callbacks, &window->backend->surface));
     return VK_SUCCESS;
 }
 
@@ -933,7 +935,7 @@ zest_window zest__os_create_window(int x, int y, int width, int height, zest_boo
 
 void zest__os_create_window_surface(zest_window current_window) {
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
-    ZEST_VK_ASSERT_RESULT(glfwCreateWindowSurface(ZestDevice->backend->instance, current_window->window_handle, &ZestDevice->backend->allocation_callbacks, &current_window->surface));
+    ZEST_VK_ASSERT_RESULT(glfwCreateWindowSurface(ZestDevice->backend->instance, current_window->window_handle, &ZestDevice->backend->allocation_callbacks, &current_window->backend->surface));
 }
 
 void zest__os_poll_events(void) {
@@ -2556,20 +2558,20 @@ zest_swapchain_support_details_t zest__query_swapchain_support(VkPhysicalDevice 
     ZEST_PRINT_FUNCTION;
     zest_swapchain_support_details_t details;
 
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, ZestRenderer->main_window->surface, &details.capabilities);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.capabilities);
 
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->surface, &details.formats_count, ZEST_NULL);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.formats_count, ZEST_NULL);
 
     if (details.formats_count != 0) {
         details.formats = ZEST__ALLOCATE(sizeof(VkSurfaceFormatKHR) * details.formats_count);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->surface, &details.formats_count, details.formats);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.formats_count, details.formats);
     }
 
-    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->surface, &details.present_modes_count, ZEST_NULL);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.present_modes_count, ZEST_NULL);
 
     if (details.present_modes_count != 0) {
         details.present_modes = ZEST__ALLOCATE(sizeof(VkPresentModeKHR) * details.present_modes_count);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->surface, &details.present_modes_count, details.present_modes);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.present_modes_count, details.present_modes);
     }
 
     return details;
@@ -2634,7 +2636,7 @@ VkResult zest__create_logical_device() {
         VkQueueFamilyProperties properties = ZestDevice->backend->queue_families[i];
         // Find the primary graphics queue (must support presentation!)
         VkBool32 present_support = 0;
-        vkGetPhysicalDeviceSurfaceSupportKHR(ZestDevice->backend->physical_device, i, ZestRenderer->main_window->surface, &present_support);
+        vkGetPhysicalDeviceSurfaceSupportKHR(ZestDevice->backend->physical_device, i, ZestRenderer->main_window->backend->surface, &present_support);
 
         if ((properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && present_support) {
             if (graphics_candidate == ZEST_INVALID) {
@@ -4383,7 +4385,7 @@ VkResult zest__initialise_swapchain(zest_swapchain swapchain, zest_window window
 
     VkSwapchainCreateInfoKHR createInfo = { 0 };
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    createInfo.surface = ZestRenderer->main_window->surface;
+    createInfo.surface = ZestRenderer->main_window->backend->surface;
 
     createInfo.minImageCount = image_count;
     createInfo.imageFormat = surfaceFormat.format;
@@ -4869,6 +4871,7 @@ void zest__cleanup_renderer() {
     }
 
 	ZestRenderer->destroy_window_callback(ZestRenderer->main_window, ZestApp->user_data);
+    ZEST__FREE(ZestRenderer->main_window->backend);
 	ZEST__FREE(ZestRenderer->main_window);
 
     zest_map_foreach(i, ZestRenderer->reports) {
@@ -6922,7 +6925,7 @@ float zest_DPIScale(void) { return ZestRenderer->dpi_scale; }
 void zest_SetDPIScale(float scale) { ZestRenderer->dpi_scale = scale; }
 zest_uint zest_FPS() { return ZestApp->last_fps; }
 float zest_FPSf() { return (float)ZestApp->last_fps; }
-zest_window zest_AllocateWindow() { zest_window window; window = ZEST__NEW(zest_window); memset(window, 0, sizeof(zest_window_t)); window->magic = zest_INIT_MAGIC(zest_struct_type_window); return window; }
+zest_window zest_AllocateWindow() { zest_window window; window = ZEST__NEW(zest_window); memset(window, 0, sizeof(zest_window_t)); window->magic = zest_INIT_MAGIC(zest_struct_type_window); window->backend = ZEST__NEW(zest_window_backend); *window->backend = (zest_window_backend_t){ 0 }; return window; }
 void zest_WaitForIdleDevice() { vkDeviceWaitIdle(ZestDevice->backend->logical_device); }
 void zest_MaybeQuit(zest_bool condition) { ZestApp->flags |= condition != 0 ? zest_app_flag_quit_application : 0; }
 void zest__hash_initialise(zest_hasher_t* hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
@@ -8596,11 +8599,11 @@ void zest_UpdateWindowSize(zest_window window, zest_uint width, zest_uint height
 }
 
  VkSurfaceKHR zest_WindowSurface() {
-     return ZestRenderer->main_window->surface;
+     return ZestRenderer->main_window->backend->surface;
 }
 
 void zest_SetWindowSurface(VkSurfaceKHR surface) {
-     ZestRenderer->main_window->surface = surface;
+     ZestRenderer->main_window->backend->surface = surface;
 }
 
  void zest_CloseWindow(zest_window window) {

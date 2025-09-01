@@ -29,15 +29,6 @@ zest_window_t *zest_implglfw_CreateWindowCallback(int x, int y, int width, int h
 	return window;
 }
 
-VkResult zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
-    ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
-	GLFWwindow *handle = (GLFWwindow *)zest_Window();
-	VkSurfaceKHR surface;
-	VkResult result = glfwCreateWindowSurface(zest_GetVKInstance(), handle, zest_GetVKAllocationCallbacks(), &surface);
-	zest_SetWindowSurface(surface);
-	return result;
-}
-
 void zest_implglfw_SetWindowSize(zest_window window, int width, int height) {
 	ZEST_ASSERT_HANDLE(window);	//Not a valid window handle!
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
@@ -107,12 +98,23 @@ void zest_implglfw_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb
 	glfwGetWindowSize(handle, window_width, window_height);
 }
 
+#if defined ZEST_VULKAN
+VkResult zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
+	GLFWwindow *handle = (GLFWwindow *)zest_Window();
+	VkSurfaceKHR surface;
+	VkResult result = glfwCreateWindowSurface(zest_GetVKInstance(), handle, zest_GetVKAllocationCallbacks(), &surface);
+	zest_SetWindowSurface(surface);
+	return result;
+}
+
 void zest_implglfw_DestroyWindowCallback(zest_window window, void *user_data) {
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 	VkSurfaceKHR surface = zest_WindowSurface();
 	glfwDestroyWindow(handle);
     vkDestroySurfaceKHR(zest_GetVKInstance(), surface, zest_GetVKAllocationCallbacks());
 }
+#endif
 
 void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {
 	create_info->add_platform_extensions_callback = zest_implglfw_AddPlatformExtensionsCallback;
