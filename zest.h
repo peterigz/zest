@@ -212,38 +212,38 @@ static const char *zest_message_resource_should_be_imported = "Graph Compile Err
 
 //For error checking vulkan commands
 #define ZEST_VK_ASSERT_RESULT(res) do {                                                                                \
-    ZestRenderer->last_result = (res);                                                                                 \
-    if (ZestRenderer->last_result != VK_SUCCESS) {                                                                     \
-        zest__log_vulkan_error(ZestRenderer->last_result, __FILE__, __LINE__);                                         \
-        return ZestRenderer->last_result;                                                                              \
+    ZestRenderer->backend->last_result = (res);                                                                                 \
+    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
+        zest__log_vulkan_error(ZestRenderer->backend->last_result, __FILE__, __LINE__);                                         \
+        return ZestRenderer->backend->last_result;                                                                              \
     }                                                                                                                  \
 } while(0)
 
 #define ZEST_RETURN_FALSE_ON_FAIL(res)                                                                                 \
-    ZestRenderer->last_result = res;                                                                                   \
-    if (ZestRenderer->last_result != VK_SUCCESS) {                                                                     \
+    ZestRenderer->backend->last_result = res;                                                                                   \
+    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
         return ZEST_FALSE;                                                                                             \
     }
  
 
 #define ZEST_RETURN_RESULT_ON_FAIL(res) do {                                                                           \
-    ZestRenderer->last_result = (res);                                                                                 \
-    if (ZestRenderer->last_result != VK_SUCCESS) {                                                                     \
-        return ZestRenderer->last_result;                                                                              \
+    ZestRenderer->backend->last_result = (res);                                                                                 \
+    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
+        return ZestRenderer->backend->last_result;                                                                              \
     }                                                                                                                  \
 } while(0)
  
 #define ZEST_CLEANUP_ON_FAIL(res) do {                                                                                 \
-    ZestRenderer->last_result = (res);                                                                                 \
-    if (ZestRenderer->last_result != VK_SUCCESS) {                                                                     \
+    ZestRenderer->backend->last_result = (res);                                                                                 \
+    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
         goto cleanup;                                                                                                  \
     }                                                                                                                  \
 } while(0)
 
 #define ZEST_VK_LOG(res) do {                                                                                          \
-    ZestRenderer->last_result = (res);                                                                                 \
-    if (ZestRenderer->last_result != VK_SUCCESS) {                                                                     \
-        zest__log_vulkan_error(ZestRenderer->last_result, __FILE__, __LINE__);                                         \
+    ZestRenderer->backend->last_result = (res);                                                                                 \
+    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
+        zest__log_vulkan_error(ZestRenderer->backend->last_result, __FILE__, __LINE__);                                         \
     }                                                                                                                  \
 } while(0)
 
@@ -1694,6 +1694,7 @@ typedef struct zest_frame_graph_context_t zest_frame_graph_context_t;
 
 //Backends
 typedef struct zest_device_backend_t zest_device_backend_t;
+typedef struct zest_renderer_backend_t zest_renderer_backend_t;
 typedef struct zest_window_backend_t zest_window_backend_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
@@ -1731,6 +1732,7 @@ ZEST__MAKE_HANDLE(zest_mesh)
 ZEST__MAKE_HANDLE(zest_frame_graph_context)
 
 ZEST__MAKE_HANDLE(zest_device_backend)
+ZEST__MAKE_HANDLE(zest_renderer_backend)
 ZEST__MAKE_HANDLE(zest_window_backend)
 
 ZEST__MAKE_USER_HANDLE(zest_shader_resources)
@@ -3416,10 +3418,6 @@ typedef struct zest_builtin_pipeline_templates_t {
 typedef struct zest_renderer_t {
     int magic;
 
-    VkFence fif_fence[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
-    zest_uint fence_count[ZEST_MAX_FIF];
-    VkFence intraframe_fence[ZEST_QUEUE_COUNT];
-
     zest_execution_timeline *timeline_semaphores;
 
     zest_u64 total_frame_count;
@@ -3430,12 +3428,11 @@ typedef struct zest_renderer_t {
     zest_set_layout_handle global_bindless_set_layout;
     zest_descriptor_set global_set;
 
-    VkPipelineCache pipeline_cache;
-
     zest_map_buffer_allocators buffer_allocators;
-    VkBuffer *used_buffers_ready_for_freeing;
 
-    VkCommandBuffer utility_command_buffer[ZEST_MAX_FIF];
+    zest_renderer_backend backend;
+
+    zest_uint fence_count[ZEST_MAX_FIF];
 
     //Built in shaders that I'll probably remove soon
     zest_builtin_shaders_t builtin_shaders;
@@ -3496,7 +3493,6 @@ typedef struct zest_renderer_t {
     //Debugging
     zest_debug_t debug;
     zest_map_reports reports;
-    VkResult last_result;
 
     //Callbacks for customising window and surface creation
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
