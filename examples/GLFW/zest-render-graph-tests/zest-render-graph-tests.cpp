@@ -732,7 +732,7 @@ void InitialiseTests(ZestTests *tests) {
 	tests->vk_sampler_info = zest_CreateSamplerInfo();
 	tests->mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 
-	tests->current_test = 0;
+	tests->current_test = 9;
     zest_ResetValidationErrors();
 }
 
