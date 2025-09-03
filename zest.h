@@ -1695,6 +1695,7 @@ typedef struct zest_frame_graph_context_t zest_frame_graph_context_t;
 //Backends
 typedef struct zest_device_backend_t zest_device_backend_t;
 typedef struct zest_renderer_backend_t zest_renderer_backend_t;
+typedef struct zest_swapchain_backend_t zest_swapchain_backend_t;
 typedef struct zest_window_backend_t zest_window_backend_t;
 typedef struct zest_frame_graph_context_backend_t zest_frame_graph_context_backend_t;
 typedef struct zest_device_memory_pool_t zest_device_memory_pool_t;
@@ -1745,6 +1746,7 @@ ZEST__MAKE_HANDLE(zest_frame_graph_context)
 
 ZEST__MAKE_HANDLE(zest_device_backend)
 ZEST__MAKE_HANDLE(zest_renderer_backend)
+ZEST__MAKE_HANDLE(zest_swapchain_backend)
 ZEST__MAKE_HANDLE(zest_window_backend)
 ZEST__MAKE_HANDLE(zest_frame_graph_context_backend)
 ZEST__MAKE_HANDLE(zest_device_memory_pool_backend)
@@ -2649,17 +2651,14 @@ typedef struct zest_image_t {
 
 typedef struct zest_swapchain_t {
     int magic;
+    zest_swapchain_backend backend;
     zest_window window;
     const char *name;
     zest_image_t *images;
     zest_texture_format format;
-    VkSwapchainKHR vk_swapchain;
     zest_vec2 resolution;
     zest_extent_t size;
     zest_clear_value_t clear_color;
-    //Syncronization
-    VkSemaphore *vk_render_finished_semaphore;
-    VkSemaphore vk_image_available_semaphore[ZEST_MAX_FIF];
     zest_uint current_image_frame;
     zest_uint image_count;
     zest_swapchain_flags flags;
@@ -3910,6 +3909,7 @@ ZEST_PRIVATE bool zest__create_folder(const char *path);
 
 // -- Grapics_API_Backends
 ZEST_PRIVATE void *zest__new_frame_graph_context_backend(void);
+ZEST_PRIVATE void *zest__new_swapchain_backend(void);
 ZEST_PRIVATE void *zest__new_buffer_backend(void);
 ZEST_PRIVATE void *zest__new_uniform_buffer_backend(void);
 ZEST_PRIVATE void zest__set_uniform_buffer_backend(zest_uniform_buffer buffer);
@@ -3920,6 +3920,7 @@ ZEST_PRIVATE void *zest__new_set_layout_backend(void);
 ZEST_PRIVATE void *zest__new_descriptor_pool_backend(void);
 ZEST_PRIVATE zest_bool zest__finish_compute(zest_compute_builder_t *builder, zest_compute compute);
 ZEST_PRIVATE void zest__cleanup_set_layout_backend(zest_set_layout set_layout);
+ZEST_PRIVATE void zest__cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation);
 ZEST_PRIVATE void zest__cleanup_buffer_backend(zest_buffer buffer);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer_backend(zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__cleanup_compute_backend(zest_compute compute);
@@ -5421,6 +5422,7 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 #ifdef ZEST_VULKAN_IMPLEMENTATION
 	//Glue
 	ZEST_PRIVATE void *zest__vk_new_frame_graph_context_backend(void);
+	ZEST_PRIVATE void *zest__vk_new_swapchain_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_buffer_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_uniform_buffer_backend(void);
 	ZEST_PRIVATE void zest__vk_set_uniform_buffer_backend(zest_uniform_buffer buffer);
@@ -5430,6 +5432,7 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE void *zest__vk_new_set_layout_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_descriptor_pool_backend(void);
 	ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute);
+	ZEST_PRIVATE void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation);
 	ZEST_PRIVATE void zest__vk_cleanup_buffer(zest_buffer buffer);
 	ZEST_PRIVATE void zest__vk_cleanup_uniform_buffer_backend(zest_uniform_buffer buffer);
 	ZEST_PRIVATE void zest__vk_cleanup_compute(zest_compute compute);
@@ -5439,8 +5442,12 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE void zest__vk_cleanup_image_backend(zest_image image);
 	ZEST_PRIVATE void zest__vk_cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor_set set);
 	ZEST_PRIVATE void zest__vk_cleanup_shader_resources_backend(zest_shader_resources shader_resource);
+
 	void *zest__new_frame_graph_context_backend(void) {
 		return zest__vk_new_frame_graph_context_backend();
+	}
+	void *zest__new_swapchain_backend(void) {
+		return zest__vk_new_swapchain_backend();
 	}
 	void *zest__new_buffer_backend(void) {
 		return zest__vk_new_buffer_backend();
@@ -5469,6 +5476,9 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	zest_bool zest__finish_compute(zest_compute_builder_t *builder, zest_compute compute) {
 		return zest__vk_finish_compute(builder, compute);
 	}
+    void zest__cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation) {
+        zest__vk_cleanup_swapchain_backend(swapchain, for_recreation);
+    }
     void zest__cleanup_buffer_backend(zest_buffer buffer) {
         zest__vk_cleanup_buffer(buffer);
     }

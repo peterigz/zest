@@ -3954,6 +3954,7 @@ zest_swapchain zest__create_swapchain(const char *name) {
     zest_swapchain swapchain = ZEST__NEW(zest_swapchain);
     *swapchain = (zest_swapchain_t){ 0 };
     swapchain->magic = zest_INIT_MAGIC(zest_struct_type_swapchain);
+    swapchain->backend = zest__new_swapchain_backend();
     swapchain->name = name;
     zest__initialise_swapchain(swapchain, ZestRenderer->main_window);
     zest__initialise_swapchain_semaphores(swapchain);
@@ -4005,14 +4006,14 @@ VkResult zest__initialise_swapchain(zest_swapchain swapchain, zest_window window
     createInfo.oldSwapchain = VK_NULL_HANDLE;
 
 	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_swapchain);
-    ZEST_VK_ASSERT_RESULT(vkCreateSwapchainKHR(ZestDevice->backend->logical_device, &createInfo, &ZestDevice->backend->allocation_callbacks, &swapchain->vk_swapchain));
+    ZEST_VK_ASSERT_RESULT(vkCreateSwapchainKHR(ZestDevice->backend->logical_device, &createInfo, &ZestDevice->backend->allocation_callbacks, &swapchain->backend->vk_swapchain));
 
     swapchain->image_count = image_count;
 
-    vkGetSwapchainImagesKHR(ZestDevice->backend->logical_device, swapchain->vk_swapchain, &image_count, ZEST_NULL);
+    vkGetSwapchainImagesKHR(ZestDevice->backend->logical_device, swapchain->backend->vk_swapchain, &image_count, ZEST_NULL);
     VkImage *images = 0;
     zest_vec_resize(images, image_count);
-    vkGetSwapchainImagesKHR(ZestDevice->backend->logical_device, swapchain->vk_swapchain, &image_count, images);
+    vkGetSwapchainImagesKHR(ZestDevice->backend->logical_device, swapchain->backend->vk_swapchain, &image_count, images);
 
     zest_vec_resize(swapchain->images, image_count);
     zest_vec_foreach(i, images) {
@@ -4040,14 +4041,14 @@ VkResult zest__initialise_swapchain_semaphores(zest_swapchain swapchain) {
 
     zest_ForEachFrameInFlight(i) {
 		ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_semaphore);
-        ZEST_VK_ASSERT_RESULT(vkCreateSemaphore(ZestDevice->backend->logical_device, &semaphore_info, &ZestDevice->backend->allocation_callbacks, &swapchain->vk_image_available_semaphore[i]));
+        ZEST_VK_ASSERT_RESULT(vkCreateSemaphore(ZestDevice->backend->logical_device, &semaphore_info, &ZestDevice->backend->allocation_callbacks, &swapchain->backend->vk_image_available_semaphore[i]));
     }
 
-    zest_vec_resize(swapchain->vk_render_finished_semaphore, swapchain->image_count);
+    zest_vec_resize(swapchain->backend->vk_render_finished_semaphore, swapchain->image_count);
 
-    zest_vec_foreach(i, swapchain->vk_render_finished_semaphore) {
+    zest_vec_foreach(i, swapchain->backend->vk_render_finished_semaphore) {
 		ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_semaphore);
-        ZEST_VK_ASSERT_RESULT(vkCreateSemaphore(ZestDevice->backend->logical_device, &semaphore_info, &ZestDevice->backend->allocation_callbacks, &swapchain->vk_render_finished_semaphore[i]));
+        ZEST_VK_ASSERT_RESULT(vkCreateSemaphore(ZestDevice->backend->logical_device, &semaphore_info, &ZestDevice->backend->allocation_callbacks, &swapchain->backend->vk_render_finished_semaphore[i]));
     }
 
     return VK_SUCCESS;
@@ -4186,23 +4187,9 @@ VkResult zest__create_pipeline_cache() {
 void zest__cleanup_swapchain(zest_swapchain swapchain, zest_bool for_recreation) {
     ZEST_PRINT_FUNCTION;
 
-    zest_vec_foreach(i, swapchain->images) {
-        vkDestroyImageView(ZestDevice->backend->logical_device, swapchain->images[i].backend->vk_view, &ZestDevice->backend->allocation_callbacks);
-        ZEST__FREE(swapchain->images[i].backend);
-    }
-
-    vkDestroySwapchainKHR(ZestDevice->backend->logical_device, swapchain->vk_swapchain, &ZestDevice->backend->allocation_callbacks);
+    zest__cleanup_swapchain_backend(swapchain, for_recreation);
 
     zest_vec_free(swapchain->images);
-
-	zest_ForEachFrameInFlight(fif) {
-		vkDestroySemaphore(ZestDevice->backend->logical_device, swapchain->vk_image_available_semaphore[fif], &ZestDevice->backend->allocation_callbacks);
-	}
-	zest_vec_foreach(i, swapchain->vk_render_finished_semaphore) {
-		vkDestroySemaphore(ZestDevice->backend->logical_device, swapchain->vk_render_finished_semaphore[i], &ZestDevice->backend->allocation_callbacks);
-	}
-	zest_vec_free(swapchain->vk_render_finished_semaphore);
-
     if (!for_recreation) {
         ZEST__FREE(swapchain);
     }
@@ -7366,8 +7353,8 @@ VkResult zest__present_frame(zest_swapchain swapchain) {
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
     presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = &swapchain->vk_render_finished_semaphore[swapchain->current_image_frame];
-    VkSwapchainKHR swapChains[] = { swapchain->vk_swapchain };
+    presentInfo.pWaitSemaphores = &swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
+    VkSwapchainKHR swapChains[] = { swapchain->backend->vk_swapchain };
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = swapChains;
     presentInfo.pImageIndices = &swapchain->current_image_frame;
@@ -7430,11 +7417,11 @@ VkResult zest__dummy_submit_for_present_only(void) {
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
     submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &ZestRenderer->main_swapchain->vk_image_available_semaphore[ZEST_FIF];
+    submit_info.pWaitSemaphores = &ZestRenderer->main_swapchain->backend->vk_image_available_semaphore[ZEST_FIF];
     submit_info.pWaitDstStageMask = wait_stage_array;
 
     submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &ZestRenderer->main_swapchain->vk_render_finished_semaphore[swapchain->current_image_frame];
+    submit_info.pSignalSemaphores = &ZestRenderer->main_swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
 
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &ZestRenderer->backend->utility_command_buffer[ZEST_FIF];
@@ -8156,10 +8143,10 @@ VkSemaphore zest__get_semaphore_reference(zest_frame_graph frame_graph, zest_sem
     switch (reference->type) {
     case zest_dynamic_resource_image_available_semaphore:
         ZEST_ASSERT_HANDLE(frame_graph->swapchain);
-        return frame_graph->swapchain->vk_image_available_semaphore[ZEST_FIF];
+        return frame_graph->swapchain->backend->vk_image_available_semaphore[ZEST_FIF];
         break;
     case zest_dynamic_resource_render_finished_semaphore:
-        return frame_graph->swapchain->vk_render_finished_semaphore[frame_graph->swapchain->current_image_frame];
+        return frame_graph->swapchain->backend->vk_render_finished_semaphore[frame_graph->swapchain->current_image_frame];
         break;
     }
     return VK_NULL_HANDLE;
@@ -10742,7 +10729,7 @@ zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffe
 zest_bool zest_AcquireSwapChainImage(zest_swapchain swapchain) {
     ZEST_PRINT_FUNCTION;
     ZEST_ASSERT_HANDLE(swapchain);
-    VkResult result = vkAcquireNextImageKHR(ZestDevice->backend->logical_device, swapchain->vk_swapchain, UINT64_MAX, swapchain->vk_image_available_semaphore[ZEST_FIF], ZEST_NULL, &swapchain->current_image_frame);
+    VkResult result = vkAcquireNextImageKHR(ZestDevice->backend->logical_device, swapchain->backend->vk_swapchain, UINT64_MAX, swapchain->backend->vk_image_available_semaphore[ZEST_FIF], ZEST_NULL, &swapchain->current_image_frame);
 
     //Has the window been resized? if so rebuild the swap chain.
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {

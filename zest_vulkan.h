@@ -26,6 +26,12 @@ typedef struct zest_device_backend_t {
     VkFormat color_format;
 } zest_device_backend_t;
 
+typedef struct zest_swapchain_backend_t {
+    VkSwapchainKHR vk_swapchain;
+    VkSemaphore *vk_render_finished_semaphore;
+    VkSemaphore vk_image_available_semaphore[ZEST_MAX_FIF];
+} zest_swapchain_backend_t;
+
 typedef struct zest_renderer_backend_t {
     VkPipelineCache pipeline_cache;
     VkBuffer *used_buffers_ready_for_freeing;
@@ -102,9 +108,6 @@ typedef struct zest_image_backend_t {
 	VkExtent3D vk_extent;
 } zest_image_backend_t;
 
-// -- Cleanup_functions
-// -- End cleanup functions
-
 // -- Backend_setup_functions
 void *zest__vk_new_frame_graph_context_backend(void) {
     zest_frame_graph_context_backend_t *backend_context = zloc_LinearAllocation(
@@ -113,6 +116,12 @@ void *zest__vk_new_frame_graph_context_backend(void) {
     );
     *backend_context = (zest_frame_graph_context_backend_t){ 0 };
     return backend_context;
+}
+
+void *zest__vk_new_swapchain_backend(void) {
+    zest_swapchain_backend swapchain_backend = ZEST__NEW(zest_swapchain_backend);
+    *swapchain_backend = (zest_swapchain_backend_t){ 0 };
+    return swapchain_backend;
 }
 
 void *zest__vk_new_buffer_backend(void) {
@@ -240,6 +249,26 @@ void zest__vk_cleanup_compute(zest_compute compute) {
 	if(compute->backend->pipeline) vkDestroyPipeline(ZestDevice->backend->logical_device, compute->backend->pipeline, &ZestDevice->backend->allocation_callbacks);
     if(compute->backend->pipeline_layout) vkDestroyPipelineLayout(ZestDevice->backend->logical_device, compute->backend->pipeline_layout, &ZestDevice->backend->allocation_callbacks);
     ZEST__FREE(compute->backend);
+}
+
+void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation) {
+    zest_vec_foreach(i, swapchain->images) {
+        vkDestroyImageView(ZestDevice->backend->logical_device, swapchain->images[i].backend->vk_view, &ZestDevice->backend->allocation_callbacks);
+        ZEST__FREE(swapchain->images[i].backend);
+    }
+    vkDestroySwapchainKHR(ZestDevice->backend->logical_device, swapchain->backend->vk_swapchain, &ZestDevice->backend->allocation_callbacks);
+	zest_ForEachFrameInFlight(fif) {
+		vkDestroySemaphore(ZestDevice->backend->logical_device, swapchain->backend->vk_image_available_semaphore[fif], &ZestDevice->backend->allocation_callbacks);
+	}
+	zest_vec_foreach(i, swapchain->backend->vk_render_finished_semaphore) {
+		vkDestroySemaphore(ZestDevice->backend->logical_device, swapchain->backend->vk_render_finished_semaphore[i], &ZestDevice->backend->allocation_callbacks);
+	}
+	zest_vec_free(swapchain->backend->vk_render_finished_semaphore);
+
+    if (!for_recreation) {
+        ZEST__FREE(swapchain->backend);
+        swapchain->backend = 0;
+    }
 }
 
 void zest__vk_cleanup_buffer(zest_buffer buffer) {
