@@ -2739,7 +2739,7 @@ typedef struct zest_create_info_t {
     void(*poll_events_callback)(ZEST_PROTOTYPE);
     void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
     zest_window(*create_window_callback)(int x, int y, int width, int height, zest_bool maximised, const char* title);
-    VkResult(*create_window_surface_callback)(zest_window window);
+    zest_bool(*create_window_surface_callback)(zest_window window);
     void(*set_window_mode_callback)(zest_window window, zest_window_mode mode);
     void(*set_window_size_callback)(zest_window window, int width, int height);
 } zest_create_info_t;
@@ -3898,7 +3898,7 @@ ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_
 //These functions need a different implementation depending on the platform being run on
 //See definitions at the top of zest.c
 ZEST_PRIVATE zest_window zest__os_create_window(int x, int y, int width, int height, zest_bool maximised, const char* title);
-ZEST_PRIVATE VkResult zest__os_create_window_surface(zest_window window);
+ZEST_PRIVATE zest_bool zest__os_create_window_surface(zest_window window);
 ZEST_PRIVATE void zest__os_set_window_mode(zest_window window, zest_window_mode mode);
 ZEST_PRIVATE void zest__os_set_window_size(zest_window window, int width, int height);
 ZEST_PRIVATE void zest__os_poll_events(ZEST_PROTOTYPE);
@@ -3921,6 +3921,7 @@ ZEST_PRIVATE void *zest__new_descriptor_pool_backend(void);
 ZEST_PRIVATE zest_bool zest__finish_compute(zest_compute_builder_t *builder, zest_compute compute);
 ZEST_PRIVATE void zest__cleanup_set_layout_backend(zest_set_layout set_layout);
 ZEST_PRIVATE void zest__cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation);
+ZEST_PRIVATE void zest__cleanup_window_backend(zest_window window);
 ZEST_PRIVATE void zest__cleanup_buffer_backend(zest_buffer buffer);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer_backend(zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__cleanup_compute_backend(zest_compute compute);
@@ -4112,20 +4113,15 @@ ZEST_PRIVATE void zest__add_descriptor_set_to_resources(zest_shader_resources re
 // --End Descriptor set functions
 
 // --Device_set_up
-ZEST_PRIVATE VkResult zest__create_instance();
-ZEST_PRIVATE void zest__setup_validation(void);
 ZEST_PRIVATE VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
 ZEST_PRIVATE VkResult zest__create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
 ZEST_PRIVATE void zest__destroy_debug_messenger(void);
-ZEST_PRIVATE void zest__pick_physical_device(void);
 ZEST_PRIVATE zest_bool zest__is_device_suitable(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_bool zest__device_is_discrete_gpu(VkPhysicalDevice physical_device);
 ZEST_PRIVATE void zest__log_device_name(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_bool zest__check_device_extension_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE zest_swapchain_support_details_t zest__query_swapchain_support(VkPhysicalDevice physical_device);
 ZEST_PRIVATE VkSampleCountFlagBits zest__get_max_useable_sample_count(void);
-ZEST_PRIVATE VkResult zest__create_logical_device();
-ZEST_PRIVATE void zest__set_limit_data(void);
 ZEST_PRIVATE zest_bool zest__check_validation_layer_support(void);
 ZEST_PRIVATE void zest__get_required_extensions();
 ZEST_PRIVATE zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
@@ -4140,7 +4136,7 @@ ZEST_PRIVATE void zest_vk_free_callback(void* pUserData, void *memory);
 ZEST_PRIVATE void zest__do_scheduled_tasks(void);
 ZEST_PRIVATE void zest__initialise_app(zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__initialise_window(zest_create_info_t *create_info);
-ZEST_PRIVATE VkResult zest__initialise_device();
+ZEST_PRIVATE zest_bool zest__initialise_device();
 ZEST_PRIVATE void zest__destroy(void);
 ZEST_PRIVATE void zest__main_loop(void);
 ZEST_API void zest_Terminate(void);
@@ -5433,6 +5429,7 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE void *zest__vk_new_descriptor_pool_backend(void);
 	ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute);
 	ZEST_PRIVATE void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation);
+	ZEST_PRIVATE void zest__vk_cleanup_window_backend(zest_window window);
 	ZEST_PRIVATE void zest__vk_cleanup_buffer(zest_buffer buffer);
 	ZEST_PRIVATE void zest__vk_cleanup_uniform_buffer_backend(zest_uniform_buffer buffer);
 	ZEST_PRIVATE void zest__vk_cleanup_compute(zest_compute compute);
@@ -5442,6 +5439,13 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE void zest__vk_cleanup_image_backend(zest_image image);
 	ZEST_PRIVATE void zest__vk_cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor_set set);
 	ZEST_PRIVATE void zest__vk_cleanup_shader_resources_backend(zest_shader_resources shader_resource);
+    ZEST_PRIVATE zest_bool zest__vk_create_window_surface(window);
+    ZEST_PRIVATE zest_bool zest__vk_initialise_device();
+	ZEST_PRIVATE zest_bool zest__vk_create_instance();
+	ZEST_PRIVATE zest_bool zest__vk_create_logical_device();
+	ZEST_PRIVATE void zest__vk_set_limit_data(void);
+	ZEST_PRIVATE void zest__vk_setup_validation();
+    ZEST_PRIVATE void zest__vk_pick_physical_device(void);
 
 	void *zest__new_frame_graph_context_backend(void) {
 		return zest__vk_new_frame_graph_context_backend();
@@ -5479,6 +5483,9 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     void zest__cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation) {
         zest__vk_cleanup_swapchain_backend(swapchain, for_recreation);
     }
+    void zest__cleanup_window_backend(zest_window window) {
+        zest__vk_cleanup_window_backend(window);
+    }
     void zest__cleanup_buffer_backend(zest_buffer buffer) {
         zest__vk_cleanup_buffer(buffer);
     }
@@ -5505,6 +5512,13 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     }
     void zest__cleanup_set_layout_backend(zest_set_layout layout) {
         zest__vk_cleanup_set_layout(layout);
+    }
+
+    zest_bool zest__os_create_window_surface(zest_window window) {
+        return zest__vk_create_window_surface(window);
+    }
+    zest_bool zest__initialise_device() {
+        return zest__vk_initialise_device();
     }
     #include "zest_vulkan.h"
 #endif

@@ -2,7 +2,7 @@
 Zest Vulkan Implementation
 
     -- [Backend_structs]
-    -- [Cleanup_functions]
+    -- [Initialisation_functions]
     -- [Backend_setup_functions]
     -- [Backend_cleanup_functions]
     -- [General_helpers]
@@ -10,6 +10,27 @@ Zest Vulkan Implementation
 */
 
 // -- Backend_structs
+typedef struct zest_window_backend_t {
+    VkSurfaceKHR surface;
+} zest_window_backend_t;
+
+typedef struct zest_device_memory_pool_backend_t {
+    VkBufferCreateInfo buffer_info;
+    VkBuffer vk_buffer;
+    VkDeviceMemory memory;
+    VkImageUsageFlags usage_flags;
+    VkMemoryPropertyFlags property_flags;
+} zest_device_memory_pool_backend_t;
+
+typedef struct zest_resource_backend_t {
+    VkAccessFlags current_access_mask;
+    VkPipelineStageFlags last_stage_mask;
+    VkImageLayout current_layout;                   // The current layout of the image in the resource
+    VkImageLayout final_layout;                     // Layout resource should be in after last use in this graph
+    VkImageLayout *linked_layout;                   // A link to the layout in the texture so that the layout in the texture can be updated as it's transitioned in the render graph
+    VkFormat format;
+} zest_resource_backend_t;
+
 typedef struct zest_device_backend_t {
     VkAllocationCallbacks allocation_callbacks;
     VkInstance instance;
@@ -107,6 +128,474 @@ typedef struct zest_image_backend_t {
 	VkFormat vk_format;
 	VkExtent3D vk_extent;
 } zest_image_backend_t;
+
+// -- Initialisation_functions
+
+zest_bool zest__vk_initialise_device() {
+    if (!zest__vk_create_instance()) {
+        return ZEST_FALSE;
+    }
+	if (zest__validation_layers_are_enabled()) {
+		zest__vk_setup_validation();
+	}
+	zest__vk_pick_physical_device();
+    if (!zest__vk_create_logical_device()) {
+        return ZEST_FALSE;
+    }
+	zest__vk_set_limit_data();
+	zest__set_default_pool_sizes();
+    return ZEST_TRUE;
+}
+
+void zest__vk_set_limit_data() {
+    VkPhysicalDeviceProperties physicalDeviceProperties;
+    vkGetPhysicalDeviceProperties(ZestDevice->backend->physical_device, &physicalDeviceProperties);
+    ZestDevice->max_image_size = physicalDeviceProperties.limits.maxImageDimension2D;
+}
+
+void zest__vk_setup_validation(void) {
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Enabling validation layers\n");
+
+    VkDebugUtilsMessengerCreateInfoEXT create_info = { 0 };
+    create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    create_info.pfnUserCallback = zest_debug_callback;
+
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_debug_messenger);
+    ZEST_VK_LOG(zest__create_debug_messenger(ZestDevice->backend->instance, &create_info, &ZestDevice->backend->allocation_callbacks, &ZestDevice->backend->debug_messenger));
+
+    ZestDevice->backend->pfnSetDebugUtilsObjectNameEXT = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetInstanceProcAddr(ZestDevice->backend->instance, "vkSetDebugUtilsObjectNameEXT");
+}
+
+void zest__vk_pick_physical_device(void) {
+    zest_uint device_count = 0;
+    vkEnumeratePhysicalDevices(ZestDevice->backend->instance, &device_count, ZEST_NULL);
+
+    ZEST_ASSERT(device_count);        //Failed to find GPUs with Vulkan support!
+
+    ZEST__ARRAY(devices, VkPhysicalDevice, device_count);
+    vkEnumeratePhysicalDevices(ZestDevice->backend->instance, &device_count, devices);
+
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found %i devices", device_count);
+    for (int i = 0; i != device_count; ++i) {
+        zest__log_device_name(devices[i]);
+    }
+    ZestDevice->backend->physical_device = VK_NULL_HANDLE;
+
+    //Prioritise discrete GPUs when picking physical device
+    if (device_count == 1 && zest__is_device_suitable(devices[0])) {
+        if (zest__device_is_discrete_gpu(devices[0])) {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable and is a discrete GPU");
+        } else {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "The one device found is suitable");
+        }
+        ZestDevice->backend->physical_device = devices[0];
+    } else {
+        VkPhysicalDevice discrete_device = VK_NULL_HANDLE;
+        for (int i = 0; i != device_count; ++i) {
+            if (zest__is_device_suitable(devices[i]) && zest__device_is_discrete_gpu(devices[i])) {
+                discrete_device = devices[i];
+                break;
+            }
+        }
+        if (discrete_device != VK_NULL_HANDLE) {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device that is a discrete GPU: ");
+            zest__log_device_name(discrete_device);
+            ZestDevice->backend->physical_device = discrete_device;
+        } else {
+            for (int i = 0; i != device_count; ++i) {
+                if (zest__is_device_suitable(devices[i])) {
+                    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found suitable device:");
+                    zest__log_device_name(devices[i]);
+                    ZestDevice->backend->physical_device = devices[i];
+                    break;
+                }
+            }
+        }
+    }
+
+    if (ZestDevice->backend->physical_device == VK_NULL_HANDLE) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Could not find a suitable device!");
+    }
+    ZEST_ASSERT(ZestDevice->backend->physical_device != VK_NULL_HANDLE);    //Unable to find suitable GPU
+    ZestDevice->backend->msaa_samples = zest__get_max_useable_sample_count();
+
+    // Store Properties features, limits and properties of the physical ZestDevice for later use
+    // ZestDevice properties also contain limits and sparse properties
+    vkGetPhysicalDeviceProperties(ZestDevice->backend->physical_device, &ZestDevice->backend->properties);
+    // Features should be checked by the examples before using them
+    vkGetPhysicalDeviceFeatures(ZestDevice->backend->physical_device, &ZestDevice->backend->features);
+    // Memory properties are used regularly for creating all kinds of buffers
+    vkGetPhysicalDeviceMemoryProperties(ZestDevice->backend->physical_device, &ZestDevice->backend->memory_properties);
+
+    //Print out the memory available
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Max Memory Allocation Count: %i", ZestDevice->backend->properties.limits.maxMemoryAllocationCount);
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory available in GPU:");
+    for (int i = 0; i != ZestDevice->backend->memory_properties.memoryHeapCount; ++i) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "    Heap flags: %i, Size: %llu", ZestDevice->backend->memory_properties.memoryHeaps[i].flags, ZestDevice->backend->memory_properties.memoryHeaps[i].size);
+    }
+
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Memory types mapping in GPU:");
+    for (int i = 0; i != ZestDevice->backend->memory_properties.memoryTypeCount; ++i) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "    %i) Heap Index: %i, Property Flags: %i", i, ZestDevice->backend->memory_properties.memoryTypes[i].heapIndex, ZestDevice->backend->memory_properties.memoryTypes[i].propertyFlags);
+    }
+
+    ZEST__FREE(devices);
+}
+
+zest_bool zest__vk_create_instance() {
+    if (zest__validation_layers_are_enabled()) {
+        zest_bool validation_support = zest__check_validation_layer_support();
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Checking for validation support");
+        if (!validation_support) {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validation layers not supported. Disabling.");
+            ZEST__UNFLAG(ZestDevice->setup_info.flags, zest_init_flag_enable_validation_layers);;
+        }
+    }
+
+    zest_uint instance_api_version_supported;
+    if (vkEnumerateInstanceVersion(&instance_api_version_supported) == VK_SUCCESS) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "System supports Vulkan API Version: %d.%d.%d",
+            VK_API_VERSION_MAJOR(instance_api_version_supported),
+            VK_API_VERSION_MINOR(instance_api_version_supported),
+            VK_API_VERSION_PATCH(instance_api_version_supported));
+        if (instance_api_version_supported < VK_API_VERSION_1_2) {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Zest requires minumum Vulkan version: 1.2+. Version found: %u", instance_api_version_supported);
+            return VK_ERROR_INCOMPATIBLE_DRIVER;
+        }
+    } else {
+        ZEST_PRINT_WARNING("Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requires Vulkan 1.2+.");
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requiresVulkan 1.2+.")
+            return VK_ERROR_INCOMPATIBLE_DRIVER;
+    }
+
+    VkApplicationInfo app_info = { 0 };
+    app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    app_info.pApplicationName = "Zest";
+    app_info.applicationVersion = VK_MAKE_VERSION(0, 0, 1);
+    app_info.pEngineName = "No Engine";
+    app_info.engineVersion = VK_MAKE_VERSION(0, 0, 1);
+    app_info.apiVersion = VK_API_VERSION_1_2;
+    ZestDevice->api_version = app_info.apiVersion;
+
+    VkInstanceCreateInfo create_info = { 0 };
+    create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    create_info.pApplicationInfo = &app_info;
+#ifdef ZEST_PORTABILITY_ENUMERATION
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Flagging for enumerate portability on MACOS");
+    create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
+
+    zest__get_required_extensions();
+    zest_uint extension_count = zest_vec_size(ZestDevice->extensions);
+    create_info.enabledExtensionCount = extension_count;
+    create_info.ppEnabledExtensionNames = (const char **)ZestDevice->extensions;
+
+    VkDebugUtilsMessengerCreateInfoEXT debug_create_info = { 0 };
+    VkValidationFeatureEnableEXT *enabled_validation_features = 0;
+    if (zest__validation_layers_are_enabled()) {
+        create_info.enabledLayerCount = (zest_uint)zest__validation_layer_count;
+        create_info.ppEnabledLayerNames = zest_validation_layers;
+        debug_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        debug_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debug_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        debug_create_info.pfnUserCallback = zest_debug_callback;
+
+        if (zest__validation_layers_with_sync_are_enabled()) {
+            zest_vec_push(enabled_validation_features, VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT);
+        }
+        if (zest__validation_layers_with_best_practices_are_enabled()) {
+            zest_vec_push(enabled_validation_features, VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT);
+        }
+        if (zest_vec_size(enabled_validation_features)) {
+            // Potentially add others like VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT for more advice
+            VkValidationFeaturesEXT validation_features_ext = { 0 };
+            validation_features_ext.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+            validation_features_ext.enabledValidationFeatureCount = zest_vec_size(enabled_validation_features);
+            validation_features_ext.pEnabledValidationFeatures = enabled_validation_features;
+            debug_create_info.pNext = &validation_features_ext;
+        }
+
+        create_info.pNext = &debug_create_info;
+    } else {
+        create_info.enabledLayerCount = 0;
+    }
+
+    zest_uint extension_property_count = 0;
+    vkEnumerateInstanceExtensionProperties(ZEST_NULL, &extension_property_count, ZEST_NULL);
+
+    ZEST__ARRAY(available_extensions, VkExtensionProperties, extension_property_count);
+
+    vkEnumerateInstanceExtensionProperties(ZEST_NULL, &extension_property_count, available_extensions);
+
+    zest_vec_foreach(i, ZestDevice->extensions) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Extension: %s\n", ZestDevice->extensions[i]);
+    }
+
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_instance);
+    ZEST_RETURN_FALSE_ON_FAIL(vkCreateInstance(&create_info, &ZestDevice->backend->allocation_callbacks, &ZestDevice->backend->instance));
+
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Validating Vulkan Instance");
+
+    ZEST__FREE(available_extensions);
+    ZestRenderer->create_window_surface_callback(ZestRenderer->main_window);
+
+    zest_vec_free(enabled_validation_features);
+
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_create_logical_device() {
+    ZEST_PRINT_FUNCTION;
+    zest_queue_family_indices indices = { 0 };
+
+    zest_uint queue_family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(ZestDevice->backend->physical_device, &queue_family_count, ZEST_NULL);
+
+    zest_vec_resize(ZestDevice->backend->queue_families, queue_family_count);
+    //VkQueueFamilyProperties queue_families[10];
+    vkGetPhysicalDeviceQueueFamilyProperties(ZestDevice->backend->physical_device, &queue_family_count, ZestDevice->backend->queue_families);
+
+    zest_uint graphics_candidate = ZEST_INVALID;
+    zest_uint compute_candidate = ZEST_INVALID;
+    zest_uint transfer_candidate = ZEST_INVALID;
+
+	ZEST_APPEND_LOG(ZestDevice->log_path.str, "Iterate available queues:");
+    zest_vec_foreach(i, ZestDevice->backend->queue_families) {
+        VkQueueFamilyProperties properties = ZestDevice->backend->queue_families[i];
+
+        zest_text_t queue_flags = zest__vulkan_queue_flags_to_string(properties.queueFlags);
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Index: %i) %s, Queue count: %i", i, queue_flags.str, properties.queueCount);
+        zest_FreeText(&queue_flags);
+
+        // Is it a dedicated transfer queue?
+        if ((properties.queueFlags & VK_QUEUE_TRANSFER_BIT) &&
+            !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) &&
+            !(properties.queueFlags & VK_QUEUE_COMPUTE_BIT)) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found a dedicated transfer queue on index %i", i);
+            transfer_candidate = i;
+        }
+
+        // Is it a dedicated compute queue?
+        if ((properties.queueFlags & VK_QUEUE_COMPUTE_BIT) &&
+            !(properties.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+			ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found a dedicated compute queue on index %i", i);
+            compute_candidate = i;
+        }
+    }
+
+    zest_vec_foreach(i, ZestDevice->backend->queue_families) {
+        VkQueueFamilyProperties properties = ZestDevice->backend->queue_families[i];
+        // Find the primary graphics queue (must support presentation!)
+        VkBool32 present_support = 0;
+        vkGetPhysicalDeviceSurfaceSupportKHR(ZestDevice->backend->physical_device, i, ZestRenderer->main_window->backend->surface, &present_support);
+
+        if ((properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && present_support) {
+            if (graphics_candidate == ZEST_INVALID) {
+                graphics_candidate = i;
+            }
+        }
+
+        if (compute_candidate == ZEST_INVALID) {
+            if (properties.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+				ZEST_APPEND_LOG(ZestDevice->log_path.str, "Set compute queue to index %i", i);
+                compute_candidate = i;
+            }
+        }
+
+        if (transfer_candidate == ZEST_INVALID) {
+            if (properties.queueFlags & VK_QUEUE_TRANSFER_BIT) {
+				ZEST_APPEND_LOG(ZestDevice->log_path.str, "Set transfer queue to index %i", i);
+                transfer_candidate = i;
+            }
+        }
+    }
+
+	if (graphics_candidate == ZEST_INVALID) {
+		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Fatal Error: Unable to find graphics queue/present support!");
+		return 0;
+	}
+
+    float queue_priority = 0.0f;
+    VkDeviceQueueCreateInfo queue_create_infos[3];
+
+    int queue_create_count = 0;
+    // Graphics queue
+    {
+        indices.graphics_family_index = graphics_candidate;
+        VkDeviceQueueCreateInfo queue_info = { 0 };
+        queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_info.queueFamilyIndex = indices.graphics_family_index;
+        queue_info.queueCount = 1;
+        queue_info.pQueuePriorities = &queue_priority;
+        queue_create_infos[0] = queue_info;
+        queue_create_count++;
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Graphics queue index set to: %i", indices.graphics_family_index);
+		zest_map_insert_key(ZestDevice->queue_names, indices.graphics_family_index, "Graphics Queue");
+    }
+
+    // Dedicated compute queue
+    {
+        indices.compute_family_index = compute_candidate;
+        if (indices.compute_family_index != indices.graphics_family_index)
+        {
+            // If compute family index differs, we need an additional queue create info for the compute queue
+            VkDeviceQueueCreateInfo queue_info = { 0 };
+            queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_info.queueFamilyIndex = indices.compute_family_index;
+            queue_info.queueCount = 1;
+            queue_info.pQueuePriorities = &queue_priority;
+            queue_create_infos[1] = queue_info;
+            queue_create_count++;
+			zest_map_insert_key(ZestDevice->queue_names, indices.compute_family_index, "Compute Queue");
+        }
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Compute queue index set to: %i", indices.compute_family_index);
+    }
+
+    //Dedicated transfer queue
+    {
+        indices.transfer_family_index = transfer_candidate;
+        if (indices.transfer_family_index != indices.graphics_family_index && indices.transfer_family_index != indices.compute_family_index)
+        {
+            // If transfer_index family index differs, we need an additional queue create info for the transfer queue
+            VkDeviceQueueCreateInfo queue_info = { 0 };
+            queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_info.queueFamilyIndex = indices.transfer_family_index;
+            queue_info.queueCount = 1;
+            queue_info.pQueuePriorities = &queue_priority;
+            queue_create_infos[2] = queue_info;
+            queue_create_count++;
+			zest_map_insert_key(ZestDevice->queue_names, indices.transfer_family_index, "Transfer Queue");
+        }
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Transfer queue index set to: %i", indices.transfer_family_index);
+    }
+    
+	zest_map_insert_key(ZestDevice->queue_names, VK_QUEUE_FAMILY_IGNORED, "Ignored");
+
+	// Check for bindless support
+    VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features = { 0 };
+    descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
+    // No pNext needed for querying this specific struct usually, unless querying other chained features too
+    VkPhysicalDeviceFeatures2 physical_device_features2 = { 0 };
+    physical_device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    physical_device_features2.pNext = &descriptor_indexing_features; // Chain it
+    vkGetPhysicalDeviceFeatures2(ZestDevice->backend->physical_device, &physical_device_features2);
+    if (!descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing ||
+        !descriptor_indexing_features.descriptorBindingPartiallyBound ||
+        !descriptor_indexing_features.runtimeDescriptorArray) {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Fatal Error: Required descriptor indexing features not supported by this GPU!");
+        return 0;
+    }
+
+    VkPhysicalDeviceFeatures device_features = { 0 };
+    device_features.samplerAnisotropy = VK_TRUE;
+    device_features.multiDrawIndirect = VK_TRUE;
+    device_features.shaderInt64 = VK_TRUE;
+    //device_features.wideLines = VK_TRUE;
+    //device_features.dualSrcBlend = VK_TRUE;
+    //device_features.vertexPipelineStoresAndAtomics = VK_TRUE;
+    if (ZEST__FLAGGED(ZestDevice->setup_info.flags, zest_init_flag_enable_fragment_stores_and_atomics)) device_features.fragmentStoresAndAtomics = VK_TRUE;
+    VkPhysicalDeviceVulkan12Features device_features_12 = { 0 };
+    device_features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    //For bindless descriptor sets:
+	device_features_12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    device_features_12.shaderStorageImageArrayNonUniformIndexing = VK_TRUE; 
+    device_features_12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE; 
+    device_features_12.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE; 
+    device_features_12.descriptorBindingPartiallyBound = VK_TRUE; 
+    device_features_12.descriptorBindingVariableDescriptorCount = VK_TRUE; 
+    device_features_12.runtimeDescriptorArray = VK_TRUE; 
+    device_features_12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+    device_features_12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+    device_features_12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+    device_features_12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+    device_features_12.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
+    device_features_12.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
+    device_features_12.bufferDeviceAddress = VK_TRUE;
+    device_features_12.timelineSemaphore = VK_TRUE;
+
+    VkDeviceCreateInfo create_info = { 0 };
+    create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    create_info.pEnabledFeatures = &device_features;
+    create_info.queueCreateInfoCount = queue_create_count;
+    create_info.pQueueCreateInfos = queue_create_infos;
+    create_info.enabledExtensionCount = zest__required_extension_names_count;
+    create_info.ppEnabledExtensionNames = zest_required_extensions;
+	create_info.pNext = &device_features_12;
+
+    if (ZEST__FLAGGED(ZestDevice->setup_info.flags, zest_init_flag_enable_validation_layers)) {
+        create_info.enabledLayerCount = zest__validation_layer_count;
+        create_info.ppEnabledLayerNames = zest_validation_layers;
+    }
+    else {
+        create_info.enabledLayerCount = 0;
+    }
+
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating logical device");
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_logical_device);
+    ZEST_VK_LOG(vkCreateDevice(ZestDevice->backend->physical_device, &create_info, &ZestDevice->backend->allocation_callbacks, &ZestDevice->backend->logical_device));
+
+    if (ZestDevice->backend->logical_device == VK_NULL_HANDLE) {
+        return ZEST_FALSE;
+    }
+
+    vkGetDeviceQueue(ZestDevice->backend->logical_device, indices.graphics_family_index, 0, &ZestDevice->graphics_queue.vk_queue);
+    vkGetDeviceQueue(ZestDevice->backend->logical_device, indices.compute_family_index, 0, &ZestDevice->compute_queue.vk_queue);
+    vkGetDeviceQueue(ZestDevice->backend->logical_device, indices.transfer_family_index, 0, &ZestDevice->transfer_queue.vk_queue);
+
+    ZestDevice->graphics_queue_family_index = indices.graphics_family_index;
+    ZestDevice->transfer_queue_family_index = indices.transfer_family_index;
+    ZestDevice->compute_queue_family_index = indices.compute_family_index;
+
+    zest_vec_push(ZestDevice->queues, &ZestDevice->graphics_queue);
+    ZestDevice->graphics_queue.family_index = indices.graphics_family_index;
+    if (ZestDevice->graphics_queue.vk_queue != ZestDevice->compute_queue.vk_queue) {
+		zest_vec_push(ZestDevice->queues, &ZestDevice->compute_queue);
+		ZestDevice->compute_queue.family_index = indices.compute_family_index;
+    }
+    if (ZestDevice->graphics_queue.vk_queue != ZestDevice->transfer_queue.vk_queue) {
+		zest_vec_push(ZestDevice->queues, &ZestDevice->transfer_queue);
+		ZestDevice->transfer_queue.family_index = indices.transfer_family_index;
+    }
+
+    zest_ForEachFrameInFlight(fif) {
+        zest_vec_foreach(i, ZestDevice->queues) {
+            zest_queue queue = ZestDevice->queues[i];
+            //Create the timeline semaphore pool
+            VkSemaphoreTypeCreateInfo timeline_create_info = { 0 };
+            timeline_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+            timeline_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+            timeline_create_info.initialValue = 0;
+            VkSemaphoreCreateInfo semaphore_info = { 0 };
+            semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            semaphore_info.pNext = &timeline_create_info;
+
+			ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_semaphore);
+            vkCreateSemaphore(ZestDevice->backend->logical_device, &semaphore_info, &ZestDevice->backend->allocation_callbacks, &queue->semaphore[fif]);
+
+            queue->current_count[fif] = 0;
+        }
+    }
+
+    VkCommandPoolCreateInfo cmd_info_pool = { 0 };
+    cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    cmd_info_pool.queueFamilyIndex = ZestDevice->graphics_queue_family_index;
+    cmd_info_pool.flags = 0;    //Maybe needs transient bit?
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Creating one time command pools");
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_command_pool);
+    zest_ForEachFrameInFlight(fif) {
+        ZEST_RETURN_FALSE_ON_FAIL(vkCreateCommandPool(ZestDevice->backend->logical_device, &cmd_info_pool, &ZestDevice->backend->allocation_callbacks, &ZestDevice->backend->one_time_command_pool[fif]));
+    }
+
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create queue command buffer pools");
+    zest__create_command_buffer_pools();
+
+    return ZEST_TRUE;
+}
+
+
+// -- End initialisation functions
 
 // -- Backend_setup_functions
 void *zest__vk_new_frame_graph_context_backend(void) {
@@ -271,6 +760,10 @@ void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_
     }
 }
 
+void zest__vk_cleanup_window_backend(zest_window window) {
+    vkDestroySurfaceKHR(ZestDevice->backend->instance, window->backend->surface, &ZestDevice->backend->allocation_callbacks);
+}
+
 void zest__vk_cleanup_buffer(zest_buffer buffer) {
     ZEST__FREE(buffer->backend);
     buffer->backend = 0;
@@ -366,6 +859,27 @@ zest_bool zest__has_blit_support(VkFormat src_format) {
     if (!(format_properties.linearTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT)) {
         return 0;
     }
+    return ZEST_TRUE;
+}
+
+VkInstance zest_GetVKInstance() {
+    return ZestDevice->backend->instance;
+}
+
+VkAllocationCallbacks *zest_GetVKAllocationCallbacks() {
+    return &ZestDevice->backend->allocation_callbacks;
+}
+
+zest_bool zest__vk_create_window_surface(zest_window window) {
+    ZEST_PRINT_FUNCTION;
+    VkWin32SurfaceCreateInfoKHR surface_create_info;
+    surface_create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+    surface_create_info.pNext = NULL;
+    surface_create_info.flags = 0;
+    surface_create_info.hinstance = zest_window_instance;
+    surface_create_info.hwnd = window->window_handle;
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
+    ZEST_RETURN_FALSE_ON_FAIL(vkCreateWin32SurfaceKHR(ZestDevice->backend->instance, &surface_create_info, &ZestDevice->backend->allocation_callbacks, &window->backend->surface));
     return ZEST_TRUE;
 }
 // -- End General helpers

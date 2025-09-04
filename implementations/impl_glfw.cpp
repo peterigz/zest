@@ -99,13 +99,13 @@ void zest_implglfw_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb
 }
 
 #if defined ZEST_VULKAN
-VkResult zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
+zest_bool zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 	VkSurfaceKHR surface;
 	VkResult result = glfwCreateWindowSurface(zest_GetVKInstance(), handle, zest_GetVKAllocationCallbacks(), &surface);
 	zest_SetWindowSurface(surface);
-	return result;
+	return result == VK_SUCCESS;
 }
 
 void zest_implglfw_DestroyWindowCallback(zest_window window, void *user_data) {
