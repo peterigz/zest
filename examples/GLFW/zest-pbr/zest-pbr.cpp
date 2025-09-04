@@ -119,7 +119,7 @@ void zest_DispatchIrradianceSetup(const zest_frame_graph_context context, void *
 	
 	zest_cmd_SendCustomComputePushConstants(context, app->irr_compute, &app->irr_push_constant);
 
-	zest_texture_info_t info = zest_GetTextureInfo(app->irr_texture);
+	zest_image_info_t info = zest_GetTextureInfo(app->irr_texture);
 	zest_uint group_count_x = (info.width + local_size - 1) / local_size;
 	zest_uint group_count_y = (info.height + local_size - 1) / local_size;
 
@@ -163,7 +163,7 @@ void zest_DispatchPrefilteredSetup(const zest_frame_graph_context context, void 
 	// Bind the pipeline once before the loop
 	zest_cmd_BindComputePipeline(context, app->prefiltered_compute, sets, 1);
 	
-	zest_texture_info_t texture_info = zest_GetTextureInfo(app->prefiltered_texture);
+	zest_image_info_t texture_info = zest_GetTextureInfo(app->prefiltered_texture);
 
 	app->prefiltered_push_constant.source_env_index = app->skybox_bindless_index;
 	app->prefiltered_push_constant.num_samples = 32;
@@ -186,7 +186,7 @@ void zest_DispatchPrefilteredSetup(const zest_frame_graph_context context, void 
 void SetupPrefilteredCube(ImGuiApp *app) {
 	app->prefiltered_texture = zest_CreateTextureStorage("prefiltered", 512, 512, zest_format_r16g16b16a16_sfloat, VK_IMAGE_VIEW_TYPE_CUBE, true);
 	app->prefiltered_bindless_index = zest_AcquireGlobalStorageSampler(app->prefiltered_texture);
-	app->prefiltered_mip_indexes = zest_AcquireGlobalTextureMipIndexes(app->prefiltered_texture, zest_storage_image_binding);
+	app->prefiltered_mip_indexes = zest_AcquireGlobalImageMipIndexes(app->prefiltered_texture, zest_storage_image_binding);
 	zest_AcquireGlobalCombinedSamplerCube(app->prefiltered_texture);
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder();
