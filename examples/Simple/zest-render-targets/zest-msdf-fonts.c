@@ -142,7 +142,7 @@ void zest__setup_font_texture(zest_font_t *font) {
         zest__cleanup_texture_vk_handles(texture);
     }
 
-    texture->flags &= ~zest_texture_flag_use_filtering;
+    texture->flags &= ~zest_image_flag_use_filtering;
     zest__process_texture_images(texture, 0);
 
     zest_AcquireGlobalCombinedSampler2d(font->texture);

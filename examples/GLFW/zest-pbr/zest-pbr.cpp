@@ -37,12 +37,6 @@ void SetupBillboards(ImGuiApp *app) {
 	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
 	zest_EndPipelineTemplate(app->billboard_pipeline);
 
-	app->sprites_texture = zest_CreateTexturePacked("Sprites Texture", zest_format_r8g8b8a8_unorm);
-	app->light = zest_AddTextureImageFile(app->sprites_texture, "examples/assets/glow.png");
-	zest_ProcessTextureImages(app->sprites_texture);
-
-	zest_AcquireGlobalCombinedSampler2d(app->sprites_texture);
-	app->billboard_push.texture_index = zest_GetTextureDescriptorIndex(app->sprites_texture, zest_combined_image_sampler_2d_binding);
 	app->billboard_layer = zest_CreateInstanceLayer("billboards", sizeof(zest_billboard_instance_t));
 
 	app->sprite_resources = zest_CreateShaderResources();
@@ -65,7 +59,7 @@ void zest_DispatchBRDSetup(const zest_frame_graph_context context, void *user_da
 
 	zest_uint push;
 
-	push = zest_GetTextureDescriptorIndex(app->brd_texture, zest_storage_image_binding);
+	push = app->brd_bindless_index;
 
 	zest_cmd_SendCustomComputePushConstants(context, app->brd_compute, &push);
 
@@ -77,9 +71,13 @@ void zest_DispatchBRDSetup(const zest_frame_graph_context context, void *user_da
 }
 
 void SetupBRDFLUT(ImGuiApp *app) {
-	app->brd_texture = zest_CreateTextureStorage("brd ibl", 512, 512, zest_format_r16g16_sfloat, VK_IMAGE_VIEW_TYPE_2D, false);
-	app->brd_bindless_index = zest_AcquireGlobalStorageSampler(app->brd_texture);
-	zest_AcquireGlobalCombinedSampler2d(app->brd_texture);
+	zest_image_create_info_t image_info = zest_CreateImageInfo(512, 512);
+	image_info.format = zest_format_r16g16_sfloat;
+	image_info.flags = zest_image_preset_storage;
+
+	app->brd_texture = zest_CreateImage(&image_info);
+	app->brd_bindless_index = zest_AcquireGlobalStorageSampler(app->brd_texture, view, sampler);
+	zest_AcquireGlobalCombinedSampler2d(app->brd_texture, view, sampler);
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder();
 	zest_AddComputeShader(&compute_builder, app->brd_shader);

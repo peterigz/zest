@@ -23,7 +23,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
 
 	//Create a texture to load in a test image to show drawing that image in an imgui window
-	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
+	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 	//Load in the image and add it to the texture
 	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
 	//Process the texture so that its ready to be used
@@ -80,13 +80,13 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		if (ImGui::Button("Glow Image")) {
 			zest_FreeTexture(app->test_texture);
-			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
+			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 			app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/glow.png");
 			zest_ProcessTextureImages(app->test_texture);
 		}
 		if (ImGui::Button("Bunny Image")) {
 			zest_FreeTexture(app->test_texture);
-			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_texture_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
+			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 			app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
 			zest_ProcessTextureImages(app->test_texture);
 		}

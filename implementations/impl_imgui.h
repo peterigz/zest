@@ -8,7 +8,7 @@
 //This struct must be filled and attached to the draw routine that implements imgui as user data
 typedef struct zest_imgui_t {
     int magic;
-    zest_texture_handle font_texture;
+    zest_image_handle font_texture;
     zest_pipeline_template pipeline;
     zest_shader_handle vertex_shader;
     zest_shader_handle fragment_shader;

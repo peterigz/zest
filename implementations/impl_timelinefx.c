@@ -70,7 +70,7 @@ void zest_tfx_InitTimelineFXRenderResources(tfx_render_resources_t *resources, c
 	zest_tfx_UpdateUniformBuffer(resources);
 
 	int shape_count = tfx_GetShapeCountInLibrary(library_path);
-	resources->particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, zest_texture_flag_use_filtering, zest_format_r8g8b8a8_unorm, shape_count);
+	resources->particle_texture = zest_CreateTexture("Particle Texture", zest_texture_storage_type_packed, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, shape_count);
 	resources->color_ramps_texture = zest_CreateTextureBank("Particle Color Ramps", zest_format_r8g8b8a8_unorm);
 	zest_SetTextureUseFiltering(resources->color_ramps_texture, false);
 

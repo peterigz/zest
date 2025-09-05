@@ -79,12 +79,13 @@ struct ImGuiApp {
 	zest_shader_handle irr_shader;
 	zest_shader_handle prefiltered_shader;
 
-	zest_texture_handle imgui_font_texture;
-	zest_texture_handle sprites_texture;
-	zest_texture_handle skybox_texture;
-	zest_texture_handle brd_texture;
-	zest_texture_handle irr_texture;
-	zest_texture_handle prefiltered_texture;
+	zest_image_handle imgui_font_texture;
+	zest_image_handle skybox_texture;
+	zest_image_handle brd_texture;
+	zest_image_handle irr_texture;
+	zest_image_handle prefiltered_texture;
+
+	zest_image_view_t *brd_view;
 
 	zest_compute_handle brd_compute;
 	zest_compute_handle irr_compute;

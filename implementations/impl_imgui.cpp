@@ -17,7 +17,7 @@ zest_imgui_t *zest_imgui_Initialise() {
     int upload_size = width * height * 4 * sizeof(char);
 
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-    ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_format_r8g8b8a8_unorm, 10);
+    ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_image_flag_none, zest_format_r8g8b8a8_unorm, 10);
     zest_atlas_region font_image = zest_AddTextureImageBitmap(ZestImGui->font_texture, font_bitmap);
     zest_ProcessTextureImages(ZestImGui->font_texture);
     zest_FreeBitmap(font_bitmap);
@@ -71,7 +71,7 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
     zest_FreeTexture(ZestImGui->font_texture);
-	ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_texture_flag_none, zest_format_r8g8b8a8_unorm, 10);
+	ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_image_flag_none, zest_format_r8g8b8a8_unorm, 10);
     zest_atlas_region font_image = zest_AddTextureImageBitmap(ZestImGui->font_texture, font_bitmap);
     zest_ProcessTextureImages(ZestImGui->font_texture);
     zest_FreeBitmap(font_bitmap);
@@ -322,7 +322,7 @@ void zest_imgui_UpdateBuffers() {
 
 void zest_imgui_DrawImage(zest_atlas_region image, VkDescriptorSet set, float width, float height) {
     using namespace ImGui;
-    zest_extent_t image_extent = zest_ImageDimensions(image);
+    zest_extent2d_t image_extent = zest_ImageDimensions(image);
     ImVec2 image_size((float)image_extent.width, (float)image_extent.height);
     float ratio = image_size.x / image_size.y;
     image_size.x = ratio > 1 ? width : width * ratio;
@@ -344,7 +344,7 @@ void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float hei
 
     zest_texture_handle texture_handle = zest_ImageTextureHandle(image);
     zest_vec4 uv = zest_ImageUV(image);
-    zest_extent_t image_size = zest_ImageDimensions(image);
+    zest_extent2d_t image_size = zest_ImageDimensions(image);
     ImVec2 zw(uv.z, uv.w);
     if (zest_TextureCanTile(texture_handle)) {
         if (tile) {
@@ -370,7 +370,7 @@ bool zest_imgui_DrawButton(zest_atlas_region image, const char *user_texture_id,
     using namespace ImGui;
 
     zest_vec4 uv = zest_ImageUV(image);
-    zest_extent_t image_dimensions = zest_ImageDimensions(image);
+    zest_extent2d_t image_dimensions = zest_ImageDimensions(image);
 
     ImVec2 size(width, height);
     ImVec2 image_size((float)image_dimensions.width, (float)image_dimensions.height);
