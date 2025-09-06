@@ -10,9 +10,9 @@
 
 struct RenderCacheInfo {
 	bool draw_imgui;
-	VkImageLayout brd_layout;
-	VkImageLayout irradiance_layout;
-	VkImageLayout prefiltered_layout;
+	int brd_layout;
+	int irradiance_layout;
+	int prefiltered_layout;
 };
 
 struct UniformLights {
@@ -84,6 +84,12 @@ struct ImGuiApp {
 	zest_image_handle brd_texture;
 	zest_image_handle irr_texture;
 	zest_image_handle prefiltered_texture;
+
+	zest_image_view_array_handle prefiltered_view_array;
+
+	zest_sampler_handle sampler_2d;
+	zest_sampler_handle cube_sampler;
+	zest_sampler_handle skybox_sampler;
 
 	zest_image_view_t *brd_view;
 

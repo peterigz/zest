@@ -19,7 +19,11 @@ typedef struct zest_imgui_t {
     zest_uint fif;
     zest_uint dirty[ZEST_MAX_FIF];
     zest_push_constants_t push_constants;
+	zest_atlas_region font_region;
+	zest_uint font_binding_index;
+	zest_shader_resources_handle font_resources;
     VkDescriptorSet *draw_sets;
+	zest_sampler_handle font_sampler;
 } zest_imgui_t;
 
 extern zest_imgui_t *ZestImGui;

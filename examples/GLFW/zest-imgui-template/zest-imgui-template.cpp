@@ -1,3 +1,4 @@
+#include <zest.h>
 #include "zest-imgui-template.h"
 #include "imgui_internal.h"
 
@@ -23,11 +24,11 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
 
 	//Create a texture to load in a test image to show drawing that image in an imgui window
-	app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
+	//app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 	//Load in the image and add it to the texture
-	app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
+	//app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
 	//Process the texture so that its ready to be used
-	zest_ProcessTextureImages(app->test_texture);
+	//zest_ProcessTextureImages(app->test_texture);
 
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(60);
@@ -78,6 +79,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		if (ImGui::Button("Reset Renderer")) {
 			app->reset = true;
 		}
+		/*
 		if (ImGui::Button("Glow Image")) {
 			zest_FreeTexture(app->test_texture);
 			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
@@ -92,6 +94,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		}
 		zest_vec4 uv = zest_ImageUV(app->test_image);
 		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
+		*/
 		//Test for memory leaks in zest
 		/*
 		for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
@@ -127,12 +130,12 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
 		//If there was no imgui data to render then zest_imgui_BeginPass will return false
 		//Import our test texture with the Bunny sprite
-		zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
+		//zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 		//------------------------ ImGui Pass ----------------------------------------------------------------
 		//If there's imgui to draw then draw it
 		zest_pass_node imgui_pass = zest_imgui_BeginPass();
 		if (imgui_pass) {
-			zest_ConnectInput(test_texture, 0);
+			//zest_ConnectInput(test_texture, 0);
 			zest_ConnectSwapChainOutput();
 		} else {
 			//If there's no ImGui to render then just render a blank screen

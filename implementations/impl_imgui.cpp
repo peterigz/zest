@@ -17,13 +17,22 @@ zest_imgui_t *zest_imgui_Initialise() {
     int upload_size = width * height * 4 * sizeof(char);
 
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-    ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_image_flag_none, zest_format_r8g8b8a8_unorm, 10);
-    zest_atlas_region font_image = zest_AddTextureImageBitmap(ZestImGui->font_texture, font_bitmap);
-    zest_ProcessTextureImages(ZestImGui->font_texture);
+	zest_image_create_info_t image_info = zest_CreateImageInfo(width, height);
+    image_info.flags = zest_image_preset_texture;
+    ZestImGui->font_texture = zest_CreateImage(&image_info);
+    ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->font_texture);
+    zest_cmd_CopyBitmapToImage(font_bitmap, ZestImGui->font_texture, 0, 0, 0, 0, width, height);
     zest_FreeBitmap(font_bitmap);
+
+    zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+    ZestImGui->font_sampler = zest_CreateSampler(&sampler_info);
+    ZestImGui->font_binding_index = zest_AcquireGlobalSampler(ZestImGui->font_texture, ZestImGui->font_sampler, zest_combined_image_sampler_2d_binding);
 
     ZestImGui->vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
     ZestImGui->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
+
+    ZestImGui->font_resources = zest_CreateShaderResources();
+    zest_AddGlobalBindlessSetToResources(ZestImGui->font_resources);
 
     //ImGuiPipeline
     zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate("pipeline_imgui");
@@ -40,7 +49,7 @@ zest_imgui_t *zest_imgui_Initialise() {
     imgui_pipeline->scissor.extent = { zest_SwapChainWidth(), zest_SwapChainHeight() };
     imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
     zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
-    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_vk_GetDebugLayout());
+    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_vk_GetGlobalBindlessLayout());
     zest_EndPipelineTemplate(imgui_pipeline);
 
     imgui_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
@@ -53,7 +62,7 @@ zest_imgui_t *zest_imgui_Initialise() {
     imgui_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
 
-    io.Fonts->SetTexID((ImTextureID)font_image);
+    io.Fonts->SetTexID((ImTextureID)ZestImGui->font_region);
 
     ZestImGui->pipeline = imgui_pipeline;
 
@@ -70,14 +79,18 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     zest_WaitForIdleDevice();
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-    zest_FreeTexture(ZestImGui->font_texture);
-	ZestImGui->font_texture = zest_CreateTexture("imgui_font", zest_texture_storage_type_single, zest_image_flag_none, zest_format_r8g8b8a8_unorm, 10);
-    zest_atlas_region font_image = zest_AddTextureImageBitmap(ZestImGui->font_texture, font_bitmap);
-    zest_ProcessTextureImages(ZestImGui->font_texture);
+    zest_FreeImage(ZestImGui->font_texture);
+	zest_image_create_info_t image_info = zest_CreateImageInfo(width, height);
+    image_info.flags = zest_image_preset_texture;
+    ZestImGui->font_texture = zest_CreateImage(&image_info);
+    zest_FreeAtlasRegion(ZestImGui->font_region);
+    ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->font_texture);
+    zest_cmd_CopyBitmapToImage(font_bitmap, ZestImGui->font_texture, 0, 0, 0, 0, width, height);
+    ZestImGui->font_binding_index = zest_AcquireGlobalSampler(ZestImGui->font_texture, ZestImGui->font_sampler, zest_combined_image_sampler_2d_binding);
     zest_FreeBitmap(font_bitmap);
     
     ImGuiIO &io = ImGui::GetIO();
-    io.Fonts->SetTexID((ImTextureID)font_image);
+    io.Fonts->SetTexID((ImTextureID)ZestImGui->font_region);
 }
 
 bool zest_imgui_HasGuiToDraw() {
@@ -104,9 +117,9 @@ zest_pass_node zest_imgui_BeginPass() {
         //Graphics Pass for ImGui outputting to the output passed in to this function
 		zest_pass_node imgui_pass = zest_BeginRenderPass("Dear ImGui Pass");
         //inputs
-		zest_ConnectInput(imgui_font_texture, 0);
-		zest_ConnectInput(imgui_vertex_buffer, 0);
-		zest_ConnectInput(imgui_index_buffer, 0);
+		zest_ConnectInput(imgui_font_texture, ZestImGui->font_sampler);
+        zest_ConnectInput(imgui_vertex_buffer, { 0 });
+		zest_ConnectInput(imgui_index_buffer, { 0 });
         //Task
 		zest_SetPassTask(zest_imgui_DrawImGuiRenderPass, NULL);
         return imgui_pass;
@@ -156,7 +169,7 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer 
     zest_cmd_BindIndexBuffer(context, index_buffer);
 
     zest_pipeline_template last_pipeline = ZEST_NULL;
-    VkDescriptorSet last_descriptor_set = VK_NULL_HANDLE;
+    zest_shader_resources_handle last_resources = { 0 };
 
     zest_cmd_SetScreenSizedViewport(context, 0, 1);
     
@@ -186,27 +199,15 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer 
 
 				zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context);
                 switch (ZEST_STRUCT_TYPE(current_image)) {
-                case zest_struct_type_image: {
-                    VkDescriptorSet texture_set = zest_GetImageDebugDescriptorSet(current_image);
-                    if (last_pipeline != ZestImGui->pipeline || last_descriptor_set != texture_set) {
-                        last_descriptor_set = texture_set;
-                        zest_cmd_BindPipeline(context, pipeline, &last_descriptor_set, 1);
+                case zest_struct_type_atlas_region: {
+                    if (last_pipeline != ZestImGui->pipeline || last_resources.value != ZestImGui->font_resources.value) {
+                        last_resources = ZestImGui->font_resources;
+                        zest_cmd_BindPipelineShaderResource(context, pipeline, last_resources);
                         last_pipeline = ZestImGui->pipeline;
                     }
+                    push_constants->descriptor_index[0] = ZestImGui->font_binding_index;
                     push_constants->parameters2.x = (float)zest_ImageLayerIndex(current_image);
                     break;
-                }
-                case zest_struct_type_imgui_image: {
-                    zest_imgui_image_t *imgui_image = (zest_imgui_image_t *)pcmd->TextureId;
-                    //The imgui image must have its image, pipeline and shader resources defined
-                    ZEST_ASSERT(imgui_image->image);
-                    zest_uint set_count = zest_GetDescriptorSetsForBinding(imgui_image->shader_resources, &ZestImGui->draw_sets);
-					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context);
-                    zest_cmd_BindPipeline(context, pipeline, ZestImGui->draw_sets, set_count);
-                    last_descriptor_set = VK_NULL_HANDLE;
-                    last_pipeline = imgui_image->pipeline;
-                    push_constants = &imgui_image->push_constants;
-                    push_constants->parameters2.x = (float)zest_ImageLayerIndex(current_image);
                 }
                 break;
                 default:
@@ -322,7 +323,7 @@ void zest_imgui_UpdateBuffers() {
 
 void zest_imgui_DrawImage(zest_atlas_region image, VkDescriptorSet set, float width, float height) {
     using namespace ImGui;
-    zest_extent2d_t image_extent = zest_ImageDimensions(image);
+    zest_extent2d_t image_extent = zest_RegionDimensions(image);
     ImVec2 image_size((float)image_extent.width, (float)image_extent.height);
     float ratio = image_size.x / image_size.y;
     image_size.x = ratio > 1 ? width : width * ratio;
@@ -341,10 +342,10 @@ void zest_imgui_DrawImage2(zest_atlas_region image, float width, float height) {
 }
 
 void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y) {
-
+    /*
     zest_texture_handle texture_handle = zest_ImageTextureHandle(image);
     zest_vec4 uv = zest_ImageUV(image);
-    zest_extent2d_t image_size = zest_ImageDimensions(image);
+    zest_extent2d_t image_size = zest_RegionDimensions(image);
     ImVec2 zw(uv.z, uv.w);
     if (zest_TextureCanTile(texture_handle)) {
         if (tile) {
@@ -364,19 +365,20 @@ void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float hei
     }
 
     ImGui::Image((ImTextureID)image, ImVec2(width, height), ImVec2(uv.x, uv.y), zw);
+    */
 }
 
 bool zest_imgui_DrawButton(zest_atlas_region image, const char *user_texture_id, float width, float height, int frame_padding) {
     using namespace ImGui;
 
     zest_vec4 uv = zest_ImageUV(image);
-    zest_extent2d_t image_dimensions = zest_ImageDimensions(image);
+    zest_extent2d_t image_dimensions = zest_RegionDimensions(image);
 
     ImVec2 size(width, height);
     ImVec2 image_size((float)image_dimensions.width, (float)image_dimensions.height);
-    float ratio = image_dimensions.width / image_dimensions.height;
-    image_dimensions.width = ratio > 1.f ? width : width * ratio;
-    image_dimensions.height = ratio > 1.f ? height / ratio : height;
+    float ratio = (float)image_dimensions.width / (float)image_dimensions.height;
+    image_dimensions.width = (zest_uint)(ratio > 1.f ? width : width * ratio);
+    image_dimensions.height = (zest_uint)(ratio > 1.f ? height / ratio : height);
     ImVec2 image_offset((width - image_dimensions.width) * .5f, (height - image_dimensions.height) * .5f);
     ImVec4 bg_col(0.f, 0.f, 0.f, 0.f);
     ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
@@ -523,7 +525,7 @@ void zest_imgui_Shutdown() {
 		zest_FreeBuffer(ZestImGui->index_staging_buffer[fif]);
 		zest_FreeBuffer(ZestImGui->vertex_staging_buffer[fif]);
 	}
-	zest_FreeTexture(ZestImGui->font_texture);
+	zest_FreeImage(ZestImGui->font_texture);
 	zest_FreePipelineTemplate(ZestImGui->pipeline);
 	zest_vec_free(ZestImGui->draw_sets);
     zest_FreeMemory(ZestImGui);

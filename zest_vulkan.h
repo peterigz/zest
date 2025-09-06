@@ -61,6 +61,7 @@ typedef struct zest_renderer_backend_t {
     VkPipelineCache pipeline_cache;
     VkBuffer *used_buffers_ready_for_freeing;
     VkCommandBuffer utility_command_buffer[ZEST_MAX_FIF];
+    VkCommandBuffer one_time_command_buffer;
     VkResult last_result;
     VkFence fif_fence[ZEST_MAX_FIF][ZEST_QUEUE_COUNT];
     VkFence intraframe_fence[ZEST_QUEUE_COUNT];
@@ -134,6 +135,10 @@ typedef struct zest_image_backend_t {
 typedef struct zest_image_view_backend_t {
 	VkImageView vk_view;             // Default view of the entire image
 } zest_image_view_backend_t;
+
+typedef struct zest_sampler_backend_t {
+	VkSampler vk_sampler;             // Default view of the entire image
+} zest_sampler_backend_t;
 
 // -- Other_setup_structs
 typedef struct zest_swapchain_support_details_t {
@@ -332,9 +337,9 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
     swapchain->format = (zest_texture_format)surfaceFormat.format;
 
     swapchain->format = (zest_texture_format)surfaceFormat.format;
-    swapchain->size = (zest_extent2d_t){ (float)extent.width, (float)extent.height };
-    ZestRenderer->window_extent.width = (float)ZestRenderer->main_window->window_width;
-    ZestRenderer->window_extent.height = (float)ZestRenderer->main_window->window_height;
+    swapchain->size = (zest_extent2d_t){ extent.width, extent.height };
+    ZestRenderer->window_extent.width = ZestRenderer->main_window->window_width;
+    ZestRenderer->window_extent.height = ZestRenderer->main_window->window_height;
 
     zest_uint image_count = swapchain_support_details.capabilities.minImageCount + 1;
 
@@ -1130,6 +1135,12 @@ void *zest__vk_new_descriptor_pool_backend() {
     return pool;
 }
 
+void *zest__vk_new_sampler_backend() {
+    zest_sampler_backend pool = ZEST__NEW(zest_sampler_backend);
+    *pool = (zest_sampler_backend_t){ 0 };
+    return pool;
+}
+
 zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute) {
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = { 0 };
     if (builder->push_constant_size) {
@@ -1277,6 +1288,16 @@ void zest__vk_cleanup_image_backend(zest_image image) {
     image->backend = 0;
 }
 
+void zest__vk_cleanup_sampler_backend(zest_sampler sampler) {
+    if (!sampler->backend) {
+        return;
+    }
+	if(sampler->backend->vk_sampler) vkDestroySampler(ZestDevice->backend->logical_device, sampler->backend->vk_sampler, &ZestDevice->backend->allocation_callbacks);
+	sampler->backend->vk_sampler = VK_NULL_HANDLE;
+    ZEST__FREE(sampler->backend);
+    sampler->backend = 0;
+}
+
 void zest__vk_cleanup_image_view(zest_image_view view) {
     if (!view->backend) {
         return;
@@ -1327,12 +1348,12 @@ zest_bool zest__vk_create_image(zest_image image, zest_uint layer_count, zest_sa
     image_info.flags = create_flags;
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = image->extent.width;
-    image_info.extent.height = image->extent.height;
+    image_info.extent.width = image->info.extent.width;
+    image_info.extent.height = image->info.extent.height;
     image_info.extent.depth = 1;
-    image_info.mipLevels = image->mip_levels;
+    image_info.mipLevels = image->info.mip_levels;
     image_info.arrayLayers = layer_count;
-    image_info.format = (VkFormat)image->format;
+    image_info.format = (VkFormat)image->info.format;
     image_info.tiling = tiling;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_info.usage = usage;
@@ -1340,7 +1361,7 @@ zest_bool zest__vk_create_image(zest_image image, zest_uint layer_count, zest_sa
     image_info.samples = num_samples;
 
     image->backend->vk_format = image_info.format;
-    image->backend->vk_aspect = (VkImageAspectFlags)zest__determine_aspect_flag(image->format);
+    image->backend->vk_aspect = (VkImageAspectFlags)zest__determine_aspect_flag(image->info.format);
     image->backend->vk_current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     image->backend->vk_extent = image_info.extent;
 
@@ -1366,6 +1387,10 @@ zest_bool zest__vk_create_image(zest_image image, zest_uint layer_count, zest_sa
     }
 
     return ZEST_TRUE;
+}
+
+int zest__vk_get_image_raw_layout(zest_image image) {
+    return (int)image->backend->vk_current_layout;
 }
 
 zest_bool inline zest__vk_has_stencil_format(VkFormat format) {
@@ -1434,13 +1459,12 @@ VkPipelineStageFlags zest__vk_get_stage_for_layout(VkImageLayout layout) {
 }
 
 zest_bool zest__vk_transition_image_layout(zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
-    VkCommandBuffer command_buffer = 0;
-	ZEST_RETURN_FALSE_ON_FAIL(zest__begin_single_time_commands(&command_buffer));
+    ZEST_ASSERT(ZestRenderer->backend->one_time_command_buffer);    //You must call begin_single_time_command_buffer before calling this fuction
 
     VkImageMemoryBarrier barrier = { 0 };
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     barrier.oldLayout = image->backend->vk_current_layout;
-    barrier.newLayout = new_layout;
+    barrier.newLayout = (VkImageLayout)new_layout;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image->backend->vk_image;
@@ -1451,9 +1475,9 @@ zest_bool zest__vk_transition_image_layout(zest_image image, zest_image_layout n
     barrier.subresourceRange.layerCount = layer_count;
     barrier.srcAccessMask = 0;
 
-    if (zest__vk_has_depth_format(image->format)) { 
+    if (zest__vk_has_depth_format(image->info.format)) { 
         barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (zest__vk_has_stencil_format(image->format)) {
+        if (zest__vk_has_stencil_format(image->info.format)) {
             barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
         }
     } else {
@@ -1465,18 +1489,15 @@ zest_bool zest__vk_transition_image_layout(zest_image image, zest_image_layout n
     VkPipelineStageFlags source_stage = zest__vk_get_stage_for_layout(image->backend->vk_current_layout);
     VkPipelineStageFlags destination_stage = zest__vk_get_stage_for_layout(new_layout);
 
-    vkCmdPipelineBarrier(command_buffer, source_stage, destination_stage, 0, 0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
+    vkCmdPipelineBarrier(ZestRenderer->backend->one_time_command_buffer, source_stage, destination_stage, 0, 0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
 
-	ZEST_RETURN_FALSE_ON_FAIL(zest__end_single_time_commands(command_buffer));
-
-    image->backend->vk_current_layout = new_layout;
+    image->backend->vk_current_layout = (VkImageLayout)new_layout;
 
     return ZEST_TRUE;
 }
 
 zest_bool zest__vk_copy_buffer_regions_to_image(zest_buffer_image_copy_t *regions, zest_buffer buffer, zest_size src_offset, zest_image image) {
-    VkCommandBuffer command_buffer = 0;
-	ZEST_RETURN_FALSE_ON_FAIL(zest__begin_single_time_commands(&command_buffer));
+	ZEST_ASSERT(ZestRenderer->backend->one_time_command_buffer);	//You must call begin_single_time_command_buffer before calling this fuction
 
     VkBufferImageCopy *copy_regions = 0;
     zest_vec_reserve(copy_regions, zest_vec_size(regions));
@@ -1494,11 +1515,10 @@ zest_bool zest__vk_copy_buffer_regions_to_image(zest_buffer_image_copy_t *region
         zest_vec_push(copy_regions, copy_region);
     }
 
-    vkCmdCopyBufferToImage(command_buffer, buffer->backend->vk_buffer, image->backend->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, zest_vec_size(copy_regions), copy_regions);
+    vkCmdCopyBufferToImage(ZestRenderer->backend->one_time_command_buffer, buffer->backend->vk_buffer, image->backend->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, zest_vec_size(copy_regions), copy_regions);
 
     zest_vec_free(copy_regions);
 
-	ZEST_RETURN_FALSE_ON_FAIL(zest__end_single_time_commands(command_buffer));
     return ZEST_TRUE;
 }
 
@@ -1552,8 +1572,8 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_image image, zest
     viewInfo.subresourceRange.baseArrayLayer = base_array_index;
     viewInfo.subresourceRange.layerCount = layer_count;
 
-    zest_size public_array_size = sizeof(zest_image_view_t) * image->mip_levels;
-    zest_size backend_array_size = sizeof(zest_image_view_backend_t) * image->mip_levels;
+    zest_size public_array_size = sizeof(zest_image_view_t) * image->info.mip_levels;
+    zest_size backend_array_size = sizeof(zest_image_view_backend_t) * image->info.mip_levels;
     zest_size total_size = public_array_size + backend_array_size;
 
     void *memory = 0;
@@ -1573,7 +1593,7 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_image image, zest
     zest_image_view_backend_t *backend_array = (zest_image_view_backend_t *)((char *)memory + public_array_size);
 
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_image_view);
-    for (int mip_index = 0; mip_index != image->mip_levels; ++mip_index) {
+    for (int mip_index = 0; mip_index != image->info.mip_levels; ++mip_index) {
 		view_array->views[mip_index].image = image;
 		view_array->views[mip_index].backend = &backend_array[mip_index];
 		viewInfo.subresourceRange.baseMipLevel = mip_index;
@@ -1588,10 +1608,119 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_image image, zest
     }
     return view_array;
 }
+
+zest_bool zest__vk_create_sampler(zest_sampler sampler) {
+    VkSamplerCreateInfo info = { 0 };
+    info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.addressModeU     = (VkSamplerAddressMode)sampler->create_info.address_mode_u;
+    info.addressModeV     = (VkSamplerAddressMode)sampler->create_info.address_mode_v;
+    info.addressModeW     = (VkSamplerAddressMode)sampler->create_info.address_mode_w;
+    info.anisotropyEnable = sampler->create_info.anisotropy_enable;
+    info.borderColor      = (VkBorderColor)sampler->create_info.border_color;
+    info.compareEnable    = sampler->create_info.compare_enable;
+    info.compareOp        = (VkCompareOp)sampler->create_info.compare_op;
+    info.flags            = 0;
+    info.magFilter        = (VkFilter)sampler->create_info.mag_filter;
+    info.minFilter        = (VkFilter)sampler->create_info.min_filter;
+    info.maxAnisotropy    = sampler->create_info.max_lod;
+    info.maxLod           = sampler->create_info.max_lod;
+    info.mipLodBias       = sampler->create_info.mip_lod_bias;
+    info.mipmapMode       = (VkSamplerMipmapMode)sampler->create_info.mipmap_mode;
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_sampler);
+    ZEST_RETURN_FALSE_ON_FAIL(vkCreateSampler(ZestDevice->backend->logical_device, &info, &ZestDevice->backend->allocation_callbacks, &sampler->backend->vk_sampler));
+
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_generate_mipmaps(zest_image image) {
+    VkFormatProperties format_properties;
+    vkGetPhysicalDeviceFormatProperties(ZestDevice->backend->physical_device,
+        image->backend->vk_format, &format_properties);
+
+    if (ZEST__NOT_FLAGGED(format_properties.optimalTilingFeatures,
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
+        // Texture image format does not support linear blitting!
+        return ZEST_FALSE;
+    }
+
+    VkImageMemoryBarrier barrier = { 0 };
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.image = image->backend->vk_image; // Use the correct VkImage handle
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = image->info.array_layers;
+    barrier.subresourceRange.levelCount = 1;
+
+    int32_t mip_width = image->info.extent.width;
+    int32_t mip_height = image->info.extent.height;
+
+    for (zest_uint i = 1; i < image->info.mip_levels; i++) {
+        barrier.subresourceRange.baseMipLevel = i - 1;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+        vkCmdPipelineBarrier(ZestRenderer->backend->one_time_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
+
+        VkImageBlit blit = { 0 };
+        blit.srcOffsets[0] = (VkOffset3D){ 0, 0, 0 };
+        blit.srcOffsets[1] = (VkOffset3D){ mip_width, mip_height, 1 };
+        blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.srcSubresource.mipLevel = i - 1;
+        blit.srcSubresource.baseArrayLayer = 0;
+        blit.srcSubresource.layerCount = image->info.array_layers;
+        blit.dstOffsets[0] = (VkOffset3D){ 0, 0, 0 };
+        blit.dstOffsets[1] = (VkOffset3D){ mip_width > 1 ? mip_width / 2 : 1, mip_height > 1 ?  mip_height / 2 : 1, 1 };
+        blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blit.dstSubresource.mipLevel = i;
+        blit.dstSubresource.baseArrayLayer = 0;
+        blit.dstSubresource.layerCount = image->info.array_layers;
+
+        vkCmdBlitImage(ZestRenderer->backend->one_time_command_buffer,
+            image->backend->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            image->backend->vk_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &blit, VK_FILTER_LINEAR);
+
+        // Transition the mip level that was just used as a source to shader read optimal
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        vkCmdPipelineBarrier(ZestRenderer->backend->one_time_command_buffer,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+            0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
+
+
+        if (mip_width > 1) mip_width /= 2;
+        if (mip_height > 1) mip_height /= 2;
+    }
+
+    // Transition the last mip level from DST_OPTIMAL to SHADER_READ_ONLY_OPTIMAL
+    barrier.subresourceRange.baseMipLevel = image->info.mip_levels - 1;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(ZestRenderer->backend->one_time_command_buffer,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+        0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
+
+    // Update the image's current layout
+    image->backend->vk_current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    return ZEST_TRUE;
+}
 // -- End images
 
 // -- General_helpers
-zest_bool zest__has_blit_support(VkFormat src_format) {
+zest_bool zest__vk_has_blit_support(VkFormat src_format) {
     VkFormatProperties format_properties;
     vkGetPhysicalDeviceFormatProperties(ZestDevice->backend->physical_device, src_format, &format_properties);
     if (!(format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT)) {
@@ -1623,6 +1752,45 @@ zest_bool zest__vk_create_window_surface(zest_window window) {
     surface_create_info.hwnd = window->window_handle;
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
     ZEST_RETURN_FALSE_ON_FAIL(vkCreateWin32SurfaceKHR(ZestDevice->backend->instance, &surface_create_info, &ZestDevice->backend->allocation_callbacks, &window->backend->surface));
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_begin_single_time_commands() {
+    ZEST_ASSERT(ZestRenderer->backend->one_time_command_buffer == VK_NULL_HANDLE);  //The command buffer must be null. Call zest__vk_end_single_time_commands before calling begin again.
+    VkCommandBufferAllocateInfo alloc_info = { 0 };
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandPool = ZestDevice->backend->one_time_command_pool[ZEST_FIF];
+    alloc_info.commandBufferCount = 1;
+
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_command_buffer);
+    ZEST_RETURN_FALSE_ON_FAIL(vkAllocateCommandBuffers(ZestDevice->backend->logical_device, &alloc_info, &ZestRenderer->backend->one_time_command_buffer));
+
+    VkCommandBufferBeginInfo begin_info = { 0 };
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    ZEST_RETURN_FALSE_ON_FAIL(vkBeginCommandBuffer(ZestRenderer->backend->one_time_command_buffer, &begin_info));
+
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_end_single_time_commands() {
+    ZEST_VK_ASSERT_RESULT(vkEndCommandBuffer(ZestRenderer->backend->one_time_command_buffer));
+
+    VkSubmitInfo submit_info = { 0 };
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &ZestRenderer->backend->one_time_command_buffer;
+
+    VkFence fence = zest_CreateFence();
+    ZEST_RETURN_FALSE_ON_FAIL(vkQueueSubmit(ZestDevice->graphics_queue.vk_queue, 1, &submit_info, fence));
+    zest_WaitForFence(fence);
+    zest_DestroyFence(fence);
+
+    vkFreeCommandBuffers(ZestDevice->backend->logical_device, ZestDevice->backend->one_time_command_pool[ZEST_FIF], 1, &ZestRenderer->backend->one_time_command_buffer);
+    ZestRenderer->backend->one_time_command_buffer = VK_NULL_HANDLE;
+
     return ZEST_TRUE;
 }
 // -- End General helpers
@@ -1960,10 +2128,8 @@ void zest_cmd_InsertComputeImageBarrier(const zest_frame_graph_context context, 
 
 zest_bool zest_cmd_ImageClear(zest_image_handle handle, const zest_frame_graph_context context) {
     zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, handle.value);
-    VkCommandBuffer command_buffer = context ? context->backend->command_buffer : 0;
-    if (!context) {
-        ZEST_RETURN_FALSE_ON_FAIL(zest__begin_single_time_commands(&command_buffer));
-    }
+    VkCommandBuffer command_buffer = context ? context->backend->command_buffer : ZestRenderer->backend->one_time_command_buffer;
+	ZEST_ASSERT(command_buffer);	//You must call begin_single_time_command_buffer before calling this fuction
 
     VkImageSubresourceRange image_sub_resource_range;
     image_sub_resource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -2000,9 +2166,6 @@ zest_bool zest_cmd_ImageClear(zest_image_handle handle, const zest_frame_graph_c
         image_sub_resource_range);
 	*/
 
-    if (!context) {
-        ZEST_RETURN_FALSE_ON_FAIL(zest__end_single_time_commands(command_buffer));
-    }
     return ZEST_TRUE;
 }
 
@@ -2012,7 +2175,7 @@ zest_bool zest_cmd_CopyImageToImage(zest_image_handle src_handle, zest_image_han
     zest_image dst_image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, dst_handle.value);
     ZEST_ASSERT_HANDLE(dst_image);	    //Not a valid handle!
     VkCommandBuffer copy_command = 0; 
-    ZEST_RETURN_FALSE_ON_FAIL(zest__begin_single_time_commands(&copy_command));
+    ZEST_ASSERT(ZestRenderer->backend->one_time_command_buffer);    //You must call begin_single_time_command_buffer before calling this fuction
 
     VkImageLayout target_layout = dst_image->backend->vk_current_layout;
 
@@ -2109,20 +2272,23 @@ zest_bool zest_cmd_CopyImageToImage(zest_image_handle src_handle, zest_image_han
         VK_PIPELINE_STAGE_TRANSFER_BIT,
         image_range);
 
-    ZEST_RETURN_FALSE_ON_FAIL(zest__end_single_time_commands(copy_command));
     return ZEST_FALSE;
 }
 
-zest_bool zest_cmd_CopyTextureToBitmap(zest_image_handle src_handle, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height, zest_bool swap_channel) {
+zest_bool zest_CopyTextureToBitmap(zest_image_handle src_handle, zest_bitmap dst_bitmap, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
     zest_image src_image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, src_handle.value);
-    ZEST_ASSERT_HANDLE(src_image);    //Not a valid texture resource
+
+    // Ensure the destination bitmap can hold the copied region
+    ZEST_ASSERT(dst_x + width <= dst_bitmap->meta.width);
+    ZEST_ASSERT(dst_y + height <= dst_bitmap->meta.height);
+
     VkCommandBuffer copy_command = 0;
-    ZEST_RETURN_FALSE_ON_FAIL(zest__begin_single_time_commands(&copy_command));
+    ZEST_ASSERT(ZestRenderer->backend->one_time_command_buffer);    //You must call begin_single_time_command_buffer before calling this fuction
+
     VkImage temp_image;
     VkDeviceMemory temp_memory;
+    // Create a temporary image that is host-visible
     ZEST_RETURN_FALSE_ON_FAIL(zest__create_temporary_image(width, height, 1, VK_SAMPLE_COUNT_1_BIT, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_LINEAR, VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &temp_image, &temp_memory));
-
-    zest_bool supports_blit = zest__has_blit_support(src_image->backend->vk_format);
 
     VkImageSubresourceRange image_range = { 0 };
     image_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -2131,149 +2297,163 @@ zest_bool zest_cmd_CopyTextureToBitmap(zest_image_handle src_handle, zest_bitmap
     image_range.baseArrayLayer = 0;
     image_range.layerCount = 1;
 
-    // Transition temporary image to transfer destination layout
+    // Transition temporary image to be ready as a transfer destination
     zest__insert_image_memory_barrier(
-        copy_command,
-        temp_image,
-        0,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        image_range);
+        copy_command, temp_image, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, image_range);
 
-    // Transition source image from present to transfer source layout
+    // Transition source image to be ready as a transfer source
     zest__insert_image_memory_barrier(
-        copy_command,
-        src_image->backend->vk_image,
-        VK_ACCESS_MEMORY_READ_BIT,
-        VK_ACCESS_TRANSFER_READ_BIT,
-        src_image->backend->vk_current_layout,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        image_range);
+        copy_command, src_image->backend->vk_image, VK_ACCESS_MEMORY_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+        src_image->backend->vk_current_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, image_range);
+
+    zest_bool supports_blit = zest__vk_has_blit_support(src_image->backend->vk_format);
 
     if (supports_blit) {
-        VkOffset3D src_blit_offset;
-        src_blit_offset.x = src_x;
-        src_blit_offset.y = src_y;
-        src_blit_offset.z = 0;
-
-        VkOffset3D dst_blit_offset;
-        dst_blit_offset.x = dst_x;
-        dst_blit_offset.y = dst_y;
-        dst_blit_offset.z = 0;
-
-        VkOffset3D blit_size_src;
-        blit_size_src.x = src_x + width;
-        blit_size_src.y = src_y + height;
-        blit_size_src.z = 1;
-
-        VkOffset3D blit_size_dst;
-        blit_size_dst.x = dst_x + width;
-        blit_size_dst.y = dst_y + height;
-        blit_size_dst.z = 1;
-
         VkImageBlit image_blit_region = { 0 };
         image_blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         image_blit_region.srcSubresource.layerCount = 1;
-        image_blit_region.srcOffsets[0] = src_blit_offset;
-        image_blit_region.srcOffsets[1] = blit_size_src;
+        image_blit_region.srcOffsets[0] = (VkOffset3D){ src_x, src_y, 0 };
+        image_blit_region.srcOffsets[1] = (VkOffset3D){ src_x + width, src_y + height, 1 };
         image_blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         image_blit_region.dstSubresource.layerCount = 1;
-        image_blit_region.dstOffsets[0] = dst_blit_offset;
-        image_blit_region.dstOffsets[1] = blit_size_dst;
+        image_blit_region.dstOffsets[0] = (VkOffset3D){ 0, 0, 0 }; // Corrected: Copy to origin of temp image
+        image_blit_region.dstOffsets[1] = (VkOffset3D){ width, height, 1 };
 
-        // Issue the blit command
-        vkCmdBlitImage(
-            copy_command,
+        vkCmdBlitImage(copy_command,
             src_image->backend->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             temp_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            1,
-            &image_blit_region,
-            VK_FILTER_NEAREST);
-    }
-    else
-    {
-        // Otherwise use image copy (requires us to manually flip components)
+            1, &image_blit_region, VK_FILTER_NEAREST);
+    } else {
         VkImageCopy image_copy_region = { 0 };
         image_copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         image_copy_region.srcSubresource.layerCount = 1;
         image_copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         image_copy_region.dstSubresource.layerCount = 1;
-        image_copy_region.srcOffset.x = src_x;
-        image_copy_region.srcOffset.y = src_y;
-        image_copy_region.dstOffset.x = dst_x;
-        image_copy_region.dstOffset.y = dst_y;
-        image_copy_region.extent.width = width;
-        image_copy_region.extent.height = height;
-        image_copy_region.extent.depth = 1;
+        image_copy_region.srcOffset = (VkOffset3D){ src_x, src_y, 0 };
+        image_copy_region.dstOffset = (VkOffset3D){ 0, 0, 0 }; // Corrected: Copy to origin of temp image
+        image_copy_region.extent = (VkExtent3D){ width, height, 1 };
 
-        // Issue the copy command
-        vkCmdCopyImage(
-            copy_command,
+        vkCmdCopyImage(copy_command,
             src_image->backend->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             temp_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            1,
-            &image_copy_region);
+            1, &image_copy_region);
     }
 
-    // Transition destination image to general layout
+    // Transition temporary image to be readable by the host
     zest__insert_image_memory_barrier(
-        copy_command,
-        temp_image,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_ACCESS_MEMORY_READ_BIT,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        image_range);
+        copy_command, temp_image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, image_range);
 
-    // Transition back the source image
+    // Transition source image back to its original layout
     zest__insert_image_memory_barrier(
-        copy_command,
-        src_image->backend->vk_image,
-        VK_ACCESS_TRANSFER_READ_BIT,
-        VK_ACCESS_MEMORY_READ_BIT,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        src_image->backend->vk_current_layout,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        image_range);
+        copy_command, src_image->backend->vk_image, VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, src_image->backend->vk_current_layout,
+        VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, image_range);
 
-    ZEST_RETURN_FALSE_ON_FAIL(zest__end_single_time_commands(copy_command));
-
-    // Get layout of the image (including row pitch)
+    // Get layout of the temporary image to get the row pitch for correct memory copy
     VkImageSubresource sub_resource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
     VkSubresourceLayout sub_resource_layout;
     vkGetImageSubresourceLayout(ZestDevice->backend->logical_device, temp_image, &sub_resource, &sub_resource_layout);
 
-    // If source is BGR (destination is always RGB) and we can't use blit (which does automatic conversion), we'll have to manually swizzle color components
-    zest_bool color_swizzle = 0;
-    // Check if source is BGR
-    // Note: Not complete, only contains most common and basic BGR surface formats for demonstation purposes
-    if (!supports_blit)
-    {
-        if (src_image->backend->vk_format == VK_FORMAT_B8G8R8A8_SRGB || src_image->backend->vk_format == VK_FORMAT_B8G8R8A8_UNORM || src_image->backend->vk_format == VK_FORMAT_B8G8R8A8_SNORM) {
-            color_swizzle = 1;
+    // Manually swizzle if the source is BGR and we couldn't use blit (which handles conversion automatically)
+    zest_bool color_swizzle = !supports_blit && 
+        (src_image->backend->vk_format == VK_FORMAT_B8G8R8A8_SRGB || 
+         src_image->backend->vk_format == VK_FORMAT_B8G8R8A8_UNORM || 
+         src_image->backend->vk_format == VK_FORMAT_B8G8R8A8_SNORM);
+
+    void* mapped_data;
+    vkMapMemory(ZestDevice->backend->logical_device, temp_memory, 0, VK_WHOLE_SIZE, 0, &mapped_data);
+
+    const zest_byte* src_ptr = (const zest_byte*)mapped_data;
+    zest_byte* dst_ptr = dst_bitmap->data + (dst_y * dst_bitmap->meta.stride) + (dst_x * dst_bitmap->meta.channels);
+    
+    // Copy row by row, respecting the source row pitch and destination stride
+    for (int y = 0; y < height; ++y) {
+        if (color_swizzle) {
+            // Perform copy and BGR->RGB swizzle in one pass
+            for (int x = 0; x < width; ++x) {
+                const zest_byte* src_pixel = src_ptr + (x * 4);
+                zest_byte* dst_pixel = dst_ptr + (x * dst_bitmap->meta.channels);
+                dst_pixel[0] = src_pixel[2]; // R
+                dst_pixel[1] = src_pixel[1]; // G
+                dst_pixel[2] = src_pixel[0]; // B
+                dst_pixel[3] = src_pixel[3]; // A
+            }
+        } else {
+            // Simple memcpy for the row
+            memcpy(dst_ptr, src_ptr, width * 4); // Temp image is always 4 channels (RGBA)
         }
-    }
-
-    // Map image memory so we can start copying from it
-    void* data = 0;
-    vkMapMemory(ZestDevice->backend->logical_device, temp_memory, 0, VK_WHOLE_SIZE, 0, &data);
-    zloc_SafeCopy(image->data, data, image->meta.size);
-
-    if (color_swizzle) {
-        zest_ConvertBGRAToRGBA(image);
+        src_ptr += sub_resource_layout.rowPitch;
+        dst_ptr += dst_bitmap->meta.stride;
     }
 
     vkUnmapMemory(ZestDevice->backend->logical_device, temp_memory);
     vkFreeMemory(ZestDevice->backend->logical_device, temp_memory, &ZestDevice->backend->allocation_callbacks);
     vkDestroyImage(ZestDevice->backend->logical_device, temp_image, &ZestDevice->backend->allocation_callbacks);
+    
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_copy_buffer_to_image(zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height) {
+    VkBufferImageCopy region = { 0 };
+    region.bufferOffset = src_offset;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+
+    region.imageOffset.x = 0;
+    region.imageOffset.y = 0;
+    region.imageOffset.z = 0;
+    region.imageExtent.width = width;
+    region.imageExtent.height = height;
+    region.imageExtent.depth = 1;
+
+    vkCmdCopyBufferToImage(ZestRenderer->backend->one_time_command_buffer, buffer->backend->vk_buffer, image->backend->vk_image, image->backend->vk_current_layout, 1, &region);
+
+    return ZEST_TRUE;
+}
+
+zest_bool zest_cmd_CopyBitmapToImage(zest_bitmap bitmap, zest_image_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
+    zest_image dst_image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, dst_handle.value);
+    zest_uint channels = bitmap->meta.channels;
+    ZEST_ASSERT(channels == zest__get_format_channel_count(dst_image->info.format));    //Incompatible destination image format
+    VkDeviceSize image_size = bitmap->meta.width * bitmap->meta.height * channels;
+
+    zest_buffer staging_buffer = 0;
+	zest_buffer_info_t buffer_info = zest_CreateStagingBufferInfo();
+	staging_buffer = zest_CreateBuffer(image_size, &buffer_info, ZEST_NULL);
+	if (!staging_buffer) {
+		return ZEST_FALSE;
+	}
+	memcpy(staging_buffer->data, bitmap->data, (zest_size)image_size);
+
+    ZEST_CLEANUP_ON_FALSE(zest__vk_begin_single_time_commands());
+
+	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(dst_image, zest_image_layout_transfer_dst_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.array_layers));
+
+	ZEST_CLEANUP_ON_FALSE(zest__vk_copy_buffer_to_image(staging_buffer, staging_buffer->buffer_offset, dst_image, (zest_uint)bitmap->meta.width, (zest_uint)bitmap->meta.height));
+	zest_FreeBuffer(staging_buffer);
+    if (dst_image->info.mip_levels > 1) {
+        ZEST_CLEANUP_ON_FALSE(zest__vk_generate_mipmaps(dst_image));
+    }
+	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(dst_image, zest_image_layout_shader_read_only_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.array_layers));
+
+    ZEST_CLEANUP_ON_FALSE(zest__vk_end_single_time_commands());
+
+    return ZEST_TRUE;
+
+cleanup:
+    if (staging_buffer) {
+        zest_FreeBuffer(staging_buffer);
+    }
     return ZEST_TRUE;
 }
 
