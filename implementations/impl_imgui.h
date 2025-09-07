@@ -5,6 +5,12 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 
+typedef struct zest_imgui_push_t {
+	zest_vec4 transform;
+	zest_uint font_index;
+	zest_uint image_layer;
+} zest_imgui_push_t;
+
 //This struct must be filled and attached to the draw routine that implements imgui as user data
 typedef struct zest_imgui_t {
     int magic;
@@ -18,7 +24,7 @@ typedef struct zest_imgui_t {
     zest_buffer index_device_buffer[ZEST_MAX_FIF];
     zest_uint fif;
     zest_uint dirty[ZEST_MAX_FIF];
-    zest_push_constants_t push_constants;
+    zest_imgui_push_t push_constants;
 	zest_atlas_region font_region;
 	zest_uint font_binding_index;
 	zest_shader_resources_handle font_resources;
@@ -52,17 +58,12 @@ void zest_imgui_Shutdown();
 //----------------------
 static const char *zest_shader_imgui_vert = ZEST_GLSL(450 core,
 
-	layout(push_constant) uniform quad_index
-	{
-		uint index1;
-		uint index2;
-		uint index3;
-		uint index4;
-		vec4 transform;
-		vec4 parameters;
-		vec4 parameters3;
-		vec4 camera;
-	} pc;
+layout(push_constant) uniform imgui_push
+{
+	vec4 transform;
+	uint font_index;
+	uint image_layer;
+} pc;
 
 layout(location = 0) in vec2 in_position;
 layout(location = 1) in vec2 in_tex_coord;
@@ -75,7 +76,7 @@ void main() {
 
 	gl_Position = vec4(in_position * pc.transform.xy + pc.transform.zw, 0.0, 1.0);
 
-	out_uv = vec3(in_tex_coord, pc.parameters.x);
+	out_uv = vec3(in_tex_coord, float(pc.image_layer));
 	out_color = in_color;
 }
 
@@ -86,28 +87,23 @@ void main() {
 //----------------------
 static const char *zest_shader_imgui_frag = ZEST_GLSL(450 core,
 
-	layout(location = 0) in vec4 in_color;
+layout(location = 0) in vec4 in_color;
 layout(location = 1) in vec3 in_uv;
 
 layout(location = 0) out vec4 out_color;
-layout(set = 0, binding = 0) uniform sampler2DArray tex_sampler;
+layout(set = 0, binding = 0) uniform sampler2DArray tex_sampler[];
 
 //Not used by default by can be used in custom imgui image shaders
-layout(push_constant) uniform quad_index
+layout(push_constant) uniform imgui_push
 {
-	uint index1;
-	uint index2;
-	uint index3;
-	uint index4;
 	vec4 transform;
-	vec4 parameters;
-	vec4 parameters3;
-	vec4 camera;
+	uint font_index;
+	uint image_layer;
 } pc;
 
 void main()
 {
-	out_color = in_color * texture(tex_sampler, in_uv);
+	out_color = in_color * texture(tex_sampler[pc.font_index], in_uv);
 }
 
 );

@@ -28,8 +28,13 @@ zest_imgui_t *zest_imgui_Initialise() {
     ZestImGui->font_sampler = zest_CreateSampler(&sampler_info);
     ZestImGui->font_binding_index = zest_AcquireGlobalSampler(ZestImGui->font_texture, ZestImGui->font_sampler, zest_combined_image_sampler_2d_binding);
 
-    ZestImGui->vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
-    ZestImGui->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
+    //ZestImGui->vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
+    //ZestImGui->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
+
+	shaderc_compiler_t compiler = shaderc_compiler_initialize();
+	ZestImGui->vertex_shader = zest_CreateShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert", ZEST_FALSE, ZEST_TRUE, compiler, 0);
+	ZestImGui->fragment_shader = zest_CreateShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag", ZEST_FALSE, ZEST_TRUE, compiler, 0);
+	shaderc_compiler_release(compiler);
 
     ZestImGui->font_resources = zest_CreateShaderResources();
     zest_AddGlobalBindlessSetToResources(ZestImGui->font_resources);
@@ -38,7 +43,7 @@ zest_imgui_t *zest_imgui_Initialise() {
     zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate("pipeline_imgui");
     imgui_pipeline->scissor.offset.x = 0;
     imgui_pipeline->scissor.offset.y = 0;
-    zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_push_constants_t), zest_shader_render_stages);
+    zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_imgui_push_t), zest_shader_render_stages);
     zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
     zest_AddVertexAttribute(imgui_pipeline, 0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
     zest_AddVertexAttribute(imgui_pipeline, 0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV
@@ -195,7 +200,7 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer 
                     ZEST_ASSERT(0); //Needs reimplementing
                 }
 
-                zest_push_constants_t *push_constants = &ZestImGui->push_constants;
+                zest_imgui_push_t *push_constants = &ZestImGui->push_constants;
 
 				zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context);
                 switch (ZEST_STRUCT_TYPE(current_image)) {
@@ -205,8 +210,8 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer 
                         zest_cmd_BindPipelineShaderResource(context, pipeline, last_resources);
                         last_pipeline = ZestImGui->pipeline;
                     }
-                    push_constants->descriptor_index[0] = ZestImGui->font_binding_index;
-                    push_constants->parameters2.x = (float)zest_ImageLayerIndex(current_image);
+                    push_constants->font_index = ZestImGui->font_binding_index;
+                    push_constants->image_layer = zest_ImageLayerIndex(current_image);
                     break;
                 }
                 break;
@@ -295,8 +300,7 @@ void zest_imgui_UpdateBuffers() {
         ZEST_ASSERT(index_buffer);	//Make sure you call zest_imgui_Initialise first!
 
 
-		ZestImGui->push_constants.parameters1 = zest_Vec4Set(2.0f / zest_ScreenWidthf(), 2.0f / zest_ScreenHeightf(), -1.f, -1.f);
-		ZestImGui->push_constants.parameters2 = zest_Vec4Set1(0.f);
+		ZestImGui->push_constants.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(), 2.0f / zest_ScreenHeightf(), -1.f, -1.f);
 
         if (index_memory_in_use > zest_BufferSize(device_index_buffer)) {
             if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), zest_BufferMemoryInUse(index_buffer))) {
