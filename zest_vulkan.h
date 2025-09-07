@@ -407,7 +407,7 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
     }
 
     zest_vec_foreach(i, swapchain->images) {
-        swapchain->views[i] = zest__create_image_view(&swapchain->images[i], zest_image_view_type_2d_array, 1, 0, 0, 1, 0);
+        swapchain->views[i] = zest__create_image_view_backend(&swapchain->images[i], zest_image_view_type_2d_array, 1, 0, 0, 1, 0);
     }
 
     return ZEST_TRUE;
@@ -1220,7 +1220,7 @@ void zest__vk_cleanup_compute(zest_compute compute) {
 
 void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation) {
     zest_vec_foreach(i, swapchain->views) {
-        vkDestroyImageView(ZestDevice->backend->logical_device, swapchain->views[i]->backend->vk_view, &ZestDevice->backend->allocation_callbacks);
+        zest__cleanup_image_view(swapchain->views[i]);
         ZEST__FREE(swapchain->images[i].backend);
     }
     vkDestroySwapchainKHR(ZestDevice->backend->logical_device, swapchain->backend->vk_swapchain, &ZestDevice->backend->allocation_callbacks);
@@ -1298,12 +1298,21 @@ void zest__vk_cleanup_sampler_backend(zest_sampler sampler) {
     sampler->backend = 0;
 }
 
-void zest__vk_cleanup_image_view(zest_image_view view) {
+void zest__vk_cleanup_image_view_backend(zest_image_view view) {
     if (!view->backend) {
         return;
     }
 	if(view->backend->vk_view) vkDestroyImageView(ZestDevice->backend->logical_device, view->backend->vk_view, &ZestDevice->backend->allocation_callbacks);
-    ZEST__FREE(view);
+}
+
+void zest__vk_cleanup_image_view_array_backend(zest_image_view_array view_array) {
+    for (int i = 0; i != view_array->count; ++i) {
+        zest_image_view view = &view_array->views[i];
+        if (view->backend) {
+			vkDestroyImageView(ZestDevice->backend->logical_device, view->backend->vk_view, &ZestDevice->backend->allocation_callbacks);
+        }
+    }
+    view_array->magic = 0;
 }
 
 void zest__vk_cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor_set set) {
@@ -1548,6 +1557,7 @@ zest_image_view_t *zest__vk_create_image_view(zest_image image, zest_image_view_
     zest_image_view_t *image_view = (zest_image_view_t *)memory;
     zest_image_view_backend_t *backend_array = (zest_image_view_backend_t *)((char *)memory + public_array_size);
 
+    image_view->handle = (zest_image_view_handle){ 0 };
     image_view->image = image;
     image_view->backend = &backend_array[0];
 
@@ -1590,6 +1600,7 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_image image, zest
 
     view_array->magic = zest_INIT_MAGIC(zest_struct_type_view_array);
     view_array->views = (zest_image_view_t *)memory;
+    view_array->handle = (zest_image_view_array_handle){ 0 };
     zest_image_view_backend_t *backend_array = (zest_image_view_backend_t *)((char *)memory + public_array_size);
 
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_image_view);

@@ -531,6 +531,7 @@ void zest_imgui_Shutdown() {
 	}
 	zest_FreeImage(ZestImGui->font_texture);
 	zest_FreePipelineTemplate(ZestImGui->pipeline);
+    zest_FreeAtlasRegion(ZestImGui->font_region);
 	zest_vec_free(ZestImGui->draw_sets);
     zest_FreeMemory(ZestImGui);
 }
