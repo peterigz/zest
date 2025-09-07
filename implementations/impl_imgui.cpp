@@ -17,7 +17,7 @@ zest_imgui_t *zest_imgui_Initialise() {
     int upload_size = width * height * 4 * sizeof(char);
 
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
-	zest_image_create_info_t image_info = zest_CreateImageInfo(width, height);
+	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     ZestImGui->font_texture = zest_CreateImage(&image_info);
     ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->font_texture);
@@ -85,7 +85,7 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
     zest_FreeImage(ZestImGui->font_texture);
-	zest_image_create_info_t image_info = zest_CreateImageInfo(width, height);
+	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     ZestImGui->font_texture = zest_CreateImage(&image_info);
     zest_FreeAtlasRegion(ZestImGui->font_region);

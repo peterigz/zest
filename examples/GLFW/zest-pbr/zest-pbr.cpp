@@ -71,11 +71,11 @@ void zest_DispatchBRDSetup(const zest_frame_graph_context context, void *user_da
 }
 
 void SetupBRDFLUT(ImGuiApp *app) {
-	zest_image_create_info_t image_info = zest_CreateImageInfo(512, 512);
+	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
 	image_info.format = zest_format_r16g16_sfloat;
 	image_info.flags = zest_image_preset_storage;
-
 	app->brd_texture = zest_CreateImage(&image_info);
+
 	app->brd_bindless_index = zest_AcquireGlobalSampler(app->brd_texture, app->sampler_2d, zest_storage_image_binding);
 	zest_AcquireGlobalSampler(app->brd_texture, app->sampler_2d, zest_combined_image_sampler_2d_binding);
 
@@ -126,9 +126,10 @@ void zest_DispatchIrradianceSetup(const zest_frame_graph_context context, void *
 }
 
 void SetupIrradianceCube(ImGuiApp *app) {
-	zest_image_create_info_t image_info = zest_CreateImageInfo(64, 64);
+	zest_image_info_t image_info = zest_CreateImageInfo(64, 64);
 	image_info.format = zest_format_r32g32b32a32_sfloat;
-	image_info.flags = zest_image_preset_storage | zest_image_flag_cubemap;
+	image_info.flags = zest_image_preset_storage_cubemap;
+	image_info.layer_count = 6;
 	app->irr_texture = zest_CreateImage(&image_info);
 	app->irr_bindless_index = zest_AcquireGlobalSampler(app->irr_texture, app->sampler_2d, zest_storage_image_binding);
 	zest_AcquireGlobalSampler(app->irr_texture, app->cube_sampler, zest_combined_image_sampler_cube_binding);
@@ -185,9 +186,10 @@ void zest_DispatchPrefilteredSetup(const zest_frame_graph_context context, void 
 }
 
 void SetupPrefilteredCube(ImGuiApp *app) {
-	zest_image_create_info_t image_info = zest_CreateImageInfo(512, 512);
+	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
 	image_info.format = zest_format_r16g16_sfloat;
-	image_info.flags = zest_image_preset_storage | zest_image_flag_cubemap;
+	image_info.flags = zest_image_preset_storage_mipped_cubemap;
+	image_info.layer_count = 6;
 	app->prefiltered_texture = zest_CreateImage(&image_info);
 
 	app->prefiltered_view_array = zest_CreateImageViewsPerMip(app->prefiltered_texture);
@@ -274,6 +276,7 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->sampler_2d = zest_CreateSampler(&sampler_info);
+	app->cube_sampler = zest_CreateSampler(&sampler_info);
 
 	app->skybox_texture = zest_LoadCubemap("Pisa Cube", "examples/assets/pisa_cube.ktx");
 	app->skybox_sampler = zest_CreateSamplerForImage(app->skybox_texture);
@@ -524,7 +527,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_resource_usage_hint_none,
 		zest_ScreenWidth(),
 		zest_ScreenHeight(),
-		1,
+		1, 1
 	};
 
 	zest_SetSwapchainClearColor(swapchain, 0, 0.1f, 0.2f, 1.f);

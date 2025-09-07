@@ -1601,6 +1601,7 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_image image, zest
     view_array->magic = zest_INIT_MAGIC(zest_struct_type_view_array);
     view_array->views = (zest_image_view_t *)memory;
     view_array->handle = (zest_image_view_array_handle){ 0 };
+    view_array->count = image->info.mip_levels;
     zest_image_view_backend_t *backend_array = (zest_image_view_backend_t *)((char *)memory + public_array_size);
 
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_image_view);
@@ -1661,7 +1662,7 @@ zest_bool zest__vk_generate_mipmaps(zest_image image) {
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = image->info.array_layers;
+    barrier.subresourceRange.layerCount = image->info.layer_count;
     barrier.subresourceRange.levelCount = 1;
 
     int32_t mip_width = image->info.extent.width;
@@ -1684,13 +1685,13 @@ zest_bool zest__vk_generate_mipmaps(zest_image image) {
         blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         blit.srcSubresource.mipLevel = i - 1;
         blit.srcSubresource.baseArrayLayer = 0;
-        blit.srcSubresource.layerCount = image->info.array_layers;
+        blit.srcSubresource.layerCount = image->info.layer_count;
         blit.dstOffsets[0] = (VkOffset3D){ 0, 0, 0 };
         blit.dstOffsets[1] = (VkOffset3D){ mip_width > 1 ? mip_width / 2 : 1, mip_height > 1 ?  mip_height / 2 : 1, 1 };
         blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         blit.dstSubresource.mipLevel = i;
         blit.dstSubresource.baseArrayLayer = 0;
-        blit.dstSubresource.layerCount = image->info.array_layers;
+        blit.dstSubresource.layerCount = image->info.layer_count;
 
         vkCmdBlitImage(ZestRenderer->backend->one_time_command_buffer,
             image->backend->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -1931,15 +1932,15 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
     //Source and destination images must be the same width/height and have the same number of mip levels
     ZEST_ASSERT(src->image.backend->vk_image);
     ZEST_ASSERT(dst->image.backend->vk_image);
-    ZEST_ASSERT(src->image_desc.width == dst->image_desc.width);
-    ZEST_ASSERT(src->image_desc.height == dst->image_desc.height);
+    ZEST_ASSERT(src->image_desc.extent.width == dst->image_desc.extent.width);
+    ZEST_ASSERT(src->image_desc.extent.height == dst->image_desc.extent.height);
     ZEST_ASSERT(src->image_desc.mip_levels == dst->image_desc.mip_levels);
 
     VkImage src_image = src->image.backend->vk_image;
     VkImage dst_image = dst->image.backend->vk_image;
 
-    zest_uint mip_width = ZEST__MAX(1u, src->image_desc.width >> mip_to_blit);
-    zest_uint mip_height = ZEST__MAX(1u, src->image_desc.height >> mip_to_blit);
+    zest_uint mip_width = ZEST__MAX(1u, src->image_desc.extent.width >> mip_to_blit);
+    zest_uint mip_height = ZEST__MAX(1u, src->image_desc.extent.height >> mip_to_blit);
 
     VkImageLayout src_current_layout = (VkImageLayout)(src->journey[src->current_state_index].usage.image_layout);
     VkImageLayout dst_current_layout = (VkImageLayout)(dst->journey[dst->current_state_index].usage.image_layout);
@@ -1950,7 +1951,7 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
         VK_ACCESS_TRANSFER_READ_BIT,
         src_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        src->image_desc.aspect_flags,
+        src->image.info.aspect_flags,
         mip_to_blit, 1);
     zest__place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_src_barrier);
 
@@ -1959,7 +1960,7 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
         VK_ACCESS_TRANSFER_WRITE_BIT,
         dst_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        dst->image_desc.aspect_flags,
+        dst->image.info.aspect_flags,
         mip_to_blit, 1);
     zest__place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_dst_barrier);
 
@@ -1994,7 +1995,7 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
         VK_ACCESS_SHADER_READ_BIT,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src_current_layout,
-        src->image_desc.aspect_flags,
+        src->image.info.aspect_flags,
         mip_to_blit, 1);
     zest__place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_src_barrier);
 
@@ -2003,7 +2004,7 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
         VK_ACCESS_SHADER_READ_BIT,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst_current_layout,
-        dst->image_desc.aspect_flags,
+        dst->image.info.aspect_flags,
         mip_to_blit, 1);
     zest__place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_dst_barrier);
 }
@@ -2016,22 +2017,22 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
     //Source and destination images must be the same width/height and have the same number of mip levels
     ZEST_ASSERT(src->image.backend->vk_image);
     ZEST_ASSERT(dst->image.backend->vk_image);
-    ZEST_ASSERT(src->image_desc.width == dst->image_desc.width);
-    ZEST_ASSERT(src->image_desc.height == dst->image_desc.height);
+    ZEST_ASSERT(src->image_desc.extent.width == dst->image_desc.extent.width);
+    ZEST_ASSERT(src->image_desc.extent.height == dst->image_desc.extent.height);
     ZEST_ASSERT(src->image_desc.mip_levels == dst->image_desc.mip_levels);
 
     //You must ensure that when creating the images that you use usage hints to indicate that you intend to copy
     //the images. When creating a transient image resource you can set the usage hints in the zest_image_resource_info_t
     //type that you pass into zest_CreateTransientImageResource. Trying to copy images that don't have the appropriate
     //usage flags set will result in validation errors.
-    ZEST_ASSERT(src->image_desc.usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-    ZEST_ASSERT(dst->image_desc.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+    ZEST_ASSERT(src->image_desc.flags & zest_image_flag_transfer_src);
+    ZEST_ASSERT(dst->image_desc.flags & zest_image_flag_transfer_dst);
 
     VkImage src_image = src->image.backend->vk_image;
     VkImage dst_image = dst->image.backend->vk_image;
 
-    zest_uint mip_width = ZEST__MAX(1u, src->image_desc.width >> mip_to_copy);
-    zest_uint mip_height = ZEST__MAX(1u, src->image_desc.height >> mip_to_copy);
+    zest_uint mip_width = ZEST__MAX(1u, src->image_desc.extent.width >> mip_to_copy);
+    zest_uint mip_height = ZEST__MAX(1u, src->image_desc.extent.height >> mip_to_copy);
 
     VkImageLayout src_current_layout = (VkImageLayout)(src->journey[src->current_state_index].usage.image_layout);
     VkImageLayout dst_current_layout = (VkImageLayout)(dst->journey[dst->current_state_index].usage.image_layout);
@@ -2042,7 +2043,7 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
         VK_ACCESS_TRANSFER_READ_BIT,
         src_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        src->image_desc.aspect_flags,
+        src->image.info.aspect_flags,
         mip_to_copy, 1);
     zest__place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_src_barrier);
 
@@ -2051,7 +2052,7 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
         VK_ACCESS_TRANSFER_WRITE_BIT,
         dst_current_layout,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        dst->image_desc.aspect_flags,
+        dst->image.info.aspect_flags,
         mip_to_copy, 1);
     zest__place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_dst_barrier);
 
@@ -2081,7 +2082,7 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
         VK_ACCESS_SHADER_READ_BIT,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src_current_layout,
-        src->image_desc.aspect_flags,
+        src->image.info.aspect_flags,
         mip_to_copy, 1);
     zest__place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, pipeline_stage, &blit_src_barrier);
 
@@ -2090,7 +2091,7 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
         VK_ACCESS_SHADER_READ_BIT,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst_current_layout,
-        dst->image_desc.aspect_flags,
+        dst->image.info.aspect_flags,
         mip_to_copy, 1);
     zest__place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, pipeline_stage, &blit_dst_barrier);
 }
@@ -2448,14 +2449,14 @@ zest_bool zest_cmd_CopyBitmapToImage(zest_bitmap bitmap, zest_image_handle dst_h
 
     ZEST_CLEANUP_ON_FALSE(zest__vk_begin_single_time_commands());
 
-	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(dst_image, zest_image_layout_transfer_dst_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.array_layers));
+	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(dst_image, zest_image_layout_transfer_dst_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.layer_count));
 
 	ZEST_CLEANUP_ON_FALSE(zest__vk_copy_buffer_to_image(staging_buffer, staging_buffer->buffer_offset, dst_image, (zest_uint)bitmap->meta.width, (zest_uint)bitmap->meta.height));
 	zest_FreeBuffer(staging_buffer);
     if (dst_image->info.mip_levels > 1) {
         ZEST_CLEANUP_ON_FALSE(zest__vk_generate_mipmaps(dst_image));
     }
-	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(dst_image, zest_image_layout_shader_read_only_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.array_layers));
+	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(dst_image, zest_image_layout_shader_read_only_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.layer_count));
 
     ZEST_CLEANUP_ON_FALSE(zest__vk_end_single_time_commands());
 
