@@ -1425,6 +1425,9 @@ typedef enum zest_image_flag_bits {
     // For multi-planar formats (e.g., video), indicating each plane can have separate memory.
     zest_image_flag_disjoint_planes = 1 << 15,
 
+    //For transient images in a frame graph
+    zest_image_flag_transient = 1 << 16,
+
     //Convenient preset flags for common usages
     // For a standard texture loaded from CPU.
     zest_image_preset_texture = zest_image_flag_sampled | zest_image_flag_transfer_dst | zest_image_flag_device_local,
@@ -3134,7 +3137,6 @@ typedef struct zest_resource_node_t {
     zest_buffer storage_buffer;
     zest_uint bindless_index[zest_max_global_binding_number];   //The index to use in the shader
     zest_uint *mip_level_bindless_indexes;                      //The mip indexes to use in the shader
-    zest_sampler sampler;
 
     zest_uint reference_count;
 
@@ -3379,8 +3381,8 @@ ZEST_API void zest_EndPass();
 
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource, zest_global_binding_number binding_number);
-ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context context, zest_resource_node resource, zest_global_binding_number binding_number);
+ZEST_API zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource, zest_sampler_handle sampler, zest_global_binding_number binding_number);
+ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context context, zest_resource_node resource, zest_sampler_handle sampler, zest_global_binding_number binding_number);
 ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource);
 
 // --- Add callback tasks to passes
@@ -3407,7 +3409,7 @@ ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buf
 ZEST_API void zest_ReleaseBufferAfterUse(zest_resource_node dst_buffer);
 
 // --- Connect Resources to Pass Nodes ---
-ZEST_API void zest_ConnectInput(zest_resource_node resource, zest_sampler_handle sampler);
+ZEST_API void zest_ConnectInput(zest_resource_node resource);
 ZEST_API void zest_ConnectOutput(zest_resource_node resource);
 ZEST_API void zest_ConnectSwapChainOutput();
 ZEST_API void zest_ConnectGroupedOutput(zest_output_group group);
@@ -4567,8 +4569,6 @@ ZEST_API zest_buffer zest_CreateBuffer(VkDeviceSize size, zest_buffer_info_t *bu
 //Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
 ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data);
 ZEST_API zest_buffer zest_CreateStagingBuffer(VkDeviceSize size, void *data);
-//Memset a host visible buffer to 0.
-ZEST_API void zest_ClearBufferToZero(zest_buffer buffer);
 //Helper functions to create buffers. 
 //Create an index buffer.
 ZEST_API zest_buffer zest_CreateIndexBuffer(VkDeviceSize size, zest_uint fif);
@@ -5249,6 +5249,7 @@ ZEST_API void zest_UpdateWindowSize(zest_window window, zest_uint width, zest_ui
 ZEST_API void zest_SetWindowHandle(zest_window window, void *handle);
 ZEST_API zest_window zest_GetCurrentWindow(void);
 ZEST_API void zest_CloseWindow(zest_window window);
+ZEST_API void zest_CleanupWindow(zest_window window);
 ZEST_API VkSurfaceKHR zest_WindowSurface(void);
 ZEST_API void zest_SetWindowSurface(VkSurfaceKHR surface);
 //Return a pointer to the window handle stored in the zest_window_t. This could be anything so it's up to you to cast to the right data type. For example, if you're
@@ -5392,7 +5393,7 @@ ZEST_API zest_bool zest_cmd_UploadBuffer(zest_buffer_uploader_t *uploader, const
 ZEST_API void zest_cmd_BindVertexBuffer(const zest_frame_graph_context context, zest_buffer buffer);
 //Bind an index buffer. For use inside a draw routine callback function.
 ZEST_API void zest_cmd_BindIndexBuffer(const zest_frame_graph_context context, zest_buffer buffer);
-//Clear a texture
+//Clear an image within a frame graph
 ZEST_API zest_bool zest_cmd_ImageClear(zest_image_handle image, const zest_frame_graph_context context);
 //Copies an area of a zest_texture to another zest_texture
 ZEST_API zest_bool zest_cmd_CopyImageToImage(zest_image_handle src_image, zest_image_handle target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);

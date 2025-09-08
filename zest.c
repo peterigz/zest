@@ -268,7 +268,7 @@ FILE* zest__open_file(const char* file_name, const char* mode) {
 }
 
 void zest__destroy_window_callback(zest_window window, void* user_data) {
-    ZEST_PRINT_FUNCTION;
+	zest__cleanup_window_backend(window);
     DestroyWindow(window->window_handle);
     PostQuitMessage(0);
 }
@@ -6552,6 +6552,7 @@ zest_bool zest__create_transient_image(zest_resource_node resource) {
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
         image->bindless_index[i] = ZEST_INVALID;
     }
+    image->info.flags |= zest_image_flag_transient;
     image->info.aspect_flags = zest__determine_aspect_flag(resource->image.info.format);
     image->info.mip_levels = resource->image.info.mip_levels > 0 ? resource->image.info.mip_levels : 1;
     if (ZEST__FLAGGED(image->info.flags, zest_image_flag_cubemap)) {
@@ -6798,6 +6799,10 @@ void zest_SetWindowSurface(VkSurfaceKHR surface) {
  void zest_CloseWindow(zest_window window) {
 	 ZestRenderer->destroy_window_callback(window, ZestApp->user_data);
 	 ZEST__FREE(window);
+}
+
+ void zest_CleanupWindow(zest_window window) {
+     zest__cleanup_window_backend(window);
 }
 
 char* zest_ReadEntireFile(const char* file_name, zest_bool terminate) {
@@ -9240,9 +9245,9 @@ zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_r
     description.extent.height = info->height ? info->height : zest_ScreenHeight();
     description.sample_count = (info->usage_hints & zest_resource_usage_hint_msaa) ? ZestDevice->backend->msaa_samples : VK_SAMPLE_COUNT_1_BIT;
     description.mip_levels = info->mip_levels ? info->mip_levels : 1;
+    description.layer_count = info->layer_count ? info->layer_count : 1;
 	description.format = info->format == zest_format_depth ? ZestRenderer->depth_format : info->format;
     description.aspect_flags = zest__determine_aspect_flag(description.format);
-    description.layer_count = info->layer_count;
 	zest_resource_node resource = zest__add_transient_image_resource(name, &description, 0, ZEST_TRUE);
     zest__interpret_hints(resource, info->usage_hints);
     return resource;
@@ -9587,21 +9592,21 @@ zest_resource_node zest_GetPassOutputResource(const zest_frame_graph_context con
     return ZEST_VALID_HANDLE(usage->resource_node->aliased_resource) ? usage->resource_node->aliased_resource : usage->resource_node;
 }
 
-zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource, zest_global_binding_number binding_number) {
+zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource, zest_sampler_handle sampler_handle, zest_global_binding_number binding_number) {
     ZEST_PRINT_FUNCTION;
     ZEST_ASSERT_HANDLE(resource);            // Not a valid resource handle
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
     zest_frame_graph frame_graph = context->frame_graph;
     if (resource->bindless_index[binding_number] != ZEST_INVALID) return resource->bindless_index[binding_number];
     zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, frame_graph->bindless_layout.value);
+    zest_sampler sampler = (zest_sampler)zest__get_store_resource_checked(&ZestRenderer->samplers, sampler_handle.value);
     zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
     VkDescriptorImageInfo image_buffer_info = { 0 };
     VkDescriptorType descriptor_type = bindless_layout->backend->descriptor_indexes[binding_number].descriptor_type;
     ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
-    ZEST_ASSERT(ZEST_VALID_HANDLE(resource->sampler));
 	image_buffer_info.imageLayout = zest__to_vk_image_layout(resource->journey[resource->current_state_index].usage.image_layout);
 	image_buffer_info.imageView = resource->view->backend->vk_view;
-	image_buffer_info.sampler = resource->sampler->backend->vk_sampler;
+	image_buffer_info.sampler = sampler->backend->vk_sampler;
 
     VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(frame_graph->bindless_set->backend->vk_descriptor_set, &image_buffer_info, binding_number, descriptor_type);
     write.dstArrayElement = bindless_index;
@@ -9614,7 +9619,7 @@ zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context con
     return bindless_index;
 }
 
-zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context context, zest_resource_node resource, zest_global_binding_number binding_number) {
+zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context context, zest_resource_node resource, zest_sampler_handle sampler_handle, zest_global_binding_number binding_number) {
     ZEST_PRINT_FUNCTION;
     zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, context->frame_graph->bindless_layout.value);
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
@@ -9631,7 +9636,7 @@ zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context co
         resource->view_array = zest__create_image_views_per_mip_backend(&resource->image, zest_image_view_type_2d, 0, resource->image.info.layer_count, allocator);
     }
     zest_mip_index_collection mip_collection = { 0 };
-    ZEST_ASSERT(ZEST_VALID_HANDLE(resource->sampler));
+    zest_sampler sampler = (zest_sampler)zest__get_store_resource_checked(&ZestRenderer->samplers, sampler_handle.value);
 	for (int mip_index = 0; mip_index != resource->view_array->count; ++mip_index) {
 		zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
 		zest_vec_linear_push(allocator, resource->mip_level_bindless_indexes, bindless_index);
@@ -9639,7 +9644,7 @@ zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context co
 		VkDescriptorImageInfo mip_buffer_info;
 		mip_buffer_info.imageLayout = zest__to_vk_image_layout(resource->journey[resource->current_state_index].usage.image_layout);
 		mip_buffer_info.imageView = resource->view_array->views[mip_index].backend->vk_view;
-		mip_buffer_info.sampler = resource->sampler->backend->vk_sampler;
+		mip_buffer_info.sampler = sampler->backend->vk_sampler;
 
 		VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(frame_graph->bindless_set->backend->vk_descriptor_set, &mip_buffer_info, binding_number, bindless_layout->backend->descriptor_indexes[binding_number].descriptor_type);
 		write.dstArrayElement = bindless_index;
@@ -10401,7 +10406,7 @@ void zest_ReleaseBufferAfterUse(zest_resource_node node) {
 }
 
 // --- Image Helpers ---
-void zest_ConnectInput(zest_resource_node resource, zest_sampler_handle sampler_handle) {
+void zest_ConnectInput(zest_resource_node resource) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);  //This function must be called withing a Being/EndRenderGraph block
     ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);          //No current pass found. Make sure you call zest_BeginPass
     zest_pass_node pass = ZestRenderer->current_pass;
@@ -10412,17 +10417,11 @@ void zest_ConnectInput(zest_resource_node resource, zest_sampler_handle sampler_
         switch (pass->type) {
         case zest_pass_type_graphics:
             stages = zest_pipeline_fragment_stage;
-            if (resource->type & zest_resource_type_is_image) {
-				resource->sampler = (zest_sampler)zest__get_store_resource_checked(&ZestRenderer->samplers, sampler_handle.value);
-            }
             purpose = zest_purpose_sampled_image;
             break;
         case zest_pass_type_compute:
             stages = zest_pipeline_compute_stage;
             purpose = zest_purpose_storage_image_read;
-            if (resource->type & zest_resource_type_is_image) {
-				resource->sampler = (zest_sampler)zest__get_store_resource_checked(&ZestRenderer->samplers, sampler_handle.value);
-            }
             break;
         case zest_pass_type_transfer:
             stages = zest_pipeline_transfer_stage;
@@ -11674,6 +11673,9 @@ zest_image_view_type zest__get_image_view_type(zest_image image) {
 
 zest_image_handle zest_CreateImage(zest_image_info_t *create_info) {
     ZEST_ASSERT(create_info->extent.width * create_info->extent.height * create_info->extent.depth > 0); //Image has 0 dimensions!
+    ZEST_ASSERT(create_info->flags);    //You must set flags in the image info to specify how the image will be used.
+                                        //For example you could use zest_image_preset_texture. Lookup the zest_image_flag_bits emum
+                                        //to see all the flags available.
 	zest_image_handle handle = zest__new_image();
     zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, handle.value);
     image->info = *create_info;

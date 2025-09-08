@@ -122,9 +122,9 @@ zest_pass_node zest_imgui_BeginPass() {
         //Graphics Pass for ImGui outputting to the output passed in to this function
 		zest_pass_node imgui_pass = zest_BeginRenderPass("Dear ImGui Pass");
         //inputs
-		zest_ConnectInput(imgui_font_texture, ZestImGui->font_sampler);
-        zest_ConnectInput(imgui_vertex_buffer, { 0 });
-		zest_ConnectInput(imgui_index_buffer, { 0 });
+		zest_ConnectInput(imgui_font_texture);
+        zest_ConnectInput(imgui_vertex_buffer);
+		zest_ConnectInput(imgui_index_buffer);
         //Task
 		zest_SetPassTask(zest_imgui_DrawImGuiRenderPass, NULL);
         return imgui_pass;

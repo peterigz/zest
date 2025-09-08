@@ -110,9 +110,8 @@ zest_bool zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
 
 void zest_implglfw_DestroyWindowCallback(zest_window window, void *user_data) {
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
-	VkSurfaceKHR surface = zest_WindowSurface();
+	zest_CleanupWindow(window);
 	glfwDestroyWindow(handle);
-    vkDestroySurfaceKHR(zest_GetVKInstance(), surface, zest_GetVKAllocationCallbacks());
 }
 #endif
 

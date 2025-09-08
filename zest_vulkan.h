@@ -1244,6 +1244,8 @@ void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_
 
 void zest__vk_cleanup_window_backend(zest_window window) {
     vkDestroySurfaceKHR(ZestDevice->backend->instance, window->backend->surface, &ZestDevice->backend->allocation_callbacks);
+    ZEST__FREE(window->backend);
+    window->backend = 0;
 }
 
 void zest__vk_cleanup_buffer(zest_buffer buffer) {
@@ -1288,7 +1290,9 @@ void zest__vk_cleanup_image_backend(zest_image image) {
     }
 	if(image->backend->vk_image) vkDestroyImage(ZestDevice->backend->logical_device, image->backend->vk_image, &ZestDevice->backend->allocation_callbacks);
 	image->backend->vk_image = VK_NULL_HANDLE;
-    ZEST__FREE(image->backend);
+    if (ZEST__NOT_FLAGGED(image->info.flags, zest_image_flag_transient)) {
+		ZEST__FREE(image->backend);
+    }
     image->backend = 0;
 }
 

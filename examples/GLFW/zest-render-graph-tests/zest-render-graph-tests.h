@@ -44,9 +44,11 @@ struct Test {
 struct ZestTests {
 	Test tests[TEST_COUNT];
 	int current_test;
-	VkSamplerCreateInfo vk_sampler_info;
-	VkSamplerCreateInfo mipped_sampler_info;
-	zest_texture_handle texture;
+	zest_sampler_info_t sampler_info;
+	zest_sampler_info_t mipped_sampler_info;
+	zest_image_handle texture;
+	zest_sampler_handle sampler;
+	zest_sampler_handle mipped_sampler;
 	TestPushConstants push;
 	zest_compute_handle compute_write;
 	zest_compute_handle compute_verify;
