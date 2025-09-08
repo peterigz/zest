@@ -375,6 +375,9 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
 
     zest_vec_resize(swapchain->images, image_count);
     zest_vec_resize(swapchain->views, image_count);
+    zest_image_info_t image_info = zest_CreateImageInfo(extent.width, extent.height);
+    image_info.aspect_flags = zest_image_aspect_color_bit;
+    image_info.format = (zest_texture_format)surfaceFormat.format;
     zest_vec_foreach(i, images) {
         swapchain->images[i] = (zest_image_t){ 0 };
         swapchain->images[i].backend = zest__new_image_backend();
@@ -385,6 +388,7 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
         swapchain->images[i].backend->vk_extent.width = extent.width;
         swapchain->images[i].backend->vk_extent.height = extent.height;
         swapchain->images[i].backend->vk_current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        swapchain->images[i].info = image_info;
     }
 
     ZEST__FREE(swapchain_support_details.formats);
@@ -1932,15 +1936,15 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
     //Source and destination images must be the same width/height and have the same number of mip levels
     ZEST_ASSERT(src->image.backend->vk_image);
     ZEST_ASSERT(dst->image.backend->vk_image);
-    ZEST_ASSERT(src->image_desc.extent.width == dst->image_desc.extent.width);
-    ZEST_ASSERT(src->image_desc.extent.height == dst->image_desc.extent.height);
-    ZEST_ASSERT(src->image_desc.mip_levels == dst->image_desc.mip_levels);
+    ZEST_ASSERT(src->image.info.extent.width == dst->image.info.extent.width);
+    ZEST_ASSERT(src->image.info.extent.height == dst->image.info.extent.height);
+    ZEST_ASSERT(src->image.info.mip_levels == dst->image.info.mip_levels);
 
     VkImage src_image = src->image.backend->vk_image;
     VkImage dst_image = dst->image.backend->vk_image;
 
-    zest_uint mip_width = ZEST__MAX(1u, src->image_desc.extent.width >> mip_to_blit);
-    zest_uint mip_height = ZEST__MAX(1u, src->image_desc.extent.height >> mip_to_blit);
+    zest_uint mip_width = ZEST__MAX(1u, src->image.info.extent.width >> mip_to_blit);
+    zest_uint mip_height = ZEST__MAX(1u, src->image.info.extent.height >> mip_to_blit);
 
     VkImageLayout src_current_layout = (VkImageLayout)(src->journey[src->current_state_index].usage.image_layout);
     VkImageLayout dst_current_layout = (VkImageLayout)(dst->journey[dst->current_state_index].usage.image_layout);
@@ -2017,22 +2021,22 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
     //Source and destination images must be the same width/height and have the same number of mip levels
     ZEST_ASSERT(src->image.backend->vk_image);
     ZEST_ASSERT(dst->image.backend->vk_image);
-    ZEST_ASSERT(src->image_desc.extent.width == dst->image_desc.extent.width);
-    ZEST_ASSERT(src->image_desc.extent.height == dst->image_desc.extent.height);
-    ZEST_ASSERT(src->image_desc.mip_levels == dst->image_desc.mip_levels);
+    ZEST_ASSERT(src->image.info.extent.width == dst->image.info.extent.width);
+    ZEST_ASSERT(src->image.info.extent.height == dst->image.info.extent.height);
+    ZEST_ASSERT(src->image.info.mip_levels == dst->image.info.mip_levels);
 
     //You must ensure that when creating the images that you use usage hints to indicate that you intend to copy
     //the images. When creating a transient image resource you can set the usage hints in the zest_image_resource_info_t
     //type that you pass into zest_CreateTransientImageResource. Trying to copy images that don't have the appropriate
     //usage flags set will result in validation errors.
-    ZEST_ASSERT(src->image_desc.flags & zest_image_flag_transfer_src);
-    ZEST_ASSERT(dst->image_desc.flags & zest_image_flag_transfer_dst);
+    ZEST_ASSERT(src->image.info.flags & zest_image_flag_transfer_src);
+    ZEST_ASSERT(dst->image.info.flags & zest_image_flag_transfer_dst);
 
     VkImage src_image = src->image.backend->vk_image;
     VkImage dst_image = dst->image.backend->vk_image;
 
-    zest_uint mip_width = ZEST__MAX(1u, src->image_desc.extent.width >> mip_to_copy);
-    zest_uint mip_height = ZEST__MAX(1u, src->image_desc.extent.height >> mip_to_copy);
+    zest_uint mip_width = ZEST__MAX(1u, src->image.info.extent.width >> mip_to_copy);
+    zest_uint mip_height = ZEST__MAX(1u, src->image.info.extent.height >> mip_to_copy);
 
     VkImageLayout src_current_layout = (VkImageLayout)(src->journey[src->current_state_index].usage.image_layout);
     VkImageLayout dst_current_layout = (VkImageLayout)(dst->journey[dst->current_state_index].usage.image_layout);

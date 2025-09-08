@@ -3126,7 +3126,6 @@ typedef struct zest_resource_node_t {
     zest_swapchain swapchain;
 
     zest_buffer_description_t buffer_desc; // Used if transient buffer
-    zest_image_info_t image_desc;
     zest_vec4 clear_color;
 
     zest_image_t image;

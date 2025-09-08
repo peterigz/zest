@@ -1874,7 +1874,7 @@ void zest__set_default_pool_sizes() {
 
 void *zest_vk_allocate_callback(void *pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope) {
     zest_vulkan_memory_info_t *pInfo = (zest_vulkan_memory_info_t *)pUserData;
-    if (pInfo->timestamp == 46) {
+    if (pInfo->timestamp == 116) {
         int d = 0;
     }
     void *pAllocation = ZEST__ALLOCATE(size + sizeof(zest_vulkan_memory_info_t));
@@ -2009,6 +2009,9 @@ void zest__do_scheduled_tasks(void) {
             zest_image_t *image = &ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF][i];
             zest_FreeBuffer(image->buffer);
             vkDestroyImage(ZestDevice->backend->logical_device, image->backend->vk_image, &ZestDevice->backend->allocation_callbacks);
+            if (image->default_view) {
+				vkDestroyImageView(ZestDevice->backend->logical_device, image->default_view->backend->vk_view, &ZestDevice->backend->allocation_callbacks);
+            }
         }
 		zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF]);
     }
@@ -2210,7 +2213,7 @@ void zest__add_host_memory_pool(zest_size size) {
 void* zest__allocate(zest_size size) {
     void* allocation = zloc_Allocate(ZestDevice->allocator, size);
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)ZestDevice->allocator;
-    if (offset_from_allocator == 8737112) {
+    if (offset_from_allocator == 40743256) {
         int d = 0;
     }
     // If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
@@ -3451,7 +3454,7 @@ void zest__cleanup_shader_resource_store() {
 void zest__cleanup_view_store() {
     zest_image_view *views = ZestRenderer->views.data;
     for (int i = 0; i != ZestRenderer->views.current_size; ++i) {
-        if (ZEST_VALID_HANDLE(&views[i])) {
+        if (ZEST_VALID_HANDLE(views[i])) {
             zest_image_view resource = views[i];
             zest__cleanup_image_view(resource);
         }
@@ -3462,7 +3465,7 @@ void zest__cleanup_view_store() {
 void zest__cleanup_view_array_store() {
     zest_image_view_array *view_arrays = ZestRenderer->view_arrays.data;
     for (int i = 0; i != ZestRenderer->view_arrays.current_size; ++i) {
-        if (ZEST_VALID_HANDLE(&view_arrays[i])) {
+        if (ZEST_VALID_HANDLE(view_arrays[i])) {
             zest_image_view_array resource = view_arrays[i];
             zest__cleanup_image_view_array(resource);
         }
@@ -3543,6 +3546,9 @@ void zest__cleanup_renderer() {
                 zest_image_t *image = &ZestRenderer->deferred_resource_freeing_list.images[fif][i];
                 zest_FreeBuffer(image->buffer);
                 vkDestroyImage(ZestDevice->backend->logical_device, image->backend->vk_image, &ZestDevice->backend->allocation_callbacks);
+                if (image->default_view) {
+                    vkDestroyImageView(ZestDevice->backend->logical_device, image->default_view->backend->vk_view, &ZestDevice->backend->allocation_callbacks);
+                }
             }
             zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.images[fif]);
         }
@@ -4033,6 +4039,7 @@ void zest__cleanup_image_view(zest_image_view view) {
 void zest__cleanup_image_view_array(zest_image_view_array view_array) {
     ZEST_PRINT_FUNCTION;
     zest__cleanup_image_view_array_backend(view_array);
+    ZEST__FREE(view_array->views);
     zest__remove_store_resource(&ZestRenderer->view_arrays, view_array->handle.value);
     ZEST__FREE(view_array);
 }
@@ -5792,7 +5799,7 @@ void* zest__vec_reserve(void* T, zest_uint unit_size, zest_uint new_capacity) {
     T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD);
     zest_vec *header = (zest_vec *)new_data;
     header->id = ZestDevice->vector_id++;
-    if (header->id == 134) {
+    if (header->id == 237) {
         int d = 0;
     }
     header->magic = zest_INIT_MAGIC(zest_struct_type_vector);
@@ -6539,26 +6546,27 @@ void zest__create_transient_buffer(zest_resource_node node) {
 }
 
 zest_bool zest__create_transient_image(zest_resource_node resource) {
-    resource->image = (zest_image_t){ 0 };
     zest_image image = &resource->image;
     image->magic = zest_INIT_MAGIC(zest_struct_type_image);
     image->backend = zest__new_frame_graph_image_backend(ZestRenderer->frame_graph_allocator[ZEST_FIF]);
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
         image->bindless_index[i] = ZEST_INVALID;
     }
-    image->info = resource->image_desc;
-    image->info.aspect_flags = zest__determine_aspect_flag(resource->image_desc.format);
-    image->info.mip_levels = resource->image_desc.mip_levels > 0 ? resource->image_desc.mip_levels : 1;
+    image->info.aspect_flags = zest__determine_aspect_flag(resource->image.info.format);
+    image->info.mip_levels = resource->image.info.mip_levels > 0 ? resource->image.info.mip_levels : 1;
     if (ZEST__FLAGGED(image->info.flags, zest_image_flag_cubemap)) {
         ZEST_ASSERT(image->info.layer_count > 0 && image->info.layer_count % 6 == 0); // Cubemap must have layers in multiples of 6!
     }
-    if (ZEST__FLAGGED(resource->image_desc.flags, zest_image_flag_generate_mipmaps) && image->info.mip_levels == 1) {
-        image->info.mip_levels = (zest_uint)floor(log2(ZEST__MAX(resource->image_desc.extent.width, resource->image_desc.extent.height))) + 1;
+    if (ZEST__FLAGGED(resource->image.info.flags, zest_image_flag_generate_mipmaps) && image->info.mip_levels == 1) {
+        image->info.mip_levels = (zest_uint)floor(log2(ZEST__MAX(resource->image.info.extent.width, resource->image.info.extent.height))) + 1;
     }
-    if (!zest__create_image(image, image->info.layer_count, zest_sample_count_1_bit, resource->image_desc.flags)) {
+    if (!zest__create_image(image, image->info.layer_count, zest_sample_count_1_bit, resource->image.info.flags)) {
 		zest__cleanup_image_backend(image);
         return FALSE;
     }
+    zest_image_view_type view_type = zest__get_image_view_type(image);
+    image->default_view = zest__create_image_view_backend(image, view_type, image->info.mip_levels, 0, 0, image->info.layer_count, ZestRenderer->frame_graph_allocator[ZEST_FIF]);
+    resource->view = image->default_view;
 
     return ZEST_TRUE;
 }
@@ -7083,8 +7091,6 @@ zest_bool zest__create_transient_resource(zest_resource_node resource) {
             return ZEST_FALSE;
         }
 
-        resource->view = zest__create_image_view_backend(&resource->image, zest_image_view_type_2d, 1, 0, 0, resource->image.info.layer_count, ZestRenderer->frame_graph_allocator[ZEST_FIF]);
-
         resource->backend->current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
         resource->backend->current_access_mask = 0;
         resource->backend->last_stage_mask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
@@ -7480,11 +7486,11 @@ zest_frame_graph zest__compile_frame_graph() {
                     zest_resource_usage_t input_usage = { 0 };
                     switch (pass_node->queue_info.queue_type) {
                     case zest_queue_graphics:
-                        input_usage = zest__configure_image_usage(resource, zest_purpose_color_attachment_read, resource->image_desc.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
+                        input_usage = zest__configure_image_usage(resource, zest_purpose_color_attachment_read, resource->image.info.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
                         break;
                     case zest_queue_compute:
                     case zest_queue_transfer:
-                        input_usage = zest__configure_image_usage(resource, zest_purpose_storage_image_read, resource->image_desc.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
+                        input_usage = zest__configure_image_usage(resource, zest_purpose_storage_image_read, resource->image.info.format, output_usage->load_op, output_usage->stencil_load_op, output_usage->stage_mask);
                         break;
                     }
                     input_usage.store_op = output_usage->store_op;
@@ -8086,13 +8092,13 @@ zest_image_aspect_flags zest__determine_aspect_flag(zest_texture_format format) 
 
 void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints) {
     if (usage_hints & zest_resource_usage_hint_copy_dst) {
-        resource->image_desc.flags |= zest_image_flag_transfer_dst;
+        resource->image.info.flags |= zest_image_flag_transfer_dst;
     }
     if (usage_hints & zest_resource_usage_hint_copy_src) {
-        resource->image_desc.flags |= zest_image_flag_transfer_src;
+        resource->image.info.flags |= zest_image_flag_transfer_src;
     }
     if (usage_hints & zest_resource_usage_hint_cpu_transfer) {
-        resource->image_desc.flags |= zest_image_flag_host_visible | zest_image_flag_host_coherent;
+        resource->image.info.flags |= zest_image_flag_host_visible | zest_image_flag_host_coherent;
     }
 }
 
@@ -8220,7 +8226,7 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
                         barrier->image = resource->view->image->backend->vk_image;
                         ZEST_ASSERT(barrier->image);    //The image handle in the resource is null, if the resource is not
                                                         //transient then can resource provider callback must be set in the resource.
-                        barrier->subresourceRange.levelCount = resource->image_desc.mip_levels;
+                        barrier->subresourceRange.levelCount = resource->image.info.mip_levels;
                         if (resource->backend->linked_layout) {
                             //Update the layout in the texture
                             *resource->backend->linked_layout = barrier->newLayout;
@@ -8260,11 +8266,11 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
                     fb_create_info.attachmentCount = zest_vec_size(image_views);
                     fb_create_info.pAttachments = image_views;
                     if (zest_vec_size(exe_details->color_attachment_info)) {
-                        fb_create_info.width = exe_details->color_attachment_info[0].resource_node->image_desc.extent.width;
-                        fb_create_info.height = exe_details->color_attachment_info[0].resource_node->image_desc.extent.height;
+                        fb_create_info.width = exe_details->color_attachment_info[0].resource_node->image.info.extent.width;
+                        fb_create_info.height = exe_details->color_attachment_info[0].resource_node->image.info.extent.height;
                     } else {
-                        fb_create_info.width = exe_details->depth_attachment_info.resource_node->image_desc.extent.width;
-                        fb_create_info.height = exe_details->depth_attachment_info.resource_node->image_desc.extent.height;
+                        fb_create_info.width = exe_details->depth_attachment_info.resource_node->image.info.extent.width;
+                        fb_create_info.height = exe_details->depth_attachment_info.resource_node->image.info.extent.height;
                     }
                     exe_details->render_area.extent.width = fb_create_info.width;
                     exe_details->render_area.extent.height = fb_create_info.height;
@@ -8338,7 +8344,7 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
                         VkImageMemoryBarrier *barrier = &exe_details->barriers.release_image_barriers[resource_index];
                         zest_resource_node resource = exe_details->barriers.release_image_barrier_nodes[resource_index];
                         barrier->image = resource->image.backend->vk_image;
-                        barrier->subresourceRange.levelCount = resource->image_desc.mip_levels;
+                        barrier->subresourceRange.levelCount = resource->image.info.mip_levels;
                     }
 
                     vkCmdPipelineBarrier(
@@ -8756,7 +8762,7 @@ void zest_PrintCompiledRenderGraph(zest_frame_graph frame_graph) {
         } else if (resource->type & zest_resource_type_image) {
             ZEST_PRINT("Image: %s - VkImage: %p, Size: %u x %u", 
                 resource->name, resource->image.backend->vk_image,  
-                resource->image_desc.extent.width, resource->image_desc.extent.height);
+                resource->image.info.extent.width, resource->image.info.extent.height);
         } else if (resource->type == zest_resource_type_swap_chain_image) {
             ZEST_PRINT("Image: %s - VkImage: %p", 
                 resource->name, resource->image.backend->vk_image);
@@ -8941,13 +8947,13 @@ zest_uint zest__get_image_binding_number(zest_resource_node resource, bool image
     zest_uint binding_number = ZEST_INVALID;
 	zest_vec_foreach(i, bindless_layout->backend->layout_bindings) {
 		VkDescriptorSetLayoutBinding *binding = &bindless_layout->backend->layout_bindings[i];
-		if (!image_view_only && resource->image_desc.flags & zest_image_flag_sampled && binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
+		if (!image_view_only && resource->image.info.flags & zest_image_flag_sampled && binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
 			binding_number = binding->binding;
 			break;
-		} else if (resource->image_desc.flags & zest_image_flag_sampled && binding->descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
+		} else if (resource->image.info.flags & zest_image_flag_sampled && binding->descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
 			binding_number = binding->binding;
 			break;
-		} else if (resource->image_desc.flags & zest_image_flag_storage && binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
+		} else if (resource->image.info.flags & zest_image_flag_storage && binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) {
 			binding_number = binding->binding;
 			break;
 		}
@@ -9182,7 +9188,7 @@ zest_resource_node zest__add_transient_image_resource(const char *name, const ze
     resource.name = name;
 	resource.id = frame_graph->id_counter++;
     resource.first_usage_pass_idx = ZEST_INVALID;
-    resource.image_desc = *description;
+    resource.image.info = *description;
 	resource.type = description->format == ZestRenderer->depth_format ? zest_resource_type_depth : zest_resource_type_image;
     resource.frame_graph = frame_graph;
     resource.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
@@ -9235,6 +9241,7 @@ zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_r
     description.sample_count = (info->usage_hints & zest_resource_usage_hint_msaa) ? ZestDevice->backend->msaa_samples : VK_SAMPLE_COUNT_1_BIT;
     description.mip_levels = info->mip_levels ? info->mip_levels : 1;
 	description.format = info->format == zest_format_depth ? ZestRenderer->depth_format : info->format;
+    description.aspect_flags = zest__determine_aspect_flag(description.format);
     description.layer_count = info->layer_count;
 	zest_resource_node resource = zest__add_transient_image_resource(name, &description, 0, ZEST_TRUE);
     zest__interpret_hints(resource, info->usage_hints);
@@ -9328,10 +9335,6 @@ zest_resource_node_t zest__create_import_image_resource_node(const char *name, z
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     node.image = *image;
     node.view = image->default_view;
-    node.image_desc.extent.width = (zest_uint)image->info.extent.width;
-    node.image_desc.extent.height = (zest_uint)image->info.extent.height;
-    node.image_desc.sample_count = VK_SAMPLE_COUNT_1_BIT;
-    node.image_desc.mip_levels = image->info.mip_levels;
     node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
     node.producer_pass_idx = -1;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
@@ -9397,12 +9400,8 @@ zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain) {
     node.image.backend = zest__new_frame_graph_image_backend(ZestRenderer->frame_graph_allocator[ZEST_FIF]);
     node.image.backend->vk_format = (VkFormat)swapchain->format;
     node.image.backend->vk_image = swapchain->images[swapchain->current_image_frame].backend->vk_image;
-    node.image_desc.extent.width = (zest_uint)swapchain->size.width;
-    node.image_desc.extent.height = (zest_uint)swapchain->size.height;
+    node.image.info = swapchain->images[0].info;
     node.current_queue_family_index = VK_QUEUE_FAMILY_IGNORED;
-    node.image_desc.mip_levels = 1;
-    node.image_desc.format = zest__from_vk_format(node.image.backend->vk_format);
-    node.image_desc.sample_count = VK_SAMPLE_COUNT_1_BIT;
     node.producer_pass_idx = -1;
     node.image_provider = zest__swapchain_resource_provider;
 	ZEST__FLAG(node.flags, zest_resource_node_flag_imported);
@@ -9502,7 +9501,7 @@ zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node re
 		new_resource.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
 		new_resource.name = last_version->name;
 		new_resource.aliased_resource = versions->resources[0];
-		new_resource.image_desc = resource->image_desc;
+		new_resource.image.info = resource->image.info;
 		new_resource.buffer_desc = resource->buffer_desc;
 		new_resource.id = frame_graph->id_counter++;
         new_resource.version = last_version->version + 1;
@@ -9619,7 +9618,7 @@ zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context co
     ZEST_PRINT_FUNCTION;
     zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, context->frame_graph->bindless_layout.value);
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
-    ZEST_ASSERT(resource->image_desc.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
+    ZEST_ASSERT(resource->image.info.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
     ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
     zest_frame_graph frame_graph = context->frame_graph;
 
@@ -9679,17 +9678,17 @@ zest_uint zest_GetTransientBufferBindlessIndex(const zest_frame_graph_context co
 
 zest_uint zest_GetResourceMipLevels(zest_resource_node resource) {
     ZEST_ASSERT_HANDLE(resource);	//Not a valid resource handle!
-    return resource->image_desc.mip_levels;
+    return resource->image.info.mip_levels;
 }
 
 zest_uint zest_GetResourceWidth(zest_resource_node resource) {
     ZEST_ASSERT_HANDLE(resource);	//Not a valid resource handle!
-    return resource->image_desc.extent.width;
+    return resource->image.info.extent.width;
 }
 
 zest_uint zest_GetResourceHeight(zest_resource_node resource) {
     ZEST_ASSERT_HANDLE(resource);	//Not a valid resource handle!
-    return resource->image_desc.extent.height;
+    return resource->image.info.extent.height;
 }
 
 zest_image zest_GetResourceImage(zest_resource_node resource) {
@@ -9707,7 +9706,7 @@ zest_resource_type zest_GetResourceType(zest_resource_node resource_node) {
 
 zest_image_info_t zest_GetResourceImageDescription(zest_resource_node resource_node) {
 	ZEST_ASSERT_HANDLE(resource_node);   //Not a valid resource handle!
-	return resource_node->image_desc;
+	return resource_node->image.info;
 }
 
 void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha) {
@@ -9773,6 +9772,9 @@ void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node re
 void zest__add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, 
     VkAccessFlags dst_access, VkImageLayout old_layout, VkImageLayout new_layout, zest_uint src_family, zest_uint dst_family, 
     VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage) {
+    if (resource->image.info.aspect_flags == 0) {
+        int d = 0;
+    }
     VkImageMemoryBarrier image_barrier = zest__create_image_memory_barrier(
         VK_NULL_HANDLE,
         src_access,
@@ -9780,7 +9782,7 @@ void zest__add_image_barrier(zest_resource_node resource, zest_execution_barrier
         old_layout,
         new_layout,
         resource->image.info.aspect_flags,
-        0, resource->image_desc.mip_levels);
+        0, resource->image.info.mip_levels);
     image_barrier.srcQueueFamilyIndex = src_family;
     image_barrier.dstQueueFamilyIndex = dst_family;
     if (acquire) {
@@ -9836,7 +9838,7 @@ zest_frame_graph_result zest__create_fg_render_pass(zest_pass_group_t *pass, zes
             zest_resource_usage_t *output_usage = &pass->outputs.data[o];
             zest_resource_node resource = pass->outputs.data[o].resource_node;
             if (resource->type & zest_resource_type_is_image) {
-				if (resource->type != zest_resource_type_depth && ZEST__FLAGGED(pass->flags, zest_pass_flag_output_resolve) && resource->image_desc.sample_count == 1) {
+				if (resource->type != zest_resource_type_depth && ZEST__FLAGGED(pass->flags, zest_pass_flag_output_resolve) && resource->image.info.sample_count == 1) {
                     output_usage->purpose = zest_purpose_color_attachment_resolve;
 				}
                 if (output_usage->purpose == zest_purpose_color_attachment_write) {
@@ -9886,21 +9888,21 @@ zest_frame_graph_result zest__create_fg_render_pass(zest_pass_group_t *pass, zes
         zest_key render_pass_hash = 0;
         zest_uint expected_samples = 0;
         if (zest_vec_size(exe_details->color_attachment_info) > 0) {
-           expected_samples = exe_details->color_attachment_info[0].resource_node->image_desc.sample_count;
+           expected_samples = exe_details->color_attachment_info[0].resource_node->image.info.sample_count;
         }        
         bool is_resolved = (zest_vec_size(exe_details->resolve_attachment_info) > 0);
         zest_vec_foreach(c, exe_details->color_attachment_info) {
             zest_resource_node node = exe_details->color_attachment_info[c].resource_node;
             zest_resource_usage_t *usage_info = exe_details->color_attachment_info[c].usage_info;
             //All attachments must have the same number of sample counts
-            if (expected_samples != node->image_desc.sample_count) {
+            if (expected_samples != node->image.info.sample_count) {
                 ZEST__REPORT(zest_report_invalid_render_pass, "Render pass is invalid. When processing the color attachments the number of samples for resource [%s] was not equal to the expected sample counts. Make sure they're the same for all attachments.", node->name);
                 return zest_fgs_invalid_render_pass;
             }
             if (!zest_map_valid_key(exe_details->attachment_indexes, (zest_key)node)) {
                 VkAttachmentDescription attachment = { 0 };
-                attachment.format = zest__to_vk_format(node->image_desc.format);
-                attachment.samples = node->image_desc.sample_count;
+                attachment.format = zest__to_vk_format(node->image.info.format);
+                attachment.samples = node->image.info.sample_count;
                 attachment.loadOp = zest__to_vk_load_op(usage_info->load_op);
                 attachment.storeOp = is_resolved ? VK_ATTACHMENT_STORE_OP_DONT_CARE : zest__to_vk_store_op(usage_info->store_op);
                 attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -9931,14 +9933,14 @@ zest_frame_graph_result zest__create_fg_render_pass(zest_pass_group_t *pass, zes
             zest_resource_usage_t *usage_info = exe_details->depth_attachment_info.usage_info;
 			zest_key attachment_key = node->swapchain ? (zest_key)node->swapchain : (zest_key)node;
 			//Depth attachment must have the same sample count as the color attachments
-            if (expected_samples != node->image_desc.sample_count) {
+            if (expected_samples != node->image.info.sample_count) {
                 ZEST__REPORT(zest_report_invalid_render_pass, "Render pass is invalid. When processing the depth attachment the number of samples for resource [%s] was not equal to the expected sample counts. Make sure they're the same for all color and depth attachments.", node->name);
                 return zest_fgs_invalid_render_pass;
             }
             if (!zest_map_valid_key(exe_details->attachment_indexes, attachment_key)) {
                 VkAttachmentDescription attachment = { 0 };
-                attachment.format = zest__to_vk_format(node->image_desc.format);
-                attachment.samples = node->image_desc.sample_count;
+                attachment.format = zest__to_vk_format(node->image.info.format);
+                attachment.samples = node->image.info.sample_count;
                 attachment.loadOp = zest__to_vk_load_op(usage_info->load_op);
                 attachment.storeOp = zest__to_vk_store_op(usage_info->store_op);
                 attachment.stencilLoadOp = zest__to_vk_load_op(usage_info->stencil_load_op);
@@ -9965,8 +9967,8 @@ zest_frame_graph_result zest__create_fg_render_pass(zest_pass_group_t *pass, zes
             zest_resource_usage_t *usage_info = exe_details->resolve_attachment_info[c].usage_info;
             if (!zest_map_valid_key(exe_details->attachment_indexes, (zest_key)node)) {
                 VkAttachmentDescription attachment = { 0 };
-                attachment.format = zest__to_vk_format(node->image_desc.format);
-                attachment.samples = node->image_desc.sample_count;
+                attachment.format = zest__to_vk_format(node->image.info.format);
+                attachment.samples = node->image.info.sample_count;
                 attachment.loadOp = zest__to_vk_load_op(usage_info->load_op);
                 attachment.storeOp = zest__to_vk_store_op(usage_info->store_op);
                 attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -10030,7 +10032,7 @@ zest_frame_graph_result zest__create_fg_render_pass(zest_pass_group_t *pass, zes
             reference.layout = zest__to_vk_image_layout(usage_info->image_layout);
             zest_vec_linear_push(allocator, vk_resolve_refs, reference);
             //The resolve attachment format must match the color attachment format that it's resolving from.
-            if (node->image_desc.format != exe_details->color_attachment_info[c].resource_node->image_desc.format) {
+            if (node->image.info.format != exe_details->color_attachment_info[c].resource_node->image.info.format) {
                 ZEST__REPORT(zest_report_invalid_render_pass, "Invalid render pass. The resolve attachment for resource [%s] does not match the same color attachment.", node->name);
                 return zest_fgs_invalid_render_pass;
             }
@@ -10266,7 +10268,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.stage_mask = zest_pipeline_stage_color_attachment_output_bit;
         usage.aspect_flags = zest_image_aspect_color_bit;
         usage.is_output = ZEST_TRUE;
-        resource->image_desc.flags |= zest_image_flag_color_attachment;
+        resource->image.info.flags |= zest_image_flag_color_attachment;
         break;
 
     case zest_purpose_color_attachment_read:
@@ -10274,7 +10276,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.access_mask = zest_access_color_attachment_read_bit;
         usage.stage_mask = zest_pipeline_stage_color_attachment_output_bit;
         usage.aspect_flags = zest_image_aspect_color_bit;
-        resource->image_desc.flags |= zest_image_flag_color_attachment;
+        resource->image.info.flags |= zest_image_flag_color_attachment;
         usage.is_output = ZEST_FALSE;
         break;
 
@@ -10282,7 +10284,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.image_layout = zest_image_layout_shader_read_only_optimal;
         usage.access_mask = zest_access_shader_read_bit;
         usage.stage_mask = relevant_pipeline_stages;
-        resource->image_desc.flags |= zest_image_flag_sampled;
+        resource->image.info.flags |= zest_image_flag_sampled;
         usage.is_output = ZEST_FALSE;
         break;
 
@@ -10290,7 +10292,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.image_layout = zest_image_layout_shader_read_only_optimal;
         usage.access_mask = zest_access_shader_read_bit;
         usage.stage_mask = relevant_pipeline_stages;
-        resource->image_desc.flags |= zest_image_flag_sampled | zest_image_flag_storage;
+        resource->image.info.flags |= zest_image_flag_sampled | zest_image_flag_storage;
         usage.is_output = ZEST_FALSE;
         break;
 
@@ -10298,7 +10300,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.image_layout = zest_image_layout_general;
         usage.access_mask = zest_access_shader_write_bit;
         usage.stage_mask = relevant_pipeline_stages;
-        resource->image_desc.flags |= zest_image_flag_storage;
+        resource->image.info.flags |= zest_image_flag_storage;
         usage.is_output = ZEST_TRUE;
         break;
 
@@ -10306,7 +10308,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.image_layout = zest_image_layout_general;
         usage.access_mask = zest_access_shader_read_bit | zest_access_shader_write_bit;
         usage.stage_mask = relevant_pipeline_stages;
-        resource->image_desc.flags |= zest_image_flag_sampled | zest_image_flag_storage;
+        resource->image.info.flags |= zest_image_flag_sampled | zest_image_flag_storage;
         usage.is_output = ZEST_TRUE;
         break;
 
@@ -10315,7 +10317,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.access_mask = zest_access_depth_stencil_attachment_read_bit;
         usage.stage_mask = zest_pipeline_stage_early_fragment_tests_bit | zest_pipeline_stage_late_fragment_tests_bit;
         usage.aspect_flags = zest_image_aspect_depth_bit;
-        resource->image_desc.flags |= zest_image_flag_depth_stencil_attachment;
+        resource->image.info.flags |= zest_image_flag_depth_stencil_attachment;
         usage.is_output = ZEST_FALSE;
         break;
 
@@ -10327,7 +10329,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         }
         usage.aspect_flags = zest_image_aspect_depth_bit;
         usage.stage_mask = zest_pipeline_stage_early_fragment_tests_bit | zest_pipeline_stage_late_fragment_tests_bit;
-        resource->image_desc.flags |= zest_image_flag_depth_stencil_attachment;
+        resource->image.info.flags |= zest_image_flag_depth_stencil_attachment;
         usage.is_output = ZEST_TRUE;
         break;
 
@@ -10336,7 +10338,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.access_mask = zest_access_depth_stencil_attachment_read_bit | zest_access_depth_stencil_attachment_write_bit;
         usage.stage_mask = zest_pipeline_stage_early_fragment_tests_bit | zest_pipeline_stage_late_fragment_tests_bit;
         usage.aspect_flags = zest_image_aspect_depth_bit;
-        resource->image_desc.flags |= zest_image_flag_depth_stencil_attachment;
+        resource->image.info.flags |= zest_image_flag_depth_stencil_attachment;
         usage.is_output = ZEST_TRUE; // Modifies resource
         break;
 
@@ -10344,7 +10346,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.image_layout = zest_image_layout_shader_read_only_optimal;
         usage.access_mask = zest_access_input_attachment_read_bit;
         usage.stage_mask = relevant_pipeline_stages;
-        resource->image_desc.flags |= zest_image_flag_input_attachment;
+        resource->image.info.flags |= zest_image_flag_input_attachment;
         usage.is_output = ZEST_FALSE;
         break;
 
@@ -10352,7 +10354,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.image_layout = zest_image_layout_transfer_src_optimal;
         usage.access_mask = zest_access_transfer_read_bit;
         usage.stage_mask = zest_pipeline_stage_transfer_bit;
-        resource->image_desc.flags |= zest_image_flag_transfer_src | zest_image_flag_transfer_dst;
+        resource->image.info.flags |= zest_image_flag_transfer_src | zest_image_flag_transfer_dst;
         usage.is_output = ZEST_FALSE;
         break;
 
@@ -10360,7 +10362,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
         usage.image_layout = zest_image_layout_present;
         usage.access_mask = 0; // No specific GPU access by the pass itself for this state.
         usage.stage_mask = zest_pipeline_stage_bottom_of_pipe_bit; // eNSURE ALL PRIOR WORK IS DONE.
-        resource->image_desc.flags |= zest_image_flag_color_attachment;
+        resource->image.info.flags |= zest_image_flag_color_attachment;
         usage.is_output = ZEST_TRUE;
         break;
 
@@ -10371,7 +10373,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
 }
 
 void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value) {
-    zest_resource_usage_t usage = zest__configure_image_usage(image_resource, purpose, image_resource->image_desc.format, load_op, stencil_load_op, relevant_pipeline_stages);
+    zest_resource_usage_t usage = zest__configure_image_usage(image_resource, purpose, image_resource->image.info.format, load_op, stencil_load_op, relevant_pipeline_stages);
 
     // Attachment ops are only relevant for attachment purposes
     // For other usages, they'll default to 0/DONT_CARE which is fine.
@@ -10471,7 +10473,7 @@ void zest_ConnectOutput(zest_resource_node resource) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_pass); //No current pass found. Make sure you call zest_BeginPass
     zest_pass_node pass = ZestRenderer->current_pass;
     if (!ZEST_VALID_HANDLE(resource)) return;
-    if (resource->image_desc.sample_count > 1) {
+    if (resource->image.info.sample_count > 1) {
         ZEST__FLAG(pass->flags, zest_pass_flag_output_resolve);
     }
     if (resource->type & zest_resource_type_is_image) {
@@ -10479,7 +10481,7 @@ void zest_ConnectOutput(zest_resource_node resource) {
         switch (pass->type) {
         case zest_pass_type_graphics: {
             ZEST_ASSERT(resource->type & zest_resource_type_is_image); //Resource must be an image buffer when used as output in a graphics pass
-            if (resource->image_desc.format == zest__from_vk_format(ZestRenderer->depth_format)) {
+            if (resource->image.info.format == zest__from_vk_format(ZestRenderer->depth_format)) {
                 cv.depth_stencil.depth = 1.f;
                 cv.depth_stencil.stencil = 0;
                 zest__add_pass_image_usage(pass, resource, zest_purpose_depth_stencil_attachment_write,
@@ -11156,6 +11158,11 @@ zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_index
 void zest__cleanup_image(zest_image image) {
     zest__cleanup_image_backend(image);
     zest__release_all_global_texture_indexes(image);
+    zest_map_foreach(i, image->mip_indexes) {
+        zest_mip_index_collection *collection = &image->mip_indexes.data[i];
+		zest_vec_free(collection->mip_indexes);
+    }
+    zest_map_free(image->mip_indexes);
     zest__remove_store_resource(&ZestRenderer->images, image->handle.value);
     zest__cleanup_image_view(image->default_view);
     image->magic = 0;
@@ -11558,6 +11565,7 @@ void zest_FreeImageCollection(zest_image_collection image_collection) {
     zest_vec_free(image_collection->image_bitmaps);
     zest_vec_free(image_collection->buffer_copy_regions);
     zest_FreeBitmapArray(&image_collection->bitmap_array);
+    ZEST__FREE(image_collection);
 }
 
 void zest_SetImageHandle(zest_atlas_region image, float x, float y) {
@@ -11615,7 +11623,7 @@ zest_image_handle zest_LoadCubemap(const char *name, const char *file_name) {
     create_info.mip_levels = mip_levels;
     create_info.format = image_collection->format;
     create_info.layer_count = 6;
-    create_info.flags = zest_image_preset_texture | zest_image_flag_transfer_src;
+    create_info.flags = zest_image_preset_texture | zest_image_flag_cubemap | zest_image_flag_transfer_src;
     zest_image_handle image_handle = zest_CreateImage(&create_info);
     zest_image image = (zest_image)zest__get_store_resource(&ZestRenderer->images, image_handle.value);
 
