@@ -1816,6 +1816,28 @@ zest_bool zest__vk_end_single_time_commands() {
 // -- End General helpers
 
 // -- Frame_graph_context_functions
+zest_bool zest_cmd_UploadBuffer(const zest_frame_graph_context context, zest_buffer_uploader_t *uploader) {
+    if (!zest_vec_size(uploader->buffer_copies)) {
+        return ZEST_FALSE;
+    }
+
+    VkBufferCopy *buffer_copies = 0;
+    zest_vec_foreach(i, uploader->buffer_copies) {
+        zest_buffer_copy_t *copy = &uploader->buffer_copies[i];
+        zest_vec_linear_push(ZestRenderer->frame_graph_allocator[ZEST_FIF], buffer_copies, 
+            ((VkBufferCopy){ copy->src_offset, copy->dst_offset, copy->size }));
+    }
+
+    vkCmdCopyBuffer(context->backend->command_buffer, *zest_GetBufferDeviceBuffer(uploader->source_buffer), *zest_GetBufferDeviceBuffer(uploader->target_buffer), zest_vec_size(buffer_copies), buffer_copies);
+
+    zest_vec_clear(uploader->buffer_copies);
+    uploader->flags = 0;
+    uploader->source_buffer = 0;
+    uploader->target_buffer = 0;
+
+    return ZEST_TRUE;
+}
+
 void zest_cmd_DrawIndexed(const zest_frame_graph_context context, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
     ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
     vkCmdDrawIndexed(context->backend->command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);

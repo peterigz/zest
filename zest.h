@@ -2723,12 +2723,18 @@ typedef struct zest_mip_index_collection {
 
 zest_hash_map(zest_mip_index_collection) zest_map_mip_indexes;
 
+typedef struct zest_buffer_copy_t {
+    zest_size src_offset;
+    zest_size dst_offset;
+    zest_size size;
+} zest_buffer_copy_t;
+
 //Simple stuct for uploading buffers from the staging buffer to the device local buffers
 typedef struct zest_buffer_uploader_t {
     zest_buffer_upload_flags flags;
-    zest_buffer_t *source_buffer;           //The source memory allocation (cpu visible staging buffer)
-    zest_buffer_t *target_buffer;           //The target memory allocation that we're uploading to (device local buffer)
-    VkBufferCopy *buffer_copies;            //List of vulkan copy info commands to upload staging buffers to the gpu each frame
+    zest_buffer source_buffer;           //The source memory allocation (cpu visible staging buffer)
+    zest_buffer target_buffer;           //The target memory allocation that we're uploading to (device local buffer)
+    zest_buffer_copy_t *buffer_copies;   //List of vulkan copy info commands to upload staging buffers to the gpu each frame
 } zest_buffer_uploader_t;
 
 // --End Vulkan Buffer Management
@@ -4633,7 +4639,7 @@ ZEST_API VkDescriptorBufferInfo zest_vk_GetBufferInfo(zest_buffer buffer);
 //use this command with zest_cmd_UploadBuffer to upload the buffers that you need. You can call zest_AddCopyCommand multiple times depending on
 //how many buffers you need to upload data for and then call zest_cmd_UploadBuffer passing the zest_buffer_uploader_t to copy all the buffers in
 //one go. For examples see the builtin draw layers that do this like: zest__update_instance_layer_buffers_callback
-ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer_t *source_buffer, zest_buffer_t *target_buffer, VkDeviceSize target_offset);
+ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer_t *source_buffer, zest_buffer_t *target_buffer, zest_size target_offset);
 //Get the default pool size that is set for a specific pool hash.
 ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_key hash);
 //Get the default pool size that is set for a specific combination of usage, property and image flags
@@ -5388,7 +5394,7 @@ ZEST_API zest_bool zest_cmd_CopyBufferOneTime(zest_buffer src_buffer, zest_buffe
 //Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
 //one off copy with a separate command buffer
 ZEST_API void zest_cmd_CopyBuffer(const zest_frame_graph_context context, zest_buffer staging_buffer, zest_buffer device_buffer, VkDeviceSize size);
-ZEST_API zest_bool zest_cmd_UploadBuffer(zest_buffer_uploader_t *uploader, const zest_frame_graph_context context);
+ZEST_API zest_bool zest_cmd_UploadBuffer(const zest_frame_graph_context context, zest_buffer_uploader_t *uploader);
 //Bind a vertex buffer. For use inside a draw routine callback function.
 ZEST_API void zest_cmd_BindVertexBuffer(const zest_frame_graph_context context, zest_buffer buffer);
 //Bind an index buffer. For use inside a draw routine callback function.

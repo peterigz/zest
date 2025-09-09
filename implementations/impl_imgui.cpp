@@ -161,8 +161,8 @@ void zest_imgui_UploadImGuiPass(const zest_frame_graph_context context, void *us
 
     zest_uint vertex_size = zest_vec_size(vertex_upload.buffer_copies);
 
-    zest_cmd_UploadBuffer(&vertex_upload, context);
-    zest_cmd_UploadBuffer(&index_upload, context);
+    zest_cmd_UploadBuffer(context, &vertex_upload);
+    zest_cmd_UploadBuffer(context, &index_upload);
 
     ZestImGui->dirty[ZestImGui->fif] = 0;
 }

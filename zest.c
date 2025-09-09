@@ -3061,38 +3061,22 @@ VkDescriptorBufferInfo zest_vk_GetBufferInfo(zest_buffer buffer) {
     return buffer_info;
 }
 
-void zest_AddCopyCommand(zest_buffer_uploader_t* uploader, zest_buffer_t* source_buffer, zest_buffer_t* target_buffer, VkDeviceSize target_offset) {
-    if (uploader->flags & zest_buffer_upload_flag_initialised)
+void zest_AddCopyCommand(zest_buffer_uploader_t* uploader, zest_buffer_t* source_buffer, zest_buffer_t* target_buffer, zest_size target_offset) {
+    if (uploader->flags & zest_buffer_upload_flag_initialised) {
         ZEST_ASSERT(uploader->source_buffer == source_buffer && uploader->target_buffer == target_buffer);    //Buffer uploads must be to the same source and target ids with each copy. Use a separate BufferUpload for each combination of source and target buffers
+    }
 
     uploader->source_buffer = source_buffer;
     uploader->target_buffer = target_buffer;
     uploader->flags |= zest_buffer_upload_flag_initialised;
 
-    VkBufferCopy buffer_info = { 0 };
-    buffer_info.srcOffset = source_buffer->buffer_offset;
-    buffer_info.dstOffset = target_offset;
+    zest_buffer_copy_t buffer_info = { 0 };
+    buffer_info.src_offset = source_buffer->buffer_offset;
+    buffer_info.dst_offset = target_offset;
     ZEST_ASSERT(source_buffer->memory_in_use <= target_buffer->size + target_offset);
     buffer_info.size = source_buffer->memory_in_use;
     zest_vec_linear_push(ZestRenderer->frame_graph_allocator[ZEST_FIF], uploader->buffer_copies, buffer_info);
     target_buffer->memory_in_use = source_buffer->memory_in_use;
-}
-
-zest_bool zest_cmd_UploadBuffer(zest_buffer_uploader_t* uploader, const zest_frame_graph_context context) {
-    ZEST_PRINT_FUNCTION;
-    ZEST_PRINT_FUNCTION;
-    if (!zest_vec_size(uploader->buffer_copies)) {
-        return ZEST_FALSE;
-    }
-
-    vkCmdCopyBuffer(context->backend->command_buffer, *zest_GetBufferDeviceBuffer(uploader->source_buffer), *zest_GetBufferDeviceBuffer(uploader->target_buffer), zest_vec_size(uploader->buffer_copies), uploader->buffer_copies);
-
-    zest_vec_clear(uploader->buffer_copies);
-    uploader->flags = 0;
-    uploader->source_buffer = 0;
-    uploader->target_buffer = 0;
-
-    return ZEST_TRUE;
 }
 
 zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_key hash) {
@@ -11806,7 +11790,7 @@ void zest_UploadInstanceLayerData(const zest_frame_graph_context context, void *
 
         zest_uint vertex_size = zest_vec_size(instance_upload.buffer_copies);
 
-        zest_cmd_UploadBuffer(&instance_upload, context);
+        zest_cmd_UploadBuffer(context, &instance_upload);
     }
 }
 
@@ -12144,7 +12128,7 @@ void zest_UploadLayerStagingData(zest_layer_handle layer_handle, const zest_fram
 
         zest_uint vertex_size = zest_vec_size(instance_upload.buffer_copies);
 
-        zest_cmd_UploadBuffer(&instance_upload, context);
+        zest_cmd_UploadBuffer(context, &instance_upload);
     }
 }
 
