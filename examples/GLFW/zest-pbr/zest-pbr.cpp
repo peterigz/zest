@@ -145,7 +145,7 @@ void SetupIrradianceCube(ImGuiApp *app) {
 	zest_resource_node irradiance_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
 
 	zest_BeginComputePass(app->irr_compute, "Irradiance compute");
-	zest_ConnectInput(skybox_resource, app->skybox_sampler);
+	zest_ConnectInput(skybox_resource);
 	zest_ConnectOutput(irradiance_resource);
 	zest_SetPassTask(zest_DispatchIrradianceSetup, app);
 	zest_EndPass();
@@ -208,7 +208,7 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 	zest_resource_node prefiltered_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
 
 	zest_BeginComputePass(app->prefiltered_compute, "Prefiltered compute");
-	zest_ConnectInput(skybox_resource, app->skybox_sampler);
+	zest_ConnectInput(skybox_resource);
 	zest_ConnectOutput(prefiltered_resource);
 	zest_SetPassTask(zest_DispatchPrefilteredSetup, app);
 	zest_EndPass();
@@ -559,8 +559,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		//------------------------ Skybox Layer Pass ------------------------------------------------------------
 		zest_BeginRenderPass("Skybox Pass"); {
-			zest_ConnectInput(skybox_texture_resource, app->skybox_sampler);
-			zest_ConnectInput(skybox_layer_resource, { 0 });
+			zest_ConnectInput(skybox_texture_resource);
+			zest_ConnectInput(skybox_layer_resource);
 			zest_ConnectGroupedOutput(group);
 			zest_SetPassTask(zest_cmd_DrawInstanceMeshLayer, &app->skybox_layer);
 			zest_EndPass();
@@ -569,10 +569,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		//------------------------ PBR Layer Pass ------------------------------------------------------------
 		zest_BeginRenderPass("Cube Pass"); {
-			zest_ConnectInput(cube_layer_resource, { 0 });
-			zest_ConnectInput(brd_texture_resource, app->sampler_2d);
-			zest_ConnectInput(irradiance_texture_resource, app->cube_sampler);
-			zest_ConnectInput(prefiltered_texture_resource, app->cube_sampler);
+			zest_ConnectInput(cube_layer_resource);
+			zest_ConnectInput(brd_texture_resource);
+			zest_ConnectInput(irradiance_texture_resource);
+			zest_ConnectInput(prefiltered_texture_resource);
 			zest_ConnectGroupedOutput(group);
 			zest_SetPassTask(zest_cmd_DrawInstanceMeshLayer, &app->cube_layer);
 			zest_EndPass();
