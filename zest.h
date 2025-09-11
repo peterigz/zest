@@ -126,6 +126,7 @@ extern "C" {
 #define ZEST__QUEUE_INDEX(id) ((id & 0xFF000000) >> 24)
 #define ZEST__ALL_MIPS 0xFFFFFFFF
 #define ZEST__ALL_LAYERS 0xFFFFFFFF
+#define ZEST_QUEUE_FAMILY_IGNORED (~0U)
 
 static const char *zest_message_pass_culled = "Pass [%s] culled because there were no outputs.";
 static const char *zest_message_pass_culled_no_work = "Pass [%s] culled because there was no work found.";
@@ -1152,26 +1153,26 @@ typedef enum {
 } zest_store_op;
 
 typedef enum {
-    zest_descriptor_type_sampler = 0,
+    zest_descriptor_type_sampler                = 0,
     zest_descriptor_type_combined_image_sampler = 1,
-    zest_descriptor_type_sampled_image = 2,
-    zest_descriptor_type_storage_image = 3,
-    zest_descriptor_type_uniform_texel_buffer = 4,
-    zest_descriptor_type_storage_texel_buffer = 5,
-    zest_descriptor_type_uniform_buffer = 6,
-    zest_descriptor_type_storage_buffer = 7,
+    zest_descriptor_type_sampled_image          = 2,
+    zest_descriptor_type_storage_image          = 3,
+    zest_descriptor_type_uniform_texel_buffer   = 4,
+    zest_descriptor_type_storage_texel_buffer   = 5,
+    zest_descriptor_type_uniform_buffer         = 6,
+    zest_descriptor_type_storage_buffer         = 7,
     zest_descriptor_type_uniform_buffer_dynamic = 8,
     zest_descriptor_type_storage_buffer_dynamic = 9,
-    zest_descriptor_type_input_attachment = 10,
+    zest_descriptor_type_input_attachment       = 10,
 } zest_descriptor_type;
 
 typedef enum zest_frustum_side { zest_LEFT = 0, zest_RIGHT = 1, zest_TOP = 2, zest_BOTTOM = 3, zest_BACK = 4, zest_FRONT = 5 } zest_frustum_size;
 
 typedef enum {
-    ZEST_ALL_MIPS = 0xffffffff,
-    ZEST_QUEUE_COUNT = 3,
+    ZEST_ALL_MIPS             = 0xffffffff,
+    ZEST_QUEUE_COUNT          = 3,
     ZEST_GRAPHICS_QUEUE_INDEX = 0,
-    ZEST_COMPUTE_QUEUE_INDEX = 1,
+    ZEST_COMPUTE_QUEUE_INDEX  = 1,
     ZEST_TRANSFER_QUEUE_INDEX = 2,
     ZEST_TRANSIENT_COMPATIBLE_FLAGS = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
     ZEST_TRANSIENT_NON_COMPATIBLE_FLAGS = ~(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
@@ -1600,9 +1601,9 @@ typedef enum zest_frame_graph_flag_bits {
 typedef zest_uint zest_frame_graph_flags;
 
 typedef enum {
-    zest_access_write_bits_general = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
-    zest_access_read_bits_general = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
-    zest_access_render_pass_bits = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+    zest_access_write_bits_general = zest_access_shader_write_bit | zest_access_color_attachment_write_bit | zest_access_depth_stencil_attachment_write_bit | zest_access_transfer_write_bit,
+    zest_access_read_bits_general = zest_access_shader_read_bit | zest_access_color_attachment_read_bit | zest_access_depth_stencil_attachment_read_bit | zest_access_transfer_read_bit | zest_access_index_read_bit | zest_access_vertex_attribute_read_bit | zest_access_indirect_command_read_bit,
+    zest_access_render_pass_bits = zest_access_depth_stencil_attachment_read_bit | zest_access_color_attachment_read_bit | zest_access_depth_stencil_attachment_write_bit | zest_access_color_attachment_write_bit,
 } zest_general_access_bits;
 
 typedef enum zest_resource_purpose {
@@ -1817,7 +1818,6 @@ typedef struct zest_shader_resources_backend_t zest_shader_resources_backend_t;
 typedef struct zest_descriptor_pool_backend_t zest_descriptor_pool_backend_t;
 typedef struct zest_descriptor_set_backend_t zest_descriptor_set_backend_t;
 typedef struct zest_set_layout_backend_t zest_set_layout_backend_t;
-typedef struct zest_resource_backend_t zest_resource_backend_t;
 typedef struct zest_pipeline_backend_t zest_pipeline_backend_t;
 typedef struct zest_compute_backend_t zest_compute_backend_t;
 typedef struct zest_image_backend_t zest_image_backend_t;
@@ -1827,6 +1827,8 @@ typedef struct zest_submission_batch_backend_t zest_submission_batch_backend_t;
 typedef struct zest_execution_backend_t zest_execution_backend_t;
 typedef struct zest_frame_graph_semaphores_backend_t zest_frame_graph_semaphores_backend_t;
 typedef struct zest_render_pass_backend_t zest_render_pass_backend_t;
+typedef struct zest_execution_timeline_backend_t zest_execution_timeline_backend_t;
+typedef struct zest_execution_barriers_backend_t zest_execution_barriers_backend_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_image)
@@ -1877,7 +1879,6 @@ ZEST__MAKE_HANDLE(zest_shader_resources_backend)
 ZEST__MAKE_HANDLE(zest_descriptor_pool_backend)
 ZEST__MAKE_HANDLE(zest_descriptor_set_backend)
 ZEST__MAKE_HANDLE(zest_set_layout_backend)
-ZEST__MAKE_HANDLE(zest_resource_backend)
 ZEST__MAKE_HANDLE(zest_pipeline_backend)
 ZEST__MAKE_HANDLE(zest_compute_backend)
 ZEST__MAKE_HANDLE(zest_image_backend)
@@ -1886,6 +1887,8 @@ ZEST__MAKE_HANDLE(zest_sampler_backend)
 ZEST__MAKE_HANDLE(zest_submission_batch_backend)
 ZEST__MAKE_HANDLE(zest_execution_backend)
 ZEST__MAKE_HANDLE(zest_render_pass_backend)
+ZEST__MAKE_HANDLE(zest_execution_timeline_backend)
+ZEST__MAKE_HANDLE(zest_execution_barriers_backend)
 
 ZEST__MAKE_USER_HANDLE(zest_shader_resources)
 ZEST__MAKE_USER_HANDLE(zest_image)
@@ -2800,6 +2803,7 @@ typedef struct zest_image_info_t {
     zest_image_aspect_flags aspect_flags;
     zest_sample_count_flags sample_count;
     zest_image_flags flags;
+    zest_image_layout layout;
 } zest_image_info_t;
 
 typedef struct zest_image_t {
@@ -2836,6 +2840,12 @@ typedef struct zest_sampler_t {
     zest_sampler_backend backend;
     zest_sampler_info_t create_info;
 } zest_sampler_t;
+
+typedef struct zest_execution_timeline_t {
+    int magic;
+    zest_execution_timeline_backend backend;
+    zest_u64 current_value;
+} zest_execution_timeline_t;
 
 typedef struct zest_swapchain_t {
     int magic;
@@ -3033,26 +3043,6 @@ typedef struct zest_timestamp_duration_s {
     double milliseconds;
 } zest_timestamp_duration_t;
 
-typedef struct zest_platform_t {
-    //Frame Graph Platform Commands
-    zest_bool(*begin_command_buffer)(const zest_frame_graph_context context);
-    void(*end_command_buffer)(const zest_frame_graph_context context);
-    zest_bool(*set_next_command_buffer)(const zest_frame_graph_context context, zest_queue queue);
-    void(*acquire_barrier)(const zest_frame_graph_context context, zest_execution_details_t *exe_details);
-    void(*release_barrier)(const zest_frame_graph_context context, zest_execution_details_t *exe_details);
-    void*(*new_execution_backend)(zloc_linear_allocator_t *allocator);
-	void(*set_execution_fence)(zest_execution_backend backend, zest_bool is_intraframe);
-	zest_frame_graph_semaphores(*get_frame_graph_semaphores)(const char *name);
-    zest_bool(*submit_frame_graph_batch)(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues);
-    zest_frame_graph_result(*create_fg_render_pass)(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
-    zest_bool(*begin_render_pass)(const zest_frame_graph_context context, zest_execution_details_t *exe_details);
-    void(*end_render_pass)(const zest_frame_graph_context context);
-    void(*carry_over_semaphores)(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
-    zest_bool(*frame_graph_fence_wait)(zest_execution_backend backend);
-    //Create backends
-    void*(*new_frame_graph_semaphores_backend)(void);
-} zest_platform_t;
-
 //frame_graph_types
 
 typedef void (*zest_rg_execution_callback)(const zest_frame_graph_context context, void *user_data);
@@ -3102,18 +3092,11 @@ typedef struct zest_pass_queue_info_t {
 }zest_pass_queue_info_t;
 
 typedef struct zest_execution_barriers_t {
-    VkImageMemoryBarrier *acquire_image_barriers;
-    VkBufferMemoryBarrier *acquire_buffer_barriers;
-    VkImageMemoryBarrier *release_image_barriers;
-    VkBufferMemoryBarrier *release_buffer_barriers;
+    zest_execution_barriers_backend backend;
     zest_resource_node *acquire_image_barrier_nodes;
     zest_resource_node *acquire_buffer_barrier_nodes;
     zest_resource_node *release_image_barrier_nodes;
     zest_resource_node *release_buffer_barrier_nodes;
-    VkPipelineStageFlags overall_src_stage_mask_for_acquire_barriers;
-    VkPipelineStageFlags overall_dst_stage_mask_for_acquire_barriers;
-    VkPipelineStageFlags overall_src_stage_mask_for_release_barriers;
-    VkPipelineStageFlags overall_dst_stage_mask_for_release_barriers;
 } zest_execution_barriers_t;
 
 typedef struct zest_temp_attachment_info_t { 
@@ -3188,6 +3171,7 @@ typedef struct zest_resource_node_t {
     zest_vec4 clear_color;
 
     zest_image_t image;
+    zest_image_layout *linked_layout;
     zest_image_view view;
     zest_image_view_array view_array;
     zest_buffer storage_buffer;
@@ -3199,7 +3183,9 @@ typedef struct zest_resource_node_t {
     zest_uint current_state_index;
     zest_uint current_queue_family_index;
 
-    zest_resource_backend backend;
+	zest_image_layout image_layout;
+	zest_access_flags access_mask;
+	zest_pipeline_stage_flags last_stage_mask;
 
     zest_resource_state_t *journey;                 // List of the different states this resource has over the render graph, used to build barriers where needed
     int producer_pass_idx;                          // Index of the pass that writes/creates this resource (-1 if imported)
@@ -3384,11 +3370,6 @@ ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
 ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
 ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(const char *name);
-ZEST_PRIVATE void zest__add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access, 
-    VkImageLayout old_layout, VkImageLayout new_layout, zest_uint src_family, zest_uint dst_family, 
-    VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
-ZEST_PRIVATE void zest__add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, VkAccessFlags src_access, VkAccessFlags dst_access, 
-     zest_uint src_family, zest_uint dst_family, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage);
 ZEST_PRIVATE zest_frame_graph_result zest__create_fg_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
 ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
 ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_bool is_intraframe);
@@ -4055,6 +4036,40 @@ typedef struct zest_renderer_t {
     void *slang_info;
 } zest_renderer_t;
 
+typedef struct zest_platform_t {
+    //Frame Graph Platform Commands
+    zest_bool(*begin_command_buffer)(const zest_frame_graph_context context);
+    void(*end_command_buffer)(const zest_frame_graph_context context);
+    zest_bool(*set_next_command_buffer)(const zest_frame_graph_context context, zest_queue queue);
+    void(*acquire_barrier)(const zest_frame_graph_context context, zest_execution_details_t *exe_details);
+    void(*release_barrier)(const zest_frame_graph_context context, zest_execution_details_t *exe_details);
+    void*(*new_execution_backend)(zloc_linear_allocator_t *allocator);
+	void(*set_execution_fence)(zest_execution_backend backend, zest_bool is_intraframe);
+	zest_frame_graph_semaphores(*get_frame_graph_semaphores)(const char *name);
+    zest_bool(*submit_frame_graph_batch)(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues);
+    zest_frame_graph_result(*create_fg_render_pass)(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
+    zest_bool(*begin_render_pass)(const zest_frame_graph_context context, zest_execution_details_t *exe_details);
+    void(*end_render_pass)(const zest_frame_graph_context context);
+    void(*carry_over_semaphores)(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
+    zest_bool(*frame_graph_fence_wait)(zest_execution_backend backend);
+    zest_bool(*create_execution_timeline_backend)(zest_execution_timeline timeline);
+    void(*add_frame_graph_buffer_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers, 
+                                     zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access,
+                                     zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, 
+                                     zest_pipeline_stage_flags dst_stage);
+    void(*add_frame_graph_image_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire,
+        zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout,
+        zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
+    void(*validate_barrier_pipeline_stages)(zest_execution_barriers_t *barriers);
+    void(*print_compiled_frame_graph)(zest_frame_graph frame_graph);
+    //Create backends
+    void*(*new_frame_graph_semaphores_backend)(void);
+    void*(*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
+    //Cleanup backends
+    void(*cleanup_frame_graph_semaphore)(zest_frame_graph_semaphores semaphores);
+    void(*cleanup_render_pass)(zest_render_pass render_pass);
+} zest_platform_t;
+
 extern zest_device_t *ZestDevice;
 extern zest_app_t *ZestApp;
 extern zest_renderer_t *ZestRenderer;
@@ -4226,9 +4241,7 @@ ZEST_PRIVATE zest_bool zest__create_sampler(zest_sampler sampler);
 ZEST_PRIVATE int zest__get_image_raw_layout(zest_image image);
 ZEST_PRIVATE zest_bool zest__transition_image_layout(zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 ZEST_PRIVATE zest_bool zest__generate_mipmaps(zest_image image);
-ZEST_PRIVATE VkImageMemoryBarrier zest__create_image_memory_barrier(VkImage image, VkAccessFlags from_access, VkAccessFlags to_access, VkImageLayout from_layout, VkImageLayout to_layout, VkImageAspectFlags aspect_flags, zest_uint target_mip_level, zest_uint mip_count);
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_base_image_memory_barrier(VkImage image);
-ZEST_PRIVATE VkBufferMemoryBarrier zest__create_buffer_memory_barrier( VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkDeviceSize offset, VkDeviceSize size);
 ZEST_PRIVATE void zest__insert_image_memory_barrier(VkCommandBuffer cmdbuffer, VkImage image, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkImageSubresourceRange subresourceRange);
 ZEST_PRIVATE void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier);
 ZEST_PRIVATE VkFormat zest__find_depth_format(void);
@@ -5579,6 +5592,17 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     ZEST_PRIVATE zest_bool zest__vk_generate_mipmaps(zest_image image);
     ZEST_PRIVATE zest_bool zest__vk_begin_single_time_commands();
     ZEST_PRIVATE zest_bool zest__vk_end_single_time_commands();
+    ZEST_PRIVATE zest_bool zest__vk_create_execution_timeline_backend(zest_execution_timeline timeline);
+	ZEST_PRIVATE void zest__vk_add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, 
+        zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, 
+        zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
+	ZEST_PRIVATE void zest__vk_add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access, 
+		zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
+    ZEST_PRIVATE void zest__vk_validate_barrier_pipeline_stages(zest_execution_barriers_t *barriers);
+    ZEST_PRIVATE void* zest__vk_new_execution_barriers_backend(zloc_linear_allocator_t *allocator);
+    ZEST_PRIVATE void zest__vk_cleanup_frame_graph_semaphore(zest_frame_graph_semaphores semaphores);
+    ZEST_PRIVATE void zest__vk_cleanup_render_pass(zest_render_pass render_pass);
+	ZEST_PRIVATE void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph);
 
     //Create new things
 	void *zest__new_device_backend(void) {
@@ -5698,7 +5722,11 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     zest_bool zest__transition_image_layout(zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count) {
         mip_levels = ZEST__MIN(mip_levels, image->info.mip_levels);
         layer_count = ZEST__MIN(layer_count, image->info.layer_count);
-        return zest__vk_transition_image_layout(image, new_layout, base_mip_index, mip_levels, base_array_index, layer_count);
+        if (zest__vk_transition_image_layout(image, new_layout, base_mip_index, mip_levels, base_array_index, layer_count)) {
+            image->info.layout = new_layout;
+            return ZEST_TRUE;
+        }
+        return ZEST_FALSE;
     }
     zest_bool zest__copy_buffer_regions_to_image(zest_buffer_image_copy_t *regions, zest_buffer buffer, zest_size src_offset, zest_image image) {
         return zest__vk_copy_buffer_regions_to_image(regions, buffer, src_offset, image);
