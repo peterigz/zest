@@ -3270,12 +3270,6 @@ typedef struct zest_resource_versions_t {
     zest_resource_node *resources;
 }zest_resource_versions_t;
 
-static const VkPipelineStageFlags zest__queue_semaphore_wait_stages[ZEST_QUEUE_COUNT] = {
-	VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
-	VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-	VK_PIPELINE_STAGE_TRANSFER_BIT
-};
-
 typedef struct zest_cached_frame_graph_t {
     void *memory;
     zest_frame_graph frame_graph;
@@ -3362,7 +3356,6 @@ ZEST_PRIVATE void zest__deferr_image_destruction(zest_image image);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type);
 ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource);
 ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource);
-ZEST_PRIVATE VkResult zest__create_queue_command_pool(int queue_family_index, VkCommandPool *command_pool);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_image image);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
 ZEST_PRIVATE zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain);
@@ -3371,15 +3364,14 @@ ZEST_PRIVATE zest_uint zest__get_buffer_binding_number(zest_resource_node resour
 ZEST_PRIVATE zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_info_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
 ZEST_PRIVATE zest_bool zest__create_transient_resource(zest_resource_node resource);
 ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
-ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output);
-ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
+ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output);
+ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
 ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(const char *name);
-ZEST_PRIVATE zest_frame_graph_result zest__create_fg_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
 ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
 ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_bool is_intraframe);
 ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers, 
                                            zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
-ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, VkFormat format, zest_load_op load_op, zest_load_op stencil_load_op, VkPipelineStageFlags relevant_pipeline_stages);
+ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_texture_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages);
 ZEST_PRIVATE zest_image_usage_flags zest__get_image_usage_from_state(zest_resource_state state);
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
 ZEST_PRIVATE void zest__set_rg_error_status(zest_frame_graph frame_graph, zest_frame_graph_result result);
@@ -3387,11 +3379,6 @@ ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_frame_graph frame_grap
 ZEST_PRIVATE void zest__cache_frame_graph(zest_frame_graph frame_graph);
 ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_key);
 ZEST_PRIVATE zest_frame_graph zest__get_cached_frame_graph(zest_key key);
-
-// Helper functions to convert enums to strings 
-ZEST_PRIVATE const char *zest__vulkan_image_layout_to_string(VkImageLayout layout);
-ZEST_PRIVATE zest_text_t zest__vulkan_access_flags_to_string(VkAccessFlags flags);
-ZEST_PRIVATE zest_text_t zest__vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
 
 // --- Dynamic resource callbacks ---
 ZEST_PRIVATE zest_image_view zest__swapchain_resource_provider(zest_resource_node resource);
@@ -5554,6 +5541,11 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE zest_bool zest__vk_dummy_submit_for_present_only(void);
 	ZEST_PRIVATE zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain);
 	// --End_Frame_graph_platform_functions
+
+	// Helper functions to convert enums to strings 
+	ZEST_PRIVATE const char *zest__vk_image_layout_to_string(VkImageLayout layout);
+	ZEST_PRIVATE zest_text_t zest__vk_access_flags_to_string(VkAccessFlags flags);
+	ZEST_PRIVATE zest_text_t zest__vk_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
 
 	//Glue
 	ZEST_PRIVATE void *zest__vk_new_device_backend(void);

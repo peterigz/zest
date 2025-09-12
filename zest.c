@@ -5198,17 +5198,6 @@ zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets) {
     return draw_sets ? zest_vec_size(draw_sets) : 0;
 }
 
-VkResult zest__create_queue_command_pool(int queue_family_index, VkCommandPool *command_pool) {
-    ZEST_PRINT_FUNCTION;
-	VkCommandPoolCreateInfo cmd_info_pool = { 0 };
-	cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	cmd_info_pool.queueFamilyIndex = queue_family_index;
-	cmd_info_pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-	ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_command_pool);
-    ZEST_VK_ASSERT_RESULT(vkCreateCommandPool(ZestDevice->backend->logical_device, &cmd_info_pool, &ZestDevice->backend->allocation_callbacks, command_pool));
-    return VK_SUCCESS;
-}
-
 zest_pipeline_template zest_BeginPipelineTemplate(const char* name) {
     zest_pipeline_template pipeline_template = ZEST__NEW(zest_pipeline_template);
     *pipeline_template = (zest_pipeline_template_t){ 0 };
@@ -7556,14 +7545,12 @@ zest_frame_graph zest__compile_frame_graph() {
                     wait_stage_for_acquire_semaphore = first_swapchain_usage_stage_in_this_batch;
                     // Ensure this stage is compatible with the batch's queue
                     if (!zest__is_stage_compatible_with_qfi(wait_stage_for_acquire_semaphore, ZestDevice->queues[queue_index]->type)) {
-                        zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(wait_stage_for_acquire_semaphore);
-                        ZEST_PRINT("Swapchain usage stage %s is not compatible with queue family %u for wave submission %i",
-                            pipeline_stage.str,
+                        ZEST_PRINT("Swapchain usage stage %i is not compatible with queue family %u for wave submission %i",
+                            wait_stage_for_acquire_semaphore,
                             first_batch_to_wait->queue_family_index, submission_index);
                         // Fallback or error. Forcing TOP_OF_PIPE might be safer if this happens,
                         // though it indicates a graph definition error.
                         wait_stage_for_acquire_semaphore = zest_pipeline_stage_top_of_pipe_bit;
-                        zest_FreeText(&pipeline_stage);
                     }
                 }
             }
@@ -7603,11 +7590,9 @@ zest_frame_graph zest__compile_frame_graph() {
                     zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_image_available_semaphore, 0 };
                     zest_vec_linear_push(allocator, first_batch->wait_semaphores, semaphore_reference);
                     zest_vec_linear_push(allocator, first_batch->wait_dst_stage_masks, compatible_dummy_wait_stage);
-                    zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(compatible_dummy_wait_stage);
-                    ZEST_PRINT("RenderGraph: Swapchain image acquired but not used by any pass. First batch (on QFI %u) will wait on imageAvailableSemaphore at stage %s.",
+                    ZEST_PRINT("RenderGraph: Swapchain image acquired but not used by any pass. First batch (on QFI %u) will wait on imageAvailableSemaphore at stage %i.",
                         queue_family_index,
-                        pipeline_stage.str);
-                    zest_FreeText(&pipeline_stage);
+                        compatible_dummy_wait_stage);
                 }
             }
         }
@@ -8087,105 +8072,6 @@ zest_key zest_GetPassOutputKey(zest_pass_node pass) {
 
 bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph) {
     return ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_executed);
-}
-
-const char *zest__vulkan_image_layout_to_string(VkImageLayout layout) {
-    switch (layout) {
-    case VK_IMAGE_LAYOUT_UNDEFINED: return "UNDEFINED"; break;
-	case VK_IMAGE_LAYOUT_GENERAL : return "GENERAL"; break;
-	case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : return "COLOR_ATTACHMENT_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : return "DEPTH_STENCIL_ATTACHMENT_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : return "DEPTH_STENCIL_READ_ONLY_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : return "SHADER_READ_ONLY_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : return "TRANSFER_SRC_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL : return "TRANSFER_DST_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_PREINITIALIZED : return "PREINITIALIZED"; break;
-	case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL : return "DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL : return "DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL : return "DEPTH_ATTACHMENT_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL : return "DEPTH_READ_ONLY_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL : return "STENCIL_ATTACHMENT_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL : return "STENCIL_READ_ONLY_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL : return "READ_ONLY_OPTIMAL"; break;
-	case VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL : return "ATTACHMENT_OPTIMAL"; break;
-	default: return "Unknown Layout";
-    }
-}
-
-zest_text_t zest__vulkan_access_flags_to_string(VkAccessFlags flags) {
-    zest_text_t string = { 0 };
-    if (!flags) {
-		zest_AppendTextf(&string, "%s", "NONE");
-        return string;
-    }
-    zloc_size flags_field = flags;
-    while (flags_field) {
-        if (zest_TextSize(&string)) {
-            zest_AppendTextf(&string, ", ");
-        }
-        zest_uint index = zloc__scan_forward(flags_field);
-        switch (1ull << index) {
-        case VK_ACCESS_INDIRECT_COMMAND_READ_BIT: zest_AppendTextf(&string, "%s", "INDIRECT_COMMAND_READ_BIT"); break;
-		case VK_ACCESS_INDEX_READ_BIT : zest_AppendTextf(&string, "%s", "INDEX_READ_BIT"); break;
-		case VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT : zest_AppendTextf(&string, "%s", "VERTEX_ATTRIBUTE_READ_BIT"); break;
-		case VK_ACCESS_UNIFORM_READ_BIT : zest_AppendTextf(&string, "%s", "UNIFORM_READ_BIT"); break;
-		case VK_ACCESS_INPUT_ATTACHMENT_READ_BIT : zest_AppendTextf(&string, "%s", "INPUT_ATTACHMENT_READ_BIT"); break;
-		case VK_ACCESS_SHADER_READ_BIT : zest_AppendTextf(&string, "%s", "SHADER_READ_BIT"); break;
-		case VK_ACCESS_SHADER_WRITE_BIT : zest_AppendTextf(&string, "%s", "SHADER_WRITE_BIT"); break;
-		case VK_ACCESS_COLOR_ATTACHMENT_READ_BIT : zest_AppendTextf(&string, "%s", "COLOR_ATTACHMENT_READ_BIT"); break;
-		case VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : zest_AppendTextf(&string, "%s", "COLOR_ATTACHMENT_WRITE_BIT"); break;
-		case VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT : zest_AppendTextf(&string, "%s", "DEPTH_STENCIL_ATTACHMENT_READ_BIT"); break;
-		case VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT : zest_AppendTextf(&string, "%s", "DEPTH_STENCIL_ATTACHMENT_WRITE_BIT"); break;
-		case VK_ACCESS_TRANSFER_READ_BIT : zest_AppendTextf(&string, "%s", "TRANSFER_READ_BIT"); break;
-		case VK_ACCESS_TRANSFER_WRITE_BIT : zest_AppendTextf(&string, "%s", "TRANSFER_WRITE_BIT"); break;
-		case VK_ACCESS_HOST_READ_BIT : zest_AppendTextf(&string, "%s", "HOST_READ_BIT"); break;
-		case VK_ACCESS_HOST_WRITE_BIT : zest_AppendTextf(&string, "%s", "HOST_WRITE_BIT"); break;
-		case VK_ACCESS_MEMORY_READ_BIT : zest_AppendTextf(&string, "%s", "MEMORY_READ_BIT"); break;
-		case VK_ACCESS_MEMORY_WRITE_BIT : zest_AppendTextf(&string, "%s", "MEMORY_WRITE_BIT"); break;
-		case VK_ACCESS_NONE : zest_AppendTextf(&string, "%s", "NONE"); break;
-		default: zest_AppendTextf(&string, "%s", "Unknown Access Flags"); break;
-        }
-        flags_field &= ~(1ull << index);
-    }
-    return string;
-}
-
-zest_text_t zest__vulkan_pipeline_stage_flags_to_string(VkPipelineStageFlags flags) {
-    zest_text_t string = { 0 };
-    if (!flags) {
-		zest_AppendTextf(&string, "%s", "NONE");
-        return string;
-    }
-    zloc_size flags_field = flags;
-    while (flags_field) {
-        if (zest_TextSize(&string)) {
-            zest_AppendTextf(&string, ", ");
-        }
-        zest_uint index = zloc__scan_forward(flags_field);
-        switch (1ull << index) {
-        case VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT: zest_AppendTextf(&string, "%s", "TOP_OF_PIPE_BIT"); break;
-        case VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT: zest_AppendTextf(&string, "%s", "DRAW_INDIRECT_BIT"); break;
-        case VK_PIPELINE_STAGE_VERTEX_INPUT_BIT: zest_AppendTextf(&string, "%s", "VERTEX_INPUT_BIT"); break;
-        case VK_PIPELINE_STAGE_VERTEX_SHADER_BIT: zest_AppendTextf(&string, "%s", "VERTEX_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT: zest_AppendTextf(&string, "%s", "TESSELLATION_CONTROL_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT: zest_AppendTextf(&string, "%s", "TESSELLATION_EVALUATION_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT: zest_AppendTextf(&string, "%s", "GEOMETRY_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT: zest_AppendTextf(&string, "%s", "FRAGMENT_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT: zest_AppendTextf(&string, "%s", "EARLY_FRAGMENT_TESTS_BIT"); break;
-        case VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT: zest_AppendTextf(&string, "%s", "LATE_FRAGMENT_TESTS_BIT"); break;
-        case VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT: zest_AppendTextf(&string, "%s", "COLOR_ATTACHMENT_OUTPUT_BIT"); break;
-        case VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT: zest_AppendTextf(&string, "%s", "COMPUTE_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_TRANSFER_BIT: zest_AppendTextf(&string, "%s", "TRANSFER_BIT"); break;
-        case VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT: zest_AppendTextf(&string, "%s", "BOTTOM_OF_PIPE_BIT"); break;
-        case VK_PIPELINE_STAGE_HOST_BIT: zest_AppendTextf(&string, "%s", "HOST_BIT"); break;
-        case VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT: zest_AppendTextf(&string, "%s", "ALL_GRAPHICS_BIT"); break;
-        case VK_PIPELINE_STAGE_ALL_COMMANDS_BIT: zest_AppendTextf(&string, "%s", "ALL_COMMANDS_BIT"); break;
-        case VK_PIPELINE_STAGE_NONE: zest_AppendTextf(&string, "%s", "NONE"); break;
-        default: zest_AppendTextf(&string, "%s", "Unknown Pipeline Stage"); break;
-        }
-        flags_field &= ~(1ull << index);
-    }
-    return string;
 }
 
 void zest_PrintCachedRenderGraph(zest_frame_graph_cache_key_t *cache_key) {
@@ -9039,7 +8925,7 @@ void zest_SetResourceClearColor(zest_resource_node resource, float red, float gr
     resource->clear_color = (zest_vec4){red, green, blue, alpha};
 }
 
-void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output) {
+void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output) {
     zest_resource_usage_t usage = { 0 };    
     usage.resource_node = resource;
     usage.purpose = purpose;
@@ -9227,7 +9113,7 @@ zest_vk_barrier_info_t zest__purpose_to_barrier_info(zest_resource_purpose purpo
     return barrier_info;
 }
 
-zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, VkFormat format, zest_load_op load_op, zest_load_op stencil_load_op, VkPipelineStageFlags relevant_pipeline_stages) {
+zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_texture_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages) {
 
     zest_resource_usage_t usage = { 0 };
 
@@ -9353,7 +9239,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
 	return usage;
 }
 
-void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, VkPipelineStageFlags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value) {
+void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value) {
     zest_resource_usage_t usage = zest__configure_image_usage(image_resource, purpose, image_resource->image.info.format, load_op, stencil_load_op, relevant_pipeline_stages);
 
     // Attachment ops are only relevant for attachment purposes
