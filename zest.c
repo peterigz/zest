@@ -1652,6 +1652,9 @@ void zest__initialise_platform_for_vulkan() {
     ZestPlatform->validate_barrier_pipeline_stages          = zest__vk_validate_barrier_pipeline_stages;
     ZestPlatform->print_compiled_frame_graph                = zest__vk_print_compiled_frame_graph;
     ZestPlatform->deferr_framebuffer_destruction            = zest__vk_deferr_framebuffer_destruction;
+    ZestPlatform->present_frame                             = zest__vk_present_frame;
+    ZestPlatform->dummy_submit_for_present_only             = zest__vk_dummy_submit_for_present_only;
+    ZestPlatform->acquire_swapchain_image                   = zest__vk_acquire_swapchain_image;
 
     ZestPlatform->new_execution_backend                     = zest__vk_new_execution_backend;
     ZestPlatform->new_frame_graph_semaphores_backend        = zest__vk_new_frame_graph_semaphores_backend;
@@ -2107,8 +2110,8 @@ void zest__main_loop(void) {
         //that the fence is always signalled and another frame can happen
         if (ZEST__FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired)) {
             if (ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_work_was_submitted)) {
-                zest__dummy_submit_for_present_only();
-				zest__present_frame(ZestRenderer->main_swapchain);
+                ZestPlatform->dummy_submit_for_present_only();
+				ZestPlatform->present_frame(ZestRenderer->main_swapchain);
             }
         }
 
@@ -6346,90 +6349,6 @@ void zest__update_pipeline_template(zest_pipeline_template pipeline_template) {
     }
 }
 
-VkResult zest__present_frame(zest_swapchain swapchain) {
-    ZEST_PRINT_FUNCTION;
-    VkPresentInfoKHR presentInfo = { 0 };
-    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores = &swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
-    VkSwapchainKHR swapChains[] = { swapchain->backend->vk_swapchain };
-    presentInfo.swapchainCount = 1;
-    presentInfo.pSwapchains = swapChains;
-    presentInfo.pImageIndices = &swapchain->current_image_frame;
-    presentInfo.pResults = ZEST_NULL;
-
-    VkResult result = vkQueuePresentKHR(ZestDevice->graphics_queue.backend->vk_queue, &presentInfo);
-
-    if ((ZestRenderer->flags & zest_renderer_flag_schedule_change_vsync) || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || swapchain->window->framebuffer_resized) {
-        swapchain->window->framebuffer_resized = ZEST_FALSE;
-        ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
-
-        zest__recreate_swapchain(swapchain);
-    }
-
-    ZestDevice->previous_fif = ZestDevice->current_fif;
-    ZestDevice->current_fif = (ZestDevice->current_fif + 1) % ZEST_MAX_FIF;
-
-    return result;
-}
-
-VkResult zest__dummy_submit_for_present_only(void) {
-    ZEST_PRINT_FUNCTION;
-    vkResetCommandPool(ZestDevice->backend->logical_device, ZestDevice->backend->one_time_command_pool[ZEST_FIF], 0); // Or use appropriate reset flags
-
-    VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(ZestRenderer->backend->utility_command_buffer[ZEST_FIF], &beginInfo);
-
-    VkImageMemoryBarrier image_barrier = { 0 };
-    image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    image_barrier.srcAccessMask = 0; // Coming from UNDEFINED after acquire
-    image_barrier.dstAccessMask = 0; // Presentation engine doesn't have a GPU access mask
-    image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    image_barrier.srcQueueFamilyIndex = ZEST_QUEUE_FAMILY_IGNORED;
-    image_barrier.dstQueueFamilyIndex = ZEST_QUEUE_FAMILY_IGNORED;
-    zest_swapchain swapchain = ZestRenderer->main_swapchain;
-    image_barrier.image = swapchain->images[swapchain->current_image_frame].backend->vk_image;
-    image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    image_barrier.subresourceRange.baseMipLevel = 0;
-    image_barrier.subresourceRange.levelCount = 1;
-    image_barrier.subresourceRange.baseArrayLayer = 0;
-    image_barrier.subresourceRange.layerCount = 1;
-
-    vkCmdPipelineBarrier(
-        ZestRenderer->backend->utility_command_buffer[ZEST_FIF],
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,      // Stage for source (acquire happens before pipeline)
-        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,   // Ensure transition completes before present can occur
-        // (or VK_PIPELINE_STAGE_ALL_COMMANDS_BIT if simpler)
-        0,                                      // Dependency flags
-        0, NULL,                                // Global Memory Barriers
-        0, NULL,                                // Buffer Memory Barriers
-        1, &image_barrier                       // Image Memory Barriers
-    );
-
-    vkEndCommandBuffer(ZestRenderer->backend->utility_command_buffer[ZEST_FIF]);
-
-    VkPipelineStageFlags wait_stage_array[] = { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT }; 
-    VkSubmitInfo submit_info = { 0 };
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &ZestRenderer->main_swapchain->backend->vk_image_available_semaphore[ZEST_FIF];
-    submit_info.pWaitDstStageMask = wait_stage_array;
-
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &ZestRenderer->main_swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
-
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &ZestRenderer->backend->utility_command_buffer[ZEST_FIF];
-
-    VkFence fence = ZestRenderer->backend->fif_fence[ZEST_FIF][0];
-    ZestRenderer->fence_count[ZEST_FIF] = 1;
-    ZEST_VK_ASSERT_RESULT(vkQueueSubmit(ZestDevice->graphics_queue.backend->vk_queue, 1, &submit_info, fence));
-    return VK_SUCCESS;
-}
 // --End Renderer functions
 
 // --General Helper Functions
@@ -6742,19 +6661,6 @@ zest_frame_graph zest__new_frame_graph(const char *name) {
     return frame_graph;
 }
 
-VkSemaphore zest__get_semaphore_reference(zest_frame_graph frame_graph, zest_semaphore_reference_t *reference) {
-    switch (reference->type) {
-    case zest_dynamic_resource_image_available_semaphore:
-        ZEST_ASSERT_HANDLE(frame_graph->swapchain);
-        return frame_graph->swapchain->backend->vk_image_available_semaphore[ZEST_FIF];
-        break;
-    case zest_dynamic_resource_render_finished_semaphore:
-        return frame_graph->swapchain->backend->vk_render_finished_semaphore[frame_graph->swapchain->current_image_frame];
-        break;
-    }
-    return VK_NULL_HANDLE;
-}
-
 zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_key) {
     zest_key key = zest_Hash(&cache_key->auto_state, sizeof(zest_frame_graph_auto_state_t), ZEST_HASH_SEED);
     if (cache_key->user_state && cache_key->user_state_size) {
@@ -6853,16 +6759,17 @@ bool zest_BeginFrameGraphSwapchain(zest_swapchain swapchain, const char *name, z
     if (zest_BeginFrameGraph(name, cache_key)) {
         zest_frame_graph frame_graph = ZestRenderer->current_frame_graph;
         if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_cached)) {
-			if (!zest_AcquireSwapChainImage(swapchain)) {
+			if (!ZestPlatform->acquire_swapchain_image(swapchain)) {
 				ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_frame_graph);
 				ZEST_PRINT("Unable to acquire the swap chain!");
 				return false;
 			}
+			ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired);
+			ZEST__UNFLAG(swapchain->flags, zest_swapchain_flag_was_recreated);
 			zest__execute_frame_graph(ZEST_FALSE);
 
 			if (ZEST_VALID_HANDLE(frame_graph->swapchain) && ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_present_after_execute)) {
-				ZestRenderer->backend->last_result = zest__present_frame(frame_graph->swapchain);
-                ZEST_VK_PRINT_RESULT(ZestRenderer->backend->last_result);
+				ZestPlatform->present_frame(frame_graph->swapchain);
 			} 
             return false;
         }
@@ -6871,11 +6778,13 @@ bool zest_BeginFrameGraphSwapchain(zest_swapchain swapchain, const char *name, z
         return false;
     }
     ZEST_ASSERT(ZEST__NOT_FLAGGED(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired));    //Swap chain was already acquired. Only one frame graph can output to the swap chain per frame.
-    if (!zest_AcquireSwapChainImage(swapchain)) {
+    if (!ZestPlatform->acquire_swapchain_image(swapchain)) {
         ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_building_frame_graph);
         ZEST_PRINT("Unable to acquire the swap chain!");
         return false;
     }
+	ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired);
+	ZEST__UNFLAG(swapchain->flags, zest_swapchain_flag_was_recreated);
 	zest__import_swapchain_resource(swapchain);
     return true;
 }
@@ -7046,7 +6955,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
             //Make sure that the batch that this resource is in (at this point) has the correct wait
             //stage to wait on.
             zest_submission_batch_t *batch = zest__get_submission_batch(current_state->submission_id);
-            batch->backend->queue_wait_stages |= zest_pipeline_stage_top_of_pipe_bit;
+            batch->queue_wait_stages |= zest_pipeline_stage_top_of_pipe_bit;
         }
     }
     if (next_state) {
@@ -7502,7 +7411,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     current_submission.batches[qi].backend = zest__new_submission_batch_backend();
                     current_submission.batches[qi].queue = pass->queue_info.queue;
                     current_submission.batches[qi].queue_family_index = pass->queue_info.queue_family_index;
-                    current_submission.batches[qi].backend->timeline_wait_stage = pass->queue_info.timeline_wait_stage;
+                    current_submission.batches[qi].timeline_wait_stage = pass->queue_info.timeline_wait_stage;
                     current_submission.batches[qi].queue_type = pass->queue_info.queue_type;
                     current_submission.batches[qi].need_timeline_wait = interframe_has_waited[qi] ? ZEST_FALSE : ZEST_TRUE;
                     interframe_has_waited[qi] = ZEST_TRUE;
@@ -7528,7 +7437,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     current_submission.batches[qi].backend = zest__new_submission_batch_backend();
                     current_submission.batches[qi].queue = pass->queue_info.queue;
                     current_submission.batches[qi].queue_family_index = pass->queue_info.queue_family_index;
-                    current_submission.batches[qi].backend->timeline_wait_stage = pass->queue_info.timeline_wait_stage;
+                    current_submission.batches[qi].timeline_wait_stage = pass->queue_info.timeline_wait_stage;
                     current_submission.batches[qi].queue_type = pass->queue_info.queue_type;
                     current_submission.batches[qi].need_timeline_wait = interframe_has_waited[qi] ? ZEST_FALSE : ZEST_TRUE;
                     interframe_has_waited[qi] = ZEST_TRUE;
@@ -7577,7 +7486,7 @@ zest_frame_graph zest__compile_frame_graph() {
                         zest_pass_group_t *producer_pass = &frame_graph->final_passes.data[resource_node->producer_pass_idx];
                         zest_uint producer_queue_index = ZEST__QUEUE_INDEX(producer_pass->submission_id);
                         if (queue_index != producer_queue_index) {
-                            batch->backend->queue_wait_stages |= current_pass->inputs.data[input_idx].stage_mask;
+                            batch->queue_wait_stages |= current_pass->inputs.data[input_idx].stage_mask;
                         }
                     }
                     zest_resource_state_t state = { 0 };
@@ -7664,7 +7573,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 // The first batch that actually uses the swapchain will wait for it.
 				zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_image_available_semaphore, 0 };
                 zest_vec_linear_push(allocator, first_batch_to_wait->wait_semaphores, semaphore_reference);
-                zest_vec_linear_push(allocator, first_batch_to_wait->backend->wait_dst_stage_masks, wait_stage_for_acquire_semaphore);
+                zest_vec_linear_push(allocator, first_batch_to_wait->wait_dst_stage_masks, wait_stage_for_acquire_semaphore);
             } else {
                 // Image was acquired, but no pass in the graph uses it.
                 // The *very first submission batch of the graph* must wait on the semaphore to consume it.
@@ -7693,7 +7602,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 if (first_batch) {
                     zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_image_available_semaphore, 0 };
                     zest_vec_linear_push(allocator, first_batch->wait_semaphores, semaphore_reference);
-                    zest_vec_linear_push(allocator, first_batch->backend->wait_dst_stage_masks, compatible_dummy_wait_stage);
+                    zest_vec_linear_push(allocator, first_batch->wait_dst_stage_masks, compatible_dummy_wait_stage);
                     zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(compatible_dummy_wait_stage);
                     ZEST_PRINT("RenderGraph: Swapchain image acquired but not used by any pass. First batch (on QFI %u) will wait on imageAvailableSemaphore at stage %s.",
                         queue_family_index,
@@ -7821,7 +7730,7 @@ zest_frame_graph zest__compile_frame_graph() {
                             src_queue_family_index, dst_queue_family_index,
                             prev_state->usage.stage_mask, current_state->usage.stage_mask);
                         zest_submission_batch_t *batch = zest__get_submission_batch(current_state->submission_id);
-                        batch->backend->queue_wait_stages |= prev_state->usage.stage_mask;
+                        batch->queue_wait_stages |= prev_state->usage.stage_mask;
                     }
                 }
                 if (next_state) {
@@ -7913,8 +7822,7 @@ zest_frame_graph zest_EndFrameGraph() {
         zest__execute_frame_graph(ZEST_FALSE);
 
         if (ZEST_VALID_HANDLE(frame_graph->swapchain) && ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_present_after_execute)) {
-			ZestRenderer->backend->last_result = zest__present_frame(frame_graph->swapchain);
-			ZEST_VK_PRINT_RESULT(ZestRenderer->backend->last_result);
+			ZestPlatform->present_frame(frame_graph->swapchain);
         }
     } else {
         ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_work_was_submitted);
@@ -8800,22 +8708,6 @@ zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffe
     zest_resource_node node = zest__add_frame_graph_resource(&resource);
     node->access_mask = buffer->backend->last_access_mask;
     return node;
-}
-
-zest_bool zest_AcquireSwapChainImage(zest_swapchain swapchain) {
-    ZEST_PRINT_FUNCTION;
-    ZEST_ASSERT_HANDLE(swapchain);
-    VkResult result = vkAcquireNextImageKHR(ZestDevice->backend->logical_device, swapchain->backend->vk_swapchain, UINT64_MAX, swapchain->backend->vk_image_available_semaphore[ZEST_FIF], ZEST_NULL, &swapchain->current_image_frame);
-
-    //Has the window been resized? if so rebuild the swap chain.
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-        zest__recreate_swapchain(swapchain);
-        return ZEST_FALSE;
-    }
-    ZEST_RETURN_FALSE_ON_FAIL(result);
-    ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_swap_chain_was_acquired);
-    ZEST__UNFLAG(swapchain->flags, zest_swapchain_flag_was_recreated);
-    return ZEST_TRUE;
 }
 
 zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain) {

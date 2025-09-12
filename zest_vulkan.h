@@ -7,6 +7,7 @@ Zest Vulkan Implementation
     -- [Inline_helpers]
     -- [Initialisation_functions]
     -- [Swapchain_setup]
+    -- [Swapchain_presenting]
     -- [Backend_setup_functions]
     -- [Backend_cleanup_functions]
     -- [Images]
@@ -66,10 +67,6 @@ typedef struct zest_device_memory_pool_backend_t {
 typedef struct zest_submission_batch_backend_t {
     VkSemaphore *final_wait_semaphores;
     VkSemaphore *final_signal_semaphores;
-	VkPipelineStageFlags *wait_stages;
-    VkPipelineStageFlags timeline_wait_stage;
-    VkPipelineStageFlags queue_wait_stages;
-    VkPipelineStageFlags *wait_dst_stage_masks;
 } zest_submission_batch_backend_t;
 
 typedef struct zest_frame_graph_semaphores_backend_t {
@@ -292,6 +289,19 @@ inline VkImageMemoryBarrier zest__vk_create_image_memory_barrier(VkImage image, 
     barrier.srcAccessMask = from_access;
     barrier.dstAccessMask = to_access;
     return barrier;
+}
+
+inline VkSemaphore zest__vk_get_semaphore_reference(zest_frame_graph frame_graph, zest_semaphore_reference_t *reference) {
+    switch (reference->type) {
+    case zest_dynamic_resource_image_available_semaphore:
+        ZEST_ASSERT_HANDLE(frame_graph->swapchain);
+        return (VkSemaphore)frame_graph->swapchain->backend->vk_image_available_semaphore[ZEST_FIF];
+        break;
+    case zest_dynamic_resource_render_finished_semaphore:
+        return (VkSemaphore)frame_graph->swapchain->backend->vk_render_finished_semaphore[frame_graph->swapchain->current_image_frame];
+        break;
+    }
+    return VK_NULL_HANDLE;
 }
 // -- End Inline_helpers
 
@@ -531,7 +541,105 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
 
     return ZEST_TRUE;
 }
-// -- End Swapchain setup
+// -- End Swapchain_setup
+
+// -- Swapchain_presenting
+zest_bool zest__vk_dummy_submit_for_present_only(void) {
+    ZEST_RETURN_FALSE_ON_FAIL(vkResetCommandPool(ZestDevice->backend->logical_device, ZestDevice->backend->one_time_command_pool[ZEST_FIF], 0));
+
+    VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    ZEST_RETURN_FALSE_ON_FAIL(vkBeginCommandBuffer(ZestRenderer->backend->utility_command_buffer[ZEST_FIF], &beginInfo));
+
+    VkImageMemoryBarrier image_barrier = { 0 };
+    image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    image_barrier.srcAccessMask = 0; 
+    image_barrier.dstAccessMask = 0; 
+    image_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    image_barrier.srcQueueFamilyIndex = ZEST_QUEUE_FAMILY_IGNORED;
+    image_barrier.dstQueueFamilyIndex = ZEST_QUEUE_FAMILY_IGNORED;
+    zest_swapchain swapchain = ZestRenderer->main_swapchain;
+    image_barrier.image = swapchain->images[swapchain->current_image_frame].backend->vk_image;
+    image_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_barrier.subresourceRange.baseMipLevel = 0;
+    image_barrier.subresourceRange.levelCount = 1;
+    image_barrier.subresourceRange.baseArrayLayer = 0;
+    image_barrier.subresourceRange.layerCount = 1;
+
+    vkCmdPipelineBarrier(
+        ZestRenderer->backend->utility_command_buffer[ZEST_FIF],
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,      
+        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,   
+        0,                                      
+        0, NULL,                               
+        0, NULL,                              
+        1, &image_barrier                    
+    );
+
+    ZEST_RETURN_FALSE_ON_FAIL(vkEndCommandBuffer(ZestRenderer->backend->utility_command_buffer[ZEST_FIF]));
+
+    VkPipelineStageFlags wait_stage_array[] = { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT }; 
+    VkSubmitInfo submit_info = { 0 };
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &ZestRenderer->main_swapchain->backend->vk_image_available_semaphore[ZEST_FIF];
+    submit_info.pWaitDstStageMask = wait_stage_array;
+
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &ZestRenderer->main_swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
+
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &ZestRenderer->backend->utility_command_buffer[ZEST_FIF];
+
+    VkFence fence = ZestRenderer->backend->fif_fence[ZEST_FIF][0];
+    ZestRenderer->fence_count[ZEST_FIF] = 1;
+    ZEST_RETURN_FALSE_ON_FAIL(vkQueueSubmit(ZestDevice->graphics_queue.backend->vk_queue, 1, &submit_info, fence));
+
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_present_frame(zest_swapchain swapchain) {
+    VkPresentInfoKHR presentInfo = { 0 };
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = &swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
+    VkSwapchainKHR swapChains[] = { swapchain->backend->vk_swapchain };
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = swapChains;
+    presentInfo.pImageIndices = &swapchain->current_image_frame;
+    presentInfo.pResults = ZEST_NULL;
+
+    VkResult result = vkQueuePresentKHR(ZestDevice->graphics_queue.backend->vk_queue, &presentInfo);
+    ZestRenderer->backend->last_result = result;
+
+    if ((ZestRenderer->flags & zest_renderer_flag_schedule_change_vsync) || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || swapchain->window->framebuffer_resized) {
+        swapchain->window->framebuffer_resized = ZEST_FALSE;
+        ZEST__UNFLAG(ZestRenderer->flags, zest_renderer_flag_schedule_change_vsync);
+
+        zest__recreate_swapchain(swapchain);
+    }
+
+    ZestDevice->previous_fif = ZestDevice->current_fif;
+    ZestDevice->current_fif = (ZestDevice->current_fif + 1) % ZEST_MAX_FIF;
+
+    return result == VK_SUCCESS;
+}
+
+zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain) {
+    VkResult result = vkAcquireNextImageKHR(ZestDevice->backend->logical_device, swapchain->backend->vk_swapchain, UINT64_MAX, swapchain->backend->vk_image_available_semaphore[ZEST_FIF], ZEST_NULL, &swapchain->current_image_frame);
+    ZestRenderer->backend->last_result = result;
+    //Has the window been resized? if so rebuild the swap chain.
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+        zest__recreate_swapchain(swapchain);
+        return ZEST_FALSE;
+    }
+    return ZEST_TRUE;
+}
+// -- End Swapchain_presenting
+
 
 // -- Initialisation_functions
 zest_bool zest__vk_initialise_device() {
@@ -2626,21 +2734,21 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     if (wait_value > 0 && batch->need_timeline_wait) {
         zest_vec_linear_push(allocator, wait_semaphores, queue->backend->semaphore[wait_index]);
         zest_vec_linear_push(allocator, wait_values, wait_value);
-        zest_vec_linear_push(allocator, wait_stages, batch->backend->timeline_wait_stage);
+        zest_vec_linear_push(allocator, wait_stages, zest__to_vk_pipeline_stage(batch->timeline_wait_stage));
     }
 
     //Wait on the semaphores from the previous wave
     zest_vec_foreach(semaphore_index, backend->wave_wait_semaphores) {
         zest_vec_linear_push(allocator, wait_semaphores, backend->wave_wait_semaphores[semaphore_index]);
-        zest_vec_linear_push(allocator, wait_stages, batch->backend->queue_wait_stages);
+        zest_vec_linear_push(allocator, wait_stages, zest__to_vk_pipeline_stage(batch->queue_wait_stages));
         zest_vec_linear_push(allocator, wait_values, backend->wave_wait_values[semaphore_index]);
     }
 
     //Wait for any extra semaphores such as the acquire image semaphore
     zest_vec_foreach(semaphore_index, batch->wait_semaphores) {
-        VkSemaphore dynamic_semaphore = zest__get_semaphore_reference(frame_graph, &batch->wait_semaphores[semaphore_index]);
+        VkSemaphore dynamic_semaphore = zest__vk_get_semaphore_reference(frame_graph, &batch->wait_semaphores[semaphore_index]);
         zest_vec_linear_push(allocator, wait_semaphores, dynamic_semaphore);
-        zest_vec_linear_push(allocator, wait_stages, batch->backend->wait_dst_stage_masks[semaphore_index]);
+        zest_vec_linear_push(allocator, wait_stages, zest__to_vk_pipeline_stage(batch->wait_dst_stage_masks[semaphore_index]));
         zest_vec_linear_push(allocator, wait_values, 0);
     }
 
@@ -2667,7 +2775,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 
     //push any additional binary semaphores in the batch
     zest_vec_foreach(semaphore_index, batch->signal_semaphores) {
-        VkSemaphore dynamic_semaphore = zest__get_semaphore_reference(frame_graph, &batch->signal_semaphores[semaphore_index]);
+        VkSemaphore dynamic_semaphore = zest__vk_get_semaphore_reference(frame_graph, &batch->signal_semaphores[semaphore_index]);
         zest_vec_linear_push(allocator, signal_semaphores, dynamic_semaphore);
         zest_vec_linear_push(allocator, signal_values, 0);
     }
@@ -2707,7 +2815,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 
     batch->backend->final_wait_semaphores = wait_semaphores;
     batch->backend->final_signal_semaphores = signal_semaphores;
-    batch->backend->wait_stages = wait_stages;
+    batch->wait_stages = wait_stages;
     batch->wait_values = wait_values;
     batch->signal_values = signal_values;
 
@@ -3647,7 +3755,7 @@ void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {
                 // This stage should ideally be stored with the batch submission info by EndRenderGraph
                 ZEST_PRINT("  Waits on the following Semaphores:");
                 zest_vec_foreach(semaphore_index, batch->backend->final_wait_semaphores) {
-                    zest_text_t pipeline_stages = zest__vulkan_pipeline_stage_flags_to_string(batch->backend->wait_stages[semaphore_index]);
+                    zest_text_t pipeline_stages = zest__vulkan_pipeline_stage_flags_to_string(zest__to_vk_pipeline_stage(batch->wait_stages[semaphore_index]));
                     if (zest_vec_size(batch->wait_values) && batch->wait_values[semaphore_index] > 0) {
                         ZEST_PRINT("     Timeline Semaphore: %p, Value: %zu at Stage: %s", (void *)batch->backend->final_wait_semaphores[semaphore_index], batch->wait_values[semaphore_index], pipeline_stages.str);
                     } else {
