@@ -1829,6 +1829,7 @@ typedef struct zest_frame_graph_semaphores_backend_t zest_frame_graph_semaphores
 typedef struct zest_render_pass_backend_t zest_render_pass_backend_t;
 typedef struct zest_execution_timeline_backend_t zest_execution_timeline_backend_t;
 typedef struct zest_execution_barriers_backend_t zest_execution_barriers_backend_t;
+typedef struct zest_deferred_destruction_backend_t zest_deferred_destruction_backend_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_image)
@@ -1889,6 +1890,7 @@ ZEST__MAKE_HANDLE(zest_execution_backend)
 ZEST__MAKE_HANDLE(zest_render_pass_backend)
 ZEST__MAKE_HANDLE(zest_execution_timeline_backend)
 ZEST__MAKE_HANDLE(zest_execution_barriers_backend)
+ZEST__MAKE_HANDLE(zest_deferred_destruction_backend)
 
 ZEST__MAKE_USER_HANDLE(zest_shader_resources)
 ZEST__MAKE_USER_HANDLE(zest_image)
@@ -2957,6 +2959,7 @@ typedef struct zest_queue_t {
     zest_u64 signal_value;
     zest_bool has_waited;
     zest_uint next_buffer;
+    zest_device_queue_type type;
     zest_queue_backend backend;
 } zest_queue_t;
 
@@ -3087,7 +3090,7 @@ typedef struct zest_resource_state_t {
 typedef struct zest_pass_queue_info_t {
     zest_queue queue;
     zest_uint queue_family_index;
-    VkPipelineStageFlags timeline_wait_stage;
+    zest_pipeline_stage_flags timeline_wait_stage;
     zest_device_queue_type queue_type;
 }zest_pass_queue_info_t;
 
@@ -3222,7 +3225,7 @@ typedef struct zest_destruction_queue_t {
     zest_image_t *images[ZEST_MAX_FIF];
     zest_image_view_t *views[ZEST_MAX_FIF];
     zest_binding_index_for_release_t *binding_indexes[ZEST_MAX_FIF];
-	VkFramebuffer *frame_buffers[ZEST_MAX_FIF];             
+    zest_deferred_destruction_backend backend;
 } zest_destruction_queue_t;
 
 typedef struct zest_render_pass_t {
@@ -3350,7 +3353,7 @@ typedef struct zest_frame_graph_t {
 ZEST_API zest_bool zest_AcquireSwapChainImage(zest_swapchain swapchain);
 
 // --- Internal render graph function ---
-ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(VkPipelineStageFlags stages_to_check, VkQueueFlags queue_family_capabilities);
+ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities);
 ZEST_PRIVATE zest_image_layout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage);
 ZEST_PRIVATE zest_image_aspect_flags zest__determine_aspect_flag(zest_texture_format format);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
@@ -4065,9 +4068,16 @@ typedef struct zest_platform_t {
     //Create backends
     void*(*new_frame_graph_semaphores_backend)(void);
     void*(*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
+    void*(*new_deferred_desctruction_backend)(void);
     //Cleanup backends
     void(*cleanup_frame_graph_semaphore)(zest_frame_graph_semaphores semaphores);
     void(*cleanup_render_pass)(zest_render_pass render_pass);
+    void(*cleanup_image_backend)(zest_image image);
+    void(*cleanup_image_view_backend)(zest_image_view image_view);
+    void(*cleanup_deferred_framebuffers)(void);
+    void(*cleanup_deferred_destruction_backend)(void);
+    //Misc
+    void(*deferr_framebuffer_destruction)(void* frame_buffer);
 } zest_platform_t;
 
 extern zest_device_t *ZestDevice;
@@ -4125,10 +4135,8 @@ ZEST_PRIVATE void zest__cleanup_buffer_backend(zest_buffer buffer);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer_backend(zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__cleanup_compute_backend(zest_compute compute);
 ZEST_PRIVATE void zest__cleanup_pipeline_backend(zest_pipeline pipeline);
-ZEST_PRIVATE void zest__cleanup_image_backend(zest_image image);
 ZEST_PRIVATE void zest__cleanup_sampler_backend(zest_sampler sampler);
 ZEST_PRIVATE void zest__cleanup_queue_backend(zest_queue queue);
-ZEST_PRIVATE void zest__cleanup_image_view_backend(zest_image_view view);
 ZEST_PRIVATE void zest__cleanup_image_view_array_backend(zest_image_view_array view);
 ZEST_PRIVATE void zest__cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor_set set);
 ZEST_PRIVATE void zest__cleanup_shader_resources_backend(zest_shader_resources shader_resources);
@@ -5539,6 +5547,8 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     ZEST_PRIVATE void zest__vk_end_command_buffer(const zest_frame_graph_context context);
     ZEST_PRIVATE void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
     ZEST_PRIVATE zest_bool zest__vk_frame_graph_fence_wait(zest_execution_backend backend);
+    ZEST_PRIVATE void zest__vk_deferr_framebuffer_destruction(void *framebuffer);
+    ZEST_PRIVATE void zest__vk_cleanup_deferred_framebuffers(void);
 	// --End_Frame_graph_platform_functions
 
 	//Glue
@@ -5558,6 +5568,8 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE void *zest__vk_new_queue_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_frame_graph_semaphores_backend(void);
+	ZEST_PRIVATE void *zest__vk_new_deferred_destruction_backend(void);
+
 	ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute);
 	ZEST_PRIVATE void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation);
 	ZEST_PRIVATE void zest__vk_cleanup_window_backend(zest_window window);
@@ -5573,6 +5585,7 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE void zest__vk_cleanup_image_view_array_backend(zest_image_view_array view);
 	ZEST_PRIVATE void zest__vk_cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor_set set);
 	ZEST_PRIVATE void zest__vk_cleanup_shader_resources_backend(zest_shader_resources shader_resource);
+	ZEST_PRIVATE void zest__vk_cleanup_deferred_destruction_backend(void);
     ZEST_PRIVATE zest_bool zest__vk_create_window_surface(zest_window window);
     ZEST_PRIVATE zest_bool zest__vk_initialise_device();
     ZEST_PRIVATE zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window window);
@@ -5673,17 +5686,11 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     void zest__cleanup_pipeline_backend(zest_pipeline pipeline) {
         zest__vk_cleanup_pipeline_backend(pipeline);
     }
-    void zest__cleanup_image_backend(zest_image image) {
-        zest__vk_cleanup_image_backend(image);
-    }
     void zest__cleanup_sampler_backend(zest_sampler image) {
         zest__vk_cleanup_sampler_backend(image);
     }
     void zest__cleanup_queue_backend(zest_queue queue) {
         zest__vk_cleanup_queue_backend(queue);
-    }
-    void zest__cleanup_image_view_backend(zest_image_view view) {
-        zest__vk_cleanup_image_view_backend(view);
     }
     void zest__cleanup_image_view_array_backend(zest_image_view_array view_array) {
         zest__vk_cleanup_image_view_array_backend(view_array);

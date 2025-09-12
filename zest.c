@@ -1632,30 +1632,37 @@ void zest__initialise_platform(zest_platform_type type) {
 }
 
 void zest__initialise_platform_for_vulkan() {
-    ZestPlatform->begin_command_buffer               = zest__vk_begin_command_buffer;
-    ZestPlatform->end_command_buffer                 = zest__vk_end_command_buffer;
-    ZestPlatform->set_next_command_buffer            = zest__vk_set_next_command_buffer;
-    ZestPlatform->set_execution_fence                = zest__vk_set_execution_fence;
-    ZestPlatform->acquire_barrier                    = zest__vk_acquire_barrier;
-    ZestPlatform->release_barrier                    = zest__vk_release_barrier;
-    ZestPlatform->get_frame_graph_semaphores         = zest__vk_get_frame_graph_semaphores;
-    ZestPlatform->submit_frame_graph_batch           = zest__vk_submit_frame_graph_batch;
-    ZestPlatform->create_fg_render_pass              = zest__vk_create_fg_render_pass;
-    ZestPlatform->begin_render_pass                  = zest__vk_begin_render_pass;
-    ZestPlatform->end_render_pass                    = zest__vk_end_render_pass;
-    ZestPlatform->carry_over_semaphores              = zest__vk_carry_over_semaphores;
-    ZestPlatform->frame_graph_fence_wait             = zest__vk_frame_graph_fence_wait;
-    ZestPlatform->create_execution_timeline_backend  = zest__vk_create_execution_timeline_backend;
-    ZestPlatform->cleanup_frame_graph_semaphore      = zest__vk_cleanup_frame_graph_semaphore;
-    ZestPlatform->cleanup_render_pass                = zest__vk_cleanup_render_pass;
-    ZestPlatform->new_execution_barriers_backend     = zest__vk_new_execution_barriers_backend;
-    ZestPlatform->add_frame_graph_buffer_barrier     = zest__vk_add_memory_buffer_barrier;
-    ZestPlatform->add_frame_graph_image_barrier      = zest__vk_add_image_barrier;
-    ZestPlatform->validate_barrier_pipeline_stages   = zest__vk_validate_barrier_pipeline_stages;
-    ZestPlatform->print_compiled_frame_graph         = zest__vk_print_compiled_frame_graph;
+    ZestPlatform->begin_command_buffer                      = zest__vk_begin_command_buffer;
+    ZestPlatform->end_command_buffer                        = zest__vk_end_command_buffer;
+    ZestPlatform->set_next_command_buffer                   = zest__vk_set_next_command_buffer;
+    ZestPlatform->set_execution_fence                       = zest__vk_set_execution_fence;
+    ZestPlatform->acquire_barrier                           = zest__vk_acquire_barrier;
+    ZestPlatform->release_barrier                           = zest__vk_release_barrier;
+    ZestPlatform->get_frame_graph_semaphores                = zest__vk_get_frame_graph_semaphores;
+    ZestPlatform->submit_frame_graph_batch                  = zest__vk_submit_frame_graph_batch;
+    ZestPlatform->create_fg_render_pass                     = zest__vk_create_fg_render_pass;
+    ZestPlatform->begin_render_pass                         = zest__vk_begin_render_pass;
+    ZestPlatform->end_render_pass                           = zest__vk_end_render_pass;
+    ZestPlatform->carry_over_semaphores                     = zest__vk_carry_over_semaphores;
+    ZestPlatform->frame_graph_fence_wait                    = zest__vk_frame_graph_fence_wait;
+    ZestPlatform->create_execution_timeline_backend         = zest__vk_create_execution_timeline_backend;
+    ZestPlatform->new_execution_barriers_backend            = zest__vk_new_execution_barriers_backend;
+    ZestPlatform->add_frame_graph_buffer_barrier            = zest__vk_add_memory_buffer_barrier;
+    ZestPlatform->add_frame_graph_image_barrier             = zest__vk_add_image_barrier;
+    ZestPlatform->validate_barrier_pipeline_stages          = zest__vk_validate_barrier_pipeline_stages;
+    ZestPlatform->print_compiled_frame_graph                = zest__vk_print_compiled_frame_graph;
+    ZestPlatform->deferr_framebuffer_destruction            = zest__vk_deferr_framebuffer_destruction;
 
-    ZestPlatform->new_execution_backend              = zest__vk_new_execution_backend;
-    ZestPlatform->new_frame_graph_semaphores_backend = zest__vk_new_frame_graph_semaphores_backend;
+    ZestPlatform->new_execution_backend                     = zest__vk_new_execution_backend;
+    ZestPlatform->new_frame_graph_semaphores_backend        = zest__vk_new_frame_graph_semaphores_backend;
+    ZestPlatform->new_deferred_desctruction_backend         = zest__vk_new_deferred_destruction_backend;
+
+    ZestPlatform->cleanup_frame_graph_semaphore             = zest__vk_cleanup_frame_graph_semaphore;
+    ZestPlatform->cleanup_render_pass                       = zest__vk_cleanup_render_pass;
+    ZestPlatform->cleanup_image_backend                     = zest__vk_cleanup_image_backend;
+    ZestPlatform->cleanup_image_view_backend                = zest__vk_cleanup_image_view_backend;
+    ZestPlatform->cleanup_deferred_framebuffers             = zest__vk_cleanup_deferred_framebuffers;
+    ZestPlatform->cleanup_deferred_destruction_backend      = zest__vk_cleanup_deferred_destruction_backend;
 }
 
 void zest_Start() {
@@ -1998,11 +2005,11 @@ void zest__do_scheduled_tasks(void) {
     
     if (zest_vec_size(ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF])) {
         zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF]) {
-            zest_image_t *image = &ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF][i];
+            zest_image image = &ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF][i];
+            ZestPlatform->cleanup_image_backend(image);
             zest_FreeBuffer(image->buffer);
-            vkDestroyImage(ZestDevice->backend->logical_device, image->backend->vk_image, &ZestDevice->backend->allocation_callbacks);
             if (image->default_view) {
-				vkDestroyImageView(ZestDevice->backend->logical_device, image->default_view->backend->vk_view, &ZestDevice->backend->allocation_callbacks);
+				ZestPlatform->cleanup_image_view_backend(image->default_view);
             }
         }
 		zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.images[ZEST_FIF]);
@@ -2010,17 +2017,13 @@ void zest__do_scheduled_tasks(void) {
 
     if (zest_vec_size(ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF])) {
         zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF]) {
-            zest_image_view_t *view = &ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF][i];
-            vkDestroyImageView(ZestDevice->backend->logical_device, view->backend->vk_view, &ZestDevice->backend->allocation_callbacks);
+            zest_image_view view = &ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF][i];
+            ZestPlatform->cleanup_image_view_backend(view);
         }
 		zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF]);
     }
 
-    zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.frame_buffers[ZEST_FIF]) {
-        VkFramebuffer frame_buffer = ZestRenderer->deferred_resource_freeing_list.frame_buffers[ZEST_FIF][i];
-		vkDestroyFramebuffer(ZestDevice->backend->logical_device, frame_buffer, &ZestDevice->backend->allocation_callbacks);
-    }
-    zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.frame_buffers[ZEST_FIF]);
+    ZestPlatform->cleanup_deferred_framebuffers();
 
     zest_vec_foreach(i, ZestRenderer->staging_buffers) {
         zest_buffer staging_buffer = ZestRenderer->staging_buffers[i];
@@ -2205,7 +2208,7 @@ void zest__add_host_memory_pool(zest_size size) {
 void* zest__allocate(zest_size size) {
     void* allocation = zloc_Allocate(ZestDevice->allocator, size);
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)ZestDevice->allocator;
-    if (offset_from_allocator == 19624) {
+    if (offset_from_allocator == 31920128) {
         int d = 0;
     }
     // If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
@@ -3157,6 +3160,8 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     zest__initialise_store(&ZestRenderer->set_layouts, sizeof(zest_set_layout_t));
     zest__initialise_store(&ZestRenderer->samplers, sizeof(zest_sampler_t));
 
+    ZestRenderer->deferred_resource_freeing_list.backend = ZestPlatform->new_deferred_desctruction_backend();
+
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
 
     //Create a global bindless descriptor set for storage buffers and texture samplers
@@ -3500,35 +3505,29 @@ void zest__cleanup_renderer() {
     zest_FlushUsedBuffers();
     zest__cleanup_buffers_in_allocators();
 
-	zest_ForEachFrameInFlight(fif) {
-		zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.frame_buffers[fif]) {
-			VkFramebuffer frame_buffer = ZestRenderer->deferred_resource_freeing_list.frame_buffers[fif][i];
-			vkDestroyFramebuffer(ZestDevice->backend->logical_device, frame_buffer, &ZestDevice->backend->allocation_callbacks);
-		}
-		zest_vec_free(ZestRenderer->deferred_resource_freeing_list.frame_buffers[fif]);
-	}
-
     zest_ForEachFrameInFlight(fif) {
         if (zest_vec_size(ZestRenderer->deferred_resource_freeing_list.images[fif])) {
             zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.images[fif]) {
-                zest_image_t *image = &ZestRenderer->deferred_resource_freeing_list.images[fif][i];
+                zest_image image = &ZestRenderer->deferred_resource_freeing_list.images[fif][i];
+                ZestPlatform->cleanup_image_backend(image);
                 zest_FreeBuffer(image->buffer);
-                vkDestroyImage(ZestDevice->backend->logical_device, image->backend->vk_image, &ZestDevice->backend->allocation_callbacks);
                 if (image->default_view) {
-                    vkDestroyImageView(ZestDevice->backend->logical_device, image->default_view->backend->vk_view, &ZestDevice->backend->allocation_callbacks);
+                    ZestPlatform->cleanup_image_view_backend(image->default_view);
                 }
             }
             zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.images[fif]);
         }
+
+        if (zest_vec_size(ZestRenderer->deferred_resource_freeing_list.views[fif])) {
+            zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.views[fif]) {
+                zest_image_view view = &ZestRenderer->deferred_resource_freeing_list.views[fif][i];
+                ZestPlatform->cleanup_image_view_backend(view);
+            }
+            zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.views[fif]);
+        }
     }
 
-    if (zest_vec_size(ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF])) {
-        zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF]) {
-            zest_image_view_t *view = &ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF][i];
-            vkDestroyImageView(ZestDevice->backend->logical_device, view->backend->vk_view, &ZestDevice->backend->allocation_callbacks);
-        }
-		zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF]);
-    }
+    ZestPlatform->cleanup_deferred_destruction_backend();
 
     zest_map_foreach(i, ZestRenderer->buffer_allocators) {
         zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);
@@ -3561,7 +3560,6 @@ void zest__cleanup_renderer() {
 
     zest_ForEachFrameInFlight(fif) {
         ZEST__FREE(ZestRenderer->frame_graph_allocator[fif]);
-        zest_vec_free(ZestRenderer->deferred_resource_freeing_list.frame_buffers[fif]);
         zest_vec_free(ZestRenderer->deferred_resource_freeing_list.resources[fif]);
         zest_vec_free(ZestRenderer->deferred_resource_freeing_list.images[fif]);
         zest_vec_free(ZestRenderer->deferred_resource_freeing_list.binding_indexes[fif]);
@@ -3940,7 +3938,7 @@ void zest__cleanup_set_layout(zest_set_layout layout) {
 
 void zest__cleanup_image_view(zest_image_view view) {
     ZEST_PRINT_FUNCTION;
-    zest__cleanup_image_view_backend(view);
+    ZestPlatform->cleanup_image_view_backend(view);
     if (view->handle.value) {
         //Default views in images are not in resource storage
         zest__remove_store_resource(&ZestRenderer->views, view->handle.value);
@@ -6474,7 +6472,7 @@ zest_bool zest__create_transient_image(zest_resource_node resource) {
         image->info.mip_levels = (zest_uint)floor(log2(ZEST__MAX(resource->image.info.extent.width, resource->image.info.extent.height))) + 1;
     }
     if (!zest__create_image(image, image->info.layer_count, zest_sample_count_1_bit, resource->image.info.flags)) {
-		zest__cleanup_image_backend(image);
+		ZestPlatform->cleanup_image_backend(image);
         return FALSE;
     }
     image->info.layout = resource->image_layout = zest_image_layout_undefined;
@@ -6887,8 +6885,8 @@ void zest_ForceFrameGraphOnGraphicsQueue() {
     ZEST__FLAG(ZestRenderer->current_frame_graph->flags, zest_frame_graph_force_on_graphics_queue);
 }
 
-zest_bool zest__is_stage_compatible_with_qfi( VkPipelineStageFlags stages_to_check, VkQueueFlags queue_family_capabilities) {
-    if (stages_to_check == VK_PIPELINE_STAGE_NONE_KHR) { // Or just == 0
+zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities) {
+    if (stages_to_check == zest_pipeline_stage_none) { // Or just == 0
         return ZEST_TRUE; // No stages specified is trivially compatible
     }
 
@@ -6904,47 +6902,47 @@ zest_bool zest__is_stage_compatible_with_qfi( VkPipelineStageFlags stages_to_che
         bool stage_is_compatible = ZEST_FALSE;
         switch (single_stage_bit) {
             // Stages allowed on ANY queue type that supports any command submission
-        case VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT:
-        case VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT:
-        case VK_PIPELINE_STAGE_HOST_BIT: // Host access can always be synchronized against
-        case VK_PIPELINE_STAGE_ALL_COMMANDS_BIT: // Valid, but its scope is limited by queue caps
+        case zest_pipeline_stage_top_of_pipe_bit:
+        case zest_pipeline_stage_bottom_of_pipe_bit:
+        case zest_pipeline_stage_host_bit: // Host access can always be synchronized against
+        case zest_pipeline_stage_all_commands_bit: // Valid, but its scope is limited by queue caps
             stage_is_compatible = ZEST_TRUE;
             break;
 
             // Stages requiring GRAPHICS_BIT capability
-        case VK_PIPELINE_STAGE_VERTEX_INPUT_BIT:
-        case VK_PIPELINE_STAGE_VERTEX_SHADER_BIT:
-        case VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT:
-        case VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT:
-        case VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT:
-        case VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT:
-        case VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT:
-        case VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT:
-        case VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT:
-        case VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT:
+        case zest_pipeline_stage_vertex_input_bit:
+        case zest_pipeline_stage_vertex_shader_bit:
+        case zest_pipeline_stage_tessellation_control_shader_bit:
+        case zest_pipeline_stage_tessellation_evaluation_shader_bit:
+        case zest_pipeline_stage_geometry_shader_bit:
+        case zest_pipeline_stage_fragment_shader_bit:
+        case zest_pipeline_stage_early_fragment_tests_bit:
+        case zest_pipeline_stage_late_fragment_tests_bit:
+        case zest_pipeline_stage_color_attachment_output_bit:
+        case zest_pipeline_stage_all_graphics_bit:
         //Can add more extensions here if needed
-            if (queue_family_capabilities & VK_QUEUE_GRAPHICS_BIT) {
+            if (queue_family_capabilities & zest_queue_graphics) {
                 stage_is_compatible = ZEST_TRUE;
             }
             break;
 
 		// Stage requiring COMPUTE_BIT capability
-        case VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT:
-            if (queue_family_capabilities & VK_QUEUE_COMPUTE_BIT) {
+        case zest_pipeline_stage_compute_shader_bit:
+            if (queue_family_capabilities & zest_queue_compute) {
                 stage_is_compatible = ZEST_TRUE;
             }
             break;
 
 		// Stage DRAW_INDIRECT can be used by Graphics or Compute
-        case VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT:
-            if (queue_family_capabilities & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) {
+        case zest_pipeline_stage_draw_indirect_bit:
+            if (queue_family_capabilities & (zest_queue_graphics | zest_queue_compute)) {
                 stage_is_compatible = ZEST_TRUE;
             }
             break;
 
 		// Stage requiring TRANSFER_BIT capability (also often implied by Graphics/Compute)
-        case VK_PIPELINE_STAGE_TRANSFER_BIT:
-            if (queue_family_capabilities & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT)) {
+        case zest_pipeline_stage_transfer_bit:
+            if (queue_family_capabilities & (zest_queue_graphics | zest_queue_compute | zest_queue_transfer)) {
                 stage_is_compatible = ZEST_TRUE;
             }
             break;
@@ -7623,7 +7621,7 @@ zest_frame_graph zest__compile_frame_graph() {
         if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage)) {
 
             zest_submission_batch_t *first_batch_to_wait = NULL;
-            VkPipelineStageFlags wait_stage_for_acquire_semaphore = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT; // Safe default
+            zest_pipeline_stage_flags wait_stage_for_acquire_semaphore = zest_pipeline_stage_top_of_pipe_bit; // Safe default
 
             zest_resource_node swapchain_node = frame_graph->swapchain_resource; 
             if (swapchain_node->first_usage_pass_idx != ZEST_INVALID) {
@@ -7634,7 +7632,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 zest_wave_submission_t *wave_submission = &frame_graph->submissions[submission_index];
                 zest_uint pass_index = wave_submission->batches[queue_index].pass_indices[execution_index];
 				zest_bool uses_swapchain = ZEST_FALSE;
-				VkPipelineStageFlags first_swapchain_usage_stage_in_this_batch = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+				zest_pipeline_stage_flags first_swapchain_usage_stage_in_this_batch = zest_pipeline_stage_top_of_pipe_bit;
                 if (zest_map_valid_name(pass->inputs, swapchain_node->name)) {
 					zest_resource_usage_t *usage = zest_map_at(pass->inputs, swapchain_node->name);
 					uses_swapchain = ZEST_TRUE;
@@ -7648,14 +7646,14 @@ zest_frame_graph zest__compile_frame_graph() {
                     first_batch_to_wait = &wave_submission->batches[queue_index];
                     wait_stage_for_acquire_semaphore = first_swapchain_usage_stage_in_this_batch;
                     // Ensure this stage is compatible with the batch's queue
-                    if (!zest__is_stage_compatible_with_qfi(wait_stage_for_acquire_semaphore, ZestDevice->backend->queue_families[first_batch_to_wait->queue_family_index].queueFlags)) {
+                    if (!zest__is_stage_compatible_with_qfi(wait_stage_for_acquire_semaphore, ZestDevice->queues[queue_index]->type)) {
                         zest_text_t pipeline_stage = zest__vulkan_pipeline_stage_flags_to_string(wait_stage_for_acquire_semaphore);
                         ZEST_PRINT("Swapchain usage stage %s is not compatible with queue family %u for wave submission %i",
                             pipeline_stage.str,
                             first_batch_to_wait->queue_family_index, submission_index);
                         // Fallback or error. Forcing TOP_OF_PIPE might be safer if this happens,
                         // though it indicates a graph definition error.
-                        wait_stage_for_acquire_semaphore = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                        wait_stage_for_acquire_semaphore = zest_pipeline_stage_top_of_pipe_bit;
                         zest_FreeText(&pipeline_stage);
                     }
                 }
@@ -7672,7 +7670,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 // The *very first submission batch of the graph* must wait on the semaphore to consume it.
                 // The wait stage must be compatible with this first batch's queue.
                 zest_wave_submission_t *actual_first_wave = &frame_graph->submissions[0];
-                VkPipelineStageFlags compatible_dummy_wait_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                zest_pipeline_stage_flags compatible_dummy_wait_stage = zest_pipeline_stage_top_of_pipe_bit;
                 zest_uint queue_family_index = ZEST_INVALID;
                 zest_submission_batch_t *first_batch = NULL;
 
@@ -7680,11 +7678,11 @@ zest_frame_graph zest__compile_frame_graph() {
                 for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
                     if (actual_first_wave->batches[queue_index].magic) {
                         first_batch = &actual_first_wave->batches[queue_index];
-                        if (ZestDevice->backend->queue_families[actual_first_wave->batches[queue_index].queue_family_index].queueFlags & VK_QUEUE_TRANSFER_BIT) {
-                            compatible_dummy_wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                        if (ZestDevice->queues[queue_index]->type & zest_queue_transfer) {
+                            compatible_dummy_wait_stage = zest_pipeline_stage_transfer_bit;
                             queue_family_index = actual_first_wave->batches[queue_index].queue_family_index;
-                        } else if (ZestDevice->backend->queue_families[actual_first_wave->batches[queue_index].queue_family_index].queueFlags & VK_QUEUE_COMPUTE_BIT) {
-                            compatible_dummy_wait_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+                        } else if (ZestDevice->queues[queue_index]->type & zest_queue_compute) {
+                            compatible_dummy_wait_stage = zest_pipeline_stage_compute_shader_bit;
                             queue_family_index = actual_first_wave->batches[queue_index].queue_family_index;
                         }
                         break;
@@ -7767,7 +7765,7 @@ zest_frame_graph zest__compile_frame_graph() {
             if (state_index + 1 < (int)zest_vec_size(resource->journey)) {
                 next_state = &resource->journey[state_index + 1];
             }
-            VkPipelineStageFlags required_stage = current_usage->stage_mask;
+            zest_pipeline_stage_flags required_stage = current_usage->stage_mask;
             if (resource->type & zest_resource_type_is_image) {
                 zest__add_image_barriers(frame_graph, allocator, resource, barriers, current_state, prev_state, next_state);
                 prev_state = current_state;
@@ -7842,7 +7840,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     if (needs_releasing || 
                         (current_usage->access_mask & zest_access_write_bits_general) &&
                         (next_usage->access_mask & zest_access_read_bits_general)) {
-                        VkPipelineStageFlags dst_stage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+                        zest_pipeline_stage_flags dst_stage = zest_pipeline_stage_bottom_of_pipe_bit;
                         if (needs_releasing) {
                             current_state->was_released = true;
                         } else {
@@ -7860,9 +7858,9 @@ zest_frame_graph zest__compile_frame_graph() {
                     //Release the buffer so that it's ready to be acquired by any other queue in the next frame
                     //Release to the transfer queue by default (if it's not already on the transfer queue).
 					ZestPlatform->add_frame_graph_buffer_barrier(resource, barriers, false,
-						current_usage->access_mask, VK_ACCESS_NONE,
+						current_usage->access_mask, zest_access_none,
                         current_state->queue_family_index, ZestDevice->transfer_queue_family_index,
-                        current_state->usage.stage_mask, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+                        current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
                 }
                 prev_state = current_state;
             }
@@ -10240,7 +10238,7 @@ zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_index
 
 // --Internal Texture functions
 void zest__cleanup_image(zest_image image) {
-    zest__cleanup_image_backend(image);
+    ZestPlatform->cleanup_image_backend(image);
     zest__release_all_global_texture_indexes(image);
     zest_map_foreach(i, image->mip_indexes) {
         zest_mip_index_collection *collection = &image->mip_indexes.data[i];
@@ -10248,7 +10246,10 @@ void zest__cleanup_image(zest_image image) {
     }
     zest_map_free(image->mip_indexes);
     zest__remove_store_resource(&ZestRenderer->images, image->handle.value);
-    zest__cleanup_image_view(image->default_view);
+    if (image->default_view) {
+        ZestPlatform->cleanup_image_view_backend(image->default_view);
+        ZEST__FREE(image->default_view);
+    }
     image->magic = 0;
 }
 
