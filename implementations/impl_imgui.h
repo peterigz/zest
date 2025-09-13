@@ -7,7 +7,8 @@
 
 typedef struct zest_imgui_push_t {
 	zest_vec4 transform;
-	zest_uint font_index;
+	zest_uint font_texture_index;
+	zest_uint font_sampler_index;
 	zest_uint image_layer;
 } zest_imgui_push_t;
 
@@ -26,7 +27,8 @@ typedef struct zest_imgui_t {
     zest_uint dirty[ZEST_MAX_FIF];
     zest_imgui_push_t push_constants;
 	zest_atlas_region font_region;
-	zest_uint font_binding_index;
+	zest_uint font_texture_binding_index;
+	zest_uint font_sampler_binding_index;
 	zest_shader_resources_handle font_resources;
     VkDescriptorSet *draw_sets;
 	zest_sampler_handle font_sampler;
@@ -91,19 +93,21 @@ layout(location = 0) in vec4 in_color;
 layout(location = 1) in vec3 in_uv;
 
 layout(location = 0) out vec4 out_color;
-layout(set = 0, binding = 0) uniform sampler2DArray tex_sampler[];
+layout(set = 0, binding = 5) uniform texture2d textures[];
+layout(set = 0, binding = 0) uniform sampler samplers[];
 
 //Not used by default by can be used in custom imgui image shaders
 layout(push_constant) uniform imgui_push
 {
 	vec4 transform;
-	uint font_index;
+	uint font_texture_index;
+	uint font_sampler_index;
 	uint image_layer;
 } pc;
 
 void main()
 {
-	out_color = in_color * texture(tex_sampler[pc.font_index], in_uv);
+	out_color = in_color * texture(sampler2D(textures[pc.font_texture_index], samplers[pc.font_sampler_index]), in_uv);
 }
 
 );

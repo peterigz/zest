@@ -26,7 +26,7 @@ zest_imgui_t *zest_imgui_Initialise() {
 
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
     ZestImGui->font_sampler = zest_CreateSampler(&sampler_info);
-    ZestImGui->font_binding_index = zest_AcquireGlobalSampler(ZestImGui->font_texture, ZestImGui->font_sampler, zest_combined_image_sampler_2d_binding);
+    ZestImGui->font_texture_binding_index = zest_AcquireGlobalSampler(ZestImGui->font_texture, ZestImGui->font_sampler, zest_sampled_image_binding);
 
     //ZestImGui->vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
     //ZestImGui->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
@@ -91,7 +91,7 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     zest_FreeAtlasRegion(ZestImGui->font_region);
     ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->font_texture);
     zest_cmd_CopyBitmapToImage(font_bitmap, ZestImGui->font_texture, 0, 0, 0, 0, width, height);
-    ZestImGui->font_binding_index = zest_AcquireGlobalSampler(ZestImGui->font_texture, ZestImGui->font_sampler, zest_combined_image_sampler_2d_binding);
+    ZestImGui->font_texture_binding_index = zest_AcquireGlobalSampler(ZestImGui->font_texture, ZestImGui->font_sampler, zest_sampled_image_binding);
     zest_FreeBitmap(font_bitmap);
     
     ImGuiIO &io = ImGui::GetIO();
@@ -210,7 +210,8 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer 
                         zest_cmd_BindPipelineShaderResource(context, pipeline, last_resources);
                         last_pipeline = ZestImGui->pipeline;
                     }
-                    push_constants->font_index = ZestImGui->font_binding_index;
+                    push_constants->font_texture_index = ZestImGui->font_texture_binding_index;
+                    push_constants->font_sampler_index = ZestImGui->font_sampler_binding_index;
                     push_constants->image_layer = zest_ImageLayerIndex(current_image);
                     break;
                 }

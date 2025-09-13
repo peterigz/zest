@@ -10,6 +10,7 @@ Zest Vulkan Implementation
     -- [Swapchain_presenting]
     -- [Backend_setup_functions]
     -- [Backend_cleanup_functions]
+    -- [Descriptor_sets]
     -- [Images]
     -- [General_helpers]
     -- [Internal_Frame_graph_context_functions]
@@ -351,6 +352,10 @@ ZEST_PRIVATE inline VkAccessFlags zest__to_vk_access_flags(zest_access_flags fla
 
 ZEST_PRIVATE inline VkPipelineStageFlags zest__to_vk_pipeline_stage(zest_pipeline_stage_flags flags) {
     return (VkPipelineStageFlags)flags;
+}
+
+ZEST_PRIVATE inline VkShaderStageFlags zest__to_vk_shader_stage(zest_supported_shader_stage_bits flags) {
+    return (VkShaderStageFlags)flags;
 }
 
 ZEST_PRIVATE inline VkImageAspectFlags zest__to_vk_image_aspect(VkImageAspectFlags flags) {
@@ -1666,7 +1671,9 @@ void zest__vk_cleanup_pipeline_backend(zest_pipeline pipeline) {
 void zest__vk_cleanup_set_layout(zest_set_layout layout) {
     if (layout->backend) {
         zest_vec_free(layout->backend->layout_bindings);
-        vkDestroyDescriptorSetLayout(ZestDevice->backend->logical_device, layout->backend->vk_layout, &ZestDevice->backend->allocation_callbacks);
+        if (layout->backend->vk_layout) {
+            vkDestroyDescriptorSetLayout(ZestDevice->backend->logical_device, layout->backend->vk_layout, &ZestDevice->backend->allocation_callbacks);
+        }
         zest_vec_foreach(i, layout->backend->descriptor_indexes) {
             zest_vec_free(layout->backend->descriptor_indexes[i].free_indices);
         }
@@ -1751,6 +1758,164 @@ void zest__vk_cleanup_render_pass(zest_render_pass render_pass) {
     ZEST__FREE(render_pass->backend);
 }
 // -- End Backend cleanup functions
+
+// -- Descriptor_sets
+ZEST_PRIVATE inline VkDescriptorType zest__vk_get_descriptor_type(zest_descriptor_type type) {
+    switch (type) {
+    case zest_descriptor_type_sampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
+    case zest_descriptor_type_sampled_image: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    case zest_descriptor_type_storage_image: return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    case zest_descriptor_type_uniform_buffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    case zest_descriptor_type_storage_buffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    default:
+        ZEST_ASSERT(ZEST_FALSE);  //Unknown descriptor type
+        return VK_DESCRIPTOR_TYPE_MAX_ENUM; 
+    }
+}
+
+zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless) {
+    VkDescriptorSetLayoutCreateInfo layoutInfo = { 0 };
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = zest_vec_size(builder->bindings);
+    VkDescriptorSetLayoutBinding *bindings = 0;
+    VkDescriptorBindingFlags *binding_flag_list = 0;
+    zest_vec_resize(bindings, layoutInfo.bindingCount);
+    zest_vec_resize(binding_flag_list, layoutInfo.bindingCount);
+
+    layoutInfo.pBindings = bindings;
+
+    zest_vec_foreach(i, builder->bindings) {
+        zest_descriptor_binding_desc_t *desc = &builder->bindings[i];
+        VkDescriptorSetLayoutBinding binding = { 0 };
+        binding.binding = desc->binding;
+        binding.stageFlags = zest__to_vk_shader_stage(desc->stages);
+        binding.descriptorType = zest__vk_get_descriptor_type(desc->type);
+        binding.descriptorCount = desc->count;
+        bindings[i] = binding;
+		VkDescriptorBindingFlags binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        binding_flag_list[i] = binding_flags;
+    }
+
+    if (is_bindless) {
+        VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_create_info = { 0 };
+        binding_flags_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+        binding_flags_create_info.bindingCount = layoutInfo.bindingCount;
+        binding_flags_create_info.pBindingFlags = binding_flag_list;
+
+        layoutInfo.flags = is_bindless ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT : 0;
+        layoutInfo.pNext = &binding_flags_create_info;
+    }
+
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_descriptor_layout);
+    VkResult result = vkCreateDescriptorSetLayout(ZestDevice->backend->logical_device, &layoutInfo, &ZestDevice->backend->allocation_callbacks, &layout->backend->vk_layout);
+	zest_vec_free(binding_flag_list);
+	ZestRenderer->backend->last_result = result;
+    if (result != VK_SUCCESS) {
+        zest_vec_free(bindings);
+        return ZEST_FALSE;
+    }
+
+    zest_vec_resize(layout->backend->descriptor_indexes, layoutInfo.bindingCount);
+    zest_uint count = zest_vec_size(layout->backend->layout_bindings);
+    zest_uint size_of_binding = sizeof(VkDescriptorSetLayoutBinding);
+    zest_uint size_in_bytes = zest_vec_size_in_bytes(builder->bindings);
+	layout->backend->layout_bindings = bindings;
+    zest_vec_foreach(i, bindings) {
+        layout->backend->descriptor_indexes[i] = (zest_descriptor_indices_t){ 0 };
+        layout->backend->descriptor_indexes[i].capacity = bindings[i].descriptorCount;
+        layout->backend->descriptor_indexes[i].descriptor_type = bindings[i].descriptorType;
+    }
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_create_set_pool(zest_set_layout layout, zest_uint max_set_count, zest_bool bindless) {
+    zest_hash_map(zest_uint) type_counts_map;
+    type_counts_map type_counts = { 0 };
+    zest_vec_foreach(i, layout->backend->layout_bindings) {
+        VkDescriptorSetLayoutBinding *binding = &layout->backend->layout_bindings[i];
+        bool is_purely_immutable_sampler = (binding->descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER && binding->pImmutableSamplers != NULL);
+
+        if (!is_purely_immutable_sampler) {
+            if (!zest_map_valid_key(type_counts, (zest_key)binding->descriptorType)) {
+                zest_map_insert_key(type_counts, (zest_key)binding->descriptorType, binding->descriptorCount);
+            } else {
+                zest_uint *count = zest_map_at_key(type_counts, (zest_key)binding->descriptorType);
+                *count += binding->descriptorCount;
+            }
+        }
+    }
+
+    VkDescriptorPoolSize *pool_sizes = NULL;
+    zest_map_foreach(i, type_counts) {
+        VkDescriptorPoolSize new_pool_size = { 0 };
+        new_pool_size.type = (VkDescriptorType)type_counts.map[i].key;
+        if (bindless) {
+            new_pool_size.descriptorCount = type_counts.data[i];
+        } else {
+            new_pool_size.descriptorCount = type_counts.data[i] * max_set_count;
+        }
+        zest_vec_push(pool_sizes, new_pool_size);
+    }
+    zest_map_free(type_counts); // Free the map now that we're done with it
+
+    if (zest_vec_empty(pool_sizes)) {
+        ZEST_ASSERT(0); // Layout resulted in no descriptors for the pool
+        return ZEST_FALSE;
+    }
+
+    VkDescriptorPoolCreateInfo pool_create_info = { 0 };
+    pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+
+    if (bindless) {
+        pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+    } else {
+        pool_create_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    }
+    pool_create_info.maxSets = bindless ? 1 : max_set_count; // Correct for a single global bindless set
+    pool_create_info.poolSizeCount = zest_vec_size(pool_sizes);
+    pool_create_info.pPoolSizes = pool_sizes;
+
+    zest_descriptor_pool pool = zest__create_descriptor_pool(pool_create_info.maxSets);
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_descriptor_pool);
+    VkResult result = vkCreateDescriptorPool(ZestDevice->backend->logical_device, &pool_create_info, &ZestDevice->backend->allocation_callbacks,
+        &pool->backend->vk_descriptor_pool);
+
+    zest_vec_free(pool_sizes); // Free the temporary pool_sizes vector
+
+    if (result != VK_SUCCESS) {
+        pool->backend->vk_descriptor_pool = VK_NULL_HANDLE;
+        ZEST__FREE(pool->backend);
+        ZEST__FREE(pool);
+        ZEST_VK_PRINT_RESULT(result);
+        return ZEST_FALSE; // 4. Add return on failure
+    }
+
+    layout->pool = pool;
+    return ZEST_TRUE; // 4. Add return on success
+}
+
+zest_descriptor_set zest__vk_create_bindless_set(zest_set_layout layout) {
+    VkDescriptorSetAllocateInfo alloc_info = { 0 };
+    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc_info.descriptorPool = layout->pool->backend->vk_descriptor_pool;
+    alloc_info.descriptorSetCount = 1; // Maybe add this as a parameter at some point if it's needed
+    alloc_info.pSetLayouts = &layout->backend->vk_layout;
+
+    zest_descriptor_set set = ZEST__NEW(zest_descriptor_set);
+    *set = (zest_descriptor_set_t){ 0 };
+    set->backend = ZEST__NEW(zest_descriptor_set_backend);
+    *set->backend = (zest_descriptor_set_backend_t){ 0 };
+    set->magic = zest_INIT_MAGIC(zest_struct_type_descriptor_set);
+    VkResult result = vkAllocateDescriptorSets(ZestDevice->backend->logical_device, &alloc_info, &set->backend->vk_descriptor_set);
+
+    if (result != VK_SUCCESS) {
+        ZEST_VK_PRINT_RESULT(result);
+        ZEST__FREE(set);
+        return 0;
+    }
+    return set;
+}
+// -- End Descriptor_sets
 
 // -- Images
 zest_bool zest__vk_create_image(zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags) {

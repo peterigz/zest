@@ -77,7 +77,7 @@ void SetupBRDFLUT(ImGuiApp *app) {
 	app->brd_texture = zest_CreateImage(&image_info);
 
 	app->brd_bindless_index = zest_AcquireGlobalSampler(app->brd_texture, app->sampler_2d, zest_storage_image_binding);
-	zest_AcquireGlobalSampler(app->brd_texture, app->sampler_2d, zest_combined_image_sampler_2d_binding);
+	zest_AcquireGlobalSampler(app->brd_texture, app->sampler_2d, zest_sampler_2d_binding);
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder();
 	zest_AddComputeShader(&compute_builder, app->brd_shader);
@@ -132,7 +132,7 @@ void SetupIrradianceCube(ImGuiApp *app) {
 	image_info.layer_count = 6;
 	app->irr_texture = zest_CreateImage(&image_info);
 	app->irr_bindless_index = zest_AcquireGlobalSampler(app->irr_texture, app->sampler_2d, zest_storage_image_binding);
-	zest_AcquireGlobalSampler(app->irr_texture, app->cube_sampler, zest_combined_image_sampler_cube_binding);
+	zest_AcquireGlobalSampler(app->irr_texture, app->cube_sampler, zest_sampler_cube_binding);
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder();
 	zest_AddComputeShader(&compute_builder, app->irr_shader);
@@ -195,7 +195,7 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 	app->prefiltered_view_array = zest_CreateImageViewsPerMip(app->prefiltered_texture);
 	app->prefiltered_bindless_index = zest_AcquireGlobalSampler(app->prefiltered_texture, app->sampler_2d, zest_storage_image_binding);
 	app->prefiltered_mip_indexes = zest_AcquireGlobalImageMipIndexes(app->prefiltered_texture, app->sampler_2d, app->prefiltered_view_array, zest_storage_image_binding);
-	zest_AcquireGlobalSampler(app->prefiltered_texture, app->sampler_2d, zest_combined_image_sampler_cube_binding);
+	zest_AcquireGlobalSampler(app->prefiltered_texture, app->sampler_2d, zest_sampler_cube_binding);
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder();
 	zest_AddComputeShader(&compute_builder, app->prefiltered_shader);
@@ -280,7 +280,7 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	app->skybox_texture = zest_LoadCubemap("Pisa Cube", "examples/assets/pisa_cube.ktx");
 	app->skybox_sampler = zest_CreateSamplerForImage(app->skybox_texture);
-	app->skybox_bindless_index = zest_AcquireGlobalSampler(app->skybox_texture, app->skybox_sampler, zest_combined_image_sampler_cube_binding);
+	app->skybox_bindless_index = zest_AcquireGlobalSampler(app->skybox_texture, app->skybox_sampler, zest_sampler_cube_binding);
 	SetupBRDFLUT(app);
 	SetupIrradianceCube(app);
 	SetupPrefilteredCube(app);
@@ -494,9 +494,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 	UpdateLights(app, rotation_time);
 	app->material_push.global = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
-	app->material_push.descriptor_index[0] = zest_ImageDescriptorIndex(app->irr_texture, zest_combined_image_sampler_cube_binding);
-	app->material_push.descriptor_index[1] = zest_ImageDescriptorIndex(app->brd_texture, zest_combined_image_sampler_2d_binding);
-	app->material_push.descriptor_index[2] = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_combined_image_sampler_cube_binding);
+	app->material_push.descriptor_index[0] = zest_ImageDescriptorIndex(app->irr_texture, zest_sampler_cube_binding);
+	app->material_push.descriptor_index[1] = zest_ImageDescriptorIndex(app->brd_texture, zest_sampler_2d_binding);
+	app->material_push.descriptor_index[2] = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_sampler_cube_binding);
 	zest_SetInstanceDrawing(app->cube_layer, app->pbr_shader_resources, app->pbr_pipeline);
 	zest_SetLayerPushConstants(app->cube_layer, &app->material_push, sizeof(zest_push_constants_t));
 	zest_SetLayerColor(app->cube_layer, 255, 255, 255, 255);
