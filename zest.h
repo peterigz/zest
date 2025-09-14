@@ -1228,7 +1228,8 @@ typedef enum zest_struct_type {
     zest_struct_type_texture_asset           = 40 << 16,
     zest_struct_type_frame_graph_context     = 41 << 16,
     zest_struct_type_atlas_region            = 42 << 16,
-    zest_struct_type_view                    = 43 << 16
+    zest_struct_type_view                    = 43 << 16,
+    zest_struct_type_buffer_backend          = 44 << 16
 } zest_struct_type;
 
 typedef enum zest_vulkan_memory_context {
@@ -3218,7 +3219,7 @@ typedef struct zest_pass_group_t {
 } zest_pass_group_t;
 
 typedef struct zest_binding_index_for_release_t {
-    zest_set_layout_handle layout;
+    zest_set_layout layout;
     zest_uint binding_index;
     zest_uint binding_number;
 } zest_binding_index_for_release_t;
@@ -3335,7 +3336,7 @@ typedef struct zest_frame_graph_t {
     zest_swapchain swapchain;                       // Handle to the current swapchain image resource
     zest_uint id_counter;
     zest_descriptor_pool descriptor_pool;           //Descriptor pool for execution nodes within the graph.
-    zest_set_layout_handle bindless_layout;
+    zest_set_layout bindless_layout;
     zest_descriptor_set bindless_set;
 
     zest_wave_submission_t *submissions;
@@ -3416,10 +3417,9 @@ ZEST_API zest_pass_node zest_BeginComputePass(zest_compute_handle compute, const
 ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
 ZEST_API void zest_EndPass();
 
-
 // --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource, zest_sampler_handle sampler, zest_global_binding_number binding_number);
-ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context context, zest_resource_node resource, zest_sampler_handle sampler, zest_global_binding_number binding_number);
+ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource, zest_global_binding_number binding_number);
+ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context context, zest_resource_node resource, zest_global_binding_number binding_number);
 ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource);
 
 // --- Add callback tasks to passes
@@ -3536,6 +3536,7 @@ typedef struct zest_descriptor_set_t {
 
 typedef struct zest_set_layout_t {
     int magic;
+    zest_descriptor_binding_desc_t *bindings;
     zest_set_layout_backend backend;
     zest_set_layout_handle handle;
     zest_text_t name;
@@ -3949,7 +3950,8 @@ typedef struct zest_renderer_t {
     zest_extent2d_t window_extent;
     float dpi_scale;
 
-    zest_set_layout_handle global_bindless_set_layout;
+    zest_set_layout_handle global_bindless_set_layout_handle;
+    zest_set_layout global_bindless_set_layout;
     zest_descriptor_set global_set;
 
     zest_map_buffer_allocators buffer_allocators;
@@ -4067,6 +4069,8 @@ typedef struct zest_platform_t {
     zest_bool                  (*create_set_layout)(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
     zest_bool                  (*create_set_pool)(zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
     zest_descriptor_set        (*create_bindless_set)(zest_set_layout layout);
+    void                       (*update_bindless_image_descriptor)(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
+    void                       (*update_bindless_buffer_descriptor)(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
     //Create backends
     void*                      (*new_frame_graph_semaphores_backend)(void);
     void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
@@ -4299,9 +4303,12 @@ ZEST_PRIVATE zest_set_layout_handle zest__new_descriptor_set_layout(const char *
 ZEST_PRIVATE bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding);
 ZEST_PRIVATE VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_set_layout layout, zest_uint binding_index);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest_uint binding_number);
-ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout_handle layout_handle, zest_uint binding_number, zest_uint index_to_release);
+ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout);
 ZEST_PRIVATE void zest__add_descriptor_set_to_resources(zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_storage_buffer_index(zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -4402,10 +4409,6 @@ ZEST_API VkDescriptorSetLayoutBinding zest_CreateSamplerLayoutBinding(zest_uint 
 ZEST_API VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding);
 //Create a vulkan descriptor set layout with bindings. Just pass in an array of bindings and a count of how many bindings there are.
 ZEST_API VkDescriptorSetLayout zest_CreateDescriptorSetLayoutWithBindings(zest_uint count, VkDescriptorSetLayoutBinding *bindings);
-//Create a vulkan descriptor write for a buffer. You need to pass the VkDescriptorSet
-ZEST_API VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo *buffer_info, zest_uint dst_binding, VkDescriptorType type);
-//Create a vulkan descriptor write for an image.
-ZEST_API VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorImageInfo *view_buffer_info, zest_uint dst_binding, VkDescriptorType type);
 //To make creating a new VkDescriptorSet you can use a builder. Make sure you call this function to properly initialise the zest_descriptor_set_builder_t
 //Once you have a builder, you can call the Add commands to add image and buffer bindings then call zest_FinishDescriptorSet to create the descriptor set
 ZEST_API zest_descriptor_set_builder_t zest_BeginDescriptorSetBuilder(zest_set_layout_handle layout);
@@ -4435,12 +4438,10 @@ ZEST_API void zest_AddSetBuilderStorageBuffer( zest_descriptor_set_builder_t *bu
 //zest_descriptor_set_t will contain a VkDescriptorSet for each frame in flight as well as descriptor writes used to create the set.
 ZEST_API zest_descriptor_set zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update);
 ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout_handle layout);
-ZEST_API zest_uint zest_AcquireBindlessStorageBufferIndex(zest_buffer buffer, zest_set_layout_handle layout, zest_descriptor_set set, zest_uint target_binding_number);
-ZEST_API zest_uint zest_AcquireBindlessImageIndex(zest_image_handle image, zest_image_view view, zest_sampler sampler, zest_set_layout_handle layout, zest_descriptor_set set, zest_global_binding_number target_binding_number);
-ZEST_API zest_uint zest_AcquireGlobalSampler(zest_image_handle handle, zest_sampler_handle sampler, zest_global_binding_number binding_number);
-ZEST_API zest_uint zest_AcquireGlobalSamplerWithView(zest_image_handle image_handle, zest_image_view_handle view_handle, zest_sampler sampler, zest_global_binding_number binding_number);
+ZEST_API zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number);
+ZEST_API zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle, zest_global_binding_number binding_number);
 ZEST_API zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer);
-ZEST_API zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle handle, zest_sampler_handle sampler, zest_image_view_array_handle image_views, zest_global_binding_number binding_number);
+ZEST_API zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle handle, zest_image_view_array_handle image_views, zest_global_binding_number binding_number);
 ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer_handle layer);
 ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
 ZEST_API void zest_ReleaseGlobalImageIndex(zest_image_handle image, zest_global_binding_number binding_number);
@@ -5536,6 +5537,8 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     ZEST_PRIVATE zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
     ZEST_PRIVATE zest_bool zest__vk_create_set_pool(zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
     ZEST_PRIVATE zest_descriptor_set zest__vk_create_bindless_set(zest_set_layout layout);
+    ZEST_PRIVATE void zest__vk_update_bindless_image_descriptor(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
+    ZEST_PRIVATE void zest__vk_update_bindless_buffer_descriptor(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 
 	//Glue
 	ZEST_PRIVATE void *zest__vk_new_device_backend(void);

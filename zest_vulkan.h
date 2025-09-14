@@ -124,6 +124,7 @@ typedef struct zest_frame_graph_context_backend_t {
 } zest_frame_graph_context_backend_t;
 
 typedef struct zest_buffer_backend_t {
+    int magic;
     union {
         VkBuffer vk_buffer;
         VkImage vk_image;
@@ -417,6 +418,30 @@ inline VkResult zest__vk_create_queue_command_pool(int queue_family_index, VkCom
 	ZEST_SET_MEMORY_CONTEXT(zest_vk_device, zest_vk_command_pool);
     ZEST_VK_ASSERT_RESULT(vkCreateCommandPool(ZestDevice->backend->logical_device, &cmd_info_pool, &ZestDevice->backend->allocation_callbacks, command_pool));
     return VK_SUCCESS;
+}
+
+inline VkWriteDescriptorSet zest__vk_create_image_descriptor_write_with_type(VkDescriptorSet descriptor_set, VkDescriptorImageInfo* view_image_info, zest_uint dst_binding, VkDescriptorType type) {
+    VkWriteDescriptorSet write = { 0 };
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = descriptor_set;
+    write.dstBinding = dst_binding;
+    write.dstArrayElement = 0;
+    write.descriptorType = type;
+    write.descriptorCount = 1;
+    write.pImageInfo = view_image_info;
+    return write;
+}
+
+inline VkWriteDescriptorSet zest__vk_create_buffer_descriptor_write_with_type(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo* buffer_info, zest_uint dst_binding, VkDescriptorType type) {
+    VkWriteDescriptorSet write = { 0 };
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = descriptor_set;
+    write.dstBinding = dst_binding;
+    write.dstArrayElement = 0;
+    write.descriptorType = type;
+    write.descriptorCount = 1;
+    write.pBufferInfo = buffer_info;
+    return write;
 }
 // -- End Inline_helpers
 
@@ -1466,6 +1491,7 @@ void *zest__vk_new_swapchain_backend() {
 void *zest__vk_new_buffer_backend() {
     zest_buffer_backend buffer_backend = ZEST__NEW(zest_buffer_backend);
     *buffer_backend = (zest_buffer_backend_t){ 0 };
+    buffer_backend->magic = zest_INIT_MAGIC(zest_struct_type_buffer_backend);
     return buffer_backend;
 }
 
@@ -1914,6 +1940,26 @@ zest_descriptor_set zest__vk_create_bindless_set(zest_set_layout layout) {
         return 0;
     }
     return set;
+}
+
+ZEST_PRIVATE void zest__vk_update_bindless_image_descriptor(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set) {
+    VkWriteDescriptorSet write = { 0 };
+    VkDescriptorImageInfo image_info = { 0 };
+    image_info.imageLayout = image ? image->backend->vk_current_layout : VK_IMAGE_LAYOUT_UNDEFINED;
+    image_info.imageView = view ? view->backend->vk_view : VK_NULL_HANDLE;
+    image_info.sampler = sampler ? sampler->backend->vk_sampler : VK_NULL_HANDLE;
+    VkDescriptorType descriptor_type = zest__vk_get_descriptor_type(type);
+    write = zest__vk_create_image_descriptor_write_with_type(set->backend->vk_descriptor_set, &image_info, binding_number, descriptor_type);
+    write.dstArrayElement = array_index;
+    vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
+}
+
+ZEST_PRIVATE void zest__vk_update_bindless_buffer_descriptor(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set) {
+    VkDescriptorBufferInfo buffer_info = zest_vk_GetBufferInfo(buffer);
+
+    VkWriteDescriptorSet write = zest__vk_create_buffer_descriptor_write_with_type(set->backend->vk_descriptor_set, &buffer_info, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    write.dstArrayElement = array_index;
+    vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
 }
 // -- End Descriptor_sets
 
@@ -2463,6 +2509,7 @@ void zest__vk_acquire_barrier(zest_frame_graph_context context, zest_execution_d
 			if (resource->linked_layout) {
 				//Update the layout in the texture
 				*resource->linked_layout = (zest_image_layout)barrier->newLayout;
+                resource->image.backend->vk_current_layout = barrier->newLayout;
                 resource->image_layout = (zest_image_layout)barrier->newLayout;
 			}
 		}
@@ -2500,6 +2547,7 @@ void zest__vk_release_barrier(zest_frame_graph_context context, zest_execution_d
 			if (resource->linked_layout) {
 				//Update the layout in the texture
 				*resource->linked_layout = (zest_image_layout)barrier->newLayout;
+                resource->image.backend->vk_current_layout = barrier->newLayout;
                 resource->image_layout = (zest_image_layout)barrier->newLayout;
 			}
 		}

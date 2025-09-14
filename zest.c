@@ -1632,6 +1632,7 @@ void zest__initialise_platform(zest_platform_type type) {
 }
 
 void zest__initialise_platform_for_vulkan() {
+    //Frame Graph Related
     ZestPlatform->begin_command_buffer                      = zest__vk_begin_command_buffer;
     ZestPlatform->end_command_buffer                        = zest__vk_end_command_buffer;
     ZestPlatform->set_next_command_buffer                   = zest__vk_set_next_command_buffer;
@@ -1659,6 +1660,8 @@ void zest__initialise_platform_for_vulkan() {
     ZestPlatform->create_set_layout                         = zest__vk_create_set_layout;
     ZestPlatform->create_set_pool                           = zest__vk_create_set_pool;
     ZestPlatform->create_bindless_set                       = zest__vk_create_bindless_set;
+    ZestPlatform->update_bindless_image_descriptor          = zest__vk_update_bindless_image_descriptor;
+    ZestPlatform->update_bindless_buffer_descriptor         = zest__vk_update_bindless_buffer_descriptor;
 
     ZestPlatform->new_execution_backend                     = zest__vk_new_execution_backend;
     ZestPlatform->new_frame_graph_semaphores_backend        = zest__vk_new_frame_graph_semaphores_backend;
@@ -1879,7 +1882,7 @@ void zest__set_default_pool_sizes() {
 
 void *zest_vk_allocate_callback(void *pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope) {
     zest_vulkan_memory_info_t *pInfo = (zest_vulkan_memory_info_t *)pUserData;
-    if (pInfo->timestamp == 116) {
+    if (pInfo->timestamp == 37) {
         int d = 0;
     }
     void *pAllocation = ZEST__ALLOCATE(size + sizeof(zest_vulkan_memory_info_t));
@@ -2417,17 +2420,13 @@ void zest__remote_merge_next_callback(void *user_data, zloc_header *block, zloc_
     next_remote_block->size = 0;
     if ((remote_block->magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER && ZEST__NOT_FLAGGED(remote_block->memory_pool->flags, zest_memory_pool_flag_single_buffer) && remote_block->backend->vk_buffer) {
         zest_vec_push(ZestRenderer->backend->used_buffers_ready_for_freeing, remote_block->backend->vk_buffer);
+        remote_block->backend->vk_buffer = VK_NULL_HANDLE;
     }
     if ((next_remote_block->magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER && ZEST__NOT_FLAGGED(next_remote_block->memory_pool->flags, zest_memory_pool_flag_single_buffer) && next_remote_block->backend->vk_buffer) {
         zest_vec_push(ZestRenderer->backend->used_buffers_ready_for_freeing, next_remote_block->backend->vk_buffer);
-    }
-    remote_block->magic = 0;
-    if (remote_block->backend) {
-        remote_block->backend->vk_buffer = VK_NULL_HANDLE;
-    }
-    if (next_remote_block->backend = 0) {
         next_remote_block->backend->vk_buffer = VK_NULL_HANDLE;
     }
+    remote_block->magic = 0;
 }
 
 void zest__remote_merge_prev_callback(void *user_data, zloc_header *prev_block, zloc_header *block) {
@@ -2439,17 +2438,13 @@ void zest__remote_merge_prev_callback(void *user_data, zloc_header *prev_block, 
     remote_block->size = 0;
     if ((remote_block->magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER && ZEST__NOT_FLAGGED(remote_block->memory_pool->flags, zest_memory_pool_flag_single_buffer) && remote_block->backend->vk_buffer) {
         zest_vec_push(ZestRenderer->backend->used_buffers_ready_for_freeing, remote_block->backend->vk_buffer);
+        remote_block->backend->vk_buffer = VK_NULL_HANDLE;
     }
     if ((prev_remote_block->magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER && ZEST__NOT_FLAGGED(prev_remote_block->memory_pool->flags, zest_memory_pool_flag_single_buffer) && prev_remote_block->backend->vk_buffer) {
         zest_vec_push(ZestRenderer->backend->used_buffers_ready_for_freeing, prev_remote_block->backend->vk_buffer);
-    }
-    remote_block->magic = 0;
-    if (remote_block->backend) {
-        remote_block->backend->vk_buffer = VK_NULL_HANDLE;
-    }
-    if (prev_remote_block->backend) {
         prev_remote_block->backend->vk_buffer = VK_NULL_HANDLE;
     }
+    remote_block->magic = 0;
 }
 
 zloc_size zest__get_minimum_block_size(zest_size pool_size) {
@@ -3180,8 +3175,9 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, create_info->bindless_storage_buffer_count, zest_shader_all_stages } );
     zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_sampled_image_binding, zest_descriptor_type_sampled_image, create_info->bindless_sampled_image_count, zest_shader_compute_stage | zest_shader_fragment_stage  } );
     zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_storage_image_binding, zest_descriptor_type_storage_image, create_info->bindless_storage_image_count, zest_shader_compute_stage | zest_shader_fragment_stage  } );
-    ZestRenderer->global_bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Zest Descriptor Layout");
-    ZestRenderer->global_set = zest_CreateBindlessSet(ZestRenderer->global_bindless_set_layout);
+    ZestRenderer->global_bindless_set_layout_handle = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Zest Descriptor Layout");
+    ZestRenderer->global_bindless_set_layout = (zest_set_layout)zest__get_store_resource(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout_handle.value);
+    ZestRenderer->global_set = zest_CreateBindlessSet(ZestRenderer->global_bindless_set_layout_handle);
 
     ZestRenderer->depth_format = zest__from_vk_format(zest__find_depth_format());
 
@@ -3474,7 +3470,8 @@ void zest__cleanup_renderer() {
     zest__cleanup_view_array_store();
 
     ZestRenderer->texture_debug_layout = (zest_set_layout_handle){ 0 };
-    ZestRenderer->global_bindless_set_layout = (zest_set_layout_handle){ 0 };
+    ZestRenderer->global_bindless_set_layout_handle = (zest_set_layout_handle){ 0 };
+    ZestRenderer->global_bindless_set_layout = 0;
 
     zest__scan_memory_and_free_resources();
 
@@ -3701,7 +3698,7 @@ zest_set_layout_handle zest_FinishDescriptorSetLayout(zest_set_layout_builder_t 
 
     zest_CreateDescriptorPoolForLayout(handle, 1);
 
-	zest_vec_free(builder->bindings);
+    set_layout->bindings = builder->bindings;
     zest_FreeText(&layout_name);
     return handle;
 }
@@ -3720,13 +3717,17 @@ zest_set_layout_handle zest_FinishDescriptorSetLayoutForBindless(zest_set_layout
     zest_set_layout_handle handle = zest__new_descriptor_set_layout(layout_name.str);
     zest_set_layout set_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, handle.value);
     if (!ZestPlatform->create_set_layout(builder, set_layout, ZEST_TRUE)) {
+		zest_vec_free(builder->bindings);
         zest__cleanup_set_layout(set_layout);
 		zest_FreeText(&layout_name);
         return (zest_set_layout_handle){ 0 };
     }
 
+    ZEST__FLAG(set_layout->flags, zest_set_layout_flag_bindless);
+
     zest_CreateDescriptorPoolForLayout(handle, 1);
 
+    set_layout->bindings = builder->bindings;
     zest_FreeText(&layout_name);
     return handle;
 }
@@ -3778,8 +3779,7 @@ zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest_uint binding
     }
 }
 
-void zest__release_bindless_index(zest_set_layout_handle layout_handle, zest_uint binding_number, zest_uint index_to_release) {
-    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
+void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release) {
     ZEST_ASSERT_HANDLE(layout);   //Not a valid layout handle!
     if (index_to_release == ZEST_INVALID) return;
 
@@ -3806,6 +3806,7 @@ void zest__cleanup_set_layout(zest_set_layout layout) {
     zest_FreeText(&layout->name);
     zest__cleanup_set_layout_backend(layout);
     ZEST__FREE(layout->pool);
+    zest_vec_free(layout->bindings);
     zest__remove_store_resource(&ZestRenderer->set_layouts, layout->handle.value);
 }
 
@@ -3909,30 +3910,6 @@ VkDescriptorSetLayoutBinding zest_CreateStorageLayoutBinding(zest_uint binding) 
 
     return storage_layout_binding;
 
-}
-
-VkWriteDescriptorSet zest_CreateBufferDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorBufferInfo* buffer_info, zest_uint dst_binding, VkDescriptorType type) {
-    VkWriteDescriptorSet write = { 0 };
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_set;
-    write.dstBinding = dst_binding;
-    write.dstArrayElement = 0;
-    write.descriptorType = type;
-    write.descriptorCount = 1;
-    write.pBufferInfo = buffer_info;
-    return write;
-}
-
-VkWriteDescriptorSet zest_CreateImageDescriptorWriteWithType(VkDescriptorSet descriptor_set, VkDescriptorImageInfo* view_image_info, zest_uint dst_binding, VkDescriptorType type) {
-    VkWriteDescriptorSet write = { 0 };
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_set;
-    write.dstBinding = dst_binding;
-    write.dstArrayElement = 0;
-    write.descriptorType = type;
-    write.descriptorCount = 1;
-    write.pImageInfo = view_image_info;
-    return write;
 }
 
 zest_descriptor_set_builder_t zest_BeginDescriptorSetBuilder(zest_set_layout_handle layout_handle) {
@@ -5897,7 +5874,6 @@ void zest__create_debug_layout_and_pool(zest_uint max_texture_count) {
 	zest_set_layout_builder_t builder = zest_BeginSetLayoutBuilder();
     zest_AddLayoutBuilderBinding(&builder, (zest_descriptor_binding_desc_t){ 0, zest_descriptor_type_sampled_image, 1, zest_shader_fragment_stage } );
 	ZestRenderer->texture_debug_layout = zest_FinishDescriptorSetLayout(&builder, "Texture Debug Layout");
-	zest_CreateDescriptorPoolForLayout(ZestRenderer->texture_debug_layout, max_texture_count);
 }
 
 void zest__prepare_standard_pipelines() {
@@ -7901,20 +7877,13 @@ void zest_EmptyRenderPass(const zest_frame_graph_context context, void *user_dat
     //Nothing here to render, it's just for frame graphs that have nothing to render
 }
 
-zest_uint zest_AcquireBindlessImageIndex(zest_image_handle handle, zest_image_view view, zest_sampler sampler, zest_set_layout_handle layout_handle, zest_descriptor_set set, zest_global_binding_number target_binding_number) {
-    ZEST_PRINT_FUNCTION;
-    zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, handle.value);
-    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
-
+zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number) {
     zest_uint binding_number = ZEST_INVALID;
-    VkDescriptorType descriptor_type;
-	zest_vec_foreach(i, layout->backend->layout_bindings) {
-		VkDescriptorSetLayoutBinding *binding = &layout->backend->layout_bindings[i];
-		if (binding->binding == target_binding_number && 
-            (binding->descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
-             binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||
-             binding->descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-            descriptor_type = binding->descriptorType;
+    zest_descriptor_type descriptor_type;
+	zest_vec_foreach(i, layout->bindings) {
+		zest_descriptor_binding_desc_t *binding = &layout->bindings[i];
+		if (binding->binding == target_binding_number && binding->type == zest_descriptor_type_sampled_image) {
+            descriptor_type = binding->type;
 			binding_number = binding->binding;
 			break;
         }
@@ -7928,32 +7897,42 @@ zest_uint zest_AcquireBindlessImageIndex(zest_image_handle handle, zest_image_vi
         return ZEST_INVALID;
     }
 
-    VkWriteDescriptorSet write = { 0 };
-    VkDescriptorImageInfo image_info = { 0 };
-    image_info.imageLayout = image->backend->vk_current_layout;
-    image_info.imageView = view->backend->vk_view;
-    ZEST_ASSERT(image_info.imageView);  //Must have an image view set in the texture
-    if (descriptor_type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-        image_info.sampler = sampler->backend->vk_sampler;
-		write = zest_CreateImageDescriptorWriteWithType(set->backend->vk_descriptor_set, &image_info, binding_number, descriptor_type);
-    } else {
-		write = zest_CreateImageDescriptorWriteWithType(set->backend->vk_descriptor_set, &image_info, binding_number, descriptor_type);
-    }
-    write.dstArrayElement = array_index;
-	vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
+    ZestPlatform->update_bindless_image_descriptor(binding_number, array_index, descriptor_type, image, view, 0, set);
 
     image->bindless_index[binding_number] = array_index;
     return array_index;
 }
 
-zest_uint zest_AcquireBindlessStorageBufferIndex(zest_buffer buffer, zest_set_layout_handle layout_handle, zest_descriptor_set set, zest_uint target_binding_number) {
-    ZEST_PRINT_FUNCTION;
-    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
+zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number) {
+    zest_uint binding_number = ZEST_INVALID;
+    zest_descriptor_type descriptor_type;
+    zest_vec_foreach(i, layout->bindings) {
+        zest_descriptor_binding_desc_t *binding = &layout->bindings[i];
+        if (binding->binding == target_binding_number && binding->type == zest_descriptor_type_sampler) {
+            descriptor_type = binding->type;
+            binding_number = binding->binding;
+            break;
+        }
+    }
 
+    ZEST_ASSERT(binding_number != ZEST_INVALID);    //Could not find an appropriate descriptor type in the layout with that target binding number!
+    zest_uint array_index = zest__acquire_bindless_index(layout, binding_number);
+    if (array_index == ZEST_INVALID) {
+        //Ran out of space in the descriptor pool
+        ZEST__REPORT(zest_report_bindless_indexes, "Ran out of space in the descriptor pool when trying to acquire an index for image, binding number %i.", binding_number);
+        return ZEST_INVALID;
+    }
+
+    ZestPlatform->update_bindless_image_descriptor(binding_number, array_index, descriptor_type, 0, 0, sampler, set);
+
+    return array_index;
+}
+
+zest_uint zest__acquire_bindless_storage_buffer_index(zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number) {
     zest_uint binding_number = ZEST_INVALID;
     zest_vec_foreach(i, layout->backend->layout_bindings) {
-        VkDescriptorSetLayoutBinding *layout_binding = &layout->backend->layout_bindings[i];
-        if (target_binding_number == layout_binding->binding && layout_binding->descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
+        zest_descriptor_binding_desc_t *layout_binding = &layout->bindings[i];
+        if (target_binding_number == layout_binding->binding && layout_binding->type == zest_descriptor_type_storage_buffer) {
             binding_number = layout_binding->binding;
             break;
         }
@@ -7962,31 +7941,26 @@ zest_uint zest_AcquireBindlessStorageBufferIndex(zest_buffer buffer, zest_set_la
     ZEST_ASSERT(binding_number != ZEST_INVALID);    //Could not find an appropriate descriptor type in the layout with that target binding number!
     zest_uint array_index = zest__acquire_bindless_index(layout, binding_number);
 
-    VkDescriptorBufferInfo buffer_info = zest_vk_GetBufferInfo(buffer);
+    ZestPlatform->update_bindless_buffer_descriptor(binding_number, array_index, buffer, set);
 
-    VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(set->backend->vk_descriptor_set, &buffer_info, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    write.dstArrayElement = array_index;
-    vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
     buffer->array_index = array_index;
 
     return array_index;
 }
 
-zest_uint zest_AcquireGlobalSampler(zest_image_handle image_handle, zest_sampler_handle sampler_handle, zest_global_binding_number binding_number) {
+zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number) {
     zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, image_handle.value);
+    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, binding_number);
+    return index;
+}
+
+zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle, zest_global_binding_number binding_number) {
     zest_sampler sampler = (zest_sampler)zest__get_store_resource_checked(&ZestRenderer->samplers, sampler_handle.value);
-    zest_uint index = zest_AcquireBindlessImageIndex(image_handle, image->default_view, sampler, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, binding_number);
+    zest_uint index = zest__acquire_bindless_sampler_index(sampler, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, binding_number);
     return index;
 }
 
-zest_uint zest_AcquireGlobalSamplerWithView(zest_image_handle image_handle, zest_image_view_handle view_handle, zest_sampler sampler, zest_global_binding_number binding_number) {
-    zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, image_handle.value);
-    zest_image_view view = (zest_image_view)zest__get_store_resource_checked(&ZestRenderer->views, view_handle.value);
-    zest_uint index = zest_AcquireBindlessImageIndex(image_handle, view, sampler, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, binding_number);
-    return index;
-}
-
-zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zest_sampler_handle sampler_handle, zest_image_view_array_handle view_array_handle, zest_global_binding_number binding_number) {
+zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zest_image_view_array_handle view_array_handle, zest_global_binding_number binding_number) {
     ZEST_PRINT_FUNCTION;
     zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, image_handle.value);
     ZEST_ASSERT(image->info.mip_levels > 1);         //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
@@ -7996,23 +7970,13 @@ zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zes
         return mip_collection->mip_indexes;
     }
 
-    zest_sampler sampler = (zest_sampler)zest__get_store_resource_checked(&ZestRenderer->samplers, sampler_handle.value);
     zest_image_view_array view_array = *(zest_image_view_array*)zest__get_store_resource_checked(&ZestRenderer->view_arrays, view_array_handle.value);
     zest_mip_index_collection mip_collection = { 0 };
     mip_collection.binding_number = binding_number;
-    zest_set_layout global_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout.value);
+    zest_set_layout global_layout = ZestRenderer->global_bindless_set_layout;
     for (int mip_index = 0; mip_index != view_array->count; ++mip_index) {
         zest_uint bindless_index = zest__acquire_bindless_index(global_layout, binding_number);
-
-        VkDescriptorImageInfo mip_buffer_info;
-        mip_buffer_info.imageLayout = image->backend->vk_current_layout;
-        mip_buffer_info.imageView = view_array->views[mip_index].backend->vk_view;
-        mip_buffer_info.sampler = sampler->backend->vk_sampler;
-
-        VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(ZestRenderer->global_set->backend->vk_descriptor_set, &mip_buffer_info, binding_number, global_layout->backend->descriptor_indexes[binding_number].descriptor_type);
-        write.dstArrayElement = bindless_index;
-        vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
-
+        ZestPlatform->update_bindless_image_descriptor(binding_number, bindless_index, zest_descriptor_type_sampled_image, image, &view_array->views[mip_index], 0, ZestRenderer->global_set);
         zest_vec_push(mip_collection.mip_indexes, bindless_index);
     }
     zest_map_insert_key( image->mip_indexes, (zest_key)binding_number, mip_collection);
@@ -8021,18 +7985,7 @@ zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zes
 }
 
 zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer) {
-    ZEST_PRINT_FUNCTION;
-    zest_set_layout global_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout.value);
-    zest_uint array_index = zest__acquire_bindless_index(global_layout, zest_storage_buffer_binding);
-
-    VkDescriptorBufferInfo buffer_info = zest_vk_GetBufferInfo(buffer);
-
-    VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(ZestRenderer->global_set->backend->vk_descriptor_set, &buffer_info, zest_storage_buffer_binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-    write.dstArrayElement = array_index;
-    vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
-    buffer->array_index = array_index;
-
-    return array_index;
+    return zest__acquire_bindless_storage_buffer_index(buffer, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, zest_storage_buffer_binding);
 }
 
 void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer_handle layer_handle) {
@@ -8078,12 +8031,12 @@ VkDescriptorSetLayout zest_vk_GetDebugLayout() {
 }
 
 VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout() {
-    zest_set_layout global_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout.value);
+    zest_set_layout global_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout_handle.value);
     return global_layout->backend->vk_layout;
 }
 
 zest_set_layout_handle zest_GetGlobalBindlessLayout() {
-    return ZestRenderer->global_bindless_set_layout;
+    return ZestRenderer->global_bindless_set_layout_handle;
 }
 
 zest_descriptor_set zest_GetGlobalBindlessSet() {
@@ -8476,25 +8429,16 @@ zest_resource_node zest_GetPassOutputResource(const zest_frame_graph_context con
     return ZEST_VALID_HANDLE(usage->resource_node->aliased_resource) ? usage->resource_node->aliased_resource : usage->resource_node;
 }
 
-zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource, zest_sampler_handle sampler_handle, zest_global_binding_number binding_number) {
+zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource, zest_global_binding_number binding_number) {
     ZEST_PRINT_FUNCTION;
     ZEST_ASSERT_HANDLE(resource);            // Not a valid resource handle
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
     zest_frame_graph frame_graph = context->frame_graph;
     if (resource->bindless_index[binding_number] != ZEST_INVALID) return resource->bindless_index[binding_number];
-    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, frame_graph->bindless_layout.value);
-    zest_sampler sampler = (zest_sampler)zest__get_store_resource_checked(&ZestRenderer->samplers, sampler_handle.value);
+    zest_set_layout bindless_layout = frame_graph->bindless_layout;
     zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
-    VkDescriptorImageInfo image_buffer_info = { 0 };
-    VkDescriptorType descriptor_type = bindless_layout->backend->descriptor_indexes[binding_number].descriptor_type;
-    ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
-	image_buffer_info.imageLayout = zest__to_vk_image_layout(resource->journey[resource->current_state_index].usage.image_layout);
-	image_buffer_info.imageView = resource->view->backend->vk_view;
-	image_buffer_info.sampler = sampler->backend->vk_sampler;
 
-    VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(frame_graph->bindless_set->backend->vk_descriptor_set, &image_buffer_info, binding_number, descriptor_type);
-    write.dstArrayElement = bindless_index;
-    vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
+    ZestPlatform->update_bindless_image_descriptor(binding_number, bindless_index, zest_descriptor_type_sampled_image, &resource->image, resource->view, 0, frame_graph->bindless_set);
 
     zest_binding_index_for_release_t binding_index = { frame_graph->bindless_layout, bindless_index, binding_number };
     zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
@@ -8503,9 +8447,9 @@ zest_uint zest_GetTransientImageBindlessIndex(const zest_frame_graph_context con
     return bindless_index;
 }
 
-zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context context, zest_resource_node resource, zest_sampler_handle sampler_handle, zest_global_binding_number binding_number) {
+zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context context, zest_resource_node resource, zest_global_binding_number binding_number) {
     ZEST_PRINT_FUNCTION;
-    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, context->frame_graph->bindless_layout.value);
+    zest_set_layout bindless_layout = context->frame_graph->bindless_layout;
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
     ZEST_ASSERT(resource->image.info.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
     ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
@@ -8520,19 +8464,11 @@ zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context co
         resource->view_array = zest__create_image_views_per_mip_backend(&resource->image, zest_image_view_type_2d, 0, resource->image.info.layer_count, allocator);
     }
     zest_mip_index_collection mip_collection = { 0 };
-    zest_sampler sampler = (zest_sampler)zest__get_store_resource_checked(&ZestRenderer->samplers, sampler_handle.value);
 	for (int mip_index = 0; mip_index != resource->view_array->count; ++mip_index) {
 		zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
 		zest_vec_linear_push(allocator, resource->mip_level_bindless_indexes, bindless_index);
 
-		VkDescriptorImageInfo mip_buffer_info;
-		mip_buffer_info.imageLayout = zest__to_vk_image_layout(resource->journey[resource->current_state_index].usage.image_layout);
-		mip_buffer_info.imageView = resource->view_array->views[mip_index].backend->vk_view;
-		mip_buffer_info.sampler = sampler->backend->vk_sampler;
-
-		VkWriteDescriptorSet write = zest_CreateImageDescriptorWriteWithType(frame_graph->bindless_set->backend->vk_descriptor_set, &mip_buffer_info, binding_number, bindless_layout->backend->descriptor_indexes[binding_number].descriptor_type);
-		write.dstArrayElement = bindless_index;
-		vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
+        ZestPlatform->update_bindless_image_descriptor(binding_number, bindless_index, zest_descriptor_type_sampled_image, &resource->image, &resource->view_array->views[mip_index], 0, frame_graph->bindless_set);
 
 		zest_binding_index_for_release_t mip_binding_index = { frame_graph->bindless_layout, bindless_index, binding_number };
 		zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], mip_binding_index);
@@ -8544,20 +8480,14 @@ zest_uint *zest_GetTransientMipBindlessIndexes(const zest_frame_graph_context co
 
 zest_uint zest_GetTransientBufferBindlessIndex(const zest_frame_graph_context context, zest_resource_node resource) {
     ZEST_PRINT_FUNCTION;
-    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, context->frame_graph->bindless_layout.value);
+    zest_set_layout bindless_layout = context->frame_graph->bindless_layout;
     ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle
     ZEST_ASSERT(resource->type == zest_resource_type_buffer);   //Must be a buffer resource type for this bindlesss index acquisition
     if (resource->bindless_index[0] != ZEST_INVALID) return resource->bindless_index[0];
     zest_frame_graph frame_graph = context->frame_graph;
 	zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, zest_storage_buffer_binding);
-	VkDescriptorBufferInfo buffer_info;
-	buffer_info.buffer = resource->storage_buffer->backend->vk_buffer;
-	buffer_info.offset = resource->storage_buffer->buffer_offset;
-	buffer_info.range = resource->storage_buffer->size;
 
-	VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(frame_graph->bindless_set->backend->vk_descriptor_set, &buffer_info, zest_storage_buffer_binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-	write.dstArrayElement = bindless_index;
-	vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
+    ZestPlatform->update_bindless_buffer_descriptor(zest_storage_buffer_binding, bindless_index, resource->storage_buffer, frame_graph->bindless_set);
 
 	zest_binding_index_for_release_t binding_index = { frame_graph->bindless_layout, bindless_index, zest_storage_buffer_binding };
 	zest_vec_push(ZestRenderer->deferred_resource_freeing_list.binding_indexes[ZEST_FIF], binding_index);
@@ -9198,7 +9128,7 @@ zest_image_handle zest__new_image() {
 }
 
 void zest__release_all_global_texture_indexes(zest_image image) {
-    if (!ZestRenderer->global_bindless_set_layout.value) {
+    if (!ZestRenderer->global_bindless_set_layout_handle.value) {
         return;
     }
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
@@ -10394,11 +10324,8 @@ zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest
 		layer->memory_refs[layer->fif].staging_instance_data = layer->memory_refs[layer->fif].staging_instance_data;
         if (ZEST__FLAGGED(layer->flags, zest_layer_flag_using_global_bindless_layout) && layer->memory_refs[layer->fif].device_vertex_data->array_index != ZEST_INVALID) {
             zest_buffer instance_buffer = layer->memory_refs[layer->fif].device_vertex_data;
-            VkDescriptorBufferInfo buffer_info = zest_vk_GetBufferInfo(instance_buffer);
-
-            VkWriteDescriptorSet write = zest_CreateBufferDescriptorWriteWithType(layer->bindless_set->backend->vk_descriptor_set, &buffer_info, zest_storage_buffer_binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-            write.dstArrayElement = layer->memory_refs[layer->fif].device_vertex_data->array_index;
-            vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
+            zest_uint array_index = instance_buffer->array_index;
+			ZestPlatform->update_bindless_buffer_descriptor(zest_storage_buffer_binding, array_index, instance_buffer, layer->bindless_set);
         }
     } else {
 		grown = zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_instance_data, type_size, minimum_size);
@@ -11475,7 +11402,7 @@ zest_compute zest__new_compute(const char* name) {
 zest_compute_builder_t zest_BeginComputeBuilder() {
     zest_compute_builder_t builder = { 0 };
 	//Declare the global bindings as default
-	zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
+	zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout_handle);
     return builder;
 }
 
