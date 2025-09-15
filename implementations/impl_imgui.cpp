@@ -93,7 +93,6 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->font_texture);
     zest_cmd_CopyBitmapToImage(font_bitmap, ZestImGui->font_texture, 0, 0, 0, 0, width, height);
     ZestImGui->font_texture_binding_index = zest_AcquireGlobalSampledImageIndex(ZestImGui->font_texture, zest_texture_2d_binding);
-    ZestImGui->font_sampler_binding_index = zest_AcquireGlobalSamplerIndex(ZestImGui->font_sampler, zest_sampler_binding);
     zest_FreeBitmap(font_bitmap);
     
     ImGuiIO &io = ImGui::GetIO();

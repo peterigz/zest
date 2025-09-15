@@ -171,7 +171,7 @@ void zest_DispatchPrefilteredSetup(const zest_frame_graph_context context, void 
 	app->prefiltered_push_constant.source_env_index = app->skybox_bindless_texture_index;
 	app->prefiltered_push_constant.num_samples = 32;
 	app->prefiltered_push_constant.sampler_index = app->sampler_2d_index;
-	app->prefiltered_push_constant.skybox_sampler_index = app->skybox_bindless_texture_index;
+	app->prefiltered_push_constant.skybox_sampler_index = app->skybox_sampler_index;
 	for (zest_uint m = 0; m < image_info->mip_levels; m++) {
 		app->prefiltered_push_constant.roughness = (float)m / (float)(image_info->mip_levels - 1);
 		app->prefiltered_push_constant.prefiltered_index = app->prefiltered_mip_indexes[m];
@@ -257,11 +257,11 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->lights_buffer = zest_CreateUniformBuffer("Lights", sizeof(UniformLights));
 	app->view_buffer = zest_CreateUniformBuffer("View", sizeof(uniform_buffer_data_t));
 	app->material_push = { 0 };
-	app->material_push.parameters1.x = .1f;
-	app->material_push.parameters1.y = 1.f;
-	app->material_push.parameters2.x = 0.1f;
-	app->material_push.parameters2.y = 0.8f;
-	app->material_push.parameters2.z = 0.1f;
+	app->material_push.roughness = .1f;
+	app->material_push.metallic = 1.f;
+	app->material_push.color.x = 0.1f;
+	app->material_push.color.y = 0.8f;
+	app->material_push.color.z = 0.1f;
 
 	SetupBillboards(app);
 
@@ -284,16 +284,17 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->skybox_texture = zest_LoadCubemap("Pisa Cube", "examples/assets/pisa_cube.ktx");
 	app->skybox_sampler = zest_CreateSamplerForImage(app->skybox_texture);
 	app->skybox_bindless_texture_index = zest_AcquireGlobalSampledImageIndex(app->skybox_texture, zest_texture_cube_binding);
-	SetupBRDFLUT(app);
-	SetupIrradianceCube(app);
-	SetupPrefilteredCube(app);
 
 	app->sampler_2d_index = zest_AcquireGlobalSamplerIndex(app->sampler_2d, zest_sampler_binding);
 	app->cube_sampler_index = zest_AcquireGlobalSamplerIndex(app->cube_sampler, zest_sampler_binding);
 	app->skybox_sampler_index = zest_AcquireGlobalSamplerIndex(app->skybox_sampler, zest_sampler_binding);
 
+	SetupBRDFLUT(app);
+	SetupIrradianceCube(app);
+	SetupPrefilteredCube(app);
+
 	app->pbr_pipeline = zest_BeginPipelineTemplate("pipeline_mesh_instance");
-	zest_SetPipelinePushConstantRange(app->pbr_pipeline, sizeof(zest_push_constants_t), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelinePushConstantRange(app->pbr_pipeline, sizeof(pbr_consts_t), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 0, sizeof(zest_vertex_t), VK_VERTEX_INPUT_RATE_VERTEX);
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(zest_mesh_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);                                          // Location 0: Vertex Position
@@ -454,9 +455,9 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui::NewFrame();
 		ImGui::Begin("Test Window");
 		ImGui::Text("FPS %i", ZestApp->last_fps);
-		ImGui::DragFloat("Rougness", &app->material_push.parameters1.x, 0.01f, 0.f, 1.f);
-		ImGui::DragFloat("Metallic", &app->material_push.parameters1.y, 0.01f, 0.f, 1.f);
-		ImGui::ColorPicker3("Color", &app->material_push.parameters2.x);
+		ImGui::DragFloat("Rougness", &app->material_push.roughness, 0.01f, 0.f, 1.f);
+		ImGui::DragFloat("Metallic", &app->material_push.metallic, 0.01f, 0.f, 1.f);
+		ImGui::ColorPicker3("Color", &app->material_push.color.x);
 		ImGui::Separator();
 		if (ImGui::Button("Toggle Refresh Rate Sync")) {
 			if (app->sync_refresh) {
@@ -500,11 +501,12 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_vec3 scale = { 1.f, 1.f, 1.f };
 
 	UpdateLights(app, rotation_time);
-	app->material_push.global = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
-	app->material_push.descriptor_index[0] = zest_ImageDescriptorIndex(app->irr_texture, zest_texture_cube_binding);
-	app->material_push.descriptor_index[1] = zest_ImageDescriptorIndex(app->brd_texture, zest_texture_2d_binding);
-	app->material_push.descriptor_index[2] = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_texture_cube_binding);
-	app->material_push.descriptor_index[3] = app->sampler_2d_index;
+	app->material_push.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
+	app->material_push.irradiance_index = zest_ImageDescriptorIndex(app->irr_texture, zest_texture_cube_binding);
+	app->material_push.brd_lookup_index = zest_ImageDescriptorIndex(app->brd_texture, zest_texture_2d_binding);
+	app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_texture_cube_binding);
+	app->material_push.sampler_index = app->sampler_2d_index;
+	app->material_push.skybox_sampler_index = app->skybox_sampler_index;
 	zest_SetInstanceDrawing(app->cube_layer, app->pbr_shader_resources, app->pbr_pipeline);
 	zest_SetLayerPushConstants(app->cube_layer, &app->material_push, sizeof(zest_push_constants_t));
 	zest_SetLayerColor(app->cube_layer, 255, 255, 255, 255);

@@ -12,15 +12,16 @@ layout(set = 1, binding = 0) uniform UboView
 
 layout(push_constant) uniform quad_index
 {
-    uint index1;
-    uint index2;
-    uint index3;
-    uint index4;
-    vec4 parameters1;
-    vec4 parameters2;
-    vec4 parameters3;
-    vec4 camera;
-} pc;
+	vec4 camera;
+	vec3 color;
+	float roughness;
+	float metallic;
+	uint irradiance_index;
+	uint brd_lookup_index;
+	uint pre_filtered_index;
+	uint sampler_index;
+	uint skybox_sampler_index;
+};
 
 layout(location = 0) in vec3 vertex_position;
 layout(location = 1) in vec4 vertex_color;

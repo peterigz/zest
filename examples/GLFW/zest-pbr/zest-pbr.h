@@ -51,6 +51,18 @@ struct prefiltered_push_constant_t {
 	zest_uint num_samples;
 };
 
+struct pbr_consts_t {
+	zest_vec4 camera;
+	zest_vec3 color;
+	float roughness;
+	float metallic;
+	zest_uint irradiance_index;
+	zest_uint brd_lookup_index;
+	zest_uint pre_filtered_index;
+	zest_uint sampler_index;
+	zest_uint skybox_sampler_index;
+};
+
 struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
 	zest_timer_handle timer;
@@ -69,7 +81,7 @@ struct ImGuiApp {
 
 	RenderCacheInfo cache_info;
 
-	zest_push_constants_t material_push;
+	pbr_consts_t material_push;
 	billboard_push_constant_t billboard_push;
 	irr_push_constant_t irr_push_constant;
 	prefiltered_push_constant_t prefiltered_push_constant;

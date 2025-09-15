@@ -13,17 +13,15 @@ layout(location = 0) out vec4 out_color;
 
 layout(push_constant) uniform quad_index
 {
-    uint irradiance_index;
-    uint brd_lookup_index;
-    uint pre_filtered_index;
-	uint sampler_index;
-    float roughness;
-	float metallic;
-	vec2 padding1;
-	vec3 color;
-	float padding2;
-	vec4 parameters3;
 	vec4 camera;
+	vec3 color;
+	float roughness;
+	float metallic;
+	uint irradiance_index;
+	uint brd_lookup_index;
+	uint pre_filtered_index;
+	uint sampler_index;
+	uint skybox_sampler_index;
 } material;
 
 layout (set = 2, binding = 0) uniform UBOLights {
@@ -82,8 +80,8 @@ vec3 prefilteredReflection(vec3 R, float roughness)
 	float lod = roughness * MAX_REFLECTION_LOD;
 	float lodf = floor(lod);
 	float lodc = ceil(lod);
-	vec3 a = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.sampler_index]), R, lodf).rgb;
-	vec3 b = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.sampler_index]), R, lodc).rgb;
+	vec3 a = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.skybox_sampler_index]), R, lodf).rgb;
+	vec3 b = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.skybox_sampler_index]), R, lodc).rgb;
 	return mix(a, b, lod - lodf);
 }
 
