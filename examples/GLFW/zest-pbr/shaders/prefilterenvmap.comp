@@ -17,6 +17,7 @@ layout(push_constant) uniform PushConsts {
 	uint sourceIndex;
 	uint destIndex;
 	uint sampler_index;
+	uint skybox_sampler_index;
 	float roughness;
 	uint numSamples;
 } consts;
@@ -100,7 +101,7 @@ vec3 prefilterEnvMap(vec3 R, float roughness)
 			float omegaP = 4.0 * PI / (6.0 * envMapDim * envMapDim);
 			// Biased (+1.0) mip level for better result
 			float mipLevel = roughness == 0.0 ? 0.0 : max(0.5 * log2(omegaS / omegaP) + 1.0, 0.0f);
-			color += textureLod(samplerCube(textures[consts.sourceIndex], samplers[consts.sampler_index]), L, mipLevel).rgb * dotNL;
+			color += textureLod(samplerCube(textures[consts.sourceIndex], samplers[consts.skybox_sampler_index]), L, mipLevel).rgb * dotNL;
 			totalWeight += dotNL;
 
 		}

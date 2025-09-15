@@ -171,6 +171,7 @@ void zest_DispatchPrefilteredSetup(const zest_frame_graph_context context, void 
 	app->prefiltered_push_constant.source_env_index = app->skybox_bindless_texture_index;
 	app->prefiltered_push_constant.num_samples = 32;
 	app->prefiltered_push_constant.sampler_index = app->sampler_2d_index;
+	app->prefiltered_push_constant.skybox_sampler_index = app->skybox_bindless_texture_index;
 	for (zest_uint m = 0; m < image_info->mip_levels; m++) {
 		app->prefiltered_push_constant.roughness = (float)m / (float)(image_info->mip_levels - 1);
 		app->prefiltered_push_constant.prefiltered_index = app->prefiltered_mip_indexes[m];

@@ -46,6 +46,7 @@ struct prefiltered_push_constant_t {
 	zest_uint source_env_index;
 	zest_uint prefiltered_index;
 	zest_uint sampler_index;
+	zest_uint skybox_sampler_index;
 	float roughness;
 	zest_uint num_samples;
 };
