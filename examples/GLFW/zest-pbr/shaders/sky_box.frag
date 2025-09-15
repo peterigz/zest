@@ -2,7 +2,8 @@
 #extension GL_ARB_separate_shader_objects : enable
 #extension GL_EXT_nonuniform_qualifier : enable
 
-layout (set = 0, binding = 2) uniform samplerCube samplerEnv[];
+layout (set = 0, binding = 0) uniform sampler samplers[];
+layout (set = 0, binding = 2) uniform textureCube textures[];
 
 layout (location = 0) in vec3 inUVW;
 
@@ -13,7 +14,8 @@ layout (set = 2, binding = 0) uniform UBOParams {
 	float exposure;
 	float gamma;
 	uint texture_index;
-} ubo;
+	uint sampler_index;
+} consts;
 
 // From http://filmicworlds.com/blog/filmic-tonemapping-operators/
 vec3 Uncharted2Tonemap(vec3 color)
@@ -30,13 +32,13 @@ vec3 Uncharted2Tonemap(vec3 color)
 
 void main() 
 {
-	vec3 color = texture(samplerEnv[ubo.texture_index], inUVW).rgb;
+	vec3 color = texture(samplerCube(textures[consts.texture_index], samplers[consts.sampler_index]), inUVW).rgb;
 
 	// Tone mapping
-	color = Uncharted2Tonemap(color * ubo.exposure);
+	color = Uncharted2Tonemap(color * consts.exposure);
 	color = color * (1.0f / Uncharted2Tonemap(vec3(11.2f)));	
 	// Gamma correction
-	color = pow(color, vec3(1.0f / ubo.gamma));
+	color = pow(color, vec3(1.0f / consts.gamma));
 	
 	outColor = vec4(color, 1.0);
 }

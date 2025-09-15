@@ -1729,12 +1729,12 @@ typedef enum zest_report_category {
 } zest_report_category;
 
 typedef enum zest_global_binding_number {
-    zest_sampler_2d_binding = 0,
-    zest_sampler_array_binding,
-    zest_sampler_cube_binding,
-    zest_sampler_3d_binding,
+    zest_sampler_binding = 0,
+    zest_texture_2d_binding,
+    zest_texture_cube_binding,
+    zest_texture_array_binding,
+    zest_texture_3d_binding,
     zest_storage_buffer_binding,
-    zest_sampled_image_binding,
     zest_storage_image_binding,
     zest_max_global_binding_number
 } zest_global_binding_number;
@@ -4306,9 +4306,8 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout);
 ZEST_PRIVATE void zest__add_descriptor_set_to_resources(zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif);
-ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number, zest_descriptor_type descriptor_type);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number);
-ZEST_PRIVATE zest_uint zest__acquire_bindless_storage_buffer_index(zest_buffer buffer, zest_set_layout layout, zest_descriptor_set set, zest_uint target_binding_number);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -4439,9 +4438,10 @@ ZEST_API void zest_AddSetBuilderStorageBuffer( zest_descriptor_set_builder_t *bu
 ZEST_API zest_descriptor_set zest_FinishDescriptorSet(zest_descriptor_pool pool, zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update);
 ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout_handle layout);
 ZEST_API zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number);
+ZEST_API zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number);
 ZEST_API zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle, zest_global_binding_number binding_number);
 ZEST_API zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer);
-ZEST_API zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle handle, zest_image_view_array_handle image_views, zest_global_binding_number binding_number);
+ZEST_API zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle handle, zest_image_view_array_handle image_views, zest_global_binding_number binding_number, zest_descriptor_type descriptor_type);
 ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer_handle layer);
 ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
 ZEST_API void zest_ReleaseGlobalImageIndex(zest_image_handle image, zest_global_binding_number binding_number);

@@ -37,6 +37,7 @@ struct billboard_push_constant_t {
 struct irr_push_constant_t {
 	zest_uint source_env_index;
 	zest_uint irr_index;
+	zest_uint sampler_index;
 	float delta_phi;
 	float delta_theta;
 };
@@ -44,6 +45,7 @@ struct irr_push_constant_t {
 struct prefiltered_push_constant_t {
 	zest_uint source_env_index;
 	zest_uint prefiltered_index;
+	zest_uint sampler_index;
 	float roughness;
 	zest_uint num_samples;
 };
@@ -91,17 +93,21 @@ struct ImGuiApp {
 	zest_sampler_handle cube_sampler;
 	zest_sampler_handle skybox_sampler;
 
+	zest_uint sampler_2d_index;
+	zest_uint cube_sampler_index;
+	zest_uint skybox_sampler_index;
+
 	zest_image_view_t *brd_view;
 
 	zest_compute_handle brd_compute;
 	zest_compute_handle irr_compute;
 	zest_compute_handle prefiltered_compute;
 
-	zest_uint skybox_bindless_index;
-	zest_uint brd_bindless_index;
-	zest_uint irr_bindless_index;
-	zest_uint prefiltered_bindless_index;
-	
+	zest_uint skybox_bindless_texture_index;
+	zest_uint brd_bindless_texture_index;
+	zest_uint irr_bindless_texture_index;
+	zest_uint prefiltered_bindless_texture_index;
+
 	zest_uint *prefiltered_mip_indexes;
 
 	zest_vec3 old_camera_position;

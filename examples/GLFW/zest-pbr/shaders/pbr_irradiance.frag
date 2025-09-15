@@ -1,8 +1,9 @@
 #version 450
 #extension GL_EXT_nonuniform_qualifier : enable
 
-layout (set = 0, binding = 0) uniform sampler2D samplers[];
-layout (set = 0, binding = 2) uniform samplerCube cube_samplers[];
+layout (set = 0, binding = 0) uniform sampler samplers[];
+layout (set = 0, binding = 1) uniform texture2D textures_2d[];
+layout (set = 0, binding = 2) uniform textureCube textures_cube[];
 
 layout(location = 0) in vec4 in_frag_color;
 layout (location = 1) in vec3 in_world_position;
@@ -15,7 +16,7 @@ layout(push_constant) uniform quad_index
     uint irradiance_index;
     uint brd_lookup_index;
     uint pre_filtered_index;
-    uint index4;
+	uint sampler_index;
     float roughness;
 	float metallic;
 	vec2 padding1;
@@ -81,8 +82,8 @@ vec3 prefilteredReflection(vec3 R, float roughness)
 	float lod = roughness * MAX_REFLECTION_LOD;
 	float lodf = floor(lod);
 	float lodc = ceil(lod);
-	vec3 a = textureLod(cube_samplers[material.pre_filtered_index], R, lodf).rgb;
-	vec3 b = textureLod(cube_samplers[material.pre_filtered_index], R, lodc).rgb;
+	vec3 a = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.sampler_index]), R, lodf).rgb;
+	vec3 b = textureLod(samplerCube(textures_cube[material.pre_filtered_index], samplers[material.sampler_index]), R, lodc).rgb;
 	return mix(a, b, lod - lodf);
 }
 
@@ -136,9 +137,9 @@ void main()
 	vec3 N_flipped = vec3(N.x, -N.y, N.z);
 	vec3 R_flipped = vec3(R.x, -R.y, R.z);
 
-	vec2 brdf = texture(samplers[material.brd_lookup_index], vec2(max(dot(N, V), 0.0), roughness)).rg;
+	vec2 brdf = texture(sampler2D(textures_2d[material.brd_lookup_index], samplers[material.sampler_index]), vec2(max(dot(N, V), 0.0), roughness)).rg;
 	vec3 reflection = prefilteredReflection(R_flipped, roughness).rgb;	
-	vec3 irradiance = texture(cube_samplers[material.irradiance_index], N_flipped).rgb;
+	vec3 irradiance = texture(samplerCube(textures_cube[material.irradiance_index], samplers[material.sampler_index]), N_flipped).rgb;
 
 	// Diffuse based on irradiance
 	vec3 diffuse = irradiance * ALBEDO;	

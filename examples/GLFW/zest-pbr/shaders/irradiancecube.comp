@@ -5,14 +5,17 @@
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// Bindless array for the source environment maps
-layout (binding = 2) uniform samplerCube samplerEnv[];
+// Generic sampler array
+layout (set = 0, binding = 0) uniform sampler samplers[];
+// Source environment maps (as separate textures)
+layout (set = 0, binding = 2) uniform textureCube textureEnv[];
 // Bindless array for the destination irradiance maps (as storage images)
-layout (binding = 7, rgba16f) uniform writeonly imageCube imageIrradiance[];
+layout (binding = 6, rgba16f) uniform writeonly imageCube imageIrradiance[];
 
 layout(push_constant) uniform PushConsts {
 	uint sourceEnvIndex;
 	uint destIrradianceIndex;
+	uint samplerIndex;
 	float deltaPhi;
 	float deltaTheta;
 } consts;
@@ -66,7 +69,7 @@ void main()
             vec3 tempVec = cos(phi) * right + sin(phi) * up;
             vec3 sampleVector = cos(theta) * N + sin(theta) * tempVec;
             // Accumulate color, weighted by cos(theta) for Lambertian diffusion
-            color += texture(samplerEnv[consts.sourceEnvIndex], sampleVector).rgb * cos(theta) * sin(theta);
+            color += texture(samplerCube(textureEnv[consts.sourceEnvIndex], samplers[consts.samplerIndex]), sampleVector).rgb * cos(theta) * sin(theta);
             sampleCount++;
         }
     }

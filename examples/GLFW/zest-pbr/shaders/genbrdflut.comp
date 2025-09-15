@@ -6,7 +6,7 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // A bindless array of storage images. We will write to one of them.
 // The 'writeonly' qualifier is an optimization hint.
-layout(set = 0, binding = 7, rg16f) uniform writeonly image2D storageImages[];
+layout(set = 0, binding = 6, rg16f) uniform writeonly image2D storageImages[];
 
 // Push constants to pass in the index of our target image within the bindless array.
 layout(push_constant) uniform PushConsts {

@@ -3168,12 +3168,12 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
 
     //Create a global bindless descriptor set for storage buffers and texture samplers
     zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder();
-    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_sampler_2d_binding, zest_descriptor_type_sampler, create_info->bindless_combined_sampler_2d_count, zest_shader_compute_stage | zest_shader_fragment_stage } );
-    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_sampler_array_binding, zest_descriptor_type_sampler, create_info->bindless_combined_sampler_array_count, zest_shader_compute_stage | zest_shader_fragment_stage } );
-    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_sampler_cube_binding, zest_descriptor_type_sampler, create_info->bindless_combined_sampler_cube_count, zest_shader_compute_stage | zest_shader_fragment_stage } );
-    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_sampler_3d_binding, zest_descriptor_type_sampler, create_info->bindless_combined_sampler_3d_count, zest_shader_compute_stage | zest_shader_fragment_stage } );
+    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_sampler_binding, zest_descriptor_type_sampler, create_info->bindless_combined_sampler_2d_count, zest_shader_compute_stage | zest_shader_fragment_stage } );
+    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_texture_2d_binding, zest_descriptor_type_sampled_image, create_info->bindless_combined_sampler_array_count, zest_shader_compute_stage | zest_shader_fragment_stage } );
+    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_texture_cube_binding, zest_descriptor_type_sampled_image, create_info->bindless_combined_sampler_cube_count, zest_shader_compute_stage | zest_shader_fragment_stage } );
+    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_texture_array_binding, zest_descriptor_type_sampled_image, create_info->bindless_combined_sampler_array_count, zest_shader_compute_stage | zest_shader_fragment_stage } );
+    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_texture_3d_binding, zest_descriptor_type_sampled_image, create_info->bindless_combined_sampler_3d_count, zest_shader_compute_stage | zest_shader_fragment_stage } );
     zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, create_info->bindless_storage_buffer_count, zest_shader_all_stages } );
-    zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_sampled_image_binding, zest_descriptor_type_sampled_image, create_info->bindless_sampled_image_count, zest_shader_compute_stage | zest_shader_fragment_stage  } );
     zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_storage_image_binding, zest_descriptor_type_storage_image, create_info->bindless_storage_image_count, zest_shader_compute_stage | zest_shader_fragment_stage  } );
     ZestRenderer->global_bindless_set_layout_handle = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, 0, "Zest Descriptor Layout");
     ZestRenderer->global_bindless_set_layout = (zest_set_layout)zest__get_store_resource(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout_handle.value);
@@ -3631,7 +3631,7 @@ zest_uniform_buffer_handle zest_CreateUniformBuffer(const char *name, zest_size 
     buffer_info.property_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
 	zest_set_layout_builder_t uniform_layout_builder = zest_BeginSetLayoutBuilder();
-    zest_AddLayoutBuilderBinding(&uniform_layout_builder, (zest_descriptor_binding_desc_t){ 0, zest_descriptor_type_storage_image, 1, zest_shader_all_stages } );
+    zest_AddLayoutBuilderBinding(&uniform_layout_builder, (zest_descriptor_binding_desc_t){ 0, zest_descriptor_type_uniform_buffer, 1, zest_shader_all_stages } );
 	uniform_buffer->set_layout = zest_FinishDescriptorSetLayout(&uniform_layout_builder, "Layout for: %s", name);
 	zest_CreateDescriptorPoolForLayout(uniform_buffer->set_layout, ZEST_MAX_FIF);
 
@@ -3689,14 +3689,12 @@ zest_set_layout_handle zest_FinishDescriptorSetLayout(zest_set_layout_builder_t 
     handle = zest__new_descriptor_set_layout(layout_name.str);
     zest_set_layout set_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, handle.value);
 
-    if (!ZestPlatform->create_set_layout(builder, set_layout, ZEST_TRUE)) {
+    if (!ZestPlatform->create_set_layout(builder, set_layout, ZEST_FALSE)) {
 		zest_vec_free(builder->bindings);
         zest__cleanup_set_layout(set_layout);
 		zest_FreeText(&layout_name);
         return (zest_set_layout_handle){ 0 };
     }
-
-    zest_CreateDescriptorPoolForLayout(handle, 1);
 
     set_layout->bindings = builder->bindings;
     zest_FreeText(&layout_name);
@@ -7877,13 +7875,11 @@ void zest_EmptyRenderPass(const zest_frame_graph_context context, void *user_dat
     //Nothing here to render, it's just for frame graphs that have nothing to render
 }
 
-zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number) {
+zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number, zest_descriptor_type descriptor_type) {
     zest_uint binding_number = ZEST_INVALID;
-    zest_descriptor_type descriptor_type;
 	zest_vec_foreach(i, layout->bindings) {
 		zest_descriptor_binding_desc_t *binding = &layout->bindings[i];
-		if (binding->binding == target_binding_number && binding->type == zest_descriptor_type_sampled_image) {
-            descriptor_type = binding->type;
+		if (binding->binding == target_binding_number && binding->type == descriptor_type) {
 			binding_number = binding->binding;
 			break;
         }
@@ -7950,7 +7946,13 @@ zest_uint zest__acquire_bindless_storage_buffer_index(zest_buffer buffer, zest_s
 
 zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number) {
     zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, image_handle.value);
-    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, binding_number);
+    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, binding_number, zest_descriptor_type_sampled_image);
+    return index;
+}
+
+zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number) {
+    zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, image_handle.value);
+    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, ZestRenderer->global_bindless_set_layout, ZestRenderer->global_set, binding_number, zest_descriptor_type_storage_image);
     return index;
 }
 
@@ -7960,7 +7962,7 @@ zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle, zes
     return index;
 }
 
-zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zest_image_view_array_handle view_array_handle, zest_global_binding_number binding_number) {
+zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zest_image_view_array_handle view_array_handle, zest_global_binding_number binding_number, zest_descriptor_type descriptor_type) {
     ZEST_PRINT_FUNCTION;
     zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, image_handle.value);
     ZEST_ASSERT(image->info.mip_levels > 1);         //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
@@ -7976,7 +7978,7 @@ zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zes
     zest_set_layout global_layout = ZestRenderer->global_bindless_set_layout;
     for (int mip_index = 0; mip_index != view_array->count; ++mip_index) {
         zest_uint bindless_index = zest__acquire_bindless_index(global_layout, binding_number);
-        ZestPlatform->update_bindless_image_descriptor(binding_number, bindless_index, zest_descriptor_type_sampled_image, image, &view_array->views[mip_index], 0, ZestRenderer->global_set);
+        ZestPlatform->update_bindless_image_descriptor(binding_number, bindless_index, descriptor_type, image, &view_array->views[mip_index], 0, ZestRenderer->global_set);
         zest_vec_push(mip_collection.mip_indexes, bindless_index);
     }
     zest_map_insert_key( image->mip_indexes, (zest_key)binding_number, mip_collection);
