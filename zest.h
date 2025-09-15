@@ -3485,6 +3485,13 @@ ZEST_API zest_texture_format zest_GetSwapchainFormat(zest_swapchain swapchain);
 ZEST_API void zest_SetSwapchainClearColor(zest_swapchain swapchain, float red, float green, float blue, float alpha);
 //End Swapchain helpers
 
+typedef struct zest_descriptor_indices_t {
+    zest_uint *free_indices;
+    zest_uint next_new_index;
+    zest_uint capacity;
+    zest_descriptor_type descriptor_type;
+} zest_descriptor_indices_t;
+
 typedef struct zest_descriptor_binding_desc_t {
     zest_uint binding;                      // The binding slot (register in HLSL, binding in GLSL, [[id(n)]] in MSL)
     zest_descriptor_type type;              // The generic resource type
@@ -3538,6 +3545,7 @@ typedef struct zest_set_layout_t {
     int magic;
     zest_descriptor_binding_desc_t *bindings;
     zest_set_layout_backend backend;
+    zest_descriptor_indices_t *descriptor_indexes;
     zest_set_layout_handle handle;
     zest_text_t name;
     zest_u64 binding_indexes;

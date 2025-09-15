@@ -3696,6 +3696,13 @@ zest_set_layout_handle zest_FinishDescriptorSetLayout(zest_set_layout_builder_t 
         return (zest_set_layout_handle){ 0 };
     }
 
+    zest_vec_resize(set_layout->descriptor_indexes, zest_vec_size(builder->bindings));
+    zest_vec_foreach(i, builder->bindings) {
+        set_layout->descriptor_indexes[i] = (zest_descriptor_indices_t){ 0 };
+        set_layout->descriptor_indexes[i].capacity = builder->bindings[i].count;
+        set_layout->descriptor_indexes[i].descriptor_type = builder->bindings[i].type;
+    }
+
     set_layout->bindings = builder->bindings;
     zest_FreeText(&layout_name);
     return handle;
@@ -3724,6 +3731,13 @@ zest_set_layout_handle zest_FinishDescriptorSetLayoutForBindless(zest_set_layout
     ZEST__FLAG(set_layout->flags, zest_set_layout_flag_bindless);
 
     zest_CreateDescriptorPoolForLayout(handle, 1);
+
+    zest_vec_resize(set_layout->descriptor_indexes, zest_vec_size(builder->bindings));
+    zest_vec_foreach(i, builder->bindings) {
+        set_layout->descriptor_indexes[i] = (zest_descriptor_indices_t){ 0 };
+        set_layout->descriptor_indexes[i].capacity = builder->bindings[i].count;
+        set_layout->descriptor_indexes[i].descriptor_type = builder->bindings[i].type;
+    }
 
     set_layout->bindings = builder->bindings;
     zest_FreeText(&layout_name);
@@ -3755,12 +3769,12 @@ zest_set_layout_handle zest__new_descriptor_set_layout(const char *name) {
 
 
 zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest_uint binding_number) {
-    if (binding_number >= zest_vec_size(layout->backend->descriptor_indexes)) {
+    if (binding_number >= zest_vec_size(layout->descriptor_indexes)) {
         ZEST_PRINT("Attempted to acquire index for out-of-bounds binding_number %u for layout '%s'. Are you sure this is a layout that's configured for bindless descriptors?", binding_number, layout->name.str);
         return ZEST_INVALID; 
     }
 
-    zest_descriptor_indices_t *manager = &layout->backend->descriptor_indexes[binding_number];
+    zest_descriptor_indices_t *manager = &layout->descriptor_indexes[binding_number];
 
     if (zest_vec_size(manager->free_indices) > 0) {
         zest_uint index = zest_vec_back(manager->free_indices); // Reuse from free list
@@ -3781,12 +3795,12 @@ void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_numb
     ZEST_ASSERT_HANDLE(layout);   //Not a valid layout handle!
     if (index_to_release == ZEST_INVALID) return;
 
-    if (binding_number >= zest_vec_size(layout->backend->descriptor_indexes)) {
+    if (binding_number >= zest_vec_size(layout->descriptor_indexes)) {
         ZEST_PRINT("Attempted to release index for out-of-bounds binding_number %u for layout '%s'. Check that layout is actually intended for bindless.", binding_number, layout->name.str);
         return;
     }
 
-    zest_descriptor_indices_t *manager = &layout->backend->descriptor_indexes[binding_number];
+    zest_descriptor_indices_t *manager = &layout->descriptor_indexes[binding_number];
 
     zest_vec_foreach(i, manager->free_indices) {
         if (index_to_release == manager->free_indices[i]) {
@@ -3802,6 +3816,10 @@ void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_numb
 void zest__cleanup_set_layout(zest_set_layout layout) {
     ZEST_PRINT_FUNCTION;
     zest_FreeText(&layout->name);
+	zest_vec_foreach(i, layout->descriptor_indexes) {
+		zest_vec_free(layout->descriptor_indexes[i].free_indices);
+	}
+	zest_vec_free(layout->descriptor_indexes);
     zest__cleanup_set_layout_backend(layout);
     ZEST__FREE(layout->pool);
     zest_vec_free(layout->bindings);

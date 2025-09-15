@@ -151,18 +151,10 @@ typedef struct zest_descriptor_set_backend_t {
     VkDescriptorSet vk_descriptor_set;
 } zest_descriptor_set_backend_t;
 
-typedef struct zest_descriptor_indices_t {
-    zest_uint *free_indices;
-    zest_uint next_new_index;
-    zest_uint capacity;
-    VkDescriptorType descriptor_type;
-} zest_descriptor_indices_t;
-
 typedef struct zest_set_layout_backend_t {
     VkDescriptorSetLayoutBinding *layout_bindings;
     VkDescriptorSetLayout vk_layout;
     VkDescriptorSetLayoutCreateFlags create_flags;
-    zest_descriptor_indices_t *descriptor_indexes;
 } zest_set_layout_backend_t;
 
 typedef struct zest_pipeline_backend_t {
@@ -1700,10 +1692,6 @@ void zest__vk_cleanup_set_layout(zest_set_layout layout) {
         if (layout->backend->vk_layout) {
             vkDestroyDescriptorSetLayout(ZestDevice->backend->logical_device, layout->backend->vk_layout, &ZestDevice->backend->allocation_callbacks);
         }
-        zest_vec_foreach(i, layout->backend->descriptor_indexes) {
-            zest_vec_free(layout->backend->descriptor_indexes[i].free_indices);
-        }
-        zest_vec_free(layout->backend->descriptor_indexes);
 		ZEST__FREE(layout->backend);
 		layout->backend = 0;
     }
@@ -1841,16 +1829,10 @@ zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_se
         return ZEST_FALSE;
     }
 
-    zest_vec_resize(layout->backend->descriptor_indexes, layoutInfo.bindingCount);
     zest_uint count = zest_vec_size(layout->backend->layout_bindings);
     zest_uint size_of_binding = sizeof(VkDescriptorSetLayoutBinding);
     zest_uint size_in_bytes = zest_vec_size_in_bytes(builder->bindings);
 	layout->backend->layout_bindings = bindings;
-    zest_vec_foreach(i, bindings) {
-        layout->backend->descriptor_indexes[i] = (zest_descriptor_indices_t){ 0 };
-        layout->backend->descriptor_indexes[i].capacity = bindings[i].descriptorCount;
-        layout->backend->descriptor_indexes[i].descriptor_type = bindings[i].descriptorType;
-    }
     return ZEST_TRUE;
 }
 
