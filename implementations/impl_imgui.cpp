@@ -42,30 +42,26 @@ zest_imgui_t *zest_imgui_Initialise() {
 
     //ImGuiPipeline
     zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate("pipeline_imgui");
-    imgui_pipeline->scissor.offset.x = 0;
-    imgui_pipeline->scissor.offset.y = 0;
     zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_imgui_push_t), zest_shader_render_stages);
-    zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), VK_VERTEX_INPUT_RATE_VERTEX);
-    zest_AddVertexAttribute(imgui_pipeline, 0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
-    zest_AddVertexAttribute(imgui_pipeline, 0, 1, VK_FORMAT_R32G32_SFLOAT, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV
-    zest_AddVertexAttribute(imgui_pipeline, 0, 2, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_ImDrawVert_t, col));    // Location 2: Color
+    zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), zest_input_rate_vertex);
+    zest_AddVertexAttribute(imgui_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
+    zest_AddVertexAttribute(imgui_pipeline, 0, 1, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV
+    zest_AddVertexAttribute(imgui_pipeline, 0, 2, zest_format_r8g8b8a8_unorm, offsetof(zest_ImDrawVert_t, col));    // Location 2: Color
 
     zest_SetPipelineShaders(imgui_pipeline, ZestImGui->vertex_shader, ZestImGui->fragment_shader);
 
-    imgui_pipeline->scissor.extent = { zest_SwapChainWidth(), zest_SwapChainHeight() };
     imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
     zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
     zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_vk_GetGlobalBindlessLayout());
     zest_EndPipelineTemplate(imgui_pipeline);
 
-    imgui_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    imgui_pipeline->rasterizer.cullMode = VK_CULL_MODE_NONE;
-    imgui_pipeline->rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    imgui_pipeline->inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    imgui_pipeline->rasterization.polygon_mode = zest_polygon_mode_fill;
+    imgui_pipeline->rasterization.cull_mode = zest_cull_mode_none;
+    imgui_pipeline->rasterization.front_face = zest_front_face_counter_clockwise;
+    zest_SetPipelineTopology(imgui_pipeline, zest_topology_triangle_list);
 
-    imgui_pipeline->colorBlendAttachment = zest_ImGuiBlendState();
-    imgui_pipeline->depthStencil.depthTestEnable = VK_FALSE;
-    imgui_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
+    imgui_pipeline->color_blend_attachment = zest_ImGuiBlendState();
+    zest_SetPipelineDepthTest(imgui_pipeline, ZEST_FALSE, ZEST_FALSE);
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
 
     io.Fonts->SetTexID((ImTextureID)ZestImGui->font_region);

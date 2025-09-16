@@ -779,168 +779,199 @@ typedef enum zest_platform_type {
     zest_platform_metal,
 } zest_platform_type;
 
-typedef enum zest_texture_format {
+typedef enum zest_format {
     zest_format_undefined = 0,
     zest_format_r4g4_unorm_pack8 = 1,
-    zest_format_r4g4b4a4_unorm_pack16,
-    zest_format_b4g4r4a4_unorm_pack16,
-    zest_format_r5g6b5_unorm_pack16,
-    zest_format_b5g6r5_unorm_pack16,
-    zest_format_r5g5b5a1_unorm_pack16,
-    zest_format_b5g5r5a1_unorm_pack16,
-    zest_format_a1r5g5b5_unorm_pack16,
-    zest_format_r8_unorm,
-    zest_format_r8_snorm,
+    zest_format_r4g4b4a4_unorm_pack16 = 2,
+    zest_format_b4g4r4a4_unorm_pack16 = 3,
+    zest_format_r5g6b5_unorm_pack16 = 4,
+    zest_format_b5g6r5_unorm_pack16 = 5,
+    zest_format_r5g5b5a1_unorm_pack16 = 6,
+    zest_format_b5g5r5a1_unorm_pack16 = 7,
+    zest_format_a1r5g5b5_unorm_pack16 = 8,
+    zest_format_r8_unorm = 9,
+    zest_format_r8_snorm = 10,
+    zest_format_r8_uscaled = 11,
+    zest_format_r8_sscaled = 12,
     zest_format_r8_uint = 13,
-    zest_format_r8_sint,
-    zest_format_r8_srgb,
-    zest_format_r8g8_unorm,
-    zest_format_r8g8_snorm,
+    zest_format_r8_sint = 14,
+    zest_format_r8_srgb = 15,
+    zest_format_r8g8_unorm = 16,
+    zest_format_r8g8_snorm = 17,
+    zest_format_r8g8_uscaled = 18,
+    zest_format_r8g8_sscaled = 19,
     zest_format_r8g8_uint = 20,
-    zest_format_r8g8_sint,
-    zest_format_r8g8_srgb,
-    zest_format_r8g8b8_unorm,
-    zest_format_r8g8b8_snorm,
+    zest_format_r8g8_sint = 21,
+    zest_format_r8g8_srgb = 22,
+    zest_format_r8g8b8_unorm = 23,
+    zest_format_r8g8b8_snorm = 24,
+    zest_format_r8g8b8_uscaled = 25,
+    zest_format_r8g8b8_sscaled = 26,
     zest_format_r8g8b8_uint = 27,
-    zest_format_r8g8b8_sint,
-    zest_format_r8g8b8_srgb,
-    zest_format_b8g8r8_unorm,
-    zest_format_b8g8r8_snorm,
+    zest_format_r8g8b8_sint = 28,
+    zest_format_r8g8b8_srgb = 29,
+    zest_format_b8g8r8_unorm = 30,
+    zest_format_b8g8r8_snorm = 31,
+    zest_format_b8g8r8_uscaled = 32,
+    zest_format_b8g8r8_sscaled = 33,
     zest_format_b8g8r8_uint = 34,
-    zest_format_b8g8r8_sint,
-    zest_format_b8g8r8_srgb,
-    zest_format_r8g8b8a8_unorm,
-    zest_format_r8g8b8a8_snorm,
+    zest_format_b8g8r8_sint = 35,
+    zest_format_b8g8r8_srgb = 36,
+    zest_format_r8g8b8a8_unorm = 37,
+    zest_format_r8g8b8a8_snorm = 38,
+    zest_format_r8g8b8a8_uscaled = 39,
+    zest_format_r8g8b8a8_sscaled = 40,
     zest_format_r8g8b8a8_uint = 41,
-    zest_format_r8g8b8a8_sint,
-    zest_format_r8g8b8a8_srgb,
-    zest_format_b8g8r8a8_unorm,
-    zest_format_b8g8r8a8_snorm,
+    zest_format_r8g8b8a8_sint = 42,
+    zest_format_r8g8b8a8_srgb = 43,
+    zest_format_b8g8r8a8_unorm = 44,
+    zest_format_b8g8r8a8_snorm = 45,
+    zest_format_b8g8r8a8_uscaled = 46,
+    zest_format_b8g8r8a8_sscaled = 47,
     zest_format_b8g8r8a8_uint = 48,
-    zest_format_b8g8r8a8_sint,
-    zest_format_b8g8r8a8_srgb,
-    zest_format_a8b8g8r8_unorm_pack32,
-    zest_format_a8b8g8r8_snorm_pack32,
+    zest_format_b8g8r8a8_sint = 49,
+    zest_format_b8g8r8a8_srgb = 50,
+    zest_format_a8b8g8r8_unorm_pack32 = 51,
+    zest_format_a8b8g8r8_snorm_pack32 = 52,
+    zest_format_a8b8g8r8_uscaled_pack32 = 53,
+    zest_format_a8b8g8r8_sscaled_pack32 = 54,
     zest_format_a8b8g8r8_uint_pack32 = 55,
-    zest_format_a8b8g8r8_sint_pack32,
-    zest_format_a8b8g8r8_srgb_pack32,
-    zest_format_a2r10g10b10_unorm_pack32,
-    zest_format_a2r10g10b10_snorm_pack32,
+    zest_format_a8b8g8r8_sint_pack32 = 56,
+    zest_format_a8b8g8r8_srgb_pack32 = 57,
+    zest_format_a2r10g10b10_unorm_pack32 = 58,
+    zest_format_a2r10g10b10_snorm_pack32 = 59,
+    zest_format_a2r10g10b10_uscaled_pack32 = 60,
+    zest_format_a2r10g10b10_sscaled_pack32 = 61,
     zest_format_a2r10g10b10_uint_pack32 = 62,
-    zest_format_a2r10g10b10_sint_pack32,
-    zest_format_a2b10g10r10_unorm_pack32,
-    zest_format_a2b10g10r10_snorm_pack32,
+    zest_format_a2r10g10b10_sint_pack32 = 63,
+    zest_format_a2b10g10r10_unorm_pack32 = 64,
+    zest_format_a2b10g10r10_snorm_pack32 = 65,
+    zest_format_a2b10g10r10_uscaled_pack32 = 66,
+    zest_format_a2b10g10r10_sscaled_pack32 = 67,
     zest_format_a2b10g10r10_uint_pack32 = 68,
-    zest_format_a2b10g10r10_sint_pack32,
-    zest_format_r16_unorm,
-    zest_format_r16_snorm,
+    zest_format_a2b10g10r10_sint_pack32 = 69,
+    zest_format_r16_unorm = 70,
+    zest_format_r16_snorm = 71,
+    zest_format_r16_uscaled = 72,
+    zest_format_r16_sscaled = 73,
     zest_format_r16_uint = 74,
-    zest_format_r16_sint,
-    zest_format_r16_sfloat,
-    zest_format_r16g16_unorm,
-    zest_format_r16g16_snorm,
+    zest_format_r16_sint = 75,
+    zest_format_r16_sfloat = 76,
+    zest_format_r16g16_unorm = 77,
+    zest_format_r16g16_snorm = 78,
+    zest_format_r16g16_uscaled = 79,
+    zest_format_r16g16_sscaled = 80,
     zest_format_r16g16_uint = 81,
-    zest_format_r16g16_sint,
-    zest_format_r16g16_sfloat,
-    zest_format_r16g16b16_unorm,
-    zest_format_r16g16b16_snorm,
+    zest_format_r16g16_sint = 82,
+    zest_format_r16g16_sfloat = 83,
+    zest_format_r16g16b16_unorm = 84,
+    zest_format_r16g16b16_snorm = 85,
+    zest_format_r16g16b16_uscaled = 86,
+    zest_format_r16g16b16_sscaled = 87,
     zest_format_r16g16b16_uint = 88,
-    zest_format_r16g16b16_sint,
-    zest_format_r16g16b16_sfloat,
-    zest_format_r16g16b16a16_unorm,
-    zest_format_r16g16b16a16_snorm,
+    zest_format_r16g16b16_sint = 89,
+    zest_format_r16g16b16_sfloat = 90,
+    zest_format_r16g16b16a16_unorm = 91,
+    zest_format_r16g16b16a16_snorm = 92,
+    zest_format_r16g16b16a16_uscaled = 93,
+    zest_format_r16g16b16a16_sscaled = 94,
     zest_format_r16g16b16a16_uint = 95,
-    zest_format_r16g16b16a16_sint,
-    zest_format_r16g16b16a16_sfloat,
-    zest_format_r32_uint,
-    zest_format_r32_sint,
-    zest_format_r32_sfloat,
-    zest_format_r32g32_uint,
-    zest_format_r32g32_sint,
-    zest_format_r32g32_sfloat,
-    zest_format_r32g32b32_uint,
-    zest_format_r32g32b32_sint,
-    zest_format_r32g32b32_sfloat,
-    zest_format_r32g32b32a32_uint,
-    zest_format_r32g32b32a32_sint,
-    zest_format_r32g32b32a32_sfloat,
-    zest_format_r64_uint,
-    zest_format_r64_sint,
-    zest_format_r64_sfloat,
-    zest_format_r64g64_uint,
-    zest_format_r64g64_sint,
-    zest_format_r64g64_sfloat,
-    zest_format_r64g64b64_uint,
-    zest_format_r64g64b64_sint,
-    zest_format_r64g64b64_sfloat,
-    zest_format_r64g64b64a64_uint,
-    zest_format_r64g64b64a64_sint,
-    zest_format_r64g64b64a64_sfloat,
-    zest_format_b10g11r11_ufloat_pack32,
-    zest_format_e5b9g9r9_ufloat_pack32,
-    zest_format_d16_unorm,
-    zest_format_x8_d24_unorm_pack32,
-    zest_format_d32_sfloat,
-    zest_format_s8_uint,
-    zest_format_d16_unorm_s8_uint,
-    zest_format_d24_unorm_s8_uint,
-    zest_format_d32_sfloat_s8_uint,
-    zest_format_bc1_rgb_unorm_block,
-    zest_format_bc1_rgb_srgb_block,
-    zest_format_bc1_rgba_unorm_block,
-    zest_format_bc1_rgba_srgb_block,
-    zest_format_bc2_unorm_block,
-    zest_format_bc2_srgb_block,
-    zest_format_bc3_unorm_block,
-    zest_format_bc3_srgb_block,
-    zest_format_bc4_unorm_block,
-    zest_format_bc4_snorm_block,
-    zest_format_bc5_unorm_block,
-    zest_format_bc5_snorm_block,
-    zest_format_bc6h_ufloat_block,
-    zest_format_bc6h_sfloat_block,
-    zest_format_bc7_unorm_block,
-    zest_format_bc7_srgb_block,
-    zest_format_etc2_r8g8b8_unorm_block,
-    zest_format_etc2_r8g8b8_srgb_block,
-    zest_format_etc2_r8g8b8a1_unorm_block,
-    zest_format_etc2_r8g8b8a1_srgb_block,
-    zest_format_etc2_r8g8b8a8_unorm_block,
-    zest_format_etc2_r8g8b8a8_srgb_block,
-    zest_format_eac_r11_unorm_block,
-    zest_format_eac_r11_snorm_block,
-    zest_format_eac_r11g11_unorm_block,
-    zest_format_eac_r11g11_snorm_block,
-    zest_format_astc_4X4_unorm_block,
-    zest_format_astc_4X4_srgb_block,
-    zest_format_astc_5X4_unorm_block,
-    zest_format_astc_5X4_srgb_block,
-    zest_format_astc_5X5_unorm_block,
-    zest_format_astc_5X5_srgb_block,
-    zest_format_astc_6X5_unorm_block,
-    zest_format_astc_6X5_srgb_block,
-    zest_format_astc_6X6_unorm_block,
-    zest_format_astc_6X6_srgb_block,
-    zest_format_astc_8X5_unorm_block,
-    zest_format_astc_8X5_srgb_block,
-    zest_format_astc_8X6_unorm_block,
-    zest_format_astc_8X6_srgb_block,
-    zest_format_astc_8X8_unorm_block,
-    zest_format_astc_8X8_srgb_block,
-    zest_format_astc_10X5_unorm_block,
-    zest_format_astc_10X5_srgb_block,
-    zest_format_astc_10X6_unorm_block,
-    zest_format_astc_10X6_srgb_block,
-    zest_format_astc_10X8_unorm_block,
-    zest_format_astc_10X8_srgb_block,
-    zest_format_astc_10X10_unorm_block,
-    zest_format_astc_10X10_srgb_block,
-    zest_format_astc_12X10_unorm_block,
-    zest_format_astc_12X10_srgb_block,
-    zest_format_astc_12X12_unorm_block,
+    zest_format_r16g16b16a16_sint = 96,
+    zest_format_r16g16b16a16_sfloat = 97,
+    zest_format_r32_uint = 98,
+    zest_format_r32_sint = 99,
+    zest_format_r32_sfloat = 100,
+    zest_format_r32g32_uint = 101,
+    zest_format_r32g32_sint = 102,
+    zest_format_r32g32_sfloat = 103,
+    zest_format_r32g32b32_uint = 104,
+    zest_format_r32g32b32_sint = 105,
+    zest_format_r32g32b32_sfloat = 106,
+    zest_format_r32g32b32a32_uint = 107,
+    zest_format_r32g32b32a32_sint = 108,
+    zest_format_r32g32b32a32_sfloat = 109,
+    zest_format_r64_uint = 110,
+    zest_format_r64_sint = 111,
+    zest_format_r64_sfloat = 112,
+    zest_format_r64g64_uint = 113,
+    zest_format_r64g64_sint = 114,
+    zest_format_r64g64_sfloat = 115,
+    zest_format_r64g64b64_uint = 116,
+    zest_format_r64g64b64_sint = 117,
+    zest_format_r64g64b64_sfloat = 118,
+    zest_format_r64g64b64a64_uint = 119,
+    zest_format_r64g64b64a64_sint = 120,
+    zest_format_r64g64b64a64_sfloat = 121,
+    zest_format_b10g11r11_ufloat_pack32 = 122,
+    zest_format_e5b9g9r9_ufloat_pack32 = 123,
+    zest_format_d16_unorm = 124,
+    zest_format_x8_d24_unorm_pack32 = 125,
+    zest_format_d32_sfloat = 126,
+    zest_format_s8_uint = 127,
+    zest_format_d16_unorm_s8_uint = 128,
+    zest_format_d24_unorm_s8_uint = 129,
+    zest_format_d32_sfloat_s8_uint = 130,
+    zest_format_bc1_rgb_unorm_block = 131,
+    zest_format_bc1_rgb_srgb_block = 132,
+    zest_format_bc1_rgba_unorm_block = 133,
+    zest_format_bc1_rgba_srgb_block = 134,
+    zest_format_bc2_unorm_block = 135,
+    zest_format_bc2_srgb_block = 136,
+    zest_format_bc3_unorm_block = 137,
+    zest_format_bc3_srgb_block = 138,
+    zest_format_bc4_unorm_block = 139,
+    zest_format_bc4_snorm_block = 140,
+    zest_format_bc5_unorm_block = 141,
+    zest_format_bc5_snorm_block = 142,
+    zest_format_bc6h_ufloat_block = 143,
+    zest_format_bc6h_sfloat_block = 144,
+    zest_format_bc7_unorm_block = 145,
+    zest_format_bc7_srgb_block = 146,
+    zest_format_etc2_r8g8b8_unorm_block = 147,
+    zest_format_etc2_r8g8b8_srgb_block = 148,
+    zest_format_etc2_r8g8b8a1_unorm_block = 149,
+    zest_format_etc2_r8g8b8a1_srgb_block = 150,
+    zest_format_etc2_r8g8b8a8_unorm_block = 151,
+    zest_format_etc2_r8g8b8a8_srgb_block = 152,
+    zest_format_eac_r11_unorm_block = 153,
+    zest_format_eac_r11_snorm_block = 154,
+    zest_format_eac_r11g11_unorm_block = 155,
+    zest_format_eac_r11g11_snorm_block = 156,
+    zest_format_astc_4X4_unorm_block = 157,
+    zest_format_astc_4X4_srgb_block = 158,
+    zest_format_astc_5X4_unorm_block = 159,
+    zest_format_astc_5X4_srgb_block = 160,
+    zest_format_astc_5X5_unorm_block = 161,
+    zest_format_astc_5X5_srgb_block = 162,
+    zest_format_astc_6X5_unorm_block = 163,
+    zest_format_astc_6X5_srgb_block = 164,
+    zest_format_astc_6X6_unorm_block = 165,
+    zest_format_astc_6X6_srgb_block = 166,
+    zest_format_astc_8X5_unorm_block = 167,
+    zest_format_astc_8X5_srgb_block = 168,
+    zest_format_astc_8X6_unorm_block = 169,
+    zest_format_astc_8X6_srgb_block = 170,
+    zest_format_astc_8X8_unorm_block = 171,
+    zest_format_astc_8X8_srgb_block = 172,
+    zest_format_astc_10X5_unorm_block = 173,
+    zest_format_astc_10X5_srgb_block = 174,
+    zest_format_astc_10X6_unorm_block = 175,
+    zest_format_astc_10X6_srgb_block = 176,
+    zest_format_astc_10X8_unorm_block = 177,
+    zest_format_astc_10X8_srgb_block = 178,
+    zest_format_astc_10X10_unorm_block = 179,
+    zest_format_astc_10X10_srgb_block = 180,
+    zest_format_astc_12X10_unorm_block = 181,
+    zest_format_astc_12X10_srgb_block = 182,
+    zest_format_astc_12X12_unorm_block = 183,
     zest_format_astc_12X12_srgb_block = 184,
     zest_format_depth = -1,
-} zest_texture_format;
+} zest_format;
+
+typedef enum {
+    zest_input_rate_vertex,
+    zest_input_rate_instance,
+} zest_input_rate;
 
 typedef enum {
     zest_image_usage_transfer_src_bit             = 0x00000001,
@@ -1043,6 +1074,43 @@ typedef enum {
 } zest_compare_op;
 
 typedef enum {
+    zest_blend_factor_zero,
+    zest_blend_factor_one,
+    zest_blend_factor_src_color,
+    zest_blend_factor_one_minus_src_color,
+    zest_blend_factor_dst_color,
+    zest_blend_factor_one_minus_dst_color,
+    zest_blend_factor_src_alpha,
+    zest_blend_factor_one_minus_src_alpha,
+    zest_blend_factor_dst_alpha,
+    zest_blend_factor_one_minus_dst_alpha,
+    zest_blend_factor_constant_color,
+    zest_blend_factor_one_minus_constant_color,
+    zest_blend_factor_constant_alpha,
+    zest_blend_factor_one_minus_constant_alpha,
+    zest_blend_factor_src_alpha_saturate,
+    zest_blend_factor_src1_color,
+    zest_blend_factor_one_minus_src1_color,
+    zest_blend_factor_src1_alpha,
+    zest_blend_factor_one_minus_src1_alpha,
+} zest_blend_factor;
+
+typedef enum {
+    zest_blend_op_add,
+    zest_blend_op_subtract,
+    zest_blend_op_reverse_subtract,
+    zest_blend_op_min,
+    zest_blend_op_max,
+} zest_blend_op;
+
+typedef enum {
+    zest_color_component_r_bit = 0x00000001,
+    zest_color_component_g_bit = 0x00000002,
+    zest_color_component_b_bit = 0x00000004,
+    zest_color_component_a_bit = 0x00000008,
+} zest_color_component_bits;
+
+typedef enum {
     zest_image_tiling_optimal,
     zest_image_tiling_linear,
 } zest_image_tiling;
@@ -1141,6 +1209,7 @@ typedef zest_uint zest_image_aspect_flags;
 typedef zest_uint zest_sample_count_flags;
 typedef zest_uint zest_access_flags;
 typedef zest_uint zest_pipeline_stage_flags;
+typedef zest_uint zest_color_component_flags;
 
 typedef enum {
     zest_load_op_load,
@@ -1680,8 +1749,8 @@ typedef enum zest_supported_pipeline_stages {
 } zest_supported_pipeline_stages;
 
 typedef enum zest_front_face {
-    zest_front_face_clockwise,
     zest_front_face_counter_clockwise,
+    zest_front_face_clockwise,
 } zest_front_face;
 
 typedef enum zest_topology {
@@ -1704,6 +1773,12 @@ typedef enum zest_cull_mode {
     zest_cull_mode_back,
     zest_cull_mode_front_and_back,
 } zest_cull_mode;
+
+typedef enum zest_polygon_mode {
+    zest_polygon_mode_fill,
+    zest_polygon_mode_line,
+    zest_polygon_mode_point,
+} zest_polygon_mode;
 
 typedef enum zest_supported_shader_stage_bits {
     zest_shader_vertex_stage = 1,
@@ -2603,6 +2678,15 @@ typedef struct zest_scissor_rect_t {
     } extent;
 } zest_scissor_rect_t;
 
+typedef struct zest_viewport_t {
+    float    x;
+    float    y;
+    float    width;
+    float    height;
+    float    minDepth;
+    float    maxDepth;
+} zest_viewport_t;
+
 //Note that using alignas on windows causes a crash in release mode relating to the allocator.
 //Not sure why though. We need the align as on Mac otherwise metal complains about the alignment
 //in the shaders
@@ -2812,7 +2896,7 @@ typedef struct zest_image_info_t {
     zest_extent3d_t extent;
     zest_uint mip_levels;
 	zest_uint layer_count;
-    zest_texture_format format;
+    zest_format format;
     zest_image_aspect_flags aspect_flags;
     zest_sample_count_flags sample_count;
     zest_image_flags flags;
@@ -2867,7 +2951,7 @@ typedef struct zest_swapchain_t {
     const char *name;
     zest_image_t *images;
     zest_image_view *views;
-    zest_texture_format format;
+    zest_format format;
     zest_vec2 resolution;
     zest_extent2d_t size;
     zest_clear_value_t clear_color;
@@ -2923,7 +3007,7 @@ typedef struct zest_create_info_t {
     int thread_count;                                   //The number of threads to use if multithreading. 0 if not.
     zest_millisecs fence_wait_timeout_ms;               //The amount of time the main loop fence should wait before timing out
     zest_millisecs max_fence_timeout_ms;                //The maximum amount of time to wait before giving up
-    zest_texture_format color_format;                   //The format to use for the swapchain
+    zest_format color_format;                   //The format to use for the swapchain
     zest_init_flags flags;                              //Set flags to apply different initialisation options
     zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
     //Todo: Redo these, and do we even need them?
@@ -2987,6 +3071,7 @@ typedef struct zest_device_t {
     zest_vulkan_memory_info_t vulkan_memory_info;
     zest_uint allocation_id;
     zest_uint vector_id;
+    zloc_linear_allocator_t *scratch_arena;
 
     zest_device_backend backend;
 
@@ -3116,7 +3201,7 @@ typedef struct zest_temp_attachment_info_t {
 } zest_temp_attachment_info_t;
 
 typedef struct zest_image_resource_info_t { 
-    zest_texture_format format; 
+    zest_format format; 
     zest_resource_usage_hint usage_hints;
     zest_uint width; 
     zest_uint height; 
@@ -3285,7 +3370,7 @@ typedef struct zest_cached_frame_graph_t {
 typedef struct zest_frame_graph_auto_state_t {
     zest_uint render_width;
     zest_uint render_height;
-    zest_texture_format render_format;
+    zest_format render_format;
 } zest_frame_graph_auto_state_t;
 
 typedef struct zest_frame_graph_cache_key_t {
@@ -3357,7 +3442,7 @@ typedef struct zest_frame_graph_t {
 // --- Internal render graph function ---
 ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities);
 ZEST_PRIVATE zest_image_layout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage);
-ZEST_PRIVATE zest_image_aspect_flags zest__determine_aspect_flag(zest_texture_format format);
+ZEST_PRIVATE zest_image_aspect_flags zest__determine_aspect_flag(zest_format format);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
 ZEST_PRIVATE void zest__deferr_image_destruction(zest_image image);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type);
@@ -3376,7 +3461,7 @@ ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
 ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_bool is_intraframe);
 ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers, 
                                            zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
-ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_texture_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages);
+ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages);
 ZEST_PRIVATE zest_image_usage_flags zest__get_image_usage_from_state(zest_resource_state state);
 ZEST_PRIVATE zest_submission_batch_t *zest__get_submission_batch(zest_uint submission_id);
 ZEST_PRIVATE void zest__set_rg_error_status(zest_frame_graph frame_graph, zest_frame_graph_result result);
@@ -3484,7 +3569,7 @@ ZEST_API void zest_PrintCachedRenderGraph(zest_frame_graph_cache_key_t *cache_ke
 
 // --- [Swapchain_helpers]
 ZEST_API zest_swapchain zest_GetMainWindowSwapchain();
-ZEST_API zest_texture_format zest_GetSwapchainFormat(zest_swapchain swapchain);
+ZEST_API zest_format zest_GetSwapchainFormat(zest_swapchain swapchain);
 ZEST_API void zest_SetSwapchainClearColor(zest_swapchain swapchain, float red, float green, float blue, float alpha);
 //End Swapchain helpers
 
@@ -3557,22 +3642,6 @@ typedef struct zest_set_layout_t {
     zest_set_layout_flags flags;
 } zest_set_layout_t;
 
-typedef struct zest_descriptor_set_builder_t {
-    VkWriteDescriptorSet *writes;
-    zest_set_layout_handle associated_layout;
-    zest_uint bindings;
-    VkDescriptorImageInfo *image_infos_storage;
-    VkDescriptorBufferInfo *buffer_infos_storage;
-    VkBufferView *texel_buffer_view_storage;
-} zest_descriptor_set_builder_t;
-
-typedef struct zest_descriptor_infos_for_binding_t {
-    VkDescriptorBufferInfo descriptor_buffer_info;
-    VkDescriptorImageInfo descriptor_image_info;
-    zest_image texture;
-    zest_buffer buffer;
-} zest_descriptor_infos_for_binding_t;
-
 typedef struct zest_uniform_buffer_data_t {
     zest_matrix4 view;
     zest_matrix4 proj;
@@ -3587,40 +3656,85 @@ typedef struct zest_cached_pipeline_key_t {
 	VkRenderPass render_pass;
 } zest_cached_pipeline_key_t;
 
+//Pipeline template structs
+typedef struct zest_vertex_attribute_desc_t {
+    zest_uint location;
+    zest_uint binding;
+    zest_format format; 
+    zest_uint offset;
+} zest_vertex_attribute_desc_t;
+
+// Replaces VkVertexInputBindingDescription
+typedef struct zest_vertex_binding_desc_t {
+    zest_uint binding;
+    zest_uint stride;
+    zest_input_rate input_rate; // e.g. ZEST_INPUT_RATE_VERTEX or ZEST_INPUT_RATE_INSTANCE
+} zest_vertex_binding_desc_t;
+
+// Main vertex input descriptor
+typedef struct zest_vertex_input_desc_t {
+    zest_uint attribute_count;
+    zest_vertex_attribute_desc_t *p_attributes;
+    zest_uint binding_count;
+    zest_vertex_binding_desc_t *p_bindings;
+} zest_vertex_input_desc_t;
+
+typedef struct zest_rasterization_state_t {
+    zest_polygon_mode polygon_mode;   
+    zest_cull_mode cull_mode;        
+    zest_front_face front_face;     
+    float line_width;
+    zest_bool depth_clamp_enable;
+    zest_bool rasterizer_discard_enable;
+    zest_bool depth_bias_enable;
+    float depth_bias_constant_factor;
+    float depth_bias_clamp;
+    float depth_bias_slope_factor;
+} zest_rasterization_state_t;
+
+typedef struct zest_depth_stencil_state_t {
+    zest_bool depth_test_enable;
+    zest_bool depth_write_enable;
+    zest_bool depth_bounds_test_enable;
+    zest_bool stencil_test_enable;
+    zest_compare_op depth_compare_op; 
+} zest_depth_stencil_state_t;
+
+typedef struct zest_color_blend_attachment_t {
+    zest_bool blend_enable;
+    zest_blend_factor src_color_blend_factor;
+    zest_blend_factor dst_color_blend_factor;
+    zest_blend_op color_blend_op;
+    zest_blend_factor src_alpha_blend_factor;
+    zest_blend_factor dst_alpha_blend_factor;
+    zest_blend_op alpha_blend_op;
+    zest_color_component_flags color_write_mask;
+} zest_color_blend_attachment_t;
+
 //Pipeline template is used with CreatePipeline to create a vulkan pipeline. Use PipelineTemplate() or SetPipelineTemplate with PipelineTemplateCreateInfo to create a PipelineTemplate
 typedef struct zest_pipeline_template_t {
     int magic;
-    zest_text_t name;                                                            //Name for the pipeline just for labelling it when listing all the renderer objects in debug
-    VkPipelineShaderStageCreateInfo vertShaderStageInfo;
-    VkPipelineShaderStageCreateInfo fragShaderStageInfo;
-    VkShaderModule vertShaderCode;
-    VkShaderModule fragShaderCode;
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo;
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly;
-    VkViewport viewport;
-    VkRect2D scissor;
-    VkPipelineViewportStateCreateInfo viewportState;
-    VkPipelineRasterizationStateCreateInfo rasterizer;
-    VkPipelineMultisampleStateCreateInfo multisampling;
-    VkPipelineDepthStencilStateCreateInfo depthStencil;
-    VkPipelineColorBlendAttachmentState colorBlendAttachment;
-    VkPipelineColorBlendStateCreateInfo colorBlending;
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo;
-    VkPushConstantRange pushConstantRange;
-    VkPipelineDynamicStateCreateInfo dynamicState;
+    const char *name;                                                            //Name for the pipeline just for labelling it when listing all the renderer objects in debug
+    zest_topology primitive_topology;
+    zest_rasterization_state_t rasterization;
+    zest_depth_stencil_state_t depth_stencil;
     zest_pipeline_set_flags flags;                                               //Flag bits
     zest_uint uniforms;                                                          //Number of uniform buffers in the pipeline, usually 1 or 0
     void *push_constants;                                                        //Pointer to user push constant data
     
-    VkDescriptorSetLayout *descriptorSetLayouts;
-    VkVertexInputAttributeDescription *attributeDescriptions;
-    VkVertexInputBindingDescription *bindingDescriptions;
-    VkDynamicState *dynamicStates;
+    zest_sample_count_flags sample_count;
+    zest_vertex_attribute_desc_t *attribute_descriptions;
+    zest_vertex_binding_desc_t *binding_descriptions;
     zest_bool no_vertex_input;
-    zest_text_t vertShaderFunctionName;
-    zest_text_t fragShaderFunctionName;
+    const char *vertShaderFunctionName;
+    const char *fragShaderFunctionName;
     zest_shader_handle vertex_shader;
     zest_shader_handle fragment_shader;
+
+    zest_color_blend_attachment_t color_blend_attachment;
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo;
+    VkPushConstantRange pushConstantRange;
+    VkDescriptorSetLayout *descriptorSetLayouts;
 
     zest_key *cached_pipeline_keys;
 } zest_pipeline_template_t;
@@ -3683,7 +3797,7 @@ typedef struct zest_buffer_image_copy_t {
 
 typedef struct zest_image_collection_t {
     int magic;
-    zest_texture_format format;
+    zest_format format;
     zest_bitmap_t *image_bitmaps;
     zest_atlas_region *regions;
     zest_bitmap_t *layers;
@@ -4009,7 +4123,7 @@ typedef struct zest_renderer_t {
     zest_window main_window;
 
     //Cache of the supported depth format
-    zest_texture_format depth_format;
+    zest_format depth_format;
 
     //For scheduled tasks
     zest_buffer *staging_buffers;
@@ -4076,7 +4190,6 @@ typedef struct zest_platform_t {
     zest_bool                  (*dummy_submit_for_present_only)(void);
     zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
     //Descriptor Sets
-    zest_bool                  (*create_descriptor_set)(zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update, zest_descriptor_pool pool, zest_set_layout associated_layout);
     zest_bool                  (*create_uniform_descriptor_set)(zest_uniform_buffer buffer, zest_set_layout associated_layout);
     //Set layouts
     zest_bool                  (*create_set_layout)(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
@@ -4242,7 +4355,7 @@ ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
 ZEST_API zest_image_collection zest__load_ktx(const char *file_path);
 ZEST_PRIVATE VkFormat zest__convert_tktx_format(TinyKtx_Format format);
 ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
-ZEST_PRIVATE zest_uint zest__get_format_channel_count(zest_texture_format format);
+ZEST_PRIVATE zest_uint zest__get_format_channel_count(zest_format format);
 ZEST_PRIVATE void zest__cleanup_image_view(zest_image_view layout);
 ZEST_PRIVATE void zest__cleanup_image_view_array(zest_image_view_array layout);
 
@@ -4507,7 +4620,7 @@ ZEST_API void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template,
 ZEST_API void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader_handle combined_vertex_and_fragment_shader);
 //Add a new VkVertexInputBindingDescription which is used to set the size of the struct (stride) and the vertex input rate.
 //You can add as many bindings as you need, just make sure you set the correct binding index for each one
-ZEST_API VkVertexInputBindingDescription zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, VkVertexInputRate input_rate);
+ZEST_API zest_vertex_binding_desc_t zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, zest_input_rate input_rate);
 //Clear the input binding descriptions from the zest_pipeline_template_create_info_t bindingDescriptions array.
 ZEST_API void zest_ClearVertexInputBindingDescriptions(zest_pipeline_template pipeline_template);
 //Clear the input attribute descriptions from the zest_pipeline_template_create_info_t attributeDescriptions array.
@@ -4517,11 +4630,7 @@ ZEST_API void zest_ClearVertexAttributeDescriptions(zest_pipeline_template pipel
 ZEST_API void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeline_template);
 //Add a VkVertexInputeAttributeDescription to a zest_vertex_input_descriptions array. You can use zest_CreateVertexInputDescription
 //helper function to create the description
-ZEST_API void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint location, VkFormat format, zest_uint offset);
-//Create a VkVertexInputAttributeDescription for adding to a zest_vertex_input_descriptions array. Just pass the binding and location in
-//the shader, the VkFormat and the offset into the struct that you're using for the vertex data. See zest__prepare_standard_pipelines
-//for examples of how the builtin pipeline_templates do this
-ZEST_API VkVertexInputAttributeDescription zest_CreateVertexInputDescription(zest_uint binding, zest_uint location, VkFormat format, zest_uint offset);
+ZEST_API void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint location, zest_format format, zest_uint offset);
 //Set up the push contant that you might plan to use in the pipeline. Just pass in the size of the push constant struct, the offset and the shader
 //stage flags where the push constant will be used. Use this if you only want to set up a single push constant range
 ZEST_API void zest_SetPipelinePushConstantRange(zest_pipeline_template create_info, zest_uint size, zest_supported_shader_stages stage_flags);
@@ -4529,7 +4638,7 @@ ZEST_API void zest_SetPipelinePushConstantRange(zest_pipeline_template create_in
 //It MUST match the same data layout/size that you set with zest_SetPipelinePushConstantRange and align with the 
 //push constants that you use in the shader. The point you use must be stable! Or update it if it changes for any reason.
 ZEST_API void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, void *push_constants);
-ZEST_API void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, VkPipelineColorBlendAttachmentState blend_attachment);
+ZEST_API void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, zest_color_blend_attachment_t blend_attachment);
 ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, bool enable_test, bool write_enable);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest__build_pipeline
 ZEST_API void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, VkDescriptorSetLayout layout);
@@ -4550,15 +4659,15 @@ ZEST_API zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_ui
 ZEST_API zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint index);
 //The following are helper functions to set color blend attachment states for various blending setups
 //Just take a look inside the functions for the values being used
-ZEST_API VkPipelineColorBlendAttachmentState zest_BlendStateNone(void);
-ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState(void);
-ZEST_API VkPipelineColorBlendAttachmentState zest_AdditiveBlendState2(void);
-ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaOnlyBlendState(void);
-ZEST_API VkPipelineColorBlendAttachmentState zest_AlphaBlendState(void);
-ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendState(void);
-ZEST_API VkPipelineColorBlendAttachmentState zest_PreMultiplyBlendStateForSwap(void);
-ZEST_API VkPipelineColorBlendAttachmentState zest_MaxAlphaBlendState(void);
-ZEST_API VkPipelineColorBlendAttachmentState zest_ImGuiBlendState(void);
+ZEST_API zest_color_blend_attachment_t zest_BlendStateNone(void);
+ZEST_API zest_color_blend_attachment_t zest_AdditiveBlendState(void);
+ZEST_API zest_color_blend_attachment_t zest_AdditiveBlendState2(void);
+ZEST_API zest_color_blend_attachment_t zest_AlphaOnlyBlendState(void);
+ZEST_API zest_color_blend_attachment_t zest_AlphaBlendState(void);
+ZEST_API zest_color_blend_attachment_t zest_PreMultiplyBlendState(void);
+ZEST_API zest_color_blend_attachment_t zest_PreMultiplyBlendStateForSwap(void);
+ZEST_API zest_color_blend_attachment_t zest_MaxAlphaBlendState(void);
+ZEST_API zest_color_blend_attachment_t zest_ImGuiBlendState(void);
 ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, const zest_frame_graph_context context);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
@@ -4951,11 +5060,11 @@ ZEST_API void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width
 //VK_FORMAT_B8G8R8A8_UNORM
 //VK_FORMAT_R8_UNORM
 ZEST_API void zest_ConvertBitmapToTextureFormat(zest_bitmap src, VkFormat format);
-//Convert a bitmap to a specific zest_texture_format. Accepted values are;
+//Convert a bitmap to a specific zest_format. Accepted values are;
 //zest_texture_format_alpha
 //zest_texture_format_rgba_unorm
 //zest_texture_format_bgra_unorm
-ZEST_API void zest_ConvertBitmap(zest_bitmap src, zest_texture_format format, zest_byte alpha_level);
+ZEST_API void zest_ConvertBitmap(zest_bitmap src, zest_format format, zest_byte alpha_level);
 //Convert a bitmap to BGRA format
 ZEST_API void zest_ConvertBitmapToBGRA(zest_bitmap src, zest_byte alpha_level);
 //Fill a bitmap with a color
@@ -5506,7 +5615,6 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE zest_text_t zest__vk_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
 
     //Descriptor Sets
-    ZEST_PRIVATE zest_bool zest__vk_create_descriptor_set(zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update, zest_descriptor_pool pool, zest_set_layout associated_layout);
     ZEST_PRIVATE zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zest_set_layout associated_layout);
 
     //Set layouts

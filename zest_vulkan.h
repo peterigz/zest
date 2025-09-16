@@ -322,7 +322,7 @@ zest_text_t zest__vk_pipeline_stage_flags_to_string(VkPipelineStageFlags flags) 
     return string;
 }
 
-ZEST_PRIVATE inline VkFormat zest__to_vk_format(zest_texture_format format) {
+ZEST_PRIVATE inline VkFormat zest__to_vk_format(zest_format format) {
     return (VkFormat)format;
 }
 
@@ -590,9 +590,9 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
     VkPresentModeKHR presentMode = zest__vk_choose_present_mode(swapchain_support_details.present_modes, ZestRenderer->flags & zest_renderer_flag_vsync_enabled);
     VkExtent2D extent = zest__vk_choose_swap_extent(&swapchain_support_details.capabilities);
     ZestRenderer->dpi_scale = (float)extent.width / (float)ZestRenderer->main_window->window_width;
-    swapchain->format = (zest_texture_format)surfaceFormat.format;
+    swapchain->format = (zest_format)surfaceFormat.format;
 
-    swapchain->format = (zest_texture_format)surfaceFormat.format;
+    swapchain->format = (zest_format)surfaceFormat.format;
     swapchain->size = (zest_extent2d_t){ extent.width, extent.height };
     ZestRenderer->window_extent.width = ZestRenderer->main_window->window_width;
     ZestRenderer->window_extent.height = ZestRenderer->main_window->window_height;
@@ -633,7 +633,7 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
     zest_vec_resize(swapchain->views, image_count);
     zest_image_info_t image_info = zest_CreateImageInfo(extent.width, extent.height);
     image_info.aspect_flags = zest_image_aspect_color_bit;
-    image_info.format = (zest_texture_format)surfaceFormat.format;
+    image_info.format = (zest_format)surfaceFormat.format;
     zest_vec_foreach(i, images) {
         swapchain->images[i] = (zest_image_t){ 0 };
         swapchain->images[i].backend = zest__new_image_backend();
@@ -1941,43 +1941,6 @@ void zest__vk_update_bindless_buffer_descriptor(zest_uint binding_number, zest_u
     VkWriteDescriptorSet write = zest__vk_create_buffer_descriptor_write_with_type(set->backend->vk_descriptor_set, &buffer_info, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     write.dstArrayElement = array_index;
     vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
-}
-
-zest_bool zest__vk_create_descriptor_set(zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update, zest_descriptor_pool pool, zest_set_layout associated_layout) {
-    if (!new_set_to_populate_or_update->backend) {
-        new_set_to_populate_or_update->backend = ZEST__NEW(zest_descriptor_set_backend);
-        *new_set_to_populate_or_update->backend = (zest_descriptor_set_backend_t){ 0 };
-    }
-
-    VkDescriptorSet target_set = new_set_to_populate_or_update->backend->vk_descriptor_set;
-
-    if (target_set == VK_NULL_HANDLE) {
-        VkDescriptorSetAllocateInfo allocation_info = { 0 };
-        allocation_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocation_info.descriptorPool = pool->backend->vk_descriptor_pool;
-        allocation_info.descriptorSetCount = 1;
-        allocation_info.pSetLayouts = &(associated_layout->backend->vk_layout); // Assuming your layout struct holds the Vk handle
-
-        VkResult result = vkAllocateDescriptorSets(ZestDevice->backend->logical_device, &allocation_info, &target_set);
-        if (result != VK_SUCCESS) {
-            ZEST_VK_PRINT_RESULT(result);
-            target_set = VK_NULL_HANDLE;
-            return ZEST_FALSE;
-        }
-    }
-
-    // Update dstSet for all stored write operations
-    zest_vec_foreach(i, builder->writes) {
-        builder->writes[i].dstSet = target_set;
-    }
-
-    if (zest_vec_size(builder->writes) > 0) {
-        vkUpdateDescriptorSets( ZestDevice->backend->logical_device, zest_vec_size(builder->writes), builder->writes, 0, NULL);
-    }
-
-    new_set_to_populate_or_update->backend->vk_descriptor_set = target_set;
-
-    return ZEST_TRUE;
 }
 
 zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zest_set_layout associated_layout) {

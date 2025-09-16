@@ -19,15 +19,15 @@ void SetupBillboards(ImGuiApp *app) {
 
 	//Create a pipeline that we can use to draw billboards
 	app->billboard_pipeline = zest_BeginPipelineTemplate("pipeline_billboard");
-	zest_AddVertexInputBindingDescription(app->billboard_pipeline, 0, sizeof(zest_billboard_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
+	zest_AddVertexInputBindingDescription(app->billboard_pipeline, 0, sizeof(zest_billboard_instance_t), zest_input_rate_instance);
 
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_billboard_instance_t, position));			    // Location 0: Position
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 1, VK_FORMAT_R8G8B8_SNORM, offsetof(zest_billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 2, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(zest_billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 3, VK_FORMAT_R16G16B16A16_SNORM, offsetof(zest_billboard_instance_t, uv));		    		// Location 1: uv_packed
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 4, VK_FORMAT_R16G16B16A16_SSCALED, offsetof(zest_billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 5, VK_FORMAT_R32_UINT, offsetof(zest_billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
-	zest_AddVertexAttribute(app->billboard_pipeline, 0, 6, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_billboard_instance_t, color));			        // Location 7: Instance Color
+	zest_AddVertexAttribute(app->billboard_pipeline, 0, 0, zest_format_r32g32b32_sfloat, offsetof(zest_billboard_instance_t, position));			    // Location 0: Position
+	zest_AddVertexAttribute(app->billboard_pipeline, 0, 1, zest_format_r8g8b8_snorm, offsetof(zest_billboard_instance_t, alignment));		         	// Location 9: Alignment X, Y and Z
+	zest_AddVertexAttribute(app->billboard_pipeline, 0, 2, zest_format_r32g32b32a32_sfloat, offsetof(zest_billboard_instance_t, rotations_stretch));	// Location 2: Rotations + stretch
+	zest_AddVertexAttribute(app->billboard_pipeline, 0, 3, zest_format_r16g16b16a16_snorm, offsetof(zest_billboard_instance_t, uv));		    		// Location 1: uv_packed
+	zest_AddVertexAttribute(app->billboard_pipeline, 0, 4, zest_format_r16g16b16a16_sscaled, offsetof(zest_billboard_instance_t, scale_handle));		// Location 4: Scale + Handle
+	zest_AddVertexAttribute(app->billboard_pipeline, 0, 5, zest_format_r32_uint, offsetof(zest_billboard_instance_t, intensity_texture_array));		// Location 6: texture array index * intensity
+	zest_AddVertexAttribute(app->billboard_pipeline, 0, 6, zest_format_r8g8b8a8_unorm, offsetof(zest_billboard_instance_t, color));			        // Location 7: Instance Color
 
 	zest_SetPipelinePushConstantRange(app->billboard_pipeline, sizeof(billboard_push_constant_t), zest_shader_render_stages);
 	zest_SetPipelineVertShader(app->billboard_pipeline, billboard_vert);
@@ -295,17 +295,17 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	app->pbr_pipeline = zest_BeginPipelineTemplate("pipeline_mesh_instance");
 	zest_SetPipelinePushConstantRange(app->pbr_pipeline, sizeof(pbr_consts_t), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 0, sizeof(zest_vertex_t), VK_VERTEX_INPUT_RATE_VERTEX);
-	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(zest_mesh_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
-	zest_AddVertexAttribute(app->pbr_pipeline, 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);                                          // Location 0: Vertex Position
-	zest_AddVertexAttribute(app->pbr_pipeline, 0, 1, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_vertex_t, color));               // Location 1: Vertex Color
-	zest_AddVertexAttribute(app->pbr_pipeline, 0, 2, VK_FORMAT_R32_UINT, offsetof(zest_vertex_t, group));                     // Location 2: Group id
-	zest_AddVertexAttribute(app->pbr_pipeline, 0, 3, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_vertex_t, normal));            // Location 3: Vertex Position
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 4, VK_FORMAT_R32G32B32_SFLOAT, 0);                                          // Location 4: Instance Position
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 5, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, color));        // Location 5: Instance Color
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 6, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_mesh_instance_t, rotation));   // Location 6: Instance Rotation
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, VK_FORMAT_R8G8B8A8_UNORM, offsetof(zest_mesh_instance_t, parameters));   // Location 7: Instance Parameters
-	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, VK_FORMAT_R32G32B32_SFLOAT, offsetof(zest_mesh_instance_t, scale));      // Location 8: Instance Scale
+	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
+	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(zest_mesh_instance_t), zest_input_rate_instance);
+	zest_AddVertexAttribute(app->pbr_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
+	zest_AddVertexAttribute(app->pbr_pipeline, 0, 1, zest_format_r8g8b8a8_unorm, offsetof(zest_vertex_t, color));               // Location 1: Vertex Color
+	zest_AddVertexAttribute(app->pbr_pipeline, 0, 2, zest_format_r32_uint, offsetof(zest_vertex_t, group));                     // Location 2: Group id
+	zest_AddVertexAttribute(app->pbr_pipeline, 0, 3, zest_format_r32g32b32_sfloat, offsetof(zest_vertex_t, normal));            // Location 3: Vertex Position
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 4, zest_format_r32g32b32_sfloat, 0);                                          // Location 4: Instance Position
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 5, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, color));        // Location 5: Instance Color
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 6, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, rotation));   // Location 6: Instance Rotation
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, parameters));   // Location 7: Instance Parameters
+	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 8: Instance Scale
 
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetGlobalBindlessLayout());
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetUniformBufferLayout(app->view_buffer));
