@@ -138,7 +138,6 @@ typedef struct zest_uniform_buffer_backend_t {
 } zest_uniform_buffer_backend_t;
 
 typedef struct zest_shader_resources_backend_t {
-    zest_descriptor_set *sets[ZEST_MAX_FIF];
     VkDescriptorSet *binding_sets;
 } zest_shader_resources_backend_t;
 
@@ -1752,7 +1751,7 @@ void zest__vk_cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor
 
 void zest__vk_cleanup_shader_resources_backend(zest_shader_resources shader_resource) {
 	zest_ForEachFrameInFlight(fif) {
-		zest_vec_free(shader_resource->backend->sets[fif]);
+		zest_vec_free(shader_resource->sets[fif]);
 	}
 	zest_vec_free(shader_resource->backend->binding_sets);
     ZEST__FREE(shader_resource->backend);
@@ -1774,7 +1773,7 @@ void zest__vk_cleanup_render_pass(zest_render_pass render_pass) {
 // -- End Backend cleanup functions
 
 // -- Descriptor_sets
-ZEST_PRIVATE inline VkDescriptorType zest__vk_get_descriptor_type(zest_descriptor_type type) {
+inline VkDescriptorType zest__vk_get_descriptor_type(zest_descriptor_type type) {
     switch (type) {
     case zest_descriptor_type_sampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
     case zest_descriptor_type_sampled_image: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -1924,7 +1923,7 @@ zest_descriptor_set zest__vk_create_bindless_set(zest_set_layout layout) {
     return set;
 }
 
-ZEST_PRIVATE void zest__vk_update_bindless_image_descriptor(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set) {
+void zest__vk_update_bindless_image_descriptor(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set) {
     VkWriteDescriptorSet write = { 0 };
     VkDescriptorImageInfo image_info = { 0 };
     image_info.imageLayout = image ? image->backend->vk_current_layout : VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1936,12 +1935,100 @@ ZEST_PRIVATE void zest__vk_update_bindless_image_descriptor(zest_uint binding_nu
     vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
 }
 
-ZEST_PRIVATE void zest__vk_update_bindless_buffer_descriptor(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set) {
+void zest__vk_update_bindless_buffer_descriptor(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set) {
     VkDescriptorBufferInfo buffer_info = zest_vk_GetBufferInfo(buffer);
 
     VkWriteDescriptorSet write = zest__vk_create_buffer_descriptor_write_with_type(set->backend->vk_descriptor_set, &buffer_info, binding_number, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     write.dstArrayElement = array_index;
     vkUpdateDescriptorSets(ZestDevice->backend->logical_device, 1, &write, 0, 0);
+}
+
+zest_bool zest__vk_create_descriptor_set(zest_descriptor_set_builder_t *builder, zest_descriptor_set new_set_to_populate_or_update, zest_descriptor_pool pool, zest_set_layout associated_layout) {
+    if (!new_set_to_populate_or_update->backend) {
+        new_set_to_populate_or_update->backend = ZEST__NEW(zest_descriptor_set_backend);
+        *new_set_to_populate_or_update->backend = (zest_descriptor_set_backend_t){ 0 };
+    }
+
+    VkDescriptorSet target_set = new_set_to_populate_or_update->backend->vk_descriptor_set;
+
+    if (target_set == VK_NULL_HANDLE) {
+        VkDescriptorSetAllocateInfo allocation_info = { 0 };
+        allocation_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocation_info.descriptorPool = pool->backend->vk_descriptor_pool;
+        allocation_info.descriptorSetCount = 1;
+        allocation_info.pSetLayouts = &(associated_layout->backend->vk_layout); // Assuming your layout struct holds the Vk handle
+
+        VkResult result = vkAllocateDescriptorSets(ZestDevice->backend->logical_device, &allocation_info, &target_set);
+        if (result != VK_SUCCESS) {
+            ZEST_VK_PRINT_RESULT(result);
+            target_set = VK_NULL_HANDLE;
+            return ZEST_FALSE;
+        }
+    }
+
+    // Update dstSet for all stored write operations
+    zest_vec_foreach(i, builder->writes) {
+        builder->writes[i].dstSet = target_set;
+    }
+
+    if (zest_vec_size(builder->writes) > 0) {
+        vkUpdateDescriptorSets( ZestDevice->backend->logical_device, zest_vec_size(builder->writes), builder->writes, 0, NULL);
+    }
+
+    new_set_to_populate_or_update->backend->vk_descriptor_set = target_set;
+
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zest_set_layout associated_layout) {
+    VkDescriptorSet target_sets[ZEST_MAX_FIF];
+    VkDescriptorSetLayout layouts[ZEST_MAX_FIF];
+    VkWriteDescriptorSet writes[ZEST_MAX_FIF] = { 0 };
+    zest_ForEachFrameInFlight(fif) {
+        if (ZEST_VALID_HANDLE(buffer->descriptor_set[fif])) {
+            ZEST_ASSERT(0);     //descriptor sets for uniform buffer already exist! This function should only be called
+                                //when the uniform buffer is created.
+        }
+		buffer->descriptor_set[fif] = ZEST__NEW(zest_descriptor_set);
+		*buffer->descriptor_set[fif] = (zest_descriptor_set_t){0};
+        buffer->descriptor_set[fif]->magic = zest_INIT_MAGIC(zest_struct_type_descriptor_set);
+		buffer->descriptor_set[fif]->backend = ZEST__NEW(zest_descriptor_set_backend);
+		*buffer->descriptor_set[fif]->backend = (zest_descriptor_set_backend_t){ 0 };
+        target_sets[fif] = VK_NULL_HANDLE;
+        layouts[fif] = associated_layout->backend->vk_layout;
+    }
+
+    zest_descriptor_pool pool = associated_layout->pool;
+
+	VkDescriptorSetAllocateInfo allocation_info = { 0 };
+	allocation_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocation_info.descriptorPool = pool->backend->vk_descriptor_pool;
+	allocation_info.descriptorSetCount = ZEST_MAX_FIF;
+	allocation_info.pSetLayouts = layouts; 
+
+	VkResult result = vkAllocateDescriptorSets(ZestDevice->backend->logical_device, &allocation_info, target_sets);
+	if (result != VK_SUCCESS) {
+		ZEST_VK_PRINT_RESULT(result);
+		return ZEST_FALSE;
+	}
+
+    zest_ForEachFrameInFlight(fif) {
+        writes[fif].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[fif].dstBinding = 0;
+        writes[fif].dstArrayElement = 0;
+        writes[fif].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[fif].descriptorCount = 1;
+        writes[fif].dstSet = target_sets[fif];
+        writes[fif].pBufferInfo = &buffer->backend->descriptor_info[fif];
+    }
+
+	vkUpdateDescriptorSets( ZestDevice->backend->logical_device, ZEST_MAX_FIF, writes, 0, NULL);
+
+    zest_ForEachFrameInFlight(fif) {
+        buffer->descriptor_set[fif]->backend->vk_descriptor_set = target_sets[fif];
+    }
+
+    return ZEST_TRUE;
 }
 // -- End Descriptor_sets
 
@@ -3239,9 +3326,9 @@ void zest_cmd_CopyBuffer(const zest_frame_graph_context context, zest_buffer src
 void zest_cmd_BindPipelineShaderResource(const zest_frame_graph_context context, zest_pipeline pipeline, zest_shader_resources_handle handle) {
     zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    zest_vec_foreach(set_index, shader_resources->backend->sets[ZEST_FIF]) {
-        zest_descriptor_set set = shader_resources->backend->sets[ZEST_FIF][set_index];
-        ZEST_ASSERT_HANDLE(set);     //Not a valid desriptor set in the shaer resource. Did you set all frames in flight?
+    zest_vec_foreach(set_index, shader_resources->sets[ZEST_FIF]) {
+        zest_descriptor_set set = shader_resources->sets[ZEST_FIF][set_index];
+        ZEST_ASSERT_HANDLE(set);     //Not a valid desriptor set in the shader resource. Did you set all frames in flight?
 		zest_vec_push(shader_resources->backend->binding_sets, set->backend->vk_descriptor_set);
 	}
     vkCmdBindPipeline(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline);
