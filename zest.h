@@ -3653,10 +3653,9 @@ typedef struct zest_uniform_buffer_data_t {
 
 typedef struct zest_cached_pipeline_key_t {
 	zest_key pipeline_key;
-	VkRenderPass render_pass;
+	zest_render_pass render_pass;
 } zest_cached_pipeline_key_t;
 
-//Pipeline template structs
 typedef struct zest_vertex_attribute_desc_t {
     zest_uint location;
     zest_uint binding;
@@ -3664,14 +3663,12 @@ typedef struct zest_vertex_attribute_desc_t {
     zest_uint offset;
 } zest_vertex_attribute_desc_t;
 
-// Replaces VkVertexInputBindingDescription
 typedef struct zest_vertex_binding_desc_t {
     zest_uint binding;
     zest_uint stride;
-    zest_input_rate input_rate; // e.g. ZEST_INPUT_RATE_VERTEX or ZEST_INPUT_RATE_INSTANCE
+    zest_input_rate input_rate; 
 } zest_vertex_binding_desc_t;
 
-// Main vertex input descriptor
 typedef struct zest_vertex_input_desc_t {
     zest_uint attribute_count;
     zest_vertex_attribute_desc_t *p_attributes;
@@ -3728,7 +3725,6 @@ typedef struct zest_pipeline_template_t {
     zest_uint uniforms;                                                          //Number of uniform buffers in the pipeline, usually 1 or 0
     void *push_constants;                                                        //Pointer to user push constant data
     
-    zest_sample_count_flags sample_count;
     zest_vertex_attribute_desc_t *attribute_descriptions;
     zest_vertex_binding_desc_t *binding_descriptions;
     zest_bool no_vertex_input;
@@ -3833,12 +3829,6 @@ struct zest_compute_t {
     zest_compute_flags flags;
     zest_uint fif;                                            // Used for manual frame in flight compute
 };
-
-typedef struct zest_pipeline_descriptor_writes_t {
-    VkWriteDescriptorSet *writes[ZEST_MAX_FIF];                       //Descriptor writes for creating the descriptor sets - is this needed here? only for certain pipeline_templates, textures store their own
-} zest_pipeline_descriptor_writes_t;
-
-zest_hash_map(zest_pipeline) zest_map_pipeline_variations;
 
 typedef struct zest_sprite_instance_t {            //52 bytes
     zest_vec4 uv;                                  //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
@@ -4196,6 +4186,8 @@ typedef struct zest_platform_t {
     zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
     //Descriptor Sets
     zest_bool                  (*create_uniform_descriptor_set)(zest_uniform_buffer buffer, zest_set_layout associated_layout);
+    //Pipelines
+    zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_render_pass render_pass);
     //Set layouts
     zest_bool                  (*create_set_layout)(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
     zest_bool                  (*create_set_pool)(zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
@@ -4206,6 +4198,7 @@ typedef struct zest_platform_t {
     void*                      (*new_frame_graph_semaphores_backend)(void);
     void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
     void*                      (*new_deferred_desctruction_backend)(void);
+    void*                      (*new_pipeline_backend)(void);
     //Cleanup backends
     void                       (*cleanup_frame_graph_semaphore)(zest_frame_graph_semaphores semaphores);
     void                       (*cleanup_render_pass)(zest_render_pass render_pass);
@@ -4330,7 +4323,6 @@ ZEST_PRIVATE void zest__compile_builtin_shaders(zest_bool compile_shaders);
 ZEST_PRIVATE void zest__create_debug_layout_and_pool(zest_uint max_texture_count);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(void);
 ZEST_PRIVATE void zest__cleanup_pipelines(void);
-ZEST_PRIVATE VkResult zest__rebuild_pipeline(zest_pipeline pipeline);
 ZEST_PRIVATE zest_render_pass zest__create_render_pass(void);
 // --End Renderer functions
 
@@ -4395,11 +4387,8 @@ ZEST_PRIVATE zest_index zest__next_fif(void);
 // --End General Helper Functions
 
 // --Pipeline_Helper_Functions
-ZEST_PRIVATE VkResult zest__create_shader_module(char *code, VkShaderModule *shader_module);
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
-ZEST_PRIVATE VkResult zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_render_pass render_pass, zest_key key, zest_pipeline *out_pipeline);
-ZEST_PRIVATE zest_uint zest__get_vk_format_size(VkFormat format);
-ZEST_PRIVATE zest_bool zest__build_pipeline(zest_pipeline pipeline);
+ZEST_PRIVATE zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_render_pass render_pass, zest_key key, zest_pipeline *out_pipeline);
 ZEST_PRIVATE void zest__cleanup_pipeline_template(zest_pipeline_template pipeline);
 // --End Pipeline Helper Functions
 
@@ -5611,6 +5600,9 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     //Descriptor Sets
     ZEST_PRIVATE zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zest_set_layout associated_layout);
 
+    //Pipelines
+    zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_render_pass render_pass);
+
     //Set layouts
     ZEST_PRIVATE zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
     ZEST_PRIVATE zest_bool zest__vk_create_set_pool(zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
@@ -5636,6 +5628,7 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_frame_graph_semaphores_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_deferred_destruction_backend(void);
+	ZEST_PRIVATE void *zest__vk_new_pipeline_backend(void);
 
 	ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute);
 	ZEST_PRIVATE void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation);

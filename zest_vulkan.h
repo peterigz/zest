@@ -11,6 +11,7 @@ Zest Vulkan Implementation
     -- [Backend_setup_functions]
     -- [Backend_cleanup_functions]
     -- [Descriptor_sets]
+    -- [Pipelines]
     -- [Images]
     -- [General_helpers]
     -- [Internal_Frame_graph_context_functions]
@@ -159,7 +160,6 @@ typedef struct zest_set_layout_backend_t {
 typedef struct zest_pipeline_backend_t {
     VkPipeline pipeline;                                                         //The vulkan handle for the pipeline
     VkPipelineLayout pipeline_layout;                                            //The vulkan handle for the pipeline layout
-    VkRenderPass render_pass;
 } zest_pipeline_backend_t;
 
 typedef struct zest_compute_backend_t {
@@ -433,6 +433,19 @@ inline VkWriteDescriptorSet zest__vk_create_buffer_descriptor_write_with_type(Vk
     write.descriptorCount = 1;
     write.pBufferInfo = buffer_info;
     return write;
+}
+
+inline VkResult zest__vk_create_shader_module(char *code, VkShaderModule *shader_module) {
+    ZEST_PRINT_FUNCTION;
+    VkShaderModuleCreateInfo create_info = { 0 };
+    create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    create_info.codeSize = zest_vec_size(code);
+    create_info.pCode = (zest_uint*)(code);
+
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_shader_module);
+    ZEST_VK_ASSERT_RESULT(vkCreateShaderModule(ZestDevice->backend->logical_device, &create_info, &ZestDevice->backend->allocation_callbacks, shader_module));
+
+    return VK_SUCCESS;
 }
 // -- End Inline_helpers
 
@@ -1589,7 +1602,7 @@ zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute 
 
         ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
         VkShaderModule shader_module = 0;
-        ZEST_CLEANUP_ON_FAIL(zest__create_shader_module(shader->spv, &shader_module));
+        ZEST_CLEANUP_ON_FAIL(zest__vk_create_shader_module(shader->spv, &shader_module));
 
         VkPipelineShaderStageCreateInfo compute_shader_stage_info = { 0 };
         compute_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1994,6 +2007,220 @@ zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zes
     return ZEST_TRUE;
 }
 // -- End Descriptor_sets
+
+// -- Pipelines
+void *zest__vk_new_pipeline_backend(void) {
+    zest_pipeline_backend backend = ZEST__NEW(zest_pipeline_backend);
+    *backend = (zest_pipeline_backend_t){ 0 };
+    return backend;
+}
+
+zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_render_pass render_pass) {
+    ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_pipeline_layout);
+
+    zloc_linear_allocator_t *scratch = ZestDevice->scratch_arena;
+
+    zest_pipeline_template template = pipeline->pipeline_template;
+
+    VkPushConstantRange push_constant_range = {
+        (VkShaderStageFlags)template->push_constant_range.stage_flags,
+        template->push_constant_range.offset,
+        template->push_constant_range.size,
+    };
+
+    VkDescriptorSetLayout *layouts = 0;
+
+    zest_vec_foreach(i, template->set_layouts) {
+        zest_set_layout layout = template->set_layouts[i];
+        zest_vec_linear_push(scratch, layouts, layout->backend->vk_layout);
+    }
+
+    VkPipelineLayoutCreateInfo pipeline_layout_info = { 0 };
+	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = &push_constant_range;
+    pipeline_layout_info.setLayoutCount = zest_vec_size(layouts);
+    pipeline_layout_info.pSetLayouts = layouts;
+
+    VkResult result = vkCreatePipelineLayout(ZestDevice->backend->logical_device, &pipeline_layout_info, &ZestDevice->backend->allocation_callbacks, &pipeline->backend->pipeline_layout);
+    if (result != VK_SUCCESS) {
+        ZEST_VK_PRINT_RESULT(result);
+        return result;
+    }
+
+    VkShaderModule vert_shader_module = { 0 };
+    VkShaderModule frag_shader_module = { 0 };
+    zest_shader vert_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, template->vertex_shader.value);
+    zest_shader frag_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, template->fragment_shader.value);
+    VkPipelineShaderStageCreateInfo vert_shader_stage_info = { 0 };
+    VkPipelineShaderStageCreateInfo frag_shader_stage_info = { 0 };
+    if (ZEST_VALID_HANDLE(vert_shader)) {
+        if (!vert_shader->spv) {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", vert_shader->name.str, template->name);
+            result = VK_ERROR_UNKNOWN;
+            goto cleanup;
+        }
+        result = zest__vk_create_shader_module(vert_shader->spv, &vert_shader_module);
+        vert_shader_stage_info.module = vert_shader_module;
+    }
+
+    if (ZEST_VALID_HANDLE(frag_shader)) {
+        if (!frag_shader->spv) {
+            ZEST_APPEND_LOG(ZestDevice->log_path.str, "Vertex shader [%s] in pipeline [%s] did not have any spv data, make sure it's compiled.", frag_shader->name.str, template->name);
+            result = VK_ERROR_UNKNOWN;
+            goto cleanup;
+        }
+        result = zest__vk_create_shader_module(frag_shader->spv, &frag_shader_module);
+        frag_shader_stage_info.module = frag_shader_module;
+    }
+
+    if (result != VK_SUCCESS) {
+        ZEST_VK_PRINT_RESULT(result);
+        goto cleanup;
+    }
+
+    vert_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vert_shader_stage_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vert_shader_stage_info.pName = template->vertShaderFunctionName;
+
+    frag_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    frag_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    frag_shader_stage_info.pName = template->fragShaderFunctionName;
+
+    VkPipelineShaderStageCreateInfo shaderStages[2] = { vert_shader_stage_info, frag_shader_stage_info };
+
+    VkPipelineVertexInputStateCreateInfo vertex_input_info = { 0 };
+    vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    VkVertexInputBindingDescription *binding_descriptions = 0;
+    VkVertexInputAttributeDescription *attribute_descriptions = 0;
+    if (!template->no_vertex_input) {
+        //If the pipeline is set to have vertex input, then you must add bindingDescriptions. 
+        //You can use zest_AddVertexInputBindingDescription for this
+        ZEST_ASSERT(zest_vec_size(template->binding_descriptions));
+        zest_vec_foreach(i, template->binding_descriptions) {
+            VkVertexInputBindingDescription description = {
+                template->binding_descriptions[i].binding,
+                template->binding_descriptions[i].stride,
+                (VkVertexInputRate)template->binding_descriptions[i].input_rate,
+            };
+            zest_vec_linear_push(scratch, binding_descriptions, description);
+        }
+        zest_vec_foreach(i, template->attribute_descriptions) {
+            VkVertexInputAttributeDescription description = {
+                template->attribute_descriptions[i].location,
+                template->attribute_descriptions[i].binding,
+                (VkFormat)template->attribute_descriptions[i].format,
+                template->attribute_descriptions[i].offset,
+            };
+            zest_vec_linear_push(scratch, attribute_descriptions, description);
+        }
+        vertex_input_info.vertexBindingDescriptionCount = (zest_uint)zest_vec_size(template->binding_descriptions);
+        vertex_input_info.pVertexBindingDescriptions = binding_descriptions;
+        vertex_input_info.vertexAttributeDescriptionCount = (zest_uint)zest_vec_size(template->attribute_descriptions);
+        vertex_input_info.pVertexAttributeDescriptions = attribute_descriptions;
+    }
+
+    VkPipelineInputAssemblyStateCreateInfo input_assembly = { 0 };
+    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    input_assembly.primitiveRestartEnable = VK_FALSE;
+    input_assembly.topology = (VkPrimitiveTopology)template->primitive_topology;
+    input_assembly.flags = 0;
+
+    VkPipelineViewportStateCreateInfo viewport_state = { 0 };
+    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport_state.viewportCount = 1;
+    viewport_state.pViewports = NULL;
+    viewport_state.scissorCount = 1;
+    viewport_state.pScissors = NULL;
+
+    VkDynamicState *dynamic_states = 0;
+    zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_VIEWPORT);
+    zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_SCISSOR);
+
+    VkPipelineDynamicStateCreateInfo dynamic_state = { 0 };
+    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic_state.dynamicStateCount = (zest_uint)(zest_vec_size(dynamic_states));
+    dynamic_state.pDynamicStates = dynamic_states;
+
+    VkPipelineMultisampleStateCreateInfo multisampling = { 0 };
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = render_pass->backend->sample_count;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer = { 0 };
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.cullMode = (VkCullModeFlags)template->rasterization.cull_mode;
+    rasterizer.polygonMode = (VkPolygonMode)template->rasterization.polygon_mode;
+    rasterizer.frontFace = (VkFrontFace)template->rasterization.front_face;
+    rasterizer.lineWidth = template->rasterization.line_width;
+    rasterizer.rasterizerDiscardEnable = template->rasterization.rasterizer_discard_enable;
+    rasterizer.depthClampEnable = template->rasterization.depth_clamp_enable;
+    rasterizer.depthBiasEnable = template->rasterization.depth_bias_enable;
+    rasterizer.depthBiasClamp = template->rasterization.depth_bias_clamp;
+    rasterizer.depthBiasConstantFactor = template->rasterization.depth_bias_constant_factor;
+    rasterizer.depthBiasSlopeFactor = template->rasterization.depth_bias_slope_factor;
+
+    VkPipelineDepthStencilStateCreateInfo depth_stencil = { 0 };
+    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_stencil.depthBoundsTestEnable = template->depth_stencil.depth_bounds_test_enable;
+    depth_stencil.depthWriteEnable = template->depth_stencil.depth_write_enable;
+    depth_stencil.depthTestEnable = template->depth_stencil.depth_test_enable;
+    depth_stencil.stencilTestEnable = template->depth_stencil.stencil_test_enable;
+    depth_stencil.depthCompareOp = (VkCompareOp)template->depth_stencil.depth_compare_op;
+
+    VkPipelineColorBlendAttachmentState color_attachment = { 0 };
+    color_attachment.blendEnable = template->color_blend_attachment.blend_enable;
+    color_attachment.srcColorBlendFactor = (VkBlendFactor)template->color_blend_attachment.src_color_blend_factor;
+    color_attachment.dstColorBlendFactor = (VkBlendFactor)template->color_blend_attachment.dst_color_blend_factor;
+    color_attachment.colorBlendOp = (VkBlendOp)template->color_blend_attachment.color_blend_op;
+    color_attachment.srcAlphaBlendFactor = (VkBlendFactor)template->color_blend_attachment.src_alpha_blend_factor;
+    color_attachment.dstAlphaBlendFactor = (VkBlendFactor)template->color_blend_attachment.dst_alpha_blend_factor;
+    color_attachment.alphaBlendOp = (VkBlendOp)template->color_blend_attachment.alpha_blend_op;
+    color_attachment.colorWriteMask = (VkColorComponentFlags)template->color_blend_attachment.color_write_mask;
+
+    VkPipelineColorBlendStateCreateInfo color_blending = { 0 };
+    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    color_blending.logicOpEnable = VK_FALSE;
+    color_blending.logicOp = VK_LOGIC_OP_COPY;
+    color_blending.attachmentCount = 1;
+    color_blending.pAttachments = &color_attachment;
+    color_blending.blendConstants[0] = 0.0f;
+    color_blending.blendConstants[1] = 0.0f;
+    color_blending.blendConstants[2] = 0.0f;
+    color_blending.blendConstants[3] = 0.0f;
+    
+    VkGraphicsPipelineCreateInfo pipeline_info = { 0 };
+    pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeline_info.stageCount = 2;
+    pipeline_info.pStages = shaderStages;
+    pipeline_info.pVertexInputState = &vertex_input_info;
+    pipeline_info.pInputAssemblyState = &input_assembly;
+    pipeline_info.pViewportState = &viewport_state;
+    pipeline_info.pRasterizationState = &rasterizer;
+    pipeline_info.pMultisampleState = &multisampling;
+    pipeline_info.pColorBlendState = &color_blending;
+    pipeline_info.pDepthStencilState = &depth_stencil;
+    pipeline_info.layout = pipeline->backend->pipeline_layout;
+    pipeline_info.renderPass = render_pass->backend->vk_render_pass;
+    pipeline_info.subpass = 0;
+    pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
+	pipeline_info.pDynamicState = &dynamic_state;
+
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_pipelines);
+    result = vkCreateGraphicsPipelines(ZestDevice->backend->logical_device, ZestRenderer->backend->pipeline_cache, 1, &pipeline_info, &ZestDevice->backend->allocation_callbacks, &pipeline->backend->pipeline);
+    if (result != VK_SUCCESS) {
+        ZEST_VK_PRINT_RESULT(result);
+    } else {
+        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Built pipeline %s", template->name);
+    }
+
+    cleanup:
+	vkDestroyShaderModule(ZestDevice->backend->logical_device, frag_shader_module, &ZestDevice->backend->allocation_callbacks);
+	vkDestroyShaderModule(ZestDevice->backend->logical_device, vert_shader_module, &ZestDevice->backend->allocation_callbacks);
+    zloc_ResetLinearAllocator(scratch);
+    return result;
+}
+// -- End Pipelines
 
 // -- Images
 zest_bool zest__vk_create_image(zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags) {
