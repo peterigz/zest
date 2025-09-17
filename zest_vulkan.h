@@ -3306,12 +3306,18 @@ void zest_cmd_BindPipeline(const zest_frame_graph_context context, zest_pipeline
     vkCmdBindDescriptorSets(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, set_count, descriptor_set, 0, 0);
 }
 
-void zest_cmd_BindComputePipeline(const zest_frame_graph_context context, zest_compute_handle compute_handle, VkDescriptorSet *descriptor_set, zest_uint set_count) {
+void zest_cmd_BindComputePipeline(const zest_frame_graph_context context, zest_compute_handle compute_handle, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
     ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
     zest_compute compute = (zest_compute)zest__get_store_resource_checked(&ZestRenderer->compute_pipelines, compute_handle.value);
-    ZEST_ASSERT(set_count && descriptor_set);   //No descriptor sets. Must bind the pipeline with a valid desriptor set
+    ZEST_ASSERT(set_count && descriptor_sets);   //No descriptor sets. Must bind the pipeline with a valid desriptor set
+    zloc_linear_allocator_t *allocator = ZestRenderer->frame_graph_allocator[ZEST_FIF];
+    VkDescriptorSet *vk_sets = 0;
+    zest_vec_linear_resize(allocator, vk_sets, set_count);
+    for (zest_uint i = 0; i < set_count; ++i) {
+        vk_sets[i] = descriptor_sets[i]->backend->vk_descriptor_set;
+    }
     vkCmdBindPipeline(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline);
-    vkCmdBindDescriptorSets(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline_layout, 0, set_count, descriptor_set, 0, 0);
+    vkCmdBindDescriptorSets(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline_layout, 0, set_count, vk_sets, 0, 0);
 }
 
 void zest_cmd_BindVertexBuffer(const zest_frame_graph_context context, zest_buffer buffer) {
@@ -3327,7 +3333,7 @@ void zest_cmd_BindIndexBuffer(const zest_frame_graph_context context, zest_buffe
 
 void zest_cmd_SendPushConstants(const zest_frame_graph_context context, zest_pipeline pipeline, void *data) {
     ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    vkCmdPushConstants(context->backend->command_buffer, pipeline->backend->pipeline_layout, pipeline->pipeline_template->pushConstantRange.stageFlags, pipeline->pipeline_template->pushConstantRange.offset, pipeline->pipeline_template->pushConstantRange.size, data);
+    vkCmdPushConstants(context->backend->command_buffer, pipeline->backend->pipeline_layout, zest__to_vk_shader_stage(pipeline->pipeline_template->push_constant_range.stage_flags), pipeline->pipeline_template->push_constant_range.offset, pipeline->pipeline_template->push_constant_range.size, data);
 }
 
 void zest_cmd_SendCustomComputePushConstants(const zest_frame_graph_context context, zest_compute_handle compute_handle, const void *push_constant) {
@@ -3968,9 +3974,9 @@ void zest_cmd_DrawInstanceLayer(const zest_frame_graph_context context, void *us
 		vkCmdPushConstants(
 			command_buffer,
 			pipeline->backend->pipeline_layout,
-			zest_PipelinePushConstantStageFlags(pipeline, 0),
-			zest_PipelinePushConstantOffset(pipeline, 0),
-			zest_PipelinePushConstantSize(pipeline, 0),
+			zest__to_vk_shader_stage(pipeline->pipeline_template->push_constant_range.stage_flags),
+			pipeline->pipeline_template->push_constant_range.offset,
+			pipeline->pipeline_template->push_constant_range.offset,
 			&current->push_constant);
 
         vkCmdDraw(command_buffer, 6, current->total_instances, 0, current->start_index);
@@ -4027,9 +4033,9 @@ void zest_cmd_DrawInstanceMeshLayer(const zest_frame_graph_context context, void
         vkCmdPushConstants(
             command_buffer,
             pipeline->backend->pipeline_layout,
-            zest_PipelinePushConstantStageFlags(pipeline, 0),
-            zest_PipelinePushConstantOffset(pipeline, 0),
-            zest_PipelinePushConstantSize(pipeline, 0),
+			zest__to_vk_shader_stage(pipeline->pipeline_template->push_constant_range.stage_flags),
+			pipeline->pipeline_template->push_constant_range.offset,
+			pipeline->pipeline_template->push_constant_range.size,
             current->push_constant);
 
         vkCmdDrawIndexed(command_buffer, layer->index_count, current->total_instances, 0, 0, current->start_index);

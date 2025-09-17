@@ -52,7 +52,7 @@ zest_imgui_t *zest_imgui_Initialise() {
 
     imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
     zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
-    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_vk_GetGlobalBindlessLayout());
+    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_GetGlobalBindlessLayout());
     zest_EndPipelineTemplate(imgui_pipeline);
 
     imgui_pipeline->rasterization.polygon_mode = zest_polygon_mode_fill;

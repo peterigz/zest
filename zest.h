@@ -3711,6 +3711,12 @@ typedef struct zest_color_blend_attachment_t {
     zest_color_component_flags color_write_mask;
 } zest_color_blend_attachment_t;
 
+typedef struct zest_push_constant_range_t {
+    zest_supported_shader_stages stage_flags;
+    zest_uint offset;
+    zest_uint size;
+} zest_push_constant_range_t;
+
 //Pipeline template is used with CreatePipeline to create a vulkan pipeline. Use PipelineTemplate() or SetPipelineTemplate with PipelineTemplateCreateInfo to create a PipelineTemplate
 typedef struct zest_pipeline_template_t {
     int magic;
@@ -3732,9 +3738,8 @@ typedef struct zest_pipeline_template_t {
     zest_shader_handle fragment_shader;
 
     zest_color_blend_attachment_t color_blend_attachment;
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo;
-    VkPushConstantRange pushConstantRange;
-    VkDescriptorSetLayout *descriptorSetLayouts;
+    zest_set_layout *set_layouts;
+    zest_push_constant_range_t push_constant_range;
 
     zest_key *cached_pipeline_keys;
 } zest_pipeline_template_t;
@@ -4390,8 +4395,6 @@ ZEST_PRIVATE zest_index zest__next_fif(void);
 // --End General Helper Functions
 
 // --Pipeline_Helper_Functions
-ZEST_PRIVATE void zest__set_pipeline_template(zest_pipeline_template pipeline_template);
-ZEST_PRIVATE void zest__update_pipeline_template(zest_pipeline_template pipeline_template);
 ZEST_PRIVATE VkResult zest__create_shader_module(char *code, VkShaderModule *shader_module);
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
 ZEST_PRIVATE VkResult zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_render_pass render_pass, zest_key key, zest_pipeline *out_pipeline);
@@ -4532,10 +4535,7 @@ ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
 ZEST_API void zest_ReleaseGlobalImageIndex(zest_image_handle image, zest_global_binding_number binding_number);
 ZEST_API void zest_ReleaseAllGlobalImageIndexes(zest_image_handle image);
 ZEST_API void zest_ReleaseGlobalBindlessIndex(zest_uint index, zest_global_binding_number binding_number);
-ZEST_API VkDescriptorSet zest_vk_GetGlobalBindlessSet();
 ZEST_API zest_descriptor_set zest_GetGlobalBindlessSet();
-ZEST_API VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout();
-ZEST_API VkDescriptorSetLayout zest_vk_GetDebugLayout();
 ZEST_API zest_set_layout_handle zest_GetGlobalBindlessLayout();
 //Create a new descriptor set shader_resources
 ZEST_API zest_shader_resources_handle zest_CreateShaderResources();
@@ -4641,7 +4641,7 @@ ZEST_API void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_temp
 ZEST_API void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, zest_color_blend_attachment_t blend_attachment);
 ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, bool enable_test, bool write_enable);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest__build_pipeline
-ZEST_API void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, VkDescriptorSetLayout layout);
+ZEST_API void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, zest_set_layout_handle layout);
 //Clear the descriptor layouts in a pipeline template create info
 ZEST_API void zest_ClearPipelineDescriptorLayouts(zest_pipeline_template pipeline_template);
 //Make a pipeline template ready for building. Pass in the pipeline that you created with zest_BeginPipelineTemplate, the render pass that you want to
@@ -4651,12 +4651,6 @@ ZEST_API void zest_ClearPipelineDescriptorLayouts(zest_pipeline_template pipelin
 //you want to create another variation of this pipeline you're creating then you can call zest_CopyTemplateFromPipeline to create a new
 //zest_pipeline_template_create_info_t and create another new pipeline with that
 ZEST_API void zest_EndPipelineTemplate(zest_pipeline_template pipeline_template);
-//Get the shader stage flags for a specific push constant range in the pipeline
-ZEST_API VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_uint index);
-//Get the size of a push constant range for a specific index in the pipeline
-ZEST_API zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_uint index);
-//Get the offset of a push constant range for a specific index in the pipeline
-ZEST_API zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint index);
 //The following are helper functions to set color blend attachment states for various blending setups
 //Just take a look inside the functions for the values being used
 ZEST_API zest_color_blend_attachment_t zest_BlendStateNone(void);
@@ -5521,7 +5515,7 @@ ZEST_API void zest_cmd_Clip(const zest_frame_graph_context context, float x, flo
 //a command buffer then call zest_BindPipelineCB instead.
 ZEST_API void zest_cmd_BindPipeline(const zest_frame_graph_context context, zest_pipeline pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
 //Bind a pipeline for a compute shader
-ZEST_API void zest_cmd_BindComputePipeline(const zest_frame_graph_context context, zest_compute_handle compute, VkDescriptorSet *descriptor_set, zest_uint set_count);
+ZEST_API void zest_cmd_BindComputePipeline(const zest_frame_graph_context context, zest_compute_handle compute, zest_descriptor_set *descriptor_set, zest_uint set_count);
 //Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
 //you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
 //resource that is marked as static.

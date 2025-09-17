@@ -32,8 +32,8 @@ void SetupBillboards(ImGuiApp *app) {
 	zest_SetPipelinePushConstantRange(app->billboard_pipeline, sizeof(billboard_push_constant_t), zest_shader_render_stages);
 	zest_SetPipelineVertShader(app->billboard_pipeline, billboard_vert);
 	zest_SetPipelineFragShader(app->billboard_pipeline, billboard_frag);
-	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_vk_GetUniformBufferLayout(app->view_buffer));
-	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_vk_GetGlobalBindlessLayout());
+	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
+	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetGlobalBindlessLayout());
 	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
 	zest_EndPipelineTemplate(app->billboard_pipeline);
 
@@ -50,8 +50,8 @@ void zest_DispatchBRDSetup(const zest_frame_graph_context context, void *user_da
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
 
-	VkDescriptorSet sets[] = {
-		zest_vk_GetGlobalBindlessSet()
+	zest_descriptor_set sets[] = {
+		zest_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -101,8 +101,8 @@ void zest_DispatchIrradianceSetup(const zest_frame_graph_context context, void *
 
 	const zest_uint local_size = 8;
 
-	VkDescriptorSet sets[] = {
-		zest_vk_GetGlobalBindlessSet()
+	zest_descriptor_set sets[] = {
+		zest_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -159,8 +159,8 @@ void zest_DispatchPrefilteredSetup(const zest_frame_graph_context context, void 
 
 	const zest_uint local_size = 8;
 
-	VkDescriptorSet sets[] = {
-		zest_vk_GetGlobalBindlessSet()
+	zest_descriptor_set sets[] = {
+		zest_GetGlobalBindlessSet()
 	};
 
 	// Bind the pipeline once before the loop
@@ -307,9 +307,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, parameters));   // Location 7: Instance Parameters
 	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 8: Instance Scale
 
-	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetGlobalBindlessLayout());
-	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetUniformBufferLayout(app->view_buffer));
-	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_vk_GetUniformBufferLayout(app->lights_buffer));
+	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetGlobalBindlessLayout());
+	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
+	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetUniformBufferLayout(app->lights_buffer));
 	zest_SetPipelineShaders(app->pbr_pipeline, pbr_irradiance_vert, pbr_irradiance_frag);
 	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_back);
 	zest_SetPipelineFrontFace(app->pbr_pipeline, zest_front_face_counter_clockwise);
@@ -318,9 +318,9 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	app->skybox_pipeline = zest_CopyPipelineTemplate("sky_box", app->pbr_pipeline);
 	zest_ClearPipelineDescriptorLayouts(app->skybox_pipeline);
-	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_vk_GetGlobalBindlessLayout());
-	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_vk_GetUniformBufferLayout(app->view_buffer));
-	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_vk_GetUniformBufferLayout(app->lights_buffer));
+	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetGlobalBindlessLayout());
+	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
+	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetUniformBufferLayout(app->lights_buffer));
 	zest_SetPipelineFrontFace(app->skybox_pipeline, zest_front_face_clockwise);
 	zest_SetPipelineShaders(app->skybox_pipeline, skybox_vert, skybox_frag);
 	zest_SetPipelineDepthTest(app->skybox_pipeline, false, false);

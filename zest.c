@@ -4021,11 +4021,11 @@ void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template, zest_cul
 
 void zest_SetPipelinePushConstantRange(zest_pipeline_template pipeline_template, zest_uint size, zest_supported_shader_stages stage_flags) {
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
-    VkPushConstantRange range;
+    zest_push_constant_range_t range;
     range.size = size;
     range.offset = 0;
-    range.stageFlags = stage_flags;
-    pipeline_template->pushConstantRange = range;
+    range.stage_flags = stage_flags;
+    pipeline_template->push_constant_range = range;
 }
 
 void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, void *push_constants) {
@@ -4047,29 +4047,15 @@ void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, bool en
 	pipeline_template->depth_stencil.stencil_test_enable = ZEST_FALSE;
 }
 
-void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, VkDescriptorSetLayout layout) {
+void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, zest_set_layout_handle layout_handle) {
+    zest_set_layout layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, layout_handle.value);
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
-    zest_vec_push(pipeline_template->descriptorSetLayouts, layout);
+    zest_vec_push(pipeline_template->set_layouts, layout);
 }
 
 void zest_ClearPipelineDescriptorLayouts(zest_pipeline_template pipeline_template) {
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
-    zest_vec_clear(pipeline_template->descriptorSetLayouts);
-}
-
-VkShaderStageFlags zest_PipelinePushConstantStageFlags(zest_pipeline pipeline, zest_uint index) {
-    ZEST_ASSERT(index < pipeline->pipeline_template->pipelineLayoutInfo.pushConstantRangeCount);    //Index must not be outside the range of the number of push constants
-    return pipeline->pipeline_template->pipelineLayoutInfo.pPushConstantRanges[index].stageFlags;
-}
-
-zest_uint zest_PipelinePushConstantSize(zest_pipeline pipeline, zest_uint index) {
-    ZEST_ASSERT(index < pipeline->pipeline_template->pipelineLayoutInfo.pushConstantRangeCount);    //Index must not be outside the range of the number of push constants
-    return pipeline->pipeline_template->pipelineLayoutInfo.pPushConstantRanges[index].size;
-}
-
-zest_uint zest_PipelinePushConstantOffset(zest_pipeline pipeline, zest_uint index) {
-    ZEST_ASSERT(index < pipeline->pipeline_template->pipelineLayoutInfo.pushConstantRangeCount); //Index must not be outside the range of the number of push constants
-    return pipeline->pipeline_template->pipelineLayoutInfo.pPushConstantRanges[index].offset;
+    zest_vec_clear(pipeline_template->set_layouts);
 }
 
 zest_vertex_binding_desc_t zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, zest_input_rate input_rate) {
@@ -4097,9 +4083,9 @@ void zest_ClearVertexAttributeDescriptions(zest_pipeline_template pipeline_templ
 }
 
 void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeline_template) {
-    pipeline_template->pushConstantRange.offset = 0;
-    pipeline_template->pushConstantRange.size = 0;
-    pipeline_template->pushConstantRange.stageFlags = 0;
+    pipeline_template->push_constant_range.offset = 0;
+    pipeline_template->push_constant_range.size = 0;
+    pipeline_template->push_constant_range.stage_flags = 0;
 }
 
 zest_color_blend_attachment_t zest_AdditiveBlendState() {
@@ -4213,20 +4199,6 @@ zest_color_blend_attachment_t zest_ImGuiBlendState() {
     return color_blend_attachment;
 }
 
-void zest__set_pipeline_template(zest_pipeline_template pipeline_template) {
-    if (zest_vec_size(pipeline_template->descriptorSetLayouts) > 0) {
-        pipeline_template->pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipeline_template->pipelineLayoutInfo.setLayoutCount = zest_vec_size(pipeline_template->descriptorSetLayouts);
-        pipeline_template->pipelineLayoutInfo.pSetLayouts = pipeline_template->descriptorSetLayouts;
-    }
-
-    if (pipeline_template->pushConstantRange.size) {
-        pipeline_template->pipelineLayoutInfo.pPushConstantRanges = &pipeline_template->pushConstantRange;
-        pipeline_template->pipelineLayoutInfo.pushConstantRangeCount = 1;
-    }
-
-}
-
 VkResult zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_render_pass render_pass, zest_key cached_pipeline_key, zest_pipeline *out_pipeline) {
 	zest_pipeline pipeline = zest__create_pipeline();
     pipeline->pipeline_template = pipeline_template;
@@ -4241,13 +4213,36 @@ VkResult zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_ren
 VkResult zest__build_pipeline(zest_pipeline pipeline) {
     ZEST_PRINT_FUNCTION;
     ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_pipeline_layout);
-    VkResult result = vkCreatePipelineLayout(ZestDevice->backend->logical_device, &pipeline->pipeline_template->pipelineLayoutInfo, &ZestDevice->backend->allocation_callbacks, &pipeline->backend->pipeline_layout);
+
+    zloc_linear_allocator_t *scratch = ZestDevice->scratch_arena;
+
+    zest_pipeline_template template = pipeline->pipeline_template;
+
+    VkPushConstantRange push_constant_range = {
+        (VkShaderStageFlags)template->push_constant_range.stage_flags,
+        template->push_constant_range.offset,
+        template->push_constant_range.size,
+    };
+
+    VkDescriptorSetLayout *layouts = 0;
+
+    zest_vec_foreach(i, template->set_layouts) {
+        zest_set_layout layout = template->set_layouts[i];
+        zest_vec_linear_push(scratch, layouts, layout->backend->vk_layout);
+    }
+
+    VkPipelineLayoutCreateInfo pipeline_layout_info = { 0 };
+	pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = &push_constant_range;
+    pipeline_layout_info.setLayoutCount = zest_vec_size(layouts);
+    pipeline_layout_info.pSetLayouts = layouts;
+
+    VkResult result = vkCreatePipelineLayout(ZestDevice->backend->logical_device, &pipeline_layout_info, &ZestDevice->backend->allocation_callbacks, &pipeline->backend->pipeline_layout);
     if (result != VK_SUCCESS) {
         ZEST_VK_PRINT_RESULT(result);
         return result;
     }
-
-    zest_pipeline_template template = pipeline->pipeline_template;
 
     VkShaderModule vert_shader_module = { 0 };
     VkShaderModule frag_shader_module = { 0 };
@@ -4289,8 +4284,6 @@ VkResult zest__build_pipeline(zest_pipeline pipeline) {
     frag_shader_stage_info.pName = template->fragShaderFunctionName;
 
     VkPipelineShaderStageCreateInfo shaderStages[2] = { vert_shader_stage_info, frag_shader_stage_info };
-
-    zloc_linear_allocator_t *scratch = ZestDevice->scratch_arena;
 
     VkPipelineVertexInputStateCreateInfo vertex_input_info = { 0 };
     vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -4425,7 +4418,6 @@ VkResult zest__build_pipeline(zest_pipeline pipeline) {
 }
 
 void zest_EndPipelineTemplate(zest_pipeline_template pipeline_template) {
-    zest__set_pipeline_template(pipeline_template);
 }
 
 VkResult zest__create_shader_module(char *code, VkShaderModule *shader_module) {
@@ -4446,10 +4438,10 @@ zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline
     copy->no_vertex_input = pipeline_to_copy->no_vertex_input;
     copy->primitive_topology = pipeline_to_copy->primitive_topology;
     copy->rasterization = pipeline_to_copy->rasterization;
-    copy->pushConstantRange = pipeline_to_copy->pushConstantRange;
-    zest_vec_clear(copy->descriptorSetLayouts);
-    zest_vec_foreach(i, pipeline_to_copy->descriptorSetLayouts) {
-        zest_vec_push(copy->descriptorSetLayouts, pipeline_to_copy->descriptorSetLayouts[i]);
+    copy->push_constant_range = pipeline_to_copy->push_constant_range;
+    zest_vec_clear(copy->set_layouts);
+    zest_vec_foreach(i, pipeline_to_copy->set_layouts) {
+        zest_vec_push(copy->set_layouts, pipeline_to_copy->set_layouts[i]);
     }
     if (pipeline_to_copy->binding_descriptions) {
         zest_vec_resize(copy->binding_descriptions, zest_vec_size(pipeline_to_copy->binding_descriptions));
@@ -4477,7 +4469,7 @@ void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template) {
 }
 
 void zest__cleanup_pipeline_template(zest_pipeline_template pipeline_template) {
-    zest_vec_free(pipeline_template->descriptorSetLayouts);
+    zest_vec_free(pipeline_template->set_layouts);
     zest_vec_free(pipeline_template->attribute_descriptions);
     zest_vec_free(pipeline_template->binding_descriptions);
     zest_vec_free(pipeline_template->cached_pipeline_keys);
@@ -4920,7 +4912,7 @@ zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) {
 
 zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, const zest_frame_graph_context context) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_frame_graph);  //Must be called within a frame graph
-    if (zest_vec_size(pipeline_template->descriptorSetLayouts) == 0) {
+    if (zest_vec_size(pipeline_template->set_layouts) == 0) {
         ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has no descriptor set layouts configured. You can add descriptor layouts when building the pipeline with zest_AddPipelineTemplateDescriptorLayout.", pipeline_template->name);
         return NULL;
     }
@@ -5788,16 +5780,6 @@ void zest__prepare_standard_pipelines() {
     swap->color_blend_attachment = zest_PreMultiplyBlendStateForSwap();
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Final render pipeline");
-}
-
-void zest__update_pipeline_template(zest_pipeline_template pipeline_template) {
-    pipeline_template->pipelineLayoutInfo.setLayoutCount = zest_vec_size(pipeline_template->descriptorSetLayouts);
-    pipeline_template->pipelineLayoutInfo.pSetLayouts = pipeline_template->descriptorSetLayouts;
-
-    if (pipeline_template->pushConstantRange.size) {
-        pipeline_template->pipelineLayoutInfo.pPushConstantRanges = &pipeline_template->pushConstantRange;
-        pipeline_template->pipelineLayoutInfo.pushConstantRangeCount = 1;
-    }
 }
 
 // --End Renderer functions
@@ -7772,20 +7754,6 @@ void zest_ReleaseAllGlobalImageIndexes(zest_image_handle handle) {
 void zest_ReleaseGlobalBindlessIndex(zest_uint index, zest_global_binding_number binding_number) {
     ZEST_ASSERT(index != ZEST_INVALID);
     zest__release_bindless_index(ZestRenderer->global_bindless_set_layout, binding_number, index);
-}
-
-VkDescriptorSet zest_vk_GetGlobalBindlessSet() {
-    return ZestRenderer->global_set->backend->vk_descriptor_set;
-}
-
-VkDescriptorSetLayout zest_vk_GetDebugLayout() {
-    zest_set_layout set_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->texture_debug_layout.value);
-    return set_layout->backend->vk_layout;
-}
-
-VkDescriptorSetLayout zest_vk_GetGlobalBindlessLayout() {
-    zest_set_layout global_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout_handle.value);
-    return global_layout->backend->vk_layout;
 }
 
 zest_set_layout_handle zest_GetGlobalBindlessLayout() {
@@ -10472,7 +10440,7 @@ void zest_SetInstanceDrawing(zest_layer_handle layer_handle, zest_shader_resourc
     layer->current_instruction.pipeline_template = pipeline;
 
     //The number of shader resources must match the number of descriptor layouts set in the pipeline.
-    ZEST_ASSERT(zest_vec_size(shader_resources->sets[ZEST_FIF]) == zest_vec_size(pipeline->descriptorSetLayouts));
+    ZEST_ASSERT(zest_vec_size(shader_resources->sets[ZEST_FIF]) == zest_vec_size(pipeline->set_layouts));
 	layer->current_instruction.shader_resources = handle;
     layer->current_instruction.draw_mode = zest_draw_mode_instance;
     layer->last_draw_mode = zest_draw_mode_instance;
