@@ -400,10 +400,10 @@ void InitExample(ComputeExample *example) {
 	zest_buffer_info_t bb_buffer_info = zest_CreateStorageBufferInfo();
 
 	// We need to be able to copy from the buffer on the gpu to a list on the CPU side so it needs to be marked as a src buffer
-	bb_buffer_info.usage_flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	bb_buffer_info.buffer_usage_flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
 	// There won't be a default buffer pool size in zest for this type of buffer so we can set one here.
-	zest_SetDeviceBufferPoolSize("Src bit storage buffer pool", bb_buffer_info.usage_flags, bb_buffer_info.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
+	zest_SetDeviceBufferPoolSize("Src bit storage buffer pool", bb_buffer_info.buffer_usage_flags, bb_buffer_info.property_flags, zloc__KILOBYTE(1), zloc__MEGABYTE(4));
 	example->bounding_boxes = zest_CreateDescriptorBuffer(&bb_buffer_info, sizeof(tfx_bounding_box_t) * 200, false);
 
 	//Prepare the compute shaders for effect playback and bounding box calculation

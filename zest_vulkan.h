@@ -10,6 +10,7 @@ Zest Vulkan Implementation
     -- [Swapchain_presenting]
     -- [Backend_setup_functions]
     -- [Backend_cleanup_functions]
+    -- [Buffer_and_memory]
     -- [Descriptor_sets]
     -- [Pipelines]
     -- [Images]
@@ -62,7 +63,7 @@ typedef struct zest_device_memory_pool_backend_t {
     VkBufferCreateInfo buffer_info;
     VkBuffer vk_buffer;
     VkDeviceMemory memory;
-    VkImageUsageFlags usage_flags;
+    VkImageUsageFlags image_usage_flags;
     VkMemoryPropertyFlags property_flags;
 } zest_device_memory_pool_backend_t;
 
@@ -401,7 +402,6 @@ inline VkSemaphore zest__vk_get_semaphore_reference(zest_frame_graph frame_graph
 }
 
 inline VkResult zest__vk_create_queue_command_pool(int queue_family_index, VkCommandPool *command_pool) {
-    ZEST_PRINT_FUNCTION;
 	VkCommandPoolCreateInfo cmd_info_pool = { 0 };
 	cmd_info_pool.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	cmd_info_pool.queueFamilyIndex = queue_family_index;
@@ -436,7 +436,6 @@ inline VkWriteDescriptorSet zest__vk_create_buffer_descriptor_write_with_type(Vk
 }
 
 inline VkResult zest__vk_create_shader_module(char *code, VkShaderModule *shader_module) {
-    ZEST_PRINT_FUNCTION;
     VkShaderModuleCreateInfo create_info = { 0 };
     create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     create_info.codeSize = zest_vec_size(code);
@@ -1785,6 +1784,100 @@ void zest__vk_cleanup_render_pass(zest_render_pass render_pass) {
 }
 // -- End Backend cleanup functions
 
+// -- Buffer_and_memory
+void *zest__vk_new_memory_pool_backend(void) {
+    zest_device_memory_pool_backend backend = ZEST__NEW(zest_device_memory_pool_backend);
+    *backend = (zest_device_memory_pool_backend_t){ 0 };
+    return backend;
+}
+
+zest_bool zest__vk_map_memory(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset) {
+    return vkMapMemory(ZestDevice->backend->logical_device, memory_allocation->backend->memory, offset, size, 0, &memory_allocation->mapped);
+}
+
+zest_bool zest__vk_create_buffer_memory_pool(zest_size size, zest_buffer_info_t *buffer_info, zest_device_memory_pool memory_pool, const char* name) {
+    VkBufferCreateInfo create_buffer_info = { 0 };
+    create_buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    create_buffer_info.size = size;
+    create_buffer_info.usage = buffer_info->buffer_usage_flags;
+    create_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    create_buffer_info.flags = 0;
+
+    VkBuffer temp_buffer;
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_buffer);
+    ZEST_VK_ASSERT_RESULT(vkCreateBuffer(ZestDevice->backend->logical_device, &create_buffer_info, &ZestDevice->backend->allocation_callbacks, &temp_buffer));
+
+    VkMemoryRequirements memory_requirements;
+    vkGetBufferMemoryRequirements(ZestDevice->backend->logical_device, temp_buffer, &memory_requirements);
+
+    VkMemoryAllocateFlagsInfo flags;
+    flags.deviceMask = 0;
+    flags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+    flags.pNext = NULL;
+    flags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+
+    VkMemoryAllocateInfo alloc_info = { 0 };
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = memory_requirements.size;
+    alloc_info.memoryTypeIndex = zest_find_memory_type(memory_requirements.memoryTypeBits, buffer_info->property_flags);
+    ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
+    if (zest__validation_layers_are_enabled() && ZestDevice->api_version == VK_API_VERSION_1_2) {
+        alloc_info.pNext = &flags;
+    }
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating buffer memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, memory_requirements.alignment, memory_requirements.memoryTypeBits);
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_allocate_memory_pool);
+    ZEST_VK_ASSERT_RESULT(vkAllocateMemory(ZestDevice->backend->logical_device, &alloc_info, &ZestDevice->backend->allocation_callbacks, &memory_pool->backend->memory));
+
+    memory_pool->size = memory_requirements.size;
+    memory_pool->alignment = memory_requirements.alignment;
+    memory_pool->minimum_allocation_size = ZEST__MAX(memory_pool->alignment, memory_pool->minimum_allocation_size);
+    memory_pool->memory_type_index = alloc_info.memoryTypeIndex;
+    memory_pool->backend->property_flags = buffer_info->property_flags;
+    memory_pool->backend->image_usage_flags = (VkImageUsageFlags)buffer_info->image_usage_flags;
+    memory_pool->backend->buffer_info = create_buffer_info;
+
+    if (ZEST__FLAGGED(create_buffer_info.flags, zest_memory_pool_flag_single_buffer)) {
+        vkDestroyBuffer(ZestDevice->backend->logical_device, temp_buffer, &ZestDevice->backend->allocation_callbacks);
+    } else {
+        memory_pool->backend->vk_buffer = temp_buffer;
+        vkBindBufferMemory(ZestDevice->backend->logical_device, memory_pool->backend->vk_buffer, memory_pool->backend->memory, 0);
+    }
+    return ZEST_TRUE;
+}
+
+zest_bool zest__vk_create_image_memory_pool(zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer) {
+    VkMemoryAllocateInfo alloc_info = { 0 };
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = size_in_bytes;
+    alloc_info.memoryTypeIndex = zest_find_memory_type(buffer_info->memory_type_bits, buffer_info->property_flags);
+    ZEST_ASSERT(alloc_info.memoryTypeIndex != ZEST_INVALID);
+
+    buffer->size = size_in_bytes;
+    buffer->alignment = buffer_info->alignment;
+    buffer->minimum_allocation_size = ZEST__MAX(buffer->alignment, buffer->minimum_allocation_size);
+    buffer->memory_type_index = alloc_info.memoryTypeIndex;
+    buffer->backend->property_flags = buffer_info->property_flags;
+    buffer->backend->image_usage_flags = 0;
+
+    ZEST_APPEND_LOG(ZestDevice->log_path.str, "Allocating image memory pool, size: %llu type: %i, alignment: %llu, type bits: %i", alloc_info.allocationSize, alloc_info.memoryTypeIndex, buffer_info->alignment, buffer_info->memory_type_bits);
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_allocate_memory_pool);
+    ZEST_RETURN_FALSE_ON_FAIL(vkAllocateMemory(ZestDevice->backend->logical_device, &alloc_info, &ZestDevice->backend->allocation_callbacks, &buffer->backend->memory));
+
+    return ZEST_TRUE;
+}
+
+void zest__vk_cleanup_memory_pool_backend(zest_device_memory_pool memory_allocation) {
+    if (memory_allocation->backend->vk_buffer != VK_NULL_HANDLE) {
+        vkDestroyBuffer(ZestDevice->backend->logical_device, memory_allocation->backend->vk_buffer, &ZestDevice->backend->allocation_callbacks);
+    }
+    if (memory_allocation->backend->memory) {
+        vkFreeMemory(ZestDevice->backend->logical_device, memory_allocation->backend->memory, &ZestDevice->backend->allocation_callbacks);
+    }
+    ZEST__FREE(memory_allocation->backend);
+}
+
+// -- End Buffer_and_memory
+
 // -- Descriptor_sets
 inline VkDescriptorType zest__vk_get_descriptor_type(zest_descriptor_type type) {
     switch (type) {
@@ -2276,7 +2369,7 @@ zest_bool zest__vk_create_image(zest_image image, zest_uint layer_count, zest_sa
     buffer_info.property_flags = memory_properties;
     buffer_info.memory_type_bits = memory_requirements.memoryTypeBits;
     buffer_info.alignment = memory_requirements.alignment;
-    image->buffer = zest_CreateBuffer(memory_requirements.size, &buffer_info, image->backend->vk_image);
+    image->buffer = zest_CreateBuffer(memory_requirements.size, &buffer_info);
 
     if (image->buffer) {
         vkBindImageMemory(ZestDevice->backend->logical_device, image->backend->vk_image, zest_GetBufferDeviceMemory(image->buffer), image->buffer->memory_offset);
@@ -3793,8 +3886,8 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
 
 void zest_cmd_Clip(const zest_frame_graph_context context, float x, float y, float width, float height, float minDepth, float maxDepth) {
     ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-	VkViewport view = zest_CreateViewport(x, y, width, height, minDepth, maxDepth);
-	VkRect2D scissor = zest_CreateRect2D((zest_uint)width, (zest_uint)height, (zest_uint)x, (zest_uint)y);
+    VkViewport view = { x, y, width, height, minDepth, maxDepth };
+	VkRect2D scissor = {(zest_uint)width, (zest_uint)height, (zest_uint)x, (zest_uint)y};
 	vkCmdSetViewport(context->backend->command_buffer, 0, 1, &view);
 	vkCmdSetScissor(context->backend->command_buffer, 0, 1, &scissor);
 }
@@ -4136,7 +4229,7 @@ zest_bool zest_cmd_CopyBitmapToImage(zest_bitmap bitmap, zest_image_handle dst_h
 
     zest_buffer staging_buffer = 0;
 	zest_buffer_info_t buffer_info = zest_CreateStagingBufferInfo();
-	staging_buffer = zest_CreateBuffer(image_size, &buffer_info, ZEST_NULL);
+	staging_buffer = zest_CreateBuffer(image_size, &buffer_info);
 	if (!staging_buffer) {
 		return ZEST_FALSE;
 	}
@@ -4180,13 +4273,17 @@ void zest_cmd_DrawInstanceLayer(const zest_frame_graph_context context, void *us
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
 
         if (current->draw_mode == zest_draw_mode_viewport) {
-            vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
-            vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+			VkViewport viewport = { current->viewport.x, current->viewport.y, current->viewport.width, current->viewport.height, current->viewport.minDepth, current->viewport.maxDepth };
+			VkRect2D scissor = { current->scissor.offset.x, current->scissor.offset.y, current->scissor.extent.width, current->scissor.extent.height };
+            vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &scissor);
             has_instruction_view_port = true;
             continue;
         } else if(!has_instruction_view_port) {
-            vkCmdSetViewport(command_buffer, 0, 1, &layer->viewport);
-            vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
+			VkViewport viewport = { layer->viewport.x, layer->viewport.y, layer->viewport.width, layer->viewport.height, layer->viewport.minDepth, layer->viewport.maxDepth };
+			VkRect2D scissor = { layer->scissor.offset.x, layer->scissor.offset.y, layer->scissor.extent.width, layer->scissor.extent.height };
+            vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &scissor);
         }
 
         ZEST_ASSERT(current->shader_resources.value); //Shader resources handle must be set in the instruction
@@ -4239,13 +4336,17 @@ void zest_cmd_DrawInstanceMeshLayer(const zest_frame_graph_context context, void
         zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
 
         if (current->draw_mode == zest_draw_mode_viewport) {
-            vkCmdSetViewport(command_buffer, 0, 1, &current->viewport);
-            vkCmdSetScissor(command_buffer, 0, 1, &current->scissor);
+			VkViewport viewport = { current->viewport.x, current->viewport.y, current->viewport.width, current->viewport.height, current->viewport.minDepth, current->viewport.maxDepth };
+			VkRect2D scissor = { current->scissor.offset.x, current->scissor.offset.y, current->scissor.extent.width, current->scissor.extent.height };
+            vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &scissor);
             has_instruction_view_port = true;
             continue;
         } else if(!has_instruction_view_port) {
-            vkCmdSetViewport(command_buffer, 0, 1, &layer->viewport);
-            vkCmdSetScissor(command_buffer, 0, 1, &layer->scissor);
+			VkViewport viewport = { layer->viewport.x, layer->viewport.y, layer->viewport.width, layer->viewport.height, layer->viewport.minDepth, layer->viewport.maxDepth };
+			VkRect2D scissor = { layer->scissor.offset.x, layer->scissor.offset.y, layer->scissor.extent.width, layer->scissor.extent.height };
+            vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+            vkCmdSetScissor(command_buffer, 0, 1, &scissor);
         }
 
         ZEST_ASSERT(current->shader_resources.value);
