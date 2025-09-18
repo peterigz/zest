@@ -104,7 +104,7 @@ zest_bool zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 	VkSurfaceKHR surface;
 	VkResult result = glfwCreateWindowSurface(zest_GetVKInstance(), handle, zest_GetVKAllocationCallbacks(), &surface);
-	zest_SetWindowSurface(surface);
+	zest_vk_SetWindowSurface(surface);
 	return result == VK_SUCCESS;
 }
 

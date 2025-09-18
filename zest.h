@@ -215,59 +215,6 @@ static const char *zest_message_resource_should_be_imported = "Graph Compile Err
 //For each frame in flight macro
 #define zest_ForEachFrameInFlight(index) for(unsigned int index = 0; index != ZEST_MAX_FIF; ++index)
 
-//For error checking vulkan commands
-#define ZEST_VK_ASSERT_RESULT(res) do {                                                                                \
-    ZestRenderer->backend->last_result = (res);                                                                                 \
-    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
-        zest__log_vulkan_error(ZestRenderer->backend->last_result, __FILE__, __LINE__);                                         \
-        return ZestRenderer->backend->last_result;                                                                              \
-    }                                                                                                                  \
-} while(0)
-
-#define ZEST_RETURN_FALSE_ON_FAIL(res)                                                                                 \
-    ZestRenderer->backend->last_result = res;                                                                                   \
-    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
-        return ZEST_FALSE;                                                                                             \
-    }
- 
-
-#define ZEST_RETURN_RESULT_ON_FAIL(res) do {                                                                           \
-    ZestRenderer->backend->last_result = (res);                                                                                 \
-    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
-        return ZestRenderer->backend->last_result;                                                                              \
-    }                                                                                                                  \
-} while(0)
-
-#define ZEST_CLEANUP_ON_FALSE(res) do {                                                                           \
-    if ((res) == ZEST_FALSE) {                                                                     \
-        goto cleanup;                                                                              \
-    }                                                                                                                  \
-} while(0)
- 
-#define ZEST_CLEANUP_ON_FAIL(res) do {                                                                                 \
-    ZestRenderer->backend->last_result = (res);                                                                                 \
-    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
-        goto cleanup;                                                                                                  \
-    }                                                                                                                  \
-} while(0)
-
-#define ZEST_VK_LOG(res) do {                                                                                          \
-    ZestRenderer->backend->last_result = (res);                                                                                 \
-    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
-        zest__log_vulkan_error(ZestRenderer->backend->last_result, __FILE__, __LINE__);                                         \
-    }                                                                                                                  \
-} while(0)
-
-#define ZEST_VK_PRINT_RESULT(result) do {                                                                              \
-    ZestRenderer->backend->last_result = (result);                                                                     \
-    if (result != VK_SUCCESS) {                                                                                        \
-        zest__log_vulkan_error(result, __FILE__, __LINE__);                                                            \
-    }                                                                                                                  \
-} while(0)
-
-void zest__log_vulkan_error(VkResult result, const char *file, int line);
-const char *zest__vulkan_error_string(VkResult errorCode);
-
 //Typedefs_for_numbers
 
 typedef unsigned int zest_uint;
@@ -281,7 +228,7 @@ typedef zest_uint zest_millisecs;
 typedef zest_uint zest_thread_access;
 typedef zest_ull zest_microsecs;
 typedef zest_ull zest_key;
-typedef size_t zest_size;
+typedef uint64_t zest_size;
 typedef unsigned char zest_byte;
 typedef unsigned int zest_bool;
 
@@ -392,7 +339,7 @@ ZEST_PRIVATE inline zest_thread_access zest__compare_and_exchange(volatile zest_
 #define ZEST_TRUE 1
 #define ZEST_FALSE 0
 #define ZEST_INVALID 0xFFFFFFFF
-#define ZEST_WHOLE_SIZE (-0ULL)
+#define ZEST_WHOLE_SIZE (~0ULL)
 #define ZEST_NOT_BINDLESS 0xFFFFFFFF
 #define ZEST_PERSISTENT 0xFFFFFFFF
 #define ZEST_U32_MAX_VALUE ((zest_uint)-1)
@@ -1241,6 +1188,12 @@ typedef enum {
     zest_set_layout_flag_bindless            = 1,
 } zest_set_layout_flag_bits;
 
+typedef enum {
+	zest_fence_status_success,
+	zest_fence_status_timeout,
+	zest_fence_status_error
+} zest_fence_status;
+
 typedef zest_uint zest_set_layout_builder_flags;
 typedef zest_uint zest_set_layout_flags;
 
@@ -1252,8 +1205,6 @@ typedef enum {
     ZEST_GRAPHICS_QUEUE_INDEX = 0,
     ZEST_COMPUTE_QUEUE_INDEX  = 1,
     ZEST_TRANSFER_QUEUE_INDEX = 2,
-    ZEST_TRANSIENT_COMPATIBLE_FLAGS = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT,
-    ZEST_TRANSIENT_NON_COMPATIBLE_FLAGS = ~(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT)
 } zest_constants;
 
 //Used for memory tracking and debugging
@@ -2802,12 +2753,12 @@ typedef struct zest_buffer_info_t {
     //This is an important field to avoid race conditions. Sometimes you may want to only update a buffer
     //when data has changed, like a ui buffer or any buffer that's only updated inside a fixed time loop.
     //This means that the frame in flight index for those buffers is decoupled from the main render loop 
-    //frame in flight (ZEST_FIF). This can create a situation where a decoupled buffer has the same VkBuffer
+    //frame in flight (ZEST_FIF). This can create a situation where a decoupled buffer has the same buffer
     //as a transient buffer that's not decoupled. So what can happen is that a vkCmdDraw can use the same
-    //VkBuffer that was used in the last frame. This should never be possible. A VkBuffer that's used in one
+    //buffer that was used in the last frame. This should never be possible. A buffer that's used in one
     //frame - it's last usage should be a minimum of 2 frames ago which means that the frame in flight fence
     //can properly act as syncronization. Therefore you can add this flag to any buffer that needs to be
-    //decoupled from the main frame in flight index which will force a unique VkBuffer to be created that's 
+    //decoupled from the main frame in flight index which will force a unique buffer to be created that's 
     //separate from other buffer pools.
     //Note: I don't like this at all. Find another way.
     zest_uint unique_id;
@@ -4192,23 +4143,39 @@ typedef struct zest_platform_t {
     zest_bool                  (*present_frame)(zest_swapchain);
     zest_bool                  (*dummy_submit_for_present_only)(void);
     zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
+    void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
     //Buffer and memory
     zest_bool                  (*create_buffer_memory_pool)(zest_size size, zest_buffer_info_t *buffer_info, zest_device_memory_pool memory_pool, const char *name);
     zest_bool                  (*create_image_memory_pool)(zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
     zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
+    void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
+	void					   (*set_buffer_backend_details)(zest_buffer buffer);
+	void					   (*flush_used_buffers)(void);
+	void					   (*cmd_copy_buffer_one_time)(zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+	void					   (*push_buffer_for_freeing)(zest_buffer buffer);
+	zest_access_flags   	   (*get_buffer_last_access_mask)(zest_buffer buffer);
     //Descriptor Sets
     zest_bool                  (*create_uniform_descriptor_set)(zest_uniform_buffer buffer, zest_set_layout associated_layout);
     //Pipelines
     zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_render_pass render_pass);
+	//Fences
+	zest_fence_status          (*wait_for_renderer_fences)(void);
+	zest_bool                  (*reset_renderer_fences)(void);
     //Set layouts
     zest_bool                  (*create_set_layout)(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
     zest_bool                  (*create_set_pool)(zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
     zest_descriptor_set        (*create_bindless_set)(zest_set_layout layout);
     void                       (*update_bindless_image_descriptor)(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
     void                       (*update_bindless_buffer_descriptor)(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+	//Command buffers/queues
+	void					   (*reset_queue_command_pool)(zest_queue queue);
     //General Renderer
     void                       (*set_depth_format)(void);
     zest_bool                  (*initialise_renderer_backend)(void);
+    void                  	   (*wait_for_idle_device)(void);
+	zest_sample_count_flags	   (*get_msaa_sample_count)(void);
+	//Device/OS
+	void					   (*os_add_platform_extensions)(void);
     //Create backends
     void*                      (*new_frame_graph_semaphores_backend)(void);
     void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
@@ -4223,6 +4190,10 @@ typedef struct zest_platform_t {
     void                       (*cleanup_deferred_framebuffers)(void);
     void                       (*cleanup_deferred_destruction_backend)(void);
     void                       (*cleanup_memory_pool_backend)(zest_device_memory_pool memory_allocation);
+    void                       (*cleanup_device_backend)(void);
+    void                       (*cleanup_buffer_backend)(zest_buffer buffer);
+    void                       (*cleanup_renderer_backend)(void);
+    void                       (*cleanup_shader_resources_backend)(zest_shader_resources shader_resources);
     //Misc
     void                       (*deferr_framebuffer_destruction)(void* frame_buffer);
 } zest_platform_t;
@@ -4231,17 +4202,6 @@ extern zest_device_t *ZestDevice;
 extern zest_app_t *ZestApp;
 extern zest_renderer_t *ZestRenderer;
 extern zest_platform_t *ZestPlatform;
-
-ZEST_GLOBAL const char* zest_validation_layers[zest__validation_layer_count] = {
-    "VK_LAYER_KHRONOS_validation"
-};
-
-ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_count] = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-#if defined(__APPLE__)
-    "VK_KHR_portability_subset"
-#endif
-};
 
 //--Internal_functions
 
@@ -4267,7 +4227,6 @@ ZEST_PRIVATE void *zest__new_buffer_backend(void);
 ZEST_PRIVATE void *zest__new_uniform_buffer_backend(void);
 ZEST_PRIVATE void zest__set_uniform_buffer_backend(zest_uniform_buffer buffer);
 ZEST_PRIVATE void *zest__new_image_backend(void);
-ZEST_PRIVATE void *zest__new_frame_graph_image_backend(zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE void *zest__new_compute_backend(void);
 ZEST_PRIVATE void *zest__new_queue_backend(void);
 ZEST_PRIVATE void *zest__new_submission_batch_backend(void);
@@ -4278,7 +4237,6 @@ ZEST_PRIVATE zest_bool zest__finish_compute(zest_compute_builder_t *builder, zes
 ZEST_PRIVATE void zest__cleanup_set_layout_backend(zest_set_layout set_layout);
 ZEST_PRIVATE void zest__cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation);
 ZEST_PRIVATE void zest__cleanup_window_backend(zest_window window);
-ZEST_PRIVATE void zest__cleanup_buffer_backend(zest_buffer buffer);
 ZEST_PRIVATE void zest__cleanup_uniform_buffer_backend(zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__cleanup_compute_backend(zest_compute compute);
 ZEST_PRIVATE void zest__cleanup_pipeline_backend(zest_pipeline pipeline);
@@ -4286,7 +4244,6 @@ ZEST_PRIVATE void zest__cleanup_sampler_backend(zest_sampler sampler);
 ZEST_PRIVATE void zest__cleanup_queue_backend(zest_queue queue);
 ZEST_PRIVATE void zest__cleanup_image_view_array_backend(zest_image_view_array view);
 ZEST_PRIVATE void zest__cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor_set set);
-ZEST_PRIVATE void zest__cleanup_shader_resources_backend(zest_shader_resources shader_resources);
 
 //Only available outside lib for some implementations like SDL2
 ZEST_API void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
@@ -4297,7 +4254,6 @@ ZEST_PRIVATE void zest__add_host_memory_pool(zest_size size);
 ZEST_PRIVATE void *zest__allocate(zest_size size);
 ZEST_PRIVATE void *zest__allocate_aligned(zest_size size, zest_size alignment);
 ZEST_PRIVATE void *zest__reallocate(void *memory, zest_size size);
-ZEST_PRIVATE void zest__unmap_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE zest_bool zest__create_memory_pool(zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
@@ -4309,7 +4265,6 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators();
 ZEST_PRIVATE zest_bool zest__initialise_renderer(zest_create_info_t *create_info);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(const char *name);
 ZEST_PRIVATE zest_bool zest__initialise_swapchain(zest_swapchain swapchain, zest_window window);
-ZEST_PRIVATE VkResult zest__create_pipeline_cache();
 ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 ZEST_PRIVATE void zest__destroy_window_callback(zest_window window, void *user_data);
 ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain, zest_bool for_recreation);
@@ -4330,7 +4285,6 @@ ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources();
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_swapchain swapchain);
-ZEST_PRIVATE void zest__reset_queue_command_pool(zest_queue queue);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__format_shader_code(zest_text_t *code);
 ZEST_PRIVATE void zest__compile_builtin_shaders(zest_bool compile_shaders);
@@ -4364,7 +4318,7 @@ ZEST_PRIVATE size_t zest__tinyktxCallbackRead(void *user, void *data, size_t siz
 ZEST_PRIVATE bool zest__tinyktxCallbackSeek(void *user, int64_t offset);
 ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
 ZEST_API zest_image_collection zest__load_ktx(const char *file_path);
-ZEST_PRIVATE VkFormat zest__convert_tktx_format(TinyKtx_Format format);
+ZEST_PRIVATE zest_format zest__convert_tktx_format(TinyKtx_Format format);
 ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
 ZEST_PRIVATE zest_uint zest__get_format_channel_count(zest_format format);
 ZEST_PRIVATE void zest__cleanup_image_view(zest_image_view layout);
@@ -4380,7 +4334,6 @@ ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size v
 ZEST_PRIVATE zest_image_view_type zest__get_image_view_type(zest_image image);
 ZEST_PRIVATE zest_image_view_t *zest__create_image_view_backend(zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 ZEST_PRIVATE zest_image_view_array zest__create_image_views_per_mip_backend(zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
-ZEST_PRIVATE VkResult zest__create_temporary_image(zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits num_samples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *memory);
 ZEST_PRIVATE zest_bool zest__create_image(zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
 ZEST_PRIVATE zest_bool zest__create_transient_image(zest_resource_node node);
 ZEST_PRIVATE void zest__create_transient_buffer(zest_resource_node node);
@@ -4390,10 +4343,6 @@ ZEST_PRIVATE zest_bool zest__create_sampler(zest_sampler sampler);
 ZEST_PRIVATE int zest__get_image_raw_layout(zest_image image);
 ZEST_PRIVATE zest_bool zest__transition_image_layout(zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 ZEST_PRIVATE zest_bool zest__generate_mipmaps(zest_image image);
-ZEST_PRIVATE VkImageMemoryBarrier zest__create_base_image_memory_barrier(VkImage image);
-ZEST_PRIVATE void zest__insert_image_memory_barrier(VkCommandBuffer cmdbuffer, VkImage image, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkImageSubresourceRange subresourceRange);
-ZEST_PRIVATE void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier);
-ZEST_PRIVATE VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features);
 ZEST_PRIVATE zest_bool zest__begin_single_time_commands();
 ZEST_PRIVATE zest_bool zest__end_single_time_commands();
 ZEST_PRIVATE zest_index zest__next_fif(void);
@@ -4430,7 +4379,6 @@ ZEST_API void zest__cache_shader(zest_shader shader);
 ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets);
 ZEST_PRIVATE zest_set_layout_handle zest__new_descriptor_set_layout(const char *name);
 ZEST_PRIVATE bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding);
-ZEST_PRIVATE VkDescriptorSetLayoutBinding *zest__get_layout_binding_info(zest_set_layout layout, zest_uint binding_index);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest_uint binding_number);
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout);
@@ -4440,15 +4388,8 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler
 // --End Descriptor set functions
 
 // --Device_set_up
-ZEST_PRIVATE VKAPI_ATTR VkBool32 VKAPI_CALL zest_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
-ZEST_PRIVATE VkResult zest__create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
 ZEST_PRIVATE void zest__destroy_debug_messenger(void);
-ZEST_PRIVATE zest_uint zest_find_memory_type(zest_uint typeFilter, VkMemoryPropertyFlags properties);
-ZEST_PRIVATE zest_buffer_type_t zest__get_buffer_memory_type(VkBufferUsageFlags buffer_usage_flags, VkMemoryPropertyFlags property_flags, zest_size size);
 ZEST_PRIVATE void zest__set_default_pool_sizes(void);
-ZEST_PRIVATE void *zest_vk_allocate_callback(void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
-ZEST_PRIVATE void *zest_vk_reallocate_callback(void* pUserData, void *memory, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
-ZEST_PRIVATE void zest_vk_free_callback(void* pUserData, void *memory);
 //end device setup functions
 
 //App_initialise_and_run_functions
@@ -4461,7 +4402,7 @@ ZEST_PRIVATE zest_bool zest__initialise_device();
 ZEST_PRIVATE void zest__destroy(void);
 ZEST_PRIVATE void zest__main_loop(void);
 ZEST_API void zest_Terminate(void);
-ZEST_PRIVATE VkResult zest__main_loop_fence_wait();
+ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait();
 ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
 ZEST_PRIVATE zest_bool zest__validation_layers_are_enabled(void);
 ZEST_PRIVATE zest_bool zest__validation_layers_with_sync_are_enabled(void);
@@ -4509,10 +4450,6 @@ ZEST_API zest_window zest_AllocateWindow(void);
 //Create a descriptor pool based on a descriptor set layout. This will take the max sets value and create a pool 
 //with enough descriptor pool types based on the bindings found in the layout
 ZEST_API zest_bool zest_CreateDescriptorPoolForLayout(zest_set_layout_handle layout, zest_uint max_set_count);
-//Reset a descriptor pool. This invalidates all descriptor sets current allocated from the pool so you can reallocate them.
-ZEST_API void zest_ResetDescriptorPool(zest_descriptor_pool pool);
-//Destroys the VkDescriptorPool and frees the zest_descriptor_pool and all contents
-ZEST_API void zest_FreeDescriptorPool(zest_descriptor_pool pool);
 //Create a descriptor layout builder object that you can use with the AddBuildLayout commands to put together more complex/fine tuned descriptor
 //set layouts
 ZEST_API zest_set_layout_builder_t zest_BeginSetLayoutBuilder();
@@ -4520,7 +4457,7 @@ ZEST_API zest_set_layout_builder_t zest_BeginSetLayoutBuilder();
 ZEST_API void zest_AddLayoutBuilderBinding( zest_set_layout_builder_t *builder, zest_descriptor_binding_desc_t description);
 
 //Build the descriptor set layout and add it to the renderer. This is for large global descriptor set layouts
-ZEST_API zest_set_layout_handle zest_FinishDescriptorSetLayoutForBindless(zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, VkDescriptorPoolCreateFlags additional_pool_flags, const char *name, ...);
+ZEST_API zest_set_layout_handle zest_FinishDescriptorSetLayoutForBindless(zest_set_layout_builder_t *builder, zest_uint num_global_sets_this_pool_should_support, const char *name, ...);
 //Build the descriptor set layout and add it to the render. The layout is also returned from the function.
 ZEST_API zest_set_layout_handle zest_FinishDescriptorSetLayout(zest_set_layout_builder_t *builder, const char *name, ...);
 
@@ -4560,11 +4497,9 @@ ZEST_API void zest_ClearShaderResources(zest_shader_resources_handle shader_reso
 ZEST_API void zest_UpdateShaderResources(zest_shader_resources_handle shader_resources, zest_descriptor_set descriptor_set, zest_uint index, zest_uint fif);
 //Helper function to validate
 ZEST_API bool zest_ValidateShaderResource(zest_shader_resources_handle shader_resources);
-//Update a VkDescriptorSet with an array of descriptor writes. For when the images/buffers in a descriptor set have changed, the corresponding descriptor set will need to be updated.
-ZEST_API void zest_UpdateDescriptorSet(VkWriteDescriptorSet *descriptor_writes);
-//Create a VkViewport, generally used when building a render pass.
+//Create a zest_viewport_t for setting the viewport when rendering
 ZEST_API zest_viewport_t zest_CreateViewport(float x, float y, float width, float height, float minDepth, float maxDepth);
-//Create a VkRect2D, generally used when building a render pass.
+//Create a zest_scissor_rect_t for render clipping
 ZEST_API zest_scissor_rect_t zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 //Validate a shader from a string and add it to the library of shaders in the renderer
 ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name, shaderc_compiler_t compiler);
@@ -4593,14 +4528,6 @@ ZEST_API void zest_AddShader(zest_shader_handle shader, const char *name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader_handle shader);
 
-//Set up shader resources ready to be bound to a pipeline when calling zest_cmd_BindPipeline or zest_BindpipelineCB. You should always 
-//pass in an empty array of VkDescriptorSets. Set this array up as simple an 0 pointer and the function will allocate the space for the
-//descriptor sets. This means that it's a good idea to not use a local variable. Call zest_ClearShaderResourceDescriptorSets after you've
-//bound the pipeline.
-ZEST_API zest_uint zest_GetDescriptorSetsForBinding(zest_shader_resources_handle shader_resources, VkDescriptorSet **draw_sets);
-ZEST_API void zest_ClearShaderResourceDescriptorSets(VkDescriptorSet *draw_sets);
-ZEST_API zest_uint zest_ShaderResourceSetCount(VkDescriptorSet *draw_sets);
-
 //-----------------------------------------------
 //        Pipeline_related_vulkan_helpers
 //        Pipelines are essential to drawing things on screen. There are some builtin pipeline_templates that Zest creates
@@ -4618,7 +4545,7 @@ ZEST_API void zest_SetPipelineTopology(zest_pipeline_template pipeline_template,
 ZEST_API void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template, zest_cull_mode cull_mode);
 //Set the name of both the fragment and vertex shader to the same file (frag and vertex shaders can be combined into the same spv)
 ZEST_API void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader_handle combined_vertex_and_fragment_shader);
-//Add a new VkVertexInputBindingDescription which is used to set the size of the struct (stride) and the vertex input rate.
+//Add a new binding description which is used to set the size of the struct (stride) and the vertex input rate.
 //You can add as many bindings as you need, just make sure you set the correct binding index for each one
 ZEST_API zest_vertex_binding_desc_t zest_AddVertexInputBindingDescription(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint stride, zest_input_rate input_rate);
 //Clear the input binding descriptions from the zest_pipeline_template_create_info_t bindingDescriptions array.
@@ -4628,7 +4555,7 @@ ZEST_API void zest_ClearVertexAttributeDescriptions(zest_pipeline_template pipel
 //Clear the push constant ranges in a pipeline. You can use this after copying a pipeline to set up your own push constants instead
 //if your pipeline will use a different push constant range.
 ZEST_API void zest_ClearPipelinePushConstantRanges(zest_pipeline_template pipeline_template);
-//Add a VkVertexInputeAttributeDescription to a zest_vertex_input_descriptions array. You can use zest_CreateVertexInputDescription
+//Add a vertex attribute to a zest_vertex_input_descriptions array. You can use zest_CreateVertexInputDescription
 //helper function to create the description
 ZEST_API void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint binding, zest_uint location, zest_format format, zest_uint offset);
 //Set up the push contant that you might plan to use in the pipeline. Just pass in the size of the push constant struct, the offset and the shader
@@ -4699,8 +4626,7 @@ ZEST_API zloc__error_codes zloc_VerifyAllRemoteBlocks(zloc__block_output output_
 ZEST_API zloc__error_codes zloc_VerifyBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
 ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 //---------
-//Create a new buffer configured with the zest_buffer_info_t that you pass into the function. If you're creating a buffer to store
-//and image then pass in the VkImage as well, otherwise just pass in 0.
+//Create a new buffer configured with the zest_buffer_info_t that you pass into the function. 
 //You can use helper functions to create commonly used buffer types such as zest_CreateVertexBufferInfo below, and you can just use
 //helper functions to create the buffers without needed to create the zest_buffer_info_t, see functions just below this one.
 ZEST_API zest_buffer zest_CreateBuffer(zest_size size, zest_buffer_info_t *buffer_info);
@@ -4725,8 +4651,8 @@ ZEST_API zest_buffer zest_CreateComputeIndexBuffer(zest_size size, zest_uint fif
 // For example, imgui can it's own frame in flight because the buffers only need to be updated when the 
 // zest_impl_UpdateBuffers() function is called which may only be run whenever the data changes or as in most
 // examples, when the fixed update loop is run. In this situation for the sake of maintaining correct 
-// syncronization the unique_id forces the buffer to use a unique VkBuffer so that it doesn't clash with other
-// VkBuffers that are synced up with the main frame in flight index. 
+// syncronization the unique_id forces the buffer to use a unique buffer so that it doesn't clash with other
+// Buffers that are synced up with the main frame in flight index. 
 // So basically if you intend your buffer to be updated everyframe (which will be in most cases) just use 0 for
 // the id
 ZEST_API zest_buffer zest_CreateUniqueIndexBuffer(zest_size size, zest_uint fif, zest_uint unique_id);
@@ -4758,15 +4684,8 @@ ZEST_API zest_bool zest_GrowBuffer(zest_buffer *buffer, zest_size unit_size, zes
 ZEST_API zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size);
 //Copy data to a staging buffer
 void zest_StageData(void *src_data, zest_buffer dst_staging_buffer, zest_size size);
-//Flush the memory of - in most cases - a staging buffer so that it's memory is made available immediately to the device
-ZEST_API VkResult zest_FlushBuffer(zest_buffer buffer);
 //Free a zest_buffer and return it's memory to the pool
 ZEST_API void zest_FreeBuffer(zest_buffer buffer);
-//Get the VkDeviceMemory from a zest_buffer. This is needed for some Vulkan commands
-ZEST_API VkDeviceMemory zest_GetBufferDeviceMemory(zest_buffer buffer);
-//Get the VkBuffer from a zest_buffer. This is needed for some Vulkan Commands
-ZEST_API VkBuffer *zest_GetBufferDeviceBuffer(zest_buffer buffer);
-ZEST_API VkDescriptorBufferInfo zest_vk_GetBufferInfo(zest_buffer buffer);
 //When creating your own draw routines you will probably need to upload data from a staging buffer to a GPU buffer like a vertex buffer. You can
 //use this command with zest_cmd_UploadBuffer to upload the buffers that you need. You can call zest_AddCopyCommand multiple times depending on
 //how many buffers you need to upload data for and then call zest_cmd_UploadBuffer passing the zest_buffer_uploader_t to copy all the buffers in
@@ -4781,10 +4700,10 @@ ZEST_API zest_buffer_pool_size_t zest_GetDeviceImagePoolSize(const char *name);
 //Set the default pool size for a specific type of buffer set by the usage and property flags. You must call this before you call zest_Initialise
 //otherwise it might not take effect on any buffers that are created during initialisation.
 //Note that minimum allocation size may get overridden if it is smaller than the alignment reported by vkGetBufferMemoryRequirements at pool creation
-ZEST_API void zest_SetDeviceBufferPoolSize(const char *name, VkBufferUsageFlags buffer_usage_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size);
+ZEST_API void zest_SetDeviceBufferPoolSize(const char *name, zest_buffer_usage_flags buffer_usage_flags, zest_memory_property_flags property_flags, zest_size minimum_allocation, zest_size pool_size);
 //Set the default pool size for images. based on image usage and property flags.
 //Note that minimum allocation size may get overridden if it is smaller than the alignment reported by vkGetImageMemoryRequirements at pool creation
-ZEST_API void zest_SetDeviceImagePoolSize(const char *name, VkImageUsageFlags image_flags, VkMemoryPropertyFlags property_flags, zest_size minimum_allocation, zest_size pool_size);
+ZEST_API void zest_SetDeviceImagePoolSize(const char *name, zest_image_usage_flags image_flags, zest_memory_property_flags property_flags, zest_size minimum_allocation, zest_size pool_size);
 //Create a buffer specifically for use as a uniform buffer. This will also create a descriptor set for the uniform
 //buffers as well so it's ready for use in shaders.
 ZEST_API zest_uniform_buffer_handle zest_CreateUniformBuffer(const char *name, zest_size uniform_struct_size);
@@ -4796,18 +4715,11 @@ ZEST_API void zest_Update2dUniformBuffer(void);
 //Get a pointer to a uniform buffer. This will return a void* which you can cast to whatever struct your storing in the uniform buffer. This will get the buffer
 //with the current frame in flight index.
 ZEST_API void *zest_GetUniformBufferData(zest_uniform_buffer_handle uniform_buffer);
-//Get the VkDescriptorBufferInfo of a uniform buffer by name and specific frame in flight. Use ZEST_FIF you just want the current frame in flight
-ZEST_API VkDescriptorBufferInfo *zest_GetUniformBufferInfo(zest_uniform_buffer_handle buffer);
-//Get the VkDescriptorSetLayout for a uniform buffer that you can use when creating pipeline_templates. The buffer must have
-//been properly initialised, use zest_CreateUniformBuffer for this.
-ZEST_API VkDescriptorSetLayout zest_vk_GetUniformBufferLayout(zest_uniform_buffer_handle buffer);
 ZEST_API zest_set_layout_handle zest_GetUniformBufferLayout(zest_uniform_buffer_handle buffer);
-//Get the VkDescriptorSet in a uniform buffer. You can use this when binding a pipeline for a draw call or compute
+//Get the descriptor set in a uniform buffer. You can use this when binding a pipeline for a draw call or compute
 //dispatch etc. 
-ZEST_API VkDescriptorSet zest_vk_GetUniformBufferSet(zest_uniform_buffer_handle buffer);
 ZEST_API zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer_handle buffer);
 ZEST_API zest_descriptor_set zest_GetFIFUniformBufferSet(zest_uniform_buffer_handle buffer, zest_uint fif);
-ZEST_API VkDescriptorSet zest_vk_GetFIFUniformBufferSet(zest_uniform_buffer_handle buffer, zest_uint fif);
 ZEST_API zest_uint zest_GetBufferDescriptorIndex(zest_buffer buffer);
 //Should only be used in zest implementations only
 ZEST_API void *zest_AllocateMemory(zest_size size);
@@ -5013,7 +4925,7 @@ zest_texture_storage_type_render_target     Texture storage for a render target 
                                             another render target. Generally this is used only when creating a render_target so 
                                             you don't have to worry about it set use filtering to 1 if you want to generate mipmaps 
                                             for the texture. You can also choose from the following texture formats: 
-                                            zest_texture_format_alpha = VK_FORMAT_R8_UNORM, zest_texture_format_rgba_unorm = VK_FORMAT_R8G8B8A8_UNORM, zest_texture_format_bgra_unorm = VK_FORMAT_B8G8R8A8_UNORM. */ 
+                                            zest_texture_format_alpha = zest_format_r8_unorm, zest_texture_format_rgba_unorm = zest_format_r8g8b8a8_unorm, zest_texture_format_bgra_unorm = zest_format_b8g8r8a8_unorm. */ 
 ZEST_API zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint height);
 ZEST_API zest_image_view_create_info_t zest_CreateViewImageInfo(zest_image_handle image_handle);
 ZEST_API zest_image_handle zest_CreateImage(zest_image_info_t *create_info);
@@ -5049,11 +4961,6 @@ ZEST_API void zest_AllocateBitmapMemory(zest_bitmap bitmap, zest_size size_in_by
 ZEST_API void zest_CopyWholeBitmap(zest_bitmap src, zest_bitmap dst);
 //Copy an area of a source bitmap to another bitmap
 ZEST_API void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width, int height, zest_bitmap dst, int to_x, int to_y);
-//Convert a bitmap to a specific vulkan color format. Accepted formats are:
-//VK_FORMAT_R8G8B8A8_UNORM
-//VK_FORMAT_B8G8R8A8_UNORM
-//VK_FORMAT_R8_UNORM
-ZEST_API void zest_ConvertBitmapToTextureFormat(zest_bitmap src, VkFormat format);
 //Convert a bitmap to a specific zest_format. Accepted values are;
 //zest_texture_format_alpha
 //zest_texture_format_rgba_unorm
@@ -5133,7 +5040,7 @@ ZEST_API zest_sampler_info_t zest_CreateMippedSamplerInfo(zest_uint mip_levels);
 ZEST_API zest_layer_handle zest_CreateInstanceLayer(const char* name, zest_size type_size);
 //Creates a layer with buffers for each frame in flight located on the device. This means that you can manually decide
 //When to upload to the buffer on the render graph rather then using transient buffers each frame that will be
-//discarded. In order to avoid syncing issues on the GPU, pass a unique id to generate a unique VkBuffer. This
+//discarded. In order to avoid syncing issues on the GPU, pass a unique id to generate a unique Buffer. This
 //id can be shared with any other frame in flight layer that will flip their frame in flight index at the same
 //time, like when ever the update loop is run.
 ZEST_API zest_layer_handle zest_CreateFIFInstanceLayer(const char *name, zest_size type_size, zest_uint id);
@@ -5388,8 +5295,6 @@ ZEST_API void zest_SetWindowHandle(zest_window window, void *handle);
 ZEST_API zest_window zest_GetCurrentWindow(void);
 ZEST_API void zest_CloseWindow(zest_window window);
 ZEST_API void zest_CleanupWindow(zest_window window);
-ZEST_API VkSurfaceKHR zest_WindowSurface(void);
-ZEST_API void zest_SetWindowSurface(VkSurfaceKHR surface);
 //Return a pointer to the window handle stored in the zest_window_t. This could be anything so it's up to you to cast to the right data type. For example, if you're
 //using GLFW then you would cast it to a GLFWwindow*
 ZEST_API void *zest_Window(void);
@@ -5399,9 +5304,9 @@ ZEST_API void *zest_Window(void);
 //-----------------------------------------------
 //Read a file from disk into memory. Set terminate to 1 if you want to add \0 to the end of the file in memory
 ZEST_API char* zest_ReadEntireFile(const char *file_name, zest_bool terminate);
-//Get the swap chain extent which will basically be the size of the window returned in a VkExtend2d struct.
+//Get the swap chain extent which will basically be the size of the window returned in a zest_extent2d_t struct.
 ZEST_API zest_extent2d_t zest_GetSwapChainExtent(void);
-//Get the window size in a VkExtent2d. In most cases this is the same as the swap chain extent.
+//Get the window size in a zest_extent2d_t. In most cases this is the same as the swap chain extent.
 ZEST_API zest_extent2d_t zest_GetWindowExtent(void);
 //Get the current swap chain width
 ZEST_API zest_uint zest_SwapChainWidth(void);
@@ -5453,21 +5358,6 @@ ZEST_API void zest_LogFPSToConsole(zest_bool yesno);
 ZEST_API void zest_SetFrameInFlight(zest_uint fif);
 //Only use after a call to zest_SetFrameInFlight. Will restore the frame in flight that was in use before the call to zest_SetFrameInFlight.
 ZEST_API void zest_RestoreFrameInFlight(void);
-//Create a new VkFence
-ZEST_API VkFence zest_CreateFence();
-//Checks to see if a fence is signalled and if so will destroy the fence.
-ZEST_API zest_bool zest_CheckFence(VkFence fence);
-//Will wait until a fence has been signalled
-ZEST_API void zest_WaitForFence(VkFence fence);
-//Destroy a fence that you don't need any more and return its resources.
-ZEST_API void zest_DestroyFence(VkFence fence);
-//Reset a VkEvent to prepare it for being signalled
-ZEST_API void zest_ResetEvent(VkEvent e);
-//Found out if memory properties are available for the current physical device
-ZEST_API zest_bool zest_IsMemoryPropertyAvailable(VkMemoryPropertyFlags flags);
-//Find out if the current GPU can use memory that is both device local and cpu visible. If it can then that means that you write directly to gpu memory without the need for
-//a staging buffer. AMD cards tend to be better at supporting this then nvidia as it seems nvidia only introduced it later.
-ZEST_API zest_bool zest_GPUHasDeviceLocalHostVisible(zest_size mimimum_size);
 //Convert a linear color value to an srgb color space value
 ZEST_API float zest_LinearToSRGB(float value);
 //Check for valid handles:
@@ -5513,7 +5403,7 @@ ZEST_API void zest_cmd_Clip(const zest_frame_graph_context context, float x, flo
 //descriptor sets in the shader_resources must be compatible with the layout that is being using in the pipeline. The command buffer used in the binding will be
 //whatever is defined in ZestRenderer->current_command_buffer which will be set when the command queue is recorded. If you need to specify
 //a command buffer then call zest_BindPipelineCB instead.
-ZEST_API void zest_cmd_BindPipeline(const zest_frame_graph_context context, zest_pipeline pipeline, VkDescriptorSet *descriptor_set, zest_uint set_count);
+ZEST_API void zest_cmd_BindPipeline(const zest_frame_graph_context context, zest_pipeline pipeline, zest_descriptor_set *descriptor_set, zest_uint set_count);
 //Bind a pipeline for a compute shader
 ZEST_API void zest_cmd_BindComputePipeline(const zest_frame_graph_context context, zest_compute_handle compute, zest_descriptor_set *descriptor_set, zest_uint set_count);
 //Bind a pipeline using a shader resource object. The shader resources must match the descriptor layout used in the pipeline that
@@ -5567,6 +5457,7 @@ ZEST_API void zest_cmd_DrawIndexed(const zest_frame_graph_context context, zest_
 #if defined(ZEST_VULKAN)
 ZEST_API VkInstance zest_GetVKInstance();
 ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
+ZEST_API void zest_vk_SetWindowSurface(VkSurfaceKHR surface);
 #endif
 // -- End platform access functions
 
@@ -5580,6 +5471,62 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 #endif
 
 #ifdef ZEST_VULKAN_IMPLEMENTATION
+
+ZEST_GLOBAL const char* zest_validation_layers[zest__validation_layer_count] = {
+    "VK_LAYER_KHRONOS_validation"
+};
+
+ZEST_GLOBAL const char* zest_required_extensions[zest__required_extension_names_count] = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+#if defined(__APPLE__)
+    "VK_KHR_portability_subset"
+#endif
+};
+
+//For error checking vulkan commands
+#define ZEST_VK_ASSERT_RESULT(res) do {                                                                                \
+    ZestRenderer->backend->last_result = (res);                                                                                 \
+    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
+        zest__log_vulkan_error(ZestRenderer->backend->last_result, __FILE__, __LINE__);                                         \
+        return ZestRenderer->backend->last_result;                                                                              \
+    }                                                                                                                  \
+} while(0)
+
+#define ZEST_RETURN_FALSE_ON_FAIL(res)                                                                                 \
+    ZestRenderer->backend->last_result = res;                                                                                   \
+    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
+        return ZEST_FALSE;                                                                                             \
+    }
+
+#define ZEST_CLEANUP_ON_FALSE(res) do {                                                                           \
+    if ((res) == ZEST_FALSE) {                                                                     \
+        goto cleanup;                                                                              \
+    }                                                                                                                  \
+} while(0)
+ 
+#define ZEST_CLEANUP_ON_FAIL(res) do {                                                                                 \
+    ZestRenderer->backend->last_result = (res);                                                                                 \
+    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
+        goto cleanup;                                                                                                  \
+    }                                                                                                                  \
+} while(0)
+
+#define ZEST_VK_LOG(res) do {                                                                                          \
+    ZestRenderer->backend->last_result = (res);                                                                                 \
+    if (ZestRenderer->backend->last_result != VK_SUCCESS) {                                                                     \
+        zest__log_vulkan_error(ZestRenderer->backend->last_result, __FILE__, __LINE__);                                         \
+    }                                                                                                                  \
+} while(0)
+
+#define ZEST_VK_PRINT_RESULT(result) do {                                                                              \
+    ZestRenderer->backend->last_result = (result);                                                                     \
+    if (result != VK_SUCCESS) {                                                                                        \
+        zest__log_vulkan_error(result, __FILE__, __LINE__);                                                            \
+    }                                                                                                                  \
+} while(0)
+
+	ZEST_PRIVATE void zest__log_vulkan_error(VkResult result, const char *file, int line);
+	ZEST_PRIVATE const char *zest__vulkan_error_string(VkResult errorCode);
 
 	// --Frame_graph_platform_functions
 	ZEST_PRIVATE zest_bool zest__vk_begin_command_buffer(const zest_frame_graph_context context);
@@ -5603,6 +5550,10 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain);
 	// --End_Frame_graph_platform_functions
 
+	// --Device set up
+	ZEST_PRIVATE VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
+	ZEST_PRIVATE VkResult zest__vk_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
+
 	// Helper functions to convert enums to strings 
 	ZEST_PRIVATE const char *zest__vk_image_layout_to_string(VkImageLayout layout);
 	ZEST_PRIVATE zest_text_t zest__vk_access_flags_to_string(VkAccessFlags flags);
@@ -5612,12 +5563,18 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     ZEST_PRIVATE zest_bool zest__vk_create_buffer_memory_pool(zest_size size, zest_buffer_info_t *buffer_info, zest_device_memory_pool memory_pool, const char *name);
 	ZEST_PRIVATE zest_bool zest__vk_create_image_memory_pool(zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
 	ZEST_PRIVATE zest_bool zest__vk_map_memory(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
+	ZEST_PRIVATE void zest__vk_unmap_memory(zest_device_memory_pool memory_allocation);
+	ZEST_PRIVATE void zest__vk_set_buffer_backend_details(zest_buffer buffer);
+	ZEST_PRIVATE void zest__vk_flush_used_buffers(void);
+	ZEST_PRIVATE void zest__vk_cmd_copy_buffer_one_time(zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+	ZEST_PRIVATE void zest__vk_push_buffer_for_freeing(zest_buffer buffer);
+	ZEST_PRIVATE zest_access_flags zest__vk_get_buffer_last_access_mask(zest_buffer buffer);
 
     //Descriptor Sets
     ZEST_PRIVATE zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zest_set_layout associated_layout);
 
     //Pipelines
-    zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_render_pass render_pass);
+    ZEST_PRIVATE zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_render_pass render_pass);
 
     //Set layouts
     ZEST_PRIVATE zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
@@ -5629,6 +5586,24 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     //General renderer
     ZEST_PRIVATE void zest__vk_set_depth_format(void);
     ZEST_PRIVATE zest_bool zest__vk_initialise_renderer_backend(void);
+    ZEST_PRIVATE void zest__vk_wait_for_idle_device(void);
+    ZEST_PRIVATE zest_sample_count_flags zest__vk_get_msaa_sample_count(void);
+
+	//Allocation callbacks
+	ZEST_PRIVATE void *zest__vk_allocate_callback(void* pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
+	ZEST_PRIVATE void *zest__vk_reallocate_callback(void* pUserData, void *memory, size_t size, size_t alignment, VkSystemAllocationScope allocationScope);
+	ZEST_PRIVATE void zest__vk_free_callback(void* pUserData, void *memory);
+
+	//Device/OS
+
+	ZEST_PRIVATE void zest__vk_os_add_platform_extensions(void);
+
+	//Fences
+	ZEST_PRIVATE zest_fence_status zest__vk_wait_for_renderer_fences(void);
+	ZEST_PRIVATE zest_bool zest__vk_reset_renderer_fences(void);
+
+	//Command buffers/queues
+	ZEST_PRIVATE void zest__vk_reset_queue_command_pool(zest_queue queue);
 
 	//Glue
 	ZEST_PRIVATE void *zest__vk_new_device_backend(void);
@@ -5640,7 +5615,7 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE void zest__vk_set_uniform_buffer_backend(zest_uniform_buffer buffer);
 	ZEST_PRIVATE void *zest__vk_new_compute_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_image_backend(void);
-	ZEST_PRIVATE void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator);
+	ZEST_PRIVATE void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image);
 	ZEST_PRIVATE void *zest__vk_new_set_layout_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_descriptor_pool_backend(void);
 	ZEST_PRIVATE void *zest__vk_new_sampler_backend(void);
@@ -5655,7 +5630,7 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute);
 	ZEST_PRIVATE void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation);
 	ZEST_PRIVATE void zest__vk_cleanup_window_backend(zest_window window);
-	ZEST_PRIVATE void zest__vk_cleanup_buffer(zest_buffer buffer);
+	ZEST_PRIVATE void zest__vk_cleanup_buffer_backend(zest_buffer buffer);
 	ZEST_PRIVATE void zest__vk_cleanup_uniform_buffer_backend(zest_uniform_buffer buffer);
 	ZEST_PRIVATE void zest__vk_cleanup_compute_backend(zest_compute compute);
 	ZEST_PRIVATE void zest__vk_cleanup_set_layout(zest_set_layout layout);
@@ -5669,6 +5644,8 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	ZEST_PRIVATE void zest__vk_cleanup_shader_resources_backend(zest_shader_resources shader_resource);
 	ZEST_PRIVATE void zest__vk_cleanup_deferred_destruction_backend(void);
 	ZEST_PRIVATE void zest__vk_cleanup_memory_pool_backend(zest_device_memory_pool memory_allocation);
+	ZEST_PRIVATE void zest__vk_cleanup_device_backend(void);
+	ZEST_PRIVATE void zest__vk_cleanup_renderer_backend(void);
 
     ZEST_PRIVATE zest_bool zest__vk_create_window_surface(zest_window window);
     ZEST_PRIVATE zest_bool zest__vk_initialise_device();
@@ -5726,9 +5703,6 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
 	void *zest__new_image_backend(void) {
 		return zest__vk_new_image_backend();
 	}
-    void *zest__new_frame_graph_image_backend(zloc_linear_allocator_t *allocator) {
-		return zest__vk_new_frame_graph_image_backend(allocator);
-	}
     void *zest__new_compute_backend(void) {
         return zest__vk_new_compute_backend();
     }
@@ -5758,9 +5732,6 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     void zest__cleanup_window_backend(zest_window window) {
         zest__vk_cleanup_window_backend(window);
     }
-    void zest__cleanup_buffer_backend(zest_buffer buffer) {
-        zest__vk_cleanup_buffer(buffer);
-    }
     void zest__cleanup_uniform_buffer_backend(zest_uniform_buffer buffer) {
         zest__vk_cleanup_uniform_buffer_backend(buffer);
     }
@@ -5781,9 +5752,6 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     }
     void zest__cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor_set set) {
         zest__vk_cleanup_descriptor_backend(layout, set);
-    }
-    void zest__cleanup_shader_resources_backend(zest_shader_resources shader_resources) {
-        zest__vk_cleanup_shader_resources_backend(shader_resources);
     }
     void zest__cleanup_set_layout_backend(zest_set_layout layout) {
         zest__vk_cleanup_set_layout(layout);
