@@ -77,53 +77,9 @@ typedef struct zest_buffer_allocator_t {
 typedef struct zest_vk_barrier_info_t {
     VkPipelineStageFlags stage_mask;    // Pipeline stages this usage pertains to
     VkAccessFlags access_mask;          // Vulkan access mask for barriers
-    VkImageLayout image_layout;      // Required VkImageLayout if it's an image
+    VkImageLayout image_layout;         // Required VkImageLayout if it's an image
 } zest_vk_barrier_info_t;
-
 // -- End Struct Definions
-
-// -- Enum_translators
-ZEST_PRIVATE inline VkImageUsageFlags zest__to_vk_image_usage(zest_image_usage_flags flags) {
-    return (VkImageUsageFlags)flags;
-}
-
-ZEST_PRIVATE inline zest_format zest__from_vk_format(VkFormat format) {
-    return (zest_format)format;
-}
-
-ZEST_PRIVATE inline VkBufferUsageFlags zest__to_vk_buffer_usage(zest_buffer_usage_flags flags) {
-    return (VkBufferUsageFlags)flags;
-}
-
-ZEST_PRIVATE inline VkMemoryPropertyFlags zest__to_vk_memory_property(zest_memory_property_flags flags) {
-    return (VkMemoryPropertyFlags)flags;
-}
-
-ZEST_PRIVATE inline VkFilter zest__to_vk_filter(zest_filter_type type) {
-    return (VkFilter)type;
-}
-
-ZEST_PRIVATE inline VkSamplerMipmapMode zest__to_vk_mipmap_mode(VkSamplerMipmapMode mode) {
-    return (VkSamplerMipmapMode)mode;
-}
-
-ZEST_PRIVATE inline VkSamplerAddressMode zest__to_vk_sampler_address_mode(VkSamplerAddressMode mode) {
-    return (VkSamplerAddressMode)mode;
-}
-
-ZEST_PRIVATE inline VkCompareOp zest__to_vk_compare_op(VkCompareOp op) {
-    return (VkCompareOp)op;
-}
-
-ZEST_PRIVATE inline VkImageTiling zest__to_vk_image_tiling(VkImageTiling tiling) {
-    return (VkImageTiling)tiling;
-}
-
-ZEST_PRIVATE inline VkSampleCountFlags zest__to_vk_sample_count(VkSampleCountFlags flags) {
-    return (VkSampleCountFlags)flags;
-}
-
-// -- End Enum converters
 
 // -- Struct_translators
 
@@ -1605,8 +1561,8 @@ zest_bool zest_Initialise(zest_create_info_t* info) {
 	zest__initialise_app(info);
 	zest__initialise_window(info);
     if (zest__initialise_device()) {
-        VkResult result = zest__initialise_renderer(info);
-        if (result != VK_SUCCESS) {
+        zest_bool result = zest__initialise_renderer(info);
+        if (result != ZEST_TRUE) {
 			ZEST_PRINT("Unable to initialise the renderer. Check the log for details.");
 			return ZEST_FALSE;
         }
@@ -1659,6 +1615,9 @@ void zest__initialise_platform_for_vulkan() {
     ZestPlatform->create_bindless_set                       = zest__vk_create_bindless_set;
     ZestPlatform->update_bindless_image_descriptor          = zest__vk_update_bindless_image_descriptor;
     ZestPlatform->update_bindless_buffer_descriptor         = zest__vk_update_bindless_buffer_descriptor;
+
+    ZestPlatform->set_depth_format                          = zest__vk_set_depth_format;
+    ZestPlatform->initialise_renderer_backend               = zest__vk_initialise_renderer_backend;
 
     ZestPlatform->new_execution_backend                     = zest__vk_new_execution_backend;
     ZestPlatform->new_frame_graph_semaphores_backend        = zest__vk_new_frame_graph_semaphores_backend;
@@ -3032,7 +2991,7 @@ void zest_SetDeviceImagePoolSize(const char* name, VkImageUsageFlags image_flags
 // --End Vulkan Buffer Management
 
 // --Renderer and related functions
-VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
+zest_bool zest__initialise_renderer(zest_create_info_t* create_info) {
     ZEST_PRINT_FUNCTION;
     ZestRenderer->magic = zest_INIT_MAGIC(zest_struct_type_renderer);
     ZestRenderer->flags |= (create_info->flags & zest_init_flag_enable_vsync) ? zest_renderer_flag_vsync_enabled : 0;
@@ -3072,7 +3031,7 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     ZestRenderer->global_bindless_set_layout = (zest_set_layout)zest__get_store_resource(&ZestRenderer->set_layouts, ZestRenderer->global_bindless_set_layout_handle.value);
     ZestRenderer->global_set = zest_CreateBindlessSet(ZestRenderer->global_bindless_set_layout_handle);
 
-    ZestRenderer->depth_format = zest__from_vk_format(zest__find_depth_format());
+    ZestPlatform->set_depth_format();
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create pipeline cache");
     zest__create_pipeline_cache();
@@ -3081,28 +3040,10 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create standard pipelines");
     zest__prepare_standard_pipelines();
 
-    VkFenceCreateInfo fence_info = { 0 };
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_info.flags = 0;
-	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_fence);
-	for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
-		zest_ForEachFrameInFlight(i) {
-            ZEST_VK_ASSERT_RESULT(vkCreateFence(ZestDevice->backend->logical_device, &fence_info, &ZestDevice->backend->allocation_callbacks, &ZestRenderer->backend->fif_fence[i][queue_index]));
-			ZestRenderer->fence_count[i] = 0;
-        }
-		ZEST_VK_ASSERT_RESULT(vkCreateFence(ZestDevice->backend->logical_device, &fence_info, &ZestDevice->backend->allocation_callbacks, &ZestRenderer->backend->intraframe_fence[queue_index]));
-    }
-
     zest__create_debug_layout_and_pool(create_info->maximum_textures);
 
-    VkCommandBufferAllocateInfo alloc_info = { 0 };
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = 1;
-	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_command_buffer);
-    zest_ForEachFrameInFlight(fif) {
-		alloc_info.commandPool = ZestDevice->backend->one_time_command_pool[fif];
-        ZEST_VK_ASSERT_RESULT(vkAllocateCommandBuffers(ZestDevice->backend->logical_device, &alloc_info, &ZestRenderer->backend->utility_command_buffer[fif]));
+    if (!ZestPlatform->initialise_renderer_backend()) {
+        return ZEST_FALSE;
     }
 
     zest_ForEachFrameInFlight(fif) {
@@ -3118,7 +3059,7 @@ VkResult zest__initialise_renderer(zest_create_info_t* create_info) {
 
     ZEST__FLAG(ZestRenderer->flags, zest_renderer_flag_initialised);
 
-    return VK_SUCCESS;
+    return ZEST_TRUE;
 }
 
 zest_swapchain zest__create_swapchain(const char *name) {
@@ -5401,11 +5342,6 @@ void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFl
 		0, NULL,
 		1, barrier
 	);
-}
-
-VkFormat zest__find_depth_format() {
-    VkFormat depth_formats[5] = { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D16_UNORM, VK_FORMAT_D16_UNORM_S8_UINT };
-    return zest__find_supported_format(depth_formats, 5, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
 VkFormat zest__find_supported_format(VkFormat* candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features) {
@@ -7862,93 +7798,6 @@ zest_image_usage_flags zest__get_image_usage_from_state(zest_resource_state stat
     }
 }
 
-zest_vk_barrier_info_t zest__purpose_to_barrier_info(zest_resource_purpose purpose, zest_supported_pipeline_stages relevant_pipeline_stages, zest_load_op load_op, zest_load_op stencil_load_op) {
-    zest_vk_barrier_info_t barrier_info;
-    switch (purpose) {
-    case zest_purpose_color_attachment_write:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        barrier_info.access_mask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        if (load_op == zest_load_op_load) {
-            barrier_info.access_mask |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT; // For the load itself
-        }
-        barrier_info.stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        break;
-
-    case zest_purpose_color_attachment_read:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        barrier_info.access_mask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-        barrier_info.stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        break;
-
-    case zest_purpose_sampled_image:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier_info.access_mask = VK_ACCESS_SHADER_READ_BIT;
-        barrier_info.stage_mask = relevant_pipeline_stages;
-        break;
-
-    case zest_purpose_storage_image_read:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier_info.access_mask = VK_ACCESS_SHADER_READ_BIT;
-        barrier_info.stage_mask = relevant_pipeline_stages;
-        break;
-
-    case zest_purpose_storage_image_write:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier_info.access_mask = VK_ACCESS_SHADER_WRITE_BIT;
-        barrier_info.stage_mask = relevant_pipeline_stages;
-        break;
-
-    case zest_purpose_storage_image_read_write:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier_info.access_mask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        barrier_info.stage_mask = relevant_pipeline_stages;
-        break;
-
-    case zest_purpose_depth_stencil_attachment_read:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        barrier_info.access_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-        barrier_info.stage_mask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-        break;
-
-    case zest_purpose_depth_stencil_attachment_write:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        barrier_info.access_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        if (load_op == zest_load_op_load || stencil_load_op == zest_load_op_load) {
-            barrier_info.access_mask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-        }
-        barrier_info.stage_mask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-        break;
-
-    case zest_purpose_depth_stencil_attachment_read_write: // Typical depth testing and writing
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        barrier_info.access_mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        barrier_info.stage_mask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-        break;
-
-    case zest_purpose_input_attachment: // For subpass reads
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier_info.access_mask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT;
-        barrier_info.stage_mask = relevant_pipeline_stages;
-        break;
-
-    case zest_purpose_transfer_image:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier_info.access_mask = VK_ACCESS_TRANSFER_READ_BIT;
-        barrier_info.stage_mask = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        break;
-
-    case zest_purpose_present_src:
-        barrier_info.image_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        barrier_info.access_mask = 0; // No specific GPU access by the pass itself for this state.
-        barrier_info.stage_mask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // Ensure all prior work is done.
-        break;
-
-    default:
-        ZEST_ASSERT(0); //Unhandled image access purpose!"
-    }
-    return barrier_info;
-}
-
 zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages) {
 
     zest_resource_usage_t usage = { 0 };
@@ -8178,7 +8027,7 @@ void zest_ConnectOutput(zest_resource_node resource) {
         switch (pass->type) {
         case zest_pass_type_graphics: {
             ZEST_ASSERT(resource->type & zest_resource_type_is_image); //Resource must be an image buffer when used as output in a graphics pass
-            if (resource->image.info.format == zest__from_vk_format(ZestRenderer->depth_format)) {
+            if (resource->image.info.format == ZestRenderer->depth_format) {
                 cv.depth_stencil.depth = 1.f;
                 cv.depth_stencil.stencil = 0;
                 zest__add_pass_image_usage(pass, resource, zest_purpose_depth_stencil_attachment_write,

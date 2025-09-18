@@ -4181,12 +4181,12 @@ typedef struct zest_platform_t {
     zest_bool                  (*frame_graph_fence_wait)(zest_execution_backend backend);
     zest_bool                  (*create_execution_timeline_backend)(zest_execution_timeline timeline);
     void                       (*add_frame_graph_buffer_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers, 
-                                     zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access,
-                                     zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, 
-                                     zest_pipeline_stage_flags dst_stage);
+                                    zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access,
+                                    zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, 
+                                    zest_pipeline_stage_flags dst_stage);
     void                       (*add_frame_graph_image_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire,
-								zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout,
-								zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
+									zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout,
+									zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
     void                       (*validate_barrier_pipeline_stages)(zest_execution_barriers_t *barriers);
     void                       (*print_compiled_frame_graph)(zest_frame_graph frame_graph);
     zest_bool                  (*present_frame)(zest_swapchain);
@@ -4206,6 +4206,9 @@ typedef struct zest_platform_t {
     zest_descriptor_set        (*create_bindless_set)(zest_set_layout layout);
     void                       (*update_bindless_image_descriptor)(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
     void                       (*update_bindless_buffer_descriptor)(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+    //General Renderer
+    void                       (*set_depth_format)(void);
+    zest_bool                  (*initialise_renderer_backend)(void);
     //Create backends
     void*                      (*new_frame_graph_semaphores_backend)(void);
     void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
@@ -4303,7 +4306,7 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators();
 //End Buffer Management
 
 //Renderer_functions
-ZEST_PRIVATE VkResult zest__initialise_renderer(zest_create_info_t *create_info);
+ZEST_PRIVATE zest_bool zest__initialise_renderer(zest_create_info_t *create_info);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(const char *name);
 ZEST_PRIVATE zest_bool zest__initialise_swapchain(zest_swapchain swapchain, zest_window window);
 ZEST_PRIVATE VkResult zest__create_pipeline_cache();
@@ -4390,7 +4393,6 @@ ZEST_PRIVATE zest_bool zest__generate_mipmaps(zest_image image);
 ZEST_PRIVATE VkImageMemoryBarrier zest__create_base_image_memory_barrier(VkImage image);
 ZEST_PRIVATE void zest__insert_image_memory_barrier(VkCommandBuffer cmdbuffer, VkImage image, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkImageSubresourceRange subresourceRange);
 ZEST_PRIVATE void zest__place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier);
-ZEST_PRIVATE VkFormat zest__find_depth_format(void);
 ZEST_PRIVATE VkFormat zest__find_supported_format(VkFormat *candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features);
 ZEST_PRIVATE zest_bool zest__begin_single_time_commands();
 ZEST_PRIVATE zest_bool zest__end_single_time_commands();
@@ -5623,6 +5625,10 @@ ZEST_API VkAllocationCallbacks *zest_GetVKAllocationCallbacks();
     ZEST_PRIVATE zest_descriptor_set zest__vk_create_bindless_set(zest_set_layout layout);
     ZEST_PRIVATE void zest__vk_update_bindless_image_descriptor(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
     ZEST_PRIVATE void zest__vk_update_bindless_buffer_descriptor(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
+
+    //General renderer
+    ZEST_PRIVATE void zest__vk_set_depth_format(void);
+    ZEST_PRIVATE zest_bool zest__vk_initialise_renderer_backend(void);
 
 	//Glue
 	ZEST_PRIVATE void *zest__vk_new_device_backend(void);

@@ -4,6 +4,7 @@ Zest Vulkan Implementation
     -- [Backend_structs]
     -- [Other_setup_structs]
     -- [Enum_to_string_functions]
+    -- [Type_converters]
     -- [Inline_helpers]
     -- [Initialisation_functions]
     -- [Swapchain_setup]
@@ -12,6 +13,7 @@ Zest Vulkan Implementation
     -- [Backend_cleanup_functions]
     -- [Buffer_and_memory]
     -- [Descriptor_sets]
+    -- [General_renderer]
     -- [Pipelines]
     -- [Images]
     -- [General_helpers]
@@ -322,7 +324,9 @@ zest_text_t zest__vk_pipeline_stage_flags_to_string(VkPipelineStageFlags flags) 
     }
     return string;
 }
+// -- End Enum_to_string_functions
 
+// -- Type_converters
 ZEST_PRIVATE inline VkFormat zest__to_vk_format(zest_format format) {
     return (VkFormat)format;
 }
@@ -354,7 +358,47 @@ ZEST_PRIVATE inline VkShaderStageFlags zest__to_vk_shader_stage(zest_supported_s
 ZEST_PRIVATE inline VkImageAspectFlags zest__to_vk_image_aspect(VkImageAspectFlags flags) {
     return (VkImageAspectFlags)flags;
 }
-// -- Enum to string functions
+
+ZEST_PRIVATE inline zest_format zest__from_vk_format(VkFormat format) {
+    return (zest_format)format;
+}
+
+ZEST_PRIVATE inline VkImageUsageFlags zest__to_vk_image_usage(zest_image_usage_flags flags) {
+    return (VkImageUsageFlags)flags;
+}
+
+ZEST_PRIVATE inline VkBufferUsageFlags zest__to_vk_buffer_usage(zest_buffer_usage_flags flags) {
+    return (VkBufferUsageFlags)flags;
+}
+
+ZEST_PRIVATE inline VkMemoryPropertyFlags zest__to_vk_memory_property(zest_memory_property_flags flags) {
+    return (VkMemoryPropertyFlags)flags;
+}
+
+ZEST_PRIVATE inline VkFilter zest__to_vk_filter(zest_filter_type type) {
+    return (VkFilter)type;
+}
+
+ZEST_PRIVATE inline VkSamplerMipmapMode zest__to_vk_mipmap_mode(VkSamplerMipmapMode mode) {
+    return (VkSamplerMipmapMode)mode;
+}
+
+ZEST_PRIVATE inline VkSamplerAddressMode zest__to_vk_sampler_address_mode(VkSamplerAddressMode mode) {
+    return (VkSamplerAddressMode)mode;
+}
+
+ZEST_PRIVATE inline VkCompareOp zest__to_vk_compare_op(VkCompareOp op) {
+    return (VkCompareOp)op;
+}
+
+ZEST_PRIVATE inline VkImageTiling zest__to_vk_image_tiling(VkImageTiling tiling) {
+    return (VkImageTiling)tiling;
+}
+
+ZEST_PRIVATE inline VkSampleCountFlags zest__to_vk_sample_count(VkSampleCountFlags flags) {
+    return (VkSampleCountFlags)flags;
+}
+// -- End Type_converters
 
 // -- Inline_helpers
 inline VkBufferMemoryBarrier zest__vk_create_buffer_memory_barrier( VkBuffer buffer, VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkDeviceSize offset, VkDeviceSize size) {
@@ -445,6 +489,11 @@ inline VkResult zest__vk_create_shader_module(char *code, VkShaderModule *shader
     ZEST_VK_ASSERT_RESULT(vkCreateShaderModule(ZestDevice->backend->logical_device, &create_info, &ZestDevice->backend->allocation_callbacks, shader_module));
 
     return VK_SUCCESS;
+}
+
+inline VkFormat zest__vk_find_depth_format() {
+    VkFormat depth_formats[5] = { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D16_UNORM, VK_FORMAT_D16_UNORM_S8_UINT };
+    return zest__find_supported_format(depth_formats, 5, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 // -- End Inline_helpers
 
@@ -2100,6 +2149,39 @@ zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zes
     return ZEST_TRUE;
 }
 // -- End Descriptor_sets
+
+// -- General_renderer
+void zest__vk_set_depth_format(void) {
+    VkFormat depth_format = zest__vk_find_depth_format();
+    ZestRenderer->depth_format = zest__from_vk_format(depth_format);
+}
+
+zest_bool zest__vk_initialise_renderer_backend(void) {
+    VkFenceCreateInfo fence_info = { 0 };
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = 0;
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_fence);
+	for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
+		zest_ForEachFrameInFlight(i) {
+            ZEST_RETURN_FALSE_ON_FAIL(vkCreateFence(ZestDevice->backend->logical_device, &fence_info, &ZestDevice->backend->allocation_callbacks, &ZestRenderer->backend->fif_fence[i][queue_index]));
+			ZestRenderer->fence_count[i] = 0;
+        }
+		ZEST_RETURN_FALSE_ON_FAIL(vkCreateFence(ZestDevice->backend->logical_device, &fence_info, &ZestDevice->backend->allocation_callbacks, &ZestRenderer->backend->intraframe_fence[queue_index]));
+    }
+
+    VkCommandBufferAllocateInfo alloc_info = { 0 };
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandBufferCount = 1;
+	ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_command_buffer);
+    zest_ForEachFrameInFlight(fif) {
+		alloc_info.commandPool = ZestDevice->backend->one_time_command_pool[fif];
+        ZEST_RETURN_FALSE_ON_FAIL(vkAllocateCommandBuffers(ZestDevice->backend->logical_device, &alloc_info, &ZestRenderer->backend->utility_command_buffer[fif]));
+    }
+
+    return ZEST_TRUE;
+}
+// -- End General_renderer
 
 // -- Pipelines
 void *zest__vk_new_pipeline_backend(void) {
