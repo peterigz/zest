@@ -1,5 +1,4 @@
 #pragma once
-#define ZEST_VULKAN
 #include "zest.h"
 #include <GLFW/glfw3.h>
 

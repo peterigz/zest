@@ -1,6 +1,8 @@
 #pragma once
 
+#define ZEST_VULKAN
 #include <zest.h>
+#include "zest_vulkan.h"
 #include "implementations/impl_imgui.h"
 #include "implementations/impl_glfw.h"
 #include "implementations/impl_imgui_glfw.h"

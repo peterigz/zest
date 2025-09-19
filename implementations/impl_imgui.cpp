@@ -323,7 +323,7 @@ void zest_imgui_UpdateBuffers() {
     }
 }
 
-void zest_imgui_DrawImage(zest_atlas_region image, VkDescriptorSet set, float width, float height) {
+void zest_imgui_DrawImage(zest_atlas_region image, float width, float height) {
     using namespace ImGui;
     zest_extent2d_t image_extent = zest_RegionDimensions(image);
     ImVec2 image_size((float)image_extent.width, (float)image_extent.height);
@@ -530,7 +530,6 @@ void zest_imgui_Shutdown() {
 	zest_FreeImage(ZestImGui->font_texture);
 	zest_FreePipelineTemplate(ZestImGui->pipeline);
     zest_FreeAtlasRegion(ZestImGui->font_region);
-	zest_vec_free(ZestImGui->draw_sets);
     zest_FreeMemory(ZestImGui);
 }
 //--End Dear ImGui helper functions

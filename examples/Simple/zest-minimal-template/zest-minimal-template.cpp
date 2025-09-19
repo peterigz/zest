@@ -5,17 +5,18 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
 	zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(zest_GetMainWindowSwapchain(), 0, 0);
 	if (zest_BeginFrameGraphSwapchain(zest_GetMainWindowSwapchain(), "Render Graph", &cache_key)) {
-		zest_pass_node clear_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
-		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
-		zest_ConnectSwapChainOutput(clear_pass);
+		zest_BeginGraphicBlankScreen("Draw Nothing"); {
+			zest_ConnectSwapChainOutput();
+			zest_EndPass();
+		}
 		zest_EndFrameGraph();
 	}
 }
 
 #if defined(_WIN32)
 // Windows entry point
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
-int main(void) 
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
+//int main(void) 
 {
 	//Make a config struct where you can configure zest with some options
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);

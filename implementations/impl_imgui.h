@@ -30,7 +30,6 @@ typedef struct zest_imgui_t {
 	zest_uint font_texture_binding_index;
 	zest_uint font_sampler_binding_index;
 	zest_shader_resources_handle font_resources;
-    VkDescriptorSet *draw_sets;
 	zest_sampler_handle font_sampler;
 } zest_imgui_t;
 
@@ -41,7 +40,7 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer 
 zest_resource_node zest_imgui_ImportVertexResources(const char *name);
 zest_resource_node zest_imgui_ImportIndexResources(const char *name);
 void zest_imgui_UpdateBuffers();
-void zest_imgui_DrawImage(zest_atlas_region image, VkDescriptorSet set, float width, float height);
+void zest_imgui_DrawImage(zest_atlas_region image, float width, float height);
 void zest_imgui_DrawImage2(zest_atlas_region image, float width, float height);
 void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
 bool zest_imgui_DrawButton(zest_atlas_region image, const char* user_texture_id, float width, float height, int frame_padding);

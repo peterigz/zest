@@ -98,9 +98,20 @@ void zest_implglfw_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb
 	glfwGetWindowSize(handle, window_width, window_height);
 }
 
-#if defined ZEST_VULKAN
+void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {
+	create_info->add_platform_extensions_callback = zest_implglfw_AddPlatformExtensionsCallback;
+	create_info->create_window_callback = zest_implglfw_CreateWindowCallback;
+	create_info->poll_events_callback = zest_implglfw_PollEventsCallback;
+	create_info->get_window_size_callback = zest_implglfw_GetWindowSizeCallback;
+	create_info->destroy_window_callback = zest_implglfw_DestroyWindowCallback;
+	create_info->create_window_surface_callback = zest_implglfw_CreateWindowSurfaceCallback;
+	create_info->set_window_mode_callback = zest_implglfw_SetWindowMode;
+	create_info->set_window_size_callback = zest_implglfw_SetWindowSize;
+}
+
+#if defined ZEST_VULKAN_IMPLEMENTATION
 zest_bool zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
-    ZEST_SET_MEMORY_CONTEXT(zest_vk_renderer, zest_vk_surface);
+    ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_surface);
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 	VkSurfaceKHR surface;
 	VkResult result = glfwCreateWindowSurface(zest_GetVKInstance(), handle, zest_GetVKAllocationCallbacks(), &surface);
@@ -115,13 +126,3 @@ void zest_implglfw_DestroyWindowCallback(zest_window window, void *user_data) {
 }
 #endif
 
-void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {
-	create_info->add_platform_extensions_callback = zest_implglfw_AddPlatformExtensionsCallback;
-	create_info->create_window_callback = zest_implglfw_CreateWindowCallback;
-	create_info->poll_events_callback = zest_implglfw_PollEventsCallback;
-	create_info->get_window_size_callback = zest_implglfw_GetWindowSizeCallback;
-	create_info->destroy_window_callback = zest_implglfw_DestroyWindowCallback;
-	create_info->create_window_surface_callback = zest_implglfw_CreateWindowSurfaceCallback;
-	create_info->set_window_mode_callback = zest_implglfw_SetWindowMode;
-	create_info->set_window_size_callback = zest_implglfw_SetWindowSize;
-}

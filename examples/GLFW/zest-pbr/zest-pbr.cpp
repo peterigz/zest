@@ -1,3 +1,6 @@
+#define ZEST_VULKAN_IMPLEMENTATION
+#include "zest.h"
+#include "zest_vulkan.h"
 #include "zest-pbr.h"
 #include "imgui_internal.h"
 
@@ -294,7 +297,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	SetupPrefilteredCube(app);
 
 	app->pbr_pipeline = zest_BeginPipelineTemplate("pipeline_mesh_instance");
-	zest_SetPipelinePushConstantRange(app->pbr_pipeline, sizeof(pbr_consts_t), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+	zest_SetPipelinePushConstantRange(app->pbr_pipeline, sizeof(pbr_consts_t), zest_shader_render_stages);
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(zest_mesh_instance_t), zest_input_rate_instance);
 	zest_AddVertexAttribute(app->pbr_pipeline, 0, 0, zest_format_r32g32b32_sfloat, 0);                                          // Location 0: Vertex Position
