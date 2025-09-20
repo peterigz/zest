@@ -5946,9 +5946,7 @@ zest_frame_graph zest__compile_frame_graph() {
 
                 ZestPlatform.validate_barrier_pipeline_stages(&exe_details->barriers);
 
-                //If this pass is a render pass with an execution callback
-                //Create_render_passes
-                frame_graph->error_status = ZestPlatform.create_fg_render_pass(pass, exe_details, current_pass_index);
+				zest__prepare_render_pass(pass, exe_details);
 
             }   //Passes within batch loop
         }
@@ -5966,6 +5964,45 @@ zest_frame_graph zest__compile_frame_graph() {
 	ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_compiled);  
 
     return frame_graph;
+}
+
+void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details) {
+	if (exe_details->requires_dynamic_render_pass) {
+		zloc_linear_allocator_t *allocator = ZestRenderer->frame_graph_allocator[ZEST_FIF];
+		zest_uint color_attachment_index = 0;
+		//Determine attachments for color and depth (resolve can come later), first for outputs
+		exe_details->depth_attachment.image_view = 0;
+		zest_map_foreach(o, pass->outputs) {
+			zest_resource_usage_t *output_usage = &pass->outputs.data[o];
+			zest_resource_node resource = pass->outputs.data[o].resource_node;
+			if (resource->type & zest_resource_type_is_image) {
+				if (resource->type != zest_resource_type_depth && ZEST__FLAGGED(pass->flags, zest_pass_flag_output_resolve) && resource->image.info.sample_count == 1) {
+					output_usage->purpose = zest_purpose_color_attachment_resolve;
+				}
+				if (output_usage->purpose == zest_purpose_color_attachment_write) {
+					zest_rendering_attachment_info_t color = { 0 };
+					color.image_view = resource->view;
+					color.layout = output_usage->image_layout;
+					color.load_op = output_usage->load_op;
+					color.store_op = output_usage->store_op;
+					color.clear_value = output_usage->clear_value;
+					zest_vec_linear_push(allocator, exe_details->color_attachments, color);
+					color_attachment_index++;
+				} else if (output_usage->purpose == zest_purpose_color_attachment_resolve) {
+					exe_details->color_attachments[color_attachment_index].resolve_layout = output_usage->image_layout;
+					exe_details->color_attachments[color_attachment_index].resolve_image_view = resource->view;
+				} else if (output_usage->purpose == zest_purpose_depth_stencil_attachment_write) {
+					zest_rendering_attachment_info_t depth = { 0 };
+					depth.image_view = resource->view;
+					depth.layout = output_usage->image_layout;
+					depth.load_op = output_usage->load_op;
+					depth.store_op = output_usage->store_op;
+					depth.clear_value = output_usage->clear_value;
+					ZEST__FLAG(resource->flags, zest_resource_node_flag_used_in_output);
+				}
+			}
+		}
+	}
 }
 
 zest_frame_graph zest_EndFrameGraph() {

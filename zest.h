@@ -973,9 +973,9 @@ typedef zest_uint zest_app_flags;
 enum zest__constants {
     zest__validation_layer_count = 1,
 #if defined(__APPLE__)
-    zest__required_extension_names_count = 2,
+    zest__required_extension_names_count = 3,
 #else
-    zest__required_extension_names_count = 1,
+    zest__required_extension_names_count = 2,
 #endif
 };
 
@@ -2821,17 +2821,6 @@ typedef struct zest_execution_barriers_t {
     zest_resource_node *release_buffer_barrier_nodes;
 } zest_execution_barriers_t;
 
-typedef struct zest_attachment_description_t {
-	zest_format format;
-	zest_sample_count_flags samples;
-	zest_load_op load_op;
-	zest_store_op store_op;
-	zest_load_op stencil_load_op;
-	zest_store_op stencil_store_op;
-	zest_image_layout initial_layout;
-	zest_image_layout final_layout;
-} zest_attachment_description_t;
-
 typedef struct zest_temp_attachment_info_t { 
     zest_resource_node resource_node; 
     zest_resource_usage_t *usage_info; 
@@ -2854,11 +2843,23 @@ typedef struct zest_buffer_resource_info_t {
 
 zest_hash_map(zest_uint) attachment_idx;
 
+typedef struct zest_rendering_attachment_info_t {
+	zest_image_view image_view;
+	zest_image_layout layout;
+	zest_image_view resolve_image_view;
+	zest_image_layout resolve_layout;
+	zest_load_op load_op;
+	zest_store_op store_op;
+	zest_clear_value_t clear_value;
+} zest_rendering_attachment_info_t;
+
 typedef struct zest_execution_details_t {
 	attachment_idx attachment_indexes;
 	zest_temp_attachment_info_t *color_attachment_info;
 	zest_temp_attachment_info_t *resolve_attachment_info;
 	zest_temp_attachment_info_t depth_attachment_info;
+	zest_rendering_attachment_info_t *color_attachments;
+	zest_rendering_attachment_info_t depth_attachment;
 	zest_resource_node *attachment_resource_nodes;
     zest_swapchain swapchain;
     zest_render_pass render_pass;
@@ -3096,6 +3097,7 @@ ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_res
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
 ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(const char *name);
 ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
+ZEST_PRIVATE void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details);
 ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_bool is_intraframe);
 ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers, 
                                            zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
@@ -3907,12 +3909,13 @@ typedef struct zest_platform_t {
     void                       (*deferr_framebuffer_destruction)(void* frame_buffer);
 } zest_platform_t;
 
-typedef void(*zest__platform_setup)(void);
 
 extern zest_device_t *ZestDevice;
 extern zest_app_t *ZestApp;
 extern zest_renderer_t *ZestRenderer;
 extern zest_platform_t ZestPlatform;
+
+typedef void(*zest__platform_setup)(void);
 extern zest__platform_setup zest__platform_setup_callbacks[zest_max_platforms];
 
 static const zest_image_t zest__image_zero = {0};
