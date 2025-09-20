@@ -33,7 +33,6 @@
         [General_layer_internal_functions]
         [Mesh_layer_internal_functions]
         [Misc_Helper_Functions]
-        [Frame_graph_platform_functions]
         [Pipeline_Helper_Functions]
         [Buffer_allocation_functions]
         [Maintenance_functions]
@@ -206,6 +205,7 @@ static const char *zest_message_resource_should_be_imported = "Graph Compile Err
 #define ZEST_SECONDS_IN_MILLISECONDS(seconds) seconds * 1000
 #define ZEST_PI 3.14159265359f
 #define ZEST_FIXED_LOOP_BUFFER 0xF18
+#define ZEST_MAX_ATTACHMENTS 8
 
 #ifndef ZEST_MAX_DEVICE_MEMORY_POOLS
 #define ZEST_MAX_DEVICE_MEMORY_POOLS 64
@@ -251,6 +251,7 @@ typedef unsigned int zest_bool;
 //If there's a case for where it would be useful be able to call a function externally
 //then we change it to a ZEST_API function
 #define ZEST_PRIVATE static
+#define ZEST_API_TMP
 
 typedef union zest_packed10bit
 {
@@ -383,6 +384,8 @@ typedef enum zest_platform_type {
     zest_platform_vulkan,
     zest_platform_d3d12,
     zest_platform_metal,
+    zest_platform_headless,
+	zest_max_platforms
 } zest_platform_type;
 
 typedef enum zest_format {
@@ -1664,7 +1667,7 @@ typedef struct zest_bucket_array_t {
 
 ZEST_PRIVATE inline void zest__bucket_array_init(zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity);
 ZEST_PRIVATE inline void zest__bucket_array_free(zest_bucket_array_t *array);
-ZEST_PRIVATE inline void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index);
+ZEST_API_TMP inline void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index);
 ZEST_PRIVATE inline void *zest__bucket_array_add(zest_bucket_array_t *array);
 ZEST_PRIVATE inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, zest_bucket_array_t *array);
 
@@ -2818,6 +2821,17 @@ typedef struct zest_execution_barriers_t {
     zest_resource_node *release_buffer_barrier_nodes;
 } zest_execution_barriers_t;
 
+typedef struct zest_attachment_description_t {
+	zest_format format;
+	zest_sample_count_flags samples;
+	zest_load_op load_op;
+	zest_store_op store_op;
+	zest_load_op stencil_load_op;
+	zest_store_op stencil_store_op;
+	zest_image_layout initial_layout;
+	zest_image_layout final_layout;
+} zest_attachment_description_t;
+
 typedef struct zest_temp_attachment_info_t { 
     zest_resource_node resource_node; 
     zest_resource_usage_t *usage_info; 
@@ -3065,8 +3079,8 @@ typedef struct zest_frame_graph_t {
 
 // --- Internal render graph function ---
 ZEST_PRIVATE zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities);
-ZEST_PRIVATE zest_image_layout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage);
-ZEST_PRIVATE zest_image_aspect_flags zest__determine_aspect_flag(zest_format format);
+ZEST_API_TMP zest_image_layout zest__determine_final_layout(zest_uint pass_index, zest_resource_node node, zest_resource_usage_t *current_usage);
+ZEST_API_TMP zest_image_aspect_flags zest__determine_aspect_flag(zest_format format);
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
 ZEST_PRIVATE void zest__deferr_image_destruction(zest_image image);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type);
@@ -3893,10 +3907,13 @@ typedef struct zest_platform_t {
     void                       (*deferr_framebuffer_destruction)(void* frame_buffer);
 } zest_platform_t;
 
+typedef void(*zest__platform_setup)(void);
+
 extern zest_device_t *ZestDevice;
 extern zest_app_t *ZestApp;
 extern zest_renderer_t *ZestRenderer;
-extern zest_platform_t *ZestPlatform;
+extern zest_platform_t ZestPlatform;
+extern zest__platform_setup zest__platform_setup_callbacks[zest_max_platforms];
 
 static const zest_image_t zest__image_zero = {0};
 
@@ -3917,7 +3934,7 @@ ZEST_PRIVATE bool zest__create_folder(const char *path);
 
 //Only available outside lib for some implementations like SDL2
 ZEST_API void* zest__vec_reserve(void *T, zest_uint unit_size, zest_uint new_capacity);
-ZEST_PRIVATE void* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void *T, zest_uint unit_size, zest_uint new_capacity);
+ZEST_API_TMP void* zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void *T, zest_uint unit_size, zest_uint new_capacity);
 ZEST_API zest_size zest_GetNextPower(zest_size n);
 
 //Buffer_and_Memory_Management
@@ -4015,7 +4032,7 @@ ZEST_PRIVATE void zest__cleanup_layer(zest_layer layer);
 ZEST_PRIVATE void zest__initialise_instance_layer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
 ZEST_PRIVATE void zest__end_instance_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__start_instance_instructions(zest_layer layer);
-ZEST_PRIVATE void zest__reset_instance_layer_drawing(zest_layer layer);
+ZEST_API_TMP void zest__reset_instance_layer_drawing(zest_layer layer);
 
 // --Image_internal_functions
 ZEST_PRIVATE zest_image_handle zest__new_image(void);
@@ -4029,8 +4046,8 @@ ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
 ZEST_API zest_image_collection zest__load_ktx(const char *file_path);
 ZEST_PRIVATE zest_format zest__convert_tktx_format(TinyKtx_Format format);
 ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
-ZEST_PRIVATE zest_uint zest__get_format_channel_count(zest_format format);
-ZEST_PRIVATE void zest__cleanup_image_view(zest_image_view layout);
+ZEST_API_TMP zest_uint zest__get_format_channel_count(zest_format format);
+ZEST_API_TMP void zest__cleanup_image_view(zest_image_view layout);
 ZEST_PRIVATE void zest__cleanup_image_view_array(zest_image_view_array layout);
 ZEST_PRIVATE zest_bool zest__transition_image_layout(zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 
@@ -4075,7 +4092,7 @@ ZEST_API void zest__cache_shader(zest_shader shader);
 // --End Shader functions
 
 // --Descriptor_set_functions
-ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets);
+ZEST_API_TMP zest_descriptor_pool zest__create_descriptor_pool(zest_uint max_sets);
 ZEST_PRIVATE zest_set_layout_handle zest__new_descriptor_set_layout(const char *name);
 ZEST_PRIVATE bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest_uint binding_number);
@@ -4088,7 +4105,7 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler
 
 // --Device_set_up
 ZEST_PRIVATE void zest__destroy_debug_messenger(void);
-ZEST_PRIVATE void zest__set_default_pool_sizes(void);
+ZEST_API_TMP void zest__set_default_pool_sizes(void);
 //end device setup functions
 
 //App_initialise_and_run_functions
@@ -4100,9 +4117,9 @@ ZEST_PRIVATE void zest__main_loop(void);
 ZEST_API void zest_Terminate(void);
 ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait();
 ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
-ZEST_PRIVATE zest_bool zest__validation_layers_are_enabled(void);
-ZEST_PRIVATE zest_bool zest__validation_layers_with_sync_are_enabled(void);
-ZEST_PRIVATE zest_bool zest__validation_layers_with_best_practices_are_enabled(void);
+ZEST_API_TMP zest_bool zest__validation_layers_are_enabled(void);
+ZEST_API_TMP zest_bool zest__validation_layers_with_sync_are_enabled(void);
+ZEST_API_TMP zest_bool zest__validation_layers_with_best_practices_are_enabled(void);
 //-- end of internal functions
 
 //-- Window_related_functions
@@ -4133,6 +4150,8 @@ ZEST_API void zest_ResetRenderer();
 //Set the create info for the renderer, to be used optionally before a call to zest_ResetRenderer to change the configuration
 //of the renderer
 ZEST_API void zest_SetCreateInfo(zest_create_info_t *info);
+//Used internally by platform layers
+ZEST_API void zest__register_platform(zest_platform_type type, zest__platform_setup callback);
 
 //-----------------------------------------------
 //        Platform_Helper_Functions
@@ -5152,6 +5171,12 @@ ZEST_API void zest_cmd_DrawIndexed(const zest_frame_graph_context context, zest_
 }
 #endif
 
+#define ZEST_CLEANUP_ON_FALSE(res) do {                                                                           \
+if ((res) == ZEST_FALSE) {                                                                     \
+goto cleanup;                                                                              \
+}                                                                                                                  \
+} while(0)
+
 #endif // ! ZEST_POCKET_RENDERER
 
 #if defined(ZEST_IMPLEMENTATION)
@@ -5162,12 +5187,6 @@ zest_render_pass zest__create_render_pass() {
     render_pass->magic = zest_INIT_MAGIC(zest_struct_type_render_pass);
     return render_pass;
 }
-
-#define ZEST_CLEANUP_ON_FALSE(res) do {                                                                           \
-if ((res) == ZEST_FALSE) {                                                                     \
-goto cleanup;                                                                              \
-}                                                                                                                  \
-} while(0)
 
 //C file will go here
 #endif
