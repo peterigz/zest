@@ -5209,10 +5209,10 @@ Main compile phases:
 [Create_semaphores]
 [Plan_transient_buffers]
 [Plan_resource_barriers]
-[Process_compiled_execution_order]
 [Create_memory_barriers_for_inputs]
 [Create_memory_barriers_for_outputs]
-[Create_render_passes]
+[Process_compiled_execution_order]
+[Prepare_render_passes]
 */
 zest_frame_graph zest__compile_frame_graph() {
 
@@ -5936,6 +5936,7 @@ zest_frame_graph zest__compile_frame_graph() {
     }
 
     //Process_compiled_execution_order
+	//Prepare_render_pass
     zest_vec_foreach(submission_index, frame_graph->submissions) {
         zest_wave_submission_t *submission = &frame_graph->submissions[submission_index];
         for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
@@ -5946,7 +5947,7 @@ zest_frame_graph zest__compile_frame_graph() {
 
                 ZestPlatform.validate_barrier_pipeline_stages(&exe_details->barriers);
 
-				zest__prepare_render_pass(pass, exe_details);
+				zest__prepare_render_pass(pass, exe_details, current_pass_index);
 
             }   //Passes within batch loop
         }
@@ -5966,7 +5967,7 @@ zest_frame_graph zest__compile_frame_graph() {
     return frame_graph;
 }
 
-void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details) {
+void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index) {
 	if (exe_details->requires_dynamic_render_pass) {
 		zloc_linear_allocator_t *allocator = ZestRenderer->frame_graph_allocator[ZEST_FIF];
 		zest_uint color_attachment_index = 0;
@@ -5981,19 +5982,37 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 				}
 				if (output_usage->purpose == zest_purpose_color_attachment_write) {
 					zest_rendering_attachment_info_t color = { 0 };
-					color.image_view = resource->view;
+					ZEST_ASSERT(resource->view);
+					color.image_view = &resource->view;
 					color.layout = output_usage->image_layout;
 					color.load_op = output_usage->load_op;
 					color.store_op = output_usage->store_op;
 					color.clear_value = output_usage->clear_value;
 					zest_vec_linear_push(allocator, exe_details->color_attachments, color);
+					if (color_attachment_index == 0) {
+						exe_details->render_area.offset.x = 0;
+						exe_details->render_area.offset.y = 0;
+						exe_details->render_area.extent.width = resource->image.info.extent.width;
+						exe_details->render_area.extent.height = resource->image.info.extent.height;
+					}
 					color_attachment_index++;
+					//zest_image_layout final_layout = zest__determine_final_layout(zest__determine_final_layout(current_pass_index, resource, output_usage));
+					if (resource->type == zest_resource_type_swap_chain_image) {
+						ZestPlatform.add_frame_graph_image_barrier(
+							resource, &exe_details->barriers, ZEST_FALSE,
+							output_usage->access_mask, zest_access_none,
+							output_usage->image_layout, zest_image_layout_present,
+							resource->current_queue_family_index, resource->current_queue_family_index,
+							output_usage->stage_mask, zest_pipeline_stage_bottom_of_pipe_bit
+						);
+						ZEST__FLAG(ZestRenderer->current_frame_graph->flags, zest_frame_graph_present_after_execute);
+					}
 				} else if (output_usage->purpose == zest_purpose_color_attachment_resolve) {
 					exe_details->color_attachments[color_attachment_index].resolve_layout = output_usage->image_layout;
-					exe_details->color_attachments[color_attachment_index].resolve_image_view = resource->view;
+					exe_details->color_attachments[color_attachment_index].resolve_image_view = &resource->view;
 				} else if (output_usage->purpose == zest_purpose_depth_stencil_attachment_write) {
 					zest_rendering_attachment_info_t depth = { 0 };
-					depth.image_view = resource->view;
+					depth.image_view = &resource->view;
 					depth.layout = output_usage->image_layout;
 					depth.load_op = output_usage->load_op;
 					depth.store_op = output_usage->store_op;
@@ -6176,7 +6195,7 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
                 //Batch execute acquire barriers for images and buffers
 				ZestPlatform.acquire_barrier(&frame_graph->context, exe_details);
 
-                bool has_render_pass = ZEST_VALID_HANDLE(exe_details->render_pass);
+                bool has_render_pass = exe_details->requires_dynamic_render_pass;
 
                 //Begin the render pass if the pass has one
                 if (has_render_pass) {
@@ -6731,6 +6750,7 @@ zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain) {
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     node.image.backend = ZestPlatform.new_frame_graph_image_backend(ZestRenderer->frame_graph_allocator[ZEST_FIF], &node.image, &swapchain->images[swapchain->current_image_frame]);
     node.image.info = swapchain->images[0].info;
+    node.view = swapchain->views[swapchain->current_image_frame];
     node.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
     node.producer_pass_idx = -1;
     node.image_provider = zest__swapchain_resource_provider;
@@ -7227,7 +7247,7 @@ zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, z
     case zest_purpose_present_src:
         usage.image_layout = zest_image_layout_present;
         usage.access_mask = 0; // No specific GPU access by the pass itself for this state.
-        usage.stage_mask = zest_pipeline_stage_bottom_of_pipe_bit; // eNSURE ALL PRIOR WORK IS DONE.
+        usage.stage_mask = zest_pipeline_stage_bottom_of_pipe_bit; // ENSURE ALL PRIOR WORK IS DONE.
         resource->image.info.flags |= zest_image_flag_color_attachment;
         usage.is_output = ZEST_TRUE;
         break;

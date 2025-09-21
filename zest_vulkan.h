@@ -323,6 +323,8 @@ typedef struct zest_device_backend_t {
     VkQueueFamilyProperties *queue_families;
     VkCommandPool one_time_command_pool[ZEST_MAX_FIF];
     PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
+    PFN_vkCmdBeginRenderingKHR pfn_vkCmdBeginRendering;
+    PFN_vkCmdEndRenderingKHR pfn_vkCmdEndRendering;
     VkFormat color_format;
 } zest_device_backend_t;
 
@@ -1962,6 +1964,9 @@ zest_bool zest__vk_create_logical_device() {
     if (ZestDevice->backend->logical_device == VK_NULL_HANDLE) {
         return ZEST_FALSE;
     }
+
+    ZestDevice->backend->pfn_vkCmdBeginRendering = (PFN_vkCmdBeginRenderingKHR)vkGetDeviceProcAddr(ZestDevice->backend->logical_device, "vkCmdBeginRenderingKHR");
+    ZestDevice->backend->pfn_vkCmdEndRendering = (PFN_vkCmdEndRenderingKHR)vkGetDeviceProcAddr(ZestDevice->backend->logical_device, "vkCmdEndRenderingKHR");
 
     ZestDevice->graphics_queue.backend = zest__vk_new_queue_backend();
     ZestDevice->compute_queue.backend = zest__vk_new_queue_backend();
@@ -3708,7 +3713,7 @@ void zest__vk_release_barrier(zest_frame_graph_context context, zest_execution_d
 		zest_vec_foreach(resource_index, exe_details->barriers.backend->release_image_barriers) {
 			VkImageMemoryBarrier *barrier = &exe_details->barriers.backend->release_image_barriers[resource_index];
 			zest_resource_node resource = exe_details->barriers.release_image_barrier_nodes[resource_index];
-			barrier->image = resource->image.backend->vk_image;
+			barrier->image = resource->view->image->backend->vk_image;
 			barrier->subresourceRange.levelCount = resource->image.info.mip_levels;
 			if (resource->linked_layout) {
 				//Update the layout in the texture
@@ -4055,76 +4060,19 @@ zest_frame_graph_result zest__vk_create_fg_render_pass(zest_pass_group_t *pass, 
 
 zest_bool zest__vk_begin_render_pass(const zest_frame_graph_context context, zest_execution_details_t *exe_details) {
 
-	/*
-	zloc_linear_allocator_t *allocator = ZestRenderer->frame_graph_allocator[ZEST_FIF];
-	//Create_frame_buffers
-	VkImageView *image_views = 0;
-	zest_map_foreach(i, exe_details->attachment_indexes) {
-		zest_resource_node node = exe_details->attachment_resource_nodes[i];
-		zest_vec_linear_push(allocator, image_views, node->view->backend->vk_view);
-	}
-
-	VkFramebufferCreateInfo fb_create_info = { 0 };
-	fb_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-	fb_create_info.renderPass = exe_details->render_pass->backend->vk_render_pass;
-	fb_create_info.attachmentCount = zest_vec_size(image_views);
-	fb_create_info.pAttachments = image_views;
-	if (zest_vec_size(exe_details->color_attachment_info)) {
-		fb_create_info.width = exe_details->color_attachment_info[0].resource_node->image.info.extent.width;
-		fb_create_info.height = exe_details->color_attachment_info[0].resource_node->image.info.extent.height;
-	} else {
-		fb_create_info.width = exe_details->depth_attachment_info.resource_node->image.info.extent.width;
-		fb_create_info.height = exe_details->depth_attachment_info.resource_node->image.info.extent.height;
-	}
-	exe_details->render_area.extent.width = fb_create_info.width;
-	exe_details->render_area.extent.height = fb_create_info.height;
-	exe_details->render_area.offset.x = 0;
-	exe_details->render_area.offset.y = 0;
-	fb_create_info.layers = 1;
-
-	VkFramebuffer frame_buffer;
-	ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_frame_buffer);
-	ZEST_RETURN_FALSE_ON_FAIL(vkCreateFramebuffer(ZestDevice->backend->logical_device, &fb_create_info, &ZestDevice->backend->allocation_callbacks, &frame_buffer));
-	ZestPlatform.deferr_framebuffer_destruction(&frame_buffer);
-
-	VkRenderPassBeginInfo render_pass_info = { 0 };
-	render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	render_pass_info.renderPass = exe_details->render_pass->backend->vk_render_pass;
-	render_pass_info.framebuffer = frame_buffer;
-	render_pass_info.renderArea.extent.width = exe_details->render_area.extent.width;
-	render_pass_info.renderArea.extent.height = exe_details->render_area.extent.height;
-	render_pass_info.renderArea.offset.x = exe_details->render_area.offset.x;
-	render_pass_info.renderArea.offset.y = exe_details->render_area.offset.y;
-
-	zest_uint clear_size = zest_vec_size(exe_details->clear_values);
-	render_pass_info.clearValueCount = clear_size;
-
-	VkClearValue *clear_values = 0;
-	zest_vec_foreach(i, exe_details->clear_values) {
-		zest_clear_value_t *cv = &exe_details->clear_values[i];
-		VkClearValue clear_value = {
-			.color = { cv->color.r, cv->color.g, cv->color.b, cv->color.a },
-			.depthStencil = { cv->depth_stencil.depth, cv->depth_stencil.stencil }
-		};
-		zest_vec_linear_push(allocator, clear_values, clear_value);
-	}
-	render_pass_info.pClearValues = clear_values;
-	vkCmdBeginRenderPass(context->backend->command_buffer, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
-	return ZEST_TRUE;
-	*/
-
 	VkRenderingAttachmentInfo color_attachments[ZEST_MAX_ATTACHMENTS];
 	VkRenderingAttachmentInfo depth_attachment = { 0 };
 	zest_uint color_attachment_count = zest_vec_size(exe_details->color_attachments);
 	zest_vec_foreach(i, exe_details->color_attachments) {
 		zest_rendering_attachment_info_t *info = &exe_details->color_attachments[i];
+        color_attachments[i] = (VkRenderingAttachmentInfo){ 0 };
 		color_attachments[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 		color_attachments[i].pNext = VK_NULL_HANDLE;
-		color_attachments[i].imageView = info->image_view->backend->vk_view;
+		color_attachments[i].imageView = (*info->image_view)->backend->vk_view;
 		color_attachments[i].imageLayout = zest__to_vk_image_layout(info->layout);
 		color_attachments[i].resolveMode = 0;
 		if (info->resolve_image_view) {
-			color_attachments[i].resolveImageView = info->resolve_image_view->backend->vk_view;
+			color_attachments[i].resolveImageView = (*info->resolve_image_view)->backend->vk_view;
 			color_attachments[i].resolveImageLayout = zest__to_vk_image_layout(info->resolve_layout);
 		}
 		color_attachments[i].loadOp = zest__to_vk_load_op(info->load_op);
@@ -4138,13 +4086,14 @@ zest_bool zest__vk_begin_render_pass(const zest_frame_graph_context context, zes
 	zest_bool has_depth = 0;
 	if (exe_details->depth_attachment.image_view) {
 		zest_rendering_attachment_info_t *info = &exe_details->depth_attachment;
+        depth_attachment = (VkRenderingAttachmentInfo){ 0 };
 		depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 		depth_attachment.pNext = VK_NULL_HANDLE;
-		depth_attachment.imageView = info->image_view->backend->vk_view;
+		depth_attachment.imageView = (*info->image_view)->backend->vk_view;
 		depth_attachment.imageLayout = zest__to_vk_image_layout(info->layout);
 		depth_attachment.resolveMode = 0;
 		if (info->resolve_image_view) {
-			depth_attachment.resolveImageView = info->resolve_image_view->backend->vk_view;
+			depth_attachment.resolveImageView = (*info->resolve_image_view)->backend->vk_view;
 			depth_attachment.resolveImageLayout = zest__to_vk_image_layout(info->resolve_layout);
 		}
 		depth_attachment.loadOp = zest__to_vk_load_op(info->load_op);
@@ -4164,8 +4113,7 @@ zest_bool zest__vk_begin_render_pass(const zest_frame_graph_context context, zes
 	rendering_info.renderArea.extent.width = exe_details->render_area.extent.width;
 	rendering_info.renderArea.extent.height = exe_details->render_area.extent.height;
 
-	vkCmdBeginRendering(context->backend->command_buffer, &rendering_info);
-	return ZEST_TRUE;
+	ZestDevice->backend->pfn_vkCmdBeginRendering(context->backend->command_buffer, &rendering_info);	return ZEST_TRUE;
 }
 
 void zest__vk_deferr_framebuffer_destruction(void *framebuffer) {
@@ -4194,7 +4142,7 @@ void zest__vk_cleanup_deferred_framebuffers(void) {
 
 void zest__vk_end_render_pass(const zest_frame_graph_context context) {
 	//vkCmdEndRenderPass(context->backend->command_buffer);
-	vkCmdEndRendering(context->backend->command_buffer);
+	ZestDevice->backend->pfn_vkCmdEndRendering(context->backend->command_buffer);
 }
 
 void zest__vk_end_command_buffer(const zest_frame_graph_context context) {
