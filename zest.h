@@ -1497,7 +1497,7 @@ typedef struct zest_queue_t zest_queue_t;
 typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 typedef struct zest_swapchain_t zest_swapchain_t;
 typedef struct zest_output_group_t zest_output_group_t;
-typedef struct zest_render_pass_t zest_render_pass_t;
+typedef struct zest_rendering_info_t zest_rendering_info_t;
 typedef struct zest_mesh_t zest_mesh_t;
 typedef struct zest_frame_graph_context_t zest_frame_graph_context_t;
 
@@ -1523,7 +1523,6 @@ typedef struct zest_sampler_backend_t zest_sampler_backend_t;
 typedef struct zest_submission_batch_backend_t zest_submission_batch_backend_t;
 typedef struct zest_execution_backend_t zest_execution_backend_t;
 typedef struct zest_frame_graph_semaphores_backend_t zest_frame_graph_semaphores_backend_t;
-typedef struct zest_render_pass_backend_t zest_render_pass_backend_t;
 typedef struct zest_execution_timeline_backend_t zest_execution_timeline_backend_t;
 typedef struct zest_execution_barriers_backend_t zest_execution_barriers_backend_t;
 typedef struct zest_deferred_destruction_backend_t zest_deferred_destruction_backend_t;
@@ -1585,7 +1584,6 @@ ZEST__MAKE_HANDLE(zest_image_view_backend)
 ZEST__MAKE_HANDLE(zest_sampler_backend)
 ZEST__MAKE_HANDLE(zest_submission_batch_backend)
 ZEST__MAKE_HANDLE(zest_execution_backend)
-ZEST__MAKE_HANDLE(zest_render_pass_backend)
 ZEST__MAKE_HANDLE(zest_execution_timeline_backend)
 ZEST__MAKE_HANDLE(zest_execution_barriers_backend)
 ZEST__MAKE_HANDLE(zest_deferred_destruction_backend)
@@ -2821,12 +2819,6 @@ typedef struct zest_execution_barriers_t {
     zest_resource_node *release_buffer_barrier_nodes;
 } zest_execution_barriers_t;
 
-typedef struct zest_temp_attachment_info_t { 
-    zest_resource_node resource_node; 
-    zest_resource_usage_t *usage_info; 
-    zest_uint attachment_slot;
-} zest_temp_attachment_info_t;
-
 typedef struct zest_image_resource_info_t { 
     zest_format format; 
     zest_resource_usage_hint usage_hints;
@@ -2853,19 +2845,24 @@ typedef struct zest_rendering_attachment_info_t {
 	zest_clear_value_t clear_value;
 } zest_rendering_attachment_info_t;
 
+typedef struct zest_rendering_info_t {
+	zest_uint color_attachment_count;
+	zest_format color_attachment_formats[ZEST_MAX_ATTACHMENTS];
+	zest_format depth_attachment_format;
+	zest_format stencil_attachment_format;
+    zest_sample_count_flags sample_count;
+} zest_rendering_info_t;
+
 typedef struct zest_execution_details_t {
 	attachment_idx attachment_indexes;
-	zest_temp_attachment_info_t *color_attachment_info;
-	zest_temp_attachment_info_t *resolve_attachment_info;
-	zest_temp_attachment_info_t depth_attachment_info;
 	zest_rendering_attachment_info_t *color_attachments;
 	zest_rendering_attachment_info_t depth_attachment;
 	zest_resource_node *attachment_resource_nodes;
     zest_swapchain swapchain;
-    zest_render_pass render_pass;
     zest_scissor_rect_t render_area;
     zest_clear_value_t *clear_values;
 
+	zest_rendering_info_t rendering_info;
     zest_execution_barriers_t barriers;
     bool requires_dynamic_render_pass;
 } zest_execution_details_t;
@@ -2959,11 +2956,6 @@ typedef struct zest_destruction_queue_t {
     zest_deferred_destruction_backend backend;
 } zest_destruction_queue_t;
 
-typedef struct zest_render_pass_t {
-    int magic;
-    zest_render_pass_backend backend;
-} zest_render_pass_t;
-
 typedef struct zest_semaphore_reference_t {
     zest_dynamic_resource_type type;
     zest_u64 semaphore;
@@ -3021,12 +3013,13 @@ typedef struct zest_frame_graph_cache_key_t {
 typedef struct zest_frame_graph_context_t {
     int magic;
     zest_frame_graph_context_backend backend;
-    zest_render_pass render_pass;
     zest_frame_graph frame_graph;
     zest_pass_node pass_node;
     zest_uint submission_index;
     zest_uint queue_index;
+	zest_bool began_rendering;
     zest_pipeline_stage_flags timeline_wait_stage;
+	zest_rendering_info_t rendering_info;
 } zest_frame_graph_context_t;
 
 typedef struct zest_frame_graph_semaphores_t {
@@ -3290,11 +3283,6 @@ typedef struct zest_uniform_buffer_data_t {
     zest_vec2 screen_size;
     zest_uint millisecs;
 } zest_uniform_buffer_data_t;
-
-typedef struct zest_cached_pipeline_key_t {
-	zest_key pipeline_key;
-	zest_render_pass render_pass;
-} zest_cached_pipeline_key_t;
 
 typedef struct zest_vertex_attribute_desc_t {
     zest_uint location;
@@ -3724,7 +3712,6 @@ typedef struct zest_renderer_t {
     zloc_linear_allocator_t *utility_allocator;
 
     //General Cache Storage
-    zest_map_render_passes cached_render_passes;
     zest_map_cached_frame_graphs cached_frame_graphs;
     zest_map_cached_pipelines cached_pipelines;
     zest_map_rg_semaphores cached_frame_graph_semaphores;
@@ -3794,7 +3781,6 @@ typedef struct zest_platform_t {
 	void                       (*set_execution_fence)(zest_execution_backend backend, zest_bool is_intraframe);
 	zest_frame_graph_semaphores(*get_frame_graph_semaphores)(const char *name);
     zest_bool                  (*submit_frame_graph_batch)(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues);
-    zest_frame_graph_result    (*create_fg_render_pass)(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
     zest_bool                  (*begin_render_pass)(const zest_frame_graph_context context, zest_execution_details_t *exe_details);
     void                       (*end_render_pass)(const zest_frame_graph_context context);
     void                       (*carry_over_semaphores)(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
@@ -3836,7 +3822,7 @@ typedef struct zest_platform_t {
     //Descriptor Sets
     zest_bool                  (*create_uniform_descriptor_set)(zest_uniform_buffer buffer, zest_set_layout associated_layout);
     //Pipelines
-    zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_render_pass render_pass);
+    zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_rendering_info_t *rendering_info);
 	zest_bool				   (*finish_compute)(zest_compute_builder_t *builder, zest_compute compute);
 	//Fences
 	zest_fence_status          (*wait_for_renderer_fences)(void);
@@ -3885,7 +3871,6 @@ typedef struct zest_platform_t {
 	void*					   (*new_window_backend)(void);
     //Cleanup backends
     void                       (*cleanup_frame_graph_semaphore)(zest_frame_graph_semaphores semaphores);
-    void                       (*cleanup_render_pass)(zest_render_pass render_pass);
     void                       (*cleanup_image_backend)(zest_image image);
     void                       (*cleanup_image_view_backend)(zest_image_view image_view);
     void                       (*cleanup_image_view_array_backend)(zest_image_view_array image_view);
@@ -4069,7 +4054,7 @@ ZEST_PRIVATE zest_index zest__next_fif(void);
 
 // --Pipeline_Helper_Functions
 ZEST_PRIVATE zest_pipeline zest__create_pipeline(void);
-ZEST_PRIVATE zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_render_pass render_pass, zest_key key, zest_pipeline *out_pipeline);
+ZEST_PRIVATE zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_rendering_info_t *rendering_info, zest_key key, zest_pipeline *out_pipeline);
 ZEST_PRIVATE void zest__cleanup_pipeline_template(zest_pipeline_template pipeline);
 // --End Pipeline Helper Functions
 
@@ -5183,13 +5168,6 @@ goto cleanup;                                                                   
 #endif // ! ZEST_POCKET_RENDERER
 
 #if defined(ZEST_IMPLEMENTATION)
-
-zest_render_pass zest__create_render_pass() {
-    zest_render_pass render_pass = ZEST__NEW(zest_render_pass);
-    *render_pass = (zest_render_pass_t){ 0 };
-    render_pass->magic = zest_INIT_MAGIC(zest_struct_type_render_pass);
-    return render_pass;
-}
 
 //C file will go here
 #endif

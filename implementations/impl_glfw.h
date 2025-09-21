@@ -1,5 +1,6 @@
 #pragma once
 #include "zest.h"
+#include "zest_vulkan.h"
 #include <GLFW/glfw3.h>
 
 zest_window zest_implglfw_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char *title);

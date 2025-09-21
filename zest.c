@@ -2990,12 +2990,6 @@ void zest__cleanup_renderer() {
 
     zest__cleanup_pipelines();
 
-    zest_map_foreach(i, ZestRenderer->cached_render_passes) {
-        zest_render_pass render_pass = *zest_map_at_index(ZestRenderer->cached_render_passes, i);
-        ZestPlatform.cleanup_render_pass(render_pass);
-        ZEST__FREE(render_pass);
-    }
-
     zest_map_foreach(i, ZestRenderer->cached_frame_graph_semaphores) {
         zest_frame_graph_semaphores semaphores = ZestRenderer->cached_frame_graph_semaphores.data[i];
         ZestPlatform.cleanup_frame_graph_semaphore(semaphores);
@@ -3073,7 +3067,6 @@ void zest__cleanup_renderer() {
     zest_map_free(ZestRenderer->reports);
 
     zest_map_free(ZestRenderer->buffer_allocators);
-    zest_map_free(ZestRenderer->cached_render_passes);
     zest_map_free(ZestRenderer->cached_pipelines);
     zest_map_free(ZestRenderer->cached_frame_graph_semaphores);
     zest_map_free(ZestRenderer->cached_frame_graphs);
@@ -3336,7 +3329,7 @@ zest_shader_resources_handle zest_CreateShaderResources() {
     zest_shader_resources bundle = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
     *bundle = (zest_shader_resources_t){ 0 };
     bundle->magic = zest_INIT_MAGIC(zest_struct_type_shader_resources);
-    bundle->backend = (zest_shader_resources_backend)ZestPlatform.new_shader_resources_backend;
+    bundle->backend = (zest_shader_resources_backend)ZestPlatform.new_shader_resources_backend();
     return handle;
 }
 
@@ -3655,12 +3648,12 @@ zest_color_blend_attachment_t zest_ImGuiBlendState() {
     return color_blend_attachment;
 }
 
-zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_render_pass render_pass, zest_key cached_pipeline_key, zest_pipeline *out_pipeline) {
+zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_rendering_info_t *rendering_info, zest_key pipeline_key, zest_pipeline *out_pipeline) {
 	zest_pipeline pipeline = zest__create_pipeline();
     pipeline->pipeline_template = pipeline_template;
-    zest_bool result = ZestPlatform.build_pipeline(pipeline, render_pass);
-    zest_map_insert_key(ZestRenderer->cached_pipelines, cached_pipeline_key, pipeline);
-    zest_vec_push(pipeline_template->cached_pipeline_keys, cached_pipeline_key);
+    zest_bool result = ZestPlatform.build_pipeline(pipeline, rendering_info);
+    zest_map_insert_key(ZestRenderer->cached_pipelines, pipeline_key, pipeline);
+    zest_vec_push(pipeline_template->cached_pipeline_keys, pipeline_key);
     *out_pipeline = pipeline;
     return result;
 }
@@ -3968,13 +3961,12 @@ zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template
         return NULL;
     }
     zest_key pipeline_key = (zest_key)pipeline_template;
-    zest_cached_pipeline_key_t cached_pipeline = { pipeline_key, context->render_pass };
-    zest_key cached_pipeline_key = zest_Hash(&cached_pipeline, sizeof(cached_pipeline), ZEST_HASH_SEED);
-    if (zest_map_valid_key(ZestRenderer->cached_pipelines, cached_pipeline_key)) {
-		return *zest_map_at_key(ZestRenderer->cached_pipelines, cached_pipeline_key); 
+	zest_key cached_pipeline_key = zest_Hash(&context->rendering_info, sizeof(zest_rendering_info_t), pipeline_key);
+    if (zest_map_valid_key(ZestRenderer->cached_pipelines, pipeline_key)) {
+		return *zest_map_at_key(ZestRenderer->cached_pipelines, pipeline_key); 
     }
     zest_pipeline pipeline = 0;
-	if (!zest__cache_pipeline(pipeline_template, context->render_pass, cached_pipeline_key, &pipeline)) {
+	if (!zest__cache_pipeline(pipeline_template, &context->rendering_info, pipeline_key, &pipeline)) {
 		ZEST_PRINT("ERROR: Unable to build and cache pipeline [%s]. Check the log for the most recent errors.", pipeline_template->name);
 	}
 	return pipeline;
@@ -5973,6 +5965,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 		zest_uint color_attachment_index = 0;
 		//Determine attachments for color and depth (resolve can come later), first for outputs
 		exe_details->depth_attachment.image_view = 0;
+		exe_details->rendering_info.sample_count = zest_sample_count_1_bit;
 		zest_map_foreach(o, pass->outputs) {
 			zest_resource_usage_t *output_usage = &pass->outputs.data[o];
 			zest_resource_node resource = pass->outputs.data[o].resource_node;
@@ -5988,6 +5981,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					color.load_op = output_usage->load_op;
 					color.store_op = output_usage->store_op;
 					color.clear_value = output_usage->clear_value;
+					exe_details->rendering_info.color_attachment_formats[color_attachment_index] = resource->image.info.format;
 					zest_vec_linear_push(allocator, exe_details->color_attachments, color);
 					if (color_attachment_index == 0) {
 						exe_details->render_area.offset.x = 0;
@@ -5996,6 +5990,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 						exe_details->render_area.extent.height = resource->image.info.extent.height;
 					}
 					color_attachment_index++;
+					exe_details->rendering_info.color_attachment_count++;
 					//zest_image_layout final_layout = zest__determine_final_layout(zest__determine_final_layout(current_pass_index, resource, output_usage));
 					if (resource->type == zest_resource_type_swap_chain_image) {
 						ZestPlatform.add_frame_graph_image_barrier(
@@ -6010,6 +6005,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 				} else if (output_usage->purpose == zest_purpose_color_attachment_resolve) {
 					exe_details->color_attachments[color_attachment_index].resolve_layout = output_usage->image_layout;
 					exe_details->color_attachments[color_attachment_index].resolve_image_view = &resource->view;
+					exe_details->rendering_info.sample_count = ZestPlatform.get_msaa_sample_count();
 				} else if (output_usage->purpose == zest_purpose_depth_stencil_attachment_write) {
 					zest_rendering_attachment_info_t depth = { 0 };
 					depth.image_view = &resource->view;
@@ -6017,6 +6013,7 @@ void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t
 					depth.load_op = output_usage->load_op;
 					depth.store_op = output_usage->store_op;
 					depth.clear_value = output_usage->clear_value;
+					exe_details->rendering_info.depth_attachment_format = resource->image.info.format;
 					ZEST__FLAG(resource->flags, zest_resource_node_flag_used_in_output);
 				}
 			}
@@ -6199,15 +6196,16 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
 
                 //Begin the render pass if the pass has one
                 if (has_render_pass) {
-					frame_graph->context.render_pass = exe_details->render_pass;
                     ZestPlatform.begin_render_pass(&frame_graph->context, exe_details);
+					frame_graph->context.rendering_info = exe_details->rendering_info;
+					frame_graph->context.began_rendering = ZEST_TRUE;
                 }
 
                 //Execute the callbacks in the pass
                 zest_vec_foreach(pass_index, grouped_pass->passes) {
                     zest_pass_node pass = grouped_pass->passes[pass_index];
-                    if (pass->type == zest_pass_type_graphics && !frame_graph->context.render_pass) {
-                        ZEST__REPORT(zest_report_render_pass_skipped, "Pass execution was skipped for pass [%s] becuase no render pass was found. Check other reports for why that is.", pass->name);
+                    if (pass->type == zest_pass_type_graphics && !frame_graph->context.began_rendering) {
+                        ZEST__REPORT(zest_report_render_pass_skipped, "Pass execution was skipped for pass [%s] becuase rendering did not start. Check for validation errors.", pass->name);
                         continue;
                     }
                     frame_graph->context.pass_node = pass;
@@ -6235,6 +6233,7 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
 
                 if (has_render_pass) {
                     ZestPlatform.end_render_pass(&frame_graph->context);
+					frame_graph->context.began_rendering = ZEST_FALSE;
                 }
 
                 //Batch execute release barriers for images and buffers

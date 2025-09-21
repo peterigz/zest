@@ -109,7 +109,6 @@ void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {
 	create_info->set_window_size_callback = zest_implglfw_SetWindowSize;
 }
 
-#if defined ZEST_VULKAN_IMPLEMENTATION
 zest_bool zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
     ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_surface);
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
@@ -124,5 +123,4 @@ void zest_implglfw_DestroyWindowCallback(zest_window window, void *user_data) {
 	zest_CleanupWindow(window);
 	glfwDestroyWindow(handle);
 }
-#endif
 

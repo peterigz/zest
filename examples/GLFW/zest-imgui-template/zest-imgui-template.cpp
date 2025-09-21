@@ -1,4 +1,5 @@
 #include <zest.h>
+#include <zest_vulkan.h>
 #include "zest-imgui-template.h"
 #include "imgui_internal.h"
 
@@ -175,6 +176,7 @@ int main(void) {
 
 	ImGuiApp imgui_app = {};
 
+	zest_UseVulkan();
 	//Initialise Zest
 	zest_Initialise(&create_info);
 	//Set the Zest use data
