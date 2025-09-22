@@ -1,4 +1,3 @@
-#define ZEST_VULKAN_IMPLEMENTATION
 #include "zest.h"
 #include "zest_vulkan.h"
 #include "zest-pbr.h"
@@ -645,6 +644,7 @@ int main(void) {
 
 	ImGuiApp imgui_app = {};
 
+	zest_UseVulkan();
 	//Initialise Zest
 	zest_Initialise(&create_info);
 	//Set the Zest use data
