@@ -1414,7 +1414,6 @@ zest_vec2 zest_LerpVec2(zest_vec2* from, zest_vec2* to, float lerp) {
 float zest_Lerp(float from, float to, float lerp) {
     return to * lerp + from * (1.f - lerp);
 }
-
 //  --End Math
 
 void zest__register_platform(zest_platform_type type, zest__platform_setup callback) {
@@ -1422,21 +1421,27 @@ void zest__register_platform(zest_platform_type type, zest__platform_setup callb
 }
 
 // Initialisation and destruction
-zest_bool zest_Initialise(zest_create_info_t* info) {
+zest_bool zest_Initialise(zest_create_info_t* info, zest_context_t *context) {
     void* memory_pool = ZEST__ALLOCATE_POOL(info->memory_pool_size);
 
 	ZEST_ASSERT(memory_pool);    //unable to allocate initial memory pool
 
+    zloc_allocator* allocator = zloc_InitialiseAllocatorWithPool(memory_pool, info->memory_pool_size);
+
+    ZestDevice = zloc_Allocate(allocator, sizeof(zest_device_t));
+    ZestDevice->allocator = allocator;
+
+	context->platform = zloc_Allocate(allocator, sizeof(zest_platform_t));
+
 	if (zest__platform_setup_callbacks[info->platform]) {
-		zest__platform_setup_callbacks[info->platform]();
+		zest__platform_setup_callbacks[info->platform](context->platform);
 	} else {
+		ZEST__FREE(context->platform);
 		ZEST_PRINT("No platform set up function found. Make sure you called the appropriate function for the platform that you want to use like zest_UseVulkan()");
 		return ZEST_FALSE;
 	}
 
-    zloc_allocator* allocator = zloc_InitialiseAllocatorWithPool(memory_pool, info->memory_pool_size);
-    ZestDevice = zloc_Allocate(allocator, sizeof(zest_device_t));
-    ZestDevice->allocator = allocator;
+    ZestPlatform = *context->platform;
 
     ZestApp = zloc_Allocate(allocator, sizeof(zest_app_t));
     ZestRenderer = zloc_Allocate(allocator, sizeof(zest_renderer_t));
@@ -1454,6 +1459,9 @@ zest_bool zest_Initialise(zest_create_info_t* info) {
     memset(ZestDevice, 0, sizeof(zest_device_t));
     memset(ZestApp, 0, sizeof(zest_app_t));
     memset(ZestRenderer, 0, sizeof(zest_renderer_t));
+	context->device = ZestDevice;
+	context->renderer = ZestRenderer;
+	context->app = ZestApp;
     ZestDevice->magic = zest_INIT_MAGIC(zest_struct_type_device);
     ZestDevice->allocator = allocator;
     ZestDevice->memory_pools[0] = memory_pool;
@@ -1491,8 +1499,8 @@ void zest_Start() {
     zest__main_loop();
 }
 
-void zest_Shutdown(void) {
-    zest__destroy();
+void zest_Shutdown(zest_context_t *context) {
+    zest__destroy(context);
 }
 
 void zest_SetCreateInfo(zest_create_info_t *info) {
@@ -1684,8 +1692,7 @@ void zest__end_thread(zest_work_queue_t *queue, void *data) {
     return;
 }
 
-void zest__destroy(void) {
-    ZEST_PRINT_FUNCTION;
+void zest__destroy(zest_context_t *context) {
     zest_PrintReports();
     zest_WaitForIdleDevice();
     zest__globals->thread_queues.end_all_threads = true;
@@ -1706,6 +1713,7 @@ void zest__destroy(void) {
     ZEST__FREE(ZestDevice);
     ZEST__FREE(ZestApp);
     ZEST__FREE(ZestRenderer);
+    ZEST__FREE(context->platform);
     ZEST__FREE(zest__globals);
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
     if (stats.used_blocks > 0) {
@@ -6781,7 +6789,7 @@ void zest_SetPassInstanceLayer(zest_layer_handle layer_handle) {
     ZEST_ASSERT_HANDLE(ZestRenderer->current_pass);        //No current pass found, make sure you call zest_BeginPass
     zest_pass_node pass = ZestRenderer->current_pass;
     zest_pass_execution_callback_t callback_data;
-    callback_data.callback = zest_cmd_DrawInstanceLayer;
+    callback_data.callback = zest_DrawInstanceLayer;
     callback_data.user_data = (void*)(uintptr_t)layer_handle.value;
     pass->execution_callback = callback_data;
 }
@@ -9014,6 +9022,47 @@ zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer_handle layer_handle) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
     return layer->memory_refs[layer->fif].staging_index_data;
 }
+
+void zest_DrawInstanceLayer(const zest_frame_graph_context context, void *user_data) {
+    zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
+
+    if (!layer->vertex_buffer_node) return; //It could be that the frame graph culled the pass because it was unreferenced or disabled
+    if (!layer->vertex_buffer_node->storage_buffer) return;
+	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
+	zest_cmd_BindVertexBuffer(context, 0, 1, device_buffer);
+
+    bool has_instruction_view_port = false;
+    zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
+        zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
+
+        if (current->draw_mode == zest_draw_mode_viewport) {
+			zest_cmd_ViewPort(context, &current->viewport);
+			zest_cmd_Scissor(context, &current->scissor);
+            has_instruction_view_port = true;
+            continue;
+        } else if(!has_instruction_view_port) {
+			zest_cmd_ViewPort(context, &layer->viewport);
+			zest_cmd_Scissor(context, &layer->scissor);
+        }
+
+        ZEST_ASSERT(current->shader_resources.value); //Shader resources handle must be set in the instruction
+
+        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context);
+        if (pipeline) {
+			zest_cmd_BindPipelineShaderResource(context, pipeline, current->shader_resources);
+        } else {
+            continue;
+        }
+
+		zest_cmd_SendPushConstants(context, pipeline, current->push_constant);
+
+		zest_cmd_Draw(context, 6, current->total_instances, 0, current->start_index);
+    }
+    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
+		zest__reset_instance_layer_drawing(layer);
+    }
+}
 //-- End Draw Layers
 
 //-- Start Instance Drawing API
@@ -9237,6 +9286,55 @@ void zest_SetMeshDrawing(zest_layer_handle layer_handle, zest_shader_resources_h
     layer->last_draw_mode = zest_draw_mode_mesh;
 }
 
+void zest_DrawInstanceMeshLayer(const zest_frame_graph_context context, void *user_data) {
+    zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
+
+    if (layer->vertex_data && layer->index_data) {
+        zest_cmd_BindMeshVertexBuffer(context, layer_handle);
+        zest_cmd_BindMeshIndexBuffer(context, layer_handle);
+    } else {
+        ZEST_PRINT("No Vertex/Index data found in mesh layer [%s]!", layer->name);
+        return;
+    }
+
+    ZEST_ASSERT_HANDLE(layer->vertex_buffer_node);  //No resource node in the layer, check that you added this layer as a 
+                                                    //resource to the frame graph
+
+	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
+	zest_cmd_BindVertexBuffer(context, 1, 1, device_buffer);
+
+    bool has_instruction_view_port = false;
+    zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
+        zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
+
+        if (current->draw_mode == zest_draw_mode_viewport) {
+			zest_cmd_Scissor(context, &current->scissor);
+            zest_cmd_ViewPort(context, &current->viewport);
+            has_instruction_view_port = true;
+            continue;
+        } else if(!has_instruction_view_port) {
+			zest_cmd_Scissor(context, &layer->scissor);
+            zest_cmd_ViewPort(context, &layer->viewport);
+        }
+
+        ZEST_ASSERT(current->shader_resources.value);
+
+        zest_pipeline pipeline = zest_PipelineWithTemplate(current->pipeline_template, context);
+        if (pipeline) {
+			zest_cmd_BindPipelineShaderResource(context, pipeline, current->shader_resources);
+        } else {
+            continue;
+        }
+
+		zest_cmd_SendPushConstants(context, pipeline, (void*)current->push_constant);
+
+		zest_cmd_DrawIndexed(context, layer->index_count, current->total_instances, 0, 0, current->start_index);
+    }
+    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
+		zest__reset_instance_layer_drawing(layer);
+    }
+}
 //-- End Mesh Drawing API
 
 //-- Instanced_mesh_drawing

@@ -574,7 +574,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectInput(skybox_texture_resource);
 			zest_ConnectInput(skybox_layer_resource);
 			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_cmd_DrawInstanceMeshLayer, &app->skybox_layer);
+			zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->skybox_layer);
 			zest_EndPass();
 		}
 		//--------------------------------------------------------------------------------------------------
@@ -586,7 +586,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			zest_ConnectInput(irradiance_texture_resource);
 			zest_ConnectInput(prefiltered_texture_resource);
 			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_cmd_DrawInstanceMeshLayer, &app->cube_layer);
+			zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->cube_layer);
 			zest_EndPass();
 		}
 		//--------------------------------------------------------------------------------------------------
@@ -646,7 +646,7 @@ int main(void) {
 
 	zest_UseVulkan();
 	//Initialise Zest
-	zest_Initialise(&create_info);
+	zest_Initialise(&create_info, &imgui_app.context);
 	//Set the Zest use data
 	zest_SetUserData(&imgui_app);
 	//Set the udpate callback to be called every frame
@@ -657,7 +657,7 @@ int main(void) {
 	//Start the main loop
 	zest_Start();
 	zest_imgui_ShutdownGLFW();
-	zest_Shutdown();
+	zest_Shutdown(&imgui_app.context);
 
 	return 0;
 }

@@ -167,7 +167,7 @@ void zest_imgui_UploadImGuiPass(const zest_frame_graph_context context, void *us
 void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer vertex_buffer, zest_buffer index_buffer) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
-    zest_cmd_BindVertexBuffer(context, vertex_buffer);
+    zest_cmd_BindVertexBuffer(context, 0, 1, vertex_buffer);
     zest_cmd_BindIndexBuffer(context, index_buffer);
 
     zest_pipeline_template last_pipeline = ZEST_NULL;
