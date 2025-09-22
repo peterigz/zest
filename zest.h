@@ -1471,6 +1471,7 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 
 
 // --Forward_declarations
+typedef struct zest_context_t zest_context_t;
 typedef struct zest_image_t zest_image_t;
 typedef struct zest_image_view_t zest_image_view_t;
 typedef struct zest_image_view_array_t zest_image_view_array_t;
@@ -1532,6 +1533,7 @@ typedef struct zest_execution_barriers_backend_t zest_execution_barriers_backend
 typedef struct zest_set_layout_builder_backend_t zest_set_layout_builder_backend_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
+ZEST__MAKE_HANDLE(zest_context)
 ZEST__MAKE_HANDLE(zest_image)
 ZEST__MAKE_HANDLE(zest_image_view)
 ZEST__MAKE_HANDLE(zest_image_view_array)
@@ -4102,7 +4104,7 @@ ZEST_API_TMP void zest__set_default_pool_sizes(void);
 ZEST_PRIVATE void zest__do_scheduled_tasks(void);
 ZEST_PRIVATE void zest__initialise_app(zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__initialise_window(zest_create_info_t *create_info);
-ZEST_PRIVATE void zest__destroy(zest_context_t *context);
+ZEST_PRIVATE void zest__destroy(zest_context context);
 ZEST_PRIVATE void zest__main_loop(void);
 ZEST_API void zest_Terminate(void);
 ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait();
@@ -4126,7 +4128,7 @@ ZEST_API zest_create_info_t zest_CreateInfo();
 //Create a new zest_create_info_t struct with default values for initialising Zest but also enable validation layers as well
 ZEST_API zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags);
 //Initialise Zest. You must call this in order to use Zest. Use zest_CreateInfo() to set up some default values to initialise the renderer.
-ZEST_API zest_bool zest_Initialise(zest_create_info_t *info, zest_context_t *context);
+ZEST_API zest_context zest_Initialise(zest_create_info_t *info);
 //Set the custom user data which will get passed through to the user update function each frame.
 ZEST_API void zest_SetUserData(void* data);
 //Set the user udpate callback that will be called each frame in the main loop of zest. You must set this or the main loop will just render a blank screen.
@@ -4134,7 +4136,7 @@ ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*))
 //Start the main loop in the zest renderer. Must be run after zest_Initialise and also zest_SetUserUpdateCallback
 ZEST_API void zest_Start(void);
 //Shutdown zest and unload/free everything. Call this after zest_Start.
-ZEST_API void zest_Shutdown(zest_context_t *context);
+ZEST_API void zest_Shutdown(zest_context context);
 //Free all memory used in the renderer and reset it back to an initial state.
 ZEST_API void zest_ResetRenderer();
 //Set the create info for the renderer, to be used optionally before a call to zest_ResetRenderer to change the configuration

@@ -646,7 +646,7 @@ int main(void) {
 
 	zest_UseVulkan();
 	//Initialise Zest
-	zest_Initialise(&create_info, &imgui_app.context);
+	imgui_app.context = zest_Initialise(&create_info);
 	//Set the Zest use data
 	zest_SetUserData(&imgui_app);
 	//Set the udpate callback to be called every frame
@@ -657,7 +657,7 @@ int main(void) {
 	//Start the main loop
 	zest_Start();
 	zest_imgui_ShutdownGLFW();
-	zest_Shutdown(&imgui_app.context);
+	zest_Shutdown(imgui_app.context);
 
 	return 0;
 }

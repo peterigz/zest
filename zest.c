@@ -1421,7 +1421,7 @@ void zest__register_platform(zest_platform_type type, zest__platform_setup callb
 }
 
 // Initialisation and destruction
-zest_bool zest_Initialise(zest_create_info_t* info, zest_context_t *context) {
+zest_context zest_Initialise(zest_create_info_t* info) {
     void* memory_pool = ZEST__ALLOCATE_POOL(info->memory_pool_size);
 
 	ZEST_ASSERT(memory_pool);    //unable to allocate initial memory pool
@@ -1431,14 +1431,17 @@ zest_bool zest_Initialise(zest_create_info_t* info, zest_context_t *context) {
     ZestDevice = zloc_Allocate(allocator, sizeof(zest_device_t));
     ZestDevice->allocator = allocator;
 
+    zest_context context = ZEST__NEW(zest_context);
+    *context = (zest_context_t){ 0 };
 	context->platform = zloc_Allocate(allocator, sizeof(zest_platform_t));
 
 	if (zest__platform_setup_callbacks[info->platform]) {
 		zest__platform_setup_callbacks[info->platform](context->platform);
 	} else {
 		ZEST__FREE(context->platform);
+		ZEST__FREE(context);
 		ZEST_PRINT("No platform set up function found. Make sure you called the appropriate function for the platform that you want to use like zest_UseVulkan()");
-		return ZEST_FALSE;
+		return NULL;
 	}
 
     ZestPlatform = *context->platform;
@@ -1489,17 +1492,18 @@ zest_bool zest_Initialise(zest_create_info_t* info, zest_context_t *context) {
         zest_bool result = zest__initialise_renderer(info);
         if (result != ZEST_TRUE) {
 			ZEST_PRINT("Unable to initialise the renderer. Check the log for details.");
-			return ZEST_FALSE;
+			zest__destroy(context);
+			return NULL;
         }
     }
-    return ZEST_TRUE;
+    return context;
 }
 
 void zest_Start() {
     zest__main_loop();
 }
 
-void zest_Shutdown(zest_context_t *context) {
+void zest_Shutdown(zest_context context) {
     zest__destroy(context);
 }
 
@@ -1692,7 +1696,7 @@ void zest__end_thread(zest_work_queue_t *queue, void *data) {
     return;
 }
 
-void zest__destroy(zest_context_t *context) {
+void zest__destroy(zest_context context) {
     zest_PrintReports();
     zest_WaitForIdleDevice();
     zest__globals->thread_queues.end_all_threads = true;
@@ -1715,6 +1719,7 @@ void zest__destroy(zest_context_t *context) {
     ZEST__FREE(ZestRenderer);
     ZEST__FREE(context->platform);
     ZEST__FREE(zest__globals);
+    ZEST__FREE(context);
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
     if (stats.used_blocks > 0) {
         ZEST_PRINT("There are still used memory blocks in Zest, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after Zest has shutdown. Check the type of allocation in the list below and check to make sure you're freeing those objects.");
