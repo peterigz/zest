@@ -1525,7 +1525,6 @@ typedef struct zest_execution_backend_t zest_execution_backend_t;
 typedef struct zest_frame_graph_semaphores_backend_t zest_frame_graph_semaphores_backend_t;
 typedef struct zest_execution_timeline_backend_t zest_execution_timeline_backend_t;
 typedef struct zest_execution_barriers_backend_t zest_execution_barriers_backend_t;
-typedef struct zest_deferred_destruction_backend_t zest_deferred_destruction_backend_t;
 typedef struct zest_set_layout_builder_backend_t zest_set_layout_builder_backend_t;
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
@@ -1586,7 +1585,6 @@ ZEST__MAKE_HANDLE(zest_submission_batch_backend)
 ZEST__MAKE_HANDLE(zest_execution_backend)
 ZEST__MAKE_HANDLE(zest_execution_timeline_backend)
 ZEST__MAKE_HANDLE(zest_execution_barriers_backend)
-ZEST__MAKE_HANDLE(zest_deferred_destruction_backend)
 ZEST__MAKE_HANDLE(zest_set_layout_builder_backend)
 
 ZEST__MAKE_USER_HANDLE(zest_shader_resources)
@@ -2953,7 +2951,6 @@ typedef struct zest_destruction_queue_t {
     zest_image_t *images[ZEST_MAX_FIF];
     zest_image_view_t *views[ZEST_MAX_FIF];
     zest_binding_index_for_release_t *binding_indexes[ZEST_MAX_FIF];
-    zest_deferred_destruction_backend backend;
 } zest_destruction_queue_t;
 
 typedef struct zest_semaphore_reference_t {
@@ -3850,7 +3847,6 @@ typedef struct zest_platform_t {
     //Create backends
     void*                      (*new_frame_graph_semaphores_backend)(void);
     void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
-    void*                      (*new_deferred_desctruction_backend)(void);
     void*                      (*new_pipeline_backend)(void);
     void*                      (*new_memory_pool_backend)(void);
 	void*					   (*new_device_backend)(void);
@@ -3874,8 +3870,6 @@ typedef struct zest_platform_t {
     void                       (*cleanup_image_backend)(zest_image image);
     void                       (*cleanup_image_view_backend)(zest_image_view image_view);
     void                       (*cleanup_image_view_array_backend)(zest_image_view_array image_view);
-    void                       (*cleanup_deferred_framebuffers)(void);
-    void                       (*cleanup_deferred_destruction_backend)(void);
     void                       (*cleanup_memory_pool_backend)(zest_device_memory_pool memory_allocation);
     void                       (*cleanup_device_backend)(void);
     void                       (*cleanup_buffer_backend)(zest_buffer buffer);
@@ -3890,8 +3884,6 @@ typedef struct zest_platform_t {
 	void 					   (*cleanup_sampler_backend)(zest_sampler sampler);
 	void 					   (*cleanup_queue_backend)(zest_queue sampler);
 	void 					   (*cleanup_set_layout_backend)(zest_set_layout sampler);
-    //Misc
-    void                       (*deferr_framebuffer_destruction)(void* frame_buffer);
 } zest_platform_t;
 
 

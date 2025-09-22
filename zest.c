@@ -1782,8 +1782,6 @@ void zest__do_scheduled_tasks(void) {
 		zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.views[ZEST_FIF]);
     }
 
-    ZestPlatform.cleanup_deferred_framebuffers();
-
     zest_vec_foreach(i, ZestRenderer->staging_buffers) {
         zest_buffer staging_buffer = ZestRenderer->staging_buffers[i];
 		zest_FreeBuffer(staging_buffer);
@@ -2703,8 +2701,6 @@ zest_bool zest__initialise_renderer(zest_create_info_t* create_info) {
     zest__initialise_store(&ZestRenderer->set_layouts, sizeof(zest_set_layout_t));
     zest__initialise_store(&ZestRenderer->samplers, sizeof(zest_sampler_t));
 
-    ZestRenderer->deferred_resource_freeing_list.backend = ZestPlatform.new_deferred_desctruction_backend();
-
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create descriptor layouts");
 
     //Create a global bindless descriptor set for storage buffers and texture samplers
@@ -3020,8 +3016,6 @@ void zest__cleanup_renderer() {
             zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.views[fif]);
         }
     }
-
-    ZestPlatform.cleanup_deferred_destruction_backend();
 
     zest_map_foreach(i, ZestRenderer->buffer_allocators) {
         zest_buffer_allocator buffer_allocator = *zest_map_at_index(ZestRenderer->buffer_allocators, i);

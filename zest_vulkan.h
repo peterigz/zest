@@ -80,8 +80,6 @@ ZEST_PRIVATE void zest__vk_end_render_pass(const zest_frame_graph_context contex
 ZEST_PRIVATE void zest__vk_end_command_buffer(const zest_frame_graph_context context);
 ZEST_PRIVATE void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
 ZEST_PRIVATE zest_bool zest__vk_frame_graph_fence_wait(zest_execution_backend backend);
-ZEST_PRIVATE void zest__vk_deferr_framebuffer_destruction(void *framebuffer);
-ZEST_PRIVATE void zest__vk_cleanup_deferred_framebuffers(void);
 ZEST_PRIVATE zest_bool zest__vk_present_frame(zest_swapchain swapchain);
 ZEST_PRIVATE zest_bool zest__vk_dummy_submit_for_present_only(void);
 ZEST_PRIVATE zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain);
@@ -158,7 +156,6 @@ ZEST_PRIVATE void *zest__vk_new_sampler_backend(void);
 ZEST_PRIVATE void *zest__vk_new_queue_backend(void);
 ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(void);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_semaphores_backend(void);
-ZEST_PRIVATE void *zest__vk_new_deferred_destruction_backend(void);
 ZEST_PRIVATE void *zest__vk_new_pipeline_backend(void);
 ZEST_PRIVATE void *zest__vk_new_memory_pool_backend(void);
 ZEST_PRIVATE void *zest__vk_new_shader_resources_backend(void);
@@ -181,7 +178,6 @@ ZEST_PRIVATE void zest__vk_cleanup_image_view_backend(zest_image_view view);
 ZEST_PRIVATE void zest__vk_cleanup_image_view_array_backend(zest_image_view_array view);
 ZEST_PRIVATE void zest__vk_cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor_set set);
 ZEST_PRIVATE void zest__vk_cleanup_shader_resources_backend(zest_shader_resources shader_resource);
-ZEST_PRIVATE void zest__vk_cleanup_deferred_destruction_backend(void);
 ZEST_PRIVATE void zest__vk_cleanup_memory_pool_backend(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__vk_cleanup_device_backend(void);
 ZEST_PRIVATE void zest__vk_cleanup_renderer_backend(void);
@@ -332,10 +328,6 @@ typedef struct zest_swapchain_backend_t {
     VkSemaphore vk_image_available_semaphore[ZEST_MAX_FIF];
 } zest_swapchain_backend_t;
 
-typedef struct zest_deferred_destruction_backend_t {
-	VkFramebuffer *frame_buffers[ZEST_MAX_FIF];             
-} zest_deferred_destruction_backend_t;
-
 typedef struct zest_renderer_backend_t {
     VkPipelineCache pipeline_cache;
     VkBuffer *used_buffers_ready_for_freeing;
@@ -439,7 +431,6 @@ void zest__vk_initialise_platform_callbacks(void) {
     ZestPlatform.add_frame_graph_image_barrier              = zest__vk_add_image_barrier;
     ZestPlatform.validate_barrier_pipeline_stages           = zest__vk_validate_barrier_pipeline_stages;
     ZestPlatform.print_compiled_frame_graph                 = zest__vk_print_compiled_frame_graph;
-    ZestPlatform.deferr_framebuffer_destruction             = zest__vk_deferr_framebuffer_destruction;
     ZestPlatform.present_frame                              = zest__vk_present_frame;
     ZestPlatform.dummy_submit_for_present_only              = zest__vk_dummy_submit_for_present_only;
     ZestPlatform.acquire_swapchain_image                    = zest__vk_acquire_swapchain_image;
@@ -495,7 +486,6 @@ void zest__vk_initialise_platform_callbacks(void) {
 
     ZestPlatform.new_execution_backend                      = zest__vk_new_execution_backend;
     ZestPlatform.new_frame_graph_semaphores_backend         = zest__vk_new_frame_graph_semaphores_backend;
-    ZestPlatform.new_deferred_desctruction_backend          = zest__vk_new_deferred_destruction_backend;
     ZestPlatform.new_pipeline_backend                       = zest__vk_new_pipeline_backend;
     ZestPlatform.new_memory_pool_backend                    = zest__vk_new_memory_pool_backend;
 	ZestPlatform.new_device_backend                         = zest__vk_new_device_backend;
@@ -519,8 +509,6 @@ void zest__vk_initialise_platform_callbacks(void) {
     ZestPlatform.cleanup_image_backend                      = zest__vk_cleanup_image_backend;
     ZestPlatform.cleanup_image_view_backend                 = zest__vk_cleanup_image_view_backend;
     ZestPlatform.cleanup_image_view_array_backend           = zest__vk_cleanup_image_view_array_backend;
-    ZestPlatform.cleanup_deferred_framebuffers              = zest__vk_cleanup_deferred_framebuffers;
-    ZestPlatform.cleanup_deferred_destruction_backend       = zest__vk_cleanup_deferred_destruction_backend;
     ZestPlatform.cleanup_memory_pool_backend                = zest__vk_cleanup_memory_pool_backend;
     ZestPlatform.cleanup_device_backend                     = zest__vk_cleanup_device_backend;
     ZestPlatform.cleanup_buffer_backend                     = zest__vk_cleanup_buffer_backend;
@@ -2146,12 +2134,6 @@ void *zest__vk_new_sampler_backend(void) {
 void *zest__vk_new_frame_graph_semaphores_backend(void) {
     zest_frame_graph_semaphores_backend backend = ZEST__NEW(zest_frame_graph_semaphores_backend);
     *backend = (zest_frame_graph_semaphores_backend_t){ 0 };
-    return backend;
-}
-
-void *zest__vk_new_deferred_destruction_backend(void) {
-    zest_deferred_destruction_backend backend = ZEST__NEW(zest_deferred_destruction_backend);
-    *backend = (zest_deferred_destruction_backend_t){ 0 };
     return backend;
 }
 
@@ -3822,30 +3804,6 @@ zest_bool zest__vk_begin_render_pass(const zest_frame_graph_context context, zes
 
 	ZestDevice->backend->pfn_vkCmdBeginRendering(context->backend->command_buffer, &rendering_info);	
 	return ZEST_TRUE;
-}
-
-void zest__vk_deferr_framebuffer_destruction(void *framebuffer) {
-    VkFramebuffer fb = *((VkFramebuffer*)framebuffer);
-    zest_vec_push(ZestRenderer->deferred_resource_freeing_list.backend->frame_buffers[ZEST_FIF], fb);
-}
-
-void zest__vk_cleanup_deferred_destruction_backend(void) {
-    zest_ForEachFrameInFlight(fif) {
-		zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.backend->frame_buffers[fif]) {
-			VkFramebuffer frame_buffer = ZestRenderer->deferred_resource_freeing_list.backend->frame_buffers[fif][i];
-			vkDestroyFramebuffer(ZestDevice->backend->logical_device, frame_buffer, &ZestDevice->backend->allocation_callbacks);
-		}
-        zest_vec_free(ZestRenderer->deferred_resource_freeing_list.backend->frame_buffers[fif])
-    }
-    ZEST__FREE(ZestRenderer->deferred_resource_freeing_list.backend);
-}
-
-void zest__vk_cleanup_deferred_framebuffers(void) {
-    zest_vec_foreach(i, ZestRenderer->deferred_resource_freeing_list.backend->frame_buffers[ZEST_FIF]) {
-        VkFramebuffer frame_buffer = ZestRenderer->deferred_resource_freeing_list.backend->frame_buffers[ZEST_FIF][i];
-		vkDestroyFramebuffer(ZestDevice->backend->logical_device, frame_buffer, &ZestDevice->backend->allocation_callbacks);
-    }
-    zest_vec_clear(ZestRenderer->deferred_resource_freeing_list.backend->frame_buffers[ZEST_FIF]);
 }
 
 void zest__vk_end_render_pass(const zest_frame_graph_context context) {
