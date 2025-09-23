@@ -230,7 +230,7 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
-void zest_WriteBufferCompute(const zest_frame_graph_context context, void *user_data) {
+void zest_WriteBufferCompute(const zest_command_list context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
 	zest_resource_node write_buffer = zest_GetPassOutputResource(context, "Write Buffer");
 	ZEST_ASSERT_HANDLE(write_buffer);
@@ -260,7 +260,7 @@ void zest_WriteBufferCompute(const zest_frame_graph_context context, void *user_
 	zest_cmd_DispatchCompute(context, tests->compute_write, group_count_x, 1, 1);
 }
 
-void zest_VerifyBufferCompute(const zest_frame_graph_context context, void *user_data) {
+void zest_VerifyBufferCompute(const zest_command_list context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
 	zest_resource_node write_buffer = zest_GetPassInputResource(context, "Write Buffer");
 	zest_resource_node verify_buffer = zest_GetPassOutputResource(context, "Verify Buffer");
@@ -413,7 +413,7 @@ int test__multi_reader_barrier(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
-void zest_VerifyImageCompute(const zest_frame_graph_context context, void *user_data) {
+void zest_VerifyImageCompute(const zest_command_list context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
 	zest_resource_node read_image = zest_GetPassInputResource(context, "Write Buffer");
 	zest_resource_node verify_buffer = zest_GetPassOutputResource(context, "Verify Buffer");
@@ -550,7 +550,7 @@ int test__depth_attachment(ZestTests *tests, Test *test) {
 	return test->result;
 }
 
-void zest_WriteImageCompute(const zest_frame_graph_context context, void *user_data) {
+void zest_WriteImageCompute(const zest_command_list context, void *user_data) {
 	ZestTests *tests = (ZestTests *)user_data;
 	zest_resource_node write_buffer = zest_GetPassOutputResource(context, "Output A");
 	ZEST_ASSERT_HANDLE(write_buffer);

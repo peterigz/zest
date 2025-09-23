@@ -3,9 +3,10 @@
 
 zest_imgui_t *ZestImGui = 0;
 
-zest_imgui_t *zest_imgui_Initialise() {
+zest_imgui_t *zest_imgui_Initialise(zest_context context) {
     ZestImGui = (zest_imgui_t*)zest_AllocateMemory(sizeof(zest_imgui_t));
     memset(ZestImGui, 0, sizeof(zest_imgui_t));
+	ZestImGui->context = context;
     ZestImGui->magic = zest_INIT_MAGIC(zest_struct_type_imgui);
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
@@ -19,13 +20,13 @@ zest_imgui_t *zest_imgui_Initialise() {
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
-    ZestImGui->font_texture = zest_CreateImage(&image_info);
+    ZestImGui->font_texture = zest_CreateImage(context, &image_info);
     ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->font_texture);
     zest_cmd_CopyBitmapToImage(font_bitmap, ZestImGui->font_texture, 0, 0, 0, 0, width, height);
     zest_FreeBitmap(font_bitmap);
 
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-    ZestImGui->font_sampler = zest_CreateSampler(&sampler_info);
+    ZestImGui->font_sampler = zest_CreateSampler(context, &sampler_info);
     ZestImGui->font_texture_binding_index = zest_AcquireGlobalSampledImageIndex(ZestImGui->font_texture, zest_texture_2d_binding);
     ZestImGui->font_sampler_binding_index = zest_AcquireGlobalSamplerIndex(ZestImGui->font_sampler, zest_sampler_binding);
 
@@ -33,11 +34,11 @@ zest_imgui_t *zest_imgui_Initialise() {
     //ZestImGui->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	ZestImGui->vertex_shader = zest_CreateShader(zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert", ZEST_FALSE, ZEST_TRUE, compiler, 0);
-	ZestImGui->fragment_shader = zest_CreateShader(zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag", ZEST_FALSE, ZEST_TRUE, compiler, 0);
+	ZestImGui->vertex_shader = zest_CreateShader(context, zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert", ZEST_FALSE, ZEST_TRUE, compiler, 0);
+	ZestImGui->fragment_shader = zest_CreateShader(context, zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag", ZEST_FALSE, ZEST_TRUE, compiler, 0);
 	shaderc_compiler_release(compiler);
 
-    ZestImGui->font_resources = zest_CreateShaderResources();
+    ZestImGui->font_resources = zest_CreateShaderResources(context);
     zest_AddGlobalBindlessSetToResources(ZestImGui->font_resources);
 
     //ImGuiPipeline
@@ -84,7 +85,7 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     zest_FreeImage(ZestImGui->font_texture);
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
-    ZestImGui->font_texture = zest_CreateImage(&image_info);
+    ZestImGui->font_texture = zest_CreateImage(ZestImGui->context, &image_info);
     zest_FreeAtlasRegion(ZestImGui->font_region);
     ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->font_texture);
     zest_cmd_CopyBitmapToImage(font_bitmap, ZestImGui->font_texture, 0, 0, 0, 0, width, height);
@@ -130,14 +131,14 @@ zest_pass_node zest_imgui_BeginPass() {
 }
 
 // This is the function that will be called for your pass.
-void zest_imgui_DrawImGuiRenderPass(const zest_frame_graph_context context, void *user_data) {
-    zest_buffer vertex_buffer = zest_GetPassInputBuffer(context, "Imgui Vertex Buffer");
-    zest_buffer index_buffer = zest_GetPassInputBuffer(context, "Imgui Index Buffer");
-    zest_imgui_RecordLayer(context, vertex_buffer, index_buffer);
+void zest_imgui_DrawImGuiRenderPass(const zest_command_list command_list, void *user_data) {
+    zest_buffer vertex_buffer = zest_GetPassInputBuffer(command_list, "Imgui Vertex Buffer");
+    zest_buffer index_buffer = zest_GetPassInputBuffer(command_list, "Imgui Index Buffer");
+    zest_imgui_RecordLayer(command_list, vertex_buffer, index_buffer);
 }
 
 // This is the function that will be called for your pass.
-void zest_imgui_UploadImGuiPass(const zest_frame_graph_context context, void *user_data) {
+void zest_imgui_UploadImGuiPass(const zest_command_list command_list, void *user_data) {
 
     if (!ZestImGui->dirty[ZestImGui->fif]) {
         return;
@@ -145,8 +146,8 @@ void zest_imgui_UploadImGuiPass(const zest_frame_graph_context context, void *us
 
     zest_buffer staging_vertex = ZestImGui->vertex_staging_buffer[ZestImGui->fif];
     zest_buffer staging_index = ZestImGui->index_staging_buffer[ZestImGui->fif];
-    zest_buffer vertex_buffer = zest_GetPassOutputBuffer(context, "Imgui Vertex Buffer");
-    zest_buffer index_buffer = zest_GetPassOutputBuffer(context, "Imgui Index Buffer");
+    zest_buffer vertex_buffer = zest_GetPassOutputBuffer(command_list, "Imgui Vertex Buffer");
+    zest_buffer index_buffer = zest_GetPassOutputBuffer(command_list, "Imgui Index Buffer");
 
     zest_buffer_uploader_t index_upload = { 0, staging_index, index_buffer, 0 };
     zest_buffer_uploader_t vertex_upload = { 0, staging_vertex, vertex_buffer, 0 };
@@ -158,22 +159,22 @@ void zest_imgui_UploadImGuiPass(const zest_frame_graph_context context, void *us
 
     zest_uint vertex_size = zest_vec_size(vertex_upload.buffer_copies);
 
-    zest_cmd_UploadBuffer(context, &vertex_upload);
-    zest_cmd_UploadBuffer(context, &index_upload);
+    zest_cmd_UploadBuffer(command_list, &vertex_upload);
+    zest_cmd_UploadBuffer(command_list, &index_upload);
 
     ZestImGui->dirty[ZestImGui->fif] = 0;
 }
 
-void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer vertex_buffer, zest_buffer index_buffer) {
+void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer vertex_buffer, zest_buffer index_buffer) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
-    zest_cmd_BindVertexBuffer(context, 0, 1, vertex_buffer);
-    zest_cmd_BindIndexBuffer(context, index_buffer);
+    zest_cmd_BindVertexBuffer(command_list, 0, 1, vertex_buffer);
+    zest_cmd_BindIndexBuffer(command_list, index_buffer);
 
     zest_pipeline_template last_pipeline = ZEST_NULL;
     zest_shader_resources_handle last_resources = { 0 };
 
-    zest_cmd_SetScreenSizedViewport(context, 0, 1);
+    zest_cmd_SetScreenSizedViewport(command_list, 0, 1);
     
     if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
 
@@ -199,12 +200,12 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer 
 
                 zest_imgui_push_t *push_constants = &ZestImGui->push_constants;
 
-				zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context);
+				zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, command_list);
                 switch (ZEST_STRUCT_TYPE(current_image)) {
                 case zest_struct_type_atlas_region: {
                     if (last_pipeline != ZestImGui->pipeline || last_resources.value != ZestImGui->font_resources.value) {
                         last_resources = ZestImGui->font_resources;
-                        zest_cmd_BindPipelineShaderResource(context, pipeline, last_resources);
+                        zest_cmd_BindPipelineShaderResource(command_list, pipeline, last_resources);
                         last_pipeline = ZestImGui->pipeline;
                     }
                     push_constants->font_texture_index = ZestImGui->font_texture_binding_index;
@@ -215,12 +216,12 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer 
                 break;
                 default:
                     //Invalid image
-					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, context);
+					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, command_list);
                     ZEST_PRINT_WARNING("%s", "Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
                     continue;
                 }
 
-                zest_cmd_SendPushConstants(context, pipeline, push_constants);
+                zest_cmd_SendPushConstants(command_list, pipeline, push_constants);
 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
@@ -238,15 +239,15 @@ void zest_imgui_RecordLayer(const zest_frame_graph_context context, zest_buffer 
                 scissor_rect.extent.width = (zest_uint)(clip_max.x - clip_min.x);
                 scissor_rect.extent.height = (zest_uint)(clip_max.y - clip_min.y);
 
-                zest_cmd_Scissor(context, &scissor_rect);
-                zest_cmd_DrawIndexed(context, pcmd->ElemCount, 1, index_offset + pcmd->IdxOffset, vertex_offset, 0);
+                zest_cmd_Scissor(command_list, &scissor_rect);
+                zest_cmd_DrawIndexed(command_list, pcmd->ElemCount, 1, index_offset + pcmd->IdxOffset, vertex_offset, 0);
             }
             index_offset += cmd_list->IdxBuffer.Size;
             vertex_offset += cmd_list->VtxBuffer.Size;
         }
     }
     zest_scissor_rect_t scissor = { { 0, 0 }, { zest_SwapChainWidth(), zest_SwapChainHeight() } };
-	zest_cmd_Scissor(context, &scissor);
+	zest_cmd_Scissor(command_list, &scissor);
 }
 
 zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource) {

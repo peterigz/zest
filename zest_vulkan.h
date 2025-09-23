@@ -67,17 +67,17 @@ ZEST_PRIVATE void zest__log_vulkan_error(VkResult result, const char *file, int 
 ZEST_PRIVATE const char *zest__vulkan_error_string(VkResult errorCode);
 
 // --Frame_graph_platform_functions
-ZEST_PRIVATE zest_bool zest__vk_begin_command_buffer(const zest_frame_graph_context context);
-ZEST_PRIVATE zest_bool zest__vk_set_next_command_buffer(zest_frame_graph_context context, zest_queue queue);
-ZEST_PRIVATE void zest__vk_acquire_barrier(zest_frame_graph_context context, zest_execution_details_t *exe_details);
-ZEST_PRIVATE void zest__vk_release_barrier(zest_frame_graph_context context, zest_execution_details_t *exe_details);
+ZEST_PRIVATE zest_bool zest__vk_begin_command_buffer(const zest_command_list command_list);
+ZEST_PRIVATE zest_bool zest__vk_set_next_command_buffer(zest_command_list command_list, zest_queue queue);
+ZEST_PRIVATE void zest__vk_acquire_barrier(zest_command_list command_list, zest_execution_details_t *exe_details);
+ZEST_PRIVATE void zest__vk_release_barrier(zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE void* zest__vk_new_execution_backend(zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE void zest__vk_set_execution_fence(zest_execution_backend backend, zest_bool is_intraframe);
 ZEST_PRIVATE zest_frame_graph_semaphores zest__vk_get_frame_graph_semaphores(const char *name);
 ZEST_PRIVATE zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues);
-ZEST_PRIVATE zest_bool zest__vk_begin_render_pass(const zest_frame_graph_context context, zest_execution_details_t *exe_details);
-ZEST_PRIVATE void zest__vk_end_render_pass(const zest_frame_graph_context context);
-ZEST_PRIVATE void zest__vk_end_command_buffer(const zest_frame_graph_context context);
+ZEST_PRIVATE zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_execution_details_t *exe_details);
+ZEST_PRIVATE void zest__vk_end_render_pass(const zest_command_list command_list);
+ZEST_PRIVATE void zest__vk_end_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
 ZEST_PRIVATE zest_bool zest__vk_frame_graph_fence_wait(zest_execution_backend backend);
 ZEST_PRIVATE zest_bool zest__vk_present_frame(zest_swapchain swapchain);
@@ -109,7 +109,7 @@ ZEST_PRIVATE zest_access_flags zest__vk_get_buffer_last_access_mask(zest_buffer 
 ZEST_PRIVATE zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zest_set_layout associated_layout);
 
 //Pipelines
-ZEST_PRIVATE zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_rendering_info_t *rendering_info);
+ZEST_PRIVATE zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list command_list);
 
 //Set layouts
 ZEST_PRIVATE zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
@@ -338,9 +338,9 @@ typedef struct zest_renderer_backend_t {
     VkResult last_result;
 } zest_renderer_backend_t;
 
-typedef struct zest_frame_graph_context_backend_t {
+typedef struct zest_command_list_backend_t {
     VkCommandBuffer command_buffer;
-} zest_frame_graph_context_backend_t;
+} zest_command_list_backend_t;
 
 typedef struct zest_buffer_backend_t {
     int magic;
@@ -2059,8 +2059,8 @@ void *zest__vk_new_renderer_backend(void) {
 }
 
 void *zest__vk_new_frame_graph_context_backend(void) {
-    zest_frame_graph_context_backend_t *backend_context = zloc_LinearAllocation( ZestRenderer->frame_graph_allocator[ZEST_FIF], sizeof(zest_frame_graph_context_backend_t) );
-    *backend_context = (zest_frame_graph_context_backend_t){ 0 };
+    zest_command_list_backend_t *backend_context = zloc_LinearAllocation( ZestRenderer->frame_graph_allocator[ZEST_FIF], sizeof(zest_command_list_backend_t) );
+    *backend_context = (zest_command_list_backend_t){ 0 };
     return backend_context;
 }
 
@@ -2138,6 +2138,7 @@ void *zest__vk_new_frame_graph_semaphores_backend(void) {
 }
 
 zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute) {
+	zest_context context = builder->context;
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = { 0 };
     if (builder->push_constant_size) {
         compute->backend->push_constant_range.offset = 0;
@@ -2148,12 +2149,12 @@ zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute 
     }
     pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     VkDescriptorSetLayout *set_layouts = 0;
-    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, compute->bindless_layout.value);
+    zest_set_layout bindless_layout = (zest_set_layout)zest__get_store_resource_checked(context, compute->bindless_layout.value);
     if (bindless_layout) {
         zest_vec_push(set_layouts, bindless_layout->backend->vk_layout);
     }
     zest_vec_foreach(i, builder->non_bindless_layouts) {
-        zest_set_layout non_bindless_layout = (zest_set_layout)zest__get_store_resource_checked(&ZestRenderer->set_layouts, builder->non_bindless_layouts[i].value);
+        zest_set_layout non_bindless_layout = (zest_set_layout)zest__get_store_resource_checked(context, builder->non_bindless_layouts[i].value);
         zest_vec_push(set_layouts, non_bindless_layout->backend->vk_layout);
     }
     pipeline_layout_create_info.setLayoutCount = zest_vec_size(set_layouts);
@@ -2174,7 +2175,7 @@ zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute 
     VkShaderModule shader_module = { 0 };
     zest_vec_foreach(i, compute->shaders) {
         zest_shader_handle shader_handle = compute->shaders[i];
-        zest_shader shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, shader_handle.value);
+        zest_shader shader = (zest_shader)zest__get_store_resource_checked(context, shader_handle.value);
 
         ZEST_ASSERT(shader->spv);   //Compile the shader first before making the compute pipeline
         VkShaderModule shader_module = 0;
@@ -2192,9 +2193,9 @@ zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute 
         //compute builder set up. For example if the shader expects a push constant range then use zest_SetComputePushConstantSize before
         //calling this function.
         ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_compute_pipeline);
-        ZestRenderer->backend->last_result = vkCreateComputePipelines(ZestDevice->backend->logical_device, VK_NULL_HANDLE, 1, &compute_pipeline_create_info, &ZestDevice->backend->allocation_callbacks, &pipeline);
+        context->renderer->backend->last_result = vkCreateComputePipelines(ZestDevice->backend->logical_device, VK_NULL_HANDLE, 1, &compute_pipeline_create_info, &ZestDevice->backend->allocation_callbacks, &pipeline);
         vkDestroyShaderModule(ZestDevice->backend->logical_device, shader_module, &ZestDevice->backend->allocation_callbacks);
-        if (ZestRenderer->backend->last_result != VK_SUCCESS) {
+        if (context->renderer->backend->last_result != VK_SUCCESS) {
             goto cleanup;
         }
         compute->backend->pipeline = pipeline;
@@ -2866,7 +2867,7 @@ void *zest__vk_new_pipeline_backend(void) {
     return backend;
 }
 
-zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_rendering_info_t *rendering_info) {
+zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list command_list) {
     ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_pipeline_layout);
 
     zloc_linear_allocator_t *scratch = ZestDevice->scratch_arena;
@@ -2901,8 +2902,8 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_rendering_info_t 
 
     VkShaderModule vert_shader_module = { 0 };
     VkShaderModule frag_shader_module = { 0 };
-    zest_shader vert_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, template->vertex_shader.value);
-    zest_shader frag_shader = (zest_shader)zest__get_store_resource_checked(&ZestRenderer->shaders, template->fragment_shader.value);
+    zest_shader vert_shader = (zest_shader)zest__get_store_resource_checked(template->vertex_shader.context, template->vertex_shader.value);
+    zest_shader frag_shader = (zest_shader)zest__get_store_resource_checked(template->vertex_shader.context, template->fragment_shader.value);
     VkPipelineShaderStageCreateInfo vert_shader_stage_info = { 0 };
     VkPipelineShaderStageCreateInfo frag_shader_stage_info = { 0 };
     if (ZEST_VALID_HANDLE(vert_shader)) {
@@ -3042,12 +3043,12 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_rendering_info_t 
 
 	VkPipelineRenderingCreateInfo vk_rendering_info = { 0 };
 	vk_rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-	vk_rendering_info.colorAttachmentCount = rendering_info->color_attachment_count;
-	vk_rendering_info.depthAttachmentFormat = zest__to_vk_format(rendering_info->depth_attachment_format);
-	vk_rendering_info.stencilAttachmentFormat = zest__to_vk_format(rendering_info->stencil_attachment_format);
+	vk_rendering_info.colorAttachmentCount = command_list->rendering_info.color_attachment_count;
+	vk_rendering_info.depthAttachmentFormat = zest__to_vk_format(command_list->rendering_info.depth_attachment_format);
+	vk_rendering_info.stencilAttachmentFormat = zest__to_vk_format(command_list->rendering_info.stencil_attachment_format);
 	VkFormat color_formats[ZEST_MAX_ATTACHMENTS];
-	for (int i = 0; i != rendering_info->color_attachment_count; ++i) {
-		color_formats[i] = zest__to_vk_format(rendering_info->color_attachment_formats[i]);
+	for (int i = 0; i != command_list->rendering_info.color_attachment_count; ++i) {
+		color_formats[i] = zest__to_vk_format(command_list->rendering_info.color_attachment_formats[i]);
 	}
 	vk_rendering_info.pColorAttachmentFormats = color_formats;
     
@@ -3591,18 +3592,18 @@ void zest__vk_free_callback(void *pUserData, void *memory) {
 }
 // -- Internal_Frame_graph_context_functions
 
-zest_bool zest__vk_begin_command_buffer(const zest_frame_graph_context context) {
+zest_bool zest__vk_begin_command_buffer(const zest_command_list command_list) {
 	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    ZEST_RETURN_FALSE_ON_FAIL(vkBeginCommandBuffer(context->backend->command_buffer, &begin_info));
+    ZEST_RETURN_FALSE_ON_FAIL(vkBeginCommandBuffer(command_list->backend->command_buffer, &begin_info));
     return ZEST_TRUE;
 }
 
-zest_bool zest__vk_set_next_command_buffer(zest_frame_graph_context context, zest_queue queue) {
+zest_bool zest__vk_set_next_command_buffer(zest_command_list command_list, zest_queue queue) {
     if (zest_vec_size(queue->backend->command_buffers[ZEST_FIF]) > queue->next_buffer) {
         VkCommandBuffer command_buffer = queue->backend->command_buffers[ZEST_FIF][queue->next_buffer];
         queue->next_buffer++;
-        context->backend->command_buffer = command_buffer;
+        command_list->backend->command_buffer = command_buffer;
         return ZEST_TRUE;
     } else {
         // Ran out of command buffers, create a new one
@@ -3620,7 +3621,7 @@ zest_bool zest__vk_set_next_command_buffer(zest_frame_graph_context context, zes
         }
         zest_vec_push(queue->backend->command_buffers[ZEST_FIF], new_command_buffer);
         queue->next_buffer++;
-        context->backend->command_buffer = new_command_buffer;
+        command_list->backend->command_buffer = new_command_buffer;
         return ZEST_TRUE;
     }
 	return ZEST_FALSE;
@@ -3637,7 +3638,7 @@ void zest__vk_set_execution_fence(zest_execution_backend backend, zest_bool is_i
     backend->fence_count = !is_intraframe ? &ZestRenderer->fence_count[ZEST_FIF] : &backend->intraframe_fence_count;
 }
 
-void zest__vk_acquire_barrier(zest_frame_graph_context context, zest_execution_details_t *exe_details) {
+void zest__vk_acquire_barrier(zest_command_list command_list, zest_execution_details_t *exe_details) {
 	zest_uint buffer_count = zest_vec_size(exe_details->barriers.backend->acquire_buffer_barriers);
 	zest_uint image_count = zest_vec_size(exe_details->barriers.backend->acquire_image_barriers);
 	if (buffer_count > 0 || image_count > 0) {
@@ -3664,7 +3665,7 @@ void zest__vk_acquire_barrier(zest_frame_graph_context context, zest_execution_d
 			}
 		}
 		vkCmdPipelineBarrier(
-			context->backend->command_buffer,
+			command_list->backend->command_buffer,
 			exe_details->barriers.backend->overall_src_stage_mask_for_acquire_barriers, // Single mask for all barriers in this batch
 			exe_details->barriers.backend->overall_dst_stage_mask_for_acquire_barriers, // Single mask for all barriers in this batch
 			0,
@@ -3677,7 +3678,7 @@ void zest__vk_acquire_barrier(zest_frame_graph_context context, zest_execution_d
 	}
 }
 
-void zest__vk_release_barrier(zest_frame_graph_context context, zest_execution_details_t *exe_details) {
+void zest__vk_release_barrier(zest_command_list command_list, zest_execution_details_t *exe_details) {
 	zest_uint buffer_count = zest_vec_size(exe_details->barriers.backend->release_buffer_barriers);
 	zest_uint image_count = zest_vec_size(exe_details->barriers.backend->release_image_barriers);
 	if (buffer_count > 0 || image_count > 0) {
@@ -3702,7 +3703,7 @@ void zest__vk_release_barrier(zest_frame_graph_context context, zest_execution_d
 			}
 		}
 		vkCmdPipelineBarrier(
-			context->backend->command_buffer,
+			command_list->backend->command_buffer,
 			exe_details->barriers.backend->overall_src_stage_mask_for_release_barriers, // Single mask for all barriers in this batch
 			exe_details->barriers.backend->overall_dst_stage_mask_for_release_barriers, // Single mask for all barriers in this batch
 			0,
@@ -3746,7 +3747,7 @@ zest_frame_graph_semaphores zest__vk_get_frame_graph_semaphores(const char *name
 	return *zest_map_at(ZestRenderer->cached_frame_graph_semaphores, name);
 }
 
-zest_bool zest__vk_begin_render_pass(const zest_frame_graph_context context, zest_execution_details_t *exe_details) {
+zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_execution_details_t *exe_details) {
 
 	VkRenderingAttachmentInfo color_attachments[ZEST_MAX_ATTACHMENTS];
 	VkRenderingAttachmentInfo depth_attachment = { 0 };
@@ -3801,17 +3802,17 @@ zest_bool zest__vk_begin_render_pass(const zest_frame_graph_context context, zes
 	rendering_info.renderArea.extent.width = exe_details->render_area.extent.width;
 	rendering_info.renderArea.extent.height = exe_details->render_area.extent.height;
 
-	ZestDevice->backend->pfn_vkCmdBeginRendering(context->backend->command_buffer, &rendering_info);	
+	ZestDevice->backend->pfn_vkCmdBeginRendering(command_list->backend->command_buffer, &rendering_info);	
 	return ZEST_TRUE;
 }
 
-void zest__vk_end_render_pass(const zest_frame_graph_context context) {
-	//vkCmdEndRenderPass(context->backend->command_buffer);
-	ZestDevice->backend->pfn_vkCmdEndRendering(context->backend->command_buffer);
+void zest__vk_end_render_pass(const zest_command_list command_list) {
+	//vkCmdEndRenderPass(command_list->backend->command_buffer);
+	ZestDevice->backend->pfn_vkCmdEndRendering(command_list->backend->command_buffer);
 }
 
-void zest__vk_end_command_buffer(const zest_frame_graph_context context) {
-	vkEndCommandBuffer(context->backend->command_buffer);
+void zest__vk_end_command_buffer(const zest_command_list command_list) {
+	vkEndCommandBuffer(command_list->backend->command_buffer);
 }
 
 void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend) {
@@ -3835,14 +3836,14 @@ zest_bool zest__vk_frame_graph_fence_wait(zest_execution_backend backend) {
 }
 
 zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues) {
-    zest_uint queue_index = frame_graph->context.queue_index;
-    zest_uint submission_index = frame_graph->context.submission_index;
-    zest_pipeline_stage_flags timeline_wait_stage = frame_graph->context.timeline_wait_stage;
+    zest_uint queue_index = frame_graph->command_list.queue_index;
+    zest_uint submission_index = frame_graph->command_list.submission_index;
+    zest_pipeline_stage_flags timeline_wait_stage = frame_graph->command_list.timeline_wait_stage;
 
     VkSemaphore batch_semaphore = frame_graph->semaphores->backend->vk_semaphores[ZEST_FIF][queue_index];
     zest_size *batch_value = &frame_graph->semaphores->values[ZEST_FIF][queue_index];
 
-    VkCommandBuffer command_buffer = frame_graph->context.backend->command_buffer;
+    VkCommandBuffer command_buffer = frame_graph->command_list.backend->command_buffer;
 
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submit_info.commandBufferCount = 1;
@@ -4055,7 +4056,7 @@ void zest__vk_validate_barrier_pipeline_stages(zest_execution_barriers_t *barrie
 
 
 // -- Frame_graph_context_functions
-zest_bool zest_cmd_UploadBuffer(const zest_frame_graph_context context, zest_buffer_uploader_t *uploader) {
+zest_bool zest_cmd_UploadBuffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader) {
     if (!zest_vec_size(uploader->buffer_copies)) {
         return ZEST_FALSE;
     }
@@ -4067,7 +4068,7 @@ zest_bool zest_cmd_UploadBuffer(const zest_frame_graph_context context, zest_buf
             ((VkBufferCopy){ copy->src_offset, copy->dst_offset, copy->size }));
     }
 
-    vkCmdCopyBuffer(context->backend->command_buffer, *zest__vk_get_device_buffer(uploader->source_buffer), *zest__vk_get_device_buffer(uploader->target_buffer), zest_vec_size(buffer_copies), buffer_copies);
+    vkCmdCopyBuffer(command_list->backend->command_buffer, *zest__vk_get_device_buffer(uploader->source_buffer), *zest__vk_get_device_buffer(uploader->target_buffer), zest_vec_size(buffer_copies), buffer_copies);
 
     zest_vec_clear(uploader->buffer_copies);
     uploader->flags = 0;
@@ -4077,39 +4078,39 @@ zest_bool zest_cmd_UploadBuffer(const zest_frame_graph_context context, zest_buf
     return ZEST_TRUE;
 }
 
-void zest_cmd_DrawIndexed(const zest_frame_graph_context context, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    vkCmdDrawIndexed(context->backend->command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+void zest_cmd_DrawIndexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    vkCmdDrawIndexed(command_list->backend->command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 
-void zest_cmd_CopyBuffer(const zest_frame_graph_context context, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size) {
+void zest_cmd_CopyBuffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, VkDeviceSize size) {
     ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
     ZEST_ASSERT(size <= dst_buffer->size);
-    ZEST_ASSERT_HANDLE(context);                  //Not valid context, this command must be called within a frame graph execution callback
+    ZEST_ASSERT_HANDLE(command_list);                  //Not valid command_list, this command must be called within a frame graph execution callback
     VkBufferCopy copyInfo = { 0 };
     copyInfo.srcOffset = src_buffer->buffer_offset;
     copyInfo.dstOffset = dst_buffer->buffer_offset;
     copyInfo.size = size;
-    vkCmdCopyBuffer(context->backend->command_buffer, src_buffer->backend->vk_buffer, dst_buffer->backend->vk_buffer, 1, &copyInfo);
+    vkCmdCopyBuffer(command_list->backend->command_buffer, src_buffer->backend->vk_buffer, dst_buffer->backend->vk_buffer, 1, &copyInfo);
 }
 
-void zest_cmd_BindPipelineShaderResource(const zest_frame_graph_context context, zest_pipeline pipeline, zest_shader_resources_handle handle) {
-    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(&ZestRenderer->shader_resources, handle.value);
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
+void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle handle) {
+    zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.context, handle.value);
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	zloc_linear_allocator_t *scratch = ZestDevice->scratch_arena;
     zest_vec_foreach(set_index, shader_resources->sets[ZEST_FIF]) {
         zest_descriptor_set set = shader_resources->sets[ZEST_FIF][set_index];
         ZEST_ASSERT_HANDLE(set);     //Not a valid desriptor set in the shader resource. Did you set all frames in flight?
 		zest_vec_linear_push(scratch, shader_resources->backend->binding_sets, set->backend->vk_descriptor_set);
 	}
-    vkCmdBindPipeline(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline);
-    vkCmdBindDescriptorSets(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, zest_vec_size(shader_resources->backend->binding_sets), shader_resources->backend->binding_sets, 0, 0);
+    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline);
+    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, zest_vec_size(shader_resources->backend->binding_sets), shader_resources->backend->binding_sets, 0, 0);
     zest_vec_clear(shader_resources->backend->binding_sets);
 	zloc_ResetLinearAllocator(scratch);
 }
 
-void zest_cmd_BindPipeline(const zest_frame_graph_context context, zest_pipeline pipeline, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
+void zest_cmd_BindPipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
     ZEST_ASSERT(set_count && descriptor_sets);    //No descriptor sets. Must bind the pipeline with a valid desriptor set
     zloc_linear_allocator_t *allocator = ZestRenderer->frame_graph_allocator[ZEST_FIF];
     VkDescriptorSet *vk_sets = 0;
@@ -4117,13 +4118,13 @@ void zest_cmd_BindPipeline(const zest_frame_graph_context context, zest_pipeline
     for (zest_uint i = 0; i < set_count; ++i) {
         vk_sets[i] = descriptor_sets[i]->backend->vk_descriptor_set;
     }
-    vkCmdBindPipeline(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline);
-    vkCmdBindDescriptorSets(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, set_count, vk_sets, 0, 0);
+    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline);
+    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, set_count, vk_sets, 0, 0);
 }
 
-void zest_cmd_BindComputePipeline(const zest_frame_graph_context context, zest_compute_handle compute_handle, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    zest_compute compute = (zest_compute)zest__get_store_resource_checked(&ZestRenderer->compute_pipelines, compute_handle.value);
+void zest_cmd_BindComputePipeline(const zest_command_list command_list, zest_compute_handle compute_handle, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    zest_compute compute = (zest_compute)zest__get_store_resource_checked(compute_handle.context, compute_handle.value);
     ZEST_ASSERT(set_count && descriptor_sets);   //No descriptor sets. Must bind the pipeline with a valid desriptor set
     zloc_linear_allocator_t *allocator = ZestRenderer->frame_graph_allocator[ZEST_FIF];
     VkDescriptorSet *vk_sets = 0;
@@ -4131,59 +4132,59 @@ void zest_cmd_BindComputePipeline(const zest_frame_graph_context context, zest_c
     for (zest_uint i = 0; i < set_count; ++i) {
         vk_sets[i] = descriptor_sets[i]->backend->vk_descriptor_set;
     }
-    vkCmdBindPipeline(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline);
-    vkCmdBindDescriptorSets(context->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline_layout, 0, set_count, vk_sets, 0, 0);
+    vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline);
+    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute->backend->pipeline_layout, 0, set_count, vk_sets, 0, 0);
 }
 
-void zest_cmd_BindVertexBuffer(const zest_frame_graph_context context, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
+void zest_cmd_BindVertexBuffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
     VkDeviceSize offsets[] = { buffer->buffer_offset };
-    vkCmdBindVertexBuffers(context->backend->command_buffer, first_binding, binding_count, zest__vk_get_device_buffer(buffer), offsets);
+    vkCmdBindVertexBuffers(command_list->backend->command_buffer, first_binding, binding_count, zest__vk_get_device_buffer(buffer), offsets);
 }
 
-void zest_cmd_BindIndexBuffer(const zest_frame_graph_context context, zest_buffer buffer) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    vkCmdBindIndexBuffer(context->backend->command_buffer, *zest__vk_get_device_buffer(buffer), buffer->buffer_offset, VK_INDEX_TYPE_UINT32);
+void zest_cmd_BindIndexBuffer(const zest_command_list command_list, zest_buffer buffer) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    vkCmdBindIndexBuffer(command_list->backend->command_buffer, *zest__vk_get_device_buffer(buffer), buffer->buffer_offset, VK_INDEX_TYPE_UINT32);
 }
 
-void zest_cmd_SendPushConstants(const zest_frame_graph_context context, zest_pipeline pipeline, void *data) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    vkCmdPushConstants(context->backend->command_buffer, pipeline->backend->pipeline_layout, zest__to_vk_shader_stage(pipeline->pipeline_template->push_constant_range.stage_flags), pipeline->pipeline_template->push_constant_range.offset, pipeline->pipeline_template->push_constant_range.size, data);
+void zest_cmd_SendPushConstants(const zest_command_list command_list, zest_pipeline pipeline, void *data) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    vkCmdPushConstants(command_list->backend->command_buffer, pipeline->backend->pipeline_layout, zest__to_vk_shader_stage(pipeline->pipeline_template->push_constant_range.stage_flags), pipeline->pipeline_template->push_constant_range.offset, pipeline->pipeline_template->push_constant_range.size, data);
 }
 
-void zest_cmd_SendCustomComputePushConstants(const zest_frame_graph_context context, zest_compute_handle compute_handle, const void *push_constant) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    zest_compute compute = (zest_compute)zest__get_store_resource_checked(&ZestRenderer->compute_pipelines, compute_handle.value);
-    vkCmdPushConstants(context->backend->command_buffer, compute->backend->pipeline_layout, compute->backend->push_constant_range.stageFlags, 0, compute->backend->push_constant_range.size, push_constant);
+void zest_cmd_SendCustomComputePushConstants(const zest_command_list command_list, zest_compute_handle compute_handle, const void *push_constant) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    zest_compute compute = (zest_compute)zest__get_store_resource_checked(compute_handle.context, compute_handle.value);
+    vkCmdPushConstants(command_list->backend->command_buffer, compute->backend->pipeline_layout, compute->backend->push_constant_range.stageFlags, 0, compute->backend->push_constant_range.size, push_constant);
 }
 
-void zest_cmd_SendStandardPushConstants(const zest_frame_graph_context context, zest_pipeline_t* pipeline, void* data) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    vkCmdPushConstants(context->backend->command_buffer, pipeline->backend->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), data);
+void zest_cmd_SendStandardPushConstants(const zest_command_list command_list, zest_pipeline_t* pipeline, void* data) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    vkCmdPushConstants(command_list->backend->command_buffer, pipeline->backend->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(zest_push_constants_t), data);
 }
 
-void zest_cmd_Draw(const zest_frame_graph_context context, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    vkCmdDraw(context->backend->command_buffer, vertex_count, instance_count, first_vertex, first_instance);
+void zest_cmd_Draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    vkCmdDraw(command_list->backend->command_buffer, vertex_count, instance_count, first_vertex, first_instance);
 }
 
-void zest_cmd_DrawLayerInstruction(const zest_frame_graph_context context, zest_uint vertex_count, zest_layer_instruction_t *instruction) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    vkCmdDraw(context->backend->command_buffer, vertex_count, instruction->total_indexes, 0, instruction->start_index);
+void zest_cmd_DrawLayerInstruction(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    vkCmdDraw(command_list->backend->command_buffer, vertex_count, instruction->total_indexes, 0, instruction->start_index);
 }
 
-void zest_cmd_DispatchCompute(const zest_frame_graph_context context, zest_compute_handle compute_handle, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    vkCmdDispatch(context->backend->command_buffer, group_count_x, group_count_y, group_count_z);
+void zest_cmd_DispatchCompute(const zest_command_list command_list, zest_compute_handle compute_handle, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    vkCmdDispatch(command_list->backend->command_buffer, group_count_x, group_count_y, group_count_z);
 }
 
-void zest_cmd_SetScreenSizedViewport(const zest_frame_graph_context context, float min_depth, float max_depth) {
+void zest_cmd_SetScreenSizedViewport(const zest_command_list command_list, float min_depth, float max_depth) {
     //This function must be called within a frame graph execution pass callback
-    ZEST_ASSERT(context);    //Must be a valid command buffer
-    ZEST_ASSERT(context->backend->command_buffer);    //Must be a valid command buffer
-    ZEST_ASSERT_HANDLE(context->frame_graph);
-    ZEST_ASSERT_HANDLE(context->frame_graph->swapchain);    //frame graph must be set up with a swapchain to use this function
-    zest_swapchain swapchain = context->frame_graph->swapchain;
+    ZEST_ASSERT(command_list);    //Must be a valid command buffer
+    ZEST_ASSERT(command_list->backend->command_buffer);    //Must be a valid command buffer
+    ZEST_ASSERT_HANDLE(command_list->frame_graph);
+    ZEST_ASSERT_HANDLE(command_list->frame_graph->swapchain);    //frame graph must be set up with a swapchain to use this function
+    zest_swapchain swapchain = command_list->frame_graph->swapchain;
 
     VkViewport viewport = {
         .width = (float)swapchain->window->window_width,
@@ -4197,24 +4198,24 @@ void zest_cmd_SetScreenSizedViewport(const zest_frame_graph_context context, flo
 		.offset.x = 0,
 		.offset.y = 0,
     };
-    vkCmdSetViewport(context->backend->command_buffer, 0, 1, &viewport);
-    vkCmdSetScissor(context->backend->command_buffer, 0, 1, &scissor);
+    vkCmdSetViewport(command_list->backend->command_buffer, 0, 1, &viewport);
+    vkCmdSetScissor(command_list->backend->command_buffer, 0, 1, &scissor);
 }
 
-void zest_cmd_Scissor(const zest_frame_graph_context context, zest_scissor_rect_t *scissor) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
+void zest_cmd_Scissor(const zest_command_list command_list, zest_scissor_rect_t *scissor) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
     VkRect2D rect = { scissor->offset.x, scissor->offset.y, scissor->extent.width, scissor->extent.height };
-	vkCmdSetScissor(context->backend->command_buffer, 0, 1, &rect);
+	vkCmdSetScissor(command_list->backend->command_buffer, 0, 1, &rect);
 }
 
-void zest_cmd_ViewPort(const zest_frame_graph_context context, zest_viewport_t *viewport) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
+void zest_cmd_ViewPort(const zest_command_list command_list, zest_viewport_t *viewport) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	VkViewport vk_viewport = { viewport->x, viewport->y, viewport->width, viewport->height, viewport->minDepth, viewport->maxDepth };
-	vkCmdSetViewport(context->backend->command_buffer, 0, 1, &vk_viewport);
+	vkCmdSetViewport(command_list->backend->command_buffer, 0, 1, &vk_viewport);
 }
 
-void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
+void zest_cmd_BlitImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
     ZEST_ASSERT_HANDLE(src);
     ZEST_ASSERT_HANDLE(dst);
     ZEST_ASSERT(src->type == zest_resource_type_image && dst->type == zest_resource_type_image);
@@ -4242,7 +4243,7 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src->image.info.aspect_flags,
         mip_to_blit, 1);
-    zest__vk_place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_src_barrier);
+    zest__vk_place_image_barrier(command_list->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_src_barrier);
 
     VkImageMemoryBarrier blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
         0,
@@ -4251,7 +4252,7 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst->image.info.aspect_flags,
         mip_to_blit, 1);
-    zest__vk_place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_dst_barrier);
+    zest__vk_place_image_barrier(command_list->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_dst_barrier);
 
     VkOffset3D base_offset = { 0 };
     VkImageBlit blit = { 0 };
@@ -4273,7 +4274,7 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
     bool same_size = (blit.srcOffsets[1].x == blit.dstOffsets[1].x && blit.srcOffsets[1].y == blit.dstOffsets[1].y);
 
     vkCmdBlitImage(
-        context->backend->command_buffer,
+        command_list->backend->command_buffer,
         src_image,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         dst_image,
@@ -4286,7 +4287,7 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
         src_current_layout,
         src->image.info.aspect_flags,
         mip_to_blit, 1);
-    zest__vk_place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_src_barrier);
+    zest__vk_place_image_barrier(command_list->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_src_barrier);
 
     blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
         VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -4295,11 +4296,11 @@ void zest_cmd_BlitImageMip(const zest_frame_graph_context context, zest_resource
         dst_current_layout,
         dst->image.info.aspect_flags,
         mip_to_blit, 1);
-    zest__vk_place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_dst_barrier);
+    zest__vk_place_image_barrier(command_list->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, &blit_dst_barrier);
 }
 
-void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_supported_pipeline_stages pipeline_stage) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
+void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_supported_pipeline_stages pipeline_stage) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
     ZEST_ASSERT_HANDLE(src);
     ZEST_ASSERT_HANDLE(dst);
     ZEST_ASSERT(src->type == zest_resource_type_image && dst->type == zest_resource_type_image);
@@ -4334,7 +4335,7 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         src->image.info.aspect_flags,
         mip_to_copy, 1);
-    zest__vk_place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_src_barrier);
+    zest__vk_place_image_barrier(command_list->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_src_barrier);
 
     VkImageMemoryBarrier blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
         0,
@@ -4343,7 +4344,7 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         dst->image.info.aspect_flags,
         mip_to_copy, 1);
-    zest__vk_place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_dst_barrier);
+    zest__vk_place_image_barrier(command_list->backend->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, &blit_dst_barrier);
 
     VkOffset3D base_offset = { 0 };
     VkImageCopy image_copy = { 0 };
@@ -4360,7 +4361,7 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
     image_copy.extent.depth = 1;
 
     vkCmdCopyImage(
-        context->backend->command_buffer,
+        command_list->backend->command_buffer,
         src_image,
         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         dst_image,
@@ -4373,7 +4374,7 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
         src_current_layout,
         src->image.info.aspect_flags,
         mip_to_copy, 1);
-    zest__vk_place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, pipeline_stage, &blit_src_barrier);
+    zest__vk_place_image_barrier(command_list->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, pipeline_stage, &blit_src_barrier);
 
     blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
         VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -4382,19 +4383,19 @@ void zest_cmd_CopyImageMip(const zest_frame_graph_context context, zest_resource
         dst_current_layout,
         dst->image.info.aspect_flags,
         mip_to_copy, 1);
-    zest__vk_place_image_barrier(context->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, pipeline_stage, &blit_dst_barrier);
+    zest__vk_place_image_barrier(command_list->backend->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, pipeline_stage, &blit_dst_barrier);
 }
 
-void zest_cmd_Clip(const zest_frame_graph_context context, float x, float y, float width, float height, float minDepth, float maxDepth) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
+void zest_cmd_Clip(const zest_command_list command_list, float x, float y, float width, float height, float minDepth, float maxDepth) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
     VkViewport view = { x, y, width, height, minDepth, maxDepth };
 	VkRect2D scissor = {(zest_uint)width, (zest_uint)height, (zest_uint)x, (zest_uint)y};
-	vkCmdSetViewport(context->backend->command_buffer, 0, 1, &view);
-	vkCmdSetScissor(context->backend->command_buffer, 0, 1, &scissor);
+	vkCmdSetViewport(command_list->backend->command_buffer, 0, 1, &view);
+	vkCmdSetScissor(command_list->backend->command_buffer, 0, 1, &scissor);
 }
 
-void zest_cmd_InsertComputeImageBarrier(const zest_frame_graph_context context, zest_resource_node resource, zest_uint base_mip) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
+void zest_cmd_InsertComputeImageBarrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
     ZEST_ASSERT_HANDLE(resource);    //Not a valid resource handle!
     ZEST_ASSERT(resource->type == zest_resource_type_image);    //resource type must be an image
 	VkImageMemoryBarrier barrier = {
@@ -4417,7 +4418,7 @@ void zest_cmd_InsertComputeImageBarrier(const zest_frame_graph_context context, 
 	};
 
 	vkCmdPipelineBarrier(
-		context->backend->command_buffer,
+		command_list->backend->command_buffer,
 		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 		VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
 		0,
@@ -4427,9 +4428,9 @@ void zest_cmd_InsertComputeImageBarrier(const zest_frame_graph_context context, 
 	);
 }
 
-zest_bool zest_cmd_ImageClear(zest_image_handle handle, const zest_frame_graph_context context) {
-    zest_image image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, handle.value);
-    VkCommandBuffer command_buffer = context ? context->backend->command_buffer : ZestRenderer->backend->one_time_command_buffer;
+zest_bool zest_cmd_ImageClear(zest_image_handle handle, const zest_command_list command_list) {
+    zest_image image = (zest_image)zest__get_store_resource_checked(handle.context, handle.value);
+    VkCommandBuffer command_buffer = command_list ? command_list->backend->command_buffer : ZestRenderer->backend->one_time_command_buffer;
 	ZEST_ASSERT(command_buffer);	//You must call begin_single_time_command_buffer before calling this fuction
 
     VkImageSubresourceRange image_sub_resource_range;
@@ -4471,9 +4472,9 @@ zest_bool zest_cmd_ImageClear(zest_image_handle handle, const zest_frame_graph_c
 }
 
 zest_bool zest_cmd_CopyImageToImage(zest_image_handle src_handle, zest_image_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
-    zest_image src_image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, src_handle.value);
+    zest_image src_image = (zest_image)zest__get_store_resource_checked(src_handle.context, src_handle.value);
     ZEST_ASSERT_HANDLE(src_image);    //Not a valid texture resource
-    zest_image dst_image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, dst_handle.value);
+    zest_image dst_image = (zest_image)zest__get_store_resource_checked(dst_handle.context, dst_handle.value);
     ZEST_ASSERT_HANDLE(dst_image);	    //Not a valid handle!
     VkCommandBuffer copy_command = 0; 
     ZEST_ASSERT(ZestRenderer->backend->one_time_command_buffer);    //You must call begin_single_time_command_buffer before calling this fuction
@@ -4577,7 +4578,7 @@ zest_bool zest_cmd_CopyImageToImage(zest_image_handle src_handle, zest_image_han
 }
 
 zest_bool zest_CopyTextureToBitmap(zest_image_handle src_handle, zest_bitmap dst_bitmap, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
-    zest_image src_image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, src_handle.value);
+    zest_image src_image = (zest_image)zest__get_store_resource_checked(src_handle.context, src_handle.value);
 
     // Ensure the destination bitmap can hold the copied region
     ZEST_ASSERT(dst_x + width <= dst_bitmap->meta.width);
@@ -4723,7 +4724,7 @@ zest_bool zest__vk_copy_buffer_to_image(zest_buffer buffer, zest_size src_offset
 }
 
 zest_bool zest_cmd_CopyBitmapToImage(zest_bitmap bitmap, zest_image_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
-    zest_image dst_image = (zest_image)zest__get_store_resource_checked(&ZestRenderer->images, dst_handle.value);
+    zest_image dst_image = (zest_image)zest__get_store_resource_checked(dst_handle.context, dst_handle.value);
     zest_uint channels = bitmap->meta.channels;
     ZEST_ASSERT(channels == zest__get_format_channel_count(dst_image->info.format));    //Incompatible destination image format
     VkDeviceSize image_size = bitmap->meta.width * bitmap->meta.height * channels;
@@ -4758,24 +4759,24 @@ cleanup:
     return ZEST_TRUE;
 }
 
-void zest_cmd_BindMeshVertexBuffer(const zest_frame_graph_context context, zest_layer_handle layer_handle) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
+void zest_cmd_BindMeshVertexBuffer(const zest_command_list command_list, zest_layer_handle layer_handle) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
     ZEST_ASSERT(layer->vertex_data);    //There's no vertex data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->vertex_data;
     VkDeviceSize offsets[] = { buffer->buffer_offset };
-    vkCmdBindVertexBuffers(context->backend->command_buffer, 0, 1, zest__vk_get_device_buffer(buffer), offsets);
+    vkCmdBindVertexBuffers(command_list->backend->command_buffer, 0, 1, zest__vk_get_device_buffer(buffer), offsets);
 }
 
-void zest_cmd_BindMeshIndexBuffer(const zest_frame_graph_context context, zest_layer_handle layer_handle) {
-    ZEST_ASSERT_HANDLE(context);        //Not valid context, this command must be called within a frame graph execution callback
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(&ZestRenderer->layers, layer_handle.value);
+void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_layer_handle layer_handle) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
     ZEST_ASSERT(layer->index_data);    //There's no index data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->index_data;
-    vkCmdBindIndexBuffer(context->backend->command_buffer, *zest__vk_get_device_buffer(buffer), buffer->buffer_offset, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(command_list->backend->command_buffer, *zest__vk_get_device_buffer(buffer), buffer->buffer_offset, VK_INDEX_TYPE_UINT32);
 }
 
-// -- End Frame graph context functions
+// -- End Frame graph command_list functions
 
 // -- Debug_functions
 void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {
