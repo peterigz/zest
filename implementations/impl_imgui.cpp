@@ -70,8 +70,8 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
     ZestImGui->pipeline = imgui_pipeline;
 
     zest_ForEachFrameInFlight(fif) {
-        ZestImGui->vertex_device_buffer[fif] = zest_CreateUniqueVertexBuffer(1024 * 1024, fif, 0xDEA41);
-        ZestImGui->index_device_buffer[fif] = zest_CreateUniqueIndexBuffer(1024 * 1024, fif, 0xDEA41);
+        ZestImGui->vertex_device_buffer[fif] = zest_CreateUniqueVertexBuffer(context, 1024 * 1024, fif, 0xDEA41);
+        ZestImGui->index_device_buffer[fif] = zest_CreateUniqueIndexBuffer(context, 1024 * 1024, fif, 0xDEA41);
     }
 
     return ZestImGui;
@@ -287,8 +287,8 @@ void zest_imgui_UpdateBuffers() {
         ZestImGui->dirty[ZestImGui->fif] = 1;
 		zest_size index_memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 		zest_size vertex_memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
-		ZestImGui->vertex_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(vertex_memory_in_use, 0);
-		ZestImGui->index_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(index_memory_in_use, 0);
+		ZestImGui->vertex_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(ZestImGui->context, vertex_memory_in_use, 0);
+		ZestImGui->index_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(ZestImGui->context, index_memory_in_use, 0);
 		zest_buffer vertex_buffer = ZestImGui->vertex_staging_buffer[ZestImGui->fif];
 		zest_buffer index_buffer = ZestImGui->index_staging_buffer[ZestImGui->fif];
         zest_SetBufferMemoryInUse(vertex_buffer, vertex_memory_in_use);

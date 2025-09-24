@@ -54,10 +54,6 @@
     [Fonts]                             Basic functions for loading MSDF fonts
     [Main_loop_update_functions]        Only one function currently, for setting the current command queue to render with
     [Draw_Layers_API]                   General helper functions for layers
-    [Draw_sprite_layers]                Functions for drawing the builtin sprite layer pipeline
-    [Draw_billboard_layers]             Functions for drawing the builtin billboard layer pipeline
-    [Draw_3D_Line_layers]               Functions for drawing the builtin 3d line layer pipeline
-    [Draw_MSDF_font_layers]             Functions for drawing the builtin MSDF font layer pipeline
     [Draw_mesh_layers]                  Functions for drawing the builtin mesh layer pipeline
     [Draw_instance_mesh_layers]         Functions for drawing the builtin instance mesh layer pipeline
     [Compute_shaders]                   Functions for setting up your own custom compute shaders
@@ -1513,6 +1509,7 @@ typedef struct zest_window_t zest_window_t;
 typedef struct zest_shader_t zest_shader_t;
 typedef struct zest_frame_graph_semaphores_t zest_frame_graph_semaphores_t;
 typedef struct zest_frame_graph_t zest_frame_graph_t;
+typedef struct zest_frame_graph_builder_t zest_frame_graph_builder_t;
 typedef struct zest_pass_node_t zest_pass_node_t;
 typedef struct zest_resource_node_t zest_resource_node_t;
 typedef struct zest_queue_t zest_queue_t;
@@ -1578,6 +1575,7 @@ ZEST__MAKE_HANDLE(zest_execution_timeline)
 ZEST__MAKE_HANDLE(zest_frame_graph_semaphores)
 ZEST__MAKE_HANDLE(zest_swapchain)
 ZEST__MAKE_HANDLE(zest_frame_graph)
+ZEST__MAKE_HANDLE(zest_frame_graph_builder)
 ZEST__MAKE_HANDLE(zest_pass_node)
 ZEST__MAKE_HANDLE(zest_resource_node)
 ZEST__MAKE_HANDLE(zest_output_group);
@@ -2458,6 +2456,7 @@ typedef struct zest_buffer_t {
     zest_size memory_offset;
     zest_size buffer_offset;
     int magic;
+	zest_context context;
     zest_buffer_backend backend;
     zest_device_memory_pool memory_pool;
     zest_buffer_allocator buffer_allocator;
@@ -3037,6 +3036,11 @@ typedef struct zest_frame_graph_semaphores_t {
 
 zest_hash_map(zest_pass_group_t) zest_map_passes;
 zest_hash_map(zest_resource_versions_t) zest_map_resource_versions;
+
+typedef struct zest_frame_graph_builder_t {
+	zest_context context;
+	zest_frame_graph frame_graph;
+}zest_frame_graph_builder_t;
 
 typedef struct zest_frame_graph_t {
     int magic;
@@ -3710,7 +3714,6 @@ typedef struct zest_renderer_t {
     zest_builtin_pipeline_templates_t pipeline_templates;
 
     //Context data
-    zest_frame_graph current_frame_graph;
     zest_pass_node current_pass;
     zest_frame_graph *frame_graphs;       //All the render graphs used this frame. Gets cleared at the beginning of each frame
     zest_swapchain last_acquired_swapchain;
@@ -3801,8 +3804,8 @@ typedef struct zest_platform_t {
     zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
     void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
     //Buffer and memory
-    zest_bool                  (*create_buffer_memory_pool)(zest_size size, zest_buffer_info_t *buffer_info, zest_device_memory_pool memory_pool, const char *name);
-    zest_bool                  (*create_image_memory_pool)(zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
+    zest_bool                  (*create_buffer_memory_pool)(zest_context context, zest_size size, zest_buffer_info_t *buffer_info, zest_device_memory_pool memory_pool, const char *name);
+    zest_bool                  (*create_image_memory_pool)(zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
     zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
     void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
 	void					   (*set_buffer_backend_details)(zest_buffer buffer);
@@ -3811,7 +3814,7 @@ typedef struct zest_platform_t {
 	void					   (*push_buffer_for_freeing)(zest_buffer buffer);
 	zest_access_flags   	   (*get_buffer_last_access_mask)(zest_buffer buffer);
 	//Images
-	zest_bool 				   (*create_image)(zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
+	zest_bool 				   (*create_image)(zest_context context, zest_image image, zest_uint layer_count, zest_sample_count_flags num_samples, zest_image_flags flags);
 	zest_image_view 		   (*create_image_view)(zest_image image, zest_image_view_type view_type, zest_uint mip_levels_this_view, zest_uint base_mip, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 	zest_image_view_array 	   (*create_image_views_per_mip)(zest_image image, zest_image_view_type view_type, zest_uint base_array_index, zest_uint layer_count, zloc_linear_allocator_t *linear_allocator);
 	zest_bool 				   (*copy_buffer_regions_to_image)(zest_buffer_image_copy_t *regions, zest_buffer buffer, zest_size src_offset, zest_image image);
@@ -3845,7 +3848,7 @@ typedef struct zest_platform_t {
 	zest_bool 				   (*initialise_swapchain)(zest_swapchain swapchain, zest_window window);
 	//Device/OS
     void                  	   (*wait_for_idle_device)(void);
-	zest_bool 				   (*initialise_device)(void);
+	zest_bool 				   (*initialise_device)(zest_context context);
 	void					   (*os_add_platform_extensions)(void);
 	zest_bool				   (*create_window_surface)(zest_window window);
     //Create backends
@@ -3999,7 +4002,7 @@ ZEST_PRIVATE inline void *zest__reallocate(void *memory, zest_size size) {
 	return allocation;
 }
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
-ZEST_PRIVATE zest_bool zest__create_memory_pool(zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
+ZEST_PRIVATE zest_bool zest__create_memory_pool(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__set_buffer_details(zest_buffer_allocator buffer_allocator, zest_buffer buffer, zest_bool is_host_visible);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators();
@@ -4046,7 +4049,7 @@ ZEST_PRIVATE zest_layer_instruction_t zest__layer_instruction(void);
 ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
 ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);
 ZEST_PRIVATE void zest__cleanup_layer(zest_layer layer);
-ZEST_PRIVATE void zest__initialise_instance_layer(zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
+ZEST_PRIVATE void zest__initialise_instance_layer(zest_context context, zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
 ZEST_PRIVATE void zest__end_instance_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__start_instance_instructions(zest_layer layer);
 ZEST_API_TMP void zest__reset_instance_layer_drawing(zest_layer layer);
@@ -4072,7 +4075,7 @@ ZEST_PRIVATE zest_bool zest__transition_image_layout(zest_image image, zest_imag
 ZEST_PRIVATE zest_layer_handle zest__create_instance_layer(zest_context context, const char *name, zest_size instance_type_size, zest_uint initial_instance_count);
 
 // --Mesh_layer_internal_functions
-ZEST_PRIVATE void zest__initialise_mesh_layer(zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
+ZEST_PRIVATE void zest__initialise_mesh_layer(zest_context context, zest_layer mesh_layer, zest_size vertex_struct_size, zest_size initial_vertex_capacity);
 
 // --Misc_Helper_Functions
 ZEST_PRIVATE zest_image_view_type zest__get_image_view_type(zest_image image);
@@ -4127,16 +4130,13 @@ ZEST_API_TMP void zest__set_default_pool_sizes(void);
 
 //App_initialise_and_run_functions
 ZEST_PRIVATE void zest__do_scheduled_tasks(void);
-ZEST_PRIVATE void zest__initialise_app(zest_create_info_t *create_info);
-ZEST_PRIVATE void zest__initialise_window(zest_create_info_t *create_info);
+ZEST_PRIVATE void zest__initialise_app(zest_context context, zest_create_info_t *create_info);
+ZEST_PRIVATE void zest__initialise_window(zest_context context, zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__destroy(zest_context context);
 ZEST_PRIVATE void zest__main_loop(void);
 ZEST_API void zest_Terminate(void);
 ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait();
 ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
-ZEST_API_TMP zest_bool zest__validation_layers_are_enabled(void);
-ZEST_API_TMP zest_bool zest__validation_layers_with_sync_are_enabled(void);
-ZEST_API_TMP zest_bool zest__validation_layers_with_best_practices_are_enabled(void);
 //-- end of internal functions
 
 //-- Window_related_functions
@@ -4362,23 +4362,23 @@ ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 //Create a new buffer configured with the zest_buffer_info_t that you pass into the function. 
 //You can use helper functions to create commonly used buffer types such as zest_CreateVertexBufferInfo below, and you can just use
 //helper functions to create the buffers without needed to create the zest_buffer_info_t, see functions just below this one.
-ZEST_API zest_buffer zest_CreateBuffer(zest_size size, zest_buffer_info_t *buffer_info);
+ZEST_API zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
 //Create a staging buffer which you can use to prep data for uploading to another buffer on the GPU
-ZEST_API zest_buffer zest_CreateStagingBuffer(zest_size size, void *data);
-ZEST_API zest_buffer zest_CreateStagingBuffer(zest_size size, void *data);
+ZEST_API zest_buffer zest_CreateStagingBuffer(zest_context context, zest_size size, void *data);
+ZEST_API zest_buffer zest_CreateStagingBuffer(zest_context context, zest_size size, void *data);
 //Helper functions to create buffers. 
 //Create an index buffer.
-ZEST_API zest_buffer zest_CreateIndexBuffer(zest_size size, zest_uint fif);
-ZEST_API zest_buffer zest_CreateVertexBuffer(zest_size size, zest_uint fif);
-ZEST_API zest_buffer zest_CreateVertexStorageBuffer(zest_size size, zest_uint fif);
+ZEST_API zest_buffer zest_CreateIndexBuffer(zest_context context, zest_size size, zest_uint fif);
+ZEST_API zest_buffer zest_CreateVertexBuffer(zest_context context, zest_size size, zest_uint fif);
+ZEST_API zest_buffer zest_CreateVertexStorageBuffer(zest_context context, zest_size size, zest_uint fif);
 //Create a general storage buffer mainly for use in a compute shader
-ZEST_API zest_buffer zest_CreateStorageBuffer(zest_size size, zest_uint fif);
+ZEST_API zest_buffer zest_CreateStorageBuffer(zest_context context, zest_size size, zest_uint fif);
 //Create a general storage buffer that is visible to the CPU for more convenient updating
-ZEST_API zest_buffer zest_CreateCPUStorageBuffer(zest_size size, zest_uint fif);
+ZEST_API zest_buffer zest_CreateCPUStorageBuffer(zest_context context, zest_size size, zest_uint fif);
 //Create a vertex buffer that is flagged for storage so that you can use it in a compute shader
-ZEST_API zest_buffer zest_CreateComputeVertexBuffer(zest_size size, zest_uint fif);
+ZEST_API zest_buffer zest_CreateComputeVertexBuffer(zest_context context, zest_size size, zest_uint fif);
 //Create an index buffer that is flagged for storage so that you can use it in a compute shader
-ZEST_API zest_buffer zest_CreateComputeIndexBuffer(zest_size size, zest_uint fif);
+ZEST_API zest_buffer zest_CreateComputeIndexBuffer(zest_context context, zest_size size, zest_uint fif);
 //Create unique buffers for use when using buffers that are decoupled from the main frame in flight
 // Only use unique_id when you need to decouple the frame in flight for the buffer from the main frame in flight.
 // For example, imgui can it's own frame in flight because the buffers only need to be updated when the 
@@ -4388,17 +4388,17 @@ ZEST_API zest_buffer zest_CreateComputeIndexBuffer(zest_size size, zest_uint fif
 // Buffers that are synced up with the main frame in flight index. 
 // So basically if you intend your buffer to be updated everyframe (which will be in most cases) just use 0 for
 // the id
-ZEST_API zest_buffer zest_CreateUniqueIndexBuffer(zest_size size, zest_uint fif, zest_uint unique_id);
-ZEST_API zest_buffer zest_CreateUniqueVertexBuffer(zest_size size, zest_uint fif, zest_uint unique_id);
-ZEST_API zest_buffer zest_CreateUniqueVertexStorageBuffer(zest_size size, zest_uint fif, zest_uint unique_id);
+ZEST_API zest_buffer zest_CreateUniqueIndexBuffer(zest_context context, zest_size size, zest_uint fif, zest_uint unique_id);
+ZEST_API zest_buffer zest_CreateUniqueVertexBuffer(zest_context context, zest_size size, zest_uint fif, zest_uint unique_id);
+ZEST_API zest_buffer zest_CreateUniqueVertexStorageBuffer(zest_context context, zest_size size, zest_uint fif, zest_uint unique_id);
 //Create a general storage buffer mainly for use in a compute shader
-ZEST_API zest_buffer zest_CreateUniqueStorageBuffer(zest_size size, zest_uint fif, zest_uint unique_id);
+ZEST_API zest_buffer zest_CreateUniqueStorageBuffer(zest_context context, zest_size size, zest_uint fif, zest_uint unique_id);
 //Create a general storage buffer that is visible to the CPU for more convenient updating
-ZEST_API zest_buffer zest_CreateUniqueCPUStorageBuffer(zest_size size, zest_uint fif, zest_uint unique_id);
+ZEST_API zest_buffer zest_CreateUniqueCPUStorageBuffer(zest_context context, zest_size size, zest_uint fif, zest_uint unique_id);
 //Create a vertex buffer that is flagged for storage so that you can use it in a compute shader
-ZEST_API zest_buffer zest_CreateUniqueComputeVertexBuffer(zest_size size, zest_uint fif, zest_uint unique_id);
+ZEST_API zest_buffer zest_CreateUniqueComputeVertexBuffer(zest_context context, zest_size size, zest_uint fif, zest_uint unique_id);
 //Create an index buffer that is flagged for storage so that you can use it in a compute shader
-ZEST_API zest_buffer zest_CreateUniqueComputeIndexBuffer(zest_size size, zest_uint fif, zest_uint unique_id);
+ZEST_API zest_buffer zest_CreateUniqueComputeIndexBuffer(zest_context context, zest_size size, zest_uint fif, zest_uint unique_id);
 //The following functions can be used to generate a zest_buffer_info_t with the corresponding buffer configuration to create buffers with
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfo(zest_bool cpu_visible);
 ZEST_API zest_buffer_info_t zest_CreateVertexBufferInfoWithStorage(zest_bool cpu_visible);
