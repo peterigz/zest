@@ -3470,7 +3470,7 @@ typedef struct zest_pipeline_t {
     zest_pipeline_set_flags flags;                                               //Flag bits
 } zest_pipeline_t;
 
-struct zest_compute_t {
+typedef struct zest_compute_t {
     int magic;
     zest_compute_backend backend;
     zest_compute_handle handle;
@@ -3480,7 +3480,7 @@ struct zest_compute_t {
     void *user_data;                                          // Custom user data
     zest_compute_flags flags;
     zest_uint fif;                                            // Used for manual frame in flight compute
-};
+} zest_compute_t;
 
 typedef struct zest_sprite_instance_t {            //52 bytes
     zest_vec4 uv;                                  //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
@@ -3794,7 +3794,7 @@ typedef struct zest_platform_t {
     void                       (*release_barrier)(const zest_command_list command_list, zest_execution_details_t *exe_details);
     void*                      (*new_execution_backend)(zloc_linear_allocator_t *allocator);
 	void                       (*set_execution_fence)(zest_execution_backend backend, zest_bool is_intraframe);
-	zest_frame_graph_semaphores(*get_frame_graph_semaphores)(const char *name);
+	zest_frame_graph_semaphores(*get_frame_graph_semaphores)(zest_context context, const char *name);
     zest_bool                  (*submit_frame_graph_batch)(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues);
     zest_bool                  (*begin_render_pass)(const zest_command_list command_list, zest_execution_details_t *exe_details);
     void                       (*end_render_pass)(const zest_command_list command_list);
@@ -3867,7 +3867,7 @@ typedef struct zest_platform_t {
     void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
     void*                      (*new_pipeline_backend)(void);
     void*                      (*new_memory_pool_backend)(void);
-	void*					   (*new_device_backend)(void);
+	void*					   (*new_device_backend)(zest_context context);
 	void*					   (*new_renderer_backend)(void);
 	void*					   (*new_frame_graph_context_backend)(void);
 	void*					   (*new_swapchain_backend)(void);
@@ -3884,14 +3884,14 @@ typedef struct zest_platform_t {
 	void*					   (*new_shader_resources_backend)(void);
 	void*					   (*new_window_backend)(void);
     //Cleanup backends
-    void                       (*cleanup_frame_graph_semaphore)(zest_frame_graph_semaphores semaphores);
+    void                       (*cleanup_frame_graph_semaphore)(zest_context context, zest_frame_graph_semaphores semaphores);
     void                       (*cleanup_image_backend)(zest_image image);
     void                       (*cleanup_image_view_backend)(zest_image_view image_view);
     void                       (*cleanup_image_view_array_backend)(zest_image_view_array image_view);
     void                       (*cleanup_memory_pool_backend)(zest_device_memory_pool memory_allocation);
-    void                       (*cleanup_device_backend)(void);
+    void                       (*cleanup_device_backend)(zest_context context);
     void                       (*cleanup_buffer_backend)(zest_buffer buffer);
-    void                       (*cleanup_renderer_backend)(void);
+    void                       (*cleanup_renderer_backend)(zest_context context);
     void                       (*cleanup_shader_resources_backend)(zest_shader_resources shader_resources);
 	void 					   (*cleanup_swapchain_backend)(zest_swapchain swapchain, zest_bool for_recreation);
 	void 					   (*cleanup_window_backend)(zest_window window);
@@ -3900,7 +3900,7 @@ typedef struct zest_platform_t {
 	void 					   (*cleanup_set_layout)(zest_set_layout layout);
 	void 					   (*cleanup_pipeline_backend)(zest_pipeline pipeline);
 	void 					   (*cleanup_sampler_backend)(zest_sampler sampler);
-	void 					   (*cleanup_queue_backend)(zest_queue sampler);
+	void 					   (*cleanup_queue_backend)(zest_context context, zest_queue sampler);
 	void 					   (*cleanup_set_layout_backend)(zest_set_layout sampler);
 } zest_platform_t;
 

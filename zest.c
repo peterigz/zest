@@ -3020,7 +3020,7 @@ void zest__cleanup_renderer(zest_context context) {
 
     zest_map_foreach(i, ZestRenderer->cached_frame_graph_semaphores) {
         zest_frame_graph_semaphores semaphores = ZestRenderer->cached_frame_graph_semaphores.data[i];
-        ZestPlatform.cleanup_frame_graph_semaphore(semaphores);
+        ZestPlatform.cleanup_frame_graph_semaphore(context, semaphores);
         ZEST__FREE(context, semaphores);
     }
 
