@@ -1,9 +1,9 @@
 #include "impl_sdl2.h"
 
-zest_window_t *zest_implsdl2_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char* title) {
+zest_window_t *zest_implsdl2_CreateWindowCallback(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title) {
 	ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
 
-	zest_window_t *window = zest_AllocateWindow();
+	zest_window_t *window = zest_AllocateWindow(context);
 
 	SDL_Init(SDL_INIT_EVERYTHING);
 

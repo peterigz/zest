@@ -20,7 +20,7 @@ void SetupBillboards(ImGuiApp *app) {
 	shaderc_compiler_release(compiler);
 
 	//Create a pipeline that we can use to draw billboards
-	app->billboard_pipeline = zest_BeginPipelineTemplate("pipeline_billboard");
+	app->billboard_pipeline = zest_BeginPipelineTemplate(app->context, "pipeline_billboard");
 	zest_AddVertexInputBindingDescription(app->billboard_pipeline, 0, sizeof(zest_billboard_instance_t), zest_input_rate_instance);
 
 	zest_AddVertexAttribute(app->billboard_pipeline, 0, 0, zest_format_r32g32b32_sfloat, offsetof(zest_billboard_instance_t, position));			    // Location 0: Position
@@ -37,7 +37,6 @@ void SetupBillboards(ImGuiApp *app) {
 	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
 	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetGlobalBindlessLayout());
 	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
-	zest_EndPipelineTemplate(app->billboard_pipeline);
 
 	app->billboard_layer = zest_CreateInstanceLayer(app->context, "billboards", sizeof(zest_billboard_instance_t));
 
@@ -295,7 +294,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	SetupIrradianceCube(app);
 	SetupPrefilteredCube(app);
 
-	app->pbr_pipeline = zest_BeginPipelineTemplate("pipeline_mesh_instance");
+	app->pbr_pipeline = zest_BeginPipelineTemplate(app->context, "pipeline_mesh_instance");
 	zest_SetPipelinePushConstantRange(app->pbr_pipeline, sizeof(pbr_consts_t), zest_shader_render_stages);
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 0, sizeof(zest_vertex_t), zest_input_rate_vertex);
 	zest_AddVertexInputBindingDescription(app->pbr_pipeline, 1, sizeof(zest_mesh_instance_t), zest_input_rate_instance);
@@ -316,9 +315,8 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_SetPipelineCullMode(app->pbr_pipeline, zest_cull_mode_back);
 	zest_SetPipelineFrontFace(app->pbr_pipeline, zest_front_face_counter_clockwise);
 	zest_SetPipelineTopology(app->pbr_pipeline, zest_topology_triangle_list);
-	zest_EndPipelineTemplate(app->pbr_pipeline);
 
-	app->skybox_pipeline = zest_CopyPipelineTemplate("sky_box", app->pbr_pipeline);
+	app->skybox_pipeline = zest_CopyPipelineTemplate(app->context, "sky_box", app->pbr_pipeline);
 	zest_ClearPipelineDescriptorLayouts(app->skybox_pipeline);
 	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetGlobalBindlessLayout());
 	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
@@ -326,7 +324,6 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_SetPipelineFrontFace(app->skybox_pipeline, zest_front_face_clockwise);
 	zest_SetPipelineShaders(app->skybox_pipeline, skybox_vert, skybox_frag);
 	zest_SetPipelineDepthTest(app->skybox_pipeline, false, false);
-	zest_EndPipelineTemplate(app->skybox_pipeline);
 
 	app->pbr_shader_resources = zest_CreateShaderResources(app->context);
 	zest_AddGlobalBindlessSetToResources(app->pbr_shader_resources);							//Set 0
@@ -340,11 +337,11 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	app->cube_layer = zest_CreateInstanceMeshLayer(app->context, "Cube Layer");
 	app->skybox_layer = zest_CreateInstanceMeshLayer(app->context, "Sky Box Layer");
-	zest_mesh cube = zest_CreateCube(1.f, zest_ColorSet(0, 50, 100, 255));
-	zest_mesh sphere = zest_CreateSphere(100, 100, 1.f, zest_ColorSet(0, 50, 100, 255));
-	zest_mesh cone = zest_CreateCone(50, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255));
-	zest_mesh cylinder = zest_CreateCylinder(100, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255), true);
-	zest_mesh sky_box = zest_CreateCube(1.f, zest_ColorSet(255, 255, 255, 255));
+	zest_mesh cube = zest_CreateCube(app->context, 1.f, zest_ColorSet(0, 50, 100, 255));
+	zest_mesh sphere = zest_CreateSphere(app->context, 100, 100, 1.f, zest_ColorSet(0, 50, 100, 255));
+	zest_mesh cone = zest_CreateCone(app->context, 50, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255));
+	zest_mesh cylinder = zest_CreateCylinder(app->context, 100, 1.f, 2.f, zest_ColorSet(0, 50, 100, 255), true);
+	zest_mesh sky_box = zest_CreateCube(app->context, 1.f, zest_ColorSet(255, 255, 255, 255));
 	zest_AddMeshToLayer(app->cube_layer, cube);
 	zest_AddMeshToLayer(app->skybox_layer, sky_box);
 	zest_FreeMesh(cube);

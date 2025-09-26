@@ -4,7 +4,7 @@
 zest_imgui_t *ZestImGui = 0;
 
 zest_imgui_t *zest_imgui_Initialise(zest_context context) {
-    ZestImGui = (zest_imgui_t*)zest_AllocateMemory(sizeof(zest_imgui_t));
+    ZestImGui = (zest_imgui_t*)zest_AllocateMemory(context, sizeof(zest_imgui_t));
     memset(ZestImGui, 0, sizeof(zest_imgui_t));
 	ZestImGui->context = context;
     ZestImGui->magic = zest_INIT_MAGIC(zest_struct_type_imgui);
@@ -17,7 +17,7 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
     int upload_size = width * height * 4 * sizeof(char);
 
-    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer(context, "font_bitmap", pixels, upload_size, width, height, 4);
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     ZestImGui->font_texture = zest_CreateImage(context, &image_info);
@@ -34,15 +34,15 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
     //ZestImGui->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	ZestImGui->vertex_shader = zest_CreateShader(context, zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert", ZEST_FALSE, ZEST_TRUE, compiler, 0);
-	ZestImGui->fragment_shader = zest_CreateShader(context, zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag", ZEST_FALSE, ZEST_TRUE, compiler, 0);
+	ZestImGui->vertex_shader = zest_CreateShader(context, zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert", ZEST_FALSE, compiler, 0);
+	ZestImGui->fragment_shader = zest_CreateShader(context, zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag", ZEST_FALSE, compiler, 0);
 	shaderc_compiler_release(compiler);
 
     ZestImGui->font_resources = zest_CreateShaderResources(context);
     zest_AddGlobalBindlessSetToResources(ZestImGui->font_resources);
 
     //ImGuiPipeline
-    zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate("pipeline_imgui");
+    zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate(context, "pipeline_imgui");
     zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_imgui_push_t), zest_shader_render_stages);
     zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), zest_input_rate_vertex);
     zest_AddVertexAttribute(imgui_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
@@ -54,7 +54,6 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
     imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
     zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
     zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_GetGlobalBindlessLayout());
-    zest_EndPipelineTemplate(imgui_pipeline);
 
     imgui_pipeline->rasterization.polygon_mode = zest_polygon_mode_fill;
     imgui_pipeline->rasterization.cull_mode = zest_cull_mode_none;
@@ -81,7 +80,7 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
 void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned char *pixels) {
     zest_WaitForIdleDevice();
     int upload_size = width * height * 4 * sizeof(char);
-    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer("font_bitmap", pixels, upload_size, width, height, 4);
+    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer(ZestImGui->context, "font_bitmap", pixels, upload_size, width, height, 4);
     zest_FreeImage(ZestImGui->font_texture);
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
@@ -531,6 +530,6 @@ void zest_imgui_Shutdown() {
 	zest_FreeImage(ZestImGui->font_texture);
 	zest_FreePipelineTemplate(ZestImGui->pipeline);
     zest_FreeAtlasRegion(ZestImGui->font_region);
-    zest_FreeMemory(ZestImGui);
+    zest_FreeMemory(ZestImGui->context, ZestImGui);
 }
 //--End Dear ImGui helper functions

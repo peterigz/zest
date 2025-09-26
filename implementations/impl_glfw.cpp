@@ -1,9 +1,10 @@
 #include "impl_glfw.h"
 
-zest_window_t *zest_implglfw_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char* title) {
-	ZEST_ASSERT(ZestDevice);        //Must initialise the ZestDevice first
+zest_window_t *zest_implglfw_CreateWindowCallback(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title) {
+	ZEST_ASSERT(context);        //not a valid context handle
 
-	zest_window_t *window = zest_AllocateWindow();
+	zest_window_t *window = zest_AllocateWindow(context);
+	window->context = context;
 	ZestRenderer->main_window = window;
 
 	glfwInit();
@@ -84,11 +85,11 @@ void zest_implglfw_PollEventsCallback(void) {
 	zest_MaybeQuit(glfwWindowShouldClose(handle));
 }
 
-void zest_implglfw_AddPlatformExtensionsCallback(void) {
+void zest_implglfw_AddPlatformExtensionsCallback(zest_context context) {
 	zest_uint count;
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 	for (int i = 0; i != count; ++i) {
-		zest_AddInstanceExtension((char*)glfw_extensions[i]);
+		zest_AddInstanceExtension(context, (char*)glfw_extensions[i]);
 	}
 }
 

@@ -119,8 +119,8 @@ ZEST_PRIVATE VkResult zest__vk_create_debug_messenger(VkInstance instance, const
 
 // Helper functions to convert enums to strings 
 ZEST_PRIVATE const char *zest__vk_image_layout_to_string(VkImageLayout layout);
-ZEST_PRIVATE zest_text_t zest__vk_access_flags_to_string(VkAccessFlags flags);
-ZEST_PRIVATE zest_text_t zest__vk_pipeline_stage_flags_to_string(VkPipelineStageFlags flags);
+ZEST_PRIVATE zest_text_t zest__vk_access_flags_to_string(zest_context context, VkAccessFlags flags);
+ZEST_PRIVATE zest_text_t zest__vk_pipeline_stage_flags_to_string(zest_context context, VkPipelineStageFlags flags);
 
 //Buffers and memory
 ZEST_PRIVATE zest_bool zest__vk_create_buffer_memory_pool(zest_context context, zest_size size, zest_buffer_info_t *buffer_info, zest_device_memory_pool memory_pool, const char *name);
@@ -141,7 +141,7 @@ ZEST_PRIVATE zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_comm
 
 //Set layouts
 ZEST_PRIVATE zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
-ZEST_PRIVATE zest_bool zest__vk_create_set_pool(zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
+ZEST_PRIVATE zest_bool zest__vk_create_set_pool(zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindless);
 ZEST_PRIVATE zest_descriptor_set zest__vk_create_bindless_set(zest_set_layout layout);
 ZEST_PRIVATE void zest__vk_update_bindless_image_descriptor(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
 ZEST_PRIVATE void zest__vk_update_bindless_buffer_descriptor(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
@@ -169,25 +169,25 @@ ZEST_PRIVATE void zest__vk_reset_queue_command_pool(zest_queue queue);
 
 //New backends
 ZEST_PRIVATE void *zest__vk_new_device_backend(zest_context context);
-ZEST_PRIVATE void *zest__vk_new_renderer_backend(void);
+ZEST_PRIVATE void *zest__vk_new_renderer_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_context_backend(void);
-ZEST_PRIVATE void *zest__vk_new_swapchain_backend(void);
-ZEST_PRIVATE void *zest__vk_new_buffer_backend(void);
-ZEST_PRIVATE void *zest__vk_new_uniform_buffer_backend(void);
+ZEST_PRIVATE void *zest__vk_new_swapchain_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_buffer_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_uniform_buffer_backend(zest_context context);
 ZEST_PRIVATE void zest__vk_set_uniform_buffer_backend(zest_uniform_buffer buffer);
-ZEST_PRIVATE void *zest__vk_new_compute_backend(void);
-ZEST_PRIVATE void *zest__vk_new_image_backend(void);
+ZEST_PRIVATE void *zest__vk_new_compute_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_image_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator, zest_image node_image, zest_image imported_image);
-ZEST_PRIVATE void *zest__vk_new_set_layout_backend(void);
-ZEST_PRIVATE void *zest__vk_new_descriptor_pool_backend(void);
-ZEST_PRIVATE void *zest__vk_new_sampler_backend(void);
-ZEST_PRIVATE void *zest__vk_new_queue_backend(void);
-ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(void);
-ZEST_PRIVATE void *zest__vk_new_frame_graph_semaphores_backend(void);
-ZEST_PRIVATE void *zest__vk_new_pipeline_backend(void);
-ZEST_PRIVATE void *zest__vk_new_memory_pool_backend(void);
-ZEST_PRIVATE void *zest__vk_new_shader_resources_backend(void);
-ZEST_PRIVATE void *zest__vk_new_window_backend(void);
+ZEST_PRIVATE void *zest__vk_new_set_layout_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_descriptor_pool_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_sampler_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_queue_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_frame_graph_semaphores_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_pipeline_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_memory_pool_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_shader_resources_backend(zest_context context);
+ZEST_PRIVATE void *zest__vk_new_window_backend(zest_context context);
 
 ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute);
 
@@ -227,9 +227,9 @@ ZEST_PRIVATE zest_bool zest__vk_create_sampler(zest_sampler sampler);
 ZEST_PRIVATE int zest__vk_get_image_raw_layout(zest_image image);
 ZEST_PRIVATE zest_bool zest__vk_copy_buffer_to_image(zest_buffer buffer, zest_size src_offset, zest_image image, zest_uint width, zest_uint height);
 ZEST_PRIVATE zest_bool zest__vk_generate_mipmaps(zest_image image);
-ZEST_PRIVATE zest_bool zest__vk_begin_single_time_commands(void);
-ZEST_PRIVATE zest_bool zest__vk_end_single_time_commands(void);
-ZEST_PRIVATE zest_bool zest__vk_create_execution_timeline_backend(zest_execution_timeline timeline);
+ZEST_PRIVATE zest_bool zest__vk_begin_single_time_commands(zest_context context);
+ZEST_PRIVATE zest_bool zest__vk_end_single_time_commands(zest_context context);
+ZEST_PRIVATE zest_bool zest__vk_create_execution_timeline_backend(zest_context context, zest_execution_timeline timeline);
 ZEST_PRIVATE void zest__vk_add_image_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, 
 				zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout, 
 				zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
@@ -586,29 +586,29 @@ const char *zest__vulkan_error_string(VkResult errorCode) {
 // -- End Error_logging
 
 // -- Enum_to_string_functions
-zest_text_t zest__vk_queue_flags_to_string(VkQueueFlags flags) {
+zest_text_t zest__vk_queue_flags_to_string(zest_context context, VkQueueFlags flags) {
     zest_text_t string = { 0 };
     if (!flags) {
-        zest_AppendTextf(&string, "%s", "NONE");
+        zest_AppendTextf(context, &string, "%s", "NONE");
         return string;
     }
     zloc_size flags_field = flags;
     while (flags_field) {
         if (zest_TextSize(&string)) {
-            zest_AppendTextf(&string, ", ");
+            zest_AppendTextf(context, &string, ", ");
         }
         zest_uint index = zloc__scan_forward(flags_field);
         switch (1ull << index) {
-        case VK_QUEUE_GRAPHICS_BIT: zest_AppendTextf(&string, "%s", "GRAPHICS"); break;
-        case VK_QUEUE_COMPUTE_BIT: zest_AppendTextf(&string, "%s", "COMPUTE"); break;
-        case VK_QUEUE_TRANSFER_BIT: zest_AppendTextf(&string, "%s", "TRANSFER"); break;
-        case VK_QUEUE_SPARSE_BINDING_BIT: zest_AppendTextf(&string, "%s", "SPARSE BINDING"); break;
-        case VK_QUEUE_PROTECTED_BIT: zest_AppendTextf(&string, "%s", "PROTECTED"); break;
-        case VK_QUEUE_VIDEO_DECODE_BIT_KHR: zest_AppendTextf(&string, "%s", "VIDEO_DECODE"); break;
-        case VK_QUEUE_VIDEO_ENCODE_BIT_KHR: zest_AppendTextf(&string, "%s", "VIDEO_ENCODE"); break;
-        case VK_QUEUE_OPTICAL_FLOW_BIT_NV: zest_AppendTextf(&string, "%s", "OPTICAL_FLOW"); break;
-        case VK_QUEUE_FLAG_BITS_MAX_ENUM: zest_AppendTextf(&string, "%s", "MAX"); break;
-        default: zest_AppendTextf(&string, "%s", "Unknown Queue Flag"); break;
+        case VK_QUEUE_GRAPHICS_BIT: zest_AppendTextf(context, &string, "%s", "GRAPHICS"); break;
+        case VK_QUEUE_COMPUTE_BIT: zest_AppendTextf(context, &string, "%s", "COMPUTE"); break;
+        case VK_QUEUE_TRANSFER_BIT: zest_AppendTextf(context, &string, "%s", "TRANSFER"); break;
+        case VK_QUEUE_SPARSE_BINDING_BIT: zest_AppendTextf(context, &string, "%s", "SPARSE BINDING"); break;
+        case VK_QUEUE_PROTECTED_BIT: zest_AppendTextf(context, &string, "%s", "PROTECTED"); break;
+        case VK_QUEUE_VIDEO_DECODE_BIT_KHR: zest_AppendTextf(context, &string, "%s", "VIDEO_DECODE"); break;
+        case VK_QUEUE_VIDEO_ENCODE_BIT_KHR: zest_AppendTextf(context, &string, "%s", "VIDEO_ENCODE"); break;
+        case VK_QUEUE_OPTICAL_FLOW_BIT_NV: zest_AppendTextf(context, &string, "%s", "OPTICAL_FLOW"); break;
+        case VK_QUEUE_FLAG_BITS_MAX_ENUM: zest_AppendTextf(context, &string, "%s", "MAX"); break;
+        default: zest_AppendTextf(context, &string, "%s", "Unknown Queue Flag"); break;
         }
         flags_field &= ~(1ull << index);
     }
@@ -638,76 +638,76 @@ const char *zest__vk_image_layout_to_string(VkImageLayout layout) {
     }
 }
 
-zest_text_t zest__vk_access_flags_to_string(VkAccessFlags flags) {
+zest_text_t zest__vk_access_flags_to_string(zest_context context, VkAccessFlags flags) {
     zest_text_t string = { 0 };
     if (!flags) {
-        zest_AppendTextf(&string, "%s", "NONE");
+        zest_AppendTextf(context, &string, "%s", "NONE");
         return string;
     }
     zloc_size flags_field = flags;
     while (flags_field) {
         if (zest_TextSize(&string)) {
-            zest_AppendTextf(&string, ", ");
+            zest_AppendTextf(context, &string, ", ");
         }
         zest_uint index = zloc__scan_forward(flags_field);
         switch (1ull << index) {
-        case VK_ACCESS_INDIRECT_COMMAND_READ_BIT: zest_AppendTextf(&string, "%s", "INDIRECT_COMMAND_READ_BIT"); break;
-        case VK_ACCESS_INDEX_READ_BIT: zest_AppendTextf(&string, "%s", "INDEX_READ_BIT"); break;
-        case VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT: zest_AppendTextf(&string, "%s", "VERTEX_ATTRIBUTE_READ_BIT"); break;
-        case VK_ACCESS_UNIFORM_READ_BIT: zest_AppendTextf(&string, "%s", "UNIFORM_READ_BIT"); break;
-        case VK_ACCESS_INPUT_ATTACHMENT_READ_BIT: zest_AppendTextf(&string, "%s", "INPUT_ATTACHMENT_READ_BIT"); break;
-        case VK_ACCESS_SHADER_READ_BIT: zest_AppendTextf(&string, "%s", "SHADER_READ_BIT"); break;
-        case VK_ACCESS_SHADER_WRITE_BIT: zest_AppendTextf(&string, "%s", "SHADER_WRITE_BIT"); break;
-        case VK_ACCESS_COLOR_ATTACHMENT_READ_BIT: zest_AppendTextf(&string, "%s", "COLOR_ATTACHMENT_READ_BIT"); break;
-        case VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT: zest_AppendTextf(&string, "%s", "COLOR_ATTACHMENT_WRITE_BIT"); break;
-        case VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT: zest_AppendTextf(&string, "%s", "DEPTH_STENCIL_ATTACHMENT_READ_BIT"); break;
-        case VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT: zest_AppendTextf(&string, "%s", "DEPTH_STENCIL_ATTACHMENT_WRITE_BIT"); break;
-        case VK_ACCESS_TRANSFER_READ_BIT: zest_AppendTextf(&string, "%s", "TRANSFER_READ_BIT"); break;
-        case VK_ACCESS_TRANSFER_WRITE_BIT: zest_AppendTextf(&string, "%s", "TRANSFER_WRITE_BIT"); break;
-        case VK_ACCESS_HOST_READ_BIT: zest_AppendTextf(&string, "%s", "HOST_READ_BIT"); break;
-        case VK_ACCESS_HOST_WRITE_BIT: zest_AppendTextf(&string, "%s", "HOST_WRITE_BIT"); break;
-        case VK_ACCESS_MEMORY_READ_BIT: zest_AppendTextf(&string, "%s", "MEMORY_READ_BIT"); break;
-        case VK_ACCESS_MEMORY_WRITE_BIT: zest_AppendTextf(&string, "%s", "MEMORY_WRITE_BIT"); break;
-        case VK_ACCESS_NONE: zest_AppendTextf(&string, "%s", "NONE"); break;
-        default: zest_AppendTextf(&string, "%s", "Unknown Access Flags"); break;
+        case VK_ACCESS_INDIRECT_COMMAND_READ_BIT: zest_AppendTextf(context, &string, "%s", "INDIRECT_COMMAND_READ_BIT"); break;
+        case VK_ACCESS_INDEX_READ_BIT: zest_AppendTextf(context, &string, "%s", "INDEX_READ_BIT"); break;
+        case VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT: zest_AppendTextf(context, &string, "%s", "VERTEX_ATTRIBUTE_READ_BIT"); break;
+        case VK_ACCESS_UNIFORM_READ_BIT: zest_AppendTextf(context, &string, "%s", "UNIFORM_READ_BIT"); break;
+        case VK_ACCESS_INPUT_ATTACHMENT_READ_BIT: zest_AppendTextf(context, &string, "%s", "INPUT_ATTACHMENT_READ_BIT"); break;
+        case VK_ACCESS_SHADER_READ_BIT: zest_AppendTextf(context, &string, "%s", "SHADER_READ_BIT"); break;
+        case VK_ACCESS_SHADER_WRITE_BIT: zest_AppendTextf(context, &string, "%s", "SHADER_WRITE_BIT"); break;
+        case VK_ACCESS_COLOR_ATTACHMENT_READ_BIT: zest_AppendTextf(context, &string, "%s", "COLOR_ATTACHMENT_READ_BIT"); break;
+        case VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT: zest_AppendTextf(context, &string, "%s", "COLOR_ATTACHMENT_WRITE_BIT"); break;
+        case VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT: zest_AppendTextf(context, &string, "%s", "DEPTH_STENCIL_ATTACHMENT_READ_BIT"); break;
+        case VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT: zest_AppendTextf(context, &string, "%s", "DEPTH_STENCIL_ATTACHMENT_WRITE_BIT"); break;
+        case VK_ACCESS_TRANSFER_READ_BIT: zest_AppendTextf(context, &string, "%s", "TRANSFER_READ_BIT"); break;
+        case VK_ACCESS_TRANSFER_WRITE_BIT: zest_AppendTextf(context, &string, "%s", "TRANSFER_WRITE_BIT"); break;
+        case VK_ACCESS_HOST_READ_BIT: zest_AppendTextf(context, &string, "%s", "HOST_READ_BIT"); break;
+        case VK_ACCESS_HOST_WRITE_BIT: zest_AppendTextf(context, &string, "%s", "HOST_WRITE_BIT"); break;
+        case VK_ACCESS_MEMORY_READ_BIT: zest_AppendTextf(context, &string, "%s", "MEMORY_READ_BIT"); break;
+        case VK_ACCESS_MEMORY_WRITE_BIT: zest_AppendTextf(context, &string, "%s", "MEMORY_WRITE_BIT"); break;
+        case VK_ACCESS_NONE: zest_AppendTextf(context, &string, "%s", "NONE"); break;
+        default: zest_AppendTextf(context, &string, "%s", "Unknown Access Flags"); break;
         }
         flags_field &= ~(1ull << index);
     }
     return string;
 }
 
-zest_text_t zest__vk_pipeline_stage_flags_to_string(VkPipelineStageFlags flags) {
+zest_text_t zest__vk_pipeline_stage_flags_to_string(zest_context context, VkPipelineStageFlags flags) {
     zest_text_t string = { 0 };
     if (!flags) {
-        zest_AppendTextf(&string, "%s", "NONE");
+        zest_AppendTextf(context, &string, "%s", "NONE");
         return string;
     }
     zloc_size flags_field = flags;
     while (flags_field) {
         if (zest_TextSize(&string)) {
-            zest_AppendTextf(&string, ", ");
+            zest_AppendTextf(context, &string, ", ");
         }
         zest_uint index = zloc__scan_forward(flags_field);
         switch (1ull << index) {
-        case VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT: zest_AppendTextf(&string, "%s", "TOP_OF_PIPE_BIT"); break;
-        case VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT: zest_AppendTextf(&string, "%s", "DRAW_INDIRECT_BIT"); break;
-        case VK_PIPELINE_STAGE_VERTEX_INPUT_BIT: zest_AppendTextf(&string, "%s", "VERTEX_INPUT_BIT"); break;
-        case VK_PIPELINE_STAGE_VERTEX_SHADER_BIT: zest_AppendTextf(&string, "%s", "VERTEX_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT: zest_AppendTextf(&string, "%s", "TESSELLATION_CONTROL_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT: zest_AppendTextf(&string, "%s", "TESSELLATION_EVALUATION_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT: zest_AppendTextf(&string, "%s", "GEOMETRY_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT: zest_AppendTextf(&string, "%s", "FRAGMENT_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT: zest_AppendTextf(&string, "%s", "EARLY_FRAGMENT_TESTS_BIT"); break;
-        case VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT: zest_AppendTextf(&string, "%s", "LATE_FRAGMENT_TESTS_BIT"); break;
-        case VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT: zest_AppendTextf(&string, "%s", "COLOR_ATTACHMENT_OUTPUT_BIT"); break;
-        case VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT: zest_AppendTextf(&string, "%s", "COMPUTE_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_TRANSFER_BIT: zest_AppendTextf(&string, "%s", "TRANSFER_BIT"); break;
-        case VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT: zest_AppendTextf(&string, "%s", "BOTTOM_OF_PIPE_BIT"); break;
-        case VK_PIPELINE_STAGE_HOST_BIT: zest_AppendTextf(&string, "%s", "HOST_BIT"); break;
-        case VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT: zest_AppendTextf(&string, "%s", "ALL_GRAPHICS_BIT"); break;
-        case VK_PIPELINE_STAGE_ALL_COMMANDS_BIT: zest_AppendTextf(&string, "%s", "ALL_COMMANDS_BIT"); break;
-        case VK_PIPELINE_STAGE_NONE: zest_AppendTextf(&string, "%s", "NONE"); break;
-        default: zest_AppendTextf(&string, "%s", "Unknown Pipeline Stage"); break;
+        case VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT: zest_AppendTextf(context, &string, "%s", "TOP_OF_PIPE_BIT"); break;
+        case VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT: zest_AppendTextf(context, &string, "%s", "DRAW_INDIRECT_BIT"); break;
+        case VK_PIPELINE_STAGE_VERTEX_INPUT_BIT: zest_AppendTextf(context, &string, "%s", "VERTEX_INPUT_BIT"); break;
+        case VK_PIPELINE_STAGE_VERTEX_SHADER_BIT: zest_AppendTextf(context, &string, "%s", "VERTEX_SHADER_BIT"); break;
+        case VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT: zest_AppendTextf(context, &string, "%s", "TESSELLATION_CONTROL_SHADER_BIT"); break;
+        case VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT: zest_AppendTextf(context, &string, "%s", "TESSELLATION_EVALUATION_SHADER_BIT"); break;
+        case VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT: zest_AppendTextf(context, &string, "%s", "GEOMETRY_SHADER_BIT"); break;
+        case VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT: zest_AppendTextf(context, &string, "%s", "FRAGMENT_SHADER_BIT"); break;
+        case VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT: zest_AppendTextf(context, &string, "%s", "EARLY_FRAGMENT_TESTS_BIT"); break;
+        case VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT: zest_AppendTextf(context, &string, "%s", "LATE_FRAGMENT_TESTS_BIT"); break;
+        case VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT: zest_AppendTextf(context, &string, "%s", "COLOR_ATTACHMENT_OUTPUT_BIT"); break;
+        case VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT: zest_AppendTextf(context, &string, "%s", "COMPUTE_SHADER_BIT"); break;
+        case VK_PIPELINE_STAGE_TRANSFER_BIT: zest_AppendTextf(context, &string, "%s", "TRANSFER_BIT"); break;
+        case VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT: zest_AppendTextf(context, &string, "%s", "BOTTOM_OF_PIPE_BIT"); break;
+        case VK_PIPELINE_STAGE_HOST_BIT: zest_AppendTextf(context, &string, "%s", "HOST_BIT"); break;
+        case VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT: zest_AppendTextf(context, &string, "%s", "ALL_GRAPHICS_BIT"); break;
+        case VK_PIPELINE_STAGE_ALL_COMMANDS_BIT: zest_AppendTextf(context, &string, "%s", "ALL_COMMANDS_BIT"); break;
+        case VK_PIPELINE_STAGE_NONE: zest_AppendTextf(context, &string, "%s", "NONE"); break;
+        default: zest_AppendTextf(context, &string, "%s", "Unknown Pipeline Stage"); break;
         }
         flags_field &= ~(1ull << index);
     }
@@ -1040,7 +1040,7 @@ ZEST_PRIVATE inline zest_bool zest__validation_layers_with_best_practices_are_en
 // -- End Inline_helpers
 
 // -- Swapchain_setup
-zest_swapchain_support_details_t zest__vk_query_swapchain_support(VkPhysicalDevice physical_device) {
+zest_swapchain_support_details_t zest__vk_query_swapchain_support(zest_context context, VkPhysicalDevice physical_device) {
     zest_swapchain_support_details_t details;
 
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.capabilities);
@@ -1048,14 +1048,14 @@ zest_swapchain_support_details_t zest__vk_query_swapchain_support(VkPhysicalDevi
     vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.formats_count, ZEST_NULL);
 
     if (details.formats_count != 0) {
-        details.formats = (VkSurfaceFormatKHR*)ZEST__ALLOCATE(sizeof(VkSurfaceFormatKHR) * details.formats_count);
+        details.formats = (VkSurfaceFormatKHR*)ZEST__ALLOCATE(context, sizeof(VkSurfaceFormatKHR) * details.formats_count);
         vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.formats_count, details.formats);
     }
 
     vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.present_modes_count, ZEST_NULL);
 
     if (details.present_modes_count != 0) {
-        details.present_modes = (VkPresentModeKHR*)ZEST__ALLOCATE(sizeof(VkPresentModeKHR) * details.present_modes_count);
+        details.present_modes = (VkPresentModeKHR*)ZEST__ALLOCATE(context, sizeof(VkPresentModeKHR) * details.present_modes_count);
         vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.present_modes_count, details.present_modes);
     }
 
@@ -1185,7 +1185,7 @@ VkExtent2D zest__vk_choose_swap_extent(VkSurfaceCapabilitiesKHR* capabilities) {
 
 zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window window) {
     ZEST_ASSERT_HANDLE(swapchain);   //Not a valid swapchain handle!
-    zest_swapchain_support_details_t swapchain_support_details = zest__vk_query_swapchain_support(ZestDevice->backend->physical_device);
+    zest_swapchain_support_details_t swapchain_support_details = zest__vk_query_swapchain_support(swapchain->context, ZestDevice->backend->physical_device);
     swapchain->window = window;
 
     VkSurfaceFormatKHR surfaceFormat = zest__vk_choose_swapchain_format(swapchain_support_details.formats);
@@ -1229,17 +1229,18 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
 
     vkGetSwapchainImagesKHR(ZestDevice->backend->logical_device, swapchain->backend->vk_swapchain, &image_count, ZEST_NULL);
     VkImage *images = NULL;
-    zest_vec_resize(images, image_count);
+    zest_vec_resize(swapchain->context, images, image_count);
     vkGetSwapchainImagesKHR(ZestDevice->backend->logical_device, swapchain->backend->vk_swapchain, &image_count, images);
 
-    zest_vec_resize(swapchain->images, image_count);
-    zest_vec_resize(swapchain->views, image_count);
+    zest_vec_resize(swapchain->context, swapchain->images, image_count);
+    zest_vec_resize(swapchain->context, swapchain->views, image_count);
     zest_image_info_t image_info = zest_CreateImageInfo(extent.width, extent.height);
     image_info.aspect_flags = zest_image_aspect_color_bit;
     image_info.format = (zest_format)surfaceFormat.format;
     zest_vec_foreach(i, images) {
         swapchain->images[i] = zest__image_zero;
-        swapchain->images[i].backend = zest__vk_new_image_backend();
+		swapchain->images[i].handle.context = swapchain->context;
+        swapchain->images[i].backend = zest__vk_new_image_backend(swapchain->context);
         swapchain->images[i].backend->vk_image = images[i];
         swapchain->images[i].backend->vk_format = surfaceFormat.format;
         swapchain->images[i].backend->vk_aspect = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1262,7 +1263,7 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
         ZEST_RETURN_FALSE_ON_FAIL(vkCreateSemaphore(ZestDevice->backend->logical_device, &semaphore_info, &ZestDevice->backend->allocation_callbacks, &swapchain->backend->vk_image_available_semaphore[i]));
     }
 
-    zest_vec_resize(swapchain->backend->vk_render_finished_semaphore, swapchain->image_count);
+    zest_vec_resize(swapchain->context, swapchain->backend->vk_render_finished_semaphore, swapchain->image_count);
 
     zest_vec_foreach(i, swapchain->backend->vk_render_finished_semaphore) {
         ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_semaphore);
@@ -1271,6 +1272,7 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
 
     zest_vec_foreach(i, swapchain->images) {
         swapchain->views[i] = zest__vk_create_image_view(&swapchain->images[i], zest_image_view_type_2d_array, 1, 0, 0, 1, 0);
+		swapchain->views[i]->handle.context = swapchain->context;
     }
 
     return ZEST_TRUE;
@@ -1392,7 +1394,7 @@ zest_bool zest__vk_initialise_device(zest_context context) {
         return ZEST_FALSE;
     }
 	zest__vk_set_limit_data();
-	zest__set_default_pool_sizes();
+	zest__set_default_pool_sizes(context);
     return ZEST_TRUE;
 }
 
@@ -1413,7 +1415,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
     if (ZEST__FLAGGED(ZestApp->create_info.flags, zest_init_flag_log_validation_errors_to_memory)) {
         if (!zest_map_valid_key(ZestDevice->validation_errors, (zest_key)pCallbackData->messageIdNumber)) {
             zest_text_t error_message = { 0 };
-            zest_SetText(&error_message, pCallbackData->pMessage);
+            zest_SetText(context, &error_message, pCallbackData->pMessage);
             zest_map_insert_key(context, ZestDevice->validation_errors, (zest_key)pCallbackData->messageIdNumber, error_message);
         }
     }
@@ -1434,7 +1436,7 @@ zest_bool zest__vk_check_validation_layer_support(zest_context context) {
     zest_uint layer_count;
     vkEnumerateInstanceLayerProperties(&layer_count, ZEST_NULL);
 
-    ZEST__ARRAY(available_layers, VkLayerProperties, layer_count);
+    ZEST__ARRAY(context, available_layers, VkLayerProperties, layer_count);
     vkEnumerateInstanceLayerProperties(&layer_count, available_layers);
 
     for (int i = 0; i != zest__validation_layer_count; ++i) {
@@ -1462,7 +1464,7 @@ zest_bool zest__vk_check_device_extension_support(zest_context context, VkPhysic
     zest_uint extension_count;
     vkEnumerateDeviceExtensionProperties(physical_device, ZEST_NULL, &extension_count, ZEST_NULL);
 
-    ZEST__ARRAY(available_extensions, VkExtensionProperties, extension_count);
+    ZEST__ARRAY(context, available_extensions, VkExtensionProperties, extension_count);
     vkEnumerateDeviceExtensionProperties(physical_device, ZEST_NULL, &extension_count, available_extensions);
 
     zest_uint required_extensions_found = 0;
@@ -1479,11 +1481,11 @@ zest_bool zest__vk_check_device_extension_support(zest_context context, VkPhysic
 }
 
 zest_bool zest__vk_is_device_suitable(zest_context context, VkPhysicalDevice physical_device) {
-    zest_bool extensions_supported = zest__vk_check_device_extension_support(physical_device);
+    zest_bool extensions_supported = zest__vk_check_device_extension_support(context, physical_device);
 
     zest_bool swapchain_adequate = 0;
     if (extensions_supported) {
-        zest_swapchain_support_details_t swapchain_support_details = zest__vk_query_swapchain_support(physical_device);
+        zest_swapchain_support_details_t swapchain_support_details = zest__vk_query_swapchain_support(context, physical_device);
         swapchain_adequate = swapchain_support_details.formats_count && swapchain_support_details.present_modes_count;
         ZEST__FREE(context, swapchain_support_details.formats);
         ZEST__FREE(context, swapchain_support_details.present_modes);
@@ -1550,7 +1552,7 @@ void zest__vk_pick_physical_device(zest_context context) {
 
     ZEST_ASSERT(device_count);        //Failed to find GPUs with Vulkan support!
 
-    ZEST__ARRAY(devices, VkPhysicalDevice, device_count);
+    ZEST__ARRAY(context, devices, VkPhysicalDevice, device_count);
     vkEnumeratePhysicalDevices(ZestDevice->backend->instance, &device_count, devices);
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Found %i devices", device_count);
@@ -1628,7 +1630,7 @@ ZEST_PRIVATE inline void zest__vk_get_required_extensions(zest_context context) 
     ZEST_ASSERT(context->device->extensions); //Vulkan not available
 
     if (zest__validation_layers_are_enabled(context)) {
-        zest_AddInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        zest_AddInstanceExtension(context, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
 #ifdef ZEST_PORTABILITY_ENUMERATION
@@ -1721,7 +1723,7 @@ zest_bool zest__vk_create_instance(zest_context context) {
     zest_uint extension_property_count = 0;
     vkEnumerateInstanceExtensionProperties(ZEST_NULL, &extension_property_count, ZEST_NULL);
 
-    ZEST__ARRAY(available_extensions, VkExtensionProperties, extension_property_count);
+    ZEST__ARRAY(context, available_extensions, VkExtensionProperties, extension_property_count);
 
     vkEnumerateInstanceExtensionProperties(ZEST_NULL, &extension_property_count, available_extensions);
 
@@ -1742,7 +1744,7 @@ zest_bool zest__vk_create_instance(zest_context context) {
     return ZEST_TRUE;
 }
 
-VkResult zest__vk_create_command_buffer_pools() {
+VkResult zest__vk_create_command_buffer_pools(zest_context context) {
     VkCommandBufferAllocateInfo alloc_info = { 0 };
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -1752,7 +1754,7 @@ VkResult zest__vk_create_command_buffer_pools() {
             zest_queue queue = ZestDevice->queues[i];
             ZEST_VK_ASSERT_RESULT(zest__vk_create_queue_command_pool(queue->family_index, &queue->backend->command_pool[fif]));
 			alloc_info.commandPool = queue->backend->command_pool[fif];
-			zest_vec_resize(queue->backend->command_buffers[fif], alloc_info.commandBufferCount);
+			zest_vec_resize(context, queue->backend->command_buffers[fif], alloc_info.commandBufferCount);
 			ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_command_buffer);
 			ZEST_VK_ASSERT_RESULT(vkAllocateCommandBuffers(ZestDevice->backend->logical_device, &alloc_info, queue->backend->command_buffers[fif]));
         }
@@ -1766,7 +1768,7 @@ zest_bool zest__vk_create_logical_device(zest_context context) {
     zest_uint queue_family_count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(ZestDevice->backend->physical_device, &queue_family_count, ZEST_NULL);
 
-    zest_vec_resize(ZestDevice->backend->queue_families, queue_family_count);
+    zest_vec_resize(context, ZestDevice->backend->queue_families, queue_family_count);
     //VkQueueFamilyProperties queue_families[10];
     vkGetPhysicalDeviceQueueFamilyProperties(ZestDevice->backend->physical_device, &queue_family_count, ZestDevice->backend->queue_families);
 
@@ -1778,7 +1780,7 @@ zest_bool zest__vk_create_logical_device(zest_context context) {
     zest_vec_foreach(i, ZestDevice->backend->queue_families) {
         VkQueueFamilyProperties properties = ZestDevice->backend->queue_families[i];
 
-        zest_text_t queue_flags = zest__vk_queue_flags_to_string(properties.queueFlags);
+        zest_text_t queue_flags = zest__vk_queue_flags_to_string(context, properties.queueFlags);
 		ZEST_APPEND_LOG(ZestDevice->log_path.str, "Index: %i) %s, Queue count: %i", i, queue_flags.str, properties.queueCount);
         zest_FreeText(context, &queue_flags);
 
@@ -1962,9 +1964,9 @@ zest_bool zest__vk_create_logical_device(zest_context context) {
     ZestDevice->backend->pfn_vkCmdBeginRendering = (PFN_vkCmdBeginRenderingKHR)vkGetDeviceProcAddr(ZestDevice->backend->logical_device, "vkCmdBeginRenderingKHR");
     ZestDevice->backend->pfn_vkCmdEndRendering = (PFN_vkCmdEndRenderingKHR)vkGetDeviceProcAddr(ZestDevice->backend->logical_device, "vkCmdEndRenderingKHR");
 
-    ZestDevice->graphics_queue.backend = zest__vk_new_queue_backend();
-    ZestDevice->compute_queue.backend = zest__vk_new_queue_backend();
-    ZestDevice->transfer_queue.backend = zest__vk_new_queue_backend();
+    ZestDevice->graphics_queue.backend = zest__vk_new_queue_backend(context);
+    ZestDevice->compute_queue.backend = zest__vk_new_queue_backend(context);
+    ZestDevice->transfer_queue.backend = zest__vk_new_queue_backend(context);
 
     vkGetDeviceQueue(ZestDevice->backend->logical_device, indices.graphics_family_index, 0, &ZestDevice->graphics_queue.backend->vk_queue);
     vkGetDeviceQueue(ZestDevice->backend->logical_device, indices.compute_family_index, 0, &ZestDevice->compute_queue.backend->vk_queue);
@@ -2022,14 +2024,14 @@ zest_bool zest__vk_create_logical_device(zest_context context) {
     }
 
     ZEST_APPEND_LOG(ZestDevice->log_path.str, "Create queue command buffer pools");
-    ZEST_RETURN_FALSE_ON_FAIL(zest__vk_create_command_buffer_pools());
+    ZEST_RETURN_FALSE_ON_FAIL(zest__vk_create_command_buffer_pools(context));
 
     return ZEST_TRUE;
 }
 // -- End initialisation functions
 
 // -- General_create_functions
-zest_bool zest__vk_create_execution_timeline_backend(zest_execution_timeline timeline) {
+zest_bool zest__vk_create_execution_timeline_backend(zest_context context, zest_execution_timeline timeline) {
     VkSemaphoreTypeCreateInfo timeline_create_info = { 0 };
     timeline_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
     timeline_create_info.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
@@ -2038,7 +2040,7 @@ zest_bool zest__vk_create_execution_timeline_backend(zest_execution_timeline tim
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     semaphore_info.pNext = &timeline_create_info;
 	ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_semaphore);
-    timeline->backend = ZEST__NEW(zest_execution_timeline_backend);
+    timeline->backend = ZEST__NEW(context, zest_execution_timeline_backend);
     ZEST_RETURN_FALSE_ON_FAIL(vkCreateSemaphore(ZestDevice->backend->logical_device, &semaphore_info, &ZestDevice->backend->allocation_callbacks, &timeline->backend->semaphore));
     return ZEST_TRUE;
 }
@@ -2046,7 +2048,7 @@ zest_bool zest__vk_create_execution_timeline_backend(zest_execution_timeline tim
 
 // -- Backend_setup_functions
 void *zest__vk_new_device_backend(zest_context context) {
-    zest_device_backend backend = zloc_Allocate(ZestDevice->allocator, sizeof(zest_device_backend_t));
+    zest_device_backend backend = zloc_Allocate(context->device->allocator, sizeof(zest_device_backend_t));
     *backend = (zest_device_backend_t){ 0 };
     backend->allocation_callbacks.pUserData = context;
     backend->allocation_callbacks.pfnAllocation = zest__vk_allocate_callback;
@@ -2055,20 +2057,20 @@ void *zest__vk_new_device_backend(zest_context context) {
     return backend;
 }
 
-void *zest__vk_new_queue_backend(void) {
-    zest_queue_backend backend = ZEST__NEW(zest_queue_backend);
+void *zest__vk_new_queue_backend(zest_context context) {
+    zest_queue_backend backend = ZEST__NEW(context, zest_queue_backend);
     *backend = (zest_queue_backend_t){ 0 };
     return backend;
 }
 
-void *zest__vk_new_submission_batch_backend(void) {
-    zest_submission_batch_backend backend = zloc_LinearAllocation(ZestRenderer->frame_graph_allocator[ZEST_FIF], sizeof(zest_submission_batch_backend_t));
+void *zest__vk_new_submission_batch_backend(zest_context context) {
+    zest_submission_batch_backend backend = zloc_LinearAllocation(context->renderer->frame_graph_allocator[ZEST_FIF], sizeof(zest_submission_batch_backend_t));
     *backend = (zest_submission_batch_backend_t){ 0 };
     return backend;
 }
 
-void *zest__vk_new_renderer_backend(void) {
-    zest_renderer_backend backend = ZEST__NEW(zest_renderer_backend);
+void *zest__vk_new_renderer_backend(zest_context context) {
+    zest_renderer_backend backend = ZEST__NEW(context, zest_renderer_backend);
     *backend = (zest_renderer_backend_t){ 0 };
     return backend;
 }
@@ -2079,21 +2081,21 @@ void *zest__vk_new_frame_graph_context_backend(void) {
     return backend_context;
 }
 
-void *zest__vk_new_swapchain_backend(void) {
-    zest_swapchain_backend swapchain_backend = ZEST__NEW(zest_swapchain_backend);
+void *zest__vk_new_swapchain_backend(zest_context context) {
+    zest_swapchain_backend swapchain_backend = ZEST__NEW(context, zest_swapchain_backend);
     *swapchain_backend = (zest_swapchain_backend_t){ 0 };
     return swapchain_backend;
 }
 
-void *zest__vk_new_buffer_backend(void) {
-    zest_buffer_backend buffer_backend = ZEST__NEW(zest_buffer_backend);
+void *zest__vk_new_buffer_backend(zest_context context) {
+    zest_buffer_backend buffer_backend = ZEST__NEW(context, zest_buffer_backend);
     *buffer_backend = (zest_buffer_backend_t){ 0 };
     buffer_backend->magic = zest_INIT_MAGIC(zest_struct_type_buffer_backend);
     return buffer_backend;
 }
 
-void *zest__vk_new_uniform_buffer_backend(void) {
-    zest_uniform_buffer_backend uniform_buffer_backend = ZEST__NEW(zest_uniform_buffer_backend);
+void *zest__vk_new_uniform_buffer_backend(zest_context context) {
+    zest_uniform_buffer_backend uniform_buffer_backend = ZEST__NEW(context, zest_uniform_buffer_backend);
     *uniform_buffer_backend = (zest_uniform_buffer_backend_t){ 0 };
     return uniform_buffer_backend;
 }
@@ -2106,8 +2108,8 @@ void zest__vk_set_uniform_buffer_backend(zest_uniform_buffer uniform_buffer) {
     }
 }
 
-void *zest__vk_new_image_backend(void) {
-    zest_image_backend image_backend = ZEST__NEW(zest_image_backend);
+void *zest__vk_new_image_backend(zest_context context) {
+    zest_image_backend image_backend = ZEST__NEW(context, zest_image_backend);
     *image_backend = (zest_image_backend_t){ 0 };
     return image_backend;
 }
@@ -2122,32 +2124,32 @@ void *zest__vk_new_frame_graph_image_backend(zloc_linear_allocator_t *allocator,
     return node_image->backend;
 }
 
-void *zest__vk_new_compute_backend(void) {
-    zest_compute_backend compute_backend = ZEST__NEW(zest_compute_backend);
+void *zest__vk_new_compute_backend(zest_context context) {
+    zest_compute_backend compute_backend = ZEST__NEW(context, zest_compute_backend);
     *compute_backend = (zest_compute_backend_t){ 0 };
     return compute_backend;
 }
 
-void *zest__vk_new_set_layout_backend(void) {
-    zest_set_layout_backend layout_backend = ZEST__NEW(zest_set_layout_backend);
+void *zest__vk_new_set_layout_backend(zest_context context) {
+    zest_set_layout_backend layout_backend = ZEST__NEW(context, zest_set_layout_backend);
     *layout_backend = (zest_set_layout_backend_t){ 0 };
     return layout_backend;
 }
 
-void *zest__vk_new_descriptor_pool_backend(void) {
-    zest_descriptor_pool_backend backend = ZEST__NEW(zest_descriptor_pool_backend);
+void *zest__vk_new_descriptor_pool_backend(zest_context context) {
+    zest_descriptor_pool_backend backend = ZEST__NEW(context, zest_descriptor_pool_backend);
     *backend = (zest_descriptor_pool_backend_t){ 0 };
     return backend;
 }
 
-void *zest__vk_new_sampler_backend(void) {
-    zest_sampler_backend backend = ZEST__NEW(zest_sampler_backend);
+void *zest__vk_new_sampler_backend(zest_context context) {
+    zest_sampler_backend backend = ZEST__NEW(context, zest_sampler_backend);
     *backend = (zest_sampler_backend_t){ 0 };
     return backend;
 }
 
-void *zest__vk_new_frame_graph_semaphores_backend(void) {
-    zest_frame_graph_semaphores_backend backend = ZEST__NEW(zest_frame_graph_semaphores_backend);
+void *zest__vk_new_frame_graph_semaphores_backend(zest_context context) {
+    zest_frame_graph_semaphores_backend backend = ZEST__NEW(context, zest_frame_graph_semaphores_backend);
     *backend = (zest_frame_graph_semaphores_backend_t){ 0 };
     return backend;
 }
@@ -2228,14 +2230,14 @@ void *zest__vk_new_execution_barriers_backend(zloc_linear_allocator_t *allocator
     return backend;
 }
 
-void *zest__vk_new_shader_resources_backend(void) {
-	zest_shader_resources_backend backend = ZEST__NEW(zest_shader_resources_backend);
+void *zest__vk_new_shader_resources_backend(zest_context context) {
+	zest_shader_resources_backend backend = ZEST__NEW(context, zest_shader_resources_backend);
 	*backend = (zest_shader_resources_backend_t) { 0 };
 	return backend;
 }
 
-void *zest__vk_new_window_backend(void) {
-	zest_window_backend backend = ZEST__NEW(zest_window_backend);
+void *zest__vk_new_window_backend(zest_context context) {
+	zest_window_backend backend = ZEST__NEW(context, zest_window_backend);
 	*backend = (zest_window_backend_t) { 0 };
 	return backend;
 }
@@ -2280,7 +2282,7 @@ void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_
 
 void zest__vk_cleanup_window_backend(zest_window window) {
     vkDestroySurfaceKHR(ZestDevice->backend->instance, window->backend->surface, &ZestDevice->backend->allocation_callbacks);
-    ZEST__FREE(window->swapchain->context, window->backend);
+    ZEST__FREE(window->context, window->backend);
     window->backend = 0;
 }
 
@@ -2457,8 +2459,8 @@ void zest__vk_reset_queue_command_pool(zest_queue queue) {
 // -- End Command_pools
 
 // -- Buffer_and_memory
-void *zest__vk_new_memory_pool_backend(void) {
-    zest_device_memory_pool_backend backend = ZEST__NEW(zest_device_memory_pool_backend);
+void *zest__vk_new_memory_pool_backend(zest_context context) {
+    zest_device_memory_pool_backend backend = ZEST__NEW(context, zest_device_memory_pool_backend);
     *backend = (zest_device_memory_pool_backend_t){ 0 };
     return backend;
 }
@@ -2617,8 +2619,8 @@ zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_se
     layoutInfo.bindingCount = zest_vec_size(builder->bindings);
     VkDescriptorSetLayoutBinding *bindings = 0;
     VkDescriptorBindingFlags *binding_flag_list = 0;
-    zest_vec_resize(bindings, layoutInfo.bindingCount);
-    zest_vec_resize(binding_flag_list, layoutInfo.bindingCount);
+    zest_vec_resize(builder->context, bindings, layoutInfo.bindingCount);
+    zest_vec_resize(builder->context, binding_flag_list, layoutInfo.bindingCount);
 
     layoutInfo.pBindings = bindings;
 
@@ -2660,7 +2662,7 @@ zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_se
     return ZEST_TRUE;
 }
 
-zest_bool zest__vk_create_set_pool(zest_set_layout layout, zest_uint max_set_count, zest_bool bindless) {
+zest_bool zest__vk_create_set_pool(zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindless) {
     zest_hash_map(zest_uint) type_counts_map;
     type_counts_map type_counts = { 0 };
     zest_context context = layout->handle.context;
@@ -2687,7 +2689,7 @@ zest_bool zest__vk_create_set_pool(zest_set_layout layout, zest_uint max_set_cou
         } else {
             new_pool_size.descriptorCount = type_counts.data[i] * max_set_count;
         }
-        zest_vec_push(layout->handle.context, layout->handle.context, pool_sizes, new_pool_size);
+        zest_vec_push(layout->handle.context, pool_sizes, new_pool_size);
     }
     zest_map_free(layout->handle.context, type_counts); // Free the map now that we're done with it
 
@@ -2708,7 +2710,6 @@ zest_bool zest__vk_create_set_pool(zest_set_layout layout, zest_uint max_set_cou
     pool_create_info.poolSizeCount = zest_vec_size(pool_sizes);
     pool_create_info.pPoolSizes = pool_sizes;
 
-    zest_descriptor_pool pool = zest__create_descriptor_pool(pool_create_info.maxSets);
     ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_descriptor_pool);
     VkResult result = vkCreateDescriptorPool(ZestDevice->backend->logical_device, &pool_create_info, &ZestDevice->backend->allocation_callbacks,
         &pool->backend->vk_descriptor_pool);
@@ -2718,7 +2719,6 @@ zest_bool zest__vk_create_set_pool(zest_set_layout layout, zest_uint max_set_cou
     if (result != VK_SUCCESS) {
         pool->backend->vk_descriptor_pool = VK_NULL_HANDLE;
         ZEST__FREE(context, pool->backend);
-        ZEST__FREE(context, pool);
         ZEST_VK_PRINT_RESULT(result);
         return ZEST_FALSE; // 4. Add return on failure
     }
@@ -2736,9 +2736,9 @@ zest_descriptor_set zest__vk_create_bindless_set(zest_set_layout layout) {
     alloc_info.descriptorSetCount = 1; // Maybe add this as a parameter at some point if it's needed
     alloc_info.pSetLayouts = &layout->backend->vk_layout;
 
-    zest_descriptor_set set = ZEST__NEW(zest_descriptor_set);
+    zest_descriptor_set set = ZEST__NEW(layout->handle.context, zest_descriptor_set);
     *set = (zest_descriptor_set_t){ 0 };
-    set->backend = ZEST__NEW(zest_descriptor_set_backend);
+    set->backend = ZEST__NEW(layout->handle.context, zest_descriptor_set_backend);
     *set->backend = (zest_descriptor_set_backend_t){ 0 };
     set->magic = zest_INIT_MAGIC(zest_struct_type_descriptor_set);
     VkResult result = vkAllocateDescriptorSets(ZestDevice->backend->logical_device, &alloc_info, &set->backend->vk_descriptor_set);
@@ -2780,10 +2780,10 @@ zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zes
             ZEST_ASSERT(0);     //descriptor sets for uniform buffer already exist! This function should only be called
                                 //when the uniform buffer is created.
         }
-		buffer->descriptor_set[fif] = ZEST__NEW(zest_descriptor_set);
+		buffer->descriptor_set[fif] = ZEST__NEW(buffer->handle.context, zest_descriptor_set);
 		*buffer->descriptor_set[fif] = (zest_descriptor_set_t){0};
         buffer->descriptor_set[fif]->magic = zest_INIT_MAGIC(zest_struct_type_descriptor_set);
-		buffer->descriptor_set[fif]->backend = ZEST__NEW(zest_descriptor_set_backend);
+		buffer->descriptor_set[fif]->backend = ZEST__NEW(buffer->handle.context, zest_descriptor_set_backend);
 		*buffer->descriptor_set[fif]->backend = (zest_descriptor_set_backend_t){ 0 };
         target_sets[fif] = VK_NULL_HANDLE;
         layouts[fif] = associated_layout->backend->vk_layout;
@@ -2877,8 +2877,8 @@ void zest__vk_os_add_platform_extensions(zest_context context) {
 // -- End Device_OS
 
 // -- Pipelines
-void *zest__vk_new_pipeline_backend(void) {
-    zest_pipeline_backend backend = ZEST__NEW(zest_pipeline_backend);
+void *zest__vk_new_pipeline_backend(zest_context context) {
+    zest_pipeline_backend backend = ZEST__NEW(context, zest_pipeline_backend);
     *backend = (zest_pipeline_backend_t){ 0 };
     return backend;
 }
@@ -3281,7 +3281,7 @@ zest_bool zest__vk_copy_buffer_regions_to_image(zest_context context, zest_buffe
 	ZEST_ASSERT(ZestRenderer->backend->one_time_command_buffer);	//You must call begin_single_time_command_buffer before calling this fuction
 
     VkBufferImageCopy *copy_regions = 0;
-    zest_vec_reserve(copy_regions, zest_vec_size(regions));
+    zest_vec_reserve(context, copy_regions, zest_vec_size(regions));
     zest_vec_foreach(i, regions) {
 		VkBufferImageCopy copy_region = { 0 };
         copy_region.bufferImageHeight = regions[i].buffer_image_height;
@@ -3322,9 +3322,8 @@ zest_image_view_t *zest__vk_create_image_view(zest_image image, zest_image_view_
     void *memory = 0;
     zest_size marker = 0;
     if (!linear_allocator) {
-        memory = zest_AllocateMemory(total_size);
+        memory = zest_AllocateMemory(image->handle.context, total_size);
     } else {
-        zloc_LinearAllocation
         marker = zloc_GetMarker(linear_allocator);
         memory = zloc_LinearAllocation(linear_allocator, total_size);
     }
@@ -3344,7 +3343,7 @@ zest_image_view_t *zest__vk_create_image_view(zest_image image, zest_image_view_
         } else {
             zloc_ResetToMarker(linear_allocator, marker);
         }
-        return NULL
+		return NULL;
     }
 
     return image_view;
@@ -3368,8 +3367,8 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_image image, zest
     void *memory = 0;
     zest_image_view_array view_array = 0;
     if (!linear_allocator) {
-        memory = zest_AllocateMemory(total_size);
-        view_array = ZEST__NEW(zest_image_view_array);
+        memory = zest_AllocateMemory(image->handle.context, total_size);
+        view_array = ZEST__NEW(image->handle.context, zest_image_view_array);
         *view_array = (zest_image_view_array_t){ 0 };
     } else {
         memory = zloc_LinearAllocation(linear_allocator, total_size);
@@ -3550,7 +3549,7 @@ zest_bool zest__vk_create_window_surface(zest_window window) {
     return ZEST_TRUE;
 }
 
-zest_bool zest__vk_begin_single_time_commands(void) {
+zest_bool zest__vk_begin_single_time_commands(zest_context context) {
     ZEST_ASSERT(ZestRenderer->backend->one_time_command_buffer == VK_NULL_HANDLE);  //The command buffer must be null. Call zest__vk_end_single_time_commands before calling begin again.
     VkCommandBufferAllocateInfo alloc_info = { 0 };
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -3570,7 +3569,7 @@ zest_bool zest__vk_begin_single_time_commands(void) {
     return ZEST_TRUE;
 }
 
-zest_bool zest__vk_end_single_time_commands(void) {
+zest_bool zest__vk_end_single_time_commands(zest_context context) {
     ZEST_VK_ASSERT_RESULT(vkEndCommandBuffer(ZestRenderer->backend->one_time_command_buffer));
 
     VkSubmitInfo submit_info = { 0 };
@@ -3596,7 +3595,7 @@ void *zest__vk_allocate_callback(void *pUserData, size_t size, size_t alignment,
         int d = 0;
     }
     void *pAllocation = ZEST__ALLOCATE(context, size + sizeof(zest_platform_memory_info_t));
-    *(zest_platform_memory_info_t *)pAllocation = *pInfo;
+    *(zest_platform_memory_info_t *)pAllocation = context->device->platform_memory_info;
     return (void *)((zest_platform_memory_info_t *)pAllocation + 1);
 }
 
@@ -3752,10 +3751,10 @@ zest_frame_graph_semaphores zest__vk_get_frame_graph_semaphores(zest_context con
         timeline_create_info.initialValue = 0;
         semaphore_info.pNext = &timeline_create_info;
 
-        zest_frame_graph_semaphores semaphores = ZEST__NEW(zest_frame_graph_semaphores);
+        zest_frame_graph_semaphores semaphores = ZEST__NEW(context, zest_frame_graph_semaphores);
         *semaphores = (zest_frame_graph_semaphores_t){ 0 };
         semaphores->magic = zest_INIT_MAGIC(zest_struct_type_frame_graph_semaphores);
-        semaphores->backend = ZestPlatform.new_frame_graph_semaphores_backend();
+        semaphores->backend = zest__vk_new_frame_graph_semaphores_backend(context);
 
         zest_ForEachFrameInFlight(fif) {
             for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
@@ -4762,7 +4761,7 @@ zest_bool zest_cmd_CopyBitmapToImage(zest_bitmap bitmap, zest_image_handle dst_h
 	}
 	memcpy(staging_buffer->data, bitmap->data, (zest_size)image_size);
 
-    ZEST_CLEANUP_ON_FALSE(zest__vk_begin_single_time_commands());
+    ZEST_CLEANUP_ON_FALSE(zest__vk_begin_single_time_commands(dst_handle.context));
 
 	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(dst_image, zest_image_layout_transfer_dst_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.layer_count));
 
@@ -4773,7 +4772,7 @@ zest_bool zest_cmd_CopyBitmapToImage(zest_bitmap bitmap, zest_image_handle dst_h
     }
 	ZEST_CLEANUP_ON_FALSE(zest__vk_transition_image_layout(dst_image, zest_image_layout_shader_read_only_optimal, 0, dst_image->info.mip_levels, 0, dst_image->info.layer_count));
 
-    ZEST_CLEANUP_ON_FALSE(zest__vk_end_single_time_commands());
+    ZEST_CLEANUP_ON_FALSE(zest__vk_end_single_time_commands(dst_handle.context));
 
     return ZEST_TRUE;
 
@@ -4819,6 +4818,8 @@ void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {
 
     ZEST_PRINT("Resource List: Total Resources: %u\n", zest_bucket_array_size(&frame_graph->resources));
 
+	zest_context context = frame_graph->command_list.context;
+
     zest_bucket_array_foreach(resource_index, frame_graph->resources) {
 		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
         if (resource->type == zest_resource_type_buffer) {
@@ -4855,13 +4856,13 @@ void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {
                 // This stage should ideally be stored with the batch submission info by EndRenderGraph
                 ZEST_PRINT("  Waits on the following Semaphores:");
                 zest_vec_foreach(semaphore_index, batch->backend->final_wait_semaphores) {
-                    zest_text_t pipeline_stages = zest__vk_pipeline_stage_flags_to_string(zest__to_vk_pipeline_stage(batch->wait_stages[semaphore_index]));
+                    zest_text_t pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, zest__to_vk_pipeline_stage(batch->wait_stages[semaphore_index]));
                     if (zest_vec_size(batch->wait_values) && batch->wait_values[semaphore_index] > 0) {
                         ZEST_PRINT("     Timeline Semaphore: %p, Value: %zu at Stage: %s", (void *)batch->backend->final_wait_semaphores[semaphore_index], batch->wait_values[semaphore_index], pipeline_stages.str);
                     } else {
                         ZEST_PRINT("     Binary Semaphore:   %p at Stage: %s", (void *)batch->backend->final_wait_semaphores[semaphore_index], pipeline_stages.str);
                     }
-                    zest_FreeText(&pipeline_stages);
+                    zest_FreeText(context, &pipeline_stages);
                 }
             } else {
                 ZEST_PRINT("  Does not wait on any semaphores.");
@@ -4881,27 +4882,27 @@ void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {
 
                 if (zest_vec_size(exe_details->barriers.backend->acquire_buffer_barriers) > 0 ||
                     zest_vec_size(exe_details->barriers.backend->acquire_image_barriers) > 0) {
-                    zest_text_t overal_src_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(exe_details->barriers.backend->overall_src_stage_mask_for_acquire_barriers);
-                    zest_text_t overal_dst_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(exe_details->barriers.backend->overall_dst_stage_mask_for_acquire_barriers);
+                    zest_text_t overal_src_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, exe_details->barriers.backend->overall_src_stage_mask_for_acquire_barriers);
+                    zest_text_t overal_dst_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, exe_details->barriers.backend->overall_dst_stage_mask_for_acquire_barriers);
                     ZEST_PRINT("      Acquire Barriers (Overall Pipeline Src Stages: %s, Dst Stages: %s):",
                         overal_src_pipeline_stages.str,
                         overal_dst_pipeline_stages.str);
-                    zest_FreeText(&overal_src_pipeline_stages);
-                    zest_FreeText(&overal_dst_pipeline_stages);
+                    zest_FreeText(context, &overal_src_pipeline_stages);
+                    zest_FreeText(context, &overal_dst_pipeline_stages);
 
                     ZEST_PRINT("        Images:");
                     zest_vec_foreach(barrier_index, exe_details->barriers.backend->acquire_image_barriers) {
                         VkImageMemoryBarrier *imb = &exe_details->barriers.backend->acquire_image_barriers[barrier_index];
                         zest_resource_node image_resource = exe_details->barriers.acquire_image_barrier_nodes[barrier_index];
-                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(imb->srcAccessMask);
-                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(imb->dstAccessMask);
+                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(context, imb->srcAccessMask);
+                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(context, imb->dstAccessMask);
                         ZEST_PRINT("            %s, Layout: %s -> %s, Access: %s -> %s, QFI: %u -> %u",
                             image_resource->name,
                             zest__vk_image_layout_to_string(imb->oldLayout), zest__vk_image_layout_to_string(imb->newLayout),
                             src_access_mask.str, dst_access_mask.str,
                             imb->srcQueueFamilyIndex, imb->dstQueueFamilyIndex);
-                        zest_FreeText(&src_access_mask);
-                        zest_FreeText(&dst_access_mask);
+                        zest_FreeText(context, &src_access_mask);
+                        zest_FreeText(context, &dst_access_mask);
                     }
 
                     ZEST_PRINT("        Buffers:");
@@ -4909,15 +4910,15 @@ void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {
                         VkBufferMemoryBarrier *bmb = &exe_details->barriers.backend->acquire_buffer_barriers[barrier_index];
                         zest_resource_node buffer_resource = exe_details->barriers.acquire_buffer_barrier_nodes[barrier_index];
                         // You need a robust way to get resource_name from bmb->image
-                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(bmb->srcAccessMask);
-                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(bmb->dstAccessMask);
+                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(context, bmb->srcAccessMask);
+                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(context, bmb->dstAccessMask);
                         ZEST_PRINT("            %s | Access: %s -> %s, QFI: %u -> %u, Size: %zu",
                             buffer_resource->name,
                             src_access_mask.str, dst_access_mask.str,
                             bmb->srcQueueFamilyIndex, bmb->dstQueueFamilyIndex,
                             buffer_resource->buffer_desc.size);
-                        zest_FreeText(&src_access_mask);
-                        zest_FreeText(&dst_access_mask);
+                        zest_FreeText(context, &src_access_mask);
+                        zest_FreeText(context, &dst_access_mask);
                     }
                 }
 
@@ -4934,27 +4935,27 @@ void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {
 
                 if (zest_vec_size(exe_details->barriers.backend->release_buffer_barriers) > 0 ||
                     zest_vec_size(exe_details->barriers.backend->release_image_barriers) > 0) {
-                    zest_text_t overal_src_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(exe_details->barriers.backend->overall_src_stage_mask_for_release_barriers);
-                    zest_text_t overal_dst_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(exe_details->barriers.backend->overall_dst_stage_mask_for_release_barriers);
+                    zest_text_t overal_src_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, exe_details->barriers.backend->overall_src_stage_mask_for_release_barriers);
+                    zest_text_t overal_dst_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, exe_details->barriers.backend->overall_dst_stage_mask_for_release_barriers);
                     ZEST_PRINT("      Release Barriers (Overall Pipeline Src Stages: %s, Dst Stages: %s):",
                         overal_src_pipeline_stages.str,
                         overal_dst_pipeline_stages.str);
-                    zest_FreeText(&overal_src_pipeline_stages);
-                    zest_FreeText(&overal_dst_pipeline_stages);
+                    zest_FreeText(context, &overal_src_pipeline_stages);
+                    zest_FreeText(context, &overal_dst_pipeline_stages);
 
                     ZEST_PRINT("        Images:");
                     zest_vec_foreach(barrier_index, exe_details->barriers.backend->release_image_barriers) {
                         VkImageMemoryBarrier *imb = &exe_details->barriers.backend->release_image_barriers[barrier_index];
                         zest_resource_node image_resource = exe_details->barriers.release_image_barrier_nodes[barrier_index];
-                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(imb->srcAccessMask);
-                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(imb->dstAccessMask);
+                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(context, imb->srcAccessMask);
+                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(context, imb->dstAccessMask);
                         ZEST_PRINT("            %s, Layout: %s -> %s, Access: %s -> %s, QFI: %u -> %u",
                             image_resource->name,
                             zest__vk_image_layout_to_string(imb->oldLayout), zest__vk_image_layout_to_string(imb->newLayout),
                             src_access_mask.str, dst_access_mask.str,
                             imb->srcQueueFamilyIndex, imb->dstQueueFamilyIndex);
-                        zest_FreeText(&src_access_mask);
-                        zest_FreeText(&dst_access_mask);
+                        zest_FreeText(context, &src_access_mask);
+                        zest_FreeText(context, &dst_access_mask);
                     }
 
                     ZEST_PRINT("        Buffers:");
@@ -4962,15 +4963,15 @@ void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {
                         VkBufferMemoryBarrier *bmb = &exe_details->barriers.backend->release_buffer_barriers[barrier_index];
                         zest_resource_node buffer_resource = exe_details->barriers.release_buffer_barrier_nodes[barrier_index];
                         // You need a robust way to get resource_name from bmb->image
-                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(bmb->srcAccessMask);
-                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(bmb->dstAccessMask);
+                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(context, bmb->srcAccessMask);
+                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(context, bmb->dstAccessMask);
                         ZEST_PRINT("            %s, Access: %s -> %s, QFI: %u -> %u, Size: %zu",
                             buffer_resource->name,
                             src_access_mask.str, dst_access_mask.str,
                             bmb->srcQueueFamilyIndex, bmb->dstQueueFamilyIndex,
                             buffer_resource->buffer_desc.size);
-                        zest_FreeText(&src_access_mask);
-                        zest_FreeText(&dst_access_mask);
+                        zest_FreeText(context, &src_access_mask);
+                        zest_FreeText(context, &dst_access_mask);
                     }
                 }
             }

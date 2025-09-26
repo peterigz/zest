@@ -3,7 +3,7 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 
-zest_window_t *zest_implsdl2_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char* title);
+zest_window_t *zest_implsdl2_CreateWindowCallback(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title);
 VkResult zest_implsdl2_CreateWindowSurfaceCallback(zest_window_t* window);
 void zest_implsdl2_PollEventsCallback(void);
 void zest_implsdl2_AddPlatformExtensionsCallback(void);

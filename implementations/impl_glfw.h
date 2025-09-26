@@ -3,11 +3,11 @@
 #include "zest_vulkan.h"
 #include <GLFW/glfw3.h>
 
-zest_window zest_implglfw_CreateWindowCallback(int x, int y, int width, int height, zest_bool maximised, const char *title);
+zest_window zest_implglfw_CreateWindowCallback(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char *title);
 zest_bool zest_implglfw_CreateWindowSurfaceCallback(zest_window window);
 void zest_implglfw_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 void zest_implglfw_PollEventsCallback(void);
-void zest_implglfw_AddPlatformExtensionsCallback(void);
+void zest_implglfw_AddPlatformExtensionsCallback(zest_context context);
 void zest_implglfw_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 void zest_implglfw_SetWindowMode(zest_window window, zest_window_mode mode);
 void zest_implglfw_SetWindowSize(zest_window window, int width, int height);
