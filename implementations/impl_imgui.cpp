@@ -62,7 +62,7 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
 
     imgui_pipeline->color_blend_attachment = zest_ImGuiBlendState();
     zest_SetPipelineDepthTest(imgui_pipeline, ZEST_FALSE, ZEST_FALSE);
-    ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
+    ZEST_APPEND_LOG(context->device->log_path.str, "ImGui pipeline");
 
     io.Fonts->SetTexID((ImTextureID)ZestImGui->font_region);
 

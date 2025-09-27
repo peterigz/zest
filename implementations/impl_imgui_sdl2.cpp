@@ -49,7 +49,7 @@ zest_imgui zest_imgui_Initialise() {
 	imgui_pipeline->colorBlendAttachment = zest_ImGuiBlendState();
 	imgui_pipeline->depthStencil.depthTestEnable = VK_FALSE;
 	imgui_pipeline->depthStencil.depthWriteEnable = VK_FALSE;
-	ZEST_APPEND_LOG(ZestDevice->log_path.str, "ImGui pipeline");
+	ZEST_APPEND_LOG(context->device->log_path.str, "ImGui pipeline");
 
 	io.Fonts->SetTexID((ImTextureID)font_image);
 

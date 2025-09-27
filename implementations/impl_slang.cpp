@@ -37,7 +37,7 @@ int zest_slang_Compile( const char *shader_path, const char *entry_point_name, S
     targetDesc.format = SLANG_SPIRV;
     targetDesc.profile = global_session->findProfile("spirv_1_5");
     if (targetDesc.profile == SLANG_PROFILE_UNKNOWN) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Slang error: Could not find spirv_1_5 profile.");
+        ZEST_APPEND_LOG(context->device->log_path.str, "Slang error: Could not find spirv_1_5 profile.");
         return -1;
     }
     // This flag is recommended for modern Slang versions when targeting Vulkan
@@ -51,14 +51,14 @@ int zest_slang_Compile( const char *shader_path, const char *entry_point_name, S
     slang::IModule *slangModule = session->loadModule(shader_path, diagnosticBlob.writeRef());
     diagnoseIfNeeded(diagnosticBlob, "Module Loading");
     if (!slangModule) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Slang failed to load module: %s", shader_path);
+        ZEST_APPEND_LOG(context->device->log_path.str, "Slang failed to load module: %s", shader_path);
         return -1;
     }
 
     Slang::ComPtr<slang::IEntryPoint> entryPoint;
     SlangResult findEntryPointResult = slangModule->findEntryPointByName(entry_point_name, entryPoint.writeRef());
     if (SLANG_FAILED(findEntryPointResult) || !entryPoint) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Failed to find entry point '%s' in '%s'", entry_point_name, shader_path);
+        ZEST_APPEND_LOG(context->device->log_path.str, "Failed to find entry point '%s' in '%s'", entry_point_name, shader_path);
         return -1;
     }
 
@@ -123,7 +123,7 @@ int zest_slang_Compile( const char *shader_path, const char *entry_point_name, S
 
             }
         }
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "------------------------------------");
+        ZEST_APPEND_LOG(context->device->log_path.str, "------------------------------------");
     }
     */
 
@@ -145,7 +145,7 @@ zest_shader zest_slang_CreateShader(const char *shader_path, const char *name, c
 
     SlangStage slang_stage = zest__slang_GetStage(type);
     if (slang_stage == SLANG_STAGE_NONE) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Unsupported shader type for Slang compilation.");
+        ZEST_APPEND_LOG(context->device->log_path.str, "Unsupported shader type for Slang compilation.");
         return nullptr;
     }
 
@@ -155,14 +155,14 @@ zest_shader zest_slang_CreateShader(const char *shader_path, const char *name, c
         case shaderc_vertex_shader: final_entry_point = "vertexMain"; break;
         case shaderc_fragment_shader: final_entry_point = "fragmentMain"; break;
         case shaderc_compute_shader: final_entry_point = "computeMain"; break;
-        default: ZEST_APPEND_LOG(ZestDevice->log_path.str, "No default entry point for shader type."); return nullptr;
+        default: ZEST_APPEND_LOG(context->device->log_path.str, "No default entry point for shader type."); return nullptr;
         }
     }
 
     int result = zest_slang_Compile(shader_path, final_entry_point, slang_stage, compiled_shader, reflection_info);
 
     if (result != 0) {
-        ZEST_APPEND_LOG(ZestDevice->log_path.str, "Slang compilation failed for %s", shader_path);
+        ZEST_APPEND_LOG(context->device->log_path.str, "Slang compilation failed for %s", shader_path);
         return nullptr;
     }
 

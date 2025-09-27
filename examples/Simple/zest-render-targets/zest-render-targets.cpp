@@ -290,7 +290,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//example->composite_push_constants.composting.x = threshold;
 	example->bloom_constants.settings.x = threshold;
 	example->bloom_constants.settings.y = knee;
-	//example->downsampler->recorder->outdated[ZEST_FIF] = 1;
+	//example->downsampler->recorder->outdated[context->device->current_fif] = 1;
 
 	//Set the font to use for the font layer
 	zest_SetMSDFFontDrawing(example->font_layer, example->font);

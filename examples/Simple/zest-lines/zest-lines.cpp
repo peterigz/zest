@@ -25,7 +25,7 @@ void zest_DrawLine(zest_layer layer, float start_point[2], float end_point[2], f
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_line_instance || layer->current_instruction.draw_mode == zest_draw_mode_dashed_line);    //Call zest_StartSpriteDrawing before calling this function
 
-    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs[context->device->current_fif].instance_ptr;
 
     line->rect.x = start_point[0];
     line->rect.y = start_point[1];
@@ -44,7 +44,7 @@ void zest_DrawRect(zest_layer layer, float top_left[2], float width, float heigh
     ZEST_ASSERT_HANDLE(layer);	//Not a valid handle!
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_rect_instance);    //Call zest_StartSpriteDrawing before calling this function
 
-    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs[ZEST_FIF].instance_ptr;
+    zest_shape_instance_t* line = (zest_shape_instance_t*)layer->memory_refs[context->device->current_fif].instance_ptr;
 
     line->rect.x = top_left[0];
     line->rect.y = top_left[1];
@@ -82,7 +82,7 @@ void InitExample(zest_example *example) {
 	zest_EndPipelineTemplate(example->line_pipeline_template);
 	example->line_pipeline_template->colorBlendAttachment = zest_PreMultiplyBlendState();
 	example->line_pipeline_template->depthStencil.depthWriteEnable = VK_FALSE;
-	ZEST_APPEND_LOG(ZestDevice->log_path.str, "SDF Lines pipeline");
+	ZEST_APPEND_LOG(context->device->log_path.str, "SDF Lines pipeline");
 
 	example->line_layer = zest_CreateInstanceLayer("Lines", sizeof(zest_line_instance_t));
 

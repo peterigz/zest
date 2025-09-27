@@ -98,8 +98,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		*/
 		//Test for memory leaks in zest
 		/*
-		for (int i = 0; i != ZestDevice->memory_pool_count; ++i) {
-			zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(ZestDevice->allocator)));
+		for (int i = 0; i != context->device->memory_pool_count; ++i) {
+			zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(context->device->allocator)));
 			ImGui::Text("Free Blocks: %i, Used Blocks: %i", stats.free_blocks, stats.used_blocks);
 			ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb), Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024, stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 		}

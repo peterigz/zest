@@ -104,7 +104,7 @@ void InitImGuiApp(ImGuiApp *app) {
 }
 
 void zest_DrawCustomSprite(zest_layer layer, zest_atlas_region image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_vec2 lerp_values) {
-	zest_custom_sprite_instance_t *sprite = zest_GetLayerInstance(zest_custom_sprite_instance_t, layer, ZEST_FIF);
+	zest_custom_sprite_instance_t *sprite = zest_GetLayerInstance(zest_custom_sprite_instance_t, layer, context->device->current_fif);
 
 	sprite->size_handle = zest_Pack16bit4SScaled(sx, sy, hx, hy, 4096.f, 128.f);
 	sprite->position_rotation = zest_Vec4Set(x, y, stretch, r);

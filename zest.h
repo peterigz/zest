@@ -191,8 +191,6 @@ static const char *zest_message_resource_should_be_imported = "Graph Compile Err
 #define ZEST_APPEND_LOG(log_path, message, ...) if(log_path) { FILE *log_file = zest__open_file(log_path, "a"); fprintf(log_file, message ZEST_NL, ##__VA_ARGS__); fclose(log_file); }
 
 #define ZEST__ARRAY(context, name, type, count) type *name = ZEST__REALLOCATE(context, 0, sizeof(type) * count)
-//FIF = Frame in Flight
-#define ZEST_FIF ZestDevice->current_fif
 #define ZEST_MICROSECS_SECOND 1000000ULL
 #define ZEST_MICROSECS_MILLISECOND 1000
 #define ZEST_MILLISECONDS_IN_MICROSECONDS(millisecs) millisecs * ZEST_MICROSECS_MILLISECOND
@@ -1475,8 +1473,8 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 #define ZEST_STRUCT_MAGIC_TYPE(magic) (magic & 0xFFFF0000)
 #define ZEST_IS_INTITIALISED(magic) (magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER
 
-#define ZEST_SET_MEMORY_CONTEXT(context, command) ZestDevice->platform_memory_info.timestamp = ZestDevice->allocation_id++; \
-    ZestDevice->platform_memory_info.context_info = ZEST_STRUCT_IDENTIFIER | (context << 16) | (command << 24)
+#define ZEST_SET_MEMORY_CONTEXT(context, command) context->device->platform_memory_info.timestamp = context->device->allocation_id++; \
+    context->device->platform_memory_info.context_info = ZEST_STRUCT_IDENTIFIER | (context << 16) | (command << 24)
 
 
 // --Forward_declarations
@@ -2415,7 +2413,7 @@ typedef struct zest_buffer_info_t {
     //This is an important field to avoid race conditions. Sometimes you may want to only update a buffer
     //when data has changed, like a ui buffer or any buffer that's only updated inside a fixed time loop.
     //This means that the frame in flight index for those buffers is decoupled from the main render loop 
-    //frame in flight (ZEST_FIF). This can create a situation where a decoupled buffer has the same buffer
+    //frame in flight (context->device->current_fif). This can create a situation where a decoupled buffer has the same buffer
     //as a transient buffer that's not decoupled. So what can happen is that a vkCmdDraw can use the same
     //buffer that was used in the last frame. This should never be possible. A buffer that's used in one
     //frame - it's last usage should be a minimum of 2 frames ago which means that the frame in flight fence
@@ -3914,7 +3912,6 @@ typedef struct zest_context_t {
 	zest_platform_t *platform;
 } zest_context_t;
 
-extern zest_device_t *ZestDevice;
 extern zest_app_t *ZestApp;
 extern zest_renderer_t *ZestRenderer;
 extern zest_platform_t ZestPlatform;
@@ -3962,7 +3959,7 @@ ZEST_PRIVATE void zest__os_set_window_size(zest_window window, int width, int he
 ZEST_PRIVATE void zest__os_poll_events(ZEST_PROTOTYPE);
 ZEST_PRIVATE void zest__os_add_platform_extensions(zest_context context);
 ZEST_PRIVATE void zest__os_set_window_title(const char *title);
-ZEST_PRIVATE bool zest__create_folder(const char *path);
+ZEST_PRIVATE bool zest__create_folder(zest_context context, const char *path);
 //-- End Platform dependent functions
 
 //Only available outside lib for some implementations like SDL2
@@ -4022,6 +4019,9 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators();
 //End Buffer Management
 
 //Renderer_functions
+ZEST_API inline zest_uint zest_CurrentFIF(zest_context context) {
+	return context->device->current_fif;
+}
 ZEST_PRIVATE zest_bool zest__initialise_renderer(zest_context context, zest_create_info_t *create_info);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(zest_context context, const char *name);
 ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
@@ -4141,13 +4141,13 @@ ZEST_API_TMP void zest__set_default_pool_sizes(zest_context context);
 //end device setup functions
 
 //App_initialise_and_run_functions
-ZEST_PRIVATE void zest__do_scheduled_tasks(void);
+ZEST_PRIVATE void zest__do_scheduled_tasks(zest_context context);
 ZEST_PRIVATE void zest__initialise_app(zest_context context, zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__initialise_window(zest_context context, zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__destroy(zest_context context);
-ZEST_PRIVATE void zest__main_loop(void);
+ZEST_PRIVATE void zest__main_loop(zest_context context);
 ZEST_API void zest_Terminate(void);
-ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait();
+ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait(zest_context context);
 ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
 //-- end of internal functions
 
@@ -4171,7 +4171,7 @@ ZEST_API void zest_SetUserData(void* data);
 //Set the user udpate callback that will be called each frame in the main loop of zest. You must set this or the main loop will just render a blank screen.
 ZEST_API void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*));
 //Start the main loop in the zest renderer. Must be run after zest_Initialise and also zest_SetUserUpdateCallback
-ZEST_API void zest_Start(void);
+ZEST_API void zest_Start(zest_context context);
 //Shutdown zest and unload/free everything. Call this after zest_Start.
 ZEST_API void zest_Shutdown(zest_context context);
 //Free all memory used in the renderer and reset it back to an initial state.

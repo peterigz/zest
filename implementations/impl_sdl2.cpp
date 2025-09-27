@@ -33,7 +33,7 @@ zest_window_t *zest_implsdl2_CreateWindowCallback(zest_context context, int x, i
 }
 
 VkResult zest_implsdl2_CreateWindowSurfaceCallback(zest_window_t* window) {
-	if (!SDL_Vulkan_CreateSurface((SDL_Window*)window->window_handle, ZestDevice->instance, &window->surface)) {
+	if (!SDL_Vulkan_CreateSurface((SDL_Window*)window->window_handle, context->device->instance, &window->surface)) {
 		return VK_ERROR_UNKNOWN;
 	}
 	return VK_SUCCESS;
@@ -100,7 +100,7 @@ void zest_implsdl2_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb
 
 void zest_implsdl2_DestroyWindowCallback(zest_window window, void *user_data) {
 	SDL_DestroyWindow((SDL_Window*)window->window_handle);
-    vkDestroySurfaceKHR(ZestDevice->instance, window->surface, &ZestDevice->allocation_callbacks);
+    vkDestroySurfaceKHR(context->device->instance, window->surface, &context->device->allocation_callbacks);
 }
 
 void zest_implsdl2_SetCallbacks(zest_create_info_t *create_info) {
