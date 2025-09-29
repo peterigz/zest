@@ -2288,6 +2288,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
 
 zest_buffer zest_CreateStagingBuffer(zest_context context, zest_size size, void* data) {
     zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
+	buffer_info.frame_in_flight = context->device->current_fif;
     zest_buffer buffer = zest_CreateBuffer(context, size, &buffer_info);
     if (data) {
         memcpy(buffer->data, data, size);
