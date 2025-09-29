@@ -1044,20 +1044,20 @@ ZEST_PRIVATE inline zest_bool zest__validation_layers_with_best_practices_are_en
 zest_swapchain_support_details_t zest__vk_query_swapchain_support(zest_context context, VkPhysicalDevice physical_device) {
     zest_swapchain_support_details_t details;
 
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.capabilities);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, context->window->backend->surface, &details.capabilities);
 
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.formats_count, ZEST_NULL);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, context->window->backend->surface, &details.formats_count, ZEST_NULL);
 
     if (details.formats_count != 0) {
         details.formats = (VkSurfaceFormatKHR*)ZEST__ALLOCATE(context, sizeof(VkSurfaceFormatKHR) * details.formats_count);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.formats_count, details.formats);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, context->window->backend->surface, &details.formats_count, details.formats);
     }
 
-    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.present_modes_count, ZEST_NULL);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, context->window->backend->surface, &details.present_modes_count, ZEST_NULL);
 
     if (details.present_modes_count != 0) {
         details.present_modes = (VkPresentModeKHR*)ZEST__ALLOCATE(context, sizeof(VkPresentModeKHR) * details.present_modes_count);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, ZestRenderer->main_window->backend->surface, &details.present_modes_count, details.present_modes);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, context->window->backend->surface, &details.present_modes_count, details.present_modes);
     }
 
     return details;
@@ -1193,14 +1193,14 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
     VkSurfaceFormatKHR surfaceFormat = zest__vk_choose_swapchain_format(context, swapchain_support_details.formats);
     VkPresentModeKHR presentMode = zest__vk_choose_present_mode(swapchain_support_details.present_modes, ZestRenderer->flags & zest_renderer_flag_vsync_enabled);
     VkExtent2D extent = zest__vk_choose_swap_extent(&swapchain_support_details.capabilities);
-    ZestRenderer->dpi_scale = (float)extent.width / (float)ZestRenderer->main_window->window_width;
+    ZestRenderer->dpi_scale = (float)extent.width / (float)context->window->window_width;
     swapchain->format = (zest_format)surfaceFormat.format;
 
     swapchain->format = (zest_format)surfaceFormat.format;
     swapchain->size.width = extent.width;
     swapchain->size.height = extent.height;
-    ZestRenderer->window_extent.width = ZestRenderer->main_window->window_width;
-    ZestRenderer->window_extent.height = ZestRenderer->main_window->window_height;
+    ZestRenderer->window_extent.width = context->window->window_width;
+    ZestRenderer->window_extent.height = context->window->window_height;
 
     zest_uint image_count = swapchain_support_details.capabilities.minImageCount + 1;
 
@@ -1210,7 +1210,7 @@ zest_bool zest__vk_initialise_swapchain(zest_swapchain swapchain, zest_window wi
 
     VkSwapchainCreateInfoKHR createInfo = { 0 };
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    createInfo.surface = ZestRenderer->main_window->backend->surface;
+    createInfo.surface = context->window->backend->surface;
 
     createInfo.minImageCount = image_count;
     createInfo.imageFormat = surfaceFormat.format;
@@ -1749,7 +1749,7 @@ zest_bool zest__vk_create_instance(zest_context context) {
     ZEST_APPEND_LOG(device->log_path.str, "Validating Vulkan Instance");
 
     ZEST__FREE(context, available_extensions);
-    context->renderer->create_window_surface_callback(context->renderer->main_window);
+    context->renderer->create_window_surface_callback(context->window);
 
     zest_vec_free(context, enabled_validation_features);
 
@@ -1816,7 +1816,7 @@ zest_bool zest__vk_create_logical_device(zest_context context) {
         VkQueueFamilyProperties properties = context->device->backend->queue_families[i];
         // Find the primary graphics queue (must support presentation!)
         VkBool32 present_support = 0;
-        vkGetPhysicalDeviceSurfaceSupportKHR(context->device->backend->physical_device, i, ZestRenderer->main_window->backend->surface, &present_support);
+        vkGetPhysicalDeviceSurfaceSupportKHR(context->device->backend->physical_device, i, context->window->backend->surface, &present_support);
 
         if ((properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && present_support) {
             if (graphics_candidate == ZEST_INVALID) {
@@ -3568,7 +3568,7 @@ VkInstance zest_GetVKInstance(zest_context context) {
 }
 
 void zest_vk_SetWindowSurface(VkSurfaceKHR surface) {
-     ZestRenderer->main_window->backend->surface = surface;
+     context->window->backend->surface = surface;
 }
 
 VkAllocationCallbacks *zest_GetVKAllocationCallbacks(zest_context context) {

@@ -72,21 +72,21 @@ void zest_implsdl2_SetWindowMode(zest_window window, zest_window_mode mode) {
 void zest_implsdl2_PollEventsCallback(void) {
 	int mouse_x, mouse_y;
 	SDL_GetMouseState(&mouse_x, &mouse_y);
-	double last_mouse_x = ZestApp->mouse_x;
-	double last_mouse_y = ZestApp->mouse_y;
-	ZestApp->mouse_x = mouse_x;
-	ZestApp->mouse_y = mouse_y;
-	ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
-	ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
+	double last_mouse_x = context->window->mouse_x;
+	double last_mouse_y = context->window->mouse_y;
+	context->window->mouse_x = mouse_x;
+	context->window->mouse_y = mouse_y;
+	context->window->mouse_delta_x = last_mouse_x - context->window->mouse_x;
+	context->window->mouse_delta_y = last_mouse_y - context->window->mouse_y;
 }
 
 
 void zest_implsdl2_AddPlatformExtensionsCallback(void) {
 	zest_uint count;
-	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)ZestRenderer->main_window->window_handle, &count, nullptr);
+	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)context->window->window_handle, &count, nullptr);
 	const char **sdl_extensions = 0;
 	if (!sdl_extensions || zest__vec_header(sdl_extensions)->capacity < count) sdl_extensions = (const char**)zest__vec_reserve(sdl_extensions, sizeof(*sdl_extensions), count == 1 ? 8 : count); zest__vec_header(sdl_extensions)->current_size = count;
-	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)ZestRenderer->main_window->window_handle, &count, sdl_extensions);
+	SDL_Vulkan_GetInstanceExtensions((SDL_Window*)context->window->window_handle, &count, sdl_extensions);
 	for (int i = 0; i != count; ++i) {
 		zest_AddInstanceExtension((char*)sdl_extensions[i]);
 	}
@@ -94,8 +94,8 @@ void zest_implsdl2_AddPlatformExtensionsCallback(void) {
 }
 
 void zest_implsdl2_GetWindowSizeCallback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
-	SDL_GL_GetDrawableSize((SDL_Window*)ZestRenderer->main_window->window_handle, fb_width, fb_height);
-	SDL_GetWindowSize((SDL_Window*)ZestRenderer->main_window->window_handle, window_width, window_height);
+	SDL_GL_GetDrawableSize((SDL_Window*)context->window->window_handle, fb_width, fb_height);
+	SDL_GetWindowSize((SDL_Window*)context->window->window_handle, window_width, window_height);
 }
 
 void zest_implsdl2_DestroyWindowCallback(zest_window window, void *user_data) {

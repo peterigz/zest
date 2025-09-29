@@ -756,7 +756,7 @@ void Update(zest_microsecs elapsed, void *data) {
 		double x_mouse_speed;
 		double y_mouse_speed;
 		zest_GetMouseSpeed(&x_mouse_speed, &y_mouse_speed);
-		zest_TurnCamera(&example->camera, (float)ZestApp->mouse_delta_x, (float)ZestApp->mouse_delta_y, .05f);
+		zest_TurnCamera(&example->camera, (float)context->window->mouse_delta_x, (float)context->window->mouse_delta_y, .05f);
 	}
 	else if (glfwRawMouseMotionSupported()) {
 		camera_free_look = false;

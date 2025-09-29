@@ -2613,6 +2613,13 @@ typedef struct zest_window_t {
     zest_uint window_height;
     zest_bool framebuffer_resized;
     zest_window_mode mode;
+
+    double mouse_x;
+    double mouse_y;
+    double mouse_delta_x;
+    double mouse_delta_y;
+    zest_mouse_button mouse_button;
+    zest_mouse_button mouse_hit;
 } zest_window_t;
 
 typedef struct zest_resource_usage_t {
@@ -2668,7 +2675,7 @@ typedef struct zest_create_info_t {
     //Callbacks: use these to implement your own preferred window creation functionality
     void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
     void(*destroy_window_callback)(zest_window window, void *user_data);
-    void(*poll_events_callback)(ZEST_PROTOTYPE);
+    void(*poll_events_callback)(zest_context context);
     void(*add_platform_extensions_callback)(zest_context context);
     zest_window(*create_window_callback)(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title);
     zest_bool(*create_window_surface_callback)(zest_window window);
@@ -2750,13 +2757,6 @@ typedef struct zest_app_t {
     float update_time;
     float render_time;
     zest_microsecs frame_timer;
-
-    double mouse_x;
-    double mouse_y;
-    double mouse_delta_x;
-    double mouse_delta_y;
-    zest_mouse_button mouse_button;
-    zest_mouse_button mouse_hit;
 
     zest_uint frame_count;
     zest_uint last_fps;
@@ -3754,8 +3754,6 @@ typedef struct zest_renderer_t {
     //Resource storage
 	zest_resource_store_t resource_stores[zest_max_handle_type];
 
-    zest_window main_window;
-
     //Cache of the supported depth format
     zest_format depth_format;
 
@@ -3916,6 +3914,7 @@ typedef struct zest_platform_t {
 
 typedef struct zest_context_t {
 	int magic;
+	zest_window window;
 	zest_device_t *device;
 	zest_app_t *app;
 	zest_renderer_t *renderer;
@@ -3966,9 +3965,9 @@ ZEST_PRIVATE zest_window zest__os_create_window(zest_context context, int x, int
 ZEST_PRIVATE zest_bool zest__os_create_window_surface(zest_window window);
 ZEST_PRIVATE void zest__os_set_window_mode(zest_window window, zest_window_mode mode);
 ZEST_PRIVATE void zest__os_set_window_size(zest_window window, int width, int height);
-ZEST_PRIVATE void zest__os_poll_events(ZEST_PROTOTYPE);
+ZEST_PRIVATE void zest__os_poll_events(zest_context context);
 ZEST_PRIVATE void zest__os_add_platform_extensions(zest_context context);
-ZEST_PRIVATE void zest__os_set_window_title(const char *title);
+ZEST_PRIVATE void zest__os_set_window_title(zest_context context, const char *title);
 ZEST_PRIVATE bool zest__create_folder(zest_context context, const char *path);
 //-- End Platform dependent functions
 

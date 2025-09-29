@@ -99,11 +99,11 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	zest_SetShapeDrawing(example->line_layer, zest_shape_dashed_line, example->line_resources, example->line_pipeline_template);
 	zest_SetLayerColor(example->line_layer, 255, 255, 255, 100);
 	zest_vec2 start = zest_Vec2Set(20.f, 20.f);
-	zest_vec2 end = zest_Vec2Set((float)ZestApp->mouse_x, (float)ZestApp->mouse_y);
+	zest_vec2 end = zest_Vec2Set((float)context->window->mouse_x, (float)context->window->mouse_y);
 	zest_DrawLine(example->line_layer, &start.x, &end.x, 10.f);
 
 	zest_SetShapeDrawing(example->line_layer, zest_shape_rect, example->line_resources, example->line_pipeline_template);
-	zest_vec2 top_left = zest_Vec2Set((float)ZestApp->mouse_x, (float)ZestApp->mouse_y);
+	zest_vec2 top_left = zest_Vec2Set((float)context->window->mouse_x, (float)context->window->mouse_y);
 	zest_DrawRect(example->line_layer, &top_left.x, 30.f, 50.f);
 
 	//Create the render graph

@@ -384,7 +384,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		double x_mouse_speed;
 		double y_mouse_speed;
 		zest_GetMouseSpeed(&x_mouse_speed, &y_mouse_speed);
-		zest_TurnCamera(&app->camera, (float)ZestApp->mouse_delta_x, (float)ZestApp->mouse_delta_y, .05f);
+		zest_TurnCamera(&app->camera, (float)context->window->mouse_delta_x, (float)context->window->mouse_delta_y, .05f);
 	} else if (glfwRawMouseMotionSupported()) {
 		camera_free_look = false;
 		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);

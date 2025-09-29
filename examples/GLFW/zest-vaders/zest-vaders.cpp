@@ -649,7 +649,7 @@ void UpdatePowerUps(VadersGame *game) {
 }
 
 void UpdatePlayerPosition(VadersGame *game, Player *player) {
-	player->position = ScreenRay((float)ZestApp->mouse_x, (float)ZestApp->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+	player->position = ScreenRay((float)context->window->mouse_x, (float)context->window->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
 }
 
 void UpdatePlayer(VadersGame *game, Player *player) {

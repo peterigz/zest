@@ -282,8 +282,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//zest_DrawSprite(example->base_layer, example->wabbit, example->wabbit_pos.x, example->wabbit_pos.y, 0.f, 200.f, 200.f, 0.5f, 0.5f, 0, 0.f);
 
 	//We can adjust the alpha and blend type based on the mouse position
-	float threshold = (float)ZestApp->mouse_x / zest_ScreenWidthf();
-	float knee =  (float)ZestApp->mouse_y / zest_ScreenHeightf();
+	float threshold = (float)context->window->mouse_x / zest_ScreenWidthf();
+	float knee =  (float)context->window->mouse_y / zest_ScreenHeightf();
 	knee = ZEST__CLAMP(knee, 0.f, 1.f) * .5f;
 	threshold = ZEST__CLAMP(threshold, 0.f, 2.f);
 

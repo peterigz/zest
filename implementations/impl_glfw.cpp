@@ -5,7 +5,7 @@ zest_window_t *zest_implglfw_CreateWindowCallback(zest_context context, int x, i
 
 	zest_window_t *window = zest_AllocateWindow(context);
 	window->context = context;
-	ZestRenderer->main_window = window;
+	context->window = window;
 
 	glfwInit();
 
@@ -76,12 +76,12 @@ void zest_implglfw_PollEventsCallback(void) {
 	double mouse_x, mouse_y;
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
-	double last_mouse_x = ZestApp->mouse_x;
-	double last_mouse_y = ZestApp->mouse_y;
-	ZestApp->mouse_x = mouse_x;
-	ZestApp->mouse_y = mouse_y;
-	ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
-	ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
+	double last_mouse_x = context->window->mouse_x;
+	double last_mouse_y = context->window->mouse_y;
+	context->window->mouse_x = mouse_x;
+	context->window->mouse_y = mouse_y;
+	context->window->mouse_delta_x = last_mouse_x - context->window->mouse_x;
+	context->window->mouse_delta_y = last_mouse_y - context->window->mouse_y;
 	zest_MaybeQuit(glfwWindowShouldClose(handle));
 }
 

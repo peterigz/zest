@@ -120,14 +120,14 @@ void test_update_callback(zest_microsecs elapsed, void *user_data) {
 	//Get a pointer to the uniform buffer data and cast it to the struct that we're storing there
 	zest_uniform_buffer_data_t *buffer_3d = (zest_uniform_buffer_data_t*)zest_GetUniformBufferData(example->uniform_buffer_3d);
 	//Use the projection and view matrices in the buffer to project the mouse coordinates into 3d space.
-	zest_vec3 ray = zest_ScreenRay((float)ZestApp->mouse_x, (float)ZestApp->mouse_y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
+	zest_vec3 ray = zest_ScreenRay((float)context->window->mouse_x, (float)context->window->mouse_y, zest_ScreenWidthf(), zest_ScreenHeightf(), &buffer_3d->proj, &buffer_3d->view);
 	//Scale the ray into the 3d space by 10 and add the camera position.
 	zest_vec3 position = zest_AddVec3(zest_ScaleVec3(ray, 10.f), example->camera.position);
 	//Set some values to draw the billboard with
 	zest_vec3 angles = { 0 };
 	zest_vec3 handle = { .5f, .5f };
-	float scale_x = (float)ZestApp->mouse_x * 5.f / zest_ScreenWidthf();
-	float scale_y = (float)ZestApp->mouse_y * 5.f / zest_ScreenHeightf();
+	float scale_x = (float)context->window->mouse_x * 5.f / zest_ScreenWidthf();
+	float scale_y = (float)context->window->mouse_y * 5.f / zest_ScreenHeightf();
 	//Draw the billboard
 	zest_DrawBillboardSimple(example->billboard_layer, example->image, &position.x, angles.x, scale_x, scale_y);
 	example->last_position = position;

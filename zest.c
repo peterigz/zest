@@ -144,6 +144,7 @@ void zest__destroy_window_callback(zest_window window, void* user_data) {
 
 LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wParam, LPARAM lParam) {
     LRESULT result = 0;
+	zest_window window = (zest_window)GetWindowLongPtr(window_handle, GWLP_USERDATA);
     switch (message) {
     case WM_CLOSE:
     case WM_QUIT: {
@@ -155,10 +156,10 @@ LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wPar
         EndPaint(window_handle, &paint);
     } break;
     case WM_LBUTTONDOWN: {
-        ZestApp->mouse_button = 1;
+        window->mouse_button = 1;
     } break;
     case WM_RBUTTONDOWN: {
-        ZestApp->mouse_button = 2;
+        window->mouse_button = 2;
     } break;
     case WM_SIZE: {
     } break;
@@ -173,28 +174,28 @@ LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wPar
     return result;
 }
 
-void zest__os_poll_events() {
+void zest__os_poll_events(zest_context context) {
     MSG message = { 0 };
 
     POINT cursor_position;
     GetCursorPos(&cursor_position);
-    ScreenToClient(ZestRenderer->main_window->window_handle, &cursor_position);
-    double last_mouse_x = ZestApp->mouse_x;
-    double last_mouse_y = ZestApp->mouse_y;
-    ZestApp->mouse_x = (double)cursor_position.x;
-    ZestApp->mouse_y = (double)cursor_position.y;
-    ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
-    ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
-    ZestApp->mouse_button = 0;
+    ScreenToClient(context->window->window_handle, &cursor_position);
+    double last_mouse_x = context->window->mouse_x;
+    double last_mouse_y = context->window->mouse_y;
+    context->window->mouse_x = (double)cursor_position.x;
+    context->window->mouse_y = (double)cursor_position.y;
+    context->window->mouse_delta_x = last_mouse_x - context->window->mouse_x;
+    context->window->mouse_delta_y = last_mouse_y - context->window->mouse_y;
+    context->window->mouse_button = 0;
 
     if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {  // Left button
-        ZestApp->mouse_button |= 1;
+        context->window->mouse_button |= 1;
     }
     if (GetAsyncKeyState(VK_RBUTTON) & 0x8000) {  // Right button
-        ZestApp->mouse_button |= 2;
+        context->window->mouse_button |= 2;
     }
     if (GetAsyncKeyState(VK_MBUTTON) & 0x8000) {  // Middle button
-        ZestApp->mouse_button |= 4;
+        context->window->mouse_button |= 4;
     }
 
     for (;;) {
@@ -260,7 +261,7 @@ zest_window zest__os_create_window(zest_context context, int x, int y, int width
     int frame_width = rect.right - rect.left;
     int frame_height = rect.bottom - rect.top;
 
-    window->window_handle = CreateWindowEx(0, window_class.lpszClassName, title, style | WS_VISIBLE, x, y, frame_width, frame_height, 0, 0, zest_window_instance, 0);
+    window->window_handle = CreateWindowEx(0, window_class.lpszClassName, title, style | WS_VISIBLE, x, y, frame_width, frame_height, 0, 0, zest_window_instance, window);
     ZEST_ASSERT(window->window_handle);        //Unable to open a window!
 
     SetForegroundWindow(window->window_handle);
@@ -316,16 +317,17 @@ void zest__os_add_platform_extensions(zest_context context) {
 }
 
 void zest__get_window_size_callback(void* user_data, int* fb_width, int* fb_height, int* window_width, int* window_height) {
+	zest_context context = (zest_context)user_data;
     RECT window_rect;
-    GetClientRect(ZestRenderer->main_window->window_handle, &window_rect);
+    GetClientRect(context->window->window_handle, &window_rect);
     *fb_width = window_rect.right - window_rect.left;
     *fb_height = window_rect.bottom - window_rect.top;
     *window_width = *fb_width;
     *window_height = *fb_height;
 }
 
-void zest__os_set_window_title(const char* title) {
-    SetWindowText(ZestRenderer->main_window->window_handle, title);
+void zest__os_set_window_title(zest_context context, const char* title) {
+    SetWindowText(context->window->window_handle, title);
 }
 
 #else
@@ -370,31 +372,31 @@ void zest__os_create_window_surface(zest_window current_window) {
     ZEST_VK_ASSERT_RESULT(glfwCreateWindowSurface(context->device->backend->instance, current_window->window_handle, &context->device->backend->allocation_callbacks, &current_window->backend->surface));
 }
 
-void zest__os_poll_events(void) {
+void zest__os_poll_events(zest_context context) {
     glfwPollEvents();
     double mouse_x, mouse_y;
-    glfwGetCursorPos(ZestRenderer->current_window->window_handle, &mouse_x, &mouse_y);
-    double last_mouse_x = ZestApp->mouse_x;
-    double last_mouse_y = ZestApp->mouse_y;
-    ZestApp->mouse_x = mouse_x;
-    ZestApp->mouse_y = mouse_y;
-    ZestApp->mouse_delta_x = last_mouse_x - ZestApp->mouse_x;
-    ZestApp->mouse_delta_y = last_mouse_y - ZestApp->mouse_y;
-    ZestApp->flags |= glfwWindowShouldClose(ZestRenderer->current_window->window_handle) ? zest_app_flag_quit_application : 0;
-    ZestApp->mouse_button = 0;
-    int left = glfwGetMouseButton(ZestRenderer->current_window->window_handle, GLFW_MOUSE_BUTTON_LEFT);
+    glfwGetCursorPos(context->window->window_handle, &mouse_x, &mouse_y);
+    double last_mouse_x = context->window->mouse_x;
+    double last_mouse_y = context->window->mouse_y;
+    context->window->mouse_x = mouse_x;
+    context->window->mouse_y = mouse_y;
+    context->window->mouse_delta_x = last_mouse_x - context->window->mouse_x;
+    context->window->mouse_delta_y = last_mouse_y - context->window->mouse_y;
+    ZestApp->flags |= glfwWindowShouldClose(context->window->window_handle) ? zest_app_flag_quit_application : 0;
+    context->window->mouse_button = 0;
+    int left = glfwGetMouseButton(context->window->window_handle, GLFW_MOUSE_BUTTON_LEFT);
     if (left == GLFW_PRESS) {
-        ZestApp->mouse_button |= 1;
+        context->window->mouse_button |= 1;
     }
 
-    int right = glfwGetMouseButton(ZestRenderer->current_window->window_handle, GLFW_MOUSE_BUTTON_RIGHT);
+    int right = glfwGetMouseButton(context->window->window_handle, GLFW_MOUSE_BUTTON_RIGHT);
     if (right == GLFW_PRESS) {
-        ZestApp->mouse_button |= 2;
+        context->window->mouse_button |= 2;
     }
 
-    int middle = glfwGetMouseButton(ZestRenderer->current_window->window_handle, GLFW_MOUSE_BUTTON_MIDDLE);
+    int middle = glfwGetMouseButton(context->window->window_handle, GLFW_MOUSE_BUTTON_MIDDLE);
     if (middle == GLFW_PRESS) {
-        ZestApp->mouse_button |= 4;
+        context->window->mouse_button |= 4;
     }
 }
 
@@ -441,8 +443,9 @@ void zest__os_add_platform_extensions(zest_context context) {
 }
 
 void zest__get_window_size_callback(void* user_data, int* fb_width, int* fb_height, int* window_width, int* window_height) {
-    glfwGetFramebufferSize(ZestRenderer->current_window->window_handle, fb_width, fb_height);
-    glfwGetWindowSize(ZestRenderer->current_window->window_handle, window_width, window_height);
+	zest_context context = (zest_context)user_data;
+    glfwGetFramebufferSize(context->window->window_handle, fb_width, fb_height);
+    glfwGetWindowSize(context->window->window_handle, window_width, window_height);
 }
 
 void zest__destroy_window_callback(zest_window window, void* user_data) {
@@ -1536,7 +1539,7 @@ void zest_ResetRenderer(zest_context context) {
     context->renderer->set_window_size_callback = info->set_window_size_callback;
     context->renderer->backend = ZestPlatform.new_renderer_backend(context);
 	zest__initialise_window(context, &context->app->create_info);
-    context->renderer->create_window_surface_callback(context->renderer->main_window);
+    context->renderer->create_window_surface_callback(context->window);
     zest__initialise_renderer(context, &context->app->create_info);
 }
 
@@ -1696,7 +1699,7 @@ void zest__initialise_app(zest_context context, zest_create_info_t* create_info)
 
 void zest__initialise_window(zest_context context, zest_create_info_t *create_info) {
     ZEST_APPEND_LOG(context->device->log_path.str, "Create window with dimensions: %i, %i", create_info->screen_width, create_info->screen_height);
-    context->renderer->main_window = context->renderer->create_window_callback(context, create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, ZEST__FLAGGED(create_info->flags, zest_init_flag_maximised), "Zest");
+    context->window = context->renderer->create_window_callback(context, create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, ZEST__FLAGGED(create_info->flags, zest_init_flag_maximised), "Zest");
 }
 
 void zest__end_thread(zest_work_queue_t *queue, void *data) {
@@ -1852,12 +1855,12 @@ void zest__main_loop(zest_context context) {
 
         zest__do_scheduled_tasks(context);
 
-        ZestApp->mouse_hit = 0;
-        zest_mouse_button button_state = ZestApp->mouse_button;
+        context->window->mouse_hit = 0;
+        zest_mouse_button button_state = context->window->mouse_button;
 
         ZestRenderer->poll_events_callback();
 
-        ZestApp->mouse_hit = button_state & (~ZestApp->mouse_button);
+        context->window->mouse_hit = button_state & (~context->window->mouse_button);
 
         zest__set_elapsed_time();
 
@@ -2512,7 +2515,7 @@ zest_bool zest__initialise_renderer(zest_context context, zest_create_info_t* cr
     ZEST_APPEND_LOG(context->device->log_path.str, "Create swap chain");
     zest_swapchain swapchain = zest__create_swapchain(context, create_info->title);
     ZestRenderer->main_swapchain = swapchain;
-    ZestRenderer->main_window->swapchain = swapchain;
+    context->window->swapchain = swapchain;
 
 	for (int i = 0; i != zest_max_handle_type; ++i) {
 		switch ((zest_handle_type)i) {
@@ -2582,7 +2585,7 @@ zest_swapchain zest__create_swapchain(zest_context context, const char *name) {
     swapchain->backend = ZestPlatform.new_swapchain_backend(context);
 	swapchain->context = context;
     swapchain->name = name;
-    if (!ZestPlatform.initialise_swapchain(swapchain, ZestRenderer->main_window)) {
+    if (!ZestPlatform.initialise_swapchain(swapchain, context->window)) {
         zest__cleanup_swapchain(swapchain, ZEST_FALSE);
         return NULL;
     }
@@ -2872,9 +2875,9 @@ void zest__cleanup_renderer(zest_context context) {
         ZEST__FREE(context, buffer_allocator);
     }
 
-	ZestRenderer->destroy_window_callback(ZestRenderer->main_window, ZestApp->user_data);
-    ZEST__FREE(context, ZestRenderer->main_window->backend);
-	ZEST__FREE(context, ZestRenderer->main_window);
+	ZestRenderer->destroy_window_callback(context->window, ZestApp->user_data);
+    ZEST__FREE(context, context->window->backend);
+	ZEST__FREE(context, context->window);
 
     zest_map_foreach(i, ZestRenderer->reports) {
         zest_report_t *report = &ZestRenderer->reports.data[i];
@@ -2920,11 +2923,11 @@ zest_bool zest__recreate_swapchain(zest_swapchain swapchain) {
     while (fb_width == 0 || fb_height == 0) {
         ZestRenderer->get_window_size_callback(ZestApp->user_data, &fb_width, &fb_height, &window_width, &window_height);
         if (fb_width == 0 || fb_height == 0) {
-            zest__os_poll_events();
+            zest__os_poll_events(context);
         }
     }
 
-    zest__update_window_size(ZestRenderer->main_window, window_width, window_height);
+    zest__update_window_size(context->window, window_width, window_height);
     swapchain->size = (zest_extent2d_t){ fb_width, fb_height };
     swapchain->resolution.x = 1.f / fb_width;
     swapchain->resolution.y = 1.f / fb_height;
@@ -3824,14 +3827,14 @@ zest_uint zest_SwapChainWidth(void) { return (zest_uint)ZestRenderer->main_swapc
 zest_uint zest_SwapChainHeight(void) { return (zest_uint)ZestRenderer->main_swapchain->size.height; }
 float zest_SwapChainWidthf(void) { return (float)ZestRenderer->main_swapchain->size.width; }
 float zest_SwapChainHeightf(void) { return (float)ZestRenderer->main_swapchain->size.height; }
-zest_uint zest_ScreenWidth() { return ZestRenderer->main_window->window_width; }
-zest_uint zest_ScreenHeight() { return ZestRenderer->main_window->window_height; }
-float zest_ScreenWidthf() { return (float)ZestRenderer->main_window->window_width; }
-float zest_ScreenHeightf() { return (float)ZestRenderer->main_window->window_height; }
-float zest_MouseXf() { return (float)ZestApp->mouse_x; }
-float zest_MouseYf() { return (float)ZestApp->mouse_y; }
-bool zest_MouseDown(zest_mouse_button button) { return (button & ZestApp->mouse_button) > 0; }
-bool zest_MouseHit(zest_mouse_button button) { return (button & ZestApp->mouse_hit) > 0; }
+zest_uint zest_ScreenWidth(zest_context context) { return context->window->window_width; }
+zest_uint zest_ScreenHeight(zest_context context) { return context->window->window_height; }
+float zest_ScreenWidthf(zest_context context) { return (float)context->window->window_width; }
+float zest_ScreenHeightf(zest_context context) { return (float)context->window->window_height; }
+float zest_MouseXf(zest_context context) { return (float)context->window->mouse_x; }
+float zest_MouseYf(zest_context context) { return (float)context->window->mouse_y; }
+bool zest_MouseDown(zest_context context, zest_mouse_button button) { return (button & context->window->mouse_button) > 0; }
+bool zest_MouseHit(zest_context context, zest_mouse_button button) { return (button & context->window->mouse_hit) > 0; }
 float zest_DPIScale(void) { return ZestRenderer->dpi_scale; }
 void zest_SetDPIScale(float scale) { ZestRenderer->dpi_scale = scale; }
 zest_uint zest_FPS() { return ZestApp->last_fps; }
@@ -3848,8 +3851,8 @@ void zest_MaybeQuit(zest_bool condition) { ZestApp->flags |= condition != 0 ? ze
 void zest__hash_initialise(zest_hasher_t* hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
 void zest_GetMouseSpeed(double* x, double* y) {
     double ellapsed_in_seconds = (double)ZestApp->current_elapsed / ZEST_MICROSECS_SECOND;
-    *x = ZestApp->mouse_delta_x * ellapsed_in_seconds;
-    *y = ZestApp->mouse_delta_y * ellapsed_in_seconds;
+    *x = context->window->mouse_delta_x * ellapsed_in_seconds;
+    *y = context->window->mouse_delta_y * ellapsed_in_seconds;
 }
 
 zest_set_layout_handle zest_GetUniformBufferLayout(zest_uniform_buffer_handle handle) {
@@ -3937,7 +3940,7 @@ void zest_LogFPSToConsole(zest_bool yesno) {
 }
 
 void* zest_Window() {
-    return ZestRenderer->main_window->window_handle;
+    return context->window->window_handle;
 }
 
 void zest_SetFrameInFlight(zest_context context, zest_uint fif) {
@@ -4539,7 +4542,7 @@ void zest_UpdateWindowSize(zest_window window, zest_uint width, zest_uint height
 }
 
  zest_window zest_GetCurrentWindow() {
-     return ZestRenderer->main_window;
+     return context->window;
 }
 
 void zest_CloseWindow(zest_window window) {
