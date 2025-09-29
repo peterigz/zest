@@ -1488,8 +1488,8 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 #define ZEST_STRUCT_MAGIC_TYPE(magic) (magic & 0xFFFF0000)
 #define ZEST_IS_INTITIALISED(magic) (magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER
 
-#define ZEST_SET_MEMORY_CONTEXT(context, command) context->device->platform_memory_info.timestamp = context->device->allocation_id++; \
-    context->device->platform_memory_info.context_info = ZEST_STRUCT_IDENTIFIER | (context << 16) | (command << 24)
+#define ZEST_SET_MEMORY_CONTEXT(context, mem_context, command) context->device->platform_memory_info.timestamp = context->device->allocation_id++; \
+    context->device->platform_memory_info.context_info = ZEST_STRUCT_IDENTIFIER | (mem_context << 16) | (command << 24)
 
 
 // --Forward_declarations
@@ -3803,13 +3803,13 @@ typedef struct zest_platform_t {
     void                       (*acquire_barrier)(const zest_command_list command_list, zest_execution_details_t *exe_details);
     void                       (*release_barrier)(const zest_command_list command_list, zest_execution_details_t *exe_details);
     void*                      (*new_execution_backend)(zloc_linear_allocator_t *allocator);
-	void                       (*set_execution_fence)(zest_execution_backend backend, zest_bool is_intraframe);
+	void                       (*set_execution_fence)(zest_context context, zest_execution_backend backend, zest_bool is_intraframe);
 	zest_frame_graph_semaphores(*get_frame_graph_semaphores)(zest_context context, const char *name);
     zest_bool                  (*submit_frame_graph_batch)(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues);
     zest_bool                  (*begin_render_pass)(const zest_command_list command_list, zest_execution_details_t *exe_details);
     void                       (*end_render_pass)(const zest_command_list command_list);
     void                       (*carry_over_semaphores)(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
-    zest_bool                  (*frame_graph_fence_wait)(zest_execution_backend backend);
+    zest_bool                  (*frame_graph_fence_wait)(zest_context context, zest_execution_backend backend);
     zest_bool                  (*create_execution_timeline_backend)(zest_context context, zest_execution_timeline timeline);
     void                       (*add_frame_graph_buffer_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers, 
                                     zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access,
@@ -3821,7 +3821,7 @@ typedef struct zest_platform_t {
     void                       (*validate_barrier_pipeline_stages)(zest_execution_barriers_t *barriers);
     void                       (*print_compiled_frame_graph)(zest_frame_graph frame_graph);
     zest_bool                  (*present_frame)(zest_swapchain);
-    zest_bool                  (*dummy_submit_for_present_only)(void);
+    zest_bool                  (*dummy_submit_for_present_only)(zest_context context);
     zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
     void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
     //Buffer and memory
@@ -3830,7 +3830,7 @@ typedef struct zest_platform_t {
     zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
     void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
 	void					   (*set_buffer_backend_details)(zest_buffer buffer);
-	void					   (*flush_used_buffers)(void);
+	void					   (*flush_used_buffers)(zest_context context);
 	void					   (*cmd_copy_buffer_one_time)(zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 	void					   (*push_buffer_for_freeing)(zest_buffer buffer);
 	zest_access_flags   	   (*get_buffer_last_access_mask)(zest_buffer buffer);
@@ -3850,25 +3850,25 @@ typedef struct zest_platform_t {
     zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_command_list command_list);
 	zest_bool				   (*finish_compute)(zest_compute_builder_t *builder, zest_compute compute);
 	//Fences
-	zest_fence_status          (*wait_for_renderer_fences)(void);
-	zest_bool                  (*reset_renderer_fences)(void);
+	zest_fence_status          (*wait_for_renderer_fences)(zest_context context);
+	zest_bool                  (*reset_renderer_fences)(zest_context context);
     //Set layouts
     zest_bool                  (*create_set_layout)(zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
     zest_bool                  (*create_set_pool)(zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
     zest_descriptor_set        (*create_bindless_set)(zest_set_layout layout);
-    void                       (*update_bindless_image_descriptor)(zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
+    void                       (*update_bindless_image_descriptor)(zest_context context, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
     void                       (*update_bindless_buffer_descriptor)(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	//Command buffers/queues
-	void					   (*reset_queue_command_pool)(zest_queue queue);
+	void					   (*reset_queue_command_pool)(zest_context context, zest_queue queue);
 	zest_bool 				   (*begin_single_time_commands)(zest_context context);
 	zest_bool 				   (*end_single_time_commands)(zest_context context);
     //General Renderer
-    void                       (*set_depth_format)(void);
-    zest_bool                  (*initialise_renderer_backend)(void);
-	zest_sample_count_flags	   (*get_msaa_sample_count)(void);
+    void                       (*set_depth_format)(zest_context context);
+    zest_bool                  (*initialise_renderer_backend)(zest_context context);
+	zest_sample_count_flags	   (*get_msaa_sample_count)(zest_context context);
 	zest_bool 				   (*initialise_swapchain)(zest_swapchain swapchain, zest_window window);
 	//Device/OS
-    void                  	   (*wait_for_idle_device)(void);
+    void                  	   (*wait_for_idle_device)(zest_context context);
 	zest_bool 				   (*initialise_device)(zest_context context);
 	void					   (*os_add_platform_extensions)(zest_context context);
 	zest_bool				   (*create_window_surface)(zest_window window);
@@ -3879,7 +3879,7 @@ typedef struct zest_platform_t {
     void*                      (*new_memory_pool_backend)(zest_context context);
 	void*					   (*new_device_backend)(zest_context context);
 	void*					   (*new_renderer_backend)(zest_context context);
-	void*					   (*new_frame_graph_context_backend)(void);
+	void*					   (*new_frame_graph_context_backend)(zest_context context);
 	void*					   (*new_swapchain_backend)(zest_context context);
 	void*					   (*new_buffer_backend)(zest_context context);
 	void*					   (*new_uniform_buffer_backend)(zest_context context);
@@ -4432,7 +4432,7 @@ ZEST_API void *zest_AllocateMemory(zest_context context, zest_size size);
 ZEST_API void zest_FreeMemory(zest_context context, void *allocation);
 //When you free buffers the platform buffer is added to a list that is either freed at the end of the program
 //or you can call this to free them whenever you want.
-ZEST_API void zest_FlushUsedBuffers();
+ZEST_API void zest_FlushUsedBuffers(zest_context context);
 //Get the mapped data of a buffer. For CPU visible buffers only
 ZEST_API void *zest_BufferData(zest_buffer buffer);
 //Get the capacity of a buffer
@@ -5045,7 +5045,7 @@ ZEST_API float zest_FPSf(void);
 ZEST_API void zest_GetMouseSpeed(double *x, double *y);
 //Wait for the device to be idle (finish executing all commands). Only recommended if you need to do a one-off operation like change a texture that could
 //still be in use by the GPU
-ZEST_API void zest_WaitForIdleDevice(void);
+ZEST_API void zest_WaitForIdleDevice(zest_context context);
 //If you pass true to this function (or any value other then 0) then the zest_app_flag_quit_application meaning the main loop with break at the end of the next frame.
 ZEST_API void zest_MaybeQuit(zest_bool condition);
 //Enable vsync so that the frame rate is limited to the current monitor refresh rate. Will cause the swap chain to be rebuilt.

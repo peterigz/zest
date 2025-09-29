@@ -68,9 +68,16 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
 
     ZestImGui->pipeline = imgui_pipeline;
 
+	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
+	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
+	vertex_info.unique_id = 0xDEA41;
+	index_info.unique_id = 0xDEA41;
+
     zest_ForEachFrameInFlight(fif) {
-        ZestImGui->vertex_device_buffer[fif] = zest_CreateUniqueVertexBuffer(context, 1024 * 1024, fif, 0xDEA41);
-        ZestImGui->index_device_buffer[fif] = zest_CreateUniqueIndexBuffer(context, 1024 * 1024, fif, 0xDEA41);
+		vertex_info.frame_in_flight = fif;
+		index_info.frame_in_flight = fif;
+        ZestImGui->vertex_device_buffer[fif] = zest_CreateBuffer(context, 1024 * 1024, &vertex_info);
+        ZestImGui->index_device_buffer[fif] = zest_CreateBuffer(context, 1024 * 1024, &index_info);
     }
 
     return ZestImGui;
@@ -78,7 +85,7 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
 
 //Dear ImGui helper functions
 void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned char *pixels) {
-    zest_WaitForIdleDevice();
+    zest_WaitForIdleDevice(ZestImGui->context);
     int upload_size = width * height * 4 * sizeof(char);
     zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer(ZestImGui->context, "font_bitmap", pixels, upload_size, width, height, 4);
     zest_FreeImage(ZestImGui->font_texture);

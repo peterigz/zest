@@ -652,7 +652,7 @@ int main(void) {
 	InitImGuiApp(&imgui_app);
 
 	//Start the main loop
-	zest_Start();
+	zest_Start(imgui_app.context);
 	zest_imgui_ShutdownGLFW();
 	zest_Shutdown(imgui_app.context);
 

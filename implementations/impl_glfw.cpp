@@ -111,10 +111,11 @@ void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {
 }
 
 zest_bool zest_implglfw_CreateWindowSurfaceCallback(zest_window window) {
-    ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_surface);
+	zest_context context = window->context;
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_renderer, zest_command_surface);
 	GLFWwindow *handle = (GLFWwindow *)zest_Window();
 	VkSurfaceKHR surface;
-	VkResult result = glfwCreateWindowSurface(zest_GetVKInstance(), handle, zest_GetVKAllocationCallbacks(), &surface);
+	VkResult result = glfwCreateWindowSurface(zest_GetVKInstance(context), handle, zest_GetVKAllocationCallbacks(context), &surface);
 	zest_vk_SetWindowSurface(surface);
 	return result == VK_SUCCESS;
 }
