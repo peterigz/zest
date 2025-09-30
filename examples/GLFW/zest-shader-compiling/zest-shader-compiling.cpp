@@ -70,7 +70,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->validation_result = nullptr;
 	app->mix_value = 0.f;
 
-	app->shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, app->test_texture);
+	app->shader_resources = zest_CombineUniformAndTextureSampler(context->renderer->uniform_descriptor_set, app->test_texture);
 
 	//Modify the existing default queue
 	zest_ModifyCommandQueue(ZestApp->default_command_queue);

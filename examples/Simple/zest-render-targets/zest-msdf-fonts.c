@@ -130,12 +130,12 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_frame_graph_conte
 
 void zest_FreeFont(zest_font_t *font) {
     ZEST_ASSERT_HANDLE(font);
-    zest_vec_push(ZestRenderer->deferred_resource_freeing_list.resources[context->device->current_fif], font);
+    zest_vec_push(context->renderer->deferred_resource_freeing_list.resources[context->renderer->current_fif], font);
 }
 
 void zest__setup_font_texture(zest_font_t *font) {
     ZEST_ASSERT_HANDLE(font);	//Not a valid handle!
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
+    zest_texture texture = (zest_texture)zest__get_store_resource(&context->renderer->textures, font->texture.value);
     ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
 
     if (ZEST__FLAGGED(texture->flags, zest_texture_flag_ready)) {
@@ -147,18 +147,18 @@ void zest__setup_font_texture(zest_font_t *font) {
 
     zest_AcquireGlobalCombinedSampler2d(font->texture);
 
-    font->pipeline_template = ZestRenderer->pipeline_templates.fonts;
+    font->pipeline_template = context->renderer->pipeline_templates.fonts;
     font->shader_resources = zest_CreateShaderResources(font->name.str);
     zest_ForEachFrameInFlight(fif) {
-        zest_AddDescriptorSetToResources(font->shader_resources, ZestRenderer->uniform_buffer->descriptor_set[fif], fif);
-        zest_AddDescriptorSetToResources(font->shader_resources, ZestRenderer->global_set, fif);
+        zest_AddDescriptorSetToResources(font->shader_resources, context->renderer->uniform_buffer->descriptor_set[fif], fif);
+        zest_AddDescriptorSetToResources(font->shader_resources, context->renderer->global_set, fif);
     }
     zest_ValidateShaderResource(font->shader_resources);
 }
 
 void zest__cleanup_font(zest_font_t *font) {
     zest_vec_free(font->characters);
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
+    zest_texture texture = (zest_texture)zest__get_store_resource(&context->renderer->textures, font->texture.value);
     if (ZEST_VALID_HANDLE(texture)) {
         zest__cleanup_texture(texture);
     }
@@ -174,7 +174,7 @@ void zest_SetMSDFFontDrawing(zest_layer_handle layer, zest_font_t *font) {
     ZEST_ASSERT_HANDLE(font);	//Not a valid handle!
     zest_EndInstanceInstructions(layer);
     zest_StartInstanceInstructions(layer);
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
+    zest_texture texture = (zest_texture)zest__get_store_resource(&context->renderer->textures, font->texture.value);
     ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource. Make sure the font is properly loaded
     ZEST_ASSERT(ZEST__FLAGGED(texture->flags, zest_texture_flag_ready));        //Make sure the font is properly loaded or wasn't recently deleted
     layer->current_instruction.pipeline_template = font->pipeline_template;
@@ -270,7 +270,7 @@ float zest_DrawMSDFText(zest_layer_handle layer, const char *text, float x, floa
 
     float xpos = x;
 
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
+    zest_texture texture = (zest_texture)zest__get_store_resource(&context->renderer->textures, font->texture.value);
     ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
 
     for (int i = 0; i != length; ++i) {
@@ -313,7 +313,7 @@ float zest_DrawMSDFParagraph(zest_layer_handle layer, const char *text, float x,
 
     zest_font_t *font = (zest_font_t*)(layer->current_instruction.asset);
 
-    zest_texture texture = (zest_texture)zest__get_store_resource(&ZestRenderer->textures, font->texture.value);
+    zest_texture texture = (zest_texture)zest__get_store_resource(&context->renderer->textures, font->texture.value);
     ZEST_ASSERT_HANDLE(texture);    //Not a valid texture resource
 
     size_t length = strlen(text);

@@ -88,7 +88,7 @@ void UpdateUniform3d(ComputeExample *example) {
 void RecordComputeSprites(struct zest_work_queue_t *queue, void *data) {
 	zest_draw_routine draw_routine = (zest_draw_routine)data;
 	ComputeExample &example = *static_cast<ComputeExample*>(draw_routine->user_data);
-	VkCommandBuffer command_buffer = zest_BeginRecording(draw_routine->recorder, draw_routine->draw_commands->render_pass, context->device->current_fif);
+	VkCommandBuffer command_buffer = zest_BeginRecording(draw_routine->recorder, draw_routine->draw_commands->render_pass, context->renderer->current_fif);
 
 	zest_SetViewport(command_buffer, draw_routine);
 
@@ -96,11 +96,11 @@ void RecordComputeSprites(struct zest_work_queue_t *queue, void *data) {
 	zest_cmd_BindVertexBuffer(command_buffer, example.sprite_buffer->buffer[0]);
 
 	//Draw all the sprites in the buffer that is built by the compute shader
-	zest_cmd_BindPipelineShaderResource(command_buffer, example.tfx_rendering.pipeline, example.tfx_rendering.shader_resource, context->device->current_fif);
+	zest_cmd_BindPipelineShaderResource(command_buffer, example.tfx_rendering.pipeline, example.tfx_rendering.shader_resource, context->renderer->current_fif);
 	zest_cmd_SendPushConstants(command_buffer, example.tfx_rendering.pipeline, VK_SHADER_STAGE_VERTEX_BIT, sizeof(zest_push_constants_t), &example.push_contants);
 	zest_cmd_Draw(command_buffer, 6, tfx_GetTotalSpritesThatNeedDrawing(example.animation_manager_3d), 0, 0);
 	
-	zest_EndRecording(draw_routine->recorder, context->device->current_fif);
+	zest_EndRecording(draw_routine->recorder, context->renderer->current_fif);
 }
 
 //A callback for when the window size is changed so we can update the layer push constants that contain the current screen size
@@ -223,7 +223,7 @@ void SpriteComputeFunction(zest_compute compute) {
 
 	//The compute queue item can contain more then one compute shader to be dispatched but in this case there's only
 	//one which is the effect playback compute shader
-	VkCommandBuffer command_buffer = zest_BeginComputeRecording(compute->recorder, context->device->current_fif);
+	VkCommandBuffer command_buffer = zest_BeginComputeRecording(compute->recorder, context->renderer->current_fif);
 	//Grab our ComputeExample struct out of the user data
 	ComputeExample *example = static_cast<ComputeExample*>(compute->user_data);
 
@@ -232,8 +232,8 @@ void SpriteComputeFunction(zest_compute compute) {
 	zest_cmd_BindComputePipeline(compute, example->compute_pipeline_3d);
 	//Some graphics cards don't support direct writing to the GPU buffer so we have to copy to a staging buffer first, then
 	//from there we copy to the GPU.
-	zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[context->device->current_fif], example->offsets_buffer->buffer[context->device->current_fif], tfx_GetOffsetsSizeInBytes(example->animation_manager_3d), 1);
-	zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[context->device->current_fif], example->animation_instances_buffer->buffer[context->device->current_fif], tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d), 1);
+	zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->offsets_staging_buffer[context->renderer->current_fif], example->offsets_buffer->buffer[context->renderer->current_fif], tfx_GetOffsetsSizeInBytes(example->animation_manager_3d), 1);
+	zest_CopyBufferCB(zest_CurrentCommandBuffer(), example->animation_instances_staging_buffer[context->renderer->current_fif], example->animation_instances_buffer->buffer[context->renderer->current_fif], tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d), 1);
 
 	//Update the push constants with some metrics. These are referenced in the compute shader.
 	//The total number of animation instances that need to be drawn
@@ -247,7 +247,7 @@ void SpriteComputeFunction(zest_compute compute) {
 	compute->push_constants.parameters.w = (float)example->animation_manager_3d->render_queue[0].offset_into_sprite_data;
 
 	//Send the push constants in the compute object to the shader
-	zest_SendComputePushConstants(ZestRenderer->current_command_buffer, compute);
+	zest_SendComputePushConstants(context->renderer->current_command_buffer, compute);
 
 	//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
 	//For example if there are 1024 sprites, if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
@@ -255,7 +255,7 @@ void SpriteComputeFunction(zest_compute compute) {
 
 	//We want the compute shader to finish before the vertex shader is run so we put a barrier here.
 	//zest_ComputeToVertexBarrier();
-	zest_EndRecording(compute->recorder, context->device->current_fif);
+	zest_EndRecording(compute->recorder, context->renderer->current_fif);
 }
 
 //This function is the callback function that will be used when we call zest_RunCompute. This is used when we want to run a compute
@@ -607,10 +607,10 @@ void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager anima
 		tfxU32 frame_group_count = instance.sprite_count / 256 + 1;
 		//Maybe grow the bounding box buffer if it's too small
 		zest_GrowDescriptorBuffer(example->bounding_boxes, sizeof(tfx_bounding_box_t), sizeof(tfx_bounding_box_t) * frame_group_count);
-		zest_UpdateComputeDescriptors(example->bounding_box_compute, context->device->current_fif);
+		zest_UpdateComputeDescriptors(example->bounding_box_compute, context->renderer->current_fif);
 		//Update the offset and instance buffers either.
-		memcpy(example->offsets_staging_buffer[context->device->current_fif]->data, animation_manager->offsets.data, tfx_GetOffsetsSizeInBytes(animation_manager));
-		memcpy(example->animation_instances_staging_buffer[context->device->current_fif]->data, animation_manager->render_queue.data, tfx_GetAnimationInstancesSizeInBytes(animation_manager));
+		memcpy(example->offsets_staging_buffer[context->renderer->current_fif]->data, animation_manager->offsets.data, tfx_GetOffsetsSizeInBytes(animation_manager));
+		memcpy(example->animation_instances_staging_buffer[context->renderer->current_fif]->data, animation_manager->render_queue.data, tfx_GetAnimationInstancesSizeInBytes(animation_manager));
 
 		//Run the compute shader and wait for it to finish
 		zest_RunCompute(example->bounding_box_compute);
@@ -645,7 +645,7 @@ void CalculateBoundingBoxes(ComputeExample *example, tfx_animation_manager anima
 
 //Fuction to cast a ray from screen to world space.
 tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position) {
-	zest_uniform_buffer_data_t *ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(ZestRenderer->uniform_buffer));
+	zest_uniform_buffer_data_t *ubo_ptr = static_cast<zest_uniform_buffer_data_t*>(zest_GetUniformBufferData(context->renderer->uniform_buffer));
 	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &ubo_ptr->proj, &ubo_ptr->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
 	return { pos.x, pos.y, pos.z };
@@ -823,8 +823,8 @@ void Update(zest_microsecs elapsed, void *data) {
 	zest_DrawTexturedPlane(example->mesh_layer, example->floor_image, -500.f, -5.f, -500.f, 1000.f, 1000.f, 50.f, 50.f, 0.f, 0.f);
 
 	//Copy the offsets and animation instances either to the staging buffers. The staging buffers will then be uploaded in the render pipeline.
-	memcpy(example->offsets_staging_buffer[context->device->current_fif]->data, example->animation_manager_3d->offsets.data, tfx_GetOffsetsSizeInBytes(example->animation_manager_3d));
-	memcpy(example->animation_instances_staging_buffer[context->device->current_fif]->data, example->animation_manager_3d->render_queue.data, tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d));
+	memcpy(example->offsets_staging_buffer[context->renderer->current_fif]->data, example->animation_manager_3d->offsets.data, tfx_GetOffsetsSizeInBytes(example->animation_manager_3d));
+	memcpy(example->animation_instances_staging_buffer[context->renderer->current_fif]->data, example->animation_manager_3d->render_queue.data, tfx_GetAnimationInstancesSizeInBytes(example->animation_manager_3d));
 
 	zest_TimerSet(example->timer);
 }

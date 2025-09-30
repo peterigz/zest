@@ -1,8 +1,8 @@
 #include "impl_slang.h"
 
 zest_slang_info_t *zest_slang_Session() {
-    ZEST_ASSERT(ZestRenderer->slang_info);  //Slang hasn't been initialise, call zest_slang_InitialiseSession
-    return static_cast<zest_slang_info_t *>(ZestRenderer->slang_info);
+    ZEST_ASSERT(context->renderer->slang_info);  //Slang hasn't been initialise, call zest_slang_InitialiseSession
+    return static_cast<zest_slang_info_t *>(context->renderer->slang_info);
 }
 
 void zest_slang_InitialiseSession() {
@@ -10,19 +10,19 @@ void zest_slang_InitialiseSession() {
     zest_slang_info_t *slang_info = new (memory) zest_slang_info_t();
     slang_info->magic = zest_INIT_MAGIC(zest_struct_type_slang_info);
     slang::createGlobalSession(slang_info->global_session.writeRef());
-    ZestRenderer->slang_info = slang_info;
+    context->renderer->slang_info = slang_info;
 }
 
 void zest_slang_Shutdown() {
-    if (ZestRenderer->slang_info) {
-        zest_slang_info_t *slang_info = static_cast<zest_slang_info_t *>(ZestRenderer->slang_info);
+    if (context->renderer->slang_info) {
+        zest_slang_info_t *slang_info = static_cast<zest_slang_info_t *>(context->renderer->slang_info);
 
         // Deleting the C++ object will automatically trigger the ComPtr's
         // destructor, which correctly releases the global session.
         slang_info->~zest_slang_info_t();
         zest_FreeMemory(slang_info);
 
-        ZestRenderer->slang_info = 0;
+        context->renderer->slang_info = 0;
     }
 }
 

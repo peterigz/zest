@@ -46,7 +46,7 @@ void InitExample(zest_example *example) {
 	zest_AddGlobalBindlessSetToResources(example->billboard_shader_resources);
 
 	example->sprite_shader_resources = zest_CreateShaderResources("Sprite shader resources");
-	zest_AddUniformBufferToResources(example->sprite_shader_resources, ZestRenderer->uniform_buffer);
+	zest_AddUniformBufferToResources(example->sprite_shader_resources, context->renderer->uniform_buffer);
 	zest_AddGlobalBindlessSetToResources(example->sprite_shader_resources);
 
 	//Create a camera for the 3d view

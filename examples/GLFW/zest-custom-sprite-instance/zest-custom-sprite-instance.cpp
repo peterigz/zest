@@ -64,7 +64,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Start with creating a fresh pipeline template
 	app->custom_pipeline = zest_BeginPipelineTemplate("Custom sprite pipeline");
 
-	zest_AddPipelineDescriptorLayout(app->custom_pipeline, ZestRenderer->uniform_buffer->set_layout->vk_layout);
+	zest_AddPipelineDescriptorLayout(app->custom_pipeline, context->renderer->uniform_buffer->set_layout->vk_layout);
 	zest_AddPipelineDescriptorLayout(app->custom_pipeline, zest_vk_GetGlobalBindlessLayout());
 	//Add a vertex input binding description specifying the size of the custom sprite instance struct
 	zest_AddVertexInputBindingDescription(app->custom_pipeline, 0, sizeof(zest_custom_sprite_instance_t), VK_VERTEX_INPUT_RATE_INSTANCE);
@@ -96,7 +96,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_SetLayerUserData(app->custom_layer, &app->layer_data);
 
 	app->shader_resources = zest_CreateShaderResources("Sprite resources");
-	zest_AddUniformBufferToResources(app->shader_resources, ZestRenderer->uniform_buffer);
+	zest_AddUniformBufferToResources(app->shader_resources, context->renderer->uniform_buffer);
 	zest_AddGlobalBindlessSetToResources(app->shader_resources);
 
 	zest_AcquireGlobalCombinedImageSampler(app->test_texture);
@@ -104,7 +104,7 @@ void InitImGuiApp(ImGuiApp *app) {
 }
 
 void zest_DrawCustomSprite(zest_layer layer, zest_atlas_region image, float x, float y, float r, float sx, float sy, float hx, float hy, zest_uint alignment, float stretch, zest_vec2 lerp_values) {
-	zest_custom_sprite_instance_t *sprite = zest_GetLayerInstance(zest_custom_sprite_instance_t, layer, context->device->current_fif);
+	zest_custom_sprite_instance_t *sprite = zest_GetLayerInstance(zest_custom_sprite_instance_t, layer, context->renderer->current_fif);
 
 	sprite->size_handle = zest_Pack16bit4SScaled(sx, sy, hx, hy, 4096.f, 128.f);
 	sprite->position_rotation = zest_Vec4Set(x, y, stretch, r);

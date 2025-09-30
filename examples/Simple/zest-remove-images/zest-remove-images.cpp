@@ -26,7 +26,7 @@ void InitialiseApp(App *app) {
 	//Process the texture to pack all the images into the texture
 	zest_ProcessTextureImages(app->texture);
 	zest_SetTextureUserData(app->texture, app);
-	app->shader_resources = zest_CombineUniformAndTextureSampler(ZestRenderer->uniform_descriptor_set, app->texture);
+	app->shader_resources = zest_CombineUniformAndTextureSampler(context->renderer->uniform_descriptor_set, app->texture);
 	//Create a timer and reset it
 	app->timer = zest_CreateTimer(60);
 	zest_TimerReset(app->timer);

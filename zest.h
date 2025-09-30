@@ -1494,6 +1494,7 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 
 // --Forward_declarations
 typedef struct zest_context_t zest_context_t;
+typedef struct zest_platform_t zest_platform_t;
 typedef struct zest_image_t zest_image_t;
 typedef struct zest_image_view_t zest_image_view_t;
 typedef struct zest_image_view_array_t zest_image_view_array_t;
@@ -1557,6 +1558,7 @@ typedef struct zest_set_layout_builder_backend_t zest_set_layout_builder_backend
 
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_context)
+ZEST__MAKE_HANDLE(zest_platform)
 ZEST__MAKE_HANDLE(zest_image)
 ZEST__MAKE_HANDLE(zest_image_view)
 ZEST__MAKE_HANDLE(zest_image_view_array)
@@ -1926,7 +1928,7 @@ typedef struct zest_log_entry_t {
 
 ZEST_PRIVATE void zest__log_entry(zest_context context, const char *entry, ...);
 ZEST_PRIVATE void zest__log_entry_v(char *str, const char *entry, ...);
-ZEST_PRIVATE void zest__reset_frame_log(char *str, const char *entry, ...);
+ZEST_PRIVATE void zest__reset_frame_log(zest_context context, char *str, const char *entry, ...);
 
 ZEST_API void zest__add_report(zest_context context, zest_report_category category, int line_number, const char *entry, ...);
 
@@ -2423,7 +2425,7 @@ typedef struct zest_buffer_info_t {
     //This is an important field to avoid race conditions. Sometimes you may want to only update a buffer
     //when data has changed, like a ui buffer or any buffer that's only updated inside a fixed time loop.
     //This means that the frame in flight index for those buffers is decoupled from the main render loop 
-    //frame in flight (context->device->current_fif). This can create a situation where a decoupled buffer has the same buffer
+    //frame in flight (context->renderer->current_fif). This can create a situation where a decoupled buffer has the same buffer
     //as a transient buffer that's not decoupled. So what can happen is that a vkCmdDraw can use the same
     //buffer that was used in the last frame. This should never be possible. A buffer that's used in one
     //frame - it's last usage should be a minimum of 2 frames ago which means that the frame in flight fence
@@ -2673,14 +2675,14 @@ typedef struct zest_create_info_t {
     zest_uint bindless_storage_image_count;
 
     //Callbacks: use these to implement your own preferred window creation functionality
-    void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
-    void(*destroy_window_callback)(zest_window window, void *user_data);
+    void(*get_window_size_callback)(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
+    void(*destroy_window_callback)(zest_context window, void *user_data);
     void(*poll_events_callback)(zest_context context);
     void(*add_platform_extensions_callback)(zest_context context);
     zest_window(*create_window_callback)(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title);
-    zest_bool(*create_window_surface_callback)(zest_window window);
-    void(*set_window_mode_callback)(zest_window window, zest_window_mode mode);
-    void(*set_window_size_callback)(zest_window window, int width, int height);
+    zest_bool(*create_window_surface_callback)(zest_context window);
+    void(*set_window_mode_callback)(zest_context window, zest_window_mode mode);
+    void(*set_window_size_callback)(zest_context window, int width, int height);
 } zest_create_info_t;
 
 zest_hash_map(zest_queue) zest_map_queue_value;
@@ -2710,10 +2712,6 @@ typedef struct zest_device_t {
     int magic;
     zest_uint api_version;
     zest_uint use_labels_address_bit;
-    zest_uint previous_fif;
-    zest_uint current_fif;
-    zest_uint max_fif;
-    zest_uint saved_fif;
     zest_uint max_image_size;
     void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
     zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
@@ -2725,6 +2723,7 @@ typedef struct zest_device_t {
     zest_uint vector_id;
     zloc_linear_allocator_t *scratch_arena;
 
+	zest_platform platform;
     zest_device_backend backend;
 
     zest_uint graphics_queue_family_index;
@@ -2762,8 +2761,6 @@ typedef struct zest_app_t {
     zest_uint last_fps;
 
     zest_app_flags flags;
-    zest_u64 fence_wait_timeout_ns;
-    zest_wait_timeout_callback fence_wait_timeout_callback;
 } zest_app_t;
 
 typedef struct zest_mip_push_constants_t {
@@ -3227,7 +3224,7 @@ ZEST_API void zest_PrintCompiledRenderGraph(zest_frame_graph frame_graph);
 ZEST_API void zest_PrintCachedRenderGraph(zest_frame_graph_cache_key_t *cache_key);
 
 // --- [Swapchain_helpers]
-ZEST_API zest_swapchain zest_GetMainWindowSwapchain();
+ZEST_API zest_swapchain zest_GetWindowSwapchain(zest_context context);
 ZEST_API zest_format zest_GetSwapchainFormat(zest_swapchain swapchain);
 ZEST_API void zest_SetSwapchainClearColor(zest_swapchain swapchain, float red, float green, float blue, float alpha);
 //End Swapchain helpers
@@ -3715,6 +3712,9 @@ typedef struct zest_renderer_t {
 
     zest_execution_timeline *timeline_semaphores;
 
+    zest_u64 fence_wait_timeout_ns;
+    zest_wait_timeout_callback fence_wait_timeout_callback;
+
     zest_u64 total_frame_count;
 
     zest_extent2d_t window_extent;
@@ -3730,6 +3730,11 @@ typedef struct zest_renderer_t {
 
     zest_uint fence_count[ZEST_MAX_FIF];
 
+	//Frame in flight indexes
+    zest_uint previous_fif;
+    zest_uint current_fif;
+    zest_uint saved_fif;
+
     //Built in shaders that I'll probably remove soon
     zest_builtin_shaders_t builtin_shaders;
     zest_builtin_pipeline_templates_t pipeline_templates;
@@ -3738,7 +3743,6 @@ typedef struct zest_renderer_t {
     zest_pass_node current_pass;
     zest_frame_graph *frame_graphs;       //All the render graphs used this frame. Gets cleared at the beginning of each frame
     zest_swapchain last_acquired_swapchain;
-    zest_swapchain main_swapchain;
 
     //Linear allocator for building the render graph each frame
     zloc_linear_allocator_t *frame_graph_allocator[ZEST_MAX_FIF];
@@ -3779,14 +3783,14 @@ typedef struct zest_renderer_t {
     zest_map_reports reports;
 
     //Callbacks for customising window and surface creation
-    void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
-    void(*destroy_window_callback)(zest_window window, void *user_data);
+    void(*get_window_size_callback)(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
+    void(*destroy_window_callback)(zest_context context, void *user_data);
     void(*poll_events_callback)(ZEST_PROTOTYPE);
     void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
     zest_window(*create_window_callback)(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title);
-    void(*create_window_surface_callback)(zest_window window);
-    void(*set_window_mode_callback)(zest_window window, zest_window_mode mode);
-    void(*set_window_size_callback)(zest_window window, int width, int height);
+    void(*create_window_surface_callback)(zest_context context);
+    void(*set_window_mode_callback)(zest_context context, zest_window_mode mode);
+    void(*set_window_size_callback)(zest_context context, int width, int height);
 
     //Slang
     void *slang_info;
@@ -3918,11 +3922,9 @@ typedef struct zest_context_t {
 	zest_device_t *device;
 	zest_app_t *app;
 	zest_renderer_t *renderer;
-	zest_platform_t *platform;
 } zest_context_t;
 
 extern zest_app_t *ZestApp;
-extern zest_renderer_t *ZestRenderer;
 extern zest_platform_t ZestPlatform;
 
 ZEST_PRIVATE inline void *zest__get_store_resource(zest_context context, zest_handle handle) {
@@ -3962,9 +3964,9 @@ static const zest_image_t zest__image_zero = {0};
 //These functions need a different implementation depending on the platform being run on
 //See definitions at the top of zest.c
 ZEST_PRIVATE zest_window zest__os_create_window(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title);
-ZEST_PRIVATE zest_bool zest__os_create_window_surface(zest_window window);
-ZEST_PRIVATE void zest__os_set_window_mode(zest_window window, zest_window_mode mode);
-ZEST_PRIVATE void zest__os_set_window_size(zest_window window, int width, int height);
+ZEST_PRIVATE zest_bool zest__os_create_window_surface(zest_context window);
+ZEST_PRIVATE void zest__os_set_window_mode(zest_context window, zest_window_mode mode);
+ZEST_PRIVATE void zest__os_set_window_size(zest_context window, int width, int height);
 ZEST_PRIVATE void zest__os_poll_events(zest_context context);
 ZEST_PRIVATE void zest__os_add_platform_extensions(zest_context context);
 ZEST_PRIVATE void zest__os_set_window_title(zest_context context, const char *title);
@@ -4024,31 +4026,31 @@ ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation
 ZEST_PRIVATE zest_bool zest__create_memory_pool(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__set_buffer_details(zest_context context, zest_buffer_allocator buffer_allocator, zest_buffer buffer, zest_bool is_host_visible);
-ZEST_PRIVATE void zest__cleanup_buffers_in_allocators();
+ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_context context);
 //End Buffer Management
 
 //Renderer_functions
 ZEST_API inline zest_uint zest_CurrentFIF(zest_context context) {
-	return context->device->current_fif;
+	return context->renderer->current_fif;
 }
 ZEST_PRIVATE zest_bool zest__initialise_renderer(zest_context context, zest_create_info_t *create_info);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(zest_context context, const char *name);
-ZEST_PRIVATE void zest__get_window_size_callback(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
-ZEST_PRIVATE void zest__destroy_window_callback(zest_window window, void *user_data);
+ZEST_PRIVATE void zest__get_window_size_callback(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
+ZEST_PRIVATE void zest__destroy_window_callback(zest_context window, void *user_data);
 ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain, zest_bool for_recreation);
 ZEST_PRIVATE void zest__cleanup_device(zest_context context);
 ZEST_PRIVATE void zest__cleanup_renderer(zest_context context);
-ZEST_PRIVATE void zest__cleanup_shader_resource_store(void);
-ZEST_PRIVATE void zest__cleanup_image_store(void);
-ZEST_PRIVATE void zest__cleanup_sampler_store(void);
-ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(void);
-ZEST_PRIVATE void zest__cleanup_timer_store(void);
-ZEST_PRIVATE void zest__cleanup_layer_store(void);
-ZEST_PRIVATE void zest__cleanup_shader_store(void);
-ZEST_PRIVATE void zest__cleanup_compute_store(void);
-ZEST_PRIVATE void zest__cleanup_set_layout_store(void);
-ZEST_PRIVATE void zest__cleanup_view_store(void);
-ZEST_PRIVATE void zest__cleanup_view_array_store(void);
+ZEST_PRIVATE void zest__cleanup_shader_resource_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_image_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_sampler_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_timer_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_layer_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_shader_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_compute_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_set_layout_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_view_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_view_array_store(zest_context context);
 ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources(zest_context context);
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
@@ -4145,7 +4147,6 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler
 // --End Descriptor set functions
 
 // --Device_set_up
-ZEST_PRIVATE void zest__destroy_debug_messenger(void);
 ZEST_API_TMP void zest__set_default_pool_sizes(zest_context context);
 //end device setup functions
 
@@ -4224,9 +4225,9 @@ ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer_handle layer
 ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
 ZEST_API void zest_ReleaseGlobalImageIndex(zest_image_handle image, zest_global_binding_number binding_number);
 ZEST_API void zest_ReleaseAllGlobalImageIndexes(zest_image_handle image);
-ZEST_API void zest_ReleaseGlobalBindlessIndex(zest_uint index, zest_global_binding_number binding_number);
-ZEST_API zest_descriptor_set zest_GetGlobalBindlessSet();
-ZEST_API zest_set_layout_handle zest_GetGlobalBindlessLayout();
+ZEST_API void zest_ReleaseGlobalBindlessIndex(zest_context context, zest_uint index, zest_global_binding_number binding_number);
+ZEST_API zest_descriptor_set zest_GetGlobalBindlessSet(zest_context context);
+ZEST_API zest_set_layout_handle zest_GetGlobalBindlessLayout(zest_context context);
 //Create a new descriptor set shader_resources
 ZEST_API zest_shader_resources_handle zest_CreateShaderResources(zest_context context);
 //Delete shader resources from the renderer and free the memory. This does not free or destroy the actual
@@ -4273,7 +4274,7 @@ ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader, shaderc_compile
 //pass in the full path to the file relative to the executable being run.
 ZEST_API zest_shader_handle zest_AddShaderFromSPVFile(zest_context context, const char *filename, shaderc_shader_kind type);
 //Add an spv shader straight from memory and return a handle to the shader. Note that the name should just be the name of the shader, 
-//If a path prefix is set (ZestRenderer->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
+//If a path prefix is set (context->renderer->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
 ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(zest_context context, const char *name, const void *buffer, zest_uint size, shaderc_shader_kind type);
 //Add a shader to the renderer list of shaders.
@@ -4349,12 +4350,12 @@ ZEST_API void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template
 //Platform_dependent_callbacks
 //Depending on the platform and method you're using to create a window and poll events callbacks are used to do those things.
 //You can define those callbacks with these functions
-ZEST_API void zest_SetDestroyWindowCallback(void(*destroy_window_callback)(zest_window window, void *user_data));
-ZEST_API void zest_SetGetWindowSizeCallback(void(*get_window_size_callback)(void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height));
-ZEST_API void zest_SetPollEventsCallback(void(*poll_events_callback)(void));
-ZEST_API void zest_SetPlatformExtensionsCallback(void(*add_platform_extensions_callback)(void));
-ZEST_API void zest_SetPlatformWindowModeCallback(void(*set_window_mode_callback)(zest_window window, zest_window_mode mode));
-ZEST_API void zest_SetPlatformWindowSizeCallback(void(*set_window_size_callback)(zest_window window, int width, int height));
+ZEST_API void zest_SetDestroyWindowCallback(zest_context context, void(*destroy_window_callback)(zest_context window, void *user_data));
+ZEST_API void zest_SetGetWindowSizeCallback(zest_context context, void(*get_window_size_callback)(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height));
+ZEST_API void zest_SetPollEventsCallback(zest_context context, void(*poll_events_callback)(void));
+ZEST_API void zest_SetPlatformExtensionsCallback(zest_context context, void(*add_platform_extensions_callback)(void));
+ZEST_API void zest_SetPlatformWindowModeCallback(zest_context context, void(*set_window_mode_callback)(zest_context window, zest_window_mode mode));
+ZEST_API void zest_SetPlatformWindowSizeCallback(zest_context context, void(*set_window_size_callback)(zest_context window, int width, int height));
 
 //-----------------------------------------------
 //        Buffer_functions.
@@ -4369,7 +4370,7 @@ ZEST_API void zest_SetPlatformWindowSizeCallback(void(*set_window_size_callback)
 //Debug functions, will output info about the buffer to the console and also verify the integrity of host and device memory blocks
 ZEST_API void zloc__output_buffer_info(void* ptr, size_t size, int free, void* user, int count);
 ZEST_API zloc__error_codes zloc_VerifyRemoteBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
-ZEST_API zloc__error_codes zloc_VerifyAllRemoteBlocks(zloc__block_output output_function, void *user_data);
+ZEST_API zloc__error_codes zloc_VerifyAllRemoteBlocks(zest_context context, zloc__block_output output_function, void *user_data);
 ZEST_API zloc__error_codes zloc_VerifyBlocks(zloc_header *first_block, zloc__block_output output_function, void *user_data);
 ZEST_API zest_uint zloc_CountBlocks(zloc_header *first_block);
 //---------
@@ -4988,16 +4989,16 @@ ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer_handle timer);             
 //-----------------------------------------------
 //        Window_functions
 //-----------------------------------------------
-ZEST_API void zest_SetWindowMode(zest_window window, zest_window_mode mode);
-ZEST_API void zest_SetWindowSize(zest_window window, zest_uint width, zest_uint height);
-ZEST_API void zest_UpdateWindowSize(zest_window window, zest_uint width, zest_uint height);
-ZEST_API void zest_SetWindowHandle(zest_window window, void *handle);
-ZEST_API zest_window zest_GetCurrentWindow(void);
-ZEST_API void zest_CloseWindow(zest_window window);
-ZEST_API void zest_CleanupWindow(zest_window window);
+ZEST_API void zest_SetWindowMode(zest_context context, zest_window_mode mode);
+ZEST_API void zest_SetWindowSize(zest_context context, zest_uint width, zest_uint height);
+ZEST_API void zest_UpdateWindowSize(zest_context context, zest_uint width, zest_uint height);
+ZEST_API void zest_SetWindowHandle(zest_context context, void *handle);
+ZEST_API zest_window zest_GetCurrentWindow(zest_context context);
+ZEST_API void zest_CloseWindow(zest_context context);
+ZEST_API void zest_CleanupWindow(zest_context context);
 //Return a pointer to the window handle stored in the zest_window_t. This could be anything so it's up to you to cast to the right data type. For example, if you're
 //using GLFW then you would cast it to a GLFWwindow*
-ZEST_API void *zest_Window(void);
+ZEST_API void *zest_Window(zest_context context);
 
 //-----------------------------------------------
 //        General_Helper_functions
@@ -5005,52 +5006,52 @@ ZEST_API void *zest_Window(void);
 //Read a file from disk into memory. Set terminate to 1 if you want to add \0 to the end of the file in memory
 ZEST_API char* zest_ReadEntireFile(zest_context context, const char *file_name, zest_bool terminate);
 //Get the swap chain extent which will basically be the size of the window returned in a zest_extent2d_t struct.
-ZEST_API zest_extent2d_t zest_GetSwapChainExtent(void);
+ZEST_API zest_extent2d_t zest_GetSwapChainExtent(zest_context context);
 //Get the window size in a zest_extent2d_t. In most cases this is the same as the swap chain extent.
-ZEST_API zest_extent2d_t zest_GetWindowExtent(void);
+ZEST_API zest_extent2d_t zest_GetWindowExtent(zest_context context);
 //Get the current swap chain width
-ZEST_API zest_uint zest_SwapChainWidth(void);
+ZEST_API zest_uint zest_SwapChainWidth(zest_context context);
 //Get the current swap chain height
-ZEST_API zest_uint zest_SwapChainHeight(void);
+ZEST_API zest_uint zest_SwapChainHeight(zest_context context);
 //Get the current swap chain width as a float
-ZEST_API float zest_SwapChainWidthf(void);
+ZEST_API float zest_SwapChainWidthf(zest_context context);
 //Get the current swap chain height as a float
-ZEST_API float zest_SwapChainHeightf(void);
+ZEST_API float zest_SwapChainHeightf(zest_context context);
 //Get the current screen width
-ZEST_API zest_uint zest_ScreenWidth(void);
+ZEST_API zest_uint zest_ScreenWidth(zest_context context);
 //Get the current screen height
-ZEST_API zest_uint zest_ScreenHeight(void);
+ZEST_API zest_uint zest_ScreenHeight(zest_context context);
 //Get the current screen width as a float
-ZEST_API float zest_ScreenWidthf(void);
+ZEST_API float zest_ScreenWidthf(zest_context context);
 //Get the current screen height as a float
-ZEST_API float zest_ScreenHeightf(void);
+ZEST_API float zest_ScreenHeightf(zest_context context);
 //Get the current mouse x screen coordinate as a float
-ZEST_API float zest_MouseXf();
+ZEST_API float zest_MouseXf(zest_context context);
 //Get the current mouse y screen coordinate as a float
-ZEST_API float zest_MouseYf();
+ZEST_API float zest_MouseYf(zest_context context);
 //Returns true if the mouse button is held down
-ZEST_API bool zest_MouseDown(zest_mouse_button button);
+ZEST_API bool zest_MouseDown(zest_context context, zest_mouse_button button);
 //Returns true if the mouse button has been pressed and then released since the last frame
-ZEST_API bool zest_MouseHit(zest_mouse_button button);
+ZEST_API bool zest_MouseHit(zest_context context, zest_mouse_button button);
 //For retina screens this will return the current screen DPI
-ZEST_API float zest_DPIScale(void);
+ZEST_API float zest_DPIScale(zest_context context);
 //Set the DPI scale
-ZEST_API void zest_SetDPIScale(float scale);
+ZEST_API void zest_SetDPIScale(zest_context context, float scale);
 //Get the current frames per second
 ZEST_API zest_uint zest_FPS(void);
 //Get the current frames per second as a float
 ZEST_API float zest_FPSf(void);
 //Get the current speed of the mouse in pixels per second. Results are stored in the floats you pass into the function as pointers.
-ZEST_API void zest_GetMouseSpeed(double *x, double *y);
+ZEST_API void zest_GetMouseSpeed(zest_context contest, double *x, double *y);
 //Wait for the device to be idle (finish executing all commands). Only recommended if you need to do a one-off operation like change a texture that could
 //still be in use by the GPU
 ZEST_API void zest_WaitForIdleDevice(zest_context context);
 //If you pass true to this function (or any value other then 0) then the zest_app_flag_quit_application meaning the main loop with break at the end of the next frame.
 ZEST_API void zest_MaybeQuit(zest_bool condition);
 //Enable vsync so that the frame rate is limited to the current monitor refresh rate. Will cause the swap chain to be rebuilt.
-ZEST_API void zest_EnableVSync(void);
+ZEST_API void zest_EnableVSync(zest_context context);
 //Disable vsync so that the frame rate is not limited to the current monitor refresh rate, frames will render as fast as they can. Will cause the swap chain to be rebuilt.
-ZEST_API void zest_DisableVSync(void);
+ZEST_API void zest_DisableVSync(zest_context context);
 //Log the current FPS to the console once every second
 ZEST_API void zest_LogFPSToConsole(zest_bool yesno);
 //Set the current frame in flight. You should only use this if you want to execute a floating command queue that contains resources that only have a single frame in flight.
@@ -5077,7 +5078,7 @@ ZEST_API void zest_OutputMemoryUsage(zest_context context);
 //messages will be output to the console if it's available.
 ZEST_API zest_bool zest_SetErrorLogPath(zest_context context, const char *path);
 //Print out any reports that have been collected to the console
-ZEST_API void zest_PrintReports();
+ZEST_API void zest_PrintReports(zest_context context);
 ZEST_PRIVATE void zest__print_block_info(zest_context context, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter);
 ZEST_API void zest_PrintMemoryBlocks(zest_context context, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter);
 ZEST_API zest_uint zest_GetValidationErrorCount(zest_context context);
@@ -5102,7 +5103,7 @@ ZEST_API void zest_cmd_Clip(const zest_command_list command_list, float x, float
 //Bind a pipeline for use in a draw routing. Once you have built the pipeline at some point you will want to actually use it to draw things.
 //In order to do that you can bind the pipeline using this function. Just pass in the pipeline handle and a zest_shader_resources. Note that the
 //descriptor sets in the shader_resources must be compatible with the layout that is being using in the pipeline. The command buffer used in the binding will be
-//whatever is defined in ZestRenderer->current_command_buffer which will be set when the command queue is recorded. If you need to specify
+//whatever is defined in context->renderer->current_command_buffer which will be set when the command queue is recorded. If you need to specify
 //a command buffer then call zest_BindPipelineCB instead.
 ZEST_API void zest_cmd_BindPipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_set, zest_uint set_count);
 //Bind a pipeline for a compute shader

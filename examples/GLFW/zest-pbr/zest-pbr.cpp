@@ -6,10 +6,10 @@
 void UpdateUniform3d(ImGuiApp *app) {
 	uniform_buffer_data_t *ubo_ptr = static_cast<uniform_buffer_data_t *>(zest_GetUniformBufferData(app->view_buffer));
 	ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
-	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf() / zest_ScreenHeightf(), 0.001f, 10000.f);
+	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf(app->context) / zest_ScreenHeightf(app->context), 0.001f, 10000.f);
 	ubo_ptr->proj.v[1].y *= -1.f;
-	ubo_ptr->screen_size.x = zest_ScreenWidthf();
-	ubo_ptr->screen_size.y = zest_ScreenHeightf();
+	ubo_ptr->screen_size.x = zest_ScreenWidthf(app->context);
+	ubo_ptr->screen_size.y = zest_ScreenHeightf(app->context);
 }
 
 void SetupBillboards(ImGuiApp *app) {
@@ -35,7 +35,7 @@ void SetupBillboards(ImGuiApp *app) {
 	zest_SetPipelineVertShader(app->billboard_pipeline, billboard_vert);
 	zest_SetPipelineFragShader(app->billboard_pipeline, billboard_frag);
 	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
-	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetGlobalBindlessLayout());
+	zest_AddPipelineDescriptorLayout(app->billboard_pipeline, zest_GetGlobalBindlessLayout(app->context));
 	zest_SetPipelineDepthTest(app->billboard_pipeline, true, false);
 
 	app->billboard_layer = zest_CreateInstanceLayer(app->context, "billboards", sizeof(zest_billboard_instance_t));
@@ -52,7 +52,7 @@ void zest_DispatchBRDSetup(const zest_command_list context, void *user_data) {
 	const zest_uint local_size_y = 8;
 
 	zest_descriptor_set sets[] = {
-		zest_GetGlobalBindlessSet()
+		zest_GetGlobalBindlessSet(app->context)
 	};
 
 	// Bind the pipeline once before the loop
@@ -82,7 +82,7 @@ void SetupBRDFLUT(ImGuiApp *app) {
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->context);
 	zest_AddComputeShader(&compute_builder, app->brd_shader);
-	zest_AddComputeSetLayout(&compute_builder, zest_GetGlobalBindlessLayout());
+	zest_AddComputeSetLayout(&compute_builder, zest_GetGlobalBindlessLayout(app->context));
 	zest_SetComputePushConstantSize(&compute_builder, sizeof(zest_uint));
 	app->brd_compute = zest_FinishCompute(&compute_builder, "brd compute");
 
@@ -103,7 +103,7 @@ void zest_DispatchIrradianceSetup(const zest_command_list context, void *user_da
 	const zest_uint local_size = 8;
 
 	zest_descriptor_set sets[] = {
-		zest_GetGlobalBindlessSet()
+		zest_GetGlobalBindlessSet(app->context)
 	};
 
 	// Bind the pipeline once before the loop
@@ -138,7 +138,7 @@ void SetupIrradianceCube(ImGuiApp *app) {
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->context);
 	zest_AddComputeShader(&compute_builder, app->irr_shader);
-	zest_AddComputeSetLayout(&compute_builder, zest_GetGlobalBindlessLayout());
+	zest_AddComputeSetLayout(&compute_builder, zest_GetGlobalBindlessLayout(app->context));
 	zest_SetComputePushConstantSize(&compute_builder, sizeof(irr_push_constant_t));
 	app->irr_compute = zest_FinishCompute(&compute_builder, "irradiance compute");
 
@@ -161,7 +161,7 @@ void zest_DispatchPrefilteredSetup(const zest_command_list context, void *user_d
 	const zest_uint local_size = 8;
 
 	zest_descriptor_set sets[] = {
-		zest_GetGlobalBindlessSet()
+		zest_GetGlobalBindlessSet(app->context)
 	};
 
 	// Bind the pipeline once before the loop
@@ -203,7 +203,7 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 
 	zest_compute_builder_t compute_builder = zest_BeginComputeBuilder(app->context);
 	zest_AddComputeShader(&compute_builder, app->prefiltered_shader);
-	zest_AddComputeSetLayout(&compute_builder, zest_GetGlobalBindlessLayout());
+	zest_AddComputeSetLayout(&compute_builder, zest_GetGlobalBindlessLayout(app->context));
 	zest_SetComputePushConstantSize(&compute_builder, sizeof(prefiltered_push_constant_t));
 	app->prefiltered_compute = zest_FinishCompute(&compute_builder, "prefiltered compute");
 
@@ -308,7 +308,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_AddVertexAttribute(app->pbr_pipeline, 1, 7, zest_format_r8g8b8a8_unorm, offsetof(zest_mesh_instance_t, parameters));   // Location 7: Instance Parameters
 	zest_AddVertexAttribute(app->pbr_pipeline, 1, 8, zest_format_r32g32b32_sfloat, offsetof(zest_mesh_instance_t, scale));      // Location 8: Instance Scale
 
-	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetGlobalBindlessLayout());
+	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetGlobalBindlessLayout(app->context));
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
 	zest_AddPipelineDescriptorLayout(app->pbr_pipeline, zest_GetUniformBufferLayout(app->lights_buffer));
 	zest_SetPipelineShaders(app->pbr_pipeline, pbr_irradiance_vert, pbr_irradiance_frag);
@@ -318,7 +318,7 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	app->skybox_pipeline = zest_CopyPipelineTemplate(app->context, "sky_box", app->pbr_pipeline);
 	zest_ClearPipelineDescriptorLayouts(app->skybox_pipeline);
-	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetGlobalBindlessLayout());
+	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetGlobalBindlessLayout(app->context));
 	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetUniformBufferLayout(app->view_buffer));
 	zest_AddPipelineDescriptorLayout(app->skybox_pipeline, zest_GetUniformBufferLayout(app->lights_buffer));
 	zest_SetPipelineFrontFace(app->skybox_pipeline, zest_front_face_clockwise);
@@ -427,17 +427,17 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
 		camera_free_look = true;
 		if (glfwRawMouseMotionSupported()) {
-			glfwSetInputMode((GLFWwindow *)zest_Window(), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 		}
 		ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
 		double x_mouse_speed;
 		double y_mouse_speed;
-		zest_GetMouseSpeed(&x_mouse_speed, &y_mouse_speed);
-		zest_TurnCamera(&app->camera, (float)context->window->mouse_delta_x, (float)context->window->mouse_delta_y, .05f);
+		zest_GetMouseSpeed(app->context, &x_mouse_speed, &y_mouse_speed);
+		zest_TurnCamera(&app->camera, (float)x_mouse_speed, (float)y_mouse_speed, .05f);
 	} else if (glfwRawMouseMotionSupported()) {
 		camera_free_look = false;
 		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		glfwSetInputMode((GLFWwindow *)zest_Window(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+		glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 	} else {
 		camera_free_look = false;
 		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
@@ -460,16 +460,16 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		ImGui::Separator();
 		if (ImGui::Button("Toggle Refresh Rate Sync")) {
 			if (app->sync_refresh) {
-				zest_DisableVSync();
+				zest_DisableVSync(app->context);
 				app->sync_refresh = false;
 			} else {
-				zest_EnableVSync();
+				zest_EnableVSync(app->context);
 				app->sync_refresh = true;
 			}
 		}
 		if (ImGui::Button("Print Render Graph")) {
 			app->request_graph_print = true;
-			zloc_VerifyAllRemoteBlocks(0, 0);
+			zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
 		}
 		if (ImGui::Button("Reset Renderer")) {
 			app->reset = true;
@@ -484,10 +484,10 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 
 		//Restore the mouse when right mouse isn't held down
 		if (camera_free_look) {
-			glfwSetInputMode((GLFWwindow*)zest_Window(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+			glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 		}
 		else {
-			glfwSetInputMode((GLFWwindow*)zest_Window(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+			glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 		}
 	} zest_EndTimerLoop(app->timer);
 
@@ -523,7 +523,7 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		InitImGuiApp(app);
 	}
 
-	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
+	zest_swapchain swapchain = zest_GetWindowSwapchain(app->context);
 	app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
 	app->cache_info.brd_layout = zest_ImageRawLayout(app->brd_texture);
 	app->cache_info.irradiance_layout = zest_ImageRawLayout(app->irr_texture);
@@ -534,8 +534,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	zest_image_resource_info_t depth_info = {
 		zest_format_depth,
 		zest_resource_usage_hint_none,
-		zest_ScreenWidth(),
-		zest_ScreenHeight(),
+		zest_ScreenWidth(app->context),
+		zest_ScreenHeight(app->context),
 		1, 1
 	};
 

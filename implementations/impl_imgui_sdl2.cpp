@@ -2,7 +2,7 @@
 #include "imgui_internal.h"
 
 zest_imgui zest_imgui_Initialise() {
-	zest_imgui imgui_info = &ZestRenderer->imgui_info;
+	zest_imgui imgui_info = &context->renderer->imgui_info;
 	ZEST_ASSERT(!imgui_info->vertex_staging_buffer[0]);	//imgui already initialised!
 	ZEST_ASSERT(!imgui_info->index_staging_buffer[0]);
 	memset(imgui_info, 0, sizeof(zest_imgui_t));
@@ -10,7 +10,7 @@ zest_imgui zest_imgui_Initialise() {
 	ImGui::CreateContext();
 	ImGuiIO &io = ImGui::GetIO();
 	io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());
-	io.DisplayFramebufferScale = ImVec2(ZestRenderer->dpi_scale, ZestRenderer->dpi_scale);
+	io.DisplayFramebufferScale = ImVec2(context->renderer->dpi_scale, context->renderer->dpi_scale);
 	unsigned char *pixels;
 	int width, height;
 	io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
@@ -38,7 +38,7 @@ zest_imgui zest_imgui_Initialise() {
 	imgui_pipeline->scissor.extent = zest_GetSwapChainExtent();
 	imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
 	zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
-	zest_AddPipelineDescriptorLayout(imgui_pipeline, ZestRenderer->texture_debug_layout->vk_layout);
+	zest_AddPipelineDescriptorLayout(imgui_pipeline, context->renderer->texture_debug_layout->vk_layout);
 	zest_EndPipelineTemplate(imgui_pipeline);
 
 	imgui_pipeline->rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
@@ -67,7 +67,7 @@ zest_imgui zest_imgui_Initialise() {
 void zest_imgui_Shutdown() {
 	ImGui_ImplSDL2_Shutdown();
 	ImGui::DestroyContext();
-	zest_imgui imgui_info = &ZestRenderer->imgui_info;
+	zest_imgui imgui_info = &context->renderer->imgui_info;
 	zest_ForEachFrameInFlight(fif) {
 		zest_FreeBuffer(imgui_info->index_device_buffer[fif]);
 		zest_FreeBuffer(imgui_info->vertex_device_buffer[fif]);

@@ -10,8 +10,8 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
     ZestImGui->magic = zest_INIT_MAGIC(zest_struct_type_imgui);
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
-    io.DisplaySize = ImVec2(zest_ScreenWidthf(), zest_ScreenHeightf());
-    io.DisplayFramebufferScale = ImVec2(ZestRenderer->dpi_scale, ZestRenderer->dpi_scale);
+    io.DisplaySize = ImVec2(zest_ScreenWidthf(context), zest_ScreenHeightf(context));
+    io.DisplayFramebufferScale = ImVec2(context->renderer->dpi_scale, context->renderer->dpi_scale);
     unsigned char *pixels;
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
@@ -53,7 +53,7 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
 
     imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
     zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
-    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_GetGlobalBindlessLayout());
+    zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_GetGlobalBindlessLayout(context));
 
     imgui_pipeline->rasterization.polygon_mode = zest_polygon_mode_fill;
     imgui_pipeline->rasterization.cull_mode = zest_cull_mode_none;
@@ -181,6 +181,8 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
     zest_shader_resources_handle last_resources = { 0 };
 
     zest_cmd_SetScreenSizedViewport(command_list, 0, 1);
+
+	zest_context context = command_list->context;
     
     if (imgui_draw_data && imgui_draw_data->CmdListsCount > 0) {
 
@@ -233,8 +235,8 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
 
                 // Clamp to viewport as vkCmdSetScissor() won't accept values that are off bounds
-                if (clip_max.x > zest_SwapChainWidth()) { clip_max.x = zest_SwapChainWidthf(); }
-                if (clip_max.y > zest_SwapChainHeight()) { clip_max.y = zest_SwapChainHeightf(); }
+                if (clip_max.x > zest_SwapChainWidth(context)) { clip_max.x = zest_SwapChainWidthf(context); }
+                if (clip_max.y > zest_SwapChainHeight(context)) { clip_max.y = zest_SwapChainHeightf(context); }
                 if (clip_max.x <= clip_min.x || clip_max.y <= clip_min.y) {
                     continue;
                 }
@@ -252,7 +254,7 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
             vertex_offset += cmd_list->VtxBuffer.Size;
         }
     }
-    zest_scissor_rect_t scissor = { { 0, 0 }, { zest_SwapChainWidth(), zest_SwapChainHeight() } };
+    zest_scissor_rect_t scissor = { { 0, 0 }, { zest_SwapChainWidth(context), zest_SwapChainHeight(context) } };
 	zest_cmd_Scissor(command_list, &scissor);
 }
 
@@ -289,12 +291,14 @@ void zest_imgui_UpdateBuffers() {
 	zest_FreeBuffer(ZestImGui->vertex_staging_buffer[ZestImGui->fif]);
 	zest_FreeBuffer(ZestImGui->index_staging_buffer[ZestImGui->fif]);
 
+	zest_context context = ZestImGui->context;
+
     if (imgui_draw_data) {
         ZestImGui->dirty[ZestImGui->fif] = 1;
 		zest_size index_memory_in_use = imgui_draw_data->TotalIdxCount * sizeof(ImDrawIdx);
 		zest_size vertex_memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
-		ZestImGui->vertex_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(ZestImGui->context, vertex_memory_in_use, 0);
-		ZestImGui->index_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(ZestImGui->context, index_memory_in_use, 0);
+		ZestImGui->vertex_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(context, vertex_memory_in_use, 0);
+		ZestImGui->index_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(context, index_memory_in_use, 0);
 		zest_buffer vertex_buffer = ZestImGui->vertex_staging_buffer[ZestImGui->fif];
 		zest_buffer index_buffer = ZestImGui->index_staging_buffer[ZestImGui->fif];
         zest_SetBufferMemoryInUse(vertex_buffer, vertex_memory_in_use);
@@ -305,7 +309,7 @@ void zest_imgui_UpdateBuffers() {
         ZEST_ASSERT(index_buffer);	//Make sure you call zest_imgui_Initialise first!
 
 
-		ZestImGui->push_constants.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(), 2.0f / zest_ScreenHeightf(), -1.f, -1.f);
+		ZestImGui->push_constants.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(context), 2.0f / zest_ScreenHeightf(context), -1.f, -1.f);
 
         if (index_memory_in_use > zest_BufferSize(device_index_buffer)) {
             if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), zest_BufferMemoryInUse(index_buffer))) {

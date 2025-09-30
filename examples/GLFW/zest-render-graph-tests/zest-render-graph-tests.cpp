@@ -305,7 +305,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_shader_handle shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/buffer_write.comp", "buffer_write.spv", shaderc_compute_shader, 1, compiler, 0);
 		shaderc_compiler_release(compiler);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder();
-		zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
+		zest_SetComputeBindlessLayout(&builder, context->renderer->global_bindless_set_layout);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
@@ -321,7 +321,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		zest_shader_handle shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/buffer_verify.comp", "buffer_verify.spv", shaderc_compute_shader, 1, compiler, 0);
 		shaderc_compiler_release(compiler);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder();
-		zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
+		zest_SetComputeBindlessLayout(&builder, context->renderer->global_bindless_set_layout);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
@@ -465,7 +465,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 		zest_shader_handle shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/image_verify.comp", "image_verify.spv", shaderc_compute_shader, 1, compiler, 0);
 		shaderc_compiler_release(compiler);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder();
-		zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
+		zest_SetComputeBindlessLayout(&builder, context->renderer->global_bindless_set_layout);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
@@ -598,7 +598,7 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 		zest_shader_handle shader = zest_CreateShaderFromFile("examples/GLFW/zest-render-graph-tests/shaders/image_write2.comp", "image_write.spv", shaderc_compute_shader, 1, compiler, 0);
 		shaderc_compiler_release(compiler);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder();
-		zest_SetComputeBindlessLayout(&builder, ZestRenderer->global_bindless_set_layout);
+		zest_SetComputeBindlessLayout(&builder, context->renderer->global_bindless_set_layout);
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
