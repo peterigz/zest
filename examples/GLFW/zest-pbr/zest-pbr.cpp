@@ -430,9 +430,8 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 		}
 		ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		double x_mouse_speed;
-		double y_mouse_speed;
-		zest_GetMouseSpeed(app->context, &x_mouse_speed, &y_mouse_speed);
+		double x_mouse_speed = 0.0;
+		double y_mouse_speed = 0.0;
 		zest_TurnCamera(&app->camera, (float)x_mouse_speed, (float)y_mouse_speed, .05f);
 	} else if (glfwRawMouseMotionSupported()) {
 		camera_free_look = false;
@@ -453,7 +452,6 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		//Draw our imgui stuff
 		ImGui::NewFrame();
 		ImGui::Begin("Test Window");
-		ImGui::Text("FPS %i", ZestApp->last_fps);
 		ImGui::DragFloat("Rougness", &app->material_push.roughness, 0.01f, 0.f, 1.f);
 		ImGui::DragFloat("Metallic", &app->material_push.metallic, 0.01f, 0.f, 1.f);
 		ImGui::ColorPicker3("Color", &app->material_push.color.x);

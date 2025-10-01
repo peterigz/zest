@@ -11,7 +11,7 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
     ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2(zest_ScreenWidthf(context), zest_ScreenHeightf(context));
-    io.DisplayFramebufferScale = ImVec2(context->renderer->dpi_scale, context->renderer->dpi_scale);
+    io.DisplayFramebufferScale = ImVec2(context->dpi_scale, context->dpi_scale);
     unsigned char *pixels;
     int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);

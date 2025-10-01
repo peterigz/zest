@@ -1002,23 +1002,23 @@ typedef enum {
     zest_render_viewport_type_fixed
 } zest_render_viewport_type;
 
-typedef enum zest_renderer_flag_bits {
-    zest_renderer_flag_initialised                               = 1 << 0,
-    zest_renderer_flag_schedule_recreate_textures                = 1 << 1,
-    zest_renderer_flag_schedule_change_vsync                     = 1 << 2,
-    zest_renderer_flag_schedule_rerecord_final_render_buffer     = 1 << 3,
-    zest_renderer_flag_drawing_loop_running                      = 1 << 4,
-    zest_renderer_flag_msaa_toggled                              = 1 << 5,
-    zest_renderer_flag_vsync_enabled                             = 1 << 6,
-    zest_renderer_flag_disable_default_uniform_update            = 1 << 7,
-    zest_renderer_flag_has_depth_buffer                          = 1 << 8,
-    zest_renderer_flag_swap_chain_was_acquired                   = 1 << 9,
-    zest_renderer_flag_work_was_submitted                        = 1 << 10,
-    zest_renderer_flag_building_frame_graph                      = 1 << 11,
-    zest_renderer_flag_enable_multisampling                      = 1 << 12,
-} zest_renderer_flag_bits;
+typedef enum zest_context_flag_bits {
+    zest_context_flag_initialised                               = 1 << 0,
+    zest_context_flag_schedule_recreate_textures                = 1 << 1,
+    zest_context_flag_schedule_change_vsync                     = 1 << 2,
+    zest_context_flag_schedule_rerecord_final_render_buffer     = 1 << 3,
+    zest_context_flag_drawing_loop_running                      = 1 << 4,
+    zest_context_flag_msaa_toggled                              = 1 << 5,
+    zest_context_flag_vsync_enabled                             = 1 << 6,
+    zest_context_flag_disable_default_uniform_update            = 1 << 7,
+    zest_context_flag_has_depth_buffer                          = 1 << 8,
+    zest_context_flag_swap_chain_was_acquired                   = 1 << 9,
+    zest_context_flag_work_was_submitted                        = 1 << 10,
+    zest_context_flag_building_frame_graph                      = 1 << 11,
+    zest_context_flag_enable_multisampling                      = 1 << 12,
+} zest_context_flag_bits;
 
-typedef zest_uint zest_renderer_flags;
+typedef zest_uint zest_context_flags;
 
 typedef enum zest_swapchain_flag_bits {
     zest_swapchain_flag_none             = 0,
@@ -1532,7 +1532,7 @@ typedef struct zest_command_list_t zest_command_list_t;
 
 //Backends
 typedef struct zest_device_backend_t zest_device_backend_t;
-typedef struct zest_renderer_backend_t zest_renderer_backend_t;
+typedef struct zest_context_backend_t zest_context_backend_t;
 typedef struct zest_swapchain_backend_t zest_swapchain_backend_t;
 typedef struct zest_queue_backend_t zest_queue_backend_t;
 typedef struct zest_window_backend_t zest_window_backend_t;
@@ -1595,7 +1595,7 @@ ZEST__MAKE_HANDLE(zest_mesh)
 ZEST__MAKE_HANDLE(zest_command_list)
 
 ZEST__MAKE_HANDLE(zest_device_backend)
-ZEST__MAKE_HANDLE(zest_renderer_backend)
+ZEST__MAKE_HANDLE(zest_context_backend)
 ZEST__MAKE_HANDLE(zest_swapchain_backend)
 ZEST__MAKE_HANDLE(zest_queue_backend)
 ZEST__MAKE_HANDLE(zest_window_backend)
@@ -2003,19 +2003,6 @@ typedef struct zest_queue_processor_t {
     zest_work_queue_t *queues[ZEST_MAX_QUEUES];
 } zest_queue_processor_t;
 
-typedef struct zest_storage_t {
-    zest_queue_processor_t thread_queues;
-#ifdef _WIN32
-    HANDLE threads[ZEST_MAX_THREADS];
-#else
-    pthread_t threads[ZEST_MAX_THREADS];
-#endif
-    zest_uint thread_count;
-} zest_storage_t;
-
-// Global variables (extern declarations)
-extern zest_storage_t *zest__globals;
-
 // Platform-specific atomic operations
 ZEST_PRIVATE inline zest_uint zest__atomic_increment(volatile zest_uint *value) {
 #ifdef _WIN32
@@ -2185,27 +2172,7 @@ ZEST_PRIVATE inline void zest__do_next_work_queue_entry(zest_work_queue_t *queue
     }
 }
 
-ZEST_PRIVATE inline void zest__add_work_queue_entry(zest_work_queue_t *queue, void *data, zest_work_queue_callback call_back) {
-    if (!zest__globals->thread_count) {
-        call_back(queue, data);
-        return;
-    }
-
-    zest_uint new_entry_to_write = (queue->next_write_entry + 1) % ZEST_MAX_QUEUE_ENTRIES;
-    while (new_entry_to_write == queue->next_read_entry) {        //Not enough room in work queue
-        //We can do this because we're single producer
-        zest__do_next_work_queue_entry(queue);
-    }
-    queue->entries[queue->next_write_entry].data = data;
-    queue->entries[queue->next_write_entry].call_back = call_back;
-    zest__atomic_increment(&queue->entry_completion_goal);
-
-    zest__writebarrier;
-
-    zest__push_queue_work(&zest__globals->thread_queues, queue);
-    queue->next_write_entry = new_entry_to_write;
-
-}
+ZEST_PRIVATE inline void zest__add_work_queue_entry(zest_context context, void *data, zest_work_queue_callback call_back);
 
 ZEST_PRIVATE inline void zest__complete_all_work(zest_work_queue_t *queue) {
     zest_work_queue_entry_t entry = { 0 };
@@ -2223,20 +2190,10 @@ ZEST_PRIVATE void *zest__thread_worker(void *arg);
 #endif
 
 // Thread creation helper function
-ZEST_PRIVATE bool zest__create_worker_thread(zest_storage_t * storage, int thread_index);
+ZEST_PRIVATE bool zest__create_worker_thread(zest_context context, int thread_index);
 
 // Thread cleanup helper function
-ZEST_PRIVATE inline void zest__cleanup_thread(zest_storage_t * storage, int thread_index) {
-#ifdef _WIN32
-    if (storage->threads[thread_index]) {
-        WaitForSingleObject(storage->threads[thread_index], INFINITE);
-        CloseHandle(storage->threads[thread_index]);
-        storage->threads[thread_index] = NULL;
-    }
-#else
-    pthread_join(storage->threads[thread_index], NULL);
-#endif
-}
+ZEST_PRIVATE inline void zest__cleanup_thread(zest_context context, int thread_index);
 
 ZEST_PRIVATE inline unsigned int zest_HardwareConcurrency(void) {
 #ifdef _WIN32
@@ -2425,7 +2382,7 @@ typedef struct zest_buffer_info_t {
     //This is an important field to avoid race conditions. Sometimes you may want to only update a buffer
     //when data has changed, like a ui buffer or any buffer that's only updated inside a fixed time loop.
     //This means that the frame in flight index for those buffers is decoupled from the main render loop 
-    //frame in flight (context->renderer->current_fif). This can create a situation where a decoupled buffer has the same buffer
+    //frame in flight (context->current_fif). This can create a situation where a decoupled buffer has the same buffer
     //as a transient buffer that's not decoupled. So what can happen is that a vkCmdDraw can use the same
     //buffer that was used in the last frame. This should never be possible. A buffer that's used in one
     //frame - it's last usage should be a minimum of 2 frames ago which means that the frame in flight fence
@@ -2603,7 +2560,24 @@ typedef struct zest_swapchain_t {
     zest_uint current_image_frame;
     zest_uint image_count;
     zest_swapchain_flags flags;
-} zest_swapchain_t;
+
+} zest_swapchain  typedef struct zest_native_window_handle_t {
+	/**
+	 * The main window handle.
+	 * - On Windows: A pointer to the HWND.
+	 * - On Linux (X11): The xcb_window_t or xlib Window.
+	 * - On macOS: A pointer to the CAMetalLayer.
+	 */
+	void* window;
+
+	/**
+	 * The display or connection handle (can be NULL on some platforms).
+	 * - On Windows: A pointer to the HINSTANCE.
+	 - On Linux (X11): A pointer to the xcb_connection_t or Display*.
+	 * - On macOS: Not used (can be NULL).
+	 */
+	void* display;
+} zest_native_window_handle_t;_t;
 
 typedef struct zest_window_t {
     int magic;
@@ -2660,7 +2634,7 @@ typedef struct zest_create_info_t {
     int thread_count;                                   //The number of threads to use if multithreading. 0 if not.
     zest_millisecs fence_wait_timeout_ms;               //The amount of time the main loop fence should wait before timing out
     zest_millisecs max_fence_timeout_ms;                //The maximum amount of time to wait before giving up
-    zest_format color_format;                   //The format to use for the swapchain
+    zest_format color_format;                   		//The format to use for the swapchain
     zest_init_flags flags;                              //Set flags to apply different initialisation options
     zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
 	zest_platform_type platform;
@@ -2708,11 +2682,56 @@ typedef struct zest_queue_t {
     zest_queue_backend backend;
 } zest_queue_t;
 
+typedef struct zest_binding_index_for_release_t {
+    zest_set_layout layout;
+    zest_uint binding_index;
+    zest_uint binding_number;
+} zest_binding_index_for_release_t;
+
+typedef struct zest_destruction_queue_t {
+    void **resources[ZEST_MAX_FIF];
+    zest_image_t *images[ZEST_MAX_FIF];
+    zest_image_view_t *views[ZEST_MAX_FIF];
+    zest_binding_index_for_release_t *binding_indexes[ZEST_MAX_FIF];
+} zest_destruction_queue_t;
+
+typedef struct zest_report_t {
+    zest_text_t message;
+    zest_report_category category;
+    int count;
+    const char *file_name;
+    int line_number;
+} zest_report_t;
+
+typedef struct zest_cached_frame_graph_t {
+    void *memory;
+    zest_frame_graph frame_graph;
+} zest_cached_frame_graph_t;
+
+zest_hash_map(zest_report_t) zest_map_reports;
+zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
+zest_hash_map(zest_cached_frame_graph_t) zest_map_cached_frame_graphs;
+zest_hash_map(zest_frame_graph_semaphores) zest_map_rg_semaphores;
+zest_hash_map(zest_pipeline) zest_map_cached_pipelines;
+
+typedef struct zest_builtin_shaders_t {
+    zest_shader_handle swap_vert;
+    zest_shader_handle swap_frag;
+} zest_builtin_shaders_t;
+
+typedef struct zest_builtin_pipeline_templates_t {
+    zest_pipeline_template swap;
+} zest_builtin_pipeline_templates_t;
+
 typedef struct zest_device_t {
     int magic;
     zest_uint api_version;
     zest_uint use_labels_address_bit;
+
+    //Device maximums and other settings/formats
+    zest_format depth_format;
     zest_uint max_image_size;
+
     void *memory_pools[ZEST_MAX_DEVICE_MEMORY_POOLS];
     zest_size memory_pool_sizes[ZEST_MAX_DEVICE_MEMORY_POOLS];
     zest_uint memory_pool_count;
@@ -2740,6 +2759,54 @@ typedef struct zest_device_t {
     zest_map_buffer_pool_sizes pool_sizes;
 
     zest_map_validation_errors validation_errors;
+
+    //Resource storage
+	zest_resource_store_t resource_stores[zest_max_handle_type];
+
+    //For scheduled tasks
+    zest_buffer *deferred_staging_buffers_for_freeing;
+    zest_destruction_queue_t deferred_resource_freeing_list;
+
+    //Debugging
+    zest_debug_t debug;
+    zest_map_reports reports;
+
+    //Built in shaders that I'll probably remove soon
+    zest_builtin_shaders_t builtin_shaders;
+    zest_builtin_pipeline_templates_t pipeline_templates;
+
+	//Global descriptor set
+    zest_set_layout_handle global_bindless_set_layout_handle;
+    zest_set_layout global_bindless_set_layout;
+    zest_descriptor_set global_set;
+
+	//Timeline semaphores for creating dependencies between frames
+	//Might not want to keep these
+    zest_execution_timeline *timeline_semaphores;
+
+	//GPU buffer allocation
+    zest_map_buffer_allocators buffer_allocators;
+
+    //General Cache Storage
+    zest_map_cached_frame_graphs cached_frame_graphs;
+    zest_map_cached_pipelines cached_pipelines;
+    zest_map_rg_semaphores cached_frame_graph_semaphores;
+   
+    //Optional prefix path for loading shaders (remove this and just the user sort this)
+    zest_text_t shader_path_prefix;
+ 
+    //Threading
+    zest_work_queue_t work_queue;
+    zest_queue_processor_t thread_queues;
+#ifdef _WIN32
+    HANDLE threads[ZEST_MAX_THREADS];
+#else
+    pthread_t threads[ZEST_MAX_THREADS];
+#endif
+    zest_uint thread_count;
+
+    //Slang
+    void *slang_info;
 } zest_device_t;
 
 typedef bool (*zest_wait_timeout_callback)(zest_millisecs total_wait_time_ms, zest_uint retry_count, void *user_data);
@@ -2750,15 +2817,6 @@ typedef struct zest_app_t {
 
     void(*update_callback)(zest_microsecs, void*);
     void *user_data;
-
-    zest_microsecs current_elapsed;
-    zest_microsecs current_elapsed_time;
-    float update_time;
-    float render_time;
-    zest_microsecs frame_timer;
-
-    zest_uint frame_count;
-    zest_uint last_fps;
 
     zest_app_flags flags;
 } zest_app_t;
@@ -2959,19 +3017,6 @@ typedef struct zest_pass_group_t {
     zest_pass_flags flags;
 } zest_pass_group_t;
 
-typedef struct zest_binding_index_for_release_t {
-    zest_set_layout layout;
-    zest_uint binding_index;
-    zest_uint binding_number;
-} zest_binding_index_for_release_t;
-
-typedef struct zest_destruction_queue_t {
-    void **resources[ZEST_MAX_FIF];
-    zest_image_t *images[ZEST_MAX_FIF];
-    zest_image_view_t *views[ZEST_MAX_FIF];
-    zest_binding_index_for_release_t *binding_indexes[ZEST_MAX_FIF];
-} zest_destruction_queue_t;
-
 typedef struct zest_semaphore_reference_t {
     zest_dynamic_resource_type type;
     zest_u64 semaphore;
@@ -3008,11 +3053,6 @@ typedef struct zest_wave_submission_t {
 typedef struct zest_resource_versions_t {
     zest_resource_node *resources;
 }zest_resource_versions_t;
-
-typedef struct zest_cached_frame_graph_t {
-    void *memory;
-    zest_frame_graph frame_graph;
-} zest_cached_frame_graph_t;
 
 typedef struct zest_frame_graph_auto_state_t {
     zest_uint render_width;
@@ -3051,6 +3091,7 @@ zest_hash_map(zest_resource_versions_t) zest_map_resource_versions;
 typedef struct zest_frame_graph_builder_t {
 	zest_context context;
 	zest_frame_graph frame_graph;
+    zest_pass_node current_pass;
 }zest_frame_graph_builder_t;
 
 typedef struct zest_frame_graph_t {
@@ -3676,111 +3717,13 @@ typedef struct zest_imgui_image_t {
     zest_push_constants_t push_constants;
 } zest_imgui_image_t;
 
-typedef struct zest_report_t {
-    zest_text_t message;
-    zest_report_category category;
-    int count;
-    const char *file_name;
-    int line_number;
-} zest_report_t;
-
-zest_hash_map(zest_frame_graph_semaphores) zest_map_rg_semaphores;
 zest_hash_map(zest_render_pass) zest_map_render_passes;
-zest_hash_map(zest_pipeline) zest_map_cached_pipelines;
-zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 zest_hash_map(zest_sampler_handle) zest_map_samplers;
 zest_hash_map(zest_descriptor_pool) zest_map_descriptor_pool;
 zest_hash_map(zest_frame_graph) zest_map_frame_graphs;
-zest_hash_map(zest_report_t) zest_map_reports;
-zest_hash_map(zest_cached_frame_graph_t) zest_map_cached_frame_graphs;
-
-typedef struct zest_builtin_shaders_t {
-    zest_shader_handle swap_vert;
-    zest_shader_handle swap_frag;
-} zest_builtin_shaders_t;
-
-typedef struct zest_builtin_pipeline_templates_t {
-    zest_pipeline_template sprites;
-    zest_pipeline_template fonts;
-    zest_pipeline_template mesh;
-    zest_pipeline_template instanced_mesh;
-    zest_pipeline_template swap;
-} zest_builtin_pipeline_templates_t;
 
 typedef struct zest_renderer_t {
     int magic;
-
-    zest_execution_timeline *timeline_semaphores;
-
-    zest_u64 fence_wait_timeout_ns;
-    zest_wait_timeout_callback fence_wait_timeout_callback;
-
-    zest_u64 total_frame_count;
-
-    zest_extent2d_t window_extent;
-    float dpi_scale;
-
-    zest_set_layout_handle global_bindless_set_layout_handle;
-    zest_set_layout global_bindless_set_layout;
-    zest_descriptor_set global_set;
-
-    zest_map_buffer_allocators buffer_allocators;
-
-    zest_renderer_backend backend;
-
-    zest_uint fence_count[ZEST_MAX_FIF];
-
-	//Frame in flight indexes
-    zest_uint previous_fif;
-    zest_uint current_fif;
-    zest_uint saved_fif;
-
-    //Built in shaders that I'll probably remove soon
-    zest_builtin_shaders_t builtin_shaders;
-    zest_builtin_pipeline_templates_t pipeline_templates;
-
-    //Context data
-    zest_pass_node current_pass;
-    zest_frame_graph *frame_graphs;       //All the render graphs used this frame. Gets cleared at the beginning of each frame
-    zest_swapchain last_acquired_swapchain;
-
-    //Linear allocator for building the render graph each frame
-    zloc_linear_allocator_t *frame_graph_allocator[ZEST_MAX_FIF];
-
-    //Small utility allocator for per function tempory allocations
-    zloc_linear_allocator_t *utility_allocator;
-
-    //General Cache Storage
-    zest_map_cached_frame_graphs cached_frame_graphs;
-    zest_map_cached_pipelines cached_pipelines;
-    zest_map_rg_semaphores cached_frame_graph_semaphores;
-
-    //Resource storage
-	zest_resource_store_t resource_stores[zest_max_handle_type];
-
-    //Cache of the supported depth format
-    zest_format depth_format;
-
-    //For scheduled tasks
-    zest_buffer *staging_buffers;
-    zest_destruction_queue_t deferred_resource_freeing_list;
-
-    //Each texture has a simple descriptor set with a combined image sampler for debugging purposes
-    //allocated from this pool and using the layout
-    zest_set_layout_handle texture_debug_layout;
-
-    //Threading
-    zest_work_queue_t work_queue;
-
-    //Flags
-    zest_renderer_flags flags;
-    
-    //Optional prefix path for loading shaders
-    zest_text_t shader_path_prefix;
-
-    //Debugging
-    zest_debug_t debug;
-    zest_map_reports reports;
 
     //Callbacks for customising window and surface creation
     void(*get_window_size_callback)(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
@@ -3792,8 +3735,6 @@ typedef struct zest_renderer_t {
     void(*set_window_mode_callback)(zest_context context, zest_window_mode mode);
     void(*set_window_size_callback)(zest_context context, int width, int height);
 
-    //Slang
-    void *slang_info;
 } zest_renderer_t;
 
 // -- Platform_callbacks_struct
@@ -3918,10 +3859,41 @@ typedef struct zest_platform_t {
 
 typedef struct zest_context_t {
 	int magic;
+
+	//Platform specific data
+    zest_context_backend backend;
+
+	//The current fence count of the last frame
+    zest_uint fence_count[ZEST_MAX_FIF];
+
+	//Frame in flight indexes
+    zest_uint previous_fif;
+    zest_uint current_fif;
+    zest_uint saved_fif;
+
+	//The timeout for the fence that waits for gpu work to finish for the frame
+    zest_u64 fence_wait_timeout_ns;
+    zest_wait_timeout_callback fence_wait_timeout_callback;
+
+	//Window data
+    zest_extent2d_t window_extent;
+    float dpi_scale;
+
+    //Context data
+    zest_frame_graph *frame_graphs;       //All the render graphs used this frame. Gets cleared at the beginning of each frame
+
+    //Linear allocator for building the render graph each frame. The memory for this is allocated from
+	//The device TLSF allocator
+    zloc_linear_allocator_t *frame_graph_allocator[ZEST_MAX_FIF];
+
+    //Flags
+    zest_context_flags flags;
+
 	zest_window window;
 	zest_device_t *device;
 	zest_app_t *app;
 	zest_renderer_t *renderer;
+
 } zest_context_t;
 
 extern zest_app_t *ZestApp;
@@ -3932,7 +3904,7 @@ ZEST_PRIVATE inline void *zest__get_store_resource(zest_context context, zest_ha
     zest_uint generation = ZEST_HANDLE_GENERATION(handle);
 	zest_handle_type type = ZEST_HANDLE_TYPE(handle);
 	ZEST_ASSERT(type < zest_max_handle_type);	//Invalid handle type, is the handle valid?
-	zest_resource_store_t *store = &context->renderer->resource_stores[type];
+	zest_resource_store_t *store = &context->device->resource_stores[type];
     if (index < store->capacity && store->generations[index] == generation) {
         return (void *)((char *)store->data + index * store->struct_size);
     }
@@ -3944,7 +3916,7 @@ ZEST_PRIVATE inline void *zest__get_store_resource_checked(zest_context context,
     zest_uint generation = ZEST_HANDLE_GENERATION(handle);
 	zest_handle_type type = ZEST_HANDLE_TYPE(handle);
 	ZEST_ASSERT(type < zest_max_handle_type);	//Invalid handle type, is the handle valid?
-	zest_resource_store_t *store = &context->renderer->resource_stores[type];
+	zest_resource_store_t *store = &context->device->resource_stores[type];
 	void *resource = NULL;
     if (index < store->capacity && store->generations[index] == generation) {
         resource = (void *)((char *)store->data + index * store->struct_size);
@@ -4031,7 +4003,7 @@ ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_context context);
 
 //Renderer_functions
 ZEST_API inline zest_uint zest_CurrentFIF(zest_context context) {
-	return context->renderer->current_fif;
+	return context->current_fif;
 }
 ZEST_PRIVATE zest_bool zest__initialise_renderer(zest_context context, zest_create_info_t *create_info);
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(zest_context context, const char *name);
@@ -4057,7 +4029,6 @@ ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__compile_builtin_shaders(zest_context context, zest_bool compile_shaders);
-ZEST_PRIVATE void zest__create_debug_layout_and_pool(zest_context context, zest_uint max_texture_count);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(zest_context context);
 ZEST_PRIVATE void zest__cleanup_pipelines(zest_context context);
 ZEST_PRIVATE zest_render_pass zest__create_render_pass(void);
@@ -4158,7 +4129,6 @@ ZEST_PRIVATE void zest__destroy(zest_context context);
 ZEST_PRIVATE void zest__main_loop(zest_context context);
 ZEST_API void zest_Terminate(void);
 ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait(zest_context context);
-ZEST_PRIVATE zest_microsecs zest__set_elapsed_time(void);
 //-- end of internal functions
 
 //-- Window_related_functions
@@ -4274,7 +4244,7 @@ ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader, shaderc_compile
 //pass in the full path to the file relative to the executable being run.
 ZEST_API zest_shader_handle zest_AddShaderFromSPVFile(zest_context context, const char *filename, shaderc_shader_kind type);
 //Add an spv shader straight from memory and return a handle to the shader. Note that the name should just be the name of the shader, 
-//If a path prefix is set (context->renderer->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
+//If a path prefix is set (context->device->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
 ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(zest_context context, const char *name, const void *buffer, zest_uint size, shaderc_shader_kind type);
 //Add a shader to the renderer list of shaders.
@@ -5037,12 +5007,6 @@ ZEST_API bool zest_MouseHit(zest_context context, zest_mouse_button button);
 ZEST_API float zest_DPIScale(zest_context context);
 //Set the DPI scale
 ZEST_API void zest_SetDPIScale(zest_context context, float scale);
-//Get the current frames per second
-ZEST_API zest_uint zest_FPS(void);
-//Get the current frames per second as a float
-ZEST_API float zest_FPSf(void);
-//Get the current speed of the mouse in pixels per second. Results are stored in the floats you pass into the function as pointers.
-ZEST_API void zest_GetMouseSpeed(zest_context contest, double *x, double *y);
 //Wait for the device to be idle (finish executing all commands). Only recommended if you need to do a one-off operation like change a texture that could
 //still be in use by the GPU
 ZEST_API void zest_WaitForIdleDevice(zest_context context);

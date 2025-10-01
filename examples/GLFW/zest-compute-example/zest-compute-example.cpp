@@ -88,7 +88,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Add the descriptor layout we created earlier, but clear the layouts in the template first as a uniform buffer is added
 	//by default.
 	zest_ClearPipelineDescriptorLayouts(app->particle_pipeline);
-	zest_AddPipelineDescriptorLayout(app->particle_pipeline, context->renderer->global_bindless_set_layout->vk_layout);
+	zest_AddPipelineDescriptorLayout(app->particle_pipeline, context->device->global_bindless_set_layout->vk_layout);
 	//Set the push constant we'll be using
 	zest_SetPipelinePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), zest_shader_fragment_stage);
 	//Switch off any depth testing
@@ -110,7 +110,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_compute_builder_t builder = zest_BeginComputeBuilder();
 	//Declare the bindings we want in the shader
 	zest_AddComputeSetLayout(&builder, zest_GetUniformBufferLayout(app->compute_uniform_buffer));
-	zest_SetComputeBindlessLayout(&builder, context->renderer->global_bindless_set_layout);
+	zest_SetComputeBindlessLayout(&builder, context->device->global_bindless_set_layout);
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
 	//Declare the actual shader to use
@@ -153,7 +153,7 @@ void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_grap
 	ImGuiApp *app = (ImGuiApp *)user_data;
 	//Mix the bindless descriptor set with the uniform buffer descriptor set
 	VkDescriptorSet sets[] = {
-		context->renderer->global_set->vk_descriptor_set,
+		context->device->global_set->vk_descriptor_set,
 		zest_vk_GetUniformBufferSet(app->compute_uniform_buffer)
 	};
 	//Bind the compute pipeline
@@ -210,8 +210,8 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 		ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
 		if (ImGui::Button("Print Render Graph")) {
 			app->request_graph_print = true;
-			zest_map_foreach(i, context->renderer->buffer_allocators) {
-				zest_buffer_allocator buffer_allocator = *zest_map_at_index(context->renderer->buffer_allocators, i);
+			zest_map_foreach(i, context->device->buffer_allocators) {
+				zest_buffer_allocator buffer_allocator = *zest_map_at_index(context->device->buffer_allocators, i);
 				zest_vec_foreach(j, buffer_allocator->range_pools) {
 					ZEST_PRINT("%p", buffer_allocator->range_pools[j]);
 				}

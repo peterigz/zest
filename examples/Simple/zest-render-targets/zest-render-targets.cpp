@@ -215,7 +215,7 @@ void zest_UpsampleCompute(VkCommandBuffer command_buffer, const zest_frame_graph
 	const zest_uint local_size_y = 8;
 
 	VkDescriptorSet sets[] = {
-		context->renderer->global_set->vk_descriptor_set,
+		context->device->global_set->vk_descriptor_set,
 	};
 
 	zest_uint mip_levels = zest_GetResourceMipLevels(upsampler_target);
@@ -290,7 +290,7 @@ void UpdateCallback(zest_microsecs elapsed, void *user_data) {
 	//example->composite_push_constants.composting.x = threshold;
 	example->bloom_constants.settings.x = threshold;
 	example->bloom_constants.settings.y = knee;
-	//example->downsampler->recorder->outdated[context->renderer->current_fif] = 1;
+	//example->downsampler->recorder->outdated[context->current_fif] = 1;
 
 	//Set the font to use for the font layer
 	zest_SetMSDFFontDrawing(example->font_layer, example->font);

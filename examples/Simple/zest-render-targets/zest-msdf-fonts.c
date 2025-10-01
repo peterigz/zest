@@ -130,7 +130,7 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_frame_graph_conte
 
 void zest_FreeFont(zest_font_t *font) {
     ZEST_ASSERT_HANDLE(font);
-    zest_vec_push(context->renderer->deferred_resource_freeing_list.resources[context->renderer->current_fif], font);
+    zest_vec_push(context->device->deferred_resource_freeing_list.resources[context->current_fif], font);
 }
 
 void zest__setup_font_texture(zest_font_t *font) {
@@ -147,11 +147,11 @@ void zest__setup_font_texture(zest_font_t *font) {
 
     zest_AcquireGlobalCombinedSampler2d(font->texture);
 
-    font->pipeline_template = context->renderer->pipeline_templates.fonts;
+    font->pipeline_template = context->device->pipeline_templates.fonts;
     font->shader_resources = zest_CreateShaderResources(font->name.str);
     zest_ForEachFrameInFlight(fif) {
         zest_AddDescriptorSetToResources(font->shader_resources, context->renderer->uniform_buffer->descriptor_set[fif], fif);
-        zest_AddDescriptorSetToResources(font->shader_resources, context->renderer->global_set, fif);
+        zest_AddDescriptorSetToResources(font->shader_resources, context->device->global_set, fif);
     }
     zest_ValidateShaderResource(font->shader_resources);
 }

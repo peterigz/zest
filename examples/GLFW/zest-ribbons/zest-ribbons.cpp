@@ -36,7 +36,7 @@ void InitImGuiApp(Ribbons *app) {
 	//A builder is used to simplify the compute shader setup process
 	zest_compute_builder_t builder = zest_BeginComputeBuilder();
 	//Declare the bindings we want in the shader
-	zest_SetComputeBindlessLayout(&builder, context->renderer->global_bindless_set_layout);
+	zest_SetComputeBindlessLayout(&builder, context->device->global_bindless_set_layout);
 	//The add the buffers for binding in the same order as the layout bindings
 	zest_SetComputePushConstantSize(&builder, sizeof(camera_push_constant));
 	//Set the user data so that we can use it in the callback funcitons
@@ -123,10 +123,10 @@ void UploadRibbonData(VkCommandBuffer command_buffer, const zest_frame_graph_con
     zest_resource_node ribbon_instance_buffer = zest_GetPassOutputResource(context, "Ribbon Instance Buffer");
 
 	if (segment_buffer->storage_buffer) {
-		zest_cmd_CopyBuffer(command_buffer, app->ribbon_segment_staging_buffer[context->renderer->current_fif], segment_buffer->storage_buffer, app->ribbon_segment_staging_buffer[context->renderer->current_fif]->memory_in_use);
+		zest_cmd_CopyBuffer(command_buffer, app->ribbon_segment_staging_buffer[context->current_fif], segment_buffer->storage_buffer, app->ribbon_segment_staging_buffer[context->current_fif]->memory_in_use);
 	}
 	if (ribbon_instance_buffer->storage_buffer) {
-		zest_cmd_CopyBuffer(command_buffer, app->ribbon_instance_staging_buffer[context->renderer->current_fif], ribbon_instance_buffer->storage_buffer, app->ribbon_instance_staging_buffer[context->renderer->current_fif]->memory_in_use);
+		zest_cmd_CopyBuffer(command_buffer, app->ribbon_instance_staging_buffer[context->current_fif], ribbon_instance_buffer->storage_buffer, app->ribbon_instance_staging_buffer[context->current_fif]->memory_in_use);
 	}
 }
 
@@ -445,14 +445,14 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 	app->camera_push.ribbon_count = app->ribbon_count;
 	zest_uint total_segments = SEGMENT_COUNT * app->ribbon_count;
 	app->index_count = 0;
-	zest_StageData(app->ribbon_segments, app->ribbon_segment_staging_buffer[context->renderer->current_fif], SEGMENT_COUNT *RIBBON_COUNT * sizeof(ribbon_segment));
+	zest_StageData(app->ribbon_segments, app->ribbon_segment_staging_buffer[context->current_fif], SEGMENT_COUNT *RIBBON_COUNT * sizeof(ribbon_segment));
 	app->index_count += (SEGMENT_COUNT * RIBBON_COUNT) * app->ribbon_buffer_info.indicesPerSegment;
-	zest_StageData(app->ribbon_instances, app->ribbon_instance_staging_buffer[context->renderer->current_fif], app->ribbon_count * sizeof(ribbon_instance));
+	zest_StageData(app->ribbon_instances, app->ribbon_instance_staging_buffer[context->current_fif], app->ribbon_count * sizeof(ribbon_instance));
 
 	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
 
-	app->segment_buffer_info.size = app->ribbon_segment_staging_buffer[context->renderer->current_fif]->memory_in_use;
-	app->instance_buffer_info.size = app->ribbon_instance_staging_buffer[context->renderer->current_fif]->memory_in_use;
+	app->segment_buffer_info.size = app->ribbon_segment_staging_buffer[context->current_fif]->memory_in_use;
+	app->instance_buffer_info.size = app->ribbon_instance_staging_buffer[context->current_fif]->memory_in_use;
 	app->vertex_buffer_info.size = app->ribbon_buffer_info.verticesPerSegment * total_segments * sizeof(ribbon_vertex);
 	app->index_buffer_info.size = app->index_count * sizeof(zest_uint);
 
