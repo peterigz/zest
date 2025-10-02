@@ -130,7 +130,7 @@ void zest_DrawFonts(VkCommandBuffer command_buffer, const zest_frame_graph_conte
 
 void zest_FreeFont(zest_font_t *font) {
     ZEST_ASSERT_HANDLE(font);
-    zest_vec_push(context->device->deferred_resource_freeing_list.resources[context->current_fif], font);
+    zest_vec_push(context->device->allocator->device->deferred_resource_freeing_list.resources[context->current_fif], font);
 }
 
 void zest__setup_font_texture(zest_font_t *font) {

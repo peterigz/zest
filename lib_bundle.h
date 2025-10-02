@@ -170,15 +170,16 @@ extern "C" {
 		volatile zloc_thread_access access;
 #endif
 #if defined(ZLOC_ENABLE_REMOTE_MEMORY)
-		void *user_data;
+		void *remote_user_data;
 		zloc_size(*get_block_size_callback)(const zloc_header* block);
-		void(*merge_next_callback)(void *user_data, zloc_header* block, zloc_header *next_block);
-		void(*merge_prev_callback)(void *user_data, zloc_header* prev_block, zloc_header *block);
-		void(*split_block_callback)(void *user_data, zloc_header* block, zloc_header* trimmed_block, zloc_size remote_size);
-		void(*add_pool_callback)(void *user_data, void* block_extension);
-		void(*unable_to_reallocate_callback)(void *user_data, zloc_header *block, zloc_header *new_block);
+		void(*merge_next_callback)(void *remote_user_data, zloc_header* block, zloc_header *next_block);
+		void(*merge_prev_callback)(void *remote_user_data, zloc_header* prev_block, zloc_header *block);
+		void(*split_block_callback)(void *remote_user_data, zloc_header* block, zloc_header* trimmed_block, zloc_size remote_size);
+		void(*add_pool_callback)(void *remote_user_data, void* block_extension);
+		void(*unable_to_reallocate_callback)(void *remote_user_data, zloc_header *block, zloc_header *new_block);
 		zloc_size block_extension_size;
 #endif
+		void *user_data;
 		zloc_size minimum_allocation_size;
 		/*	Here we store all of the free block data. first_level_bitmap is either a 32bit int
 		or 64bit depending on whether zloc__64BIT is set. Second_level_bitmaps are an array of 32bit
@@ -208,11 +209,11 @@ extern "C" {
 
 #define zloc__map_size (remote_size ? remote_size : size)
 #define zloc__do_size_class_callback(block) allocator->get_block_size_callback(block)
-#define zloc__do_merge_next_callback allocator->merge_next_callback(allocator->user_data, block, next_block)
-#define zloc__do_merge_prev_callback allocator->merge_prev_callback(allocator->user_data, prev_block, block)
-#define zloc__do_split_block_callback allocator->split_block_callback(allocator->user_data, block, trimmed, remote_size)
-#define zloc__do_add_pool_callback allocator->add_pool_callback(allocator->user_data, block)
-#define zloc__do_unable_to_reallocate_callback zloc_header *new_block = zloc__block_from_allocation(allocation); zloc_header *block = zloc__block_from_allocation(ptr); allocator->unable_to_reallocate_callback(allocator->user_data, block, new_block)
+#define zloc__do_merge_next_callback allocator->merge_next_callback(allocator->remote_user_data, block, next_block)
+#define zloc__do_merge_prev_callback allocator->merge_prev_callback(allocator->remote_user_data, prev_block, block)
+#define zloc__do_split_block_callback allocator->split_block_callback(allocator->remote_user_data, block, trimmed, remote_size)
+#define zloc__do_add_pool_callback allocator->add_pool_callback(allocator->remote_user_data, block)
+#define zloc__do_unable_to_reallocate_callback zloc_header *new_block = zloc__block_from_allocation(allocation); zloc_header *block = zloc__block_from_allocation(ptr); allocator->unable_to_reallocate_callback(allocator->remote_user_data, block, new_block)
 #define zloc__block_extension_size (allocator->block_extension_size & ~1)
 #define zloc__call_maybe_split_block zloc__maybe_split_block(allocator, block, size, remote_size) 
 #else
@@ -567,13 +568,13 @@ static inline unsigned int zloc__count_bits(unsigned int n) {
 	}
 
 #if defined(ZLOC_ENABLE_REMOTE_MEMORY)
-	static inline void zloc__null_merge_callback(void *user_data, zloc_header *block1, zloc_header *block2) { return; }
-	void zloc__remote_merge_next_callback(void *user_data, zloc_header *block1, zloc_header *block2);
-	void zloc__remote_merge_prev_callback(void *user_data, zloc_header *block1, zloc_header *block2);
+	static inline void zloc__null_merge_callback(void *remote_user_data, zloc_header *block1, zloc_header *block2) { return; }
+	void zloc__remote_merge_next_callback(void *remote_user_data, zloc_header *block1, zloc_header *block2);
+	void zloc__remote_merge_prev_callback(void *remote_user_data, zloc_header *block1, zloc_header *block2);
 	zloc_size zloc__get_remote_size(const zloc_header *block1);
-	static inline void zloc__null_split_callback(void *user_data, zloc_header *block, zloc_header *trimmed, zloc_size remote_size) { return; }
-	static inline void zloc__null_add_pool_callback(void *user_data, void *block) { return; }
-	static inline void zloc__null_unable_to_reallocate_callback(void *user_data, zloc_header *block, zloc_header *new_block) { return; }
+	static inline void zloc__null_split_callback(void *remote_user_data, zloc_header *block, zloc_header *trimmed, zloc_size remote_size) { return; }
+	static inline void zloc__null_add_pool_callback(void *remote_user_data, void *block) { return; }
+	static inline void zloc__null_unable_to_reallocate_callback(void *remote_user_data, zloc_header *block, zloc_header *new_block) { return; }
 	static inline void zloc__unset_remote_block_limit_reached(zloc_allocator *allocator) { allocator->block_extension_size &= ~1; };
 #endif
 
@@ -1321,7 +1322,7 @@ zloc_pool_stats_t zloc_CreateMemorySnapshot(zloc_header *first_block) {
 	Standard callbacks, you can copy paste these to replace with your own as needed to add any extra functionality
 	that you might need
 */
-void zloc__remote_merge_next_callback(void *user_data, zloc_header *block, zloc_header *next_block) {
+void zloc__remote_merge_next_callback(void *remote_user_data, zloc_header *block, zloc_header *next_block) {
 	zloc_remote_header *remote_block = (zloc_remote_header*)zloc_BlockUserExtensionPtr(block);
 	zloc_remote_header *next_remote_block = (zloc_remote_header*)zloc_BlockUserExtensionPtr(next_block);
 	remote_block->size += next_remote_block->size;
@@ -1329,7 +1330,7 @@ void zloc__remote_merge_next_callback(void *user_data, zloc_header *block, zloc_
 	next_remote_block->size = 0;
 }
 
-void zloc__remote_merge_prev_callback(void *user_data, zloc_header *prev_block, zloc_header *block) {
+void zloc__remote_merge_prev_callback(void *remote_user_data, zloc_header *prev_block, zloc_header *block) {
 	zloc_remote_header *remote_block = (zloc_remote_header*)zloc_BlockUserExtensionPtr(block);
 	zloc_remote_header *prev_remote_block = (zloc_remote_header*)zloc_BlockUserExtensionPtr(prev_block);
 	prev_remote_block->size += remote_block->size;

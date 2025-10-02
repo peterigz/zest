@@ -89,7 +89,7 @@ void zest_implglfw_AddPlatformExtensionsCallback(zest_context context) {
 	zest_uint count;
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 	for (int i = 0; i != count; ++i) {
-		zest_AddInstanceExtension(context, (char*)glfw_extensions[i]);
+		zest_AddInstanceExtension(context->device, (char*)glfw_extensions[i]);
 	}
 }
 
@@ -111,7 +111,7 @@ void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {
 }
 
 zest_bool zest_implglfw_CreateWindowSurfaceCallback(zest_context context) {
-    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_renderer, zest_command_surface);
+    ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_renderer, zest_command_surface);
 	GLFWwindow *handle = (GLFWwindow *)zest_Window(context);
 	VkSurfaceKHR surface;
 	VkResult result = glfwCreateWindowSurface(zest_GetVKInstance(context), handle, zest_GetVKAllocationCallbacks(context), &surface);

@@ -640,8 +640,9 @@ int main(void) {
 	ImGuiApp imgui_app = {};
 
 	zest_UseVulkan();
+	zest_device device = zest_CreateVulkanDevice(&create_info);
 	//Initialise Zest
-	imgui_app.context = zest_Initialise(&create_info);
+	imgui_app.context = zest_Initialise(device, &create_info);
 	//Set the Zest use data
 	zest_SetUserData(&imgui_app);
 	//Set the udpate callback to be called every frame
