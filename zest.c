@@ -1444,7 +1444,6 @@ zest_context zest_Initialise(zest_device device, zest_create_info_t* info) {
     renderer->destroy_window_callback = info->destroy_window_callback;
     renderer->get_window_size_callback = info->get_window_size_callback;
     renderer->poll_events_callback = info->poll_events_callback;
-    renderer->add_platform_extensions_callback = info->add_platform_extensions_callback;
     renderer->create_window_callback = info->create_window_callback;
     renderer->create_window_surface_callback = info->create_window_surface_callback;
     renderer->set_window_mode_callback = info->set_window_mode_callback;
@@ -1461,7 +1460,57 @@ zest_context zest_Initialise(zest_device device, zest_create_info_t* info) {
     return context;
 }
 
-zest_device zest_CreateVulkanDevice(zest_create_info_t* info) {
+zest_device_builder zest_BeginVulkanDeviceBuilder() {
+    void* memory_pool = ZEST__ALLOCATE_POOL(zloc__MEGABYTE(1));
+	zloc_allocator *allocator = zloc_InitialiseAllocatorWithPool(memory_pool, zloc__MEGABYTE(1));
+	zest_device_builder builder = (zest_device_builder)ZEST__NEW(allocator, zest_device_builder);
+	*builder = (zest_device_builder_t) { 0 };
+	builder->magic = zest_INIT_MAGIC(zest_struct_type_device_builder);
+	builder->platform = zest_platform_vulkan;
+	builder->allocator = allocator;
+	builder->memory_pool_size = zloc__MEGABYTE(256);
+	builder->thread_count = zest_GetDefaultThreadCount();
+	return builder;
+}
+
+void zest_AddDeviceBuilderExtension(zest_device_builder builder, const char *extension_name) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	size_t len = strlen(extension_name) + 1;
+	char* name_copy = (char*)ZEST__ALLOCATE(builder->allocator, len);
+	ZEST_ASSERT(name_copy);	//Unable to allocate enough space for the extension name
+	memcpy(name_copy, extension_name, len);
+	zest_vec_push(builder->allocator, builder->required_instance_extensions, name_copy);
+}
+
+void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **extension_names, int count) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	for (int i = 0; i != count; ++i) {
+		const char *extension_name = extension_names[i];
+		size_t len = strlen(extension_name) + 1;
+		char* name_copy = (char*)ZEST__ALLOCATE(builder->allocator, len);
+		ZEST_ASSERT(name_copy);	//Unable to allocate enough space for the extension name
+		memcpy(name_copy, extension_name, len);
+		zest_vec_push(builder->allocator, builder->required_instance_extensions, name_copy);
+	}
+}
+
+void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	ZEST_ASSERT(size > zloc__MEGABYTE(8));	//Size for the memory pool must be greater than 8 megabytes
+	builder->memory_pool_size = size;
+}
+
+zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
+	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
+	zest_device device = NULL;
+	switch (builder->platform) {
+		case zest_platform_vulkan: device = zest__create_vulkan_device(builder); break;
+	}
+	ZEST__FREE_POOL(builder->allocator);
+	return device;
+}
+
+zest_device zest__create_vulkan_device(zest_device_builder info) {
     void* memory_pool = ZEST__ALLOCATE_POOL(info->memory_pool_size);
 	ZEST_ASSERT(memory_pool);    //unable to allocate initial memory pool
 
@@ -1500,12 +1549,18 @@ zest_device zest_CreateVulkanDevice(zest_create_info_t* info) {
     device->memory_pool_sizes[0] = info->memory_pool_size;
     device->memory_pool_count = 1;
     device->setup_info = *info;
+	device->setup_info.allocator = NULL;
     void *scratch_memory = ZEST__ALLOCATE(device->allocator, zloc__MEGABYTE(1));
     device->scratch_arena = zloc_InitialiseLinearAllocator(scratch_memory, zloc__MEGABYTE(1));
     if (info->log_path) {
         zest_SetErrorLogPath(device, info->log_path);
     }
     device->backend = device->platform->new_device_backend(device);
+
+	zest_vec_foreach(i, info->required_instance_extensions) {
+		char *extension = (char*)info->required_instance_extensions[i];
+		zest_vec_push(device->allocator, device->extensions, extension);
+	}
 
 	if (device->platform->initialise_device(device)) {
 		return device;
@@ -1537,7 +1592,6 @@ void zest_ResetRenderer(zest_context context) {
     context->renderer->destroy_window_callback = info->destroy_window_callback;
     context->renderer->get_window_size_callback = info->get_window_size_callback;
     context->renderer->poll_events_callback = info->poll_events_callback;
-    context->renderer->add_platform_extensions_callback = info->add_platform_extensions_callback;
     context->renderer->create_window_callback = info->create_window_callback;
     context->renderer->create_window_surface_callback = info->create_window_surface_callback;
     context->renderer->set_window_mode_callback = info->set_window_mode_callback;
@@ -1566,10 +1620,6 @@ void zest_SetGetWindowSizeCallback(zest_context context, void(*get_window_size_c
 
 void zest_SetPollEventsCallback(zest_context context, void(*poll_events_callback)(void)) {
     context->renderer->poll_events_callback = poll_events_callback;
-}
-
-void zest_SetPlatformExtensionsCallback(zest_context context, void(*add_platform_extensions_callback)(void)) {
-    context->renderer->add_platform_extensions_callback = add_platform_extensions_callback;
 }
 
 void zest_SetPlatformWindowModeCallback(zest_context context, void(*set_window_mode_callback)(zest_context window, zest_window_mode mode)) {
@@ -3993,10 +4043,12 @@ void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size,
     if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD);
     T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD);
     zest_vec *header = (zest_vec *)new_data;
-	zest_device device = (zest_device)allocator->user_data;
-    header->id = device->vector_id++;
-    if (header->id == 237) {
-        int d = 0;
+    if (allocator->user_data) {
+        zest_device device = (zest_device)allocator->user_data;
+        header->id = device->vector_id++;
+        if (header->id == 237) {
+            int d = 0;
+        }
     }
     header->magic = zest_INIT_MAGIC(zest_struct_type_vector);
     header->capacity = new_capacity;
@@ -4475,10 +4527,8 @@ zest_index zest__next_fif(zest_context context) {
 zest_create_info_t zest_CreateInfo() {
     zest_create_info_t create_info = {
         .title = "Zest Window",
-        .memory_pool_size = zloc__MEGABYTE(64),
         .frame_graph_allocator_size = zloc__MEGABYTE(1),
         .shader_path_prefix = "spv/",
-        .log_path = NULL,
         .screen_width = 1280,
         .screen_height = 768,
         .screen_x = 0,
@@ -4487,14 +4537,12 @@ zest_create_info_t zest_CreateInfo() {
         .virtual_height = 768,
         .fence_wait_timeout_ms = 250,
         .max_fence_timeout_ms = ZEST_SECONDS_IN_MILLISECONDS(10),
-        .thread_count = zest_GetDefaultThreadCount(),
         .color_format = zest_format_b8g8r8a8_unorm,
         .flags = zest_init_flag_enable_vsync | zest_init_flag_cache_shaders,
 		.platform = zest_platform_vulkan,
         .destroy_window_callback = zest__destroy_window_callback,
         .get_window_size_callback = zest__get_window_size_callback,
         .poll_events_callback = zest__os_poll_events,
-        .add_platform_extensions_callback = zest__os_add_platform_extensions,
         .create_window_callback = zest__os_create_window,
         .create_window_surface_callback = zest__os_create_window_surface,
         .set_window_mode_callback = zest__os_set_window_mode,

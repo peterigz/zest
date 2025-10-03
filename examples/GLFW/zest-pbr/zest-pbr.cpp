@@ -630,17 +630,22 @@ int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	//zest_create_info_t create_info = zest_CreateInfo();
-	create_info.memory_pool_size = zloc__MEGABYTE(256);
-    create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);
 	//Implement GLFW for window creation
 	zest_implglfw_SetCallbacks(&create_info);
 
+	if (!glfwInit()) {
+		return 0;
+	}
 	ImGuiApp imgui_app = {};
+	zest_uint count;
+	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
 	zest_UseVulkan();
-	zest_device device = zest_CreateVulkanDevice(&create_info);
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+	zest_device device = zest_EndDeviceBuilder(device_builder);
 	//Initialise Zest
 	imgui_app.context = zest_Initialise(device, &create_info);
 	//Set the Zest use data

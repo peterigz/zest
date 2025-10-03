@@ -922,7 +922,8 @@ typedef enum zest_struct_type {
     zest_struct_type_atlas_region            = 42 << 16,
     zest_struct_type_view                    = 43 << 16,
     zest_struct_type_buffer_backend          = 44 << 16,
-    zest_struct_type_context 		         = 45 << 16
+    zest_struct_type_context 		         = 45 << 16,
+    zest_struct_type_device_builder	         = 46 << 16
 } zest_struct_type;
 
 typedef enum zest_platform_memory_context {
@@ -1495,6 +1496,7 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 // --Forward_declarations
 typedef struct zest_context_t zest_context_t;
 typedef struct zest_device_t zest_device_t;
+typedef struct zest_device_builder_t zest_device_builder_t;
 typedef struct zest_platform_t zest_platform_t;
 typedef struct zest_image_t zest_image_t;
 typedef struct zest_image_view_t zest_image_view_t;
@@ -1560,6 +1562,7 @@ typedef struct zest_set_layout_builder_backend_t zest_set_layout_builder_backend
 //Generate handles for the struct types. These are all pointers to memory where the object is stored.
 ZEST__MAKE_HANDLE(zest_context)
 ZEST__MAKE_HANDLE(zest_device)
+ZEST__MAKE_HANDLE(zest_device_builder)
 ZEST__MAKE_HANDLE(zest_platform)
 ZEST__MAKE_HANDLE(zest_image)
 ZEST__MAKE_HANDLE(zest_image_view)
@@ -2626,16 +2629,27 @@ typedef struct zest_ssbo_binding_t {
     zest_uint binding_number;
 } zest_ssbo_binding_t;
 
+typedef struct zest_device_builder_t {
+	int magic;
+	zloc_allocator *allocator;
+	// Flag to enable validation layers, etc.
+	zest_init_flags flags;
+	zest_platform_type platform;
+	zest_size memory_pool_size;
+	int thread_count;
+    const char* log_path;                               //path to the log to store log and validation messages
+
+	// User-provided list of required instance extensions (e.g., from GLFW)
+	const char** required_instance_extensions;
+} zest_device_builder_t;
+
 typedef struct zest_create_info_t {
     const char *title;                                  //Title that shows in the window
     const char *shader_path_prefix;                     //Prefix prepending to the shader path when loading default shaders
-    const char* log_path;                               //path to the log to store log and validation messages
-    zest_size memory_pool_size;                         //The size of each memory pool. More pools are added if needed
     zest_size frame_graph_allocator_size;               //The size of the linear allocator used by render graphs to store temporary data
     int screen_width, screen_height;                    //Default width and height of the window that you open
     int screen_x, screen_y;                             //Default position of the window
     int virtual_width, virtual_height;                  //The virtial width/height of the viewport
-    int thread_count;                                   //The number of threads to use if multithreading. 0 if not.
     zest_millisecs fence_wait_timeout_ms;               //The amount of time the main loop fence should wait before timing out
     zest_millisecs max_fence_timeout_ms;                //The maximum amount of time to wait before giving up
     zest_format color_format;                   		//The format to use for the swapchain
@@ -2656,7 +2670,6 @@ typedef struct zest_create_info_t {
     void(*get_window_size_callback)(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
     void(*destroy_window_callback)(zest_context window, void *user_data);
     void(*poll_events_callback)(zest_context context);
-    void(*add_platform_extensions_callback)(zest_context context);
     zest_window(*create_window_callback)(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title);
     zest_bool(*create_window_surface_callback)(zest_context window);
     void(*set_window_mode_callback)(zest_context window, zest_window_mode mode);
@@ -2758,7 +2771,7 @@ typedef struct zest_device_t {
     zest_queue *queues;
     zest_map_queue_names queue_names;
     zest_text_t log_path;
-    zest_create_info_t setup_info;
+    zest_device_builder_t setup_info;
 
     zest_map_buffer_pool_sizes pool_sizes;
 
@@ -2811,6 +2824,9 @@ typedef struct zest_device_t {
 
     //Slang
     void *slang_info;
+
+	//Callbacks
+    void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
 } zest_device_t;
 
 typedef bool (*zest_wait_timeout_callback)(zest_millisecs total_wait_time_ms, zest_uint retry_count, void *user_data);
@@ -3733,7 +3749,6 @@ typedef struct zest_renderer_t {
     void(*get_window_size_callback)(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
     void(*destroy_window_callback)(zest_context context, void *user_data);
     void(*poll_events_callback)(ZEST_PROTOTYPE);
-    void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
     zest_window(*create_window_callback)(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title);
     void(*create_window_surface_callback)(zest_context context);
     void(*set_window_mode_callback)(zest_context context, zest_window_mode mode);
@@ -3833,7 +3848,7 @@ typedef struct zest_platform_t {
 	void					   (*set_uniform_buffer_backend)(zest_uniform_buffer buffer);
 	void*					   (*new_image_backend)(zest_context context);
 	void*					   (*new_compute_backend)(zest_context context);
-	void*					   (*new_queue_backend)(zest_context context);
+	void*					   (*new_queue_backend)(zest_device device);
 	void*					   (*new_submission_batch_backend)(zest_context context);
 	void*					   (*new_set_layout_backend)(zest_context context);
 	void*					   (*new_descriptor_pool_backend)(zest_context context);
@@ -3957,7 +3972,7 @@ ZEST_API zest_size zest_GetNextPower(zest_size n);
 //Buffer_and_Memory_Management
 ZEST_PRIVATE inline void zest__add_host_memory_pool(zest_device device, zest_size size) {
     ZEST_ASSERT(device->memory_pool_count < 32);    //Reached the max number of memory pools
-    zest_size pool_size = ZestApp->create_info.memory_pool_size;
+    zest_size pool_size = device->setup_info.memory_pool_size;
     if (pool_size <= size) {
         pool_size = zest_GetNextPower(size);
     }
@@ -4125,6 +4140,7 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler
 
 // --Device_set_up
 ZEST_API_TMP void zest__set_default_pool_sizes(zest_device device);
+zest_device zest__create_vulkan_device(zest_device_builder info);
 //end device setup functions
 
 //App_initialise_and_run_functions
@@ -4146,14 +4162,21 @@ ZEST_PRIVATE void zest__update_window_size(zest_window window, zest_uint width, 
 //-----------------------------------------------
 //        Essential_setup_functions
 //-----------------------------------------------
+//Device creation builder
+ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder();
+//Add a required extension to the device builder. This will be used to find a suitable GPU in the machine
+ZEST_API void zest_AddDeviceBuilderExtension(zest_device_builder builder, const char *extension_name);
+ZEST_API void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **extension_names, int cout);
+//Set the default pool size for the cpu memory used for the device
+ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size);
+//Finish and create the device
+ZEST_API zest_device zest_EndDeviceBuilder(zest_device_builder builder);
 //Create a new zest_create_info_t struct with default values for initialising Zest
 ZEST_API zest_create_info_t zest_CreateInfo();
 //Create a new zest_create_info_t struct with default values for initialising Zest but also enable validation layers as well
 ZEST_API zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags);
 //Initialise Zest. You must call this in order to use Zest. Use zest_CreateInfo() to set up some default values to initialise the renderer.
 ZEST_API zest_context zest_Initialise(zest_device device, zest_create_info_t *info);
-//Create a new vulkan platform layer
-zest_device zest_CreateVulkanDevice(zest_create_info_t* info);
 //Set the custom user data which will get passed through to the user update function each frame.
 ZEST_API void zest_SetUserData(void* data);
 //Set the user udpate callback that will be called each frame in the main loop of zest. You must set this or the main loop will just render a blank screen.
@@ -4331,7 +4354,6 @@ ZEST_API void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template
 ZEST_API void zest_SetDestroyWindowCallback(zest_context context, void(*destroy_window_callback)(zest_context window, void *user_data));
 ZEST_API void zest_SetGetWindowSizeCallback(zest_context context, void(*get_window_size_callback)(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height));
 ZEST_API void zest_SetPollEventsCallback(zest_context context, void(*poll_events_callback)(void));
-ZEST_API void zest_SetPlatformExtensionsCallback(zest_context context, void(*add_platform_extensions_callback)(void));
 ZEST_API void zest_SetPlatformWindowModeCallback(zest_context context, void(*set_window_mode_callback)(zest_context window, zest_window_mode mode));
 ZEST_API void zest_SetPlatformWindowSizeCallback(zest_context context, void(*set_window_size_callback)(zest_context window, int width, int height));
 

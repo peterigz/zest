@@ -85,14 +85,6 @@ void zest_implglfw_PollEventsCallback(zest_context context) {
 	zest_MaybeQuit(glfwWindowShouldClose(handle));
 }
 
-void zest_implglfw_AddPlatformExtensionsCallback(zest_context context) {
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
-	for (int i = 0; i != count; ++i) {
-		zest_AddInstanceExtension(context->device, (char*)glfw_extensions[i]);
-	}
-}
-
 void zest_implglfw_GetWindowSizeCallback(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height) {
 	GLFWwindow *handle = (GLFWwindow *)zest_Window(context);
     glfwGetFramebufferSize(handle, fb_width, fb_height);
@@ -100,7 +92,6 @@ void zest_implglfw_GetWindowSizeCallback(zest_context context, void *user_data, 
 }
 
 void zest_implglfw_SetCallbacks(zest_create_info_t *create_info) {
-	create_info->add_platform_extensions_callback = zest_implglfw_AddPlatformExtensionsCallback;
 	create_info->create_window_callback = zest_implglfw_CreateWindowCallback;
 	create_info->poll_events_callback = zest_implglfw_PollEventsCallback;
 	create_info->get_window_size_callback = zest_implglfw_GetWindowSizeCallback;
