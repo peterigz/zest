@@ -235,8 +235,8 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
 
                 // Clamp to viewport as vkCmdSetScissor() won't accept values that are off bounds
-                if (clip_max.x > zest_SwapChainWidth(context)) { clip_max.x = zest_SwapChainWidthf(context); }
-                if (clip_max.y > zest_SwapChainHeight(context)) { clip_max.y = zest_SwapChainHeightf(context); }
+                if (clip_max.x > zest_ScreenWidth(context)) { clip_max.x = zest_ScreenWidthf(context); }
+                if (clip_max.y > zest_ScreenHeight(context)) { clip_max.y = zest_ScreenHeightf(context); }
                 if (clip_max.x <= clip_min.x || clip_max.y <= clip_min.y) {
                     continue;
                 }
@@ -254,7 +254,7 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
             vertex_offset += cmd_list->VtxBuffer.Size;
         }
     }
-    zest_scissor_rect_t scissor = { { 0, 0 }, { zest_SwapChainWidth(context), zest_SwapChainHeight(context) } };
+    zest_scissor_rect_t scissor = { { 0, 0 }, { zest_ScreenWidth(context), zest_ScreenHeight(context) } };
 	zest_cmd_Scissor(command_list, &scissor);
 }
 

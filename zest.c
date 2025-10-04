@@ -133,321 +133,12 @@ FILE* zest__open_file(const char* file_name, const char* mode) {
     return file;
 }
 
-void zest__destroy_window_callback(zest_context context, void* user_data) {
-	context->device->platform->cleanup_window_backend(context->window);
-    DestroyWindow(context->window->window_handle);
-    PostQuitMessage(0);
-}
-
-LRESULT CALLBACK zest__window_proc(HWND window_handle, UINT message, WPARAM wParam, LPARAM lParam) {
-    LRESULT result = 0;
-	zest_window window = (zest_window)GetWindowLongPtr(window_handle, GWLP_USERDATA);
-    switch (message) {
-    case WM_CLOSE:
-    case WM_QUIT: {
-        ZestApp->flags |= zest_app_flag_quit_application;
-    } break;
-    case WM_PAINT: {
-        PAINTSTRUCT paint;
-        HDC DeviceContext = BeginPaint(window_handle, &paint);
-        EndPaint(window_handle, &paint);
-    } break;
-    case WM_LBUTTONDOWN: {
-        window->mouse_button = 1;
-    } break;
-    case WM_RBUTTONDOWN: {
-        window->mouse_button = 2;
-    } break;
-    case WM_SIZE: {
-    } break;
-    case WM_DESTROY: {
-    } break;
-    default: {
-        result = DefWindowProc(window_handle, message, wParam, lParam);
-        break;
-    }
-    }
-
-    return result;
-}
-
-void zest__os_poll_events(zest_context context) {
-    MSG message = { 0 };
-
-    POINT cursor_position;
-    GetCursorPos(&cursor_position);
-    ScreenToClient(context->window->window_handle, &cursor_position);
-    double last_mouse_x = context->window->mouse_x;
-    double last_mouse_y = context->window->mouse_y;
-    context->window->mouse_x = (double)cursor_position.x;
-    context->window->mouse_y = (double)cursor_position.y;
-    context->window->mouse_delta_x = last_mouse_x - context->window->mouse_x;
-    context->window->mouse_delta_y = last_mouse_y - context->window->mouse_y;
-    context->window->mouse_button = 0;
-
-    if (GetAsyncKeyState(VK_LBUTTON) & 0x8000) {  // Left button
-        context->window->mouse_button |= 1;
-    }
-    if (GetAsyncKeyState(VK_RBUTTON) & 0x8000) {  // Right button
-        context->window->mouse_button |= 2;
-    }
-    if (GetAsyncKeyState(VK_MBUTTON) & 0x8000) {  // Middle button
-        context->window->mouse_button |= 4;
-    }
-
-    for (;;) {
-        BOOL result = 0;
-        DWORD SkipMessages[] = { 0x738, 0xFFFFFFFF };
-        DWORD LastMessage = 0;
-        for (zest_uint SkipIndex = 0; SkipIndex < 2; ++SkipIndex) {
-
-            DWORD Skip = SkipMessages[SkipIndex];
-            result = PeekMessage(&message, 0, LastMessage, Skip - 1, PM_REMOVE);
-            if (result)
-            {
-                TranslateMessage(&message);
-                DispatchMessage(&message);
-                break;
-            }
-
-            LastMessage = Skip + 1;
-        }
-
-        if (!result) {
-            break;
-        }
-    }
-}
-
-zest_window zest__os_create_window(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title) {
-    ZEST_ASSERT(context);        //Must initialise the context first
-
-    zest_window_instance = GetModuleHandle(NULL);
-
-    zest_window window = zest_AllocateWindow(context);
-	window->context = context;
-    WNDCLASS window_class = { 0 };
-
-    window->window_width = width;
-    window->window_height = height;
-
-    window_class.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
-    window_class.lpfnWndProc = zest__window_proc;
-    window_class.hInstance = zest_window_instance;
-    window_class.hIcon = LoadIcon(zest_window_instance, MAKEINTRESOURCE(IDI_APPLICATION));
-    window_class.lpszClassName = "zest_app_class_name";
-
-    WNDCLASSEX wcex = { 0 };
-    wcex.cbSize = sizeof(WNDCLASSEX);
-
-    if (GetClassInfoEx(zest_window_instance, window_class.lpszClassName, &wcex) == 0) {
-        if (!RegisterClass(&window_class)) {
-            ZEST_ASSERT(0);        //Failed to register window
-        }
-    }
-
-    DWORD style = WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
-    style |= WS_SYSMENU | WS_MINIMIZEBOX;
-    style |= WS_CAPTION;
-    style |= WS_MAXIMIZEBOX | WS_THICKFRAME;
-
-    RECT rect = { 0, 0, width, height };
-
-    AdjustWindowRectEx(&rect, style, FALSE, 0);
-
-    int frame_width = rect.right - rect.left;
-    int frame_height = rect.bottom - rect.top;
-
-    window->window_handle = CreateWindowEx(0, window_class.lpszClassName, title, style | WS_VISIBLE, x, y, frame_width, frame_height, 0, 0, zest_window_instance, window);
-    ZEST_ASSERT(window->window_handle);        //Unable to open a window!
-
-    SetForegroundWindow(window->window_handle);
-    SetFocus(window->window_handle);
-
-    return window;
-}
-
-void zest__os_set_window_size(zest_context context, int width, int height) {
-	zest_window window = context->window;
-	HWND handle = (HWND)window->window_handle;
-	DWORD style = GetWindowLong(handle, GWL_STYLE);
-	DWORD ex_style = GetWindowLong(handle, GWL_EXSTYLE);
-
-	RECT rect = { 0, 0, width, height };
-	AdjustWindowRectEx(&rect, style, FALSE, ex_style);
-
-	SetWindowPos(handle, NULL, 0, 0, rect.right - rect.left, rect.bottom - rect.top, SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
-	window->window_width = width;
-	window->window_height = height;
-}
-
-void zest__os_set_window_mode(zest_context context, zest_window_mode mode) {
-	zest_window window = context->window;
-	window->mode = mode;
-	HWND handle = (HWND)window->window_handle;
-	DWORD style = GetWindowLong(handle, GWL_STYLE);
-
-	switch (mode) {
-		case zest_window_mode_fullscreen: {
-			MONITORINFO mi = { sizeof(mi) };
-			GetMonitorInfo(MonitorFromWindow(handle, MONITOR_DEFAULTTOPRIMARY), &mi);
-			SetWindowLong(handle, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
-			SetWindowPos(handle, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
-				mi.rcMonitor.right - mi.rcMonitor.left,
-				mi.rcMonitor.bottom - mi.rcMonitor.top,
-				SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-			break;
-		}
-		case zest_window_mode_borderless: {
-			SetWindowLong(handle, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
-			SetWindowPos(handle, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-			break;
-		}
-		case zest_window_mode_bordered: {
-			SetWindowLong(handle, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
-			SetWindowPos(handle, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-			break;
-		}
-	}
-}
-
-void zest__os_add_platform_extensions(zest_context context) {
-	context->device->platform->os_add_platform_extensions(context);
-}
-
-void zest__get_window_size_callback(zest_context context, void* user_data, int* fb_width, int* fb_height, int* window_width, int* window_height) {
-    RECT window_rect;
-    GetClientRect(context->window->window_handle, &window_rect);
-    *fb_width = window_rect.right - window_rect.left;
-    *fb_height = window_rect.bottom - window_rect.top;
-    *window_width = *fb_width;
-    *window_height = *fb_height;
-}
-
-void zest__os_set_window_title(zest_context context, const char* title) {
-    SetWindowText(context->window->window_handle, title);
-}
-
 #else
 
 FILE* zest__open_file(const char* file_name, const char* mode) {
     return fopen(file_name, mode);
 }
 
-zest_window zest__os_create_window(zest_context context, int x, int y, int width, int height, zest_bool maximised, const char* title) {
-    ZEST_ASSERT(ZestDevice);        //Must initialise the context first
-
-    zest_window current_window = ZEST__NEW(context->device->allocator, zest_window);
-    memset(current_window, 0, sizeof(zest_window_t));
-    glfwInit();
-
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    if (maximised)
-        glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
-
-    current_window->magic = zest_INIT_MAGIC(zest_struct_type_window);
-    current_window->window_width = width;
-    current_window->window_height = height;
-
-    current_window->window_handle = glfwCreateWindow(width, height, title, 0, 0);
-    if (!maximised) {
-        glfwSetWindowPos(current_window->window_handle, x, y);
-    }
-    glfwSetWindowUserPointer(current_window->window_handle, ZestApp);
-
-    if (maximised) {
-        int width, height;
-        glfwGetFramebufferSize(current_window->window_handle, &width, &height);
-        current_window->window_width = width;
-        current_window->window_height = height;
-    }
-
-    return current_window;
-}
-
-void zest__os_create_window_surface(zest_window current_window) {
-    ZEST_SET_MEMORY_CONTEXT(zest_platform_renderer, zest_command_surface);
-    ZEST_VK_ASSERT_RESULT(glfwCreateWindowSurface(context->device->backend->instance, current_window->window_handle, &context->device->backend->allocation_callbacks, &current_window->backend->surface));
-}
-
-void zest__os_poll_events(zest_context context) {
-    glfwPollEvents();
-    double mouse_x, mouse_y;
-    glfwGetCursorPos(context->window->window_handle, &mouse_x, &mouse_y);
-    double last_mouse_x = context->window->mouse_x;
-    double last_mouse_y = context->window->mouse_y;
-    context->window->mouse_x = mouse_x;
-    context->window->mouse_y = mouse_y;
-    context->window->mouse_delta_x = last_mouse_x - context->window->mouse_x;
-    context->window->mouse_delta_y = last_mouse_y - context->window->mouse_y;
-    ZestApp->flags |= glfwWindowShouldClose(context->window->window_handle) ? zest_app_flag_quit_application : 0;
-    context->window->mouse_button = 0;
-    int left = glfwGetMouseButton(context->window->window_handle, GLFW_MOUSE_BUTTON_LEFT);
-    if (left == GLFW_PRESS) {
-        context->window->mouse_button |= 1;
-    }
-
-    int right = glfwGetMouseButton(context->window->window_handle, GLFW_MOUSE_BUTTON_RIGHT);
-    if (right == GLFW_PRESS) {
-        context->window->mouse_button |= 2;
-    }
-
-    int middle = glfwGetMouseButton(context->window->window_handle, GLFW_MOUSE_BUTTON_MIDDLE);
-    if (middle == GLFW_PRESS) {
-        context->window->mouse_button |= 4;
-    }
-}
-
-void zest__os_set_window_mode(zest_window window, zest_window_mode mode) {
-    GLFWwindow *handle = (GLFWwindow *)window->window_handle;
-    static int last_x, last_y, last_width, last_height;
-
-    switch (mode) {
-    case zest_window_mode_fullscreen:
-    {
-        if (!glfwGetWindowMonitor(handle)) {
-            glfwGetWindowPos(handle, &last_x, &last_y);
-            glfwGetWindowSize(handle, &last_width, &last_height);
-        }
-
-        GLFWmonitor *monitor = glfwGetPrimaryMonitor();
-        const GLFWvidmode *vidmode = glfwGetVideoMode(monitor);
-        glfwSetWindowMonitor(handle, monitor, 0, 0, vidmode->width, vidmode->height, vidmode->refreshRate);
-        break;
-    }
-    case zest_window_mode_bordered:
-        if (glfwGetWindowMonitor(handle)) {
-            glfwSetWindowMonitor(handle, NULL, last_x, last_y, last_width, last_height, 0);
-        }
-        glfwSetWindowAttrib(handle, GLFW_DECORATED, GLFW_TRUE);
-        break;
-    case zest_window_mode_borderless:
-        if (glfwGetWindowMonitor(handle)) {
-            glfwSetWindowMonitor(handle, NULL, last_x, last_y, last_width, last_height, 0);
-        }
-        glfwSetWindowAttrib(handle, GLFW_DECORATED, GLFW_FALSE);
-        break;
-    }
-    window->mode = mode;
-}
-
-
-void zest__os_add_platform_extensions(zest_context context) {
-    zest_uint count;
-    const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
-    for (int i = 0; i != count; ++i) {
-        zest_AddInstanceExtension(context, (char*)glfw_extensions[i]);
-    }
-}
-
-void zest__get_window_size_callback(zest_context context, void* user_data, int* fb_width, int* fb_height, int* window_width, int* window_height) {
-    glfwGetFramebufferSize(context->window->window_handle, fb_width, fb_height);
-    glfwGetWindowSize(context->window->window_handle, window_width, window_height);
-}
-
-void zest__destroy_window_callback(zest_window window, void* user_data) {
-    glfwDestroyWindow((GLFWwindow*)window->window_handle);
-}
 #endif
 
 bool zest__create_folder(zest_context context, const char *path) {
@@ -1424,7 +1115,7 @@ void zest__register_platform(zest_platform_type type, zest__platform_setup callb
 }
 
 // Initialisation and destruction
-zest_context zest_Initialise(zest_device device, zest_create_info_t* info) {
+zest_context zest_Initialise(zest_device device, zest_window_data_t window_data, zest_create_info_t* info) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
 	zloc_allocator *allocator = device->allocator;
     zest_context context = (zest_context)zloc_Allocate(allocator, sizeof(zest_context_t));
@@ -1432,26 +1123,15 @@ zest_context zest_Initialise(zest_device device, zest_create_info_t* info) {
 	context->magic = zest_INIT_MAGIC(zest_struct_type_context);
 
     zest_app_t *app = zloc_Allocate(allocator, sizeof(zest_app_t));
-    zest_renderer_t *renderer = zloc_Allocate(allocator, sizeof(zest_renderer_t));
     memset(app, 0, sizeof(zest_app_t));
-    memset(renderer, 0, sizeof(zest_renderer_t));
 	context->device = device;
 
 	ZestApp = app;
-	context->renderer = renderer;
 	context->app = app;
-
-    renderer->destroy_window_callback = info->destroy_window_callback;
-    renderer->get_window_size_callback = info->get_window_size_callback;
-    renderer->poll_events_callback = info->poll_events_callback;
-    renderer->create_window_callback = info->create_window_callback;
-    renderer->create_window_surface_callback = info->create_window_surface_callback;
-    renderer->set_window_mode_callback = info->set_window_mode_callback;
-    renderer->set_window_size_callback = info->set_window_size_callback;
-    context->backend = device->platform->new_renderer_backend(context);
+    context->backend = device->platform->new_context_backend(context);
 	zest__initialise_app(context, info);
-	zest__initialise_window(context, info);
-	zest_bool result = zest__initialise_renderer(context, info);
+	context->window_data = window_data;
+	zest_bool result = zest__initialise_context(context, info);
 	if (result != ZEST_TRUE) {
 		ZEST_PRINT("Unable to initialise the renderer. Check the log for details.");
 		zest__destroy(context);
@@ -1460,7 +1140,7 @@ zest_context zest_Initialise(zest_device device, zest_create_info_t* info) {
     return context;
 }
 
-zest_device_builder zest_BeginVulkanDeviceBuilder() {
+zest_device_builder zest__begin_device_builder() {
     void* memory_pool = ZEST__ALLOCATE_POOL(zloc__MEGABYTE(1));
 	zloc_allocator *allocator = zloc_InitialiseAllocatorWithPool(memory_pool, zloc__MEGABYTE(1));
 	zest_device_builder builder = (zest_device_builder)ZEST__NEW(allocator, zest_device_builder);
@@ -1494,6 +1174,25 @@ void zest_AddDeviceBuilderExtensions(zest_device_builder builder, const char **e
 	}
 }
 
+void zest_AddDeviceBuilderValidation(zest_device_builder builder) {
+    ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers);
+	ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers_with_sync);
+}
+
+void zest_AddDeviceBuilderFullValidation(zest_device_builder builder) {
+    ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers);
+	ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers_with_sync);
+	ZEST__FLAG(builder->flags, zest_init_flag_enable_validation_layers_with_best_practices);
+}
+
+void zest_DeviceBuilderLogToConsole(zest_device_builder builder) {
+	ZEST__FLAG(builder->flags, zest_init_flag_log_validation_errors_to_console);
+}
+
+void zest_DeviceBuilderLogToMemory(zest_device_builder builder) {
+	ZEST__FLAG(builder->flags, zest_init_flag_log_validation_errors_to_memory);
+}
+
 void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size) {
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
 	ZEST_ASSERT(size > zloc__MEGABYTE(8));	//Size for the memory pool must be greater than 8 megabytes
@@ -1522,6 +1221,7 @@ zest_device zest__create_vulkan_device(zest_device_builder info) {
     memset(device, 0, sizeof(zest_device_t));
     device->allocator = allocator;
 	device->platform = zloc_Allocate(allocator, sizeof(zest_platform_t));
+	device->init_flags = info->flags;
 
 	if (zest__platform_setup_callbacks[zest_platform_vulkan]) {
 		zest__platform_setup_callbacks[zest_platform_vulkan](device->platform);
@@ -1529,7 +1229,7 @@ zest_device zest__create_vulkan_device(zest_device_builder info) {
 		zloc_Free(allocator, device->platform);
 		zloc_Free(allocator, device);
 		free(memory_pool);
-		ZEST_PRINT("No platform set up function found. Make sure you called the appropriate function for the platform that you want to use like zest_UseVulkan()");
+		ZEST_PRINT("No platform set up function found. Make sure you called the appropriate function for the platform that you want to use like zest_BeginVulkanDevice()");
 		return NULL;
 	}
 
@@ -1569,8 +1269,39 @@ zest_device zest__create_vulkan_device(zest_device_builder info) {
 	return NULL;
 }
 
-void zest_Start(zest_context context) {
-    zest__main_loop(context);
+zest_bool zest_BeginFrame(zest_context context) {
+	zest_fence_status fence_wait_result = zest__main_loop_fence_wait(context);
+	if (fence_wait_result == zest_fence_status_success) {
+	} else if (fence_wait_result == zest_fence_status_timeout) {
+		ZEST_PRINT("Fence wait timed out.");
+		zest_Terminate();
+		return fence_wait_result;
+	} else {
+		ZEST_PRINT("Critical error when waiting for the main loop fence.");
+		zest_Terminate();
+		return fence_wait_result;
+	}
+
+	ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
+
+	zest__do_scheduled_tasks(context);
+
+	return fence_wait_result == zest_fence_status_success;
+}
+
+void zest_PresentFrame(zest_context context) {
+	//Cover some cases where a frame graph wasn't created or it was but there was nothing render etc., to make sure
+	//that the fence is always signalled and another frame can happen
+	if (ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired)) {
+		if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_work_was_submitted)) {
+			zest_bool presented = context->device->platform->present_frame(context->swapchain);
+			context->previous_fif = context->current_fif;
+			context->current_fif = (context->current_fif + 1) % ZEST_MAX_FIF;
+			if(!presented) {
+				zest__recreate_swapchain(context->swapchain);
+			}
+		}
+	}
 }
 
 void zest_Shutdown(zest_context context) {
@@ -1587,48 +1318,17 @@ void zest_ResetRenderer(zest_context context) {
 
     zest_platform_command command_filter = zest_command_pipelines;
 
-    zest__cleanup_renderer(context);
+    zest__cleanup_context(context);
     zest_create_info_t *info = &context->app->create_info;
-    context->renderer->destroy_window_callback = info->destroy_window_callback;
-    context->renderer->get_window_size_callback = info->get_window_size_callback;
-    context->renderer->poll_events_callback = info->poll_events_callback;
-    context->renderer->create_window_callback = info->create_window_callback;
-    context->renderer->create_window_surface_callback = info->create_window_surface_callback;
-    context->renderer->set_window_mode_callback = info->set_window_mode_callback;
-    context->renderer->set_window_size_callback = info->set_window_size_callback;
-    context->backend = context->device->platform->new_renderer_backend(context);
-	zest__initialise_window(context, &context->app->create_info);
-    context->renderer->create_window_surface_callback(context);
-    zest__initialise_renderer(context, &context->app->create_info);
+    context->backend = context->device->platform->new_context_backend(context);
+    context->device->platform->create_window_surface(context);
+    zest__initialise_context(context, &context->app->create_info);
 }
 
 void zest_SetUserData(void* data) {
     ZestApp->user_data = data;
 }
 
-void zest_SetUserUpdateCallback(void(*callback)(zest_microsecs, void*)) {
-    ZestApp->update_callback = callback;
-}
-
-void zest_SetDestroyWindowCallback(zest_context context, void(*destroy_window_callback)(zest_context context, void* user_data)) {
-    context->renderer->destroy_window_callback = destroy_window_callback;
-}
-
-void zest_SetGetWindowSizeCallback(zest_context context, void(*get_window_size_callback)(zest_context context, void* user_data, int* fb_width, int* fb_height, int* window_width, int* window_height)) {
-    context->renderer->get_window_size_callback = get_window_size_callback;
-}
-
-void zest_SetPollEventsCallback(zest_context context, void(*poll_events_callback)(void)) {
-    context->renderer->poll_events_callback = poll_events_callback;
-}
-
-void zest_SetPlatformWindowModeCallback(zest_context context, void(*set_window_mode_callback)(zest_context window, zest_window_mode mode)) {
-    context->renderer->set_window_mode_callback = set_window_mode_callback;
-}
-
-void zest_SetPlatformWindowSizeCallback(zest_context context, void(*set_window_size_callback)(zest_context window, int width, int height)) {
-    context->renderer->set_window_size_callback = set_window_size_callback;
-}
 //-- End Initialisation and destruction
 
 /*
@@ -1742,12 +1442,6 @@ void zest__initialise_app(zest_context context, zest_create_info_t* create_info)
     context->app->magic = zest_INIT_MAGIC(zest_struct_type_app);
     context->app->create_info = *create_info;
     context->fence_wait_timeout_ns = create_info->fence_wait_timeout_ms * 1000 * 1000;
-    context->app->update_callback = 0;
-}
-
-void zest__initialise_window(zest_context context, zest_create_info_t *create_info) {
-    ZEST_APPEND_LOG(context->device->log_path.str, "Create window with dimensions: %i, %i", create_info->screen_width, create_info->screen_height);
-    context->window = context->renderer->create_window_callback(context, create_info->screen_x, create_info->screen_y, create_info->screen_width, create_info->screen_height, ZEST__FLAGGED(create_info->flags, zest_init_flag_maximised), "Zest");
 }
 
 void zest__end_thread(zest_work_queue_t *queue, void *data) {
@@ -1769,12 +1463,11 @@ void zest__destroy(zest_context context) {
         zest__cleanup_thread(context, i);
     }
     zloc_allocator *allocator = context->device->allocator;
-    zest__cleanup_renderer(context);
+    zest__cleanup_context(context);
     zest__cleanup_device(context->device);
     zest_ResetValidationErrors(context);
     ZEST__FREE(context->device->allocator, context->device);
     ZEST__FREE(context->device->allocator, ZestApp);
-    ZEST__FREE(context->device->allocator, context->renderer);
     ZEST__FREE(context->device->allocator, context->device->platform);
     ZEST__FREE(context->device->allocator, context);
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(context->device->allocator)));
@@ -1876,7 +1569,6 @@ zest_fence_status zest__main_loop_fence_wait(zest_context context) {
 }
 
 void zest__main_loop(zest_context context) {
-    ZEST_ASSERT(ZestApp->update_callback);    //Must define an update callback function
     while (!(ZestApp->flags & zest_app_flag_quit_application)) {
         zest_fence_status fence_wait_result = zest__main_loop_fence_wait(context);
         if (fence_wait_result == zest_fence_status_success) {
@@ -1894,15 +1586,6 @@ void zest__main_loop(zest_context context) {
 
         zest__do_scheduled_tasks(context);
 
-        context->window->mouse_hit = 0;
-        zest_mouse_button button_state = context->window->mouse_button;
-
-        context->renderer->poll_events_callback(context);
-
-        context->window->mouse_hit = button_state & (~context->window->mouse_button);
-
-        ZestApp->update_callback(0, ZestApp->user_data);
-
         if (ZestApp->flags & zest_app_flag_quit_application) {
             continue;
         }
@@ -1911,22 +1594,16 @@ void zest__main_loop(zest_context context) {
         //that the fence is always signalled and another frame can happen
         if (ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired)) {
             if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_work_was_submitted)) {
-				zest_bool presented = context->device->platform->present_frame(context->window->swapchain);
+				zest_bool presented = context->device->platform->present_frame(context->swapchain);
 				context->previous_fif = context->current_fif;
 				context->current_fif = (context->current_fif + 1) % ZEST_MAX_FIF;
 				if(!presented) {
-					zest__recreate_swapchain(context->window->swapchain);
+					zest__recreate_swapchain(context->swapchain);
 				}
             }
         }
 
     }
-}
-
-
-void zest__update_window_size(zest_window window, zest_uint width, zest_uint height) {
-    window->window_width = width;
-    window->window_height = height;
 }
 
 // --Threading related funcitons
@@ -2574,14 +2251,18 @@ void zest_SetDeviceImagePoolSize(zest_device device, const char *name, zest_imag
 // --End Vulkan Buffer Management
 
 // --Renderer and related functions
-zest_bool zest__initialise_renderer(zest_context context, zest_create_info_t* create_info) {
+zest_bool zest__initialise_context(zest_context context, zest_create_info_t* create_info) {
     ZEST_PRINT_FUNCTION;
-    context->renderer->magic = zest_INIT_MAGIC(zest_struct_type_renderer);
     context->flags |= (create_info->flags & zest_init_flag_enable_vsync) ? zest_context_flag_vsync_enabled : 0;
     zest_SetText(context->device->allocator, &context->device->shader_path_prefix, create_info->shader_path_prefix);
     ZEST_APPEND_LOG(context->device->log_path.str, "Create swap chain");
-    zest_swapchain swapchain = zest__create_swapchain(context, create_info->title);
-    context->window->swapchain = swapchain;
+
+	if (!context->device->platform->create_window_surface(context)) {
+		ZEST_APPEND_LOG(context->device->log_path.str, "Unable to create window surface");
+		ZEST_PRINT("Unable to create window surface");
+		return ZEST_FALSE;
+	}
+    context->swapchain = zest__create_swapchain(context, create_info->title);
 
 	for (int i = 0; i != zest_max_handle_type; ++i) {
 		switch ((zest_handle_type)i) {
@@ -2622,7 +2303,7 @@ zest_bool zest__initialise_renderer(zest_context context, zest_create_info_t* cr
     ZEST_APPEND_LOG(context->device->log_path.str, "Create standard pipelines");
     zest__prepare_standard_pipelines(context);
 
-    if (!context->device->platform->initialise_renderer_backend(context)) {
+    if (!context->device->platform->initialise_context_backend(context)) {
         return ZEST_FALSE;
     }
 
@@ -2646,7 +2327,8 @@ zest_swapchain zest__create_swapchain(zest_context context, const char *name) {
     swapchain->backend = context->device->platform->new_swapchain_backend(context);
 	swapchain->context = context;
     swapchain->name = name;
-    if (!context->device->platform->initialise_swapchain(swapchain, context->window)) {
+	context->swapchain = swapchain;
+    if (!context->device->platform->initialise_swapchain(context)) {
         zest__cleanup_swapchain(swapchain, ZEST_FALSE);
         return NULL;
     }
@@ -2867,7 +2549,7 @@ void zest__cleanup_view_array_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_renderer(zest_context context) {
+void zest__cleanup_context(zest_context context) {
     ZEST_PRINT_FUNCTION;
 
     zest_uint cached_pipelines_size = zest_map_size(context->device->cached_pipelines);
@@ -2936,10 +2618,6 @@ void zest__cleanup_renderer(zest_context context) {
         ZEST__FREE(context->device->allocator, buffer_allocator);
     }
 
-	context->renderer->destroy_window_callback(context, ZestApp->user_data);
-    ZEST__FREE(context->device->allocator, context->window->backend);
-	ZEST__FREE(context->device->allocator, context->window);
-
     zest_map_foreach(i, context->device->reports) {
         zest_report_t *report = &context->device->reports.data[i];
         zest_FreeText(context->device->allocator, &report->message);
@@ -2971,8 +2649,7 @@ void zest__cleanup_renderer(zest_context context) {
 
     zest_FreeText(context->device->allocator, &context->device->shader_path_prefix);
 
-	context->device->platform->cleanup_renderer_backend(context);
-    *context->renderer = (zest_renderer_t){ 0 };
+	context->device->platform->cleanup_context_backend(context);
 }
 
 zest_bool zest__recreate_swapchain(zest_swapchain swapchain) {
@@ -2981,13 +2658,9 @@ zest_bool zest__recreate_swapchain(zest_swapchain swapchain) {
     int window_width = 0, window_height = 0;
     ZEST__FLAG(swapchain->flags, zest_swapchain_flag_was_recreated);
     while (fb_width == 0 || fb_height == 0) {
-        context->renderer->get_window_size_callback(context, ZestApp->user_data, &fb_width, &fb_height, &window_width, &window_height);
-        if (fb_width == 0 || fb_height == 0) {
-            zest__os_poll_events(context);
-        }
+        context->window_data.window_sizes_callback(context->window_data.window_handle, &fb_width, &fb_height, &window_width, &window_height);
     }
 
-    zest__update_window_size(context->window, window_width, window_height);
     swapchain->size = (zest_extent2d_t){ fb_width, fb_height };
     swapchain->resolution.x = 1.f / fb_width;
     swapchain->resolution.y = 1.f / fb_height;
@@ -2998,7 +2671,7 @@ zest_bool zest__recreate_swapchain(zest_swapchain swapchain) {
     zest__cleanup_pipelines(swapchain->context);
     zest_map_free(swapchain->context->device->allocator, context->device->cached_pipelines);
 
-    return context->device->platform->initialise_swapchain(swapchain, swapchain->window);
+    return context->device->platform->initialise_swapchain(context);
 }
 
 zest_uniform_buffer_handle zest_CreateUniformBuffer(zest_context context, const char *name, zest_size uniform_struct_size) {
@@ -3891,29 +3564,15 @@ zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template
 	return pipeline;
 }
 
-zest_extent2d_t zest_GetSwapChainExtent(zest_context context) { return context->window->swapchain->size; }
-zest_extent2d_t zest_GetWindowExtent(zest_context context) { return context->window_extent; }
-zest_uint zest_SwapChainWidth(zest_context context) { return (zest_uint)context->window->swapchain->size.width; }
-zest_uint zest_SwapChainHeight(zest_context context) { return (zest_uint)context->window->swapchain->size.height; }
-float zest_SwapChainWidthf(zest_context context) { return (float)context->window->swapchain->size.width; }
-float zest_SwapChainHeightf(zest_context context) { return (float)context->window->swapchain->size.height; }
-zest_uint zest_ScreenWidth(zest_context context) { return context->window->window_width; }
-zest_uint zest_ScreenHeight(zest_context context) { return context->window->window_height; }
-float zest_ScreenWidthf(zest_context context) { return (float)context->window->window_width; }
-float zest_ScreenHeightf(zest_context context) { return (float)context->window->window_height; }
-float zest_MouseXf(zest_context context) { return (float)context->window->mouse_x; }
-float zest_MouseYf(zest_context context) { return (float)context->window->mouse_y; }
-bool zest_MouseDown(zest_context context, zest_mouse_button button) { return (button & context->window->mouse_button) > 0; }
-bool zest_MouseHit(zest_context context, zest_mouse_button button) { return (button & context->window->mouse_hit) > 0; }
+zest_extent2d_t zest_GetSwapChainExtent(zest_context context) { return context->swapchain->size; }
+zest_uint zest_ScreenWidth(zest_context context) { return (zest_uint)context->swapchain->size.width; }
+zest_uint zest_ScreenHeight(zest_context context) { return (zest_uint)context->swapchain->size.height; }
+float zest_ScreenWidthf(zest_context context) { return (float)context->swapchain->size.width; }
+float zest_ScreenHeightf(zest_context context) { return (float)context->swapchain->size.height; }
+void *zest_NativeWindow(zest_context context) { return context->window_data.native_handle; }
+void *zest_Window(zest_context context) { return context->window_data.window_handle; }
 float zest_DPIScale(zest_context context) { return context->dpi_scale; }
 void zest_SetDPIScale(zest_context context, float scale) { context->dpi_scale = scale; }
-zest_window zest_AllocateWindow(zest_context context) { 
-	zest_window window; window = ZEST__NEW(context->device->allocator, zest_window); 
-	memset(window, 0, sizeof(zest_window_t)); 
-	window->magic = zest_INIT_MAGIC(zest_struct_type_window); 
-	window->backend = context->device->platform->new_window_backend(context); 
-	return window; 
-}
 void zest_WaitForIdleDevice(zest_context context) { context->device->platform->wait_for_idle_device(context); }
 void zest_MaybeQuit(zest_bool condition) { ZestApp->flags |= condition != 0 ? zest_app_flag_quit_application : 0; }
 void zest__hash_initialise(zest_hasher_t* hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
@@ -4000,10 +3659,6 @@ void zest_LogFPSToConsole(zest_bool yesno) {
     else {
         ZEST__UNFLAG(ZestApp->flags, zest_app_flag_output_fps);
     }
-}
-
-void* zest_Window(zest_context context) {
-    return context->window->window_handle;
 }
 
 void zest_SetFrameInFlight(zest_context context, zest_uint fif) {
@@ -4540,13 +4195,6 @@ zest_create_info_t zest_CreateInfo() {
         .color_format = zest_format_b8g8r8a8_unorm,
         .flags = zest_init_flag_enable_vsync | zest_init_flag_cache_shaders,
 		.platform = zest_platform_vulkan,
-        .destroy_window_callback = zest__destroy_window_callback,
-        .get_window_size_callback = zest__get_window_size_callback,
-        .poll_events_callback = zest__os_poll_events,
-        .create_window_callback = zest__os_create_window,
-        .create_window_surface_callback = zest__os_create_window_surface,
-        .set_window_mode_callback = zest__os_set_window_mode,
-        .set_window_size_callback = zest__os_set_window_size,
         .maximum_textures = 1024,
         .bindless_combined_sampler_2d_count = 256,
         .bindless_combined_sampler_array_count = 64,
@@ -4570,54 +4218,6 @@ zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags fla
         create_info.flags |= zest_init_flag_enable_validation_layers_with_best_practices;
     }
     return create_info;
-}
-
-zest_bool zest__os_create_window_surface(zest_context context) {
-	return context->device->platform->create_window_surface(context->window);
-}
-
- void zest_SetWindowMode(zest_context context, zest_window_mode mode) {
-    ZEST_ASSERT_HANDLE(context);  //Not a valid context handle.
-    context->renderer->set_window_mode_callback(context, mode);
-}
-
- void zest_SetWindowSize(zest_context context, zest_uint width, zest_uint height) {
-    ZEST_ASSERT_HANDLE(context);  //Not a valid context handle.
-    context->renderer->set_window_size_callback(context, width, height);
-}
-
-void zest_UpdateWindowSize(zest_context context, zest_uint width, zest_uint height) {
-    ZEST_ASSERT_HANDLE(context);  //Not a valid context handle.
-	zest_window window = context->window;
-    ZEST_ASSERT_HANDLE(window);   //Not a valid window handle.
-    window->window_width = width;
-    window->window_height = height;
-}
-
- void zest_SetWindowHandle(zest_context context, void *handle) {
-    ZEST_ASSERT_HANDLE(context);  //Not a valid context handle.
-	zest_window window = context->window;
-    ZEST_ASSERT_HANDLE(window);   //Not a valid window handle.
-    window->window_handle = handle;
-}
-
- zest_window zest_GetCurrentWindow(zest_context context) {
-    ZEST_ASSERT_HANDLE(context);  //Not a valid context handle.
-    ZEST_ASSERT_HANDLE(context->window);   //Not a valid window handle.
-    return context->window;
-}
-
-void zest_CloseWindow(zest_context context) {
-    ZEST_ASSERT_HANDLE(context);  //Not a valid context handle.
-	context->renderer->destroy_window_callback(context, ZestApp->user_data);
-	ZEST__FREE(context->device->allocator, context->window);
-}
-
- void zest_CleanupWindow(zest_context context) {
-    ZEST_ASSERT_HANDLE(context);  //Not a valid context handle.
-    ZEST_ASSERT_HANDLE(context->window);   //Not a valid window handle.
-	zest_window window = context->window;
-    context->device->platform->cleanup_window_backend(window);
 }
 
 char* zest_ReadEntireFile(zest_context context, const char* file_name, zest_bool terminate) {
@@ -7402,8 +7002,8 @@ zest_execution_timeline zest_CreateExecutionTimeline(zest_context context) {
 // --End frame graph functions
 
 // [Swapchain]
-zest_swapchain zest_GetWindowSwapchain(zest_context context) {
-    return context->window->swapchain;
+zest_swapchain zest_GetSwapchain(zest_context context) {
+    return context->swapchain;
 }
 
 zest_format zest_GetSwapchainFormat(zest_swapchain swapchain) {
@@ -9066,8 +8666,8 @@ void zest__initialise_instance_layer(zest_context context, zest_layer layer, zes
         layer->memory_refs[fif].instance_ptr = layer->memory_refs[fif].staging_instance_data->data;
     }
 
-    layer->scissor = zest_CreateRect2D(zest_SwapChainWidth(context), zest_SwapChainHeight(context), 0, 0);
-    layer->viewport = zest_CreateViewport(0.f, 0.f, zest_SwapChainWidthf(context), zest_SwapChainHeightf(context), 0.f, 1.f);
+    layer->scissor = zest_CreateRect2D(zest_ScreenWidth(context), zest_ScreenHeight(context), 0, 0);
+    layer->viewport = zest_CreateViewport(0.f, 0.f, zest_ScreenWidthf(context), zest_ScreenHeightf(context), 0.f, 1.f);
 }
 
 //-- Start Instance Drawing API
@@ -9129,8 +8729,8 @@ void zest__initialise_mesh_layer(zest_context context, zest_layer mesh_layer, ze
 		mesh_layer->memory_refs[fif].staging_index_data = mesh_layer->memory_refs[fif].staging_index_data;
     }
 
-    mesh_layer->scissor = zest_CreateRect2D(zest_SwapChainWidth(context), zest_SwapChainHeight(context), 0, 0);
-    mesh_layer->viewport = zest_CreateViewport(0.f, 0.f, zest_SwapChainWidthf(context), zest_SwapChainHeightf(context), 0.f, 1.f);
+    mesh_layer->scissor = zest_CreateRect2D(zest_ScreenWidth(context), zest_ScreenHeight(context), 0, 0);
+    mesh_layer->viewport = zest_CreateViewport(0.f, 0.f, zest_ScreenWidthf(context), zest_ScreenHeightf(context), 0.f, 1.f);
     zest_ForEachFrameInFlight(fif) {
         zest_vec_clear(mesh_layer->draw_instructions[fif]);
         mesh_layer->memory_refs[fif].staging_vertex_data->memory_in_use = 0;
@@ -9962,7 +9562,6 @@ const char *zest__struct_type_to_string(zest_struct_type struct_type) {
 	case zest_struct_type_pass_node               : return "pass_node"; break;
 	case zest_struct_type_resource_node           : return "resource_node"; break;
 	case zest_struct_type_wave_submission         : return "wave_submission"; break;
-	case zest_struct_type_renderer                : return "renderer"; break;
 	case zest_struct_type_device                  : return "device"; break;
 	case zest_struct_type_app                     : return "app"; break;
 	case zest_struct_type_vector                  : return "vector"; break;
@@ -10013,7 +9612,7 @@ const char *zest__platform_command_to_string(zest_platform_command command) {
 
 const char *zest__platform_context_to_string(zest_platform_memory_context context) {
     switch (context) {
-		case zest_platform_renderer         : return "Renderer"; break;
+		case zest_platform_context         : return "Renderer"; break;
 		case zest_platform_device           : return "Device"; break;
 		default: return "UNKNOWN"; break;
     }
@@ -10075,7 +9674,7 @@ void zest_PrintMemoryBlocks(zest_context context, zloc_header *first_block, zest
             if (ZEST_IS_INTITIALISED(vulkan_info->context_info)) {
                 if (mem_context == zest_platform_device) {
                     zest_stats.device_allocations++;
-                } else if (mem_context == zest_platform_renderer) {
+                } else if (mem_context == zest_platform_context) {
                     zest_stats.renderer_allocations++;
                 }
                 if (command_filter == command && context_filter == mem_context) {
@@ -10105,7 +9704,7 @@ void zest_PrintMemoryBlocks(zest_context context, zloc_header *first_block, zest
         if (ZEST_IS_INTITIALISED(vulkan_info->context_info)) {
             if (mem_context == zest_platform_device) {
                 zest_stats.device_allocations++;
-            } else if (mem_context == zest_platform_renderer) {
+            } else if (mem_context == zest_platform_context) {
                 zest_stats.renderer_allocations++;
             }
             if (command_filter == command && context_filter == mem_context) {

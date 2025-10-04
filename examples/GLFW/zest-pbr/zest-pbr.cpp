@@ -418,209 +418,217 @@ void UpdateCameraPosition(ImGuiApp *app) {
 	}
 }
 
-void UpdateCallback(zest_microsecs elapsed, void* user_data) {
-	//The struct for this example app from the user data we set when initialising Zest
-	ImGuiApp* app = (ImGuiApp*)user_data;
-	UpdateUniform3d(app);
+void MainLoop(ImGuiApp *app) {
+	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+		glfwPollEvents();
 
-	bool camera_free_look = false;
-	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-		camera_free_look = true;
-		if (glfwRawMouseMotionSupported()) {
-			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-		}
-		ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		double x_mouse_speed = 0.0;
-		double y_mouse_speed = 0.0;
-		zest_TurnCamera(&app->camera, (float)x_mouse_speed, (float)y_mouse_speed, .05f);
-	} else if (glfwRawMouseMotionSupported()) {
-		camera_free_look = false;
-		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-		glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-	} else {
-		camera_free_look = false;
-		ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-	}
+		if (zest_BeginFrame(app->context)) {
 
-	//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
-	//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
-	//less frequently.
+			float elapsed = 0;
 
-	zest_StartTimerLoop(app->timer) {
-		//Must call the imgui GLFW implementation function
-		ImGui_ImplGlfw_NewFrame();
-		//Draw our imgui stuff
-		ImGui::NewFrame();
-		ImGui::Begin("Test Window");
-		ImGui::DragFloat("Rougness", &app->material_push.roughness, 0.01f, 0.f, 1.f);
-		ImGui::DragFloat("Metallic", &app->material_push.metallic, 0.01f, 0.f, 1.f);
-		ImGui::ColorPicker3("Color", &app->material_push.color.x);
-		ImGui::Separator();
-		if (ImGui::Button("Toggle Refresh Rate Sync")) {
-			if (app->sync_refresh) {
-				zest_DisableVSync(app->context);
-				app->sync_refresh = false;
+			UpdateUniform3d(app);
+
+			bool camera_free_look = false;
+			if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+				camera_free_look = true;
+				if (glfwRawMouseMotionSupported()) {
+					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+				}
+				ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+				double x_mouse_speed = 0.0;
+				double y_mouse_speed = 0.0;
+				zest_TurnCamera(&app->camera, (float)x_mouse_speed, (float)y_mouse_speed, .05f);
+			} else if (glfwRawMouseMotionSupported()) {
+				camera_free_look = false;
+				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 			} else {
-				zest_EnableVSync(app->context);
-				app->sync_refresh = true;
+				camera_free_look = false;
+				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+			}
+
+			//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
+			//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
+			//less frequently.
+
+			zest_StartTimerLoop(app->timer) {
+				//Must call the imgui GLFW implementation function
+				ImGui_ImplGlfw_NewFrame();
+				//Draw our imgui stuff
+				ImGui::NewFrame();
+				ImGui::Begin("Test Window");
+				ImGui::DragFloat("Rougness", &app->material_push.roughness, 0.01f, 0.f, 1.f);
+				ImGui::DragFloat("Metallic", &app->material_push.metallic, 0.01f, 0.f, 1.f);
+				ImGui::ColorPicker3("Color", &app->material_push.color.x);
+				ImGui::Separator();
+				if (ImGui::Button("Toggle Refresh Rate Sync")) {
+					if (app->sync_refresh) {
+						zest_DisableVSync(app->context);
+						app->sync_refresh = false;
+					} else {
+						zest_EnableVSync(app->context);
+						app->sync_refresh = true;
+					}
+				}
+				if (ImGui::Button("Print Render Graph")) {
+					app->request_graph_print = true;
+					zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
+				}
+				if (ImGui::Button("Reset Renderer")) {
+					app->reset = true;
+				}
+				ImGui::End();
+				ImGui::Render();
+				//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
+				//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
+				zest_imgui_UpdateBuffers();
+
+				UpdateCameraPosition(app);
+
+				//Restore the mouse when right mouse isn't held down
+				if (camera_free_look) {
+					glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+				}
+				else {
+					glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+				}
+			} zest_EndTimerLoop(app->timer);
+
+			app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(app->timer));
+
+			zest_vec3 position = { 0.f, 0.f, 0.f };
+			app->ellapsed_time += elapsed;
+			float rotation_time = app->ellapsed_time * .000001f;
+			zest_vec3 rotation = { sinf(rotation_time), cosf(rotation_time), -sinf(rotation_time) };
+			zest_vec3 scale = { 1.f, 1.f, 1.f };
+
+			UpdateLights(app, rotation_time);
+			app->material_push.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
+			app->material_push.irradiance_index = zest_ImageDescriptorIndex(app->irr_texture, zest_texture_cube_binding);
+			app->material_push.brd_lookup_index = zest_ImageDescriptorIndex(app->brd_texture, zest_texture_2d_binding);
+			app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_texture_cube_binding);
+			app->material_push.sampler_index = app->sampler_2d_index;
+			app->material_push.skybox_sampler_index = app->skybox_sampler_index;
+			zest_SetInstanceDrawing(app->cube_layer, app->pbr_shader_resources, app->pbr_pipeline);
+			zest_SetLayerPushConstants(app->cube_layer, &app->material_push, sizeof(zest_push_constants_t));
+			zest_SetLayerColor(app->cube_layer, 255, 255, 255, 255);
+			zest_DrawInstancedMesh(app->cube_layer, &position.x, &rotation.x, &scale.x);
+
+			float zero[3] = { 0 };
+			zest_SetInstanceDrawing(app->skybox_layer, app->skybox_shader_resources, app->skybox_pipeline);
+			zest_SetLayerColor(app->skybox_layer, 255, 255, 255, 255);
+			zest_DrawInstancedMesh(app->skybox_layer, zero, zero, zero);
+
+			if (app->reset) {
+				app->reset = false;
+				zest_imgui_Shutdown();
+				zest_ResetRenderer(app->context);
+				InitImGuiApp(app);
+			}
+
+			zest_swapchain swapchain = zest_GetSwapchain(app->context);
+			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+			app->cache_info.brd_layout = zest_ImageRawLayout(app->brd_texture);
+			app->cache_info.irradiance_layout = zest_ImageRawLayout(app->irr_texture);
+			app->cache_info.prefiltered_layout = zest_ImageRawLayout(app->prefiltered_texture);
+			zest_frame_graph_cache_key_t cache_key = {};
+			cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
+
+			zest_image_resource_info_t depth_info = {
+				zest_format_depth,
+				zest_resource_usage_hint_none,
+				zest_ScreenWidth(app->context),
+				zest_ScreenHeight(app->context),
+				1, 1
+			};
+
+			zest_SetSwapchainClearColor(swapchain, 0, 0.1f, 0.2f, 1.f);
+			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
+			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
+			//if the window is resized for example.
+			if (zest_BeginFrameGraphSwapchain(app->context, swapchain, "ImGui", 0)) {
+				zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", app->cube_layer, false);
+				zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", app->billboard_layer, false);
+				zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", app->skybox_layer, false);
+				zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", app->skybox_texture, 0);
+				zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", app->brd_texture, 0);
+				zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
+				zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
+				zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
+				zest_output_group group = zest_CreateOutputGroup();
+				zest_AddSwapchainToRenderTargetGroup(group);
+				zest_AddImageToRenderTargetGroup(group, depth_buffer);
+
+				//-------------------------Transfer Pass----------------------------------------------------
+				zest_BeginTransferPass("Upload Mesh Data"); {
+					zest_ConnectOutput(cube_layer_resource);
+					zest_ConnectOutput(billboard_layer_resource);
+					zest_ConnectOutput(skybox_layer_resource);
+					zest_SetPassTask(UploadMeshData, app);
+					zest_EndPass();
+				}
+				//--------------------------------------------------------------------------------------------------
+
+				//------------------------ Skybox Layer Pass ------------------------------------------------------------
+				zest_BeginRenderPass("Skybox Pass"); {
+					zest_ConnectInput(skybox_texture_resource);
+					zest_ConnectInput(skybox_layer_resource);
+					zest_ConnectGroupedOutput(group);
+					zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->skybox_layer);
+					zest_EndPass();
+				}
+				//--------------------------------------------------------------------------------------------------
+
+				//------------------------ PBR Layer Pass ------------------------------------------------------------
+				zest_BeginRenderPass("Cube Pass"); {
+					zest_ConnectInput(cube_layer_resource);
+					zest_ConnectInput(brd_texture_resource);
+					zest_ConnectInput(irradiance_texture_resource);
+					zest_ConnectInput(prefiltered_texture_resource);
+					zest_ConnectGroupedOutput(group);
+					zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->cube_layer);
+					zest_EndPass();
+				}
+				//--------------------------------------------------------------------------------------------------
+
+				//------------------------ ImGui Pass ----------------------------------------------------------------
+				//If there's imgui to draw then draw it
+				zest_pass_node imgui_pass = zest_imgui_BeginPass(); {
+					if (imgui_pass) {
+						zest_ConnectGroupedOutput(group);
+					} else {
+						//If there's no ImGui to render then just render a blank screen
+						zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
+						//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
+						zest_ConnectGroupedOutput(group);
+					}
+					zest_EndPass();
+				}
+				//----------------------------------------------------------------------------------------------------
+				//End the render graph and execute it. This will submit it to the GPU.
+				zest_frame_graph frame_graph = zest_EndFrameGraph();
+				if (app->request_graph_print) {
+					//You can print out the render graph for debugging purposes
+					zest_PrintCompiledRenderGraph(frame_graph);
+					app->request_graph_print = false;
+				}
+			} else {
+				if (app->request_graph_print) {
+					//You can print out the render graph for debugging purposes
+					zest_PrintCachedRenderGraph(&cache_key);
+					app->request_graph_print = false;
+				}
+			}
+
+			zest_PresentFrame(app->context);
+
+			if (zest_SwapchainWasRecreated(swapchain)) {
+				zest_SetLayerSizeToSwapchain(app->billboard_layer, swapchain);
+				zest_SetLayerSizeToSwapchain(app->cube_layer, swapchain);
+				zest_SetLayerSizeToSwapchain(app->skybox_layer, swapchain);
 			}
 		}
-		if (ImGui::Button("Print Render Graph")) {
-			app->request_graph_print = true;
-			zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
-		}
-		if (ImGui::Button("Reset Renderer")) {
-			app->reset = true;
-		}
-		ImGui::End();
-		ImGui::Render();
-		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
-		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-		zest_imgui_UpdateBuffers();
-
-		UpdateCameraPosition(app);
-
-		//Restore the mouse when right mouse isn't held down
-		if (camera_free_look) {
-			glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-		}
-		else {
-			glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-		}
-	} zest_EndTimerLoop(app->timer);
-
-	app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(app->timer));
-
-	zest_vec3 position = { 0.f, 0.f, 0.f };
-	app->ellapsed_time += elapsed;
-	float rotation_time = app->ellapsed_time * .000001f;
-	zest_vec3 rotation = { sinf(rotation_time), cosf(rotation_time), -sinf(rotation_time)};
-	zest_vec3 scale = { 1.f, 1.f, 1.f };
-
-	UpdateLights(app, rotation_time);
-	app->material_push.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
-	app->material_push.irradiance_index = zest_ImageDescriptorIndex(app->irr_texture, zest_texture_cube_binding);
-	app->material_push.brd_lookup_index = zest_ImageDescriptorIndex(app->brd_texture, zest_texture_2d_binding);
-	app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_texture_cube_binding);
-	app->material_push.sampler_index = app->sampler_2d_index;
-	app->material_push.skybox_sampler_index = app->skybox_sampler_index;
-	zest_SetInstanceDrawing(app->cube_layer, app->pbr_shader_resources, app->pbr_pipeline);
-	zest_SetLayerPushConstants(app->cube_layer, &app->material_push, sizeof(zest_push_constants_t));
-	zest_SetLayerColor(app->cube_layer, 255, 255, 255, 255);
-	zest_DrawInstancedMesh(app->cube_layer, &position.x, &rotation.x, &scale.x);
-
-	float zero[3] = { 0 };
-	zest_SetInstanceDrawing(app->skybox_layer, app->skybox_shader_resources, app->skybox_pipeline);
-	zest_SetLayerColor(app->skybox_layer, 255, 255, 255, 255);
-	zest_DrawInstancedMesh(app->skybox_layer, zero, zero, zero);
-
-	if (app->reset) {
-		app->reset = false;
-		zest_imgui_Shutdown();
-		zest_ResetRenderer(app->context);
-		InitImGuiApp(app);
 	}
-
-	zest_swapchain swapchain = zest_GetWindowSwapchain(app->context);
-	app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-	app->cache_info.brd_layout = zest_ImageRawLayout(app->brd_texture);
-	app->cache_info.irradiance_layout = zest_ImageRawLayout(app->irr_texture);
-	app->cache_info.prefiltered_layout = zest_ImageRawLayout(app->prefiltered_texture);
-	zest_frame_graph_cache_key_t cache_key = {};
-	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
-
-	zest_image_resource_info_t depth_info = {
-		zest_format_depth,
-		zest_resource_usage_hint_none,
-		zest_ScreenWidth(app->context),
-		zest_ScreenHeight(app->context),
-		1, 1
-	};
-
-	zest_SetSwapchainClearColor(swapchain, 0, 0.1f, 0.2f, 1.f);
-	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
-	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
-	//if the window is resized for example.
-	if (zest_BeginFrameGraphSwapchain(app->context, swapchain, "ImGui", 0)) {
-		zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", app->cube_layer, false);
-		zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", app->billboard_layer, false);
-		zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", app->skybox_layer, false);
-		zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", app->skybox_texture, 0);
-		zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", app->brd_texture, 0);
-		zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
-		zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
-		zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
-		zest_output_group group = zest_CreateOutputGroup();
-		zest_AddSwapchainToRenderTargetGroup(group);
-		zest_AddImageToRenderTargetGroup(group, depth_buffer);
-
-		//-------------------------Transfer Pass----------------------------------------------------
-		zest_BeginTransferPass("Upload Mesh Data"); {
-			zest_ConnectOutput(cube_layer_resource);
-			zest_ConnectOutput(billboard_layer_resource);
-			zest_ConnectOutput(skybox_layer_resource);
-			zest_SetPassTask(UploadMeshData, app);
-			zest_EndPass();
-		}
-		//--------------------------------------------------------------------------------------------------
-
-		//------------------------ Skybox Layer Pass ------------------------------------------------------------
-		zest_BeginRenderPass("Skybox Pass"); {
-			zest_ConnectInput(skybox_texture_resource);
-			zest_ConnectInput(skybox_layer_resource);
-			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->skybox_layer);
-			zest_EndPass();
-		}
-		//--------------------------------------------------------------------------------------------------
-
-		//------------------------ PBR Layer Pass ------------------------------------------------------------
-		zest_BeginRenderPass("Cube Pass"); {
-			zest_ConnectInput(cube_layer_resource);
-			zest_ConnectInput(brd_texture_resource);
-			zest_ConnectInput(irradiance_texture_resource);
-			zest_ConnectInput(prefiltered_texture_resource);
-			zest_ConnectGroupedOutput(group);
-			zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->cube_layer);
-			zest_EndPass();
-		}
-		//--------------------------------------------------------------------------------------------------
-
-		//------------------------ ImGui Pass ----------------------------------------------------------------
-		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_BeginPass(); {
-			if (imgui_pass) {
-				zest_ConnectGroupedOutput(group);
-			} else {
-				//If there's no ImGui to render then just render a blank screen
-				zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
-				//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-				zest_ConnectGroupedOutput(group);
-			}
-			zest_EndPass();
-		}
-		//----------------------------------------------------------------------------------------------------
-		//End the render graph and execute it. This will submit it to the GPU.
-		zest_frame_graph frame_graph = zest_EndFrameGraph();
-		if (app->request_graph_print) {
-			//You can print out the render graph for debugging purposes
-			zest_PrintCompiledRenderGraph(frame_graph);
-			app->request_graph_print = false;
-		}
-	} else {
-		if (app->request_graph_print) {
-			//You can print out the render graph for debugging purposes
-			zest_PrintCachedRenderGraph(&cache_key);
-			app->request_graph_print = false;
-		}
-	}
-
-	if (zest_SwapchainWasRecreated(swapchain)) {
-		zest_SetLayerSizeToSwapchain(app->billboard_layer, swapchain);
-		zest_SetLayerSizeToSwapchain(app->cube_layer, swapchain);
-		zest_SetLayerSizeToSwapchain(app->skybox_layer, swapchain);
-	}
-
 }
 
 #if defined(_WIN32)
@@ -632,8 +640,6 @@ int main(void) {
 	//zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_cache_shaders);
-	//Implement GLFW for window creation
-	zest_implglfw_SetCallbacks(&create_info);
 
 	if (!glfwInit()) {
 		return 0;
@@ -642,21 +648,24 @@ int main(void) {
 	zest_uint count;
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
-	zest_UseVulkan();
+	//Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+	zest_AddDeviceBuilderValidation(device_builder);
+	zest_DeviceBuilderLogToConsole(device_builder);
 	zest_device device = zest_EndDeviceBuilder(device_builder);
+
+	//Create a window using GLFW
+	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	imgui_app.context = zest_Initialise(device, &create_info);
+	imgui_app.context = zest_Initialise(device, window_handles, &create_info);
 	//Set the Zest use data
 	zest_SetUserData(&imgui_app);
-	//Set the udpate callback to be called every frame
-	zest_SetUserUpdateCallback(UpdateCallback);
 	//Initialise our example
 	InitImGuiApp(&imgui_app);
 
 	//Start the main loop
-	zest_Start(imgui_app.context);
+	MainLoop(&imgui_app);
 	zest_imgui_ShutdownGLFW();
 	zest_Shutdown(imgui_app.context);
 
