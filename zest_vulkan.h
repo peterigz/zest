@@ -108,7 +108,7 @@ ZEST_PRIVATE void zest__vk_end_render_pass(const zest_command_list command_list)
 ZEST_PRIVATE void zest__vk_end_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
 ZEST_PRIVATE zest_bool zest__vk_frame_graph_fence_wait(zest_context context, zest_execution_backend backend);
-ZEST_PRIVATE zest_bool zest__vk_present_frame(zest_swapchain swapchain);
+ZEST_PRIVATE zest_bool zest__vk_present_frame(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_dummy_submit_for_present_only(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain);
 // --End_Frame_graph_platform_functions
@@ -1333,9 +1333,8 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
     return ZEST_TRUE;
 }
 
-zest_bool zest__vk_present_frame(zest_swapchain swapchain) {
-	ZEST_ASSERT_HANDLE(swapchain);	//Not a valid swapchain handle
-	zest_context context = swapchain->context;
+zest_bool zest__vk_present_frame(zest_context context) {
+	zest_swapchain swapchain = context->swapchain;
 
     VkPresentInfoKHR presentInfo = { 0 };
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;

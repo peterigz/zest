@@ -2955,8 +2955,8 @@ typedef struct zest_pass_node_t {
     zest_pass_node_visit_state visit_state;
 } zest_pass_node_t;
 
- typedef zest_buffer(*zest_resource_buffer_provider)(zest_resource_node resource);
- typedef zest_image_view(*zest_resource_image_provider)(zest_resource_node resource);
+ typedef zest_buffer(*zest_resource_buffer_provider)(zest_context context, zest_resource_node resource);
+ typedef zest_image_view(*zest_resource_image_provider)(zest_context context, zest_resource_node resource);
 
 typedef struct zest_resource_node_t {
     int magic;
@@ -3144,14 +3144,14 @@ ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const 
 ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
 ZEST_PRIVATE zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain);
 ZEST_PRIVATE zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_info_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
-ZEST_PRIVATE zest_bool zest__create_transient_resource(zest_resource_node resource);
+ZEST_PRIVATE zest_bool zest__create_transient_resource(zest_context context, zest_resource_node resource);
 ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
 ZEST_PRIVATE void zest__add_pass_buffer_usage(zest_pass_node pass_node, zest_resource_node buffer_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output);
 ZEST_PRIVATE void zest__add_pass_image_usage(zest_pass_node pass_node, zest_resource_node image_resource, zest_resource_purpose purpose, zest_pipeline_stage_flags relevant_pipeline_stages, zest_bool is_output, zest_load_op load_op, zest_store_op store_op, zest_load_op stencil_load_op, zest_store_op stencil_store_op, zest_clear_value_t clear_value);
 ZEST_PRIVATE zest_frame_graph zest__new_frame_graph(zest_context context, const char *name);
 ZEST_PRIVATE zest_frame_graph zest__compile_frame_graph();
 ZEST_PRIVATE void zest__prepare_render_pass(zest_pass_group_t *pass, zest_execution_details_t *exe_details, zest_uint current_pass_index);
-ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_bool is_intraframe);
+ZEST_PRIVATE zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe);
 ZEST_PRIVATE void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocator_t *allocator, zest_resource_node resource, zest_execution_barriers_t *barriers, 
                                            zest_resource_state_t *current_state, zest_resource_state_t *prev_state, zest_resource_state_t *next_state);
 ZEST_PRIVATE zest_resource_usage_t zest__configure_image_usage(zest_resource_node resource, zest_resource_purpose purpose, zest_format format, zest_load_op load_op, zest_load_op stencil_load_op, zest_pipeline_stage_flags relevant_pipeline_stages);
@@ -3164,8 +3164,8 @@ ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_ke
 ZEST_PRIVATE zest_frame_graph zest__get_cached_frame_graph(zest_key key);
 
 // --- Dynamic resource callbacks ---
-ZEST_PRIVATE zest_image_view zest__swapchain_resource_provider(zest_resource_node resource);
-ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource);
+ZEST_PRIVATE zest_image_view zest__swapchain_resource_provider(zest_context context, zest_resource_node resource);
+ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider(zest_context context, zest_resource_node resource);
 
 // --- Utility callbacks ---
 ZEST_API void zest_EmptyRenderPass(const zest_command_list command_list, void *user_data);
@@ -3744,7 +3744,7 @@ typedef struct zest_platform_t {
 									zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
     void                       (*validate_barrier_pipeline_stages)(zest_execution_barriers_t *barriers);
     void                       (*print_compiled_frame_graph)(zest_frame_graph frame_graph);
-    zest_bool                  (*present_frame)(zest_swapchain);
+    zest_bool                  (*present_frame)(zest_context context);
     zest_bool                  (*dummy_submit_for_present_only)(zest_context context);
     zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
     void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
@@ -3861,7 +3861,7 @@ typedef struct zest_context_t {
 	zest_window_data_t window_data;
 
     //Context data
-    zest_frame_graph *frame_graphs;       //All the render graphs used this frame. Gets cleared at the beginning of each frame
+    zest_frame_graph *frame_graphs;       //All the frame graphs used this frame. Gets cleared at the beginning of each frame
 
     //Linear allocator for building the render graph each frame. The memory for this is allocated from
 	//The device TLSF allocator
@@ -4047,8 +4047,8 @@ ZEST_PRIVATE void zest__initialise_mesh_layer(zest_context context, zest_layer m
 
 // --Misc_Helper_Functions
 ZEST_PRIVATE zest_image_view_type zest__get_image_view_type(zest_image image);
-ZEST_PRIVATE zest_bool zest__create_transient_image(zest_resource_node node);
-ZEST_PRIVATE void zest__create_transient_buffer(zest_resource_node node);
+ZEST_PRIVATE zest_bool zest__create_transient_image(zest_context context, zest_resource_node node);
+ZEST_PRIVATE void zest__create_transient_buffer(zest_context context, zest_resource_node node);
 ZEST_PRIVATE zest_index zest__next_fif(zest_context context);
 // --End Misc_Helper_Functions
 
@@ -4135,7 +4135,7 @@ ZEST_API void zest_SetUserData(void* data);
 //Begin a new frame for a context. Within the BeginFrame and EndFrame you can create a frame graph and present a frame.
 //This funciton will wait on the fence from the previous time a frame was submitted.
 ZEST_API zest_bool zest_BeginFrame(zest_context context);
-ZEST_API void zest_PresentFrame(zest_context context);
+ZEST_API void zest_EndFrame(zest_context context);
 //Shutdown zest and unload/free everything. Call this after zest_Start.
 ZEST_API void zest_Shutdown(zest_context context);
 //Free all memory used in the renderer and reset it back to an initial state.

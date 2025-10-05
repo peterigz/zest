@@ -258,11 +258,11 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
 	zest_cmd_Scissor(command_list, &scissor);
 }
 
-zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource) {
+zest_buffer zest_imgui_VertexBufferProvider(zest_context context, zest_resource_node resource) {
     return ZestImGui->vertex_device_buffer[ZestImGui->fif];
 }
 
-zest_buffer zest_imgui_IndexBufferProvider(zest_resource_node resource) {
+zest_buffer zest_imgui_IndexBufferProvider(zest_context context, zest_resource_node resource) {
     return ZestImGui->index_device_buffer[ZestImGui->fif];
 }
 

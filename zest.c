@@ -1286,15 +1286,39 @@ zest_bool zest_BeginFrame(zest_context context) {
 
 	zest__do_scheduled_tasks(context);
 
+	if (!context->device->platform->acquire_swapchain_image(context->swapchain)) {
+		zest__recreate_swapchain(context->swapchain);
+		ZEST__UNFLAG(context->flags, zest_context_flag_building_frame_graph);
+		ZEST_PRINT("Unable to acquire the swap chain!");
+		return false;
+	}
+	ZEST__FLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
+	ZEST__UNFLAG(context->swapchain->flags, zest_swapchain_flag_was_recreated);
+
 	return fence_wait_result == zest_fence_status_success;
 }
 
-void zest_PresentFrame(zest_context context) {
+void zest_EndFrame(zest_context context) {
+	zest_frame_graph_flags flags = 0;
+	zest_vec_foreach(i, context->frame_graphs) {
+		zest_frame_graph frame_graph = context->frame_graphs[i];
+		flags |= frame_graph->flags & zest_frame_graph_present_after_execute;
+		zest__execute_frame_graph(context, frame_graph, ZEST_FALSE);
+	}
+
+	if (ZEST_VALID_HANDLE(context->swapchain) && ZEST__FLAGGED(flags, zest_frame_graph_present_after_execute)) {
+		zest_bool presented = context->device->platform->present_frame(context);
+		context->previous_fif = context->current_fif;
+		context->current_fif = (context->current_fif + 1) % ZEST_MAX_FIF;
+		if(!presented) {
+			zest__recreate_swapchain(context->swapchain);
+		}
+	}
 	//Cover some cases where a frame graph wasn't created or it was but there was nothing render etc., to make sure
 	//that the fence is always signalled and another frame can happen
 	if (ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired)) {
 		if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_work_was_submitted)) {
-			zest_bool presented = context->device->platform->present_frame(context->swapchain);
+			zest_bool presented = context->device->platform->present_frame(context);
 			context->previous_fif = context->current_fif;
 			context->current_fif = (context->current_fif + 1) % ZEST_MAX_FIF;
 			if(!presented) {
@@ -1480,7 +1504,6 @@ void zest__destroy(zest_context context) {
 }
 
 void zest__do_scheduled_tasks(zest_context context) {
-    ZEST_PRINT_FUNCTION;
     zloc_ResetLinearAllocator(context->frame_graph_allocator[context->current_fif]);
     context->frame_graphs = 0;
 
@@ -1569,6 +1592,7 @@ zest_fence_status zest__main_loop_fence_wait(zest_context context) {
 }
 
 void zest__main_loop(zest_context context) {
+    //ZEST_ASSERT(ZestApp->update_callback);    //Must define an update callback function
     while (!(ZestApp->flags & zest_app_flag_quit_application)) {
         zest_fence_status fence_wait_result = zest__main_loop_fence_wait(context);
         if (fence_wait_result == zest_fence_status_success) {
@@ -1585,6 +1609,15 @@ void zest__main_loop(zest_context context) {
 		ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 
         zest__do_scheduled_tasks(context);
+
+        //context->window->mouse_hit = 0;
+        //zest_mouse_button button_state = context->window->mouse_button;
+
+        //context->renderer->poll_events_callback(context);
+
+        //context->window->mouse_hit = button_state & (~context->window->mouse_button);
+
+        //ZestApp->update_callback(0, ZestApp->user_data);
 
         if (ZestApp->flags & zest_app_flag_quit_application) {
             continue;
@@ -3546,8 +3579,7 @@ zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) {
 }
 
 zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, const zest_command_list command_list) {
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  //Must be called within a frame graph
-	zest_context context = zest__frame_graph_builder->context;
+	zest_context context = command_list->context;
     if (zest_vec_size(pipeline_template->set_layouts) == 0) {
         ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has no descriptor set layouts configured. You can add descriptor layouts when building the pipeline with zest_AddPipelineTemplateDescriptorLayout.", pipeline_template->name);
         return NULL;
@@ -4139,14 +4171,12 @@ zest_scissor_rect_t zest_CreateRect2D(zest_uint width, zest_uint height, int off
     return rect2D;
 }
 
-void zest__create_transient_buffer(zest_resource_node node) {
-	zest_context context = zest__frame_graph_builder->context;
+void zest__create_transient_buffer(zest_context context, zest_resource_node node) {
     node->storage_buffer = zest_CreateBuffer(context, node->buffer_desc.size, &node->buffer_desc.buffer_info);
 }
 
-zest_bool zest__create_transient_image(zest_resource_node resource) {
+zest_bool zest__create_transient_image(zest_context context, zest_resource_node resource) {
     zest_image image = &resource->image;
-	zest_context context = zest__frame_graph_builder->context;
     image->magic = zest_INIT_MAGIC(zest_struct_type_image);
     image->backend = context->device->platform->new_frame_graph_image_backend(context->frame_graph_allocator[context->current_fif], image, NULL);
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
@@ -4274,7 +4304,6 @@ zest_frame_graph zest__new_frame_graph(zest_context context, const char *name) {
     frame_graph->bindless_set = context->device->global_set;
     zest_bucket_array_init(context, &frame_graph->resources, zest_resource_node_t, 8);
     zest_bucket_array_init(context, &frame_graph->potential_passes, zest_pass_node_t, 8);
-    zest_vec_linear_push(context->frame_graph_allocator[context->current_fif], context->frame_graphs, frame_graph);
     return frame_graph;
 }
 
@@ -4307,13 +4336,12 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
     }
 }
 
-zest_image_view zest__swapchain_resource_provider(zest_resource_node resource) {
+zest_image_view zest__swapchain_resource_provider(zest_context context, zest_resource_node resource) {
     return resource->swapchain->views[resource->swapchain->current_image_frame];
 }
 
-zest_buffer zest__instance_layer_resource_provider(zest_resource_node resource) {
+zest_buffer zest__instance_layer_resource_provider(zest_context context, zest_resource_node resource) {
     zest_layer layer = (zest_layer)resource->user_data;
-	zest_context context = zest__frame_graph_builder->context;
     layer->vertex_buffer_node = resource;
     zest__end_instance_instructions(layer); //Make sure the staging buffer memory in use is up to date
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
@@ -4368,10 +4396,12 @@ bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_gra
         zest_frame_graph cached_graph = zest__get_cached_frame_graph(key);
         if (cached_graph) {
             zest__frame_graph_builder->frame_graph = cached_graph;
+			zest_vec_linear_push(context->frame_graph_allocator[context->current_fif], context->frame_graphs, cached_graph);
             return cached_graph;
         }
     }
     zest_frame_graph frame_graph = zest__new_frame_graph(context, name);
+	zest_vec_linear_push(context->frame_graph_allocator[context->current_fif], context->frame_graphs, frame_graph);
     frame_graph->cache_key = key;
 
     frame_graph->semaphores = context->device->platform->get_frame_graph_semaphores(context, name);
@@ -4387,39 +4417,12 @@ bool zest_BeginFrameGraphSwapchain(zest_context context, zest_swapchain swapchai
     if (zest_BeginFrameGraph(context, name, cache_key)) {
         zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
         if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_cached)) {
-			if (!context->device->platform->acquire_swapchain_image(swapchain)) {
-				zest__recreate_swapchain(swapchain);
-				ZEST__UNFLAG(context->flags, zest_context_flag_building_frame_graph);
-				ZEST_PRINT("Unable to acquire the swap chain!");
-				return false;
-			}
-			ZEST__FLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
-			ZEST__UNFLAG(swapchain->flags, zest_swapchain_flag_was_recreated);
-			zest__execute_frame_graph(ZEST_FALSE);
-
-			if (ZEST_VALID_HANDLE(frame_graph->swapchain) && ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_present_after_execute)) {
-				zest_bool presented = context->device->platform->present_frame(frame_graph->swapchain);
-				context->previous_fif = context->current_fif;
-				context->current_fif = (context->current_fif + 1) % ZEST_MAX_FIF;
-				if(!presented) {
-					zest__recreate_swapchain(frame_graph->swapchain);
-				}
-			} 
             return false;
         }
 		ZEST__FLAG(zest__frame_graph_builder->frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage);
     } else {
         return false;
     }
-    ZEST_ASSERT(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired));    //Swap chain was already acquired. Only one frame graph can output to the swap chain per frame.
-    if (!context->device->platform->acquire_swapchain_image(swapchain)) {
-        zest__recreate_swapchain(swapchain);
-        ZEST__UNFLAG(context->flags, zest_context_flag_building_frame_graph);
-        ZEST_PRINT("Unable to acquire the swap chain!");
-        return false;
-    }
-	ZEST__FLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
-	ZEST__UNFLAG(swapchain->flags, zest_swapchain_flag_was_recreated);
 	zest__import_swapchain_resource(swapchain);
     return true;
 }
@@ -4514,9 +4517,9 @@ void zest__free_transient_resource(zest_resource_node resource) {
     }
 }
 
-zest_bool zest__create_transient_resource(zest_resource_node resource) {
+zest_bool zest__create_transient_resource(zest_context context, zest_resource_node resource) {
     if (resource->type & zest_resource_type_is_image) {
-        if (!zest__create_transient_image(resource)) {
+        if (!zest__create_transient_image(context, resource)) {
             return ZEST_FALSE;
         }
 
@@ -4524,7 +4527,7 @@ zest_bool zest__create_transient_resource(zest_resource_node resource) {
         resource->access_mask = 0;
         resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
     } else if (resource->type == zest_resource_type_buffer && resource->storage_buffer == NULL) {
-        zest__create_transient_buffer(resource);
+        zest__create_transient_buffer(context, resource);
         if (!resource->storage_buffer) {
             return ZEST_FALSE;
         }
@@ -5514,18 +5517,8 @@ zest_frame_graph zest_EndFrameGraph() {
 
     if (frame_graph->error_status != zest_fgs_critical_error) {
         zest__cache_frame_graph(frame_graph);
-
-        zest__execute_frame_graph(ZEST_FALSE);
-
-        if (ZEST_VALID_HANDLE(frame_graph->swapchain) && ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_present_after_execute)) {
-			zest_bool presented = context->device->platform->present_frame(frame_graph->swapchain);
-			context->previous_fif = context->current_fif;
-			context->current_fif = (context->current_fif + 1) % ZEST_MAX_FIF;
-			if(!presented) {
-				zest__recreate_swapchain(frame_graph->swapchain);
-			}
-        }
     } else {
+		zest_vec_pop(context->frame_graphs);
         ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
     }
 
@@ -5541,7 +5534,7 @@ zest_frame_graph zest_EndFrameGraphAndWait() {
 	zest_context context = zest__frame_graph_builder->context;
 
     if (frame_graph->error_status != zest_fgs_critical_error) {
-        zest__execute_frame_graph(ZEST_TRUE);
+        zest__execute_frame_graph(context, frame_graph, ZEST_TRUE);
     } else {
         ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
     }
@@ -5612,9 +5605,7 @@ void zest__deferr_image_destruction(zest_context context, zest_image image) {
     zest_vec_push(context->device->allocator, context->device->deferred_resource_freeing_list.images[context->current_fif], *image);
 }
 
-zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
-    zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
-	zest_context context = zest__frame_graph_builder->context;
+zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame_graph, zest_bool is_intraframe) {
     ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zloc_linear_allocator_t *allocator = context->frame_graph_allocator[context->current_fif];
     zest_map_queue_value queues = { 0 };
@@ -5626,9 +5617,9 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
 	zest_vec_foreach(resource_index, frame_graph->resources_to_update) {
 		zest_resource_node resource = frame_graph->resources_to_update[resource_index];
 		if (resource->buffer_provider) {
-			resource->storage_buffer = resource->buffer_provider(resource);
+			resource->storage_buffer = resource->buffer_provider(context, resource);
 		} else if (resource->image_provider) {
-            resource->view = resource->image_provider(resource);
+            resource->view = resource->image_provider(context, resource);
 		}
 	}
 
@@ -5674,7 +5665,7 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
                 //Create any transient resources where they're first used in this grouped_pass
                 zest_vec_foreach(r, grouped_pass->transient_resources_to_create) {
                     zest_resource_node resource = grouped_pass->transient_resources_to_create[r];
-                    if (!zest__create_transient_resource(resource)) {
+                    if (!zest__create_transient_resource(context, resource)) {
                         frame_graph->error_status |= zest_fgs_transient_resource_failure;
                         return ZEST_FALSE;
                     }
@@ -5755,7 +5746,7 @@ zest_bool zest__execute_frame_graph(zest_bool is_intraframe) {
 	zest_bucket_array_foreach(index, frame_graph->resources) {
 		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, index);
 		if (ZEST__FLAGGED(resource->flags, zest_resource_node_flag_transient) && ZEST__FLAGGED(resource->type, zest_resource_type_is_image_or_depth)) {
-			zest__deferr_image_destruction(zest__frame_graph_builder->context, &resource->image);
+			zest__deferr_image_destruction(context, &resource->image);
 			resource->image = (zest_image_t){ 0 };
 			resource->mip_level_bindless_indexes = 0;
 		}
@@ -8510,7 +8501,6 @@ void zest_SetLayerUserData(zest_layer_handle layer_handle, void *data) {
 }
 
 void zest_UploadLayerStagingData(zest_layer_handle layer_handle, const zest_command_list command_list) {
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  //This function must be called within a task callback in a frame graph
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
 
     ZEST__MAYBE_REPORT(layer_handle.context, !ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadLayerStagingData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", zest__frame_graph_builder->frame_graph->name);
@@ -8541,7 +8531,6 @@ void zest_UploadLayerStagingData(zest_layer_handle layer_handle, const zest_comm
 }
 
 zest_buffer zest_GetLayerResourceBuffer(zest_layer_handle layer_handle) {
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  //This function must be called within a task callback in a frame graph
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         return layer->memory_refs[layer->fif].device_vertex_data;

@@ -422,126 +422,125 @@ void MainLoop(ImGuiApp *app) {
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		glfwPollEvents();
 
+		float elapsed = 0;
+
+		UpdateUniform3d(app);
+
+		bool camera_free_look = false;
+		if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+			camera_free_look = true;
+			if (glfwRawMouseMotionSupported()) {
+				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+			}
+			ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+			double x_mouse_speed = 0.0;
+			double y_mouse_speed = 0.0;
+			zest_TurnCamera(&app->camera, (float)x_mouse_speed, (float)y_mouse_speed, .05f);
+		} else if (glfwRawMouseMotionSupported()) {
+			camera_free_look = false;
+			ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+			glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+		} else {
+			camera_free_look = false;
+			ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
+		}
+
+		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
+		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
+		//less frequently.
+
+		zest_StartTimerLoop(app->timer) {
+			//Must call the imgui GLFW implementation function
+			ImGui_ImplGlfw_NewFrame();
+			//Draw our imgui stuff
+			ImGui::NewFrame();
+			ImGui::Begin("Test Window");
+			ImGui::DragFloat("Rougness", &app->material_push.roughness, 0.01f, 0.f, 1.f);
+			ImGui::DragFloat("Metallic", &app->material_push.metallic, 0.01f, 0.f, 1.f);
+			ImGui::ColorPicker3("Color", &app->material_push.color.x);
+			ImGui::Separator();
+			if (ImGui::Button("Toggle Refresh Rate Sync")) {
+				if (app->sync_refresh) {
+					zest_DisableVSync(app->context);
+					app->sync_refresh = false;
+				} else {
+					zest_EnableVSync(app->context);
+					app->sync_refresh = true;
+				}
+			}
+			if (ImGui::Button("Print Render Graph")) {
+				app->request_graph_print = true;
+				zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
+			}
+			if (ImGui::Button("Reset Renderer")) {
+				app->reset = true;
+			}
+			ImGui::End();
+			ImGui::Render();
+			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
+			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
+			zest_imgui_UpdateBuffers();
+
+			UpdateCameraPosition(app);
+
+			//Restore the mouse when right mouse isn't held down
+			if (camera_free_look) {
+				glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+			}
+			else {
+				glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+			}
+		} zest_EndTimerLoop(app->timer);
+
+		app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(app->timer));
+
+		zest_vec3 position = { 0.f, 0.f, 0.f };
+		app->ellapsed_time += elapsed;
+		float rotation_time = app->ellapsed_time * .000001f;
+		zest_vec3 rotation = { sinf(rotation_time), cosf(rotation_time), -sinf(rotation_time) };
+		zest_vec3 scale = { 1.f, 1.f, 1.f };
+
+		UpdateLights(app, rotation_time);
+		app->material_push.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
+		app->material_push.irradiance_index = zest_ImageDescriptorIndex(app->irr_texture, zest_texture_cube_binding);
+		app->material_push.brd_lookup_index = zest_ImageDescriptorIndex(app->brd_texture, zest_texture_2d_binding);
+		app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_texture_cube_binding);
+		app->material_push.sampler_index = app->sampler_2d_index;
+		app->material_push.skybox_sampler_index = app->skybox_sampler_index;
+		zest_SetInstanceDrawing(app->cube_layer, app->pbr_shader_resources, app->pbr_pipeline);
+		zest_SetLayerPushConstants(app->cube_layer, &app->material_push, sizeof(zest_push_constants_t));
+		zest_SetLayerColor(app->cube_layer, 255, 255, 255, 255);
+		zest_DrawInstancedMesh(app->cube_layer, &position.x, &rotation.x, &scale.x);
+
+		float zero[3] = { 0 };
+		zest_SetInstanceDrawing(app->skybox_layer, app->skybox_shader_resources, app->skybox_pipeline);
+		zest_SetLayerColor(app->skybox_layer, 255, 255, 255, 255);
+		zest_DrawInstancedMesh(app->skybox_layer, zero, zero, zero);
+
+		if (app->reset) {
+			app->reset = false;
+			zest_imgui_Shutdown();
+			zest_ResetRenderer(app->context);
+			InitImGuiApp(app);
+		}
+
+		zest_swapchain swapchain = zest_GetSwapchain(app->context);
+		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+		app->cache_info.brd_layout = zest_ImageRawLayout(app->brd_texture);
+		app->cache_info.irradiance_layout = zest_ImageRawLayout(app->irr_texture);
+		app->cache_info.prefiltered_layout = zest_ImageRawLayout(app->prefiltered_texture);
+		zest_frame_graph_cache_key_t cache_key = {};
+		cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
+
+		zest_image_resource_info_t depth_info = {
+			zest_format_depth,
+			zest_resource_usage_hint_none,
+			zest_ScreenWidth(app->context),
+			zest_ScreenHeight(app->context),
+			1, 1
+		};
+
 		if (zest_BeginFrame(app->context)) {
-
-			float elapsed = 0;
-
-			UpdateUniform3d(app);
-
-			bool camera_free_look = false;
-			if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-				camera_free_look = true;
-				if (glfwRawMouseMotionSupported()) {
-					glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-				}
-				ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-				double x_mouse_speed = 0.0;
-				double y_mouse_speed = 0.0;
-				zest_TurnCamera(&app->camera, (float)x_mouse_speed, (float)y_mouse_speed, .05f);
-			} else if (glfwRawMouseMotionSupported()) {
-				camera_free_look = false;
-				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-			} else {
-				camera_free_look = false;
-				ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-			}
-
-			//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
-			//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
-			//less frequently.
-
-			zest_StartTimerLoop(app->timer) {
-				//Must call the imgui GLFW implementation function
-				ImGui_ImplGlfw_NewFrame();
-				//Draw our imgui stuff
-				ImGui::NewFrame();
-				ImGui::Begin("Test Window");
-				ImGui::DragFloat("Rougness", &app->material_push.roughness, 0.01f, 0.f, 1.f);
-				ImGui::DragFloat("Metallic", &app->material_push.metallic, 0.01f, 0.f, 1.f);
-				ImGui::ColorPicker3("Color", &app->material_push.color.x);
-				ImGui::Separator();
-				if (ImGui::Button("Toggle Refresh Rate Sync")) {
-					if (app->sync_refresh) {
-						zest_DisableVSync(app->context);
-						app->sync_refresh = false;
-					} else {
-						zest_EnableVSync(app->context);
-						app->sync_refresh = true;
-					}
-				}
-				if (ImGui::Button("Print Render Graph")) {
-					app->request_graph_print = true;
-					zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
-				}
-				if (ImGui::Button("Reset Renderer")) {
-					app->reset = true;
-				}
-				ImGui::End();
-				ImGui::Render();
-				//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
-				//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-				zest_imgui_UpdateBuffers();
-
-				UpdateCameraPosition(app);
-
-				//Restore the mouse when right mouse isn't held down
-				if (camera_free_look) {
-					glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-				}
-				else {
-					glfwSetInputMode((GLFWwindow*)zest_Window(app->context), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-				}
-			} zest_EndTimerLoop(app->timer);
-
-			app->camera.position = zest_LerpVec3(&app->old_camera_position, &app->new_camera_position, (float)zest_TimerLerp(app->timer));
-
-			zest_vec3 position = { 0.f, 0.f, 0.f };
-			app->ellapsed_time += elapsed;
-			float rotation_time = app->ellapsed_time * .000001f;
-			zest_vec3 rotation = { sinf(rotation_time), cosf(rotation_time), -sinf(rotation_time) };
-			zest_vec3 scale = { 1.f, 1.f, 1.f };
-
-			UpdateLights(app, rotation_time);
-			app->material_push.camera = zest_Vec4Set(app->camera.position.x, app->camera.position.y, app->camera.position.z, 0.f);
-			app->material_push.irradiance_index = zest_ImageDescriptorIndex(app->irr_texture, zest_texture_cube_binding);
-			app->material_push.brd_lookup_index = zest_ImageDescriptorIndex(app->brd_texture, zest_texture_2d_binding);
-			app->material_push.pre_filtered_index = zest_ImageDescriptorIndex(app->prefiltered_texture, zest_texture_cube_binding);
-			app->material_push.sampler_index = app->sampler_2d_index;
-			app->material_push.skybox_sampler_index = app->skybox_sampler_index;
-			zest_SetInstanceDrawing(app->cube_layer, app->pbr_shader_resources, app->pbr_pipeline);
-			zest_SetLayerPushConstants(app->cube_layer, &app->material_push, sizeof(zest_push_constants_t));
-			zest_SetLayerColor(app->cube_layer, 255, 255, 255, 255);
-			zest_DrawInstancedMesh(app->cube_layer, &position.x, &rotation.x, &scale.x);
-
-			float zero[3] = { 0 };
-			zest_SetInstanceDrawing(app->skybox_layer, app->skybox_shader_resources, app->skybox_pipeline);
-			zest_SetLayerColor(app->skybox_layer, 255, 255, 255, 255);
-			zest_DrawInstancedMesh(app->skybox_layer, zero, zero, zero);
-
-			if (app->reset) {
-				app->reset = false;
-				zest_imgui_Shutdown();
-				zest_ResetRenderer(app->context);
-				InitImGuiApp(app);
-			}
-
-			zest_swapchain swapchain = zest_GetSwapchain(app->context);
-			app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-			app->cache_info.brd_layout = zest_ImageRawLayout(app->brd_texture);
-			app->cache_info.irradiance_layout = zest_ImageRawLayout(app->irr_texture);
-			app->cache_info.prefiltered_layout = zest_ImageRawLayout(app->prefiltered_texture);
-			zest_frame_graph_cache_key_t cache_key = {};
-			cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
-
-			zest_image_resource_info_t depth_info = {
-				zest_format_depth,
-				zest_resource_usage_hint_none,
-				zest_ScreenWidth(app->context),
-				zest_ScreenHeight(app->context),
-				1, 1
-			};
-
 			zest_SetSwapchainClearColor(swapchain, 0, 0.1f, 0.2f, 1.f);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
@@ -620,7 +619,7 @@ void MainLoop(ImGuiApp *app) {
 				}
 			}
 
-			zest_PresentFrame(app->context);
+			zest_EndFrame(app->context);
 
 			if (zest_SwapchainWasRecreated(swapchain)) {
 				zest_SetLayerSizeToSwapchain(app->billboard_layer, swapchain);
