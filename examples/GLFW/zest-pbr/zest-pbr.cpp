@@ -418,9 +418,23 @@ void UpdateCameraPosition(ImGuiApp *app) {
 	}
 }
 
+void UpdateMouse(ImGuiApp *app) {
+	double mouse_x, mouse_y;
+	GLFWwindow *handle = (GLFWwindow *)zest_Window(app->context);
+	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
+	double last_mouse_x = app->mouse_x;
+	double last_mouse_y = app->mouse_y;
+	app->mouse_x = mouse_x;
+	app->mouse_y = mouse_y;
+	app->mouse_delta_x = last_mouse_x - app->mouse_x;
+	app->mouse_delta_y = last_mouse_y - app->mouse_y;
+}
+
 void MainLoop(ImGuiApp *app) {
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		glfwPollEvents();
+
+		UpdateMouse(app);
 
 		float elapsed = 0;
 
@@ -433,9 +447,7 @@ void MainLoop(ImGuiApp *app) {
 				glfwSetInputMode((GLFWwindow *)zest_Window(app->context), GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 			}
 			ZEST__FLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
-			double x_mouse_speed = 0.0;
-			double y_mouse_speed = 0.0;
-			zest_TurnCamera(&app->camera, (float)x_mouse_speed, (float)y_mouse_speed, .05f);
+			zest_TurnCamera(&app->camera, (float)app->mouse_delta_x, (float)app->mouse_delta_y, .05f);
 		} else if (glfwRawMouseMotionSupported()) {
 			camera_free_look = false;
 			ZEST__UNFLAG(ImGui::GetIO().ConfigFlags, ImGuiConfigFlags_NoMouse);
@@ -525,6 +537,7 @@ void MainLoop(ImGuiApp *app) {
 		}
 
 		zest_swapchain swapchain = zest_GetSwapchain(app->context);
+		zest_SetSwapchainClearColor(swapchain, 0, 0.1f, 0.2f, 1.f);
 		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
 		app->cache_info.brd_layout = zest_ImageRawLayout(app->brd_texture);
 		app->cache_info.irradiance_layout = zest_ImageRawLayout(app->irr_texture);
@@ -541,91 +554,89 @@ void MainLoop(ImGuiApp *app) {
 		};
 
 		if (zest_BeginFrame(app->context)) {
-			zest_SetSwapchainClearColor(swapchain, 0, 0.1f, 0.2f, 1.f);
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
-			if (zest_BeginFrameGraphSwapchain(app->context, swapchain, "ImGui", 0)) {
-				zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", app->cube_layer, false);
-				zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", app->billboard_layer, false);
-				zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", app->skybox_layer, false);
-				zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", app->skybox_texture, 0);
-				zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", app->brd_texture, 0);
-				zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
-				zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
-				zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
-				zest_output_group group = zest_CreateOutputGroup();
-				zest_AddSwapchainToRenderTargetGroup(group);
-				zest_AddImageToRenderTargetGroup(group, depth_buffer);
+			if (!frame_graph) {
+				if (zest_BeginFrameGraphSwapchain(app->context, "ImGui", &cache_key)) {
+					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", app->cube_layer, false);
+					zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", app->billboard_layer, false);
+					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", app->skybox_layer, false);
+					zest_resource_node skybox_texture_resource = zest_ImportImageResource("Sky Box Texture", app->skybox_texture, 0);
+					zest_resource_node brd_texture_resource = zest_ImportImageResource("BRD lookup texture", app->brd_texture, 0);
+					zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
+					zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
+					zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
+					zest_output_group group = zest_CreateOutputGroup();
+					zest_AddSwapchainToRenderTargetGroup(group);
+					zest_AddImageToRenderTargetGroup(group, depth_buffer);
 
-				//-------------------------Transfer Pass----------------------------------------------------
-				zest_BeginTransferPass("Upload Mesh Data"); {
-					zest_ConnectOutput(cube_layer_resource);
-					zest_ConnectOutput(billboard_layer_resource);
-					zest_ConnectOutput(skybox_layer_resource);
-					zest_SetPassTask(UploadMeshData, app);
-					zest_EndPass();
-				}
-				//--------------------------------------------------------------------------------------------------
-
-				//------------------------ Skybox Layer Pass ------------------------------------------------------------
-				zest_BeginRenderPass("Skybox Pass"); {
-					zest_ConnectInput(skybox_texture_resource);
-					zest_ConnectInput(skybox_layer_resource);
-					zest_ConnectGroupedOutput(group);
-					zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->skybox_layer);
-					zest_EndPass();
-				}
-				//--------------------------------------------------------------------------------------------------
-
-				//------------------------ PBR Layer Pass ------------------------------------------------------------
-				zest_BeginRenderPass("Cube Pass"); {
-					zest_ConnectInput(cube_layer_resource);
-					zest_ConnectInput(brd_texture_resource);
-					zest_ConnectInput(irradiance_texture_resource);
-					zest_ConnectInput(prefiltered_texture_resource);
-					zest_ConnectGroupedOutput(group);
-					zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->cube_layer);
-					zest_EndPass();
-				}
-				//--------------------------------------------------------------------------------------------------
-
-				//------------------------ ImGui Pass ----------------------------------------------------------------
-				//If there's imgui to draw then draw it
-				zest_pass_node imgui_pass = zest_imgui_BeginPass(); {
-					if (imgui_pass) {
-						zest_ConnectGroupedOutput(group);
-					} else {
-						//If there's no ImGui to render then just render a blank screen
-						zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
-						//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-						zest_ConnectGroupedOutput(group);
+					//-------------------------Transfer Pass----------------------------------------------------
+					zest_BeginTransferPass("Upload Mesh Data"); {
+						zest_ConnectOutput(cube_layer_resource);
+						zest_ConnectOutput(billboard_layer_resource);
+						zest_ConnectOutput(skybox_layer_resource);
+						zest_SetPassTask(UploadMeshData, app);
+						zest_EndPass();
 					}
-					zest_EndPass();
+					//--------------------------------------------------------------------------------------------------
+
+					//------------------------ Skybox Layer Pass ------------------------------------------------------------
+					zest_BeginRenderPass("Skybox Pass"); {
+						zest_ConnectInput(skybox_texture_resource);
+						zest_ConnectInput(skybox_layer_resource);
+						zest_ConnectGroupedOutput(group);
+						zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->skybox_layer);
+						zest_EndPass();
+					}
+					//--------------------------------------------------------------------------------------------------
+
+					//------------------------ PBR Layer Pass ------------------------------------------------------------
+					zest_BeginRenderPass("Cube Pass"); {
+						zest_ConnectInput(cube_layer_resource);
+						zest_ConnectInput(brd_texture_resource);
+						zest_ConnectInput(irradiance_texture_resource);
+						zest_ConnectInput(prefiltered_texture_resource);
+						zest_ConnectGroupedOutput(group);
+						zest_SetPassTask(zest_DrawInstanceMeshLayer, &app->cube_layer);
+						zest_EndPass();
+					}
+					//--------------------------------------------------------------------------------------------------
+
+					//------------------------ ImGui Pass ----------------------------------------------------------------
+					//If there's imgui to draw then draw it
+					zest_pass_node imgui_pass = zest_imgui_BeginPass(); {
+						if (imgui_pass) {
+							zest_ConnectGroupedOutput(group);
+						} else {
+							//If there's no ImGui to render then just render a blank screen
+							zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
+							//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
+							zest_ConnectGroupedOutput(group);
+						}
+						zest_EndPass();
+					}
+					//----------------------------------------------------------------------------------------------------
+					//End the render graph and execute it. This will submit it to the GPU.
+					frame_graph = zest_EndFrameGraph();
 				}
-				//----------------------------------------------------------------------------------------------------
-				//End the render graph and execute it. This will submit it to the GPU.
-				zest_frame_graph frame_graph = zest_EndFrameGraph();
-				if (app->request_graph_print) {
-					//You can print out the render graph for debugging purposes
-					zest_PrintCompiledRenderGraph(frame_graph);
-					app->request_graph_print = false;
-				}
-			} else {
-				if (app->request_graph_print) {
-					//You can print out the render graph for debugging purposes
-					zest_PrintCachedRenderGraph(&cache_key);
-					app->request_graph_print = false;
-				}
+			}
+
+			zest_QueueFrameGraphForExecution(app->context, frame_graph);
+			if (app->request_graph_print) {
+				//You can print out the render graph for debugging purposes
+				zest_PrintCompiledRenderGraph(frame_graph);
+				app->request_graph_print = false;
 			}
 
 			zest_EndFrame(app->context);
+		}
 
-			if (zest_SwapchainWasRecreated(swapchain)) {
-				zest_SetLayerSizeToSwapchain(app->billboard_layer, swapchain);
-				zest_SetLayerSizeToSwapchain(app->cube_layer, swapchain);
-				zest_SetLayerSizeToSwapchain(app->skybox_layer, swapchain);
-			}
+		if (zest_SwapchainWasRecreated(app->context)) {
+			zest_SetLayerSizeToSwapchain(app->billboard_layer);
+			zest_SetLayerSizeToSwapchain(app->cube_layer);
+			zest_SetLayerSizeToSwapchain(app->skybox_layer);
 		}
 	}
 }

@@ -186,7 +186,6 @@ ZEST_PRIVATE void *zest__vk_new_submission_batch_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_frame_graph_semaphores_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_pipeline_backend(zest_context context);
 ZEST_PRIVATE void *zest__vk_new_memory_pool_backend(zest_context context);
-ZEST_PRIVATE void *zest__vk_new_shader_resources_backend(zest_context context);
 
 ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute);
 
@@ -351,10 +350,6 @@ typedef struct zest_uniform_buffer_backend_t {
     VkDescriptorBufferInfo descriptor_info[ZEST_MAX_FIF];
 } zest_uniform_buffer_backend_t;
 
-typedef struct zest_shader_resources_backend_t {
-    VkDescriptorSet *binding_sets;
-} zest_shader_resources_backend_t;
-
 typedef struct zest_descriptor_pool_backend_t {
     VkDescriptorPool vk_descriptor_pool;
     VkDescriptorPoolSize *vk_pool_sizes;
@@ -497,7 +492,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->new_set_layout_backend                     = zest__vk_new_set_layout_backend;
 	platform->new_descriptor_pool_backend                = zest__vk_new_descriptor_pool_backend;
 	platform->new_sampler_backend                        = zest__vk_new_sampler_backend;
-	platform->new_shader_resources_backend               = zest__vk_new_shader_resources_backend;
 
     platform->cleanup_frame_graph_semaphore              = zest__vk_cleanup_frame_graph_semaphore;
     platform->cleanup_image_backend                      = zest__vk_cleanup_image_backend;
@@ -2224,12 +2218,6 @@ void *zest__vk_new_execution_barriers_backend(zloc_linear_allocator_t *allocator
     return backend;
 }
 
-void *zest__vk_new_shader_resources_backend(zest_context context) {
-	zest_shader_resources_backend backend = ZEST__NEW(context->device->allocator, zest_shader_resources_backend);
-	*backend = (zest_shader_resources_backend_t) { 0 };
-	return backend;
-}
-
 // -- End Backend_setup_functions
 
 // -- Backend_cleanup_functions
@@ -2369,7 +2357,6 @@ void zest__vk_cleanup_shader_resources_backend(zest_shader_resources shader_reso
 	zest_ForEachFrameInFlight(fif) {
 		zest_vec_free(shader_resource->handle.context->device->allocator, shader_resource->sets[fif]);
 	}
-    ZEST__FREE(shader_resource->handle.context->device->allocator, shader_resource->backend);
 }
 
 void zest__vk_cleanup_frame_graph_semaphore(zest_context context, zest_frame_graph_semaphores semaphores) {
@@ -4144,14 +4131,15 @@ void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, z
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
 	zest_context context = command_list->context;
 	zloc_linear_allocator_t *scratch = context->device->scratch_arena;
+	VkDescriptorSet *binding_sets = 0;
     zest_vec_foreach(set_index, shader_resources->sets[context->current_fif]) {
         zest_descriptor_set set = shader_resources->sets[context->current_fif][set_index];
         ZEST_ASSERT_HANDLE(set);     //Not a valid desriptor set in the shader resource. Did you set all frames in flight?
-		zest_vec_linear_push(scratch, shader_resources->backend->binding_sets, set->backend->vk_descriptor_set);
+		zest_vec_linear_push(scratch, binding_sets, set->backend->vk_descriptor_set);
 	}
+	zest_uint sets_size = zest_vec_size(binding_sets);
     vkCmdBindPipeline(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline);
-    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, zest_vec_size(shader_resources->backend->binding_sets), shader_resources->backend->binding_sets, 0, 0);
-    zest_vec_clear(shader_resources->backend->binding_sets);
+    vkCmdBindDescriptorSets(command_list->backend->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->backend->pipeline_layout, 0, sets_size, binding_sets, 0, 0);
 	zloc_ResetLinearAllocator(scratch);
 }
 

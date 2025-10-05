@@ -129,6 +129,9 @@ struct ImGuiApp {
 	zest_vec3 old_camera_position;
 	zest_vec3 new_camera_position;
 
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
+
 	zest_atlas_region light;
 	float ellapsed_time;
 	bool sync_refresh;

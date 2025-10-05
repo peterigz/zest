@@ -1539,7 +1539,6 @@ typedef struct zest_command_list_backend_t zest_command_list_backend_t;
 typedef struct zest_device_memory_pool_backend_t zest_device_memory_pool_backend_t;
 typedef struct zest_buffer_backend_t zest_buffer_backend_t;
 typedef struct zest_uniform_buffer_backend_t zest_uniform_buffer_backend_t;
-typedef struct zest_shader_resources_backend_t zest_shader_resources_backend_t;
 typedef struct zest_descriptor_pool_backend_t zest_descriptor_pool_backend_t;
 typedef struct zest_descriptor_set_backend_t zest_descriptor_set_backend_t;
 typedef struct zest_set_layout_backend_t zest_set_layout_backend_t;
@@ -1603,7 +1602,6 @@ ZEST__MAKE_HANDLE(zest_frame_graph_semaphores_backend)
 ZEST__MAKE_HANDLE(zest_device_memory_pool_backend)
 ZEST__MAKE_HANDLE(zest_buffer_backend)
 ZEST__MAKE_HANDLE(zest_uniform_buffer_backend)
-ZEST__MAKE_HANDLE(zest_shader_resources_backend)
 ZEST__MAKE_HANDLE(zest_descriptor_pool_backend)
 ZEST__MAKE_HANDLE(zest_descriptor_set_backend)
 ZEST__MAKE_HANDLE(zest_set_layout_backend)
@@ -3161,7 +3159,6 @@ ZEST_PRIVATE void zest__set_rg_error_status(zest_frame_graph frame_graph, zest_f
 ZEST_PRIVATE zest_bool zest__detect_cyclic_recursion(zest_frame_graph frame_graph, zest_pass_node pass_node);
 ZEST_PRIVATE void zest__cache_frame_graph(zest_frame_graph frame_graph);
 ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_key_t *cache_key);
-ZEST_PRIVATE zest_frame_graph zest__get_cached_frame_graph(zest_key key);
 
 // --- Dynamic resource callbacks ---
 ZEST_PRIVATE zest_image_view zest__swapchain_resource_provider(zest_context context, zest_resource_node resource);
@@ -3182,10 +3179,12 @@ ZEST_API zest_image zest_GetResourceImage(zest_resource_node resource_node);
 ZEST_API zest_resource_type zest_GetResourceType(zest_resource_node resource_node);
 ZEST_API zest_image_info_t zest_GetResourceImageDescription(zest_resource_node resource_node);
 ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
+ZEST_API zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
+ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph frame_graph);
 
 // -- Creating and Executing the render graph
-ZEST_API bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
-ZEST_API bool zest_BeginFrameGraphSwapchain(zest_context context, zest_swapchain swapchain, const char *name, zest_frame_graph_cache_key_t *cache_key);
+ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
+ZEST_API zest_bool zest_BeginFrameGraphSwapchain(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_swapchain swapchain, const void *user_state, zest_size user_state_size);
 ZEST_API void zest_ForceFrameGraphOnGraphicsQueue();
 ZEST_API zest_frame_graph zest_EndFrameGraph();
@@ -3258,7 +3257,7 @@ ZEST_API zest_uint zest_GetSubmissionBatchPassCount(const zest_submission_batch_
 ZEST_API const zest_submission_batch_t *zest_GetFrameGraphSubmissionBatch(zest_frame_graph frame_graph, zest_uint submission_index, zest_uint batch_index);
 ZEST_API const zest_pass_group_t *zest_GetFrameGraphFinalPass(zest_frame_graph frame_graph, zest_uint pass_index);
 ZEST_API void zest_PrintCompiledRenderGraph(zest_frame_graph frame_graph);
-ZEST_API void zest_PrintCachedRenderGraph(zest_frame_graph_cache_key_t *cache_key);
+ZEST_API void zest_PrintCachedRenderGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
 
 // --- [Swapchain_helpers]
 ZEST_API zest_swapchain zest_GetSwapchain(zest_context context);
@@ -3310,7 +3309,6 @@ typedef struct zest_shader_resources_t {
     int magic;
 	zest_shader_resources_handle handle;
     zest_descriptor_set *sets[ZEST_MAX_FIF];
-    zest_shader_resources_backend backend;
 } zest_shader_resources_t ZEST_ALIGN_AFFIX(16);
 
 typedef struct zest_descriptor_pool_t {
@@ -3815,7 +3813,6 @@ typedef struct zest_platform_t {
 	void*					   (*new_set_layout_backend)(zest_context context);
 	void*					   (*new_descriptor_pool_backend)(zest_context context);
 	void*					   (*new_sampler_backend)(zest_context context);
-	void*					   (*new_shader_resources_backend)(zest_context context);
     //Cleanup backends
     void                       (*cleanup_frame_graph_semaphore)(zest_context context, zest_frame_graph_semaphores semaphores);
     void                       (*cleanup_image_backend)(zest_image image);
@@ -4721,7 +4718,7 @@ ZEST_API void zest_FreeLayer(zest_layer_handle layer);
 ZEST_API void zest_SetLayerViewPort(zest_layer_handle layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
 ZEST_API void zest_SetLayerScissor(zest_layer_handle layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height);
 //Update the layer viewport to match the swapchain
-ZEST_API void zest_SetLayerSizeToSwapchain(zest_layer_handle layer, zest_swapchain swapchain);
+ZEST_API void zest_SetLayerSizeToSwapchain(zest_layer_handle layer);
 //Set the size of the layer. Called internally to set it to the window size. Can this be internal?
 ZEST_API void zest_SetLayerSize(zest_layer_handle layer, float width, float height);
 //Set the layer color. This is used to apply color to the sprite/font/billboard that you're drawing or you can use it in your own draw routines that use zest_layers.
@@ -4893,7 +4890,7 @@ ZEST_API void zest_FreeCompute(zest_compute_handle compute);
 //        Events_and_States
 //-----------------------------------------------
 //Returns true if the swap chain was recreated last frame. The swap chain will mainly be recreated if the window size changes
-ZEST_API zest_bool zest_SwapchainWasRecreated(zest_swapchain swapchain);
+ZEST_API zest_bool zest_SwapchainWasRecreated(zest_context context);
 //--End Events and States
 
 //-----------------------------------------------
