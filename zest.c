@@ -3721,7 +3721,7 @@ zest_uint zest__grow_capacity(void* T, zest_uint size) {
     return new_capacity > size ? new_capacity : size;
 }
 
-void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size, zest_uint new_capacity) {
+ZEST_API void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size, zest_uint new_capacity) {
     if (T && new_capacity <= zest__vec_header(T)->capacity) {
         return T;
     }

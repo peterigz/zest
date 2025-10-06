@@ -1,4 +1,5 @@
-#include "zest.h"
+#define ZEST_IMPLEMENTATION
+#define ZEST_VULKAN_IMPLEMENTATION
 #include "zest_vulkan.h"
 #include "zest-pbr.h"
 #include "imgui_internal.h"
