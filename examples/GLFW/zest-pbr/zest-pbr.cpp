@@ -1,6 +1,5 @@
-#define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#include "zest_vulkan.h"
+#include "zest.h"
 #include "zest-pbr.h"
 #include "imgui_internal.h"
 
@@ -670,6 +669,10 @@ int main(void) {
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
 	imgui_app.context = zest_Initialise(device, window_handles, &create_info);
+
+	//int *test = nullptr;
+	//zest_vec_push(imgui_app.context->device->allocator, test, 10);
+
 	//Set the Zest use data
 	zest_SetUserData(&imgui_app);
 	//Initialise our example
