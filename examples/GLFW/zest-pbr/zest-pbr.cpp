@@ -1,4 +1,6 @@
+#define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#define TINYKTX_IMPLEMENTATION
 #include "zest.h"
 #include "zest-pbr.h"
 #include "imgui_internal.h"

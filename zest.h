@@ -64,12 +64,13 @@
     [Debug_Helpers]                     Functions for debugging and outputting queues to the console.
     [Command_buffer_functions]          GPU command buffer commands
 */
-#include "lib_bundle.h"
 
 #define ZEST_DEBUGGING
 #define ZLOC_THREAD_SAFE
 #define ZLOC_EXTRA_DEBUGGING
 #define ZLOC_OUTPUT_ERROR_MESSAGES
+
+#include "lib_bundle.h"
 
 //Zloc_header
 #define zloc__Min(a, b) (((a) < (b)) ? (a) : (b))
@@ -982,7 +983,27 @@ zest_uint pack;
 
 FILE *zest__open_file(const char *file_name, const char *mode);
 ZEST_API zest_millisecs zest_Millisecs(void);
-ZEST_API zest_microsecs zest_Microsecs(void);
+ZEST_API zest_microsecs zest_Microsecs(void); 
+
+#ifndef ZEST_THREAD_LOCAL                                                                                                                                 
+#  if __cplusplus >= 201103L                                                                                                                         
+#    define ZEST_THREAD_LOCAL thread_local                                                                                                          
+#  elif __STDC_VERSION__ >= 201112L                                                                                                                
+#    define ZEST_THREAD_LOCAL _Thread_local                                                                                                       
+#  elif defined(__GNUC__)                                                                                                                        
+#    define ZEST_THREAD_LOCAL __thread                                                                                                          
+#  elif defined(_MSC_VER)                                                                                                                      
+#    define ZEST_THREAD_LOCAL __declspec(thread)                                                                                              
+#  else                                                                                                                                      
+#    error "No support for thread-local storage"                                                                                            
+#  endif                                                                                                                                   
+#endif  
+
+#ifdef __cplusplus
+#define ZEST_STRUCT_LITERAL(type, ...) type{__VA_ARGS__}
+#else
+#define ZEST_STRUCT_LITERAL(type, ...) (type){__VA_ARGS__}
+#endif
 
 #if defined (_WIN32)
 #include <windows.h>
@@ -1632,12 +1653,14 @@ zest_struct_type_device_builder	         = 46 << 16
 } zest_struct_type;
 
 typedef enum zest_platform_memory_context {
-zest_platform_context = 1,
-zest_platform_device = 2,
+	zest_platform_none = 0,
+	zest_platform_context = 1,
+	zest_platform_device = 2,
 } zest_platform_memory_context; 
 
 typedef enum zest_platform_command {
-zest_command_surface = 1,
+zest_command_none,
+zest_command_surface,
 zest_command_instance,
 zest_command_logical_device,
 zest_command_debug_messenger,
@@ -1733,7 +1756,7 @@ zest_swapchain_flag_has_msaa         = 1 << 1,
 zest_swapchain_flag_was_recreated    = 1 << 2,
 }zest_swapchain_flag_bits;
 
-typedef zest_swapchain_flag_bits zest_swapchain_flags;
+typedef zest_uint zest_swapchain_flags;
 
 typedef enum zest_init_flag_bits {
 zest_init_flag_none                                         = 0,
@@ -2030,6 +2053,7 @@ zest_access_render_pass_bits = zest_access_depth_stencil_attachment_read_bit | z
 } zest_general_access_bits;
 
 typedef enum zest_resource_purpose {
+zest_purpose_none = 0,
 // Buffer Usages
 zest_purpose_vertex_buffer = 1,
 zest_purpose_index_buffer,
@@ -2086,6 +2110,7 @@ zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild = 1 << 1        //
 typedef zest_uint zest_pipeline_set_flags;
 
 typedef enum zest_supported_pipeline_stages {
+zest_pipeline_no_stage	 		 = 0,
 zest_pipeline_vertex_input_stage = 1 << 2,
 zest_pipeline_vertex_stage       = 1 << 3,
 zest_pipeline_fragment_stage     = 1 << 7,
@@ -2147,6 +2172,9 @@ zest_report_expecting_swapchain_usage,
 zest_report_bindless_indexes,
 zest_report_invalid_reference_counts,
 zest_report_missing_end_pass,
+zest_report_invalid_resource,
+zest_report_invalid_pass,
+zest_report_multiple_swapchains,
 } zest_report_category;
 
 typedef enum zest_global_binding_number {
@@ -5799,8 +5827,6 @@ goto cleanup;                                                                   
 }                                                                                                                  \
 } while(0)
 
-#endif // ! ZEST_POCKET_RENDERER
-
 // [Zloc_implementation]
 #if defined(ZEST_IMPLEMENTATION)
 
@@ -6342,6 +6368,8 @@ void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker) {
 	allocator->current_offset = marker;
 }
 
+#include "zest_impl.h"
+
 #endif
 
 #ifdef ZEST_VULKAN_IMPLEMENTATION
@@ -6351,3 +6379,5 @@ void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker) {
 #endif
 #ifdef ZEST_METAL_IMPLEMENTATION
 #endif
+
+#endif // ! ZEST_POCKET_RENDERER
