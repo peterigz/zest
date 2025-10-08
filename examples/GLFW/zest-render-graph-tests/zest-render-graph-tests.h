@@ -42,6 +42,7 @@ struct Test {
 };
 
 struct ZestTests {
+	zest_context context;
 	Test tests[TEST_COUNT];
 	int current_test;
 	zest_sampler_info_t sampler_info;
