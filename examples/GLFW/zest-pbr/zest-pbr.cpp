@@ -539,13 +539,13 @@ void MainLoop(ImGuiApp *app) {
 		}
 
 		zest_swapchain swapchain = zest_GetSwapchain(app->context);
-		zest_SetSwapchainClearColor(swapchain, 0, 0.1f, 0.2f, 1.f);
+		zest_SetSwapchainClearColor(app->context, 0, 0.1f, 0.2f, 1.f);
 		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
 		app->cache_info.brd_layout = zest_ImageRawLayout(app->brd_texture);
 		app->cache_info.irradiance_layout = zest_ImageRawLayout(app->irr_texture);
 		app->cache_info.prefiltered_layout = zest_ImageRawLayout(app->prefiltered_texture);
 		zest_frame_graph_cache_key_t cache_key = {};
-		cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
+		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 		zest_image_resource_info_t depth_info = {
 			zest_format_depth,
