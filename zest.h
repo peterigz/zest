@@ -3951,7 +3951,7 @@ ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_
 // -- Creating and Executing the render graph
 ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_bool zest_BeginFrameGraphSwapchain(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
-ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_swapchain swapchain, const void *user_state, zest_size user_state_size);
+ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API void zest_ForceFrameGraphOnGraphicsQueue();
 ZEST_API zest_frame_graph zest_EndFrameGraph();
 ZEST_API zest_frame_graph zest_EndFrameGraphAndWait();
@@ -4028,7 +4028,7 @@ ZEST_API void zest_PrintCachedRenderGraph(zest_context context, zest_frame_graph
 // --- [Swapchain_helpers]
 ZEST_API zest_swapchain zest_GetSwapchain(zest_context context);
 ZEST_API zest_format zest_GetSwapchainFormat(zest_swapchain swapchain);
-ZEST_API void zest_SetSwapchainClearColor(zest_swapchain swapchain, float red, float green, float blue, float alpha);
+ZEST_API void zest_SetSwapchainClearColor(zest_context context, float red, float green, float blue, float alpha);
 //End Swapchain helpers
 
 typedef struct zest_descriptor_indices_t {

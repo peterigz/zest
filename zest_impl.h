@@ -4338,11 +4338,11 @@ zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph
     return NULL;
 }
 
-zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_swapchain swapchain, const void *user_state, zest_size user_state_size) {
+zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size) {
     zest_frame_graph_cache_key_t key = ZEST__ZERO_INIT(zest_frame_graph_cache_key_t);
-    key.auto_state.render_format = swapchain->format;
-    key.auto_state.render_width = (zest_uint)swapchain->size.width;
-    key.auto_state.render_height = (zest_uint)swapchain->size.height;
+    key.auto_state.render_format = context->swapchain->format;
+    key.auto_state.render_width = (zest_uint)context->swapchain->size.width;
+    key.auto_state.render_height = (zest_uint)context->swapchain->size.height;
     key.user_state = user_state;
     key.user_state_size = user_state_size;
     return key;
@@ -6965,8 +6965,8 @@ zest_format zest_GetSwapchainFormat(zest_swapchain swapchain) {
     return swapchain->format;
 }
 
-void zest_SetSwapchainClearColor(zest_swapchain swapchain, float red, float green, float blue, float alpha) {
-    swapchain->clear_color = ZEST_STRUCT_LITERAL(zest_clear_value_t, red, green, blue, alpha);
+void zest_SetSwapchainClearColor(zest_context context, float red, float green, float blue, float alpha) {
+    context->swapchain->clear_color = ZEST_STRUCT_LITERAL(zest_clear_value_t, red, green, blue, alpha);
 }
 
 zest_layer_handle zest__create_instance_layer(zest_context context, const char *name, zest_size instance_type_size, zest_uint initial_instance_count) {
