@@ -1,6 +1,5 @@
 #pragma once
 
-#define ZEST_IMPLEMENTATION
 #include <zest.h>
 #include "implementations/impl_imgui.h"
 #include "implementations/impl_glfw.h"
@@ -21,6 +20,7 @@ struct TestPushConstants {
 	int index2;
 	int index3;
 	int index4;
+	int index5;
 };
 
 struct TestData {
@@ -49,6 +49,7 @@ struct ZestTests {
 	zest_sampler_info_t mipped_sampler_info;
 	zest_image_handle texture;
 	zest_sampler_handle sampler;
+	zest_uint sampler_index;
 	zest_sampler_handle mipped_sampler;
 	TestPushConstants push;
 	zest_compute_handle compute_write;

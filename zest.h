@@ -834,6 +834,7 @@ static const char *zest_message_usage_has_no_resource = "Graph Compile Error in 
 static const char *zest_message_multiple_swapchain_usage = "Graph Compile Error in Frame Graph [%s]: This is the second time that the swap chain is used as output, this should not happen. Check that the passes that use the swapchain as output have exactly the same set of other ouputs so that the passes can be properly grouped together.";
 static const char *zest_message_resource_added_as_ouput_more_than_once = "Graph Compile Error in Frame Graph [%s]: A resource should only have one producer in a valid graph. Check to make sure you haven't added the same output to a pass more than once";
 static const char *zest_message_resource_should_be_imported = "Graph Compile Error in Frame Graph [%s]: ";
+static const char *zest_message_cannot_queue_for_execution = "Could not queue frame graph [%s] for execution as there were errors found in the graph. Check the log.";
 
 //Override this if you'd prefer a different way to allocate the pools for sub allocation in host memory.
 #ifndef ZEST__ALLOCATE_POOL
@@ -2175,18 +2176,19 @@ zest_report_missing_end_pass,
 zest_report_invalid_resource,
 zest_report_invalid_pass,
 zest_report_multiple_swapchains,
+zest_report_cannot_execute,
 } zest_report_category;
 
 typedef enum zest_global_binding_number {
-zest_sampler_binding = 0,
-zest_texture_2d_binding,
-zest_texture_cube_binding,
-zest_texture_array_binding,
-zest_texture_3d_binding,
-zest_storage_buffer_binding,
-zest_storage_image_binding,
-zest_uniform_buffer_binding,
-zest_max_global_binding_number
+	zest_sampler_binding = 0,
+	zest_texture_2d_binding,
+	zest_texture_cube_binding,
+	zest_texture_array_binding,
+	zest_texture_3d_binding,
+	zest_storage_buffer_binding,
+	zest_storage_image_binding,
+	zest_uniform_buffer_binding,
+	zest_max_global_binding_number
 } zest_global_binding_number;
 
 typedef enum zest_frame_graph_result_bits {
@@ -2217,6 +2219,7 @@ static const int ZEST_STRUCT_IDENTIFIER = 0x4E57;
 #define zest_INIT_MAGIC(struct_type) (struct_type | ZEST_STRUCT_IDENTIFIER);
 
 #define ZEST_ASSERT_HANDLE(handle) ZEST_ASSERT(handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
+#define ZEST_ASSERT_BUFFER_HANDLE(handle) ZEST_ASSERT(handle && (*((int*)((char*)handle + offsetof(zest_buffer_t, magic))) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
 #define ZEST_VALID_HANDLE(handle) (handle && (*((int*)handle) & 0xFFFF) == ZEST_STRUCT_IDENTIFIER)
 #define ZEST_STRUCT_TYPE(handle) (*((int*)handle) & 0xFFFF0000)
 #define ZEST_STRUCT_MAGIC_TYPE(magic) (magic & 0xFFFF0000)
@@ -3646,12 +3649,40 @@ typedef struct zest_pass_queue_info_t {
     zest_device_queue_type queue_type;
 }zest_pass_queue_info_t;
 
+#ifdef ZEST_TEST_MODE
+typedef struct zest_image_barrier_t {
+    zest_access_flags src_access_mask;
+    zest_access_flags dst_access_mask;
+    zest_image_layout old_layout;
+    zest_image_layout new_layout;
+    zest_uint src_queue_family_index;
+    zest_uint dst_queue_family_index;
+} zest_image_barrier_t;
+
+typedef struct zest_buffer_barrier_t {
+    zest_access_flags src_access_mask;
+    zest_access_flags dst_access_mask;
+    zest_uint src_queue_family_index;
+    zest_uint dst_queue_family_index;
+} zest_buffer_barrier_t;
+#endif
+
 typedef struct zest_execution_barriers_t {
     zest_execution_barriers_backend backend;
     zest_resource_node *acquire_image_barrier_nodes;
     zest_resource_node *acquire_buffer_barrier_nodes;
     zest_resource_node *release_image_barrier_nodes;
     zest_resource_node *release_buffer_barrier_nodes;
+	#ifdef ZEST_TEST_MODE
+    zest_image_barrier_t *acquire_image_barriers;
+    zest_buffer_barrier_t *acquire_buffer_barriers;
+    zest_image_barrier_t *release_image_barriers;
+    zest_buffer_barrier_t *release_buffer_barriers;
+    zest_pipeline_stage_flags overall_src_stage_mask_for_acquire_barriers;
+    zest_pipeline_stage_flags overall_dst_stage_mask_for_acquire_barriers;
+    zest_pipeline_stage_flags overall_src_stage_mask_for_release_barriers;
+    zest_pipeline_stage_flags overall_dst_stage_mask_for_release_barriers;
+	#endif
 } zest_execution_barriers_t;
 
 typedef struct zest_image_resource_info_t { 
@@ -3692,7 +3723,6 @@ typedef struct zest_execution_details_t {
 	attachment_idx attachment_indexes;
 	zest_rendering_attachment_info_t *color_attachments;
 	zest_rendering_attachment_info_t depth_attachment;
-	zest_resource_node *attachment_resource_nodes;
     zest_swapchain swapchain;
     zest_scissor_rect_t render_area;
     zest_clear_value_t *clear_values;
@@ -3868,6 +3898,8 @@ typedef struct zest_frame_graph_t {
     zest_map_resource_versions resource_versions;
     zest_resource_node *resources_to_update;
     zest_pass_group_t **pass_execution_order;
+
+	zest_resource_node *deferred_image_destruction;
 
     zest_execution_timeline *wait_on_timelines;
     zest_execution_timeline *signal_timelines;
@@ -4588,8 +4620,9 @@ typedef struct zest_platform_t {
     void                       (*cleanup_device_backend)(zest_device device);
     void                       (*cleanup_buffer_backend)(zest_buffer buffer);
     void                       (*cleanup_context_backend)(zest_context context);
+    void                       (*destroy_context_surface)(zest_context context);
     void                       (*cleanup_shader_resources_backend)(zest_shader_resources shader_resources);
-	void 					   (*cleanup_swapchain_backend)(zest_swapchain swapchain, zest_bool for_recreation);
+	void 					   (*cleanup_swapchain_backend)(zest_swapchain swapchain);
 	void 					   (*cleanup_uniform_buffer_backend)(zest_uniform_buffer buffer);
 	void 					   (*cleanup_compute_backend)(zest_compute compute);
 	void 					   (*cleanup_set_layout)(zest_set_layout layout);
@@ -4640,6 +4673,25 @@ typedef struct zest_context_t {
 
 extern zest_app_t *ZestApp;
 extern zest_platform_t ZestPlatform;
+
+ZEST_PRIVATE inline zest_bool zest__is_valid_handle(zest_context context, zest_handle handle) {
+    zest_uint index = ZEST_HANDLE_INDEX(handle);
+    zest_uint generation = ZEST_HANDLE_GENERATION(handle);
+	zest_handle_type type = ZEST_HANDLE_TYPE(handle);
+	if (context && (zest_uint)type < (zest_uint)zest_max_handle_type && generation > 0) {
+		zest_resource_store_t *store = &context->device->resource_stores[type];
+		return index < store->current_size;
+	}
+	return ZEST_FALSE;
+}
+
+ZEST_API inline zest_bool zest_IsValidComputeHandle(zest_compute_handle compute_handle) {
+    return zest__is_valid_handle(compute_handle.context, compute_handle.value);
+}
+
+ZEST_API inline zest_bool zest_IsValidImageHandle(zest_image_handle image_handle) {
+    return zest__is_valid_handle(image_handle.context, image_handle.value);
+}
 
 ZEST_PRIVATE inline void *zest__get_store_resource(zest_context context, zest_handle handle) {
     zest_uint index = ZEST_HANDLE_INDEX(handle);
@@ -4700,7 +4752,7 @@ ZEST_PRIVATE inline void zest__add_host_memory_pool(zest_device device, zest_siz
 ZEST_PRIVATE inline void *zest__allocate(zloc_allocator *allocator, zest_size size) {
     void* allocation = zloc_Allocate(allocator, size);
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-    if (offset_from_allocator == 31920128) {
+    if (offset_from_allocator == 41092504) {
         int d = 0;
     }
     // If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
@@ -4743,7 +4795,7 @@ ZEST_PRIVATE zest_bool zest__initialise_context(zest_context context, zest_creat
 ZEST_PRIVATE zest_swapchain zest__create_swapchain(zest_context context, const char *name);
 ZEST_PRIVATE void zest__get_window_size_callback(zest_context context, void *user_data, int *fb_width, int *fb_height, int *window_width, int *window_height);
 ZEST_PRIVATE void zest__destroy_window_callback(zest_context window, void *user_data);
-ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain, zest_bool for_recreation);
+ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__cleanup_device(zest_device device);
 ZEST_PRIVATE void zest__cleanup_context(zest_context context);
 ZEST_PRIVATE void zest__cleanup_shader_resource_store(zest_context context);
@@ -4760,7 +4812,7 @@ ZEST_PRIVATE void zest__cleanup_view_array_store(zest_context context);
 ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources(zest_context context);
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
-ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_swapchain swapchain);
+ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_context context);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__compile_builtin_shaders(zest_context context, zest_bool compile_shaders);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(zest_context context);
@@ -5727,8 +5779,7 @@ ZEST_API void zest_RestoreFrameInFlight(zest_context context);
 //Convert a linear color value to an srgb color space value
 ZEST_API float zest_LinearToSRGB(float value);
 //Check for valid handles:
-ZEST_API zest_bool zest_IsValidComputeHandle(zest_compute_handle compute_handle);
-ZEST_API zest_bool zest_IsValidImageHandle(zest_image_handle image_handle);
+ZEST_API zest_bool zest_IsResourceHandle(zest_image_handle image_handle);
 //Tell the main loop that it should stop and exit the app
 ZEST_API void zest_Terminate(void);
 //--End General Helper functions

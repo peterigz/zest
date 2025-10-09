@@ -3,13 +3,14 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout (set = 0, binding = 7, rgba8) uniform image2D render_target[];
+layout (set = 0, binding = 6, rgba8) uniform image2D render_target[];
 
 layout(push_constant) uniform PushConstants {
     uint write_buffer_index;
     uint verify_buffer_index;
     uint unused1;
     uint unused2;
+    uint unused3;
 } pc;
 
 void main() {

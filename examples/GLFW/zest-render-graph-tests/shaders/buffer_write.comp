@@ -8,13 +8,14 @@ layout(push_constant) uniform PushConstants {
     uint verify_buffer_index;
     uint unused1;
     uint unused2;
+    uint unused3;
 } pc;
 
 struct TestData {
     vec4 data;
 };
 
-layout(std430, set = 0, binding = 4) buffer TestBuffer {
+layout(std430, set = 0, binding = 5) buffer TestBuffer {
     TestData values[];
 } buffers[];
 

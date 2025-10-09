@@ -189,7 +189,7 @@ ZEST_PRIVATE void *zest__vk_new_memory_pool_backend(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute compute);
 
 //Cleanup backends
-ZEST_PRIVATE void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation);
+ZEST_PRIVATE void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__vk_cleanup_buffer_backend(zest_buffer buffer);
 ZEST_PRIVATE void zest__vk_cleanup_uniform_buffer_backend(zest_uniform_buffer buffer);
 ZEST_PRIVATE void zest__vk_cleanup_compute_backend(zest_compute compute);
@@ -205,6 +205,7 @@ ZEST_PRIVATE void zest__vk_cleanup_shader_resources_backend(zest_shader_resource
 ZEST_PRIVATE void zest__vk_cleanup_memory_pool_backend(zest_device_memory_pool memory_allocation);
 ZEST_PRIVATE void zest__vk_cleanup_device_backend(zest_device device);
 ZEST_PRIVATE void zest__vk_cleanup_context_backend(zest_context context);
+ZEST_PRIVATE void zest__vk_destroy_context_surface(zest_context context);
 
 ZEST_PRIVATE zest_bool zest__vk_create_window_surface(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_initialise_device(zest_device device);
@@ -500,6 +501,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->cleanup_device_backend                     = zest__vk_cleanup_device_backend;
     platform->cleanup_buffer_backend                     = zest__vk_cleanup_buffer_backend;
     platform->cleanup_context_backend                   = zest__vk_cleanup_context_backend;
+    platform->destroy_context_surface                   = zest__vk_destroy_context_surface;
     platform->cleanup_shader_resources_backend           = zest__vk_cleanup_shader_resources_backend;
 	platform->cleanup_swapchain_backend 				    = zest__vk_cleanup_swapchain_backend;
 	platform->cleanup_uniform_buffer_backend 			= zest__vk_cleanup_uniform_buffer_backend;
@@ -1415,7 +1417,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
         ZEST_PRINT("Validation Layer: %s / %i", pCallbackData->pMessage, pCallbackData->messageIdNumber);
         ZEST_PRINT("-------------------------------------------------------");
     }
-    if (pCallbackData->messageIdNumber == -464217071) {
+    if (pCallbackData->messageIdNumber == -243358461) {
         int d = 0;
     }
     if (ZEST__FLAGGED(device->init_flags, zest_init_flag_log_validation_errors_to_memory)) {
@@ -2243,7 +2245,7 @@ void zest__vk_cleanup_queue_backend(zest_device device, zest_queue queue) {
     queue->backend = 0;
 }
 
-void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_recreation) {
+void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain) {
 	ZEST_ASSERT_HANDLE(swapchain);	//Not a valid swapchain handle
 	zest_context context = swapchain->context;
     zest_vec_foreach(i, swapchain->views) {
@@ -2259,10 +2261,8 @@ void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain, zest_bool for_
 	}
 	zest_vec_free(swapchain->context->device->allocator, swapchain->backend->vk_render_finished_semaphore);
 
-    if (!for_recreation) {
-        ZEST__FREE(swapchain->context->device->allocator, swapchain->backend);
-        swapchain->backend = 0;
-    }
+	ZEST__FREE(swapchain->context->device->allocator, swapchain->backend);
+	swapchain->backend = 0;
 }
 
 void zest__vk_cleanup_buffer_backend(zest_buffer buffer) {
@@ -2311,6 +2311,7 @@ void zest__vk_cleanup_image_backend(zest_image image) {
         return;
     }
 	zest_context context = image->handle.context;
+	ZEST_ASSERT(context);	//The context was not set in the image handle!
 	if(image->backend->vk_image) vkDestroyImage(context->device->backend->logical_device, image->backend->vk_image, &context->device->backend->allocation_callbacks);
 	image->backend->vk_image = VK_NULL_HANDLE;
     if (ZEST__NOT_FLAGGED(image->info.flags, zest_image_flag_transient)) {
@@ -2409,7 +2410,9 @@ void zest__vk_cleanup_context_backend(zest_context context) {
     zest_vec_free(context->device->allocator, context->device->timeline_semaphores);
     zest_vec_free(context->device->allocator, context->backend->used_buffers_ready_for_freeing);
     ZEST__FREE(context->device->allocator, context->backend);
+}
 
+void zest__vk_destroy_context_surface(zest_context context) {
 	vkDestroySurfaceKHR(context->device->backend->instance, context->backend->surface, &context->device->backend->allocation_callbacks);
 }
 // -- End Backend_cleanup_functions
@@ -3609,7 +3612,7 @@ zest_bool zest__vk_end_single_time_commands(zest_context context) {
  
 void *zest__vk_allocate_callback(void *pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope) {
     zest_device device = (zest_device)pUserData;
-    if (device->platform_memory_info.timestamp == 37) {
+    if (device->platform_memory_info.timestamp == 43) {
         int d = 0;
     }
     void *pAllocation = ZEST__ALLOCATE(device->allocator, size + sizeof(zest_platform_memory_info_t));
