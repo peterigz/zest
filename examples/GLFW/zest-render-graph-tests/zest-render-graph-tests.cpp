@@ -881,7 +881,7 @@ int main(void) {
 	zest_uint count;
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
-	//Create the device that serves all vulkan based contexts
+	//Create the device that serves all vulkan based context
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
 	zest_AddDeviceBuilderValidation(device_builder);

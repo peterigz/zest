@@ -1271,6 +1271,7 @@ zest_bool zest_BeginFrame(zest_context context) {
 
 void zest_EndFrame(zest_context context) {
 	zest_frame_graph_flags flags = 0;
+	ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
 	zest_vec_foreach(i, context->frame_graphs) {
 		zest_frame_graph frame_graph = context->frame_graphs[i];
 		flags |= frame_graph->flags & zest_frame_graph_present_after_execute;
