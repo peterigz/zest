@@ -2298,11 +2298,11 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
 
     //Create a global bindless descriptor set for storage buffers and texture samplers
     zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder(context);
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, create_info->bindless_combined_sampler_2d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, zest_descriptor_type_sampled_image, create_info->bindless_combined_sampler_array_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, zest_descriptor_type_sampled_image, create_info->bindless_combined_sampler_cube_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, zest_descriptor_type_sampled_image, create_info->bindless_combined_sampler_array_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, zest_descriptor_type_sampled_image, create_info->bindless_combined_sampler_3d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, create_info->bindless_sampler_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, zest_descriptor_type_sampled_image, create_info->bindless_texture_2d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, zest_descriptor_type_sampled_image, create_info->bindless_texture_cube_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, zest_descriptor_type_sampled_image, create_info->bindless_texture_array_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, zest_descriptor_type_sampled_image, create_info->bindless_texture_3d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, create_info->bindless_storage_buffer_count, zest_shader_all_stages ) );
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_image_binding, zest_descriptor_type_storage_image, create_info->bindless_storage_image_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
     //zest_AddLayoutBuilderBinding(&layout_builder, (zest_descriptor_binding_desc_t){ zest_uniform_buffer_binding, zest_descriptor_type_uniform_buffer, create_info->bindless_storage_image_count, zest_shader_all_stages} );
@@ -4197,14 +4197,13 @@ zest_create_info_t zest_CreateInfo() {
         create_info.flags = zest_init_flag_enable_vsync | zest_init_flag_cache_shaders;
 		create_info.platform = zest_platform_vulkan;
         create_info.maximum_textures = 1024;
-        create_info.bindless_combined_sampler_2d_count = 256;
-        create_info.bindless_combined_sampler_array_count = 64;
-        create_info.bindless_combined_sampler_cube_count = 64;
-        create_info.bindless_combined_sampler_3d_count = 64;
-        create_info.bindless_sampler_count = 256;
-        create_info.bindless_sampled_image_count = 256;
-        create_info.bindless_storage_buffer_count = 256;
-        create_info.bindless_storage_image_count = 256;
+		create_info.bindless_sampler_count = 64;
+		create_info.bindless_texture_2d_count = 256;
+		create_info.bindless_texture_cube_count = 64;
+		create_info.bindless_texture_array_count = 256;
+		create_info.bindless_texture_3d_count = 64;
+		create_info.bindless_storage_buffer_count = 256;
+		create_info.bindless_storage_image_count = 256;
     return create_info;
 }
 
