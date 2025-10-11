@@ -33,7 +33,8 @@ int test__single_pass(ZestTests *tests, Test *test) {
 int test__blank_screen(ZestTests *tests, Test *test) {
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Blank Screen", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
+			zest_ImportSwapchainResource();
 			zest_pass_node clear_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
 			zest_ConnectSwapChainOutput();
 			zest_EndPass();
@@ -54,7 +55,8 @@ int test__pass_culling(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Pass Culling", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Pass Culling", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
 			//This pass should get culled
@@ -83,7 +85,8 @@ int test__resource_culling(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Resource Culling", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Resource Culling", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 			zest_BeginGraphicBlankScreen("Draw Nothing");
 			zest_ConnectSwapChainOutput();
@@ -107,7 +110,8 @@ int test__chained_pass_culling(ZestTests *tests, Test *test) {
 	
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Chained Pass Culling", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Chained Pass Culling", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node output_x = zest_AddTransientImageResource("Output X", &info);
 			zest_resource_node output_y = zest_AddTransientImageResource("Output Y", &info);
 
@@ -147,7 +151,8 @@ int test__transient_image(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Transient Image", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Transient Image", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
 			zest_pass_node pass_a = zest_BeginRenderPass("Pass A");
@@ -194,7 +199,8 @@ int test__import_image(ZestTests *tests, Test *test) {
 	}
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Import Image", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Import Image", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node imported_image = zest_ImportImageResource("Imported Texture", tests->texture, 0);
 
 			zest_pass_node pass_a = zest_BeginGraphicBlankScreen("Pass B");
@@ -224,7 +230,8 @@ int test__image_barrier_tests(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Transient Image", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Transient Image", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
 			zest_pass_node pass_a = zest_BeginRenderPass("Pass A");
@@ -419,7 +426,8 @@ int test__multi_reader_barrier(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = {zest_format_r8g8b8a8_unorm};
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Multi Reader Barrier", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Multi Reader Barrier", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
 			zest_pass_node pass_a = zest_BeginRenderPass("Pass A");
@@ -578,7 +586,8 @@ int test__depth_attachment(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t depth_info = { zest_format_depth };
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Blank Screen", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Blank Screen", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node depth = zest_AddTransientImageResource("Depth Buffer", &depth_info);
 			zest_FlagResourceAsEssential(depth);
 			zest_pass_node clear_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
@@ -673,7 +682,8 @@ int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Multi Queue Sync", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Multi Queue Sync", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 
 			zest_pass_node pass_a = zest_BeginComputePass(tests->compute_write, "Pass A");
@@ -704,7 +714,8 @@ group these into a single render pass with two subpasses for efficiency.
 int test__pass_grouping(ZestTests *tests, Test *test) {
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Pass Grouping", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Pass Grouping", 0)) {
+			zest_ImportSwapchainResource();
 
 			zest_pass_node pass_a = zest_BeginGraphicBlankScreen("Draw Pass A");
 			zest_ConnectSwapChainOutput();
@@ -735,7 +746,8 @@ int test__cyclic_dependency(ZestTests *tests, Test *test) {
 	zest_image_resource_info_t info = { zest_format_r8g8b8a8_unorm };
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = NULL;
-		if (zest_BeginFrameGraphSwapchain(tests->context, "Cyclic Dependency", 0)) {
+		if (zest_BeginFrameGraph(tests->context, "Cyclic Dependency", 0)) {
+			zest_ImportSwapchainResource();
 			zest_resource_node output_a = zest_AddTransientImageResource("Output A", &info);
 			zest_resource_node output_b = zest_AddTransientImageResource("Output B", &info);
 
@@ -773,7 +785,8 @@ int test__simple_caching(ZestTests *tests, Test *test) {
 	if (zest_BeginFrame(tests->context)) {
 		zest_frame_graph frame_graph = zest_GetCachedFrameGraph(tests->context, &cache_key);
 		if (!frame_graph) {
-			if (zest_BeginFrameGraphSwapchain(tests->context, "Blank Screen", &cache_key)) {
+			if (zest_BeginFrameGraph(tests->context, "Blank Screen", &cache_key)) {
+				zest_ImportSwapchainResource();
 				zest_pass_node clear_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
 				zest_ConnectSwapChainOutput();
 				zest_EndPass();

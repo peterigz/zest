@@ -3937,7 +3937,6 @@ ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_nod
 ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_image_resource_node(const char *name, zest_image image);
 ZEST_PRIVATE zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, zest_buffer buffer);
-ZEST_PRIVATE zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain);
 ZEST_PRIVATE zest_resource_node zest__add_transient_image_resource(const char *name, const zest_image_info_t *desc, zest_bool assign_bindless, zest_bool image_view_binding_only);
 ZEST_PRIVATE zest_bool zest__create_transient_resource(zest_context context, zest_resource_node resource);
 ZEST_PRIVATE void zest__free_transient_resource(zest_resource_node resource);
@@ -3981,7 +3980,6 @@ ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_
 
 // -- Creating and Executing the render graph
 ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
-ZEST_API zest_bool zest_BeginFrameGraphSwapchain(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API void zest_ForceFrameGraphOnGraphicsQueue();
 ZEST_API zest_frame_graph zest_EndFrameGraph();
@@ -4016,6 +4014,7 @@ ZEST_API void zest_AddSwapchainToRenderTargetGroup(zest_output_group group);
 ZEST_API void zest_AddImageToRenderTargetGroup(zest_output_group group, zest_resource_node image);
 
 // --- Import external resouces into the render graph ---
+ZEST_API zest_resource_node zest_ImportSwapchainResource();
 ZEST_API zest_resource_node zest_ImportImageResource(const char *name, zest_image_handle image, zest_resource_image_provider provider);
 ZEST_API zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffer, zest_resource_buffer_provider provider);
 

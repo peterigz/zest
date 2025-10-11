@@ -561,7 +561,7 @@ void MainLoop(ImGuiApp *app) {
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
 			if (!frame_graph) {
-				if (zest_BeginFrameGraphSwapchain(app->context, "ImGui", &cache_key)) {
+				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
 					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", app->cube_layer, false);
 					zest_resource_node billboard_layer_resource = zest_AddTransientLayerResource("Billboard Layer", app->billboard_layer, false);
 					zest_resource_node skybox_layer_resource = zest_AddTransientLayerResource("Sky Box Layer", app->skybox_layer, false);
@@ -570,6 +570,7 @@ void MainLoop(ImGuiApp *app) {
 					zest_resource_node irradiance_texture_resource = zest_ImportImageResource("Irradiance texture", app->irr_texture, 0);
 					zest_resource_node prefiltered_texture_resource = zest_ImportImageResource("Prefiltered texture", app->prefiltered_texture, 0);
 					zest_resource_node depth_buffer = zest_AddTransientImageResource("Depth Buffer", &depth_info);
+					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
 					zest_output_group group = zest_CreateOutputGroup();
 					zest_AddSwapchainToRenderTargetGroup(group);
 					zest_AddImageToRenderTargetGroup(group, depth_buffer);

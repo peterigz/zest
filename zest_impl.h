@@ -4386,17 +4386,6 @@ zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_fram
     return ZEST_TRUE;
 }
 
-zest_bool zest_BeginFrameGraphSwapchain(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key) {
-    if (zest_BeginFrameGraph(context, name, cache_key)) {
-        zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
-		ZEST__FLAG(zest__frame_graph_builder->frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage);
-    } else {
-        return ZEST_FALSE;
-    }
-	zest__import_swapchain_resource(context->swapchain);
-    return ZEST_TRUE;
-}
-
 void zest_ForceFrameGraphOnGraphicsQueue() {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);      //This function should only be called immediately after BeginRenderGraph/BeginRenderToScreen
     ZEST__FLAG(zest__frame_graph_builder->frame_graph->flags, zest_frame_graph_force_on_graphics_queue);
@@ -6144,7 +6133,7 @@ void zest_FlagResourceAsEssential(zest_resource_node resource) {
 void zest_AddSwapchainToRenderTargetGroup(zest_output_group group) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
-    ZEST_ASSERT_HANDLE(frame_graph->swapchain_resource);    //frame graph must have a swapchain, use zest_BeginFrameGraphSwapchain
+    ZEST_ASSERT_HANDLE(frame_graph->swapchain_resource);    //frame graph must have a swapchain, use zest_ImportSwapchainResource to import the context swapchain to the render graph
     ZEST_ASSERT_HANDLE(group);                      //Not a valid render target group
 	zest_context context = zest__frame_graph_builder->context;
     zest_vec_linear_push(context->frame_graph_allocator[context->current_fif], group->resources, frame_graph->swapchain_resource);
@@ -6308,10 +6297,11 @@ zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffe
     return node;
 }
 
-zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain) {
+zest_resource_node zest_ImportSwapchainResource() {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
 	zest_context context = zest__frame_graph_builder->context;
+	zest_swapchain swapchain = context->swapchain;
     zest__frame_graph_builder->frame_graph->swapchain = swapchain;
     if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired)) {
         ZEST_PRINT("WARNING: Swap chain is being imported but no swap chain image has been acquired. Make sure that you call zest_BeginFrame() to make sure that a swapchain image is acquired.");
@@ -6335,6 +6325,7 @@ zest_resource_node zest__import_swapchain_resource(zest_swapchain swapchain) {
     frame_graph->swapchain_resource = zest__add_frame_graph_resource(&node);
     frame_graph->swapchain_resource->image_layout = zest_image_layout_undefined;
     frame_graph->swapchain_resource->last_stage_mask = zest_pipeline_stage_color_attachment_output_bit;
+	ZEST__FLAG(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage);
     return frame_graph->swapchain_resource;
 }
 
