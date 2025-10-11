@@ -62,7 +62,11 @@
     [Timer_functions]                   High resolution timer functions
     [General_Helper_functions]          General API functions - get screen dimensions etc 
     [Debug_Helpers]                     Functions for debugging and outputting queues to the console.
-    [Command_buffer_functions]          GPU command buffer commands
+  	[Command_buffer_functions]          GPU command buffer commands
+
+ 	--Implementations 
+ 	[Zloc_allocator] 
+ 	[Pico_png_decoder]
 */
 
 #define ZEST_DEBUGGING
@@ -908,6 +912,7 @@ static const char *zest_message_cannot_queue_for_execution = "Could not queue fr
 //Typedefs_for_numbers
 
 typedef unsigned int zest_uint;
+typedef unsigned long zest_long;
 typedef uint64_t zest_handle;
 typedef int zest_index;
 typedef unsigned long long zest_ull;
@@ -4843,6 +4848,7 @@ ZEST_PRIVATE bool zest__tinyktxCallbackSeek(void *user, int64_t offset);
 ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
 ZEST_API zest_image_collection zest__load_ktx(zest_context context, const char *file_path);
 ZEST_PRIVATE zest_format zest__convert_tktx_format(TinyKtx_Format format);
+ZEST_PRIVATE int zest__decode_png(zest_context context, zest_bitmap out_bitmap, const zest_byte *in_png, zest_uint in_size, int convert_to_rgba32);
 ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
 ZEST_API_TMP zest_uint zest__get_format_channel_count(zest_format format);
 ZEST_API_TMP void zest__cleanup_image_view(zest_image_view layout);
@@ -5389,6 +5395,7 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
 ZEST_API void zest_FreeBitmap(zest_bitmap image);
 //Free the memory used in a zest_bitmap_t
 ZEST_API void zest_FreeBitmapData(zest_bitmap image);
+ZEST_API zest_bitmap zest_LoadPNG(zest_context context, const char *filename);
 //Create a new initialise zest_bitmap_t
 ZEST_API zest_bitmap zest_NewBitmap(zest_context context);
 //Create a new bitmap from a pixel buffer. Pass in the name of the bitmap, a pointer to the buffer, the size in bytes of the buffer, the width and height
@@ -6416,6 +6423,658 @@ void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker) {
 	ZLOC_ASSERT(marker >= sizeof(zloc_linear_allocator_t) && marker <= allocator->current_offset && marker <= allocator->buffer_size);     //Not a valid allocator!
 	allocator->current_offset = marker;
 }
+
+// [Pico_png_decoder]
+
+/* ////////////////////////////////////////////////////////////////////////// */
+/* ////////////////////////////// DECODER /////////////////////////////////// */
+/* ////////////////////////////////////////////////////////////////////////// */
+
+static const zest_long LENBASE[29] = {3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
+static const zest_long LENEXTRA[29] = {0,0,0,0,0,0,0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4,  4,  5,  5,  5,  5,  0};
+static const zest_long DISTBASE[30] = {1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577};
+static const zest_long DISTEXTRA[30] = {0,0,0,0,1,1,2, 2, 3, 3, 4, 4, 5, 5,  6,  6,  7,  7,  8,  8,   9,   9,  10,  10,  11,  11,  12,   12,   13,   13};
+static const zest_long CLCL[19] = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+
+typedef struct zest_huffman_tree_t {
+    zest_long *tree2d;
+} zest_huffman_tree_t;
+
+static void zest__huffman_tree_init(zest_huffman_tree_t* tree) {
+    tree->tree2d = 0;
+}
+
+static void zest__huffman_tree_free(zloc_allocator *allocator, zest_huffman_tree_t* tree) {
+    zest_vec_free(allocator, tree->tree2d);
+}
+
+static int zest__huffman_tree_make_from_lengths(zloc_allocator *allocator, zest_huffman_tree_t* tree, const zest_long *bitlen, zest_long maxbitlen) {
+    zest_long numcodes = (zest_long)zest_vec_size(bitlen), treepos = 0, nodefilled = 0;
+    zest_long *tree1d = 0;
+    zest_vec_resize(allocator, tree1d, numcodes);
+
+    zest_long *blcount = 0;
+    zest_vec_resize(allocator, blcount, maxbitlen + 1);
+    memset(blcount, 0, (maxbitlen + 1) * sizeof(zest_long));
+
+    zest_long *nextcode = 0;
+    zest_vec_resize(allocator, nextcode, maxbitlen + 1);
+    memset(nextcode, 0, (maxbitlen + 1) * sizeof(zest_long));
+
+    for(zest_long bits = 0; bits < numcodes; bits++) blcount[bitlen[bits]]++;
+    for(zest_long bits = 1; bits <= maxbitlen; bits++) nextcode[bits] = (nextcode[bits - 1] + blcount[bits - 1]) << 1;
+    for(zest_long n = 0; n < numcodes; n++) if(bitlen[n] != 0) tree1d[n] = nextcode[bitlen[n]]++;
+    
+    zest_vec_clear(tree->tree2d);
+    zest_vec_resize(allocator, tree->tree2d, numcodes * 2);
+    for(zest_long n = 0; n < numcodes * 2; n++) tree->tree2d[n] = 32767;
+
+    for(zest_long n = 0; n < numcodes; n++) {
+        for(zest_long i = 0; i < bitlen[n]; i++) {
+            zest_long bit = (tree1d[n] >> (bitlen[n] - i - 1)) & 1;
+            if(treepos > numcodes - 2) { zest_vec_free(allocator, tree1d); zest_vec_free(allocator, blcount); zest_vec_free(allocator, nextcode); return 55; }
+            if(tree->tree2d[2 * treepos + bit] == 32767) {
+                if(i + 1 == bitlen[n]) { tree->tree2d[2 * treepos + bit] = n; treepos = 0; } 
+                else { tree->tree2d[2 * treepos + bit] = ++nodefilled + numcodes; treepos = nodefilled; }
+            } else {
+                treepos = tree->tree2d[2 * treepos + bit] - numcodes;
+            }
+        }
+    }
+
+    zest_vec_free(allocator, tree1d);
+    zest_vec_free(allocator, blcount);
+    zest_vec_free(allocator, nextcode);
+    return 0;
+}
+
+static int zest__huffman_tree_decode(const zest_huffman_tree_t* tree, int* decoded, zest_long* result, zest_uint* treepos, zest_long bit) {
+    zest_long numcodes = (zest_long)(zest_vec_size(tree->tree2d) / 2);
+    if(*treepos >= numcodes) return 11;
+    *result = tree->tree2d[2 * *treepos + bit];
+    *decoded = (*result < numcodes);
+    *treepos = *decoded ? 0 : *result - numcodes;
+    return 0;
+}
+
+static zest_long zest__read_bit_from_stream(zest_uint* bitp, const zest_byte* bits) {
+    zest_long result = (bits[*bitp >> 3] >> (*bitp & 0x7)) & 1;
+    (*bitp)++;
+    return result;
+}
+
+static zest_long zest__read_bits_from_stream(zest_uint* bitp, const zest_byte* bits, zest_uint nbits) {
+    zest_long result = 0;
+    for(zest_uint i = 0; i < nbits; i++) result += (zest__read_bit_from_stream(bitp, bits)) << i;
+    return result;
+}
+
+typedef struct zest_inflator_t {
+    int error;
+    zest_huffman_tree_t codetree, codetreeD, codelengthcodetree;
+} zest_inflator_t;
+
+static void zest__inflator_init(zest_inflator_t* inflator) {
+    inflator->error = 0;
+    zest__huffman_tree_init(&inflator->codetree);
+    zest__huffman_tree_init(&inflator->codetreeD);
+    zest__huffman_tree_init(&inflator->codelengthcodetree);
+}
+
+static void zest__inflator_free(zloc_allocator *allocator, zest_inflator_t* inflator) {
+    zest__huffman_tree_free(allocator, &inflator->codetree);
+    zest__huffman_tree_free(allocator, &inflator->codetreeD);
+    zest__huffman_tree_free(allocator, &inflator->codelengthcodetree);
+}
+
+static zest_long zest__huffman_decode_symbol(zest_inflator_t* inflator, const zest_byte* in, zest_uint* bp, const zest_huffman_tree_t* codetree, zest_uint inlength) {
+    int decoded;
+    zest_long ct;
+    zest_uint treepos = 0;
+    for(;;) {
+        if((*bp & 0x07) == 0 && (*bp >> 3) > inlength) { inflator->error = 10; return 0; }
+        inflator->error = zest__huffman_tree_decode(codetree, &decoded, &ct, &treepos, zest__read_bit_from_stream(bp, in));
+        if(inflator->error) return 0;
+        if(decoded) return ct;
+    }
+}
+
+static void zest__get_tree_inflate_dynamic(zloc_allocator *allocator, zest_inflator_t* inflator, const zest_byte* in, zest_uint* bp, zest_uint inlength) {
+    zest_long *bitlen = 0;
+    zest_long *bitlenD = 0;
+    zest_long *codelengthcode = 0;
+
+    zest_vec_resize(allocator, bitlen, 288);
+    memset(bitlen, 0, 288 * sizeof(zest_long));
+    zest_vec_resize(allocator, bitlenD, 32);
+    memset(bitlenD, 0, 32 * sizeof(zest_long));
+
+    if(*bp >> 3 >= inlength - 2) { inflator->error = 49; goto cleanup; }
+    zest_uint HLIT = zest__read_bits_from_stream(bp, in, 5) + 257;
+    zest_uint HDIST = zest__read_bits_from_stream(bp, in, 5) + 1;
+    zest_uint HCLEN = zest__read_bits_from_stream(bp, in, 4) + 4;
+
+    zest_vec_resize(allocator, codelengthcode, 19);
+    memset(codelengthcode, 0, 19 * sizeof(zest_long));
+    for(zest_uint i = 0; i < 19; i++) codelengthcode[CLCL[i]] = (i < HCLEN) ? zest__read_bits_from_stream(bp, in, 3) : 0;
+    
+    inflator->error = zest__huffman_tree_make_from_lengths(allocator, &inflator->codelengthcodetree, codelengthcode, 7);
+    if(inflator->error) goto cleanup;
+
+    zest_uint i = 0, replength;
+    while(i < HLIT + HDIST) {
+        zest_long code = zest__huffman_decode_symbol(inflator, in, bp, &inflator->codelengthcodetree, inlength);
+        if(inflator->error) goto cleanup;
+        if(code <= 15) {
+            if(i < HLIT) bitlen[i++] = code;
+            else bitlenD[i++ - HLIT] = code;
+        } else if(code == 16) {
+            if(*bp >> 3 >= inlength) { inflator->error = 50; goto cleanup; }
+            replength = 3 + zest__read_bits_from_stream(bp, in, 2);
+            zest_long value;
+            if((i - 1) < HLIT) value = bitlen[i - 1];
+            else value = bitlenD[i - HLIT - 1];
+            for(zest_uint n = 0; n < replength; n++) {
+                if(i >= HLIT + HDIST) { inflator->error = 13; goto cleanup; }
+                if(i < HLIT) bitlen[i++] = value;
+                else bitlenD[i++ - HLIT] = value;
+            }
+        } else if(code == 17) {
+            if(*bp >> 3 >= inlength) { inflator->error = 50; goto cleanup; }
+            replength = 3 + zest__read_bits_from_stream(bp, in, 3);
+            for(zest_uint n = 0; n < replength; n++) {
+                if(i >= HLIT + HDIST) { inflator->error = 14; goto cleanup; }
+                if(i < HLIT) bitlen[i++] = 0;
+                else bitlenD[i++ - HLIT] = 0;
+            }
+        } else if(code == 18) {
+            if(*bp >> 3 >= inlength) { inflator->error = 50; goto cleanup; }
+            replength = 11 + zest__read_bits_from_stream(bp, in, 7);
+            for(zest_uint n = 0; n < replength; n++) {
+                if(i >= HLIT + HDIST) { inflator->error = 15; goto cleanup; }
+                if(i < HLIT) bitlen[i++] = 0;
+                else bitlenD[i++ - HLIT] = 0;
+            }
+        } else { inflator->error = 16; goto cleanup; }
+    }
+
+    if(bitlen[256] == 0) { inflator->error = 64; goto cleanup; }
+    inflator->error = zest__huffman_tree_make_from_lengths(allocator, &inflator->codetree, bitlen, 15);
+    if(inflator->error) goto cleanup;
+    inflator->error = zest__huffman_tree_make_from_lengths(allocator, &inflator->codetreeD, bitlenD, 15);
+
+cleanup:
+    zest_vec_free(allocator, bitlen);
+    zest_vec_free(allocator, bitlenD);
+    zest_vec_free(allocator, codelengthcode);
+}
+
+static void zest__generate_fixed_trees(zloc_allocator *allocator, zest_inflator_t* inflator) {
+    zest_long *bitlen = 0;
+    zest_long *bitlenD = 0;
+
+    zest_vec_resize(allocator, bitlen, 288);
+    zest_vec_resize(allocator, bitlenD, 32);
+
+    for(zest_uint i = 0; i <= 143; i++) bitlen[i] = 8;
+    for(zest_uint i = 144; i <= 255; i++) bitlen[i] = 9;
+    for(zest_uint i = 256; i <= 279; i++) bitlen[i] = 7;
+    for(zest_uint i = 280; i <= 287; i++) bitlen[i] = 8;
+    for(zest_uint i = 0; i <= 31; i++) bitlenD[i] = 5;
+
+    zest__huffman_tree_make_from_lengths(allocator, &inflator->codetree, bitlen, 15);
+    zest__huffman_tree_make_from_lengths(allocator, &inflator->codetreeD, bitlenD, 15);
+
+    zest_vec_free(allocator, bitlen);
+    zest_vec_free(allocator, bitlenD);
+}
+
+static void zest__inflate_huffman_block(zloc_allocator *allocator, zest_inflator_t* inflator, zest_byte *out, zest_uint* pos, const zest_byte* in, zest_uint* bp, zest_uint inlength, zest_long btype) {
+    if(btype == 1) { 
+		zest__generate_fixed_trees(allocator, inflator); 
+	} else if(btype == 2) { 
+		zest__get_tree_inflate_dynamic(allocator, inflator, in, bp, inlength); if(inflator->error) return; 
+	}
+
+    for(;;) {
+        zest_long code = zest__huffman_decode_symbol(inflator, in, bp, &inflator->codetree, inlength); if(inflator->error) return;
+        if(code == 256) return; //end code
+        else if(code <= 255) //literal symbol
+        {
+            zest_vec_resize(allocator, out, *pos + 1);
+            out[(*pos)++] = (unsigned char)(code);
+        }
+        else if(code >= 257 && code <= 285) //length code
+        {
+            zest_uint length = LENBASE[code - 257], numextrabits = LENEXTRA[code - 257];
+            if((*bp >> 3) >= inlength) { inflator->error = 51; return; }
+            length += zest__read_bits_from_stream(bp, in, numextrabits);
+            zest_long codeD = zest__huffman_decode_symbol(inflator, in, bp, &inflator->codetreeD, inlength); if(inflator->error) return;
+            if(codeD > 29) { inflator->error = 18; return; } //error: invalid dist code (30-31 are never used)
+            zest_long dist = DISTBASE[codeD], numextrabitsD = DISTEXTRA[codeD];
+            if((*bp >> 3) >= inlength) { inflator->error = 51; return; } //error, bit pointer will jump past memory
+            dist += zest__read_bits_from_stream(bp, in, numextrabitsD);
+            zest_uint start = *pos;
+            zest_uint back = start - dist;
+            zest_vec_resize(allocator, out, *pos + length);
+
+            zest_uint read_ptr = back;
+            for (zest_uint i = 0; i < length; i++) {
+                out[start + i] = out[read_ptr];
+                read_ptr++;
+                if (read_ptr >= start) {
+                    read_ptr = back;
+                }
+            }
+            *pos += length;
+        }
+    }
+}
+
+static void zest__inflate_no_compression(zloc_allocator *allocator, zest_inflator_t* inflator, zest_byte **out, zest_uint* pos, const zest_byte* in, zest_uint* bp, zest_uint inlength) {
+    while((*bp & 0x7) != 0) (*bp)++;
+    zest_uint p = *bp / 8;
+    if(p >= inlength - 4) { inflator->error = 52; return; }
+    zest_long LEN = in[p] + 256 * in[p + 1], NLEN = in[p + 2] + 256 * in[p + 3]; p += 4;
+    if(LEN + NLEN != 65535) { inflator->error = 21; return; }
+
+    zest_vec_resize(allocator, *out, *pos + LEN);
+
+    if(p + LEN > inlength) { inflator->error = 23; return; }
+    memcpy(*out + *pos, &in[p], LEN);
+    *pos += LEN;
+    p += LEN;
+    *bp = p * 8;
+}
+
+static void zest__inflator_inflate(zloc_allocator *allocator, zest_inflator_t* inflator, zest_byte **out, const zest_byte *in, zest_uint inpos) {
+    zest_uint bp = 0, pos = 0;
+    inflator->error = 0;
+    zest_long BFINAL = 0;
+    while(!BFINAL && !inflator->error) {
+        if(bp >> 3 >= zest_vec_size(in)) { inflator->error = 52; return; }
+        BFINAL = zest__read_bit_from_stream(&bp, &in[inpos]);
+        zest_long BTYPE = zest__read_bit_from_stream(&bp, &in[inpos]); BTYPE += 2 * zest__read_bit_from_stream(&bp, &in[inpos]);
+        if(BTYPE == 3) { inflator->error = 20; return; }
+        else if(BTYPE == 0) zest__inflate_no_compression(allocator, inflator, out, &pos, &in[inpos], &bp, zest_vec_size(in));
+        else zest__inflate_huffman_block(allocator, inflator, *out, &pos, &in[inpos], &bp, zest_vec_size(in), BTYPE);
+    }
+    if (!inflator->error) {
+		zest_vec_resize(allocator, out, pos);
+    }
+}
+
+static int zest__decompress(zloc_allocator *allocator, zest_byte **out, const zest_byte *in) {
+    zest_inflator_t inflator;
+    zest__inflator_init(&inflator);
+    if(zest_vec_size(in) < 2) { zest__inflator_free(allocator, &inflator); return 53; }
+    if((in[0] * 256 + in[1]) % 31 != 0) { zest__inflator_free(allocator, &inflator); return 24; }
+    zest_long CM = in[0] & 15, CINFO = (in[0] >> 4) & 15, FDICT = (in[1] >> 5) & 1;
+    if(CM != 8 || CINFO > 7) { zest__inflator_free(allocator, &inflator); return 25; }
+    if(FDICT != 0) { zest__inflator_free(allocator, &inflator); return 26; }
+    zest__inflator_inflate(allocator, &inflator, out, in, 2);
+    int error = inflator.error;
+    zest__inflator_free(allocator, &inflator);
+    return error;
+}
+
+typedef struct zest_png_info_t {
+    zest_long width, height, colorType, bitDepth, compressionMethod, filterMethod, interlaceMethod, key_r, key_g, key_b;
+    int key_defined;
+    zest_byte *palette;
+} zest__png_info_t;
+
+static void zest__png_info_init(zest__png_info_t* info) {
+    info->key_defined = 0;
+    info->palette = 0;
+}
+
+static void zest__png_info_free(zloc_allocator *allocator, zest__png_info_t* info) {
+    zest_vec_free(allocator, info->palette);
+}
+
+typedef struct zest_png_t {
+    zest__png_info_t info;
+    int error;
+} zest_png_t;
+
+static zest_long zest__read_32bit_int(const zest_byte* buffer) {
+    return (buffer[0] << 24) | (buffer[1] << 16) | (buffer[2] << 8) | buffer[3];
+}
+
+static int zest__check_color_validity(zest_long colorType, zest_long bd) {
+    if((colorType == 2 || colorType == 4 || colorType == 6)) { if(!(bd == 8 || bd == 16)) return 37; else return 0; }
+    else if(colorType == 0) { if(!(bd == 1 || bd == 2 || bd == 4 || bd == 8 || bd == 16)) return 37; else return 0; }
+    else if(colorType == 3) { if(!(bd == 1 || bd == 2 || bd == 4 || bd == 8)) return 37; else return 0; }
+    else return 31;
+}
+
+static zest_long zest__get_bpp(const zest__png_info_t* info) {
+    if(info->colorType == 2) return (3 * info->bitDepth);
+    else if(info->colorType >= 4) return (info->colorType - 2) * info->bitDepth;
+    else return info->bitDepth;
+}
+
+static zest_byte zest__paeth_predictor(short a, short b, short c) {
+    short p = a + b - c, pa = abs(p - a), pb = abs(p - b), pc = abs(p - c);
+    return (zest_byte)((pa <= pb && pa <= pc) ? a : pb <= pc ? b : c);
+}
+
+static void zest__unfilter_scanline(zest_png_t* png, zest_byte* recon, const zest_byte* scanline, const zest_byte* precon, zest_uint bytewidth, zest_long filterType, zest_uint length) {
+    switch(filterType) {
+        case 0: for(zest_uint i = 0; i < length; i++) recon[i] = scanline[i]; break;
+        case 1:
+            for(zest_uint i = 0; i < bytewidth; i++) recon[i] = scanline[i];
+            for(zest_uint i = bytewidth; i < length; i++) recon[i] = scanline[i] + recon[i - bytewidth];
+            break;
+        case 2:
+            if(precon) for(zest_uint i = 0; i < length; i++) recon[i] = scanline[i] + precon[i];
+            else for(zest_uint i = 0; i < length; i++) recon[i] = scanline[i];
+            break;
+        case 3:
+            if(precon) {
+                for(zest_uint i = 0; i < bytewidth; i++) recon[i] = scanline[i] + precon[i] / 2;
+                for(zest_uint i = bytewidth; i < length; i++) recon[i] = scanline[i] + ((recon[i - bytewidth] + precon[i]) / 2);
+            } else {
+                for(zest_uint i = 0; i < bytewidth; i++) recon[i] = scanline[i];
+                for(zest_uint i = bytewidth; i < length; i++) recon[i] = scanline[i] + recon[i - bytewidth] / 2;
+            }
+            break;
+        case 4:
+            if(precon) {
+                for(zest_uint i = 0; i < bytewidth; i++) recon[i] = scanline[i] + zest__paeth_predictor(0, precon[i], 0);
+                for(zest_uint i = bytewidth; i < length; i++) recon[i] = scanline[i] + zest__paeth_predictor(recon[i - bytewidth], precon[i], precon[i - bytewidth]);
+            } else {
+                for(zest_uint i = 0; i < bytewidth; i++) recon[i] = scanline[i];
+                for(zest_uint i = bytewidth; i < length; i++) recon[i] = scanline[i] + zest__paeth_predictor(recon[i - bytewidth], 0, 0);
+            }
+            break;
+        default: png->error = 36; return;
+    }
+}
+
+static zest_long zest__read_bit_from_reversed_stream(zest_uint* bitp, const zest_byte* bits) {
+    zest_long result = (bits[*bitp >> 3] >> (7 - (*bitp & 0x7))) & 1;
+    (*bitp)++;
+    return result;
+}
+
+static void zest_set_bit_of_reversed_stream(zest_uint* bitp, zest_byte* bits, zest_long bit) {
+    bits[*bitp >> 3] |= (bit << (7 - (*bitp & 0x7)));
+    (*bitp)++;
+}
+
+static void zest__adam_7_pass(zest_png_t* png, zest_byte *out, zest_byte *scanlinen, zest_byte *scanlineo, const zest_byte* in, zest_long w, zest_uint passleft, zest_uint passtop, zest_uint spacex, zest_uint spacey, zest_uint passw, zest_uint passh, zest_long bpp) {
+    if(passw == 0) return;
+    zest_uint bytewidth = (bpp + 7) / 8, linelength = 1 + ((bpp * passw + 7) / 8);
+    for(zest_long y = 0; y < passh; y++) {
+        unsigned char filterType = in[y * linelength];
+        zest_byte* prevline = (y == 0) ? 0 : scanlineo;
+        zest__unfilter_scanline(png, scanlinen, &in[y * linelength + 1], prevline, bytewidth, filterType, (w * bpp + 7) / 8);
+        if(png->error) return;
+        if(bpp >= 8) {
+            for(zest_uint i = 0; i < passw; i++) {
+                for(zest_uint b = 0; b < bytewidth; b++) {
+					out[bytewidth * w * (passtop + spacey * y) + bytewidth * (passleft + spacex * i) + b] = scanlinen[bytewidth * i + b];
+                }
+            }
+        } else {
+            for(zest_uint i = 0; i < passw; i++) {
+                zest_uint obp = bpp * w * (passtop + spacey * y) + bpp * (passleft + spacex * i), bp = i * bpp;
+                for(zest_uint b = 0; b < bpp; b++) {
+                    zest_long bit = zest__read_bit_from_reversed_stream(&bp, scanlinen);
+                    zest_set_bit_of_reversed_stream(&obp, out, bit);
+                }
+            }
+        }
+        zest_byte* temp = scanlinen; scanlinen = scanlineo; scanlineo = temp;
+    }
+}
+
+static int zest__png_convert_rgba32(zloc_allocator *allocator, zest_byte **out, const zest_byte* in, zest__png_info_t* infoIn, zest_long w, zest_long h) {
+    zest_uint numpixels = w * h, bp = 0;
+    zest_vec_resize(allocator, *out, numpixels * 4);
+    zest_byte* out_ = *out;
+
+    if(infoIn->bitDepth == 8 && infoIn->colorType == 0) {
+        for(zest_uint i = 0; i < numpixels; i++) {
+            out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = in[i];
+            out_[4 * i + 3] = (infoIn->key_defined && in[i] == infoIn->key_r) ? 0 : 255;
+        }
+    } else if(infoIn->bitDepth == 8 && infoIn->colorType == 2) {
+        for(zest_uint i = 0; i < numpixels; i++) {
+            for(zest_uint c = 0; c < 3; c++) out_[4 * i + c] = in[3 * i + c];
+            out_[4 * i + 3] = (infoIn->key_defined && in[3 * i + 0] == infoIn->key_r && in[3 * i + 1] == infoIn->key_g && in[3 * i + 2] == infoIn->key_b) ? 0 : 255;
+        }
+    } else if(infoIn->bitDepth == 8 && infoIn->colorType == 3) {
+        for(zest_uint i = 0; i < numpixels; i++) {
+            if(4U * in[i] >= zest_vec_size(infoIn->palette)) return 46;
+            for(zest_uint c = 0; c < 4; c++) out_[4 * i + c] = infoIn->palette[4 * in[i] + c];
+        }
+    } else if(infoIn->bitDepth == 8 && infoIn->colorType == 4) {
+        for(zest_uint i = 0; i < numpixels; i++) {
+            out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = in[2 * i + 0];
+            out_[4 * i + 3] = in[2 * i + 1];
+        }
+    } else if(infoIn->bitDepth == 8 && infoIn->colorType == 6) {
+        memcpy(out_, in, numpixels * 4);
+    } else if(infoIn->bitDepth == 16 && infoIn->colorType == 0) {
+        for(zest_uint i = 0; i < numpixels; i++) {
+            out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = in[2 * i];
+            out_[4 * i + 3] = (infoIn->key_defined && 256U * in[i] + in[i + 1] == infoIn->key_r) ? 0 : 255;
+        }
+    } else if(infoIn->bitDepth == 16 && infoIn->colorType == 2) {
+        for(zest_uint i = 0; i < numpixels; i++) {
+            for(zest_uint c = 0; c < 3; c++) out_[4 * i + c] = in[6 * i + 2 * c];
+            out_[4 * i + 3] = (infoIn->key_defined && 256U*in[6*i+0]+in[6*i+1] == infoIn->key_r && 256U*in[6*i+2]+in[6*i+3] == infoIn->key_g && 256U*in[6*i+4]+in[6*i+5] == infoIn->key_b) ? 0 : 255;
+        }
+    } else if(infoIn->bitDepth == 16 && infoIn->colorType == 4) {
+        for(zest_uint i = 0; i < numpixels; i++) {
+            out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = in[4 * i];
+            out_[4 * i + 3] = in[4 * i + 2];
+        }
+    } else if(infoIn->bitDepth == 16 && infoIn->colorType == 6) {
+        for(zest_uint i = 0; i < numpixels; i++) for(zest_uint c = 0; c < 4; c++) out_[4 * i + c] = in[8 * i + 2 * c];
+    } else if(infoIn->bitDepth < 8 && infoIn->colorType == 0) {
+        for(zest_uint i = 0; i < numpixels; i++) {
+            zest_long value = (zest__read_bit_from_reversed_stream(&bp, in) * 255) / ((1 << infoIn->bitDepth) - 1);
+            out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = (unsigned char)(value);
+            out_[4 * i + 3] = (infoIn->key_defined && value && ((1U << infoIn->bitDepth) - 1U) == infoIn->key_r && ((1U << infoIn->bitDepth) - 1U)) ? 0 : 255;
+        }
+    } else if(infoIn->bitDepth < 8 && infoIn->colorType == 3) {
+        for(zest_uint i = 0; i < numpixels; i++) {
+            zest_long value = zest__read_bit_from_reversed_stream(&bp, in);
+            if(4 * value >= zest_vec_size(infoIn->palette)) return 47;
+            for(zest_uint c = 0; c < 4; c++) out_[4 * i + c] = infoIn->palette[4 * value + c];
+        }
+    }
+    return 0;
+}
+
+static void zest__read_png_header(zest_png_t* png, const zest_byte* in, zest_uint inlength) {
+    if(inlength < 29) { png->error = 27; return; }
+    if(in[0] != 137 || in[1] != 80 || in[2] != 78 || in[3] != 71 || in[4] != 13 || in[5] != 10 || in[6] != 26 || in[7] != 10) { png->error = 28; return; }
+    if(in[12] != 'I' || in[13] != 'H' || in[14] != 'D' || in[15] != 'R') { png->error = 29; return; }
+    png->info.width = zest__read_32bit_int(&in[16]);
+    png->info.height = zest__read_32bit_int(&in[20]);
+    png->info.bitDepth = in[24];
+    png->info.colorType = in[25];
+    png->info.compressionMethod = in[26];
+    if(in[26] != 0) { png->error = 32; return; }
+    png->info.filterMethod = in[27];
+    if(in[27] != 0) { png->error = 33; return; }
+    png->info.interlaceMethod = in[28];
+    if(in[28] > 1) { png->error = 34; return; }
+    png->error = zest__check_color_validity(png->info.colorType, png->info.bitDepth);
+}
+
+static void zest__png_decode(zloc_allocator *allocator, zest_png_t* png, zest_byte **out, const zest_byte* in, zest_uint size, int convert_to_rgba32) {
+    png->error = 0;
+    if(size == 0 || in == 0) { png->error = 48; return; }
+    zest__read_png_header(png, &in[0], size);
+    if(png->error) return;
+
+    zest_uint pos = 33;
+    zest_byte *idat = 0;
+    int IEND = 0;
+
+    while(!IEND) {
+        if(pos + 8 >= size) { png->error = 30; goto cleanup; }
+        zest_uint chunkLength = zest__read_32bit_int(&in[pos]); pos += 4;
+        if(chunkLength > 2147483647) { png->error = 63; goto cleanup; }
+        if(pos + chunkLength >= size) { png->error = 35; goto cleanup; }
+        
+        if(in[pos + 0] == 'I' && in[pos + 1] == 'D' && in[pos + 2] == 'A' && in[pos + 3] == 'T') {
+			for (int i = 0; i != chunkLength; ++i) {
+				//Create a push range to optimize this
+				zest_vec_push(allocator, idat, in[pos + 4 + i]);
+			}
+            pos += (4 + chunkLength);
+        } else if(in[pos + 0] == 'I' && in[pos + 1] == 'E' && in[pos + 2] == 'N' && in[pos + 3] == 'D') {
+            pos += 4;
+            IEND = 1;
+        } else if(in[pos + 0] == 'P' && in[pos + 1] == 'L' && in[pos + 2] == 'T' && in[pos + 3] == 'E') {
+            pos += 4;
+            zest_vec_resize(allocator, png->info.palette, 4 * (chunkLength / 3));
+            if(zest_vec_size(png->info.palette) > (4 * 256)) { png->error = 38; goto cleanup; }
+			for (zest_uint i = 0; i < zest_vec_size(png->info.palette); i += 4) {
+                for(zest_uint j = 0; j < 3; j++) png->info.palette[i + j] = in[pos++];
+                png->info.palette[i + 3] = 255;
+            }
+        } else if(in[pos + 0] == 't' && in[pos + 1] == 'R' && in[pos + 2] == 'N' && in[pos + 3] == 'S') {
+            pos += 4;
+            if(png->info.colorType == 3) {
+                if(4 * chunkLength > zest_vec_size(png->info.palette)) { png->error = 39; goto cleanup; }
+                for(zest_uint i = 0; i < chunkLength; i++) png->info.palette[4 * i + 3] = in[pos++];
+            } else if(png->info.colorType == 0) {
+                if(chunkLength != 2) { png->error = 40; goto cleanup; }
+                png->info.key_defined = 1;
+                png->info.key_r = png->info.key_g = png->info.key_b = 256 * in[pos] + in[pos + 1]; pos += 2;
+            } else if(png->info.colorType == 2) {
+                if(chunkLength != 6) { png->error = 41; goto cleanup; }
+                png->info.key_defined = 1;
+                png->info.key_r = 256 * in[pos] + in[pos + 1]; pos += 2;
+                png->info.key_g = 256 * in[pos] + in[pos + 1]; pos += 2;
+                png->info.key_b = 256 * in[pos] + in[pos + 1]; pos += 2;
+            } else { png->error = 42; goto cleanup; }
+        } else {
+            if(!(in[pos + 0] & 32)) { png->error = 69; goto cleanup; }
+            pos += (chunkLength + 4);
+        }
+        pos += 4;
+    }
+
+    zest_long bpp = zest__get_bpp(&png->info);
+    zest_byte *scanlines = 0;
+    zest_vec_resize(allocator, scanlines, ((png->info.width * (png->info.height * bpp + 7)) / 8) + png->info.height);
+    png->error = zest__decompress(allocator, &scanlines, idat);
+    if(png->error) goto cleanup;
+
+    zest_uint bytewidth = (bpp + 7) / 8, outlength = (png->info.height * png->info.width * bpp + 7) / 8;
+    zest_vec_resize(allocator, *out, outlength);
+    zest_byte* out_ = zest_vec_size(out) ? *out : 0;
+
+    if(png->info.interlaceMethod == 0) {
+        zest_uint linestart = 0, linelength = (png->info.width * bpp + 7) / 8;
+        if(bpp >= 8) {
+            for(zest_long y = 0; y < png->info.height; y++) {
+                zest_long filterType = scanlines[linestart];
+                const zest_byte* prevline = (y == 0) ? 0 : &out_[(y - 1) * png->info.width * bytewidth];
+                zest__unfilter_scanline(png, &out_[linestart - y], &scanlines[linestart + 1], prevline, bytewidth, filterType, linelength);
+                if(png->error) goto cleanup;
+                linestart += (1 + linelength);
+            }
+        } else {
+            zest_byte *templine = 0;
+            zest_vec_resize(allocator, templine, (png->info.width * bpp + 7) >> 3);
+            for(zest_uint y = 0, obp = 0; y < png->info.height; y++) {
+                zest_long filterType = scanlines[linestart];
+                const zest_byte* prevline = (y == 0) ? 0 : &out_[(y - 1) * png->info.width * bytewidth];
+                zest__unfilter_scanline(png, templine, &scanlines[linestart + 1], prevline, bytewidth, filterType, linelength);
+                if(png->error) { zest_vec_free(allocator, templine); goto cleanup; }
+                for(zest_uint bp = 0; bp < png->info.width * bpp;) {
+                    zest_long bit = zest__read_bit_from_reversed_stream(&bp, templine);
+                    zest_set_bit_of_reversed_stream(&obp, *out, bit);
+                }
+                linestart += (1 + linelength);
+            }
+            zest_vec_free(allocator, templine);
+        }
+    } else {
+        zest_uint passw[7] = { (png->info.width + 7) / 8, (png->info.width + 3) / 8, (png->info.width + 3) / 4, (png->info.width + 1) / 4, (png->info.width + 1) / 2, (png->info.width + 0) / 2, (png->info.width + 0) / 1 };
+        zest_uint passh[7] = { (png->info.height + 7) / 8, (png->info.height + 7) / 8, (png->info.height + 3) / 8, (png->info.height + 3) / 4, (png->info.height + 1) / 4, (png->info.height + 1) / 2, (png->info.height + 0) / 2 };
+        zest_uint passstart[7] = {0};
+        zest_uint pattern[28] = {0,4,0,2,0,1,0,0,0,4,0,2,0,1,8,8,4,4,2,2,1,8,8,8,4,4,2,2};
+        for(int i = 0; i < 6; i++) passstart[i + 1] = passstart[i] + passh[i] * ((passw[i] ? 1 : 0) + (passw[i] * bpp + 7) / 8);
+        
+		zest_byte *scanlineo = 0;
+		zest_byte *scanlinen = 0;
+        zest_vec_resize(allocator, scanlineo, (png->info.width * bpp + 7) / 8);
+        zest_vec_resize(allocator, scanlinen, (png->info.width * bpp + 7) / 8);
+
+        for(int i = 0; i < 7; i++) {
+            zest__adam_7_pass(png, out_, scanlinen, scanlineo, &scanlines[passstart[i]], png->info.width, pattern[i], pattern[i + 7], pattern[i + 14], pattern[i + 21], passw[i], passh[i], bpp);
+        }
+        zest_vec_free(allocator, scanlineo);
+        zest_vec_free(allocator, scanlinen);
+    }
+
+    if(convert_to_rgba32 && (png->info.colorType != 6 || png->info.bitDepth != 8)) {
+        zest_byte *data = 0;
+        zest_vec_resize(allocator, data, zest_vec_size(*out));
+        memcpy(data, *out, zest_vec_size(*out));
+        png->error = zest__png_convert_rgba32(allocator, out, data, &png->info, png->info.width, png->info.height);
+        zest_vec_free(allocator, data);
+    }
+
+cleanup:
+    zest_vec_free(allocator, idat);
+    zest_vec_free(allocator, scanlines);
+}
+
+int zest__decode_png(zest_context context, zest_bitmap out_bitmap, const zest_byte *in_png, zest_uint in_size, int convert_to_rgba32) {
+    zest_png_t decoder;
+    zest__png_info_init(&decoder.info);
+    zest_byte *out_vec = 0;
+
+    zest__png_decode(context->device->allocator, &decoder, &out_vec, in_png, in_size, convert_to_rgba32);
+   
+    if (decoder.error == 0) {
+		out_bitmap->meta.width = decoder.info.width;
+		out_bitmap->meta.height = decoder.info.height;
+		out_bitmap->meta.channels = 4;
+		out_bitmap->meta.stride = 4 * decoder.info.width;
+		out_bitmap->meta.size = zest_vec_size(out_vec);
+		zest_AllocateBitmapMemory(out_bitmap, out_bitmap->meta.size);
+        zloc_SafeCopy(out_bitmap->data, out_vec, zest_vec_size_in_bytes(out_vec));
+        zest_vec_free(context->device->allocator, out_vec);
+    } else {
+        out_bitmap->data = NULL;
+		out_bitmap->meta.size = 0;
+        zest_vec_free(context->device->allocator, out_vec);
+    }
+
+    zest__png_info_free(context->device->allocator, &decoder.info);
+    return decoder.error;
+}
+
+zest_bitmap zest_LoadPNG(zest_context context, const char *filename) {
+    unsigned char* buffer = (unsigned char*)zest_ReadEntireFile(context, filename, ZEST_FALSE);
+    if (!buffer) {
+        ZEST_PRINT("Error: could not load file %s\n", filename);
+        return NULL;
+    }
+
+	zest_bitmap bitmap = zest_NewBitmap(context);
+    int error = zest__decode_png(context, bitmap, buffer, zest_vec_size_in_bytes(buffer), 1);
+	zest_vec_free(context->device->allocator, buffer);
+	if (error) {
+		zest_FreeBitmap(bitmap);
+		return NULL;
+	}
+	return bitmap;
+}
+// --End Pico_png_decoder
 
 #include "zest_impl.h"
 
