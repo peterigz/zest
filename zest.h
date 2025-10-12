@@ -796,7 +796,40 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 #endif
 
 #ifndef ZEST_ASSERT
-#define ZEST_ASSERT assert
+
+#ifndef NDEBUG
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#define ZEST_INTERNAL_ASSERT_IMPL(condition, format, ...) \
+    do { \
+        if (!(condition)) { \
+            fprintf(stderr, "Assertion failed at %s:%d: ", __FILE__, __LINE__); \
+            fprintf(stderr, format, ##__VA_ARGS__); \
+            fprintf(stderr, "\n"); \
+            abort(); \
+        } \
+    } while (0)
+
+#define ZEST_INTERNAL_ASSERT_NO_MSG(condition) \
+    do { \
+        if (!(condition)) { \
+            fprintf(stderr, "Assertion failed at %s:%d with condition: %s\n", __FILE__, __LINE__, #condition); \
+            abort(); \
+        } \
+    } while (0)
+
+#define ZEST_GET_MACRO(_1, _2, NAME, ...) NAME
+#define ZEST_APPLY_MACRO(macro, args) macro args
+#define ZEST_CHOOSE_ASSERT(...) ZEST_APPLY_MACRO(ZEST_GET_MACRO, (__VA_ARGS__, ZEST_INTERNAL_ASSERT_IMPL, ZEST_INTERNAL_ASSERT_NO_MSG))
+#define ZEST_ASSERT(...) ZEST_APPLY_MACRO(ZEST_CHOOSE_ASSERT(__VA_ARGS__), (__VA_ARGS__))
+
+#else
+#pragma message("ZEST_ASSERT is disabled because NDEBUG is defined.")
+#define ZEST_ASSERT(...) (void)0
+#endif
+
 #endif
 
 #ifndef ZEST_API
