@@ -1,11 +1,13 @@
+#define ZEST_IMPLEMENTATION
+#define ZEST_VULKAN_IMPLEMENTATION
+#define TINYKTX_IMPLEMENTATION
 #include <zest.h>
-#include <zest_vulkan.h>
 #include "zest-imgui-template.h"
 #include "imgui_internal.h"
 
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
-	zest_imgui_InitialiseForGLFW();
+	zest_imgui_InitialiseForGLFW(app->context);
 	//Implement a dark style
 	zest_imgui_DarkStyle();
 	
@@ -32,55 +34,56 @@ void InitImGuiApp(ImGuiApp *app) {
 	//zest_ProcessTextureImages(app->test_texture);
 
 	//We can use a timer to only update imgui 60 times per second
-	app->timer = zest_CreateTimer(60);
+	app->timer = zest_CreateTimer(app->context, 60);
 	app->request_graph_print = true;
 	app->reset = false;
 }
 
-void UpdateCallback(zest_microsecs elapsed, void* user_data) {
-	//The struct for this example app from the user data we set when initialising Zest
-	ImGuiApp* app = (ImGuiApp*)user_data;
+void MainLoop(ImGuiApp *app) {
 
-	//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
-	//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
-	//less frequently.
-	zest_StartTimerLoop(app->timer) {
-		//Must call the imgui GLFW implementation function
-		ImGui_ImplGlfw_NewFrame();
-		//Draw our imgui stuff
-		ImGui::NewFrame();
-		ImGui::ShowDemoWindow();
-		ImGui::Begin("Test Window");
-		ImGui::Text("FPS %i", ZestApp->last_fps);
-		if (ImGui::Button("Toggle Refresh Rate Sync")) {
-			if (app->sync_refresh) {
-				zest_DisableVSync();
-				app->sync_refresh = false;
-			} else {
-				zest_EnableVSync();
-				app->sync_refresh = true;
+	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+		glfwPollEvents();
+		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
+		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
+		//less frequently.
+		zest_StartTimerLoop(app->timer) {
+			//Must call the imgui GLFW implementation function
+			ImGui_ImplGlfw_NewFrame();
+			//Draw our imgui stuff
+			ImGui::NewFrame();
+			ImGui::ShowDemoWindow();
+			ImGui::Begin("Test Window");
+			if (ImGui::Button("Toggle Refresh Rate Sync")) {
+				if (app->sync_refresh) {
+					zest_DisableVSync(app->context);
+					app->sync_refresh = false;
+				} else {
+					zest_EnableVSync(app->context);
+					app->sync_refresh = true;
+				}
 			}
-		}
-		if (ImGui::Button("Print Render Graph")) {
-			app->request_graph_print = true;
-			zloc_VerifyAllRemoteBlocks(0, 0);
-		}
-		if (ImGui::Button("Bordered")) {
-			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_bordered);
-		}
-		if (ImGui::Button("Borderless")) {
-			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_borderless);
-		}
-		if (ImGui::Button("Full Screen")) {
-			zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_fullscreen);
-		}
-		if (ImGui::Button("Set window size to 1000 x 750")) {
-			zest_SetWindowSize(zest_GetCurrentWindow(), 1000, 750);
-		}
-		if (ImGui::Button("Reset Renderer")) {
-			app->reset = true;
-		}
-		/*
+			if (ImGui::Button("Print Render Graph")) {
+				app->request_graph_print = true;
+				zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
+			}
+			/*
+			if (ImGui::Button("Bordered")) {
+				zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_bordered);
+			}
+			if (ImGui::Button("Borderless")) {
+				zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_borderless);
+			}
+			if (ImGui::Button("Full Screen")) {
+				zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_fullscreen);
+			}
+			if (ImGui::Button("Set window size to 1000 x 750")) {
+				zest_SetWindowSize(zest_GetCurrentWindow(), 1000, 750);
+			}
+			if (ImGui::Button("Reset Renderer")) {
+				app->reset = true;
+			}
+			*/
+			/*
 		if (ImGui::Button("Glow Image")) {
 			zest_FreeTexture(app->test_texture);
 			app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
@@ -96,68 +99,70 @@ void UpdateCallback(zest_microsecs elapsed, void* user_data) {
 		zest_vec4 uv = zest_ImageUV(app->test_image);
 		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
 		*/
-		//Test for memory leaks in zest
-		/*
+			//Test for memory leaks in zest
+			/*
 		for (int i = 0; i != context->device->memory_pool_count; ++i) {
 			zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(context->device->allocator)));
 			ImGui::Text("Free Blocks: %i, Used Blocks: %i", stats.free_blocks, stats.used_blocks);
 			ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb), Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024, stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 		}
 		*/
-		ImGui::End();
-		ImGui::Render();
-		//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
-		//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-		zest_imgui_UpdateBuffers();
-	} zest_EndTimerLoop(app->timer);
+			ImGui::End();
+			ImGui::Render();
+			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
+			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
+			zest_imgui_UpdateBuffers();
+		} zest_EndTimerLoop(app->timer);
 
-	if (app->reset) {
-		app->reset = false;
-		zest_imgui_Shutdown();
-		zest_ResetRenderer();
-		InitImGuiApp(app);
-	}
-
-	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
-	app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-	//app->cache_info.test_texture = app->test_texture;
-	zest_frame_graph_cache_key_t cache_key = {};
-	cache_key = zest_InitialiseCacheKey(swapchain, &app->cache_info, sizeof(RenderCacheInfo));
-
-	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
-	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
-	//if the window is resized for example.
-	if (zest_BeginFrameGraphSwapchain(swapchain, "ImGui", &cache_key)) {
-		VkClearColorValue clear_color = { {0.0f, 0.1f, 0.2f, 1.0f} };
-		//If there was no imgui data to render then zest_imgui_BeginPass will return false
-		//Import our test texture with the Bunny sprite
-		//zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
-		//------------------------ ImGui Pass ----------------------------------------------------------------
-		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_BeginPass();
-		if (imgui_pass) {
-			//zest_ConnectInput(test_texture, 0);
-			zest_ConnectSwapChainOutput();
-		} else {
-			//If there's no ImGui to render then just render a blank screen
-			zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
-			//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
-			zest_ConnectSwapChainOutput();
+		if (app->reset) {
+			app->reset = false;
+			zest_imgui_Shutdown();
+			zest_ResetRenderer(app->context);
+			InitImGuiApp(app);
 		}
-		zest_EndPass();
-		//----------------------------------------------------------------------------------------------------
-		//End the render graph and execute it. This will submit it to the GPU.
-		zest_frame_graph render_graph = zest_EndFrameGraph();
-		if (app->request_graph_print) {
-			//You can print out the render graph for debugging purposes
-			zest_PrintCompiledRenderGraph(render_graph);
-			app->request_graph_print = false;
-		}
-	} else {
-		if (app->request_graph_print) {
-			//You can print out the render graph for debugging purposes
-			zest_PrintCachedRenderGraph(&cache_key);
-			app->request_graph_print = false;
+
+		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+		//app->cache_info.test_texture = app->test_texture;
+		zest_frame_graph_cache_key_t cache_key = {};
+		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
+
+		if (zest_BeginFrame(app->context)) {
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
+			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
+			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
+			//if the window is resized for example.
+			if (!frame_graph) {
+				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
+					zest_ImportSwapchainResource();
+					//If there was no imgui data to render then zest_imgui_BeginPass will return false
+					//Import our test texture with the Bunny sprite
+					//zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
+					//------------------------ ImGui Pass ----------------------------------------------------------------
+					//If there's imgui to draw then draw it
+					zest_pass_node imgui_pass = zest_imgui_BeginPass();
+					if (imgui_pass) {
+						//zest_ConnectInput(test_texture, 0);
+						zest_ConnectSwapChainOutput();
+					} else {
+						//If there's no ImGui to render then just render a blank screen
+						zest_pass_node blank_pass = zest_BeginGraphicBlankScreen("Draw Nothing");
+						//Add the swap chain as an output to the imgui render pass. This is telling the render graph where it should render to.
+						zest_ConnectSwapChainOutput();
+					}
+					zest_EndPass();
+					//----------------------------------------------------------------------------------------------------
+					//End the render graph and execute it. This will submit it to the GPU.
+					zest_frame_graph render_graph = zest_EndFrameGraph();
+				}
+			} else {
+				zest_QueueFrameGraphForExecution(app->context, frame_graph);
+			}
+			if (app->request_graph_print) {
+				//You can print out the render graph for debugging purposes
+				zest_PrintCompiledRenderGraph(frame_graph);
+				app->request_graph_print = false;
+			}
+			zest_EndFrame(app->context);
 		}
 	}
 }
@@ -169,27 +174,37 @@ int main(void) {
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	//zest_create_info_t create_info = zest_CreateInfo();
-    create_info.log_path = ".";
-	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
-	//Implement GLFW for window creation
-	zest_implglfw_SetCallbacks(&create_info);
+
+	if (!glfwInit()) {
+		return 0;
+	}
 
 	ImGuiApp imgui_app = {};
 
-	zest_UseVulkan();
+	zest_uint count;
+	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
+
+	//Create the device that serves all vulkan based contexts
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+	zest_AddDeviceBuilderValidation(device_builder);
+	zest_DeviceBuilderLogToConsole(device_builder);
+	zest_device device = zest_EndDeviceBuilder(device_builder);
+
+	//Create a window using GLFW
+	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	zest_Initialise(&create_info);
+	imgui_app.context = zest_Initialise(device, window_handles, &create_info);
+
 	//Set the Zest use data
 	zest_SetUserData(&imgui_app);
-	//Set the udpate callback to be called every frame
-	zest_SetUserUpdateCallback(UpdateCallback);
 	//Initialise our example
 	InitImGuiApp(&imgui_app);
 
 	//Start the main loop
-	zest_Start();
+	MainLoop(&imgui_app);
 	zest_imgui_ShutdownGLFW();
-	zest_Shutdown();
+	zest_Shutdown(imgui_app.context);
 
 	return 0;
 }

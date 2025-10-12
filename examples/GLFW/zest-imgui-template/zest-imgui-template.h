@@ -19,6 +19,7 @@ struct ImGuiApp {
 	zest_image_handle test_texture;
 	zest_atlas_region test_image;
 	zest_timer_handle timer;
+	zest_context context;
 	RenderCacheInfo cache_info;
 	bool sync_refresh;
 	bool request_graph_print;
