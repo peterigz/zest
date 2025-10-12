@@ -289,6 +289,9 @@ void zest_imgui_UpdateBuffers() {
 
 	ZestImGui->fif = (ZestImGui->fif + 1) % ZEST_MAX_FIF;
 	zest_FreeBuffer(ZestImGui->vertex_staging_buffer[ZestImGui->fif]);
+	if (ZestImGui->index_staging_buffer[ZestImGui->fif]) {
+		ZEST_ASSERT(ZestImGui->index_staging_buffer[ZestImGui->fif]->magic);
+	}
 	zest_FreeBuffer(ZestImGui->index_staging_buffer[ZestImGui->fif]);
 
 	zest_context context = ZestImGui->context;
@@ -299,30 +302,29 @@ void zest_imgui_UpdateBuffers() {
 		zest_size vertex_memory_in_use = imgui_draw_data->TotalVtxCount * sizeof(ImDrawVert);
 		ZestImGui->vertex_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(context, vertex_memory_in_use, 0);
 		ZestImGui->index_staging_buffer[ZestImGui->fif] = zest_CreateStagingBuffer(context, index_memory_in_use, 0);
-		zest_buffer vertex_buffer = ZestImGui->vertex_staging_buffer[ZestImGui->fif];
-		zest_buffer index_buffer = ZestImGui->index_staging_buffer[ZestImGui->fif];
-        zest_SetBufferMemoryInUse(vertex_buffer, vertex_memory_in_use);
-        zest_SetBufferMemoryInUse(index_buffer, index_memory_in_use);
+		zest_buffer staging_vertex_buffer = ZestImGui->vertex_staging_buffer[ZestImGui->fif];
+		zest_buffer staging_index_buffer = ZestImGui->index_staging_buffer[ZestImGui->fif];
+        zest_SetBufferMemoryInUse(staging_vertex_buffer, vertex_memory_in_use);
+        zest_SetBufferMemoryInUse(staging_index_buffer, index_memory_in_use);
 		zest_buffer device_vertex_buffer = ZestImGui->vertex_device_buffer[ZestImGui->fif];
 		zest_buffer device_index_buffer = ZestImGui->index_device_buffer[ZestImGui->fif];
-        ZEST_ASSERT(vertex_buffer); //Make sure you call zest_imgui_Initialise first!
-        ZEST_ASSERT(index_buffer);	//Make sure you call zest_imgui_Initialise first!
-
+        ZEST_ASSERT(staging_vertex_buffer); //Make sure you call zest_imgui_Initialise first!
+        ZEST_ASSERT(staging_index_buffer);	//Make sure you call zest_imgui_Initialise first!
 
 		ZestImGui->push_constants.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(context), 2.0f / zest_ScreenHeightf(context), -1.f, -1.f);
 
         if (index_memory_in_use > zest_BufferSize(device_index_buffer)) {
-            if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), zest_BufferMemoryInUse(index_buffer))) {
+            if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), zest_BufferMemoryInUse(staging_index_buffer))) {
 				ZestImGui->index_device_buffer[ZestImGui->fif] = device_index_buffer;
             }
         }
         if (vertex_memory_in_use > zest_BufferSize(device_vertex_buffer)) {
-            if (zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawVert), zest_BufferMemoryInUse(vertex_buffer))) {
+            if (zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawVert), zest_BufferMemoryInUse(staging_vertex_buffer))) {
 				ZestImGui->vertex_device_buffer[ZestImGui->fif] = device_vertex_buffer;
             }
         }
-        ImDrawIdx *idxDst = (ImDrawIdx *)zest_BufferData(index_buffer);
-        ImDrawVert *vtxDst = (ImDrawVert *)zest_BufferData(vertex_buffer);
+        ImDrawIdx *idxDst = (ImDrawIdx *)zest_BufferData(staging_index_buffer);
+        ImDrawVert *vtxDst = (ImDrawVert *)zest_BufferData(staging_vertex_buffer);
 
         for (int n = 0; n < imgui_draw_data->CmdListsCount; n++) {
             const ImDrawList *cmd_list = imgui_draw_data->CmdLists[n];
