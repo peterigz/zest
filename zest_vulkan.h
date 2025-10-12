@@ -1625,12 +1625,14 @@ void zest__vk_pick_physical_device(zest_device device) {
 ZEST_PRIVATE inline void zest__vk_get_required_extensions(zest_device device) {
     //If you're compiling on Mac and hitting this assert then it could be because you need to allow 3rd party libraries when signing the app.
     //Check "Disable Library Validation" under Signing and Capabilities
-    ZEST_ASSERT(device->extensions); //Vulkan not available
+	ZEST_ASSERT(device->extensions, 
+		"No extensions found. When setting up the device make sure that you call zest_AddDeviceBuilderExtensions "
+		"to add extensions and that you are actually adding an extension (count should be greater then one) "
+		"If you're using GLFW or SDL make sure that you're initialising them first."); 
 
     if (zest__validation_layers_are_enabled(device)) {
         zest_AddInstanceExtension(device, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
-
 #ifdef ZEST_PORTABILITY_ENUMERATION
     ZEST_APPEND_LOG(device->log_path.str, "Adding enumerate portability extension");
     zest_AddInstanceExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);

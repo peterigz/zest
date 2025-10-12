@@ -40,6 +40,7 @@ typedef struct zest_timer_t {
 
 typedef struct zest_buffer_allocator_t {
     int magic;
+	zest_context context;
     zest_buffer_info_t buffer_info;
     zloc_allocator *allocator;
     zest_size alignment;
@@ -1765,7 +1766,7 @@ void zest__on_split_block(void* user_data, zloc_header* block, zloc_header* trim
 }
 
 void zest__on_reallocation_copy(void* user_data, zloc_header* block, zloc_header* new_block) {
-    zest_buffer_allocator_t* pools = (zest_buffer_allocator_t*)user_data;
+    zest_buffer_allocator pools = (zest_buffer_allocator_t*)user_data;
     zest_buffer buffer = (zest_buffer)zloc_BlockUserExtensionPtr(block);
     zest_buffer new_buffer = (zest_buffer)zloc_BlockUserExtensionPtr(new_block);
     if (pools->buffer_info.property_flags & zest_memory_property_host_visible_bit) {
@@ -1776,26 +1777,30 @@ void zest__on_reallocation_copy(void* user_data, zloc_header* block, zloc_header
 }
 
 void zest__remote_merge_next_callback(void *user_data, zloc_header *block, zloc_header *next_block) {
+    zest_buffer_allocator buffer_allocator = (zest_buffer_allocator)user_data;
+	ZEST_ASSERT_HANDLE(buffer_allocator);
     zest_buffer remote_block = (zest_buffer)zloc_BlockUserExtensionPtr(block);
     zest_buffer next_remote_block = (zest_buffer)zloc_BlockUserExtensionPtr(next_block);
     remote_block->size += next_remote_block->size;
     next_remote_block->magic = 0;
     next_remote_block->memory_offset = 0;
     next_remote_block->size = 0;
-	zest_context context = remote_block->context;
+	zest_context context = buffer_allocator->context;
 	context->device->platform->push_buffer_for_freeing(remote_block);
 	context->device->platform->push_buffer_for_freeing(next_remote_block);
     remote_block->magic = 0;
 }
 
 void zest__remote_merge_prev_callback(void *user_data, zloc_header *prev_block, zloc_header *block) {
+    zest_buffer_allocator buffer_allocator = (zest_buffer_allocator)user_data;
+	ZEST_ASSERT_HANDLE(buffer_allocator);
     zest_buffer remote_block = (zest_buffer)zloc_BlockUserExtensionPtr(block);
     zest_buffer prev_remote_block = (zest_buffer)zloc_BlockUserExtensionPtr(prev_block);
     prev_remote_block->size += remote_block->size;
     prev_remote_block->magic = 0;
     remote_block->memory_offset = 0;
     remote_block->size = 0;
-	zest_context context = remote_block->context;
+	zest_context context = buffer_allocator->context;
 	context->device->platform->push_buffer_for_freeing(remote_block);
 	context->device->platform->push_buffer_for_freeing(prev_remote_block);
     remote_block->magic = 0;
@@ -1993,6 +1998,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
         *buffer_allocator = ZEST__ZERO_INIT(zest_buffer_allocator_t);
         buffer_allocator->buffer_info = *buffer_info;
         buffer_allocator->magic = zest_INIT_MAGIC(zest_struct_type_buffer_allocator);
+		buffer_allocator->context = context;
         zest_device_memory_pool buffer_pool = 0;
         if (zest__create_memory_pool(context, buffer_info, key, size, &buffer_pool) != ZEST_TRUE) {
 			return 0;
@@ -2176,7 +2182,8 @@ zest_buffer_info_t zest_CreateBufferInfo(zest_buffer_type type, zest_memory_usag
 }
 
 void zest_FreeBuffer(zest_buffer buffer) {
-    if (!buffer) return;    //Nothing to free
+    if (!buffer) return;    		//Nothing to free
+	if (buffer->size == 0) return;	//Buffer was already freed;
     zloc_FreeRemote(buffer->buffer_allocator->allocator, buffer);
 	zest_context context = buffer->context;
     context->device->platform->cleanup_buffer_backend(buffer);
@@ -2679,7 +2686,12 @@ zest_bool zest__recreate_swapchain(zest_context context) {
 
 	const char *name = swapchain->name;
 
-    zest__cleanup_swapchain(swapchain);
+	//clean up the swapchain except for the surface, that can be re-used
+    context->device->platform->cleanup_swapchain_backend(swapchain);
+    zest_vec_free(context->device->allocator, swapchain->images);
+    zest_vec_free(context->device->allocator, swapchain->views);
+	ZEST__FREE(context->device->allocator, swapchain);
+
     zest__cleanup_pipelines(context);
     zest_map_free(context->device->allocator, context->device->cached_pipelines);
 
