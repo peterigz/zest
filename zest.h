@@ -1980,6 +1980,7 @@ typedef enum zest_image_collection_flag_bits {
 	zest_image_collection_flag_none = 0,
 	zest_image_collection_flag_is_cube_map = 1 << 0,
 	zest_image_collection_flag_ktx_data = 1 << 1,
+	zest_image_collection_flag_atlas = 1 << 1,
 } zest_image_collection_flag_bits;
 
 typedef zest_uint zest_image_collection_flags;
@@ -2501,13 +2502,13 @@ typedef struct zest_bucket_array_t {
 	zest_uint element_size;     // The size of a single element
 } zest_bucket_array_t;
 
-ZEST_PRIVATE inline void zest__bucket_array_init(zest_context context, zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity);
-ZEST_PRIVATE inline void zest__bucket_array_free(zest_bucket_array_t *array);
+ZEST_PRIVATE inline void zest__initialise_bucket_array(zest_context context, zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity);
+ZEST_PRIVATE inline void zest__free_bucket_array(zest_bucket_array_t *array);
 ZEST_API_TMP inline void *zest__bucket_array_get(zest_bucket_array_t *array, zest_uint index);
 ZEST_PRIVATE inline void *zest__bucket_array_add(zest_bucket_array_t *array);
 ZEST_PRIVATE inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, zest_bucket_array_t *array);
 
-#define zest_bucket_array_init(context, array, T, cap) zest__bucket_array_init(context, array, sizeof(T), cap)
+#define zest_bucket_array_init(context, array, T, cap) zest__initialise_bucket_array(context, array, sizeof(T), cap)
 #define zest_bucket_array_get(array, T, index) ((T *)zest__bucket_array_get(array, index))
 #define zest_bucket_array_add(array, T) ((T *)zest__bucket_array_add(array))
 #define zest_bucket_array_linear_add(allocator, array, T) ((T *)zest__bucket_array_linear_add(allocator, array))
@@ -4268,22 +4269,18 @@ typedef struct zest_pipeline_template_t {
 
 typedef struct zest_atlas_region_t {
 	int magic;
-	zest_index index;            //index within the QulkanTexture
-	zest_text_t name;            //Filename of the image
+	zest_context context;
+	zest_uint top, left;         //the top and left pixel coordinates of the region in the layer
 	zest_uint width;
 	zest_uint height;
-	zest_vec4 uv;                //UV coords are set after the ProcessImages function is called and the images are packed into the texture
-	zest_u64 uv_packed;          //UV packed into 16bit floats
-	zest_index layer;            //the layer index of the image when it's packed into an image/texture array
-	zest_uint frames;            //Will be one if this is a single image or more if it's part of and animation
-	zest_uint top, left;         //the top left location of the image on the layer or spritesheet
-	zest_vec2 min;               //The minimum coords of the vertices in the quad of the image
-	zest_vec2 max;               //The maximum coords of the vertices in the quad of the image
-	zest_vec2 scale;             //The scale of the image. 1.f if default, changing this will update the min/max coords
-	zest_vec2 handle;            //The handle of the image. 0.5f is the center of the image
-	float max_radius;            //You can load images and calculate the max radius of the image which is the furthest pixel from the center.
-	zest_image image;            //Handle to the texture that this image belongs to
-	zest_context context;
+	zest_vec4 uv;                //UV coords 
+	zest_u64 uv_packed;          //UV coords packed into 16bit floats
+	zest_index layer_index;      //the layer index of the image when it's packed into an image/texture array
+	zest_uint frames;            //Will be one if this is a single image or more if it's part of an animation
+	zest_image image;            //Handle to the texture that this atlas region belongs to
+	zest_vec2 handle;
+	zest_vec2 min;
+	zest_vec2 max;
 } zest_atlas_region_t;
 
 typedef struct zest_bitmap_meta_t {
@@ -4298,6 +4295,7 @@ typedef struct zest_bitmap_meta_t {
 typedef struct zest_bitmap_t {
 	int magic;
 	zest_bitmap_meta_t meta;
+	zest_atlas_region atlas_region;
 	zest_text_t name;
 	zest_byte *data;
 	zest_bool is_imported;
@@ -4325,11 +4323,13 @@ typedef struct zest_buffer_image_copy_t {
 	zest_extent3d_t image_extent;
 } zest_buffer_image_copy_t;
 
+zest_hash_map(zest_bitmap) zest_map_bitmaps;
+
 typedef struct zest_image_collection_t {
 	int magic;
 	zest_context context;
 	zest_format format;
-	zest_bitmap_t *image_bitmaps;
+	zest_map_bitmaps image_bitmaps;
 	zest_atlas_region *regions;
 	zest_bitmap_t *layers;
 	zest_bitmap_array_t bitmap_array;
@@ -5414,9 +5414,12 @@ ZEST_API zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float
 ZEST_API zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint height);
 ZEST_API zest_image_view_create_info_t zest_CreateViewImageInfo(zest_image_handle image_handle);
 ZEST_API zest_image_handle zest_CreateImage(zest_context context, zest_image_info_t *create_info);
+ZEST_API zest_image_handle zest_CreateImageAtlas(zest_image_collection atlas, zest_uint layer_width, zest_uint layer_height);
 ZEST_API zest_image_view_handle zest_CreateImageView(zest_image_handle image_handle, zest_image_view_create_info_t *create_info);
 ZEST_API zest_image_view_array_handle zest_CreateImageViewsPerMip(zest_image_handle image_handle);
 ZEST_API zest_image_collection zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags);
+ZEST_API zest_image_collection zest_CreateImageAtlasCollection(zest_context context, zest_format format, zest_image_collection_flags flags);
+ZEST_API zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection image_collection, const char *filename, const char *name);
 ZEST_API void zest_SetImageCollectionBitmapMeta(zest_image_collection image_collection, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset);
 ZEST_API zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection image_collection);
 ZEST_API zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection image_collection, zest_uint bitmap_index);
@@ -5425,6 +5428,7 @@ ZEST_API zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection i
 ZEST_API void zest_FreeImage(zest_image_handle image_handle);
 ZEST_API zest_imgui_image_t zest_NewImGuiImage(void);
 ZEST_API zest_atlas_region zest_CreateAtlasRegion(zest_image_handle handle);
+ZEST_API zest_atlas_region zest_NewAtlasRegion(zest_context context);
 ZEST_API void zest_FreeAtlasRegion(zest_atlas_region region);
 ZEST_API zest_atlas_region zest_CreateAnimation(zest_context context, zest_uint frames);
 zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name);
@@ -5493,7 +5497,7 @@ ZEST_API void zest_FreeImageCollection(zest_image_collection image_collection);
 //Set the handle of an image. This dictates where the image will be positioned when you draw it with zest_DrawSprite/zest_DrawBillboard. 0.5, 0.5 will center the image at the position you draw it.
 ZEST_API void zest_SetImageHandle(zest_atlas_region image, float x, float y);
 //Get the layer index that the image exists on in the texture
-ZEST_API zest_index zest_ImageLayerIndex(zest_atlas_region image);
+ZEST_API zest_index zest_RegionLayerIndex(zest_atlas_region image);
 //Get the dimensions of the image
 ZEST_API zest_extent2d_t zest_RegionDimensions(zest_atlas_region image);
 //Get the uv coords of the image
@@ -5508,6 +5512,8 @@ ZEST_API zest_uint zest_ImageDescriptorIndex(zest_image_handle image_handle, zes
 //of the image without translating it into a zest layout enum because you just need to know if the layout changed
 //for frame graph caching purposes etc.
 ZEST_API int zest_ImageRawLayout(zest_image_handle image_handle);
+//Begin a new image collection.
+ZEST_API void zest_AddImageCollectionPNG(zest_image_collection image_collection, const char *filename);
 
 // --Sampler functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
