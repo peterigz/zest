@@ -1067,7 +1067,7 @@ VkSurfaceFormatKHR zest__vk_choose_swapchain_format(zest_context context, VkSurf
     }
 
     // --- 2. Determine the user's desired format ---
-    VkFormat desired_format = (VkFormat)ZestApp->create_info.color_format;
+    VkFormat desired_format = (VkFormat)context->create_info.color_format;
 
     if (desired_format == VK_FORMAT_UNDEFINED) {
         desired_format = VK_FORMAT_B8G8R8A8_SRGB; // Default to SRGB if user doesn't care

@@ -1643,6 +1643,8 @@ typedef enum {
 	zest_handle_type_shaders,
 	zest_handle_type_compute_pipelines,
 	zest_handle_type_set_layouts,
+	zest_handle_type_image_collection,
+	zest_handle_type_atlas_region,
 	zest_max_handle_type
 }zest_handle_type;
 
@@ -1730,26 +1732,12 @@ typedef enum zest_platform_command {
 	zest_command_compute_pipeline,
 } zest_platform_command;
 
-typedef enum zest_app_flag_bits {
-	zest_app_flag_none = 0,
-	zest_app_flag_suspend_rendering = 1 << 0,
-	zest_app_flag_shift_pressed = 1 << 1,
-	zest_app_flag_control_pressed = 1 << 2,
-	zest_app_flag_cmd_pressed = 1 << 3,
-	zest_app_flag_record_input = 1 << 4,
-	zest_app_flag_enable_console = 1 << 5,
-	zest_app_flag_quit_application = 1 << 6,
-	zest_app_flag_output_fps = 1 << 7
-} zest_app_flag_bits;
-
 typedef enum zest_window_mode {
 	zest_window_mode_bordered,
 	zest_window_mode_borderless,
 	zest_window_mode_fullscreen,
 	zest_window_mode_fullscreen_borderless,
 }zest_window_mode;
-
-typedef zest_uint zest_app_flags;
 
 enum zest__constants {
 	zest__validation_layer_count = 1,
@@ -1787,6 +1775,7 @@ typedef enum zest_context_flag_bits {
 	zest_context_flag_work_was_submitted = 1 << 10,
 	zest_context_flag_building_frame_graph = 1 << 11,
 	zest_context_flag_enable_multisampling = 1 << 12,
+	zest_context_flag_critical_error = 1 << 13,
 } zest_context_flag_bits;
 
 typedef zest_uint zest_context_flags;
@@ -2407,6 +2396,8 @@ ZEST__MAKE_USER_HANDLE(zest_layer)
 ZEST__MAKE_USER_HANDLE(zest_shader)
 ZEST__MAKE_USER_HANDLE(zest_compute)
 ZEST__MAKE_USER_HANDLE(zest_set_layout)
+ZEST__MAKE_USER_HANDLE(zest_image_collection)
+ZEST__MAKE_USER_HANDLE(zest_atlas_region)
 
 // --Private structs with inline functions
 typedef struct zest_queue_family_indices {
@@ -2527,7 +2518,7 @@ typedef struct zest_resource_store_t {
 	zest_uint alignment;
 	zest_uint *generations;
 	zest_uint *free_slots;
-	zest_context context;
+	zest_device device;
 } zest_resource_store_t;
 
 ZEST_PRIVATE void zest__free_store(zest_resource_store_t *store);
@@ -2538,8 +2529,8 @@ ZEST_PRIVATE void zest__resize_store(zest_resource_store_t *store, zest_uint new
 ZEST_PRIVATE void zest__resize_bytes_store(zest_resource_store_t *store, zest_uint new_size);
 ZEST_PRIVATE zest_uint zest__size_in_bytes_store(zest_resource_store_t *store);
 ZEST_PRIVATE zest_handle zest__add_store_resource(zest_handle_type type, zest_context context);
-ZEST_PRIVATE void zest__remove_store_resource(zest_context context, zest_handle handle);
-ZEST_PRIVATE void zest__initialise_store(zest_context context, zest_resource_store_t *store, zest_uint struct_size);
+ZEST_PRIVATE void zest__remove_store_resource(zest_device device, zest_handle handle);
+ZEST_PRIVATE void zest__initialise_store(zest_device device, zest_resource_store_t *store, zest_uint struct_size);
 
 
 // --Pocket_Hasher, converted to c from Stephen Brumme's XXHash code (https://github.com/stbrumme/xxhash) by Peter Rigby
@@ -3616,15 +3607,6 @@ typedef struct zest_device_t {
 
 typedef bool (*zest_wait_timeout_callback)(zest_millisecs total_wait_time_ms, zest_uint retry_count, void *user_data);
 
-typedef struct zest_app_t {
-	int magic;
-	zest_create_info_t create_info;
-
-	void *user_data;
-
-	zest_app_flags flags;
-} zest_app_t;
-
 typedef struct zest_mip_push_constants_t {
 	zest_vec4 settings;
 	zest_vec2 source_resolution;            //the current size of the window/resolution
@@ -4327,7 +4309,7 @@ zest_hash_map(zest_bitmap) zest_map_bitmaps;
 
 typedef struct zest_image_collection_t {
 	int magic;
-	zest_context context;
+	zest_image_collection_handle handle;
 	zest_format format;
 	zest_map_bitmaps image_bitmaps;
 	zest_atlas_region *regions;
@@ -4705,12 +4687,12 @@ typedef struct zest_context_t {
 	//Flags
 	zest_context_flags flags;
 
+	void *user_data;
 	zest_device_t *device;
-	zest_app_t *app;
+	zest_create_info_t create_info;
 
 } zest_context_t;
 
-extern zest_app_t *ZestApp;
 extern zest_platform_t ZestPlatform;
 
 ZEST_PRIVATE inline zest_bool zest__is_valid_handle(zest_context context, zest_handle handle) {
@@ -4791,7 +4773,7 @@ ZEST_PRIVATE inline void zest__add_host_memory_pool(zest_device device, zest_siz
 ZEST_PRIVATE inline void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 	void* allocation = zloc_Allocate(allocator, size);
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-	if (offset_from_allocator == 41092504) {
+	if (offset_from_allocator == 40522720) {
 		int d = 0;
 	}
 	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
@@ -4837,17 +4819,18 @@ ZEST_PRIVATE void zest__destroy_window_callback(zest_context window, void *user_
 ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__cleanup_device(zest_device device);
 ZEST_PRIVATE void zest__cleanup_context(zest_context context);
-ZEST_PRIVATE void zest__cleanup_shader_resource_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_image_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_sampler_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_timer_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_layer_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_shader_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_compute_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_set_layout_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_view_store(zest_context context);
-ZEST_PRIVATE void zest__cleanup_view_array_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_shader_resource_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_image_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_sampler_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_timer_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_layer_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_shader_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_compute_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_set_layout_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_view_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_view_array_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_image_collection_store(zest_device device);
 ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources(zest_context context);
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
@@ -4882,7 +4865,8 @@ ZEST_PRIVATE void zest__tinyktxCallbackFree(void *user, void *data);
 ZEST_PRIVATE size_t zest__tinyktxCallbackRead(void *user, void *data, size_t size);
 ZEST_PRIVATE bool zest__tinyktxCallbackSeek(void *user, int64_t offset);
 ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
-ZEST_API zest_image_collection zest__load_ktx(zest_context context, const char *file_path);
+ZEST_API zest_image_collection_handle zest__load_ktx(zest_context context, const char *file_path);
+ZEST_PRIVATE void zest__cleanup_image_collection(zest_image_collection image_collection);
 ZEST_PRIVATE zest_format zest__convert_tktx_format(TinyKtx_Format format);
 ZEST_PRIVATE int zest__decode_png(zest_context context, zest_bitmap out_bitmap, const zest_byte *in_png, zest_uint in_size, int convert_to_rgba32);
 ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
@@ -4945,16 +4929,13 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler
 
 // --Device_set_up
 ZEST_API_TMP void zest__set_default_pool_sizes(zest_device device);
-zest_device zest__create_vulkan_device(zest_device_builder info);
+zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder info);
 //end device setup functions
 
 //App_initialise_and_run_functions
 ZEST_API zest_device_builder zest__begin_device_builder();
 ZEST_PRIVATE void zest__do_scheduled_tasks(zest_context context);
-ZEST_PRIVATE void zest__initialise_app(zest_context context, zest_create_info_t *create_info);
 ZEST_PRIVATE void zest__destroy(zest_context context);
-ZEST_PRIVATE void zest__main_loop(zest_context context);
-ZEST_API void zest_Terminate(void);
 ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait(zest_context context);
 //-- end of internal functions
 
@@ -4981,20 +4962,20 @@ ZEST_API zest_create_info_t zest_CreateInfo();
 //Create a new zest_create_info_t struct with default values for initialising Zest but also enable validation layers as well
 ZEST_API zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags);
 //Initialise Zest. You must call this in order to use Zest. Use zest_CreateInfo() to set up some default values to initialise the renderer.
-ZEST_API zest_context zest_Initialise(zest_device device, zest_window_data_t window_data, zest_create_info_t* info);
-//Set the custom user data which will get passed through to the user update function each frame.
-ZEST_API void zest_SetUserData(void* data);
+ZEST_API zest_context zest_CreateContext(zest_device device, zest_window_data_t window_data, zest_create_info_t* info);
 //Begin a new frame for a context. Within the BeginFrame and EndFrame you can create a frame graph and present a frame.
 //This funciton will wait on the fence from the previous time a frame was submitted.
 ZEST_API zest_bool zest_BeginFrame(zest_context context);
 ZEST_API void zest_EndFrame(zest_context context);
 //Shutdown zest and unload/free everything. Call this after zest_Start.
-ZEST_API void zest_Shutdown(zest_context context);
+ZEST_API void zest_DestroyContext(zest_context context);
 //Free all memory used in the renderer and reset it back to an initial state.
 ZEST_API void zest_ResetRenderer(zest_context context);
 //Set the create info for the renderer, to be used optionally before a call to zest_ResetRenderer to change the configuration
 //of the renderer
-ZEST_API void zest_SetCreateInfo(zest_create_info_t *info);
+ZEST_API void zest_SetCreateInfo(zest_context context, zest_create_info_t *info);
+//Set the pointer to user data in the context
+ZEST_API void zest_SetContextUserData(zest_context context, void *user_data);
 //Used internally by platform layers
 ZEST_API void zest__register_platform(zest_platform_type type, zest__platform_setup callback);
 
@@ -5417,14 +5398,14 @@ ZEST_API zest_image_handle zest_CreateImage(zest_context context, zest_image_inf
 ZEST_API zest_image_handle zest_CreateImageAtlas(zest_image_collection atlas, zest_uint layer_width, zest_uint layer_height);
 ZEST_API zest_image_view_handle zest_CreateImageView(zest_image_handle image_handle, zest_image_view_create_info_t *create_info);
 ZEST_API zest_image_view_array_handle zest_CreateImageViewsPerMip(zest_image_handle image_handle);
-ZEST_API zest_image_collection zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags);
-ZEST_API zest_image_collection zest_CreateImageAtlasCollection(zest_context context, zest_format format, zest_image_collection_flags flags);
-ZEST_API zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection image_collection, const char *filename, const char *name);
-ZEST_API void zest_SetImageCollectionBitmapMeta(zest_image_collection image_collection, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset);
-ZEST_API zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection image_collection);
-ZEST_API zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection image_collection, zest_uint bitmap_index);
-ZEST_API zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection image_collection);
-ZEST_API zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection image_collection, zest_uint bitmap_index, const void *src_data, zest_size src_size);
+ZEST_API zest_image_collection_handle zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags);
+ZEST_API zest_image_collection_handle zest_CreateImageAtlasCollection(zest_context context, zest_format format, zest_image_collection_flags flags);
+ZEST_API zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection_handle image_collection, const char *filename, const char *name);
+ZEST_API void zest_SetImageCollectionBitmapMeta(zest_image_collection_handle image_collection, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset);
+ZEST_API zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection_handle image_collection);
+ZEST_API zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection_handle image_collection, zest_uint bitmap_index);
+ZEST_API zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection_handle image_collection);
+ZEST_API zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection_handle image_collection, zest_uint bitmap_index, const void *src_data, zest_size src_size);
 ZEST_API void zest_FreeImage(zest_image_handle image_handle);
 ZEST_API zest_imgui_image_t zest_NewImGuiImage(void);
 ZEST_API zest_atlas_region zest_CreateAtlasRegion(zest_image_handle handle);
@@ -5493,7 +5474,7 @@ ZEST_API void zest_InitialiseBitmapArray(zest_context context, zest_bitmap_array
 //Free a bitmap array and return memory resources to the allocator
 ZEST_API void zest_FreeBitmapArray(zest_bitmap_array_t *images);
 //Free an image collection
-ZEST_API void zest_FreeImageCollection(zest_image_collection image_collection);
+ZEST_API void zest_FreeImageCollection(zest_image_collection_handle image_collection);
 //Set the handle of an image. This dictates where the image will be positioned when you draw it with zest_DrawSprite/zest_DrawBillboard. 0.5, 0.5 will center the image at the position you draw it.
 ZEST_API void zest_SetImageHandle(zest_atlas_region image, float x, float y);
 //Get the layer index that the image exists on in the texture
@@ -5513,7 +5494,7 @@ ZEST_API zest_uint zest_ImageDescriptorIndex(zest_image_handle image_handle, zes
 //for frame graph caching purposes etc.
 ZEST_API int zest_ImageRawLayout(zest_image_handle image_handle);
 //Begin a new image collection.
-ZEST_API void zest_AddImageCollectionPNG(zest_image_collection image_collection, const char *filename);
+ZEST_API void zest_AddImageCollectionPNG(zest_image_collection_handle image_collection, const char *filename);
 
 // --Sampler functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
@@ -5810,14 +5791,10 @@ ZEST_API void zest_SetDPIScale(zest_context context, float scale);
 //Wait for the device to be idle (finish executing all commands). Only recommended if you need to do a one-off operation like change a texture that could
 //still be in use by the GPU
 ZEST_API void zest_WaitForIdleDevice(zest_context context);
-//If you pass true to this function (or any value other then 0) then the zest_app_flag_quit_application meaning the main loop with break at the end of the next frame.
-ZEST_API void zest_MaybeQuit(zest_bool condition);
 //Enable vsync so that the frame rate is limited to the current monitor refresh rate. Will cause the swap chain to be rebuilt.
 ZEST_API void zest_EnableVSync(zest_context context);
 //Disable vsync so that the frame rate is not limited to the current monitor refresh rate, frames will render as fast as they can. Will cause the swap chain to be rebuilt.
 ZEST_API void zest_DisableVSync(zest_context context);
-//Log the current FPS to the console once every second
-ZEST_API void zest_LogFPSToConsole(zest_bool yesno);
 //Set the current frame in flight. You should only use this if you want to execute a floating command queue that contains resources that only have a single frame in flight.
 //Once you're done you can call zest_RestoreFrameInFlight
 ZEST_API void zest_SetFrameInFlight(zest_context context, zest_uint fif);
@@ -5827,8 +5804,6 @@ ZEST_API void zest_RestoreFrameInFlight(zest_context context);
 ZEST_API float zest_LinearToSRGB(float value);
 //Check for valid handles:
 ZEST_API zest_bool zest_IsResourceHandle(zest_image_handle image_handle);
-//Tell the main loop that it should stop and exit the app
-ZEST_API void zest_Terminate(void);
 //--End General Helper functions
 
 //-----------------------------------------------

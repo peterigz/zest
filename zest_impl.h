@@ -1,7 +1,6 @@
 #ifndef ZEST_IMPL_H
 #define ZEST_IMPL_H
 
-zest_app_t* ZestApp = 0;
 zest__platform_setup zest__platform_setup_callbacks[zest_max_platforms] = { 0 };
 //The thread local frame graph setup context
 static ZEST_THREAD_LOCAL zest_frame_graph_builder zest__frame_graph_builder = NULL;
@@ -1087,21 +1086,18 @@ void zest__register_platform(zest_platform_type type, zest__platform_setup callb
 }
 
 // Initialisation and destruction
-zest_context zest_Initialise(zest_device device, zest_window_data_t window_data, zest_create_info_t* info) {
+zest_context zest_CreateContext(zest_device device, zest_window_data_t window_data, zest_create_info_t* info) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
 	zloc_allocator *allocator = device->allocator;
     zest_context context = (zest_context)zloc_Allocate(allocator, sizeof(zest_context_t));
     *context = ZEST__ZERO_INIT(zest_context_t);
 	context->magic = zest_INIT_MAGIC(zest_struct_type_context);
 
-    zest_app_t *app = (zest_app_t*)zloc_Allocate(allocator, sizeof(zest_app_t));
-    memset(app, 0, sizeof(zest_app_t));
 	context->device = device;
 
-	ZestApp = app;
-	context->app = app;
+	context->create_info = *info;
     context->backend = (zest_context_backend)device->platform->new_context_backend(context);
-	zest__initialise_app(context, info);
+    context->fence_wait_timeout_ns = info->fence_wait_timeout_ms * 1000 * 1000;
 	context->window_data = window_data;
 	zest_bool result = zest__initialise_context(context, info);
 	if (result != ZEST_TRUE) {
@@ -1173,42 +1169,24 @@ void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size 
 
 zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 	ZEST_ASSERT_HANDLE(builder);	//Not a valid zest_device_builder handle. Make sure you call zest_Begin[Platform]DeviceBuilder
-	zest_device device = NULL;
-	switch (builder->platform) {
-		case zest_platform_vulkan: device = zest__create_vulkan_device(builder); break;
-	}
-	ZEST__FREE_POOL(builder->allocator);
-	return device;
-}
 
-zest_device zest__create_vulkan_device(zest_device_builder info) {
-    void* memory_pool = ZEST__ALLOCATE_POOL(info->memory_pool_size);
+    void* memory_pool = ZEST__ALLOCATE_POOL(builder->memory_pool_size);
 	ZEST_ASSERT(memory_pool);    //unable to allocate initial memory pool
 
-    zloc_allocator* allocator = zloc_InitialiseAllocatorWithPool(memory_pool, info->memory_pool_size);
+    zloc_allocator* allocator = zloc_InitialiseAllocatorWithPool(memory_pool, builder->memory_pool_size);
 
-    zest_device_t *device = (zest_device_t*)zloc_Allocate(allocator, sizeof(zest_device_t));
+    zest_device device = (zest_device)zloc_Allocate(allocator, sizeof(zest_device_t));
 	allocator->user_data = device;
 
-    memset(device, 0, sizeof(zest_device_t));
+	*device = ZEST__ZERO_INIT(zest_device_t);
     device->allocator = allocator;
 	device->platform = (zest_platform)zloc_Allocate(allocator, sizeof(zest_platform_t));
-	device->init_flags = info->flags;
+	device->init_flags = builder->flags;
 
-	if (zest__platform_setup_callbacks[zest_platform_vulkan]) {
-		zest__platform_setup_callbacks[zest_platform_vulkan](device->platform);
-	} else {
-		zloc_Free(allocator, device->platform);
-		zloc_Free(allocator, device);
-		free(memory_pool);
-		ZEST_PRINT("No platform set up function found. Make sure you called the appropriate function for the platform that you want to use like zest_BeginVulkanDevice()");
-		return NULL;
-	}
-
-    device->thread_count = info->thread_count;
-    if (info->thread_count > 0) {
+    device->thread_count = builder->thread_count;
+    if (builder->thread_count > 0) {
         zest__initialise_thread_queues(&device->thread_queues);
-        for (int i = 0; i < info->thread_count; i++) {
+        for (int i = 0; i < builder->thread_count; i++) {
             if (!zest__create_worker_thread(device, i)) {
                 ZEST_ASSERT(0);     //Unable to create thread!
             }
@@ -1218,15 +1196,58 @@ zest_device zest__create_vulkan_device(zest_device_builder info) {
     device->magic = zest_INIT_MAGIC(zest_struct_type_device);
     device->allocator = allocator;
     device->memory_pools[0] = memory_pool;
-    device->memory_pool_sizes[0] = info->memory_pool_size;
+    device->memory_pool_sizes[0] = builder->memory_pool_size;
     device->memory_pool_count = 1;
-    device->setup_info = *info;
+    device->setup_info = *builder;
 	device->setup_info.allocator = NULL;
     void *scratch_memory = ZEST__ALLOCATE(device->allocator, zloc__MEGABYTE(1));
     device->scratch_arena = zloc_InitialiseLinearAllocator(scratch_memory, zloc__MEGABYTE(1));
-    if (info->log_path) {
-        zest_SetErrorLogPath(device, info->log_path);
+    if (builder->log_path) {
+        zest_SetErrorLogPath(device, builder->log_path);
     }
+
+	for (int i = 0; i != zest_max_handle_type; ++i) {
+		switch ((zest_handle_type)i) {
+			case zest_handle_type_shader_resources: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_shader_resources_t)); break;
+			case zest_handle_type_images: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_image_t)); break;
+			case zest_handle_type_views: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_image_view)); break;
+			case zest_handle_type_view_arrays: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_image_view_array)); break;
+			case zest_handle_type_samplers: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_sampler_t)); break;
+			case zest_handle_type_uniform_buffers: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_uniform_buffer_t)); break;
+			case zest_handle_type_timers: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_timer_t)); break;
+			case zest_handle_type_layers: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_layer_t)); break;
+			case zest_handle_type_shaders: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_shader_t)); break;
+			case zest_handle_type_compute_pipelines: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_compute_t)); break;
+			case zest_handle_type_set_layouts: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_set_layout_t)); break;
+			case zest_handle_type_image_collection: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_image_collection_t)); break;
+			case zest_handle_type_atlas_region: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_atlas_region_t)); break;
+		}
+	}
+
+	switch (builder->platform) {
+		case zest_platform_vulkan: {
+			if (!zest__initialise_vulkan_device(device, builder)) {
+				ZEST__FREE_POOL(memory_pool);
+				return NULL;
+			}
+			break;
+		}
+	}
+	ZEST__FREE_POOL(builder->allocator);
+	return device;
+}
+
+zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder info) {
+
+	if (zest__platform_setup_callbacks[zest_platform_vulkan]) {
+		zest__platform_setup_callbacks[zest_platform_vulkan](device->platform);
+	} else {
+		zloc_Free(device->allocator, device->platform);
+		zloc_Free(device->allocator, device);
+		ZEST_PRINT("No platform set up function found. Make sure you called the appropriate function for the platform that you want to use like zest_BeginVulkanDevice()");
+		return ZEST_FALSE;
+	}
+
     device->backend = (zest_device_backend)device->platform->new_device_backend(device);
 
 	zest_vec_foreach(i, info->required_instance_extensions) {
@@ -1235,10 +1256,11 @@ zest_device zest__create_vulkan_device(zest_device_builder info) {
 	}
 
 	if (device->platform->initialise_device(device)) {
-		return device;
+		return ZEST_TRUE;
 	}
+
 	zest__cleanup_device(device);
-	return NULL;
+	return ZEST_FALSE;
 }
 
 zest_bool zest_BeginFrame(zest_context context) {
@@ -1246,11 +1268,11 @@ zest_bool zest_BeginFrame(zest_context context) {
 	if (fence_wait_result == zest_fence_status_success) {
 	} else if (fence_wait_result == zest_fence_status_timeout) {
 		ZEST_PRINT("Fence wait timed out.");
-		zest_Terminate();
+		ZEST__FLAG(context->flags, zest_context_flag_critical_error);
 		return ZEST_FALSE;
 	} else {
 		ZEST_PRINT("Critical error when waiting for the main loop fence.");
-		zest_Terminate();
+		ZEST__FLAG(context->flags, zest_context_flag_critical_error);
 		return ZEST_FALSE;
 	}
 
@@ -1311,12 +1333,17 @@ void zest_EndFrame(zest_context context) {
 	ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 }
 
-void zest_Shutdown(zest_context context) {
+void zest_DestroyContext(zest_context context) {
     zest__destroy(context);
 }
 
-void zest_SetCreateInfo(zest_create_info_t *info) {
-    ZestApp->create_info = *info;
+void zest_SetCreateInfo(zest_context context, zest_create_info_t *info) {
+    context->create_info = *info;
+}
+
+void zest_SetContextUserData(zest_context context, void *user_data) {
+	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
+	context->user_data = user_data;
 }
 
 void zest_ResetRenderer(zest_context context) {
@@ -1326,13 +1353,8 @@ void zest_ResetRenderer(zest_context context) {
     zest_platform_command command_filter = zest_command_pipelines;
 
     zest__cleanup_context(context);
-    zest_create_info_t *info = &context->app->create_info;
     context->backend = (zest_context_backend)context->device->platform->new_context_backend(context);
-    zest__initialise_context(context, &context->app->create_info);
-}
-
-void zest_SetUserData(void* data) {
-    ZestApp->user_data = data;
+    zest__initialise_context(context, &context->create_info);
 }
 
 //-- End Initialisation and destruction
@@ -1444,12 +1466,6 @@ void zest__set_default_pool_sizes(zest_device device) {
 End of Device creation functions
 */
 
-void zest__initialise_app(zest_context context, zest_create_info_t* create_info) {
-    context->app->magic = zest_INIT_MAGIC(zest_struct_type_app);
-    context->app->create_info = *create_info;
-    context->fence_wait_timeout_ns = create_info->fence_wait_timeout_ms * 1000 * 1000;
-}
-
 void zest__end_thread(zest_work_queue_t *queue, void *data) {
     return;
 }
@@ -1473,7 +1489,6 @@ void zest__destroy(zest_context context) {
     zest__cleanup_device(context->device);
     zest_ResetValidationErrors(context);
     ZEST__FREE(context->device->allocator, context->device);
-    ZEST__FREE(context->device->allocator, ZestApp);
     ZEST__FREE(context->device->allocator, context->device->platform);
     ZEST__FREE(context->device->allocator, context);
 	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(context->device->allocator)));
@@ -1538,10 +1553,6 @@ void zest__do_scheduled_tasks(zest_context context) {
     zest_vec_clear(context->device->deferred_staging_buffers_for_freeing);
 }
 
-void zest_Terminate(void) {
-	ZEST__FLAG(ZestApp->flags, zest_app_flag_quit_application);
-}
-
 zest_fence_status zest__main_loop_fence_wait(zest_context context) {
 	if (context->fence_count[context->current_fif]) {
 		zest_millisecs start_time = zest_Millisecs();
@@ -1553,13 +1564,13 @@ zest_fence_status zest__main_loop_fence_wait(zest_context context) {
             } else if (result == zest_fence_status_timeout) {
 				zest_millisecs total_wait_time = zest_Millisecs() - start_time;
 				if (context->fence_wait_timeout_callback) {
-                    if (context->fence_wait_timeout_callback(total_wait_time, retry_count++, ZestApp->user_data)) {
+                    if (context->fence_wait_timeout_callback(total_wait_time, retry_count++, context->user_data)) {
                         continue;
                     } else {
                         return result;
                     }
 				} else {
-					if (total_wait_time > ZestApp->create_info.max_fence_timeout_ms) {
+					if (total_wait_time > context->create_info.max_fence_timeout_ms) {
                         return result;
 					}
 				}
@@ -1571,54 +1582,6 @@ zest_fence_status zest__main_loop_fence_wait(zest_context context) {
 		context->fence_count[context->current_fif] = 0;
 	}
 	return zest_fence_status_success;
-}
-
-void zest__main_loop(zest_context context) {
-    //ZEST_ASSERT(ZestApp->update_callback);    //Must define an update callback function
-    while (!(ZestApp->flags & zest_app_flag_quit_application)) {
-        zest_fence_status fence_wait_result = zest__main_loop_fence_wait(context);
-        if (fence_wait_result == zest_fence_status_success) {
-        } else if (fence_wait_result == zest_fence_status_timeout) {
-            ZEST_PRINT("Fence wait timed out in the main loop, exiting renderer loop.");
-            zest_Terminate();
-            continue;
-        } else {
-            ZEST_PRINT("Critical error when waiting for the main loop fence, exiting renderer loop.");
-            zest_Terminate();
-            continue;
-        }
-
-		ZEST__UNFLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
-
-        zest__do_scheduled_tasks(context);
-
-        //context->window->mouse_hit = 0;
-        //zest_mouse_button button_state = context->window->mouse_button;
-
-        //context->renderer->poll_events_callback(context);
-
-        //context->window->mouse_hit = button_state & (~context->window->mouse_button);
-
-        //ZestApp->update_callback(0, ZestApp->user_data);
-
-        if (ZestApp->flags & zest_app_flag_quit_application) {
-            continue;
-        }
-
-        //Cover some cases where a frame graph wasn't created or it was but there was nothing render etc., to make sure
-        //that the fence is always signalled and another frame can happen
-        if (ZEST__FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired)) {
-            if (ZEST__NOT_FLAGGED(context->flags, zest_context_flag_work_was_submitted)) {
-				zest_bool presented = context->device->platform->present_frame(context);
-				context->previous_fif = context->current_fif;
-				context->current_fif = (context->current_fif + 1) % ZEST_MAX_FIF;
-				if(!presented) {
-					zest__recreate_swapchain(context);
-				}
-            }
-        }
-
-    }
 }
 
 // --Threading related funcitons
@@ -2040,8 +2003,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
         zest__add_remote_range_pool(buffer_allocator, buffer_pool);
         buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, adjusted_size);
         if (!buffer) {    //Unable to allocate memory. Out of memory?
-            ZEST_APPEND_LOG(context->device->log_path.str, "Unable to allocate %zu of memory. Exiting app.", size);
-            zest_Terminate();
+            ZEST_APPEND_LOG(context->device->log_path.str, "Unable to allocate %zu of memory.", size);
             return 0;
         }
         zest__set_buffer_details(context, buffer_allocator, buffer, buffer_info->property_flags & zest_memory_property_host_visible_bit);
@@ -2285,22 +2247,6 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
 	}
     context->swapchain = zest__create_swapchain(context, create_info->title);
 
-	for (int i = 0; i != zest_max_handle_type; ++i) {
-		switch ((zest_handle_type)i) {
-			case zest_handle_type_shader_resources: zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_shader_resources_t)); break;
-			case zest_handle_type_images:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_image_t)); break;
-			case zest_handle_type_views:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_image_view)); break;
-			case zest_handle_type_view_arrays:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_image_view_array)); break;
-			case zest_handle_type_samplers:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_sampler_t)); break;
-			case zest_handle_type_uniform_buffers:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_uniform_buffer_t)); break;
-			case zest_handle_type_timers:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_timer_t)); break;
-			case zest_handle_type_layers:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_layer_t)); break;
-			case zest_handle_type_shaders:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_shader_t)); break;
-			case zest_handle_type_compute_pipelines:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_compute_t)); break;
-			case zest_handle_type_set_layouts:zest__initialise_store(context, &context->device->resource_stores[i], sizeof(zest_set_layout_t)); break;
-		}
-	}
-
     ZEST_APPEND_LOG(context->device->log_path.str, "Create descriptor layouts");
 
     //Create a global bindless descriptor set for storage buffers and texture samplers
@@ -2433,8 +2379,8 @@ void zest__scan_memory_and_free_resources(zest_context context) {
     zest_vec_free(context->device->allocator, memory_to_free);
 }
 
-void zest__cleanup_image_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_images];
+void zest__cleanup_image_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_images];
     zest_image_t *images = (zest_image_t*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(&images[i])) {
@@ -2445,8 +2391,8 @@ void zest__cleanup_image_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_sampler_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_samplers];
+void zest__cleanup_sampler_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_samplers];
     zest_sampler_t *samplers = (zest_sampler_t*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(&samplers[i])) {
@@ -2457,8 +2403,8 @@ void zest__cleanup_sampler_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_uniform_buffer_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_uniform_buffers];
+void zest__cleanup_uniform_buffer_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_uniform_buffers];
     zest_uniform_buffer_t *uniform_buffers = (zest_uniform_buffer_t*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(&uniform_buffers[i])) {
@@ -2469,8 +2415,8 @@ void zest__cleanup_uniform_buffer_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_timer_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_timers];
+void zest__cleanup_timer_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_timers];
     zest_timer_t *timers = (zest_timer_t*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(&timers[i])) {
@@ -2481,8 +2427,8 @@ void zest__cleanup_timer_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_layer_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_layers];
+void zest__cleanup_layer_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_layers];
     zest_layer_t *layers = (zest_layer_t*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(&layers[i])) {
@@ -2493,8 +2439,8 @@ void zest__cleanup_layer_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_shader_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_shaders];
+void zest__cleanup_shader_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_shaders];
     zest_shader_t *shaders = (zest_shader_t*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(&shaders[i])) {
@@ -2505,8 +2451,8 @@ void zest__cleanup_shader_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_compute_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_compute_pipelines];
+void zest__cleanup_compute_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_compute_pipelines];
     zest_compute_t *compute_pipelines = (zest_compute_t*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(&compute_pipelines[i])) {
@@ -2517,8 +2463,8 @@ void zest__cleanup_compute_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_set_layout_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_set_layouts];
+void zest__cleanup_set_layout_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_set_layouts];
     zest_set_layout_t *set_layouts = (zest_set_layout_t*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(&set_layouts[i])) {
@@ -2529,20 +2475,20 @@ void zest__cleanup_set_layout_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_shader_resource_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_shader_resources];
+void zest__cleanup_shader_resource_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_shader_resources];
     zest_shader_resources_t *shader_resources = (zest_shader_resources_t*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(&shader_resources[i])) {
             zest_shader_resources resource = &shader_resources[i];
-            context->device->platform->cleanup_shader_resources_backend(resource);
+            device->platform->cleanup_shader_resources_backend(resource);
         }
     }
 	zest__free_store(store);
 }
 
-void zest__cleanup_view_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_views];
+void zest__cleanup_view_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_views];
     zest_image_view *views = (zest_image_view*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(views[i])) {
@@ -2553,8 +2499,8 @@ void zest__cleanup_view_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_view_array_store(zest_context context) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_view_arrays];
+void zest__cleanup_view_array_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_view_arrays];
     zest_image_view_array *view_arrays = (zest_image_view_array*)store->data;
     for (int i = 0; i != store->current_size; ++i) {
         if (ZEST_VALID_HANDLE(view_arrays[i])) {
@@ -2565,22 +2511,37 @@ void zest__cleanup_view_array_store(zest_context context) {
 	zest__free_store(store);
 }
 
+void zest__cleanup_image_collection_store(zest_device device) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_image_collection];
+    zest_image_collection_t *image_collections = (zest_image_collection_t*)store->data;
+    for (int i = 0; i != store->current_size; ++i) {
+        if (ZEST_VALID_HANDLE(&image_collections[i])) {
+            zest_image_collection resource = &image_collections[i];
+            zest__cleanup_image_collection(resource);
+        }
+    }
+	zest__free_store(store);
+}
+
 void zest__cleanup_context(zest_context context) {
     ZEST_PRINT_FUNCTION;
 
     zest_uint cached_pipelines_size = zest_map_size(context->device->cached_pipelines);
 
-    zest__cleanup_shader_resource_store(context);
-    zest__cleanup_image_store(context);
-    zest__cleanup_uniform_buffer_store(context);
-    zest__cleanup_timer_store(context);
-    zest__cleanup_layer_store(context);
-    zest__cleanup_shader_store(context);
-    zest__cleanup_compute_store(context);
-    zest__cleanup_set_layout_store(context);
-    zest__cleanup_sampler_store(context);
-    zest__cleanup_view_store(context);
-    zest__cleanup_view_array_store(context);
+	zest_device device = context->device;
+
+    zest__cleanup_shader_resource_store(device);
+    zest__cleanup_image_store(device);
+    zest__cleanup_uniform_buffer_store(device);
+    zest__cleanup_timer_store(device);
+    zest__cleanup_layer_store(device);
+    zest__cleanup_shader_store(device);
+    zest__cleanup_compute_store(device);
+    zest__cleanup_set_layout_store(device);
+    zest__cleanup_sampler_store(device);
+    zest__cleanup_view_store(device);
+    zest__cleanup_view_array_store(device);
+    zest__cleanup_image_collection_store(device);
 
     context->device->global_bindless_set_layout_handle = ZEST__ZERO_INIT(zest_set_layout_handle);
     context->device->global_bindless_set_layout = 0;
@@ -2903,7 +2864,7 @@ void zest__cleanup_set_layout(zest_set_layout layout) {
     context->device->platform->cleanup_set_layout_backend(layout);
     ZEST__FREE(context->device->allocator, layout->pool);
     zest_vec_free(context->device->allocator, layout->bindings);
-    zest__remove_store_resource(context, layout->handle.value);
+    zest__remove_store_resource(context->device, layout->handle.value);
 }
 
 void zest__cleanup_image_view(zest_image_view view) {
@@ -2911,7 +2872,7 @@ void zest__cleanup_image_view(zest_image_view view) {
     context->device->platform->cleanup_image_view_backend(view);
     if (view->handle.value) {
         //Default views in images are not in resource storage
-        zest__remove_store_resource(context, view->handle.value);
+        zest__remove_store_resource(context->device, view->handle.value);
     }
     ZEST__FREE(context->device->allocator, view);
 }
@@ -2920,7 +2881,7 @@ void zest__cleanup_image_view_array(zest_image_view_array view_array) {
 	zest_context context = view_array->handle.context;
     context->device->platform->cleanup_image_view_array_backend(view_array);
     ZEST__FREE(context->device->allocator, view_array->views);
-    zest__remove_store_resource(context, view_array->handle.value);
+    zest__remove_store_resource(context->device, view_array->handle.value);
     ZEST__FREE(context->device->allocator, view_array);
 }
 
@@ -2945,7 +2906,7 @@ void zest_FreeShaderResources(zest_shader_resources_handle handle) {
             zest_vec_free(handle.context->device->allocator, shader_resources->sets[fif]);
         }
 		handle.context->device->platform->cleanup_shader_resources_backend(shader_resources);
-        zest__remove_store_resource(handle.context, handle.value);
+        zest__remove_store_resource(handle.context->device, handle.value);
     }
 }
 
@@ -3384,7 +3345,7 @@ zest_shader_handle zest_CreateShader(zest_context context, const char *shader_co
     zest_shader_handle shader_handle = zest__new_shader(context, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(context, shader_handle.value);
     shader->name = shader_name;
-    if (!disable_caching && ZestApp->create_info.flags & zest_init_flag_cache_shaders) {
+    if (!disable_caching && context->create_info.flags & zest_init_flag_cache_shaders) {
         shader->spv = zest_ReadEntireFile(context, shader->name.str, ZEST_FALSE);
         if (shader->spv) {
             shader->spv_size = zest_vec_size(shader->spv);
@@ -3417,7 +3378,7 @@ zest_shader_handle zest_CreateShader(zest_context context, const char *shader_co
     shader->spv_size = spv_size;
 	ZEST_APPEND_LOG(context->device->log_path.str, "Compiled shader %s and added to renderer shaders.", name);
     shaderc_result_release(result);
-    if (!disable_caching && ZestApp->create_info.flags & zest_init_flag_cache_shaders) {
+    if (!disable_caching && context->create_info.flags & zest_init_flag_cache_shaders) {
         zest__cache_shader(shader);
     }
     return shader_handle;
@@ -3523,7 +3484,7 @@ void zest_FreeShader(zest_shader_handle shader_handle) {
     if (shader->spv) {
         zest_vec_free(shader_handle.context->device->allocator, shader->spv);
     }
-    zest__remove_store_resource(shader_handle.context, shader_handle.value);
+    zest__remove_store_resource(shader_handle.context->device, shader_handle.value);
 }
 
 zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer_handle, bool last_frame) {
@@ -3598,7 +3559,6 @@ void *zest_Window(zest_context context) { return context->window_data.window_han
 float zest_DPIScale(zest_context context) { return context->dpi_scale; }
 void zest_SetDPIScale(zest_context context, float scale) { context->dpi_scale = scale; }
 void zest_WaitForIdleDevice(zest_context context) { context->device->platform->wait_for_idle_device(context); }
-void zest_MaybeQuit(zest_bool condition) { ZestApp->flags |= condition != 0 ? zest_app_flag_quit_application : 0; }
 void zest__hash_initialise(zest_hasher_t* hasher, zest_ull seed) { hasher->state[0] = seed + zest__PRIME1 + zest__PRIME2; hasher->state[1] = seed + zest__PRIME2; hasher->state[2] = seed; hasher->state[3] = seed - zest__PRIME1; hasher->buffer_size = 0; hasher->total_length = 0; }
 
 zest_set_layout_handle zest_GetUniformBufferLayout(zest_uniform_buffer_handle handle) {
@@ -3676,15 +3636,6 @@ void zest_DisableVSync(zest_context context) {
     ZEST__FLAG(context->flags, zest_context_flag_schedule_change_vsync);
 }
 
-void zest_LogFPSToConsole(zest_bool yesno) {
-    if (yesno) {
-        ZEST__FLAG(ZestApp->flags, zest_app_flag_output_fps);
-    }
-    else {
-        ZEST__UNFLAG(ZestApp->flags, zest_app_flag_output_fps);
-    }
-}
-
 void zest_SetFrameInFlight(zest_context context, zest_uint fif) {
     ZEST_ASSERT(fif < ZEST_MAX_FIF);        //Frame in flight must be less than the maximum amount of frames in flight
     context->saved_fif = context->current_fif;
@@ -3715,7 +3666,7 @@ void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size,
     if (allocator->user_data) {
         zest_device device = (zest_device)allocator->user_data;
         header->id = device->vector_id++;
-        if (header->id == 237) {
+        if (header->id == 131) {
             int d = 0;
         }
     }
@@ -3801,9 +3752,9 @@ inline void *zest__bucket_array_linear_add(zloc_linear_allocator_t *allocator, z
 
 void zest__free_store(zest_resource_store_t *store) { 
     if (store->data) { 
-		ZEST__FREE(store->context->device->allocator, store->data); 
-        zest_vec_free(store->context->device->allocator, store->generations);
-        zest_vec_free(store->context->device->allocator, store->free_slots);
+		ZEST__FREE(store->device->allocator, store->data); 
+        zest_vec_free(store->device->allocator, store->generations);
+        zest_vec_free(store->device->allocator, store->free_slots);
         *store = ZEST__ZERO_INIT(zest_resource_store_t);
     } 
 }
@@ -3813,14 +3764,14 @@ void zest__reserve_store(zest_resource_store_t *store, zest_uint new_capacity) {
     if (new_capacity <= store->capacity) return;
     void *new_data;
     if (store->alignment != 0) {
-        new_data = ZEST__ALLOCATE_ALIGNED(store->context->device->allocator, (size_t)new_capacity * store->struct_size, store->alignment);
+        new_data = ZEST__ALLOCATE_ALIGNED(store->device->allocator, (size_t)new_capacity * store->struct_size, store->alignment);
     } else {
-        new_data = ZEST__REALLOCATE(store->context->device->allocator, store->data, (size_t)new_capacity * store->struct_size);
+        new_data = ZEST__REALLOCATE(store->device->allocator, store->data, (size_t)new_capacity * store->struct_size);
     }
     ZEST_ASSERT(new_data);    //Unable to allocate memory. todo: better handling
     if (store->data) {
         memcpy(new_data, store->data, (size_t)store->current_size * store->struct_size);
-        ZEST__FREE(store->context->device->allocator, store->data);
+        ZEST__FREE(store->device->allocator, store->data);
     }
     store->data = new_data;
     store->capacity = new_capacity;
@@ -3870,20 +3821,20 @@ zest_handle zest__add_store_resource(zest_handle_type type, zest_context context
 	return ZEST_STRUCT_LITERAL(zest_handle, ZEST_CREATE_HANDLE(type, generation, index));
 }
 
-void zest__remove_store_resource(zest_context context, zest_handle handle) {
+void zest__remove_store_resource(zest_device device, zest_handle handle) {
 	zest_handle_type type = ZEST_HANDLE_TYPE(handle);
 	ZEST_ASSERT(type < zest_max_handle_type);	//Invalid handle type, is the handle valid?
-	zest_resource_store_t *store = &context->device->resource_stores[type];
+	zest_resource_store_t *store = &device->resource_stores[type];
 	zest_uint index = ZEST_HANDLE_INDEX(handle);                                                                     
-	zest_vec_push(context->device->allocator, store->free_slots, index);                                                                               
+	zest_vec_push(device->allocator, store->free_slots, index);                                                                               
 }                                                                                                                             
 
 
-void zest__initialise_store(zest_context context, zest_resource_store_t *store, zest_uint struct_size) {
+void zest__initialise_store(zest_device device, zest_resource_store_t *store, zest_uint struct_size) {
     ZEST_ASSERT(!store->data);   //Must be an empty store
     store->struct_size = struct_size;
     store->alignment = 16;
-	store->context = context;
+	store->device = device;
 }
 
 void zest_SetText(zloc_allocator *allocator, zest_text_t* buffer, const char* text) {
@@ -7171,7 +7122,7 @@ void zest__pack_images(zest_image_collection atlas, zest_uint layer_width, zest_
     zestrp_rect* rects = 0;
     zestrp_rect* rects_to_process = 0;
 
-	zest_context context = atlas->context;
+	zest_context context = atlas->handle.context;
 	zloc_linear_allocator_t *allocator = context->device->scratch_arena;
 
     zest_map_foreach(i, atlas->image_bitmaps) {
@@ -7270,23 +7221,19 @@ void zest__pack_images(zest_image_collection atlas, zest_uint layer_width, zest_
 
     zest_vec_clear(atlas->buffer_copy_regions);
 
-    for (zest_uint layer = 0; layer < atlas->layer_count; layer++)
-    {
+	zest_bitmap_array_t *bitmap_array = &atlas->bitmap_array;
+    zest_vec_foreach(i, bitmap_array->meta) {
         zest_buffer_image_copy_t buffer_copy_region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
         buffer_copy_region.image_aspect = zest_image_aspect_color_bit;
         buffer_copy_region.mip_level = 0;
-        buffer_copy_region.base_array_layer = layer;
+        buffer_copy_region.base_array_layer = i;
         buffer_copy_region.layer_count = 1;
-        buffer_copy_region.image_extent.width = layer_width;
-        buffer_copy_region.image_extent.height = layer_height;
+        buffer_copy_region.image_extent.width = bitmap_array->meta[i].width;
+        buffer_copy_region.image_extent.height = bitmap_array->meta[i].height;
         buffer_copy_region.image_extent.depth = 1;
-        buffer_copy_region.buffer_offset = offset;
+        buffer_copy_region.buffer_offset = bitmap_array->meta[i].offset;
 
         zest_vec_push(context->device->allocator, atlas->buffer_copy_regions, buffer_copy_region);
-
-        // Increase offset into staging buffer for next level / face
-        ZEST_ASSERT(layer < zest_vec_size(atlas->bitmap_array.meta));
-        offset += atlas->bitmap_array.meta[layer].size;
     }
 
 	zloc_ResetLinearAllocator(allocator);
@@ -7756,7 +7703,7 @@ void zest__cleanup_image(zest_image image) {
 		zest_vec_free(image->handle.context->device->allocator, collection->mip_indexes);
     }
     zest_map_free(image->handle.context->device->allocator, image->mip_indexes);
-    zest__remove_store_resource(image->handle.context, image->handle.value);
+    zest__remove_store_resource(image->handle.context->device, image->handle.value);
     if (image->default_view) {
         context->device->platform->cleanup_image_view_backend(image->default_view);
         ZEST__FREE(image->handle.context->device->allocator, image->default_view);
@@ -7767,7 +7714,7 @@ void zest__cleanup_image(zest_image image) {
 void zest__cleanup_sampler(zest_sampler sampler) {
 	zest_context context = sampler->handle.context;
     context->device->platform->cleanup_sampler_backend(sampler);
-    zest__remove_store_resource(sampler->handle.context, sampler->handle.value);
+    zest__remove_store_resource(sampler->handle.context->device, sampler->handle.value);
     sampler->magic = 0;
 }
 
@@ -7782,7 +7729,7 @@ void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
         ZEST__FREE(context->device->allocator, uniform_buffer->descriptor_set[fif]);
     }
     context->device->platform->cleanup_uniform_buffer_backend(uniform_buffer);
-    zest__remove_store_resource(context, uniform_buffer->handle.value);
+    zest__remove_store_resource(context->device, uniform_buffer->handle.value);
 }
 
 void zest__tinyktxCallbackError(void *user, char const *msg) {
@@ -8033,7 +7980,7 @@ zest_uint zest__get_format_channel_count(zest_format format) {
     return 0;
 }
 
-zest_image_collection zest__load_ktx(zest_context context, const char *file_path) {
+zest_image_collection_handle zest__load_ktx(zest_context context, const char *file_path) {
 
     TinyKtx_Callbacks callbacks = {
             &zest__tinyktxCallbackError,
@@ -8047,7 +7994,7 @@ zest_image_collection zest__load_ktx(zest_context context, const char *file_path
     FILE *file = zest__open_file(file_path, "rb");
 	if (!file) {
 		ZEST_PRINT("Failed to open KTX file: %s", file_path);
-		return 0;
+		return ZEST__ZERO_INIT(zest_image_collection_handle);
     }
 
 	zest_ktx_user_context_t user_context;
@@ -8057,13 +8004,13 @@ zest_image_collection zest__load_ktx(zest_context context, const char *file_path
     TinyKtx_ContextHandle ctx = TinyKtx_CreateContext(&callbacks, &user_context);
 
     if (!TinyKtx_ReadHeader(ctx)) {
-        return 0;
+		return ZEST__ZERO_INIT(zest_image_collection_handle);
     }
 
     zest_format format = zest__convert_tktx_format(TinyKtx_GetFormat(ctx));
     if (format == zest_format_undefined) {
         TinyKtx_DestroyContext(ctx);
-        return 0;
+		return ZEST__ZERO_INIT(zest_image_collection_handle);
     }
 
 	zest_uint width = TinyKtx_Width(ctx);
@@ -8072,68 +8019,73 @@ zest_image_collection zest__load_ktx(zest_context context, const char *file_path
 
     zest_uint mip_count = TinyKtx_NumberOfMipmaps(ctx);
 	zest_image_collection_flags flags = TinyKtx_IsCubemap(ctx) ? zest_image_collection_flag_is_cube_map : 0;
-	zest_image_collection image_collection = zest_CreateImageCollection(context, format, mip_count, flags);
+	zest_image_collection_handle image_collection_handle = zest_CreateImageCollection(context, format, mip_count, flags);
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(context, image_collection_handle.value);
 
     //First pass to set the bitmap array
     size_t offset = 0;
     for (zest_uint i = 0; i < mip_count; ++i) {
         zest_uint image_size = TinyKtx_ImageSize(ctx, i);
-		zest_SetImageCollectionBitmapMeta(image_collection, i, width, height, 0, 0, image_size, offset);
+		zest_SetImageCollectionBitmapMeta(image_collection_handle, i, width, height, 0, 0, image_size, offset);
         offset += image_size;
         if (width > 1) width /= 2;
         if (height > 1) height /= 2;
     }
 
-	zest_AllocateImageCollectionBitmapArray(image_collection);
+	zest_AllocateImageCollectionBitmapArray(image_collection_handle);
 	width = TinyKtx_Width(ctx);
 	height = TinyKtx_Height(ctx);
 
-	zest_bitmap_array_t *bitmap_array = zest_GetImageCollectionBitmapArray(image_collection);
+	zest_bitmap_array_t *bitmap_array = zest_GetImageCollectionBitmapArray(image_collection_handle);
 
     zest_vec_foreach (i, bitmap_array->meta) {
-		zest_ImageCollectionCopyToBitmapArray(image_collection, i, TinyKtx_ImageRawData(ctx, i), TinyKtx_ImageSize(ctx, i));
+		zest_ImageCollectionCopyToBitmapArray(image_collection_handle, i, TinyKtx_ImageRawData(ctx, i), TinyKtx_ImageSize(ctx, i));
     }
 
     TinyKtx_DestroyContext(ctx);
-    return image_collection;
+    return image_collection_handle;
 }
 
-zest_image_collection zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags) {
-	zest_image_collection image_collection = (zest_image_collection)ZEST__NEW(context->device->allocator, zest_image_collection);
+zest_image_collection_handle zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags) {
+	zest_image_collection_handle image_collection_handle = ZEST_STRUCT_LITERAL(zest_image_collection_handle, zest__add_store_resource(zest_handle_type_image_collection, context), context);
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(context, image_collection_handle.value);
 	*image_collection = ZEST__ZERO_INIT(zest_image_collection_t);
 	image_collection->magic = zest_INIT_MAGIC(zest_struct_type_image_collection);
-	image_collection->context = context;
+	image_collection->handle = image_collection_handle;
     image_collection->format = format;
 	image_collection->flags = flags;
     zest_InitialiseBitmapArray(context, &image_collection->bitmap_array, image_count);
-	return image_collection;
+	return image_collection_handle;
 }
 
-zest_image_collection zest_CreateImageAtlasCollection(zest_context context, zest_format format) {
-	zest_image_collection image_collection = (zest_image_collection)ZEST__NEW(context->device->allocator, zest_image_collection);
+zest_image_collection_handle zest_CreateImageAtlasCollection(zest_context context, zest_format format) {
+	zest_image_collection_handle image_collection_handle = ZEST_STRUCT_LITERAL(zest_image_collection_handle, zest__add_store_resource(zest_handle_type_image_collection, context), context);
+	zest_image_collection image_collection = (zest_image_collection) zest__get_store_resource_checked(context, image_collection_handle.value);
 	*image_collection = ZEST__ZERO_INIT(zest_image_collection_t);
 	image_collection->magic = zest_INIT_MAGIC(zest_struct_type_image_collection);
-	image_collection->context = context;
+	image_collection->handle = image_collection_handle;
     image_collection->format = format;
 	image_collection->flags = zest_image_collection_flag_atlas;
-	return image_collection;
+	return image_collection_handle;
 }
 
-zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection image_collection, const char *filename, const char *name) {
-	zest_bitmap bitmap = zest_LoadPNG(image_collection->context, filename);
+zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection_handle image_collection_handle, const char *filename, const char *name) {
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
+	zest_context context = image_collection_handle.context;
+	zest_bitmap bitmap = zest_LoadPNG(context, filename);
 	if (bitmap) {
-		zest_atlas_region region = zest_NewAtlasRegion(image_collection->context);
+		zest_atlas_region region = zest_NewAtlasRegion(context);
 		bitmap->atlas_region = region;
 		region->width = bitmap->meta.width;
 		region->height = bitmap->meta.height;
-		zest_map_insert(image_collection->context->device->allocator, image_collection->image_bitmaps, name, bitmap);
+		zest_map_insert(context->device->allocator, image_collection->image_bitmaps, name, bitmap);
 		return region;
 	}
 	return NULL;
 }
 
-void zest_SetImageCollectionBitmapMeta(zest_image_collection image_collection, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset) {
-	ZEST_ASSERT_HANDLE(image_collection);	//Not a valid image_collection
+void zest_SetImageCollectionBitmapMeta(zest_image_collection_handle image_collection_handle, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset) {
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
 	ZEST_ASSERT(bitmap_index < zest_vec_size(image_collection->bitmap_array.meta));	//bitmap index is out of bounds
     zest_bitmap_array_t *bitmap_array = &image_collection->bitmap_array;
 	bitmap_array->meta[bitmap_index].width = width;
@@ -8145,8 +8097,9 @@ void zest_SetImageCollectionBitmapMeta(zest_image_collection image_collection, z
 	bitmap_array->meta[bitmap_index].size = size_in_bytes;
 }
 
-zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection image_collection) {
-	ZEST_ASSERT_HANDLE(image_collection);	//Not a valid image_collection
+zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection_handle image_collection_handle) {
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
+	zest_context context = image_collection_handle.context;
 	if (zest_vec_size(image_collection->bitmap_array.meta) == 0) {
 		ZEST_PRINT("Nothing to allocate in the image collection."); 
 		return ZEST_FALSE;
@@ -8158,26 +8111,27 @@ zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection image_co
 	}
     zest_bitmap_array_t *bitmap_array = &image_collection->bitmap_array;
 	if (bitmap_array->data) {
-		ZEST__FREE(image_collection->context->device->allocator, bitmap_array->data);
+		ZEST__FREE(context->device->allocator, bitmap_array->data);
 	}
 	bitmap_array->total_mem_size = total_size;
-    bitmap_array->data = (zest_byte*)ZEST__ALLOCATE(image_collection->context->device->allocator, bitmap_array->total_mem_size);
+    bitmap_array->data = (zest_byte*)ZEST__ALLOCATE(context->device->allocator, bitmap_array->total_mem_size);
 	return ZEST_TRUE;
 }
 
-zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection image_collection, zest_uint bitmap_index, const void *src_data, zest_size src_size) {
-	zest_byte *raw_bitmap_data = zest_GetImageCollectionRawBitmap(image_collection, bitmap_index);
+zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection_handle image_collection_handle, zest_uint bitmap_index, const void *src_data, zest_size src_size) {
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
+	zest_byte *raw_bitmap_data = zest_GetImageCollectionRawBitmap(image_collection_handle, bitmap_index);
 	zloc_SafeCopyBlock(image_collection->bitmap_array.data, raw_bitmap_data, src_data, src_size);
 	return ZEST_TRUE;
 }
 
-zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection image_collection) {
-	ZEST_ASSERT_HANDLE(image_collection);	//Not a valid image_collection
+zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection_handle image_collection_handle) {
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
 	return &image_collection->bitmap_array;
 }
 
-zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection image_collection, zest_uint bitmap_index) {
-	ZEST_ASSERT_HANDLE(image_collection);	//Not a valid image_collection
+zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection_handle image_collection_handle, zest_uint bitmap_index) {
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
 	return zest_BitmapArrayLookUp(&image_collection->bitmap_array, bitmap_index);
 }
 
@@ -8196,6 +8150,7 @@ void zest_CreateBitmapArray(zest_context context, zest_bitmap_array_t* images, i
         images->data = ZEST_NULL;
     }
     images->size_of_array = size_of_array;
+	images->context = context;
     zest_vec_resize(context->device->allocator, images->meta, size_of_array);
     size_t offset = 0;
     size_t image_size = width * height * channels;
@@ -8223,19 +8178,33 @@ void zest_FreeBitmapArray(zest_bitmap_array_t* images) {
     images->size_of_array = 0;
 }
 
-void zest_FreeImageCollection(zest_image_collection image_collection) {
+void zest__cleanup_image_collection(zest_image_collection image_collection) {
 	ZEST_ASSERT_HANDLE(image_collection);   //Not a valid image collection handle/pointer!
 	zest_map_foreach(i, image_collection->image_bitmaps) {
 		zest_bitmap bitmap = image_collection->image_bitmaps.data[i];
 		zest_FreeAtlasRegion(bitmap->atlas_region);
         zest_FreeBitmap(bitmap);
 	}
+    zest_vec_foreach(i, image_collection->layers) {
+        zest_FreeBitmapData(&image_collection->layers[i]);
+    }
+	zest_context context = image_collection->handle.context;
     zest_uint i = 0;
-    zest_vec_free(image_collection->context->device->allocator, image_collection->regions);
-	zest_map_free(image_collection->context->device->allocator, image_collection->image_bitmaps);
-    zest_vec_free(image_collection->context->device->allocator, image_collection->buffer_copy_regions);
+    zest_vec_free(context->device->allocator, image_collection->regions);
+	zest_map_free(context->device->allocator, image_collection->image_bitmaps);
+    zest_vec_free(context->device->allocator, image_collection->buffer_copy_regions);
+    zest_vec_free(context->device->allocator, image_collection->layers);
     zest_FreeBitmapArray(&image_collection->bitmap_array);
-    ZEST__FREE(image_collection->context->device->allocator, image_collection);
+	if (image_collection->handle.value) {
+		zest__remove_store_resource(context->device, image_collection->handle.value);
+	}
+    ZEST__FREE(context->device->allocator, image_collection);
+}
+
+void zest_FreeImageCollection(zest_image_collection_handle image_collection_handle) {
+	zest_context context = image_collection_handle.context;
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(context, image_collection_handle.value);
+	zest__cleanup_image_collection(image_collection);
 }
 
 void zest_SetImageHandle(zest_atlas_region image, float x, float y) {
@@ -8254,11 +8223,13 @@ void zest__update_image_vertices(zest_atlas_region image) {
 }
 
 zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name) {
-    zest_image_collection image_collection = zest__load_ktx(context, file_name);
+    zest_image_collection_handle image_collection_handle = zest__load_ktx(context, file_name);
 
-    if (!image_collection) {
+    if (!image_collection_handle.context) {
         return ZEST__ZERO_INIT(zest_image_handle);
     }
+
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(context, image_collection_handle.value);
 
 	zest_bitmap_array_t *bitmap_array = &image_collection->bitmap_array;
     zest_vec_foreach(mip_index, bitmap_array->meta) {
@@ -8304,7 +8275,7 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
 
     zest_FreeBitmapArray(bitmap_array);
 	zest_FreeBuffer(staging_buffer);
-	zest_FreeImageCollection(image_collection);
+	zest__cleanup_image_collection(image_collection);
 
     return image_handle;
 
@@ -8312,7 +8283,7 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
     zest_FreeBitmapArray(bitmap_array);
 	zest__cleanup_image(image);
 	zest_FreeBuffer(staging_buffer);
-	zest_FreeImageCollection(image_collection);
+	zest_FreeImageCollection(image_collection_handle);
     return ZEST__ZERO_INIT(zest_image_handle);
 }
 
@@ -8374,11 +8345,51 @@ zest_image_handle zest_CreateImage(zest_context context, zest_image_info_t *crea
     return handle;
 }
 
-zest_image_handle zest_CreateImageAtlas(zest_image_collection atlas, zest_uint layer_width, zest_uint layer_height) {
+zest_image_handle zest_CreateImageAtlas(zest_image_collection_handle atlas_handle, zest_uint layer_width, zest_uint layer_height, zest_image_flags flags) {
+    zest_image_collection atlas = (zest_image_collection)zest__get_store_resource_checked(atlas_handle.context, atlas_handle.value);
 	zest_image_info_t info = zest_CreateImageInfo(layer_width, layer_height);
 	info.format = atlas->format;
-	zest_image_handle image = zest_CreateImage(atlas->context, &info);
-	return image;
+	zest__pack_images(atlas, layer_width, layer_height);
+	info.layer_count = atlas->layer_count;
+
+	if (flags == 0) {
+		info.flags = zest_image_preset_texture_mipmaps;
+	}
+
+	zest_context context = atlas->handle.context;
+
+	zest_image_handle image_handle = zest_CreateImage(context, &info);
+
+    zest_size image_size = atlas->bitmap_array.total_mem_size;
+
+    zest_buffer staging_buffer = zest_CreateStagingBuffer(context, image_size, 0);
+
+    if (!staging_buffer) {
+        goto cleanup;
+    }
+
+    memcpy(staging_buffer->data, atlas->bitmap_array.data, atlas->bitmap_array.total_mem_size);
+
+    zest_uint width = atlas->bitmap_array.meta[0].width;
+    zest_uint height = atlas->bitmap_array.meta[0].height;
+
+    zest_uint mip_levels = atlas->bitmap_array.size_of_array;
+    zest_image image = (zest_image)zest__get_store_resource(image_handle.context, image_handle.value);
+
+    context->device->platform->begin_single_time_commands(context);
+    ZEST_CLEANUP_ON_FALSE(zest__transition_image_layout(image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, atlas->layer_count));
+    ZEST_CLEANUP_ON_FALSE(context->device->platform->copy_buffer_regions_to_image(context, atlas->buffer_copy_regions, staging_buffer, staging_buffer->buffer_offset, image));
+    ZEST_CLEANUP_ON_FALSE(zest__transition_image_layout(image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, atlas->layer_count));
+    context->device->platform->end_single_time_commands(context);
+
+	zest_FreeBuffer(staging_buffer);
+
+    return image_handle;
+
+    cleanup:
+	zest__cleanup_image(image);
+	zest_FreeBuffer(staging_buffer);
+    return ZEST__ZERO_INIT(zest_image_handle);
 }
 
 void zest_FreeImage(zest_image_handle handle) {
@@ -8558,7 +8569,7 @@ void zest__cleanup_layer(zest_layer layer) {
 		zest_FreeBuffer(layer->memory_refs[fif].staging_index_data);
 		zest_vec_free(layer->handle.context->device->allocator, layer->draw_instructions[fif]);
 	}
-    zest__remove_store_resource(layer->handle.context, layer->handle.value);
+    zest__remove_store_resource(layer->handle.context->device, layer->handle.value);
 }
 
 void zest__reset_mesh_layer_drawing(zest_layer layer) {
@@ -9773,7 +9784,7 @@ zest_compute_handle zest_FinishCompute(zest_compute_builder_t *builder, const ch
 void zest__cleanup_compute(zest_compute compute) {
 	zest_context context = compute->handle.context;
     context->device->platform->cleanup_compute_backend(compute);
-    zest__remove_store_resource(compute->handle.context, compute->handle.value);
+    zest__remove_store_resource(compute->handle.context->device, compute->handle.value);
 }
 //--End Compute shaders
 
@@ -10055,7 +10066,7 @@ zest_timer_handle zest_CreateTimer(zest_context context, double update_frequency
 
 void zest_FreeTimer(zest_timer_handle timer_handle) {
     zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
-    zest__remove_store_resource(timer_handle.context, timer_handle.value);
+    zest__remove_store_resource(timer_handle.context->device, timer_handle.value);
 }
 
 void zest_TimerReset(zest_timer_handle timer_handle) {
