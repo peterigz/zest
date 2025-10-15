@@ -1644,7 +1644,6 @@ typedef enum {
 	zest_handle_type_compute_pipelines,
 	zest_handle_type_set_layouts,
 	zest_handle_type_image_collection,
-	zest_handle_type_atlas_region,
 	zest_max_handle_type
 }zest_handle_type;
 
@@ -4272,6 +4271,7 @@ typedef struct zest_bitmap_meta_t {
 	int stride;
 	zest_size size;
 	zest_size offset;
+	zest_format format;
 } zest_bitmap_meta_t;
 
 typedef struct zest_bitmap_t {
@@ -6793,7 +6793,7 @@ static int zest__decompress(zloc_allocator *allocator, zest_byte **out, const ze
 }
 
 typedef struct zest_png_info_t {
-    zest_long width, height, colorType, bitDepth, compressionMethod, filterMethod, interlaceMethod, key_r, key_g, key_b;
+    zest_long width, height, color_type, bit_depth, compression_method, filter_method, interlace_method, key_r, key_g, key_b;
     int key_defined;
     zest_byte *palette;
 } zest__png_info_t;
@@ -6824,9 +6824,9 @@ static int zest__check_color_validity(zest_long colorType, zest_long bd) {
 }
 
 static zest_long zest__get_bpp(const zest__png_info_t* info) {
-    if(info->colorType == 2) return (3 * info->bitDepth);
-    else if(info->colorType >= 4) return (info->colorType - 2) * info->bitDepth;
-    else return info->bitDepth;
+    if(info->color_type == 2) return (3 * info->bit_depth);
+    else if(info->color_type >= 4) return (info->color_type - 2) * info->bit_depth;
+    else return info->bit_depth;
 }
 
 static zest_byte zest__paeth_predictor(short a, short b, short c) {
@@ -6910,52 +6910,52 @@ static int zest__png_convert_rgba32(zloc_allocator *allocator, zest_byte **out, 
     zest_vec_resize(allocator, *out, numpixels * 4);
     zest_byte* out_ = *out;
 
-    if(infoIn->bitDepth == 8 && infoIn->colorType == 0) {
+    if(infoIn->bit_depth == 8 && infoIn->color_type == 0) {
         for(zest_uint i = 0; i < numpixels; i++) {
             out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = in[i];
             out_[4 * i + 3] = (infoIn->key_defined && in[i] == infoIn->key_r) ? 0 : 255;
         }
-    } else if(infoIn->bitDepth == 8 && infoIn->colorType == 2) {
+    } else if(infoIn->bit_depth == 8 && infoIn->color_type == 2) {
         for(zest_uint i = 0; i < numpixels; i++) {
             for(zest_uint c = 0; c < 3; c++) out_[4 * i + c] = in[3 * i + c];
             out_[4 * i + 3] = (infoIn->key_defined && in[3 * i + 0] == infoIn->key_r && in[3 * i + 1] == infoIn->key_g && in[3 * i + 2] == infoIn->key_b) ? 0 : 255;
         }
-    } else if(infoIn->bitDepth == 8 && infoIn->colorType == 3) {
+    } else if(infoIn->bit_depth == 8 && infoIn->color_type == 3) {
         for(zest_uint i = 0; i < numpixels; i++) {
             if(4U * in[i] >= zest_vec_size(infoIn->palette)) return 46;
             for(zest_uint c = 0; c < 4; c++) out_[4 * i + c] = infoIn->palette[4 * in[i] + c];
         }
-    } else if(infoIn->bitDepth == 8 && infoIn->colorType == 4) {
+    } else if(infoIn->bit_depth == 8 && infoIn->color_type == 4) {
         for(zest_uint i = 0; i < numpixels; i++) {
             out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = in[2 * i + 0];
             out_[4 * i + 3] = in[2 * i + 1];
         }
-    } else if(infoIn->bitDepth == 8 && infoIn->colorType == 6) {
+    } else if(infoIn->bit_depth == 8 && infoIn->color_type == 6) {
         memcpy(out_, in, numpixels * 4);
-    } else if(infoIn->bitDepth == 16 && infoIn->colorType == 0) {
+    } else if(infoIn->bit_depth == 16 && infoIn->color_type == 0) {
         for(zest_uint i = 0; i < numpixels; i++) {
             out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = in[2 * i];
             out_[4 * i + 3] = (infoIn->key_defined && 256U * in[i] + in[i + 1] == infoIn->key_r) ? 0 : 255;
         }
-    } else if(infoIn->bitDepth == 16 && infoIn->colorType == 2) {
+    } else if(infoIn->bit_depth == 16 && infoIn->color_type == 2) {
         for(zest_uint i = 0; i < numpixels; i++) {
             for(zest_uint c = 0; c < 3; c++) out_[4 * i + c] = in[6 * i + 2 * c];
             out_[4 * i + 3] = (infoIn->key_defined && 256U*in[6*i+0]+in[6*i+1] == infoIn->key_r && 256U*in[6*i+2]+in[6*i+3] == infoIn->key_g && 256U*in[6*i+4]+in[6*i+5] == infoIn->key_b) ? 0 : 255;
         }
-    } else if(infoIn->bitDepth == 16 && infoIn->colorType == 4) {
+    } else if(infoIn->bit_depth == 16 && infoIn->color_type == 4) {
         for(zest_uint i = 0; i < numpixels; i++) {
             out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = in[4 * i];
             out_[4 * i + 3] = in[4 * i + 2];
         }
-    } else if(infoIn->bitDepth == 16 && infoIn->colorType == 6) {
+    } else if(infoIn->bit_depth == 16 && infoIn->color_type == 6) {
         for(zest_uint i = 0; i < numpixels; i++) for(zest_uint c = 0; c < 4; c++) out_[4 * i + c] = in[8 * i + 2 * c];
-    } else if(infoIn->bitDepth < 8 && infoIn->colorType == 0) {
+    } else if(infoIn->bit_depth < 8 && infoIn->color_type == 0) {
         for(zest_uint i = 0; i < numpixels; i++) {
-            zest_long value = (zest__read_bit_from_reversed_stream(&bp, in) * 255) / ((1 << infoIn->bitDepth) - 1);
+            zest_long value = (zest__read_bit_from_reversed_stream(&bp, in) * 255) / ((1 << infoIn->bit_depth) - 1);
             out_[4 * i + 0] = out_[4 * i + 1] = out_[4 * i + 2] = (unsigned char)(value);
-            out_[4 * i + 3] = (infoIn->key_defined && value && ((1U << infoIn->bitDepth) - 1U) == infoIn->key_r && ((1U << infoIn->bitDepth) - 1U)) ? 0 : 255;
+            out_[4 * i + 3] = (infoIn->key_defined && value && ((1U << infoIn->bit_depth) - 1U) == infoIn->key_r && ((1U << infoIn->bit_depth) - 1U)) ? 0 : 255;
         }
-    } else if(infoIn->bitDepth < 8 && infoIn->colorType == 3) {
+    } else if(infoIn->bit_depth < 8 && infoIn->color_type == 3) {
         for(zest_uint i = 0; i < numpixels; i++) {
             zest_long value = zest__read_bit_from_reversed_stream(&bp, in);
             if(4 * value >= zest_vec_size(infoIn->palette)) return 47;
@@ -6971,15 +6971,15 @@ static void zest__read_png_header(zest_png_t* png, const zest_byte* in, zest_uin
     if(in[12] != 'I' || in[13] != 'H' || in[14] != 'D' || in[15] != 'R') { png->error = 29; return; }
     png->info.width = zest__read_32bit_int(&in[16]);
     png->info.height = zest__read_32bit_int(&in[20]);
-    png->info.bitDepth = in[24];
-    png->info.colorType = in[25];
-    png->info.compressionMethod = in[26];
+    png->info.bit_depth = in[24];
+    png->info.color_type = in[25];
+    png->info.compression_method = in[26];
     if(in[26] != 0) { png->error = 32; return; }
-    png->info.filterMethod = in[27];
+    png->info.filter_method = in[27];
     if(in[27] != 0) { png->error = 33; return; }
-    png->info.interlaceMethod = in[28];
+    png->info.interlace_method = in[28];
     if(in[28] > 1) { png->error = 34; return; }
-    png->error = zest__check_color_validity(png->info.colorType, png->info.bitDepth);
+    png->error = zest__check_color_validity(png->info.color_type, png->info.bit_depth);
 }
 
 static void zest__png_decode(zloc_allocator *allocator, zest_png_t* png, zest_byte **out, const zest_byte* in, zest_uint size, int convert_to_rgba32) {
@@ -7017,14 +7017,14 @@ static void zest__png_decode(zloc_allocator *allocator, zest_png_t* png, zest_by
             }
         } else if(in[pos + 0] == 't' && in[pos + 1] == 'R' && in[pos + 2] == 'N' && in[pos + 3] == 'S') {
             pos += 4;
-            if(png->info.colorType == 3) {
+            if(png->info.color_type == 3) {
                 if(4 * chunkLength > zest_vec_size(png->info.palette)) { png->error = 39; goto cleanup; }
                 for(zest_uint i = 0; i < chunkLength; i++) png->info.palette[4 * i + 3] = in[pos++];
-            } else if(png->info.colorType == 0) {
+            } else if(png->info.color_type == 0) {
                 if(chunkLength != 2) { png->error = 40; goto cleanup; }
                 png->info.key_defined = 1;
                 png->info.key_r = png->info.key_g = png->info.key_b = 256 * in[pos] + in[pos + 1]; pos += 2;
-            } else if(png->info.colorType == 2) {
+            } else if(png->info.color_type == 2) {
                 if(chunkLength != 6) { png->error = 41; goto cleanup; }
                 png->info.key_defined = 1;
                 png->info.key_r = 256 * in[pos] + in[pos + 1]; pos += 2;
@@ -7048,7 +7048,7 @@ static void zest__png_decode(zloc_allocator *allocator, zest_png_t* png, zest_by
     zest_vec_resize(allocator, *out, outlength);
     zest_byte* out_ = zest_vec_size(out) ? *out : 0;
 
-    if(png->info.interlaceMethod == 0) {
+    if(png->info.interlace_method == 0) {
         zest_uint linestart = 0, linelength = (png->info.width * bpp + 7) / 8;
         if(bpp >= 8) {
             for(zest_long y = 0; y < png->info.height; y++) {
@@ -7093,7 +7093,7 @@ static void zest__png_decode(zloc_allocator *allocator, zest_png_t* png, zest_by
         zest_vec_free(allocator, scanlinen);
     }
 
-    if(convert_to_rgba32 && (png->info.colorType != 6 || png->info.bitDepth != 8)) {
+    if(convert_to_rgba32 && (png->info.color_type != 6 || png->info.bit_depth != 8)) {
         zest_byte *data = 0;
         zest_vec_resize(allocator, data, zest_vec_size(*out));
         memcpy(data, *out, zest_vec_size(*out));
@@ -7116,8 +7116,34 @@ int zest__decode_png(zest_context context, zest_bitmap out_bitmap, const zest_by
     if (decoder.error == 0) {
 		out_bitmap->meta.width = decoder.info.width;
 		out_bitmap->meta.height = decoder.info.height;
-		out_bitmap->meta.channels = 4;
-		out_bitmap->meta.stride = 4 * decoder.info.width;
+		switch (decoder.info.color_type) {
+			case 0: { 
+				out_bitmap->meta.channels = 1; 
+				out_bitmap->meta.format = zest_format_r8_unorm;
+				break;	//Greyscale
+			}
+			case 2: { 
+				out_bitmap->meta.channels = 3; 
+				out_bitmap->meta.format = zest_format_r8g8b8_unorm;
+				break;	//Truecolor (RGB)
+			}
+			case 3: { 
+				out_bitmap->meta.channels = 1; 
+				out_bitmap->meta.format = zest_format_r8_unorm;
+				break;	//Indexed palette
+			}
+			case 4: { 
+				out_bitmap->meta.channels = 2; 
+				out_bitmap->meta.format = zest_format_r8g8_unorm;
+				break;	//Greyscale with alpha
+			}
+			case 6: { 
+				out_bitmap->meta.channels = 4; 
+				out_bitmap->meta.format = zest_format_r8g8b8a8_unorm;
+				break;	//Truecolor with alpha (RGBA)
+			}
+		}
+		out_bitmap->meta.stride = out_bitmap->meta.channels * decoder.info.width;
 		out_bitmap->meta.size = zest_vec_size(out_vec);
 		zest_AllocateBitmapMemory(out_bitmap, out_bitmap->meta.size);
         zloc_SafeCopy(out_bitmap->data, out_vec, zest_vec_size_in_bytes(out_vec));

@@ -1220,7 +1220,6 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
 			case zest_handle_type_compute_pipelines: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_compute_t)); break;
 			case zest_handle_type_set_layouts: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_set_layout_t)); break;
 			case zest_handle_type_image_collection: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_image_collection_t)); break;
-			case zest_handle_type_atlas_region: zest__initialise_store(device, &device->resource_stores[i], sizeof(zest_atlas_region_t)); break;
 		}
 	}
 
@@ -7502,61 +7501,83 @@ void zest_ConvertBitmapToAlpha(zest_bitmap  image) {
     }
 }
 
-void zest_ConvertBitmap(zest_bitmap src, zest_format format, zest_byte alpha_level) {
-    //Todo: simd this
-    if (src->meta.channels == 4)
-        return;
+void zest_ConvertBitmap(zest_bitmap src, zest_format new_format, zest_byte alpha_level) {
+	ZEST_ASSERT_HANDLE(src);	//Not a valid bitmap handle
+	if (src->meta.format == new_format) {
+		return;
+	}
 
-    ZEST_ASSERT(src->data);
+    ZEST_ASSERT(src->data);	//no valid bitmap data found
 
-    zest_byte* new_image;
-    int channels = 4;
-    zest_size new_size = src->meta.width * src->meta.height* channels;
-    new_image = (zest_byte*)ZEST__ALLOCATE(src->context->device->allocator, new_size);
+    int to_channels = zest__get_format_channel_count(new_format);
+	ZEST_ASSERT(to_channels);	//Not a valid format, must be an 8bit unorm format with 1 to 4 channels.
+    int from_channels = src->meta.channels;
 
-    zest_size pos = 0;
-    zest_size new_pos = 0;
+    zest_size new_size = src->meta.width * src->meta.height * to_channels;
+    zest_byte* new_image = (zest_byte*)ZEST__ALLOCATE(src->context->device->allocator, new_size);
 
-    zest_uint order[3] = { 1, 2, 3 };
-    if (format == zest_format_b8g8r8a8_unorm) {
-        order[0] = 3; order[2] = 1;
-    }
+    zest_byte *from_data = src->data;
+    zest_byte *to_data = new_image;
 
-    if (src->meta.channels == 1) {
-        while (pos < src->meta.size) {
-            *(new_image + new_pos) = *(src->data + pos);
-            *(new_image + new_pos + order[0]) = *(src->data + pos);
-            *(new_image + new_pos + order[1]) = *(src->data + pos);
-            *(new_image + new_pos + order[2]) = alpha_level;
-            pos += src->meta.channels;
-            new_pos += 4;
-        }
-    }
-    else if (src->meta.channels == 2) {
-        while (pos < src->meta.size) {
-            *(new_image + new_pos) = *(src->data + pos);
-            *(new_image + new_pos + order[0]) = *(src->data + pos);
-            *(new_image + new_pos + order[1]) = *(src->data + pos);
-            *(new_image + new_pos + order[2]) = *(src->data + pos + 1);
-            pos += src->meta.channels;
-            new_pos += 4;
-        }
-    }
-    else if (src->meta.channels == 3) {
-        while (pos < src->meta.size) {
-            *(new_image + new_pos) = *(src->data + pos);
-            *(new_image + new_pos + order[0]) = *(src->data + pos + 1);
-            *(new_image + new_pos + order[1]) = *(src->data + pos + 2);
-            *(new_image + new_pos + order[2]) = alpha_level;
-            pos += src->meta.channels;
-            new_pos += 4;
+    for (int y = 0; y < src->meta.height; ++y) {
+        for (int x = 0; x < src->meta.width; ++x) {
+            zest_color source_pixel = { 0, 0, 0, alpha_level };
+            zest_size from_idx = (y * src->meta.width + x) * from_channels;
+            zest_size to_idx = (y * src->meta.width + x) * to_channels;
+
+            switch (from_channels) {
+                case 1:
+                    source_pixel.r = from_data[from_idx];
+                    source_pixel.g = from_data[from_idx];
+                    source_pixel.b = from_data[from_idx];
+                    break;
+                case 2:
+                    source_pixel.r = from_data[from_idx];
+                    source_pixel.g = from_data[from_idx];
+                    source_pixel.b = from_data[from_idx];
+					source_pixel.a = from_data[from_idx + 1];
+                    break;
+                case 3:
+                    source_pixel.r = from_data[from_idx];
+                    source_pixel.g = from_data[from_idx + 1];
+                    source_pixel.b = from_data[from_idx + 2];
+                    break;
+                case 4:
+                    source_pixel.r = from_data[from_idx];
+                    source_pixel.g = from_data[from_idx + 1];
+                    source_pixel.b = from_data[from_idx + 2];
+                    source_pixel.a = from_data[from_idx + 3];
+                    break;
+            }
+
+            switch (to_channels) {
+                case 1:
+                    to_data[to_idx] = source_pixel.r;
+                    break;
+                case 2:
+                    to_data[to_idx] = source_pixel.r;
+                    to_data[to_idx + 1] = source_pixel.a;
+                    break;
+                case 3:
+                    to_data[to_idx] = source_pixel.r;
+                    to_data[to_idx + 1] = source_pixel.g;
+                    to_data[to_idx + 2] = source_pixel.b;
+                    break;
+                case 4:
+                    to_data[to_idx] = source_pixel.r;
+                    to_data[to_idx + 1] = source_pixel.g;
+                    to_data[to_idx + 2] = source_pixel.b;
+                    to_data[to_idx + 3] = source_pixel.a;
+                    break;
+            }
         }
     }
 
     ZEST__FREE(src->context->device->allocator, src->data);
-    src->meta.channels = channels;
+    src->meta.channels = to_channels;
+    src->meta.format = new_format;
     src->meta.size = new_size;
-    src->meta.stride = src->meta.width * channels;
+    src->meta.stride = src->meta.width * to_channels;
     src->data = new_image;
 
 }
@@ -8074,6 +8095,9 @@ zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection_handle image_colle
 	zest_context context = image_collection_handle.context;
 	zest_bitmap bitmap = zest_LoadPNG(context, filename);
 	if (bitmap) {
+		if (bitmap->meta.format != image_collection->format) {
+			zest_ConvertBitmap(bitmap, image_collection->format, 255);
+		}
 		zest_atlas_region region = zest_NewAtlasRegion(context);
 		bitmap->atlas_region = region;
 		region->width = bitmap->meta.width;
