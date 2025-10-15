@@ -20,6 +20,7 @@ struct ImGuiApp {
 	zest_atlas_region test_image;
 	zest_timer_handle timer;
 	zest_context context;
+	zest_atlas_region wabbit_sprite;
 	RenderCacheInfo cache_info;
 	bool sync_refresh;
 	bool request_graph_print;

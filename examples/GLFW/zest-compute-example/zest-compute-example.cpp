@@ -289,7 +289,7 @@ int main(void) {
 	ImGuiApp imgui_app = { 0 };
 
 	//Initialise Zest
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	//Set our user data and the update callback to be called every frame
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
@@ -299,7 +299,7 @@ int main(void) {
 	//Start the mainloop in Zest
 	zest_Start();
 	zest_slang_Shutdown();
-	zest_Shutdown();
+	zest_DestroyContext();
 
 	return 0;
 }
@@ -311,7 +311,7 @@ int main(void) {
 
 	ImGuiApp imgui_app;
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
 	InitImGuiApp(&imgui_app);

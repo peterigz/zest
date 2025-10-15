@@ -223,6 +223,23 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 }
 
 void InitImGuiApp(ImGuiApp *app) {
+
+	//--------Pico C test-------------
+
+	zest_bitmap bitmap = zest_LoadPNG(app->context, "examples/assets/wabbit_alpha.png");
+
+    if (!bitmap) {
+        printf("Error!");
+    } else {
+        printf("width: %lu height: %lu\n", bitmap->meta.width, bitmap->meta.height);
+        if (bitmap->meta.size >= 4) {
+            printf("first pixel: %02x%02x%02x%02x\n", bitmap->data[0], bitmap->data[1], bitmap->data[2], bitmap->data[3]);
+        }
+    }
+
+	zest_FreeBitmap(bitmap);
+	//------------------------------
+
 	//Initialise Dear ImGui
 	zest_imgui_InitialiseForGLFW(app->context);
 	//Implement a dark style
@@ -644,10 +661,64 @@ void MainLoop(ImGuiApp *app) {
 	}
 }
 
+void loadFileCPP(std::vector<unsigned char>& buffer, const std::string& filename) //designed for loading files from hard disk in an std::vector
+{
+  std::ifstream file(filename.c_str(), std::ios::in|std::ios::binary|std::ios::ate);
+
+  //get filesize
+  std::streamsize size = 0;
+  if(file.seekg(0, std::ios::end).good()) size = file.tellg();
+  if(file.seekg(0, std::ios::beg).good()) size -= file.tellg();
+
+  //read contents of the file into the vector
+  if(size > 0)
+  {
+    buffer.resize((size_t)size);
+    file.read((char*)(&buffer[0]), size);
+  }
+  else buffer.clear();
+}
+
+int loadFile(unsigned char** buffer, size_t* size, const char* filename) {
+    FILE* file = fopen(filename, "rb");
+    if (!file) return 1;
+    fseek(file, 0, SEEK_END);
+    long filesize = ftell(file);
+    if (filesize < 0) { fclose(file); return 1; }
+    *size = filesize;
+    fseek(file, 0, SEEK_SET);
+    *buffer = (unsigned char*)malloc(*size);
+    if (!*buffer) { fclose(file); return 1; }
+    if (fread(*buffer, 1, *size, file) != *size) {
+        free(*buffer);
+        fclose(file);
+        return 1;
+    }
+    fclose(file);
+    return 0;
+}
+
 #if defined(_WIN32)
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
+    const char* filename = "examples/assets/wabbit_alpha.png";
+
+	//CPP version test load and decode
+	std::vector<unsigned char> buffer, image;
+	loadFileCPP(buffer, filename);
+	unsigned long w, h;
+	int error = zest_decodePNG(image, w, h, buffer.empty() ? 0 : &buffer[0], (unsigned long)buffer.size());
+  
+	//if there's an error, display it
+	if(error != 0) std::cout << "error: " << error << std::endl;
+  
+	//the pixels are now in the vector "image", use it as texture, draw it, ...
+  
+	if(image.size() > 4) std::cout << "width: " << w << " height: " << h << " first pixel: " << std::hex << int(image[0]) << int(image[1]) << int(image[2]) << int(image[3]) << std::endl;
+	if(image.size() > 4) printf("first pixel: %02x%02x%02x%02x\n", image[0], image[1], image[2], image[3]);
+	//-------End CPP version test
+ 
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	//zest_create_info_t create_info = zest_CreateInfo();
@@ -671,7 +742,7 @@ int main(void) {
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	imgui_app.context = zest_Initialise(device, window_handles, &create_info);
+	imgui_app.context = zest_CreateContext(device, window_handles, &create_info);
 
 	//int *test = nullptr;
 	//zest_vec_push(imgui_app.context->device->allocator, test, 10);
@@ -684,7 +755,7 @@ int main(void) {
 	//Start the main loop
 	MainLoop(&imgui_app);
 	zest_imgui_ShutdownGLFW();
-	zest_Shutdown(imgui_app.context);
+	zest_DestroyContext(imgui_app.context);
 
 	return 0;
 }
@@ -697,7 +768,7 @@ int main(void) {
 	ImGuiApp imgui_app;
 
     create_info.log_path = ".";
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
 	InitImGuiApp(&imgui_app);

@@ -409,7 +409,7 @@ int main()
 	create_info.log_path = "./";
 	create_info.thread_count = 0;
 	//zest_SetDescriptorPoolCount(&create_info, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 200);
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_LogFPSToConsole(1);
 
 	RenderTargetExample example;
@@ -418,7 +418,7 @@ int main()
 	zest_SetUserUpdateCallback(UpdateCallback);
 
 	zest_Start();
-	zest_Shutdown();
+	zest_DestroyContext();
 
 	return 0;
 }
@@ -427,7 +427,7 @@ int main(void) {
 
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_LogFPSToConsole(1);
 
 	RenderTargetExample example;

@@ -7,6 +7,9 @@
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
+#include <iostream>
+#include <fstream>
+#include <vector>
 
 struct RenderCacheInfo {
 	bool draw_imgui;
@@ -143,3 +146,5 @@ void SetupBillboards(ImGuiApp *app);
 void SetupBRDFLUT(ImGuiApp *app);
 void SetupIrradianceCube(ImGuiApp *app);
 void SetupPrefilteredCube(ImGuiApp *app);
+int zest_decodePNG(std::vector<unsigned char>& out_image, unsigned long& image_width, unsigned long& image_height, const unsigned char* in_png, size_t in_size, bool convert_to_rgba32 = true);
+

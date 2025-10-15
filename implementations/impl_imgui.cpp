@@ -218,7 +218,7 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
                     }
                     push_constants->font_texture_index = ZestImGui->font_texture_binding_index;
                     push_constants->font_sampler_index = ZestImGui->font_sampler_binding_index;
-                    push_constants->image_layer = zest_ImageLayerIndex(current_image);
+                    push_constants->image_layer = zest_RegionLayerIndex(current_image);
                     break;
                 }
                 break;

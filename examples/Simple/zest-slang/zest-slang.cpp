@@ -28,7 +28,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
 	//Initialise Zest with the configuration
-    if (zest_Initialise(&create_info)) {
+    if (zest_CreateContext(&create_info)) {
         zest_LogFPSToConsole(1);
         //Set the callback you want to use that will be called each frame.
         zest_SetUserUpdateCallback(UpdateTfxExample);
@@ -54,7 +54,7 @@ int main(void) {
     tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), 128 * 1024 * 1024);
 
     //Initialise Zest with the configuration
-    zest_Initialise(&create_info);
+    zest_CreateContext(&create_info);
     zest_LogFPSToConsole(1);
     //Set the callback you want to use that will be called each frame.
     zest_SetUserUpdateCallback(UpdateTfxExample);

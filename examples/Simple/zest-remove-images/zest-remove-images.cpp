@@ -87,7 +87,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLin
 
 	App app = { 0 };
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&app);
 	zest_SetUserUpdateCallback(UpdateCallback);
 
@@ -104,7 +104,7 @@ int main(void) {
     
     App app = { 0 };
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
     zest_SetUserData(&app);
 	zest_SetUserUpdateCallback(UpdateCallback);
     

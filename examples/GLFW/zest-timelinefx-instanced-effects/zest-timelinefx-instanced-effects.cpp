@@ -849,7 +849,7 @@ int main() {
 	ComputeExample example;
 
 	//Initialise Zest
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	//Set the Zest use data
 	zest_SetUserData(&example);
 	//Set the udpate callback to be called every frame
@@ -879,7 +879,7 @@ int main() {
 	ComputeExample example;
 
 	//Initialise Zest
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	//Set the Zest use data
 	zest_SetUserData(&example);
 	//Set the udpate callback to be called every frame

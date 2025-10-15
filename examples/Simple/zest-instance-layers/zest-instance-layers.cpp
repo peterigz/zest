@@ -209,7 +209,7 @@ int main(void)
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	create_info.log_path = "./";
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_LogFPSToConsole(1);
 	zest_SetUserData(&example);
 	zest_SetUserUpdateCallback(test_update_callback);
@@ -217,7 +217,7 @@ int main(void)
 	InitExample(&example);
 
 	zest_Start();
-	zest_Shutdown();
+	zest_DestroyContext();
 
 	return 0;
 }
@@ -228,7 +228,7 @@ int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_LogFPSToConsole(1);
 	zest_SetUserData(&example);
 	zest_SetUserUpdateCallback(test_update_callback);

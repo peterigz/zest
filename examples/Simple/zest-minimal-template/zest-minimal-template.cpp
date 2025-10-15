@@ -29,7 +29,7 @@ int main(void)
 
 	zest_UseVulkan();
 	//Initialise Zest with the configuration
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 
     zest_LogFPSToConsole(1);
 	//Set the callback you want to use that will be called each frame.
@@ -37,7 +37,7 @@ int main(void)
 
 	//Start the Zest main loop
 	zest_Start();
-	zest_Shutdown();
+	zest_DestroyContext();
 
 	return 0;
 }
@@ -46,7 +46,7 @@ int main(void) {
 	zest_create_info_t create_info = zest_CreateInfo();
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
     zest_LogFPSToConsole(1);
 	zest_SetUserUpdateCallback(UpdateCallback);
 

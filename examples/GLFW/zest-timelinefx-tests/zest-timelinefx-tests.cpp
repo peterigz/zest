@@ -322,7 +322,7 @@ int main() {
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
 	//InitialiseTimelineFX(0, tfxMegabyte(128));
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&game);
 	zest_SetUserUpdateCallback(UpdateTfxExample);
 	game.Init();
@@ -342,7 +342,7 @@ int main(void) {
 
 	ImGuiApp imgui_app;
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
 	InitImGuiApp(&imgui_app);

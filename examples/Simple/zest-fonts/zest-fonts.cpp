@@ -68,14 +68,14 @@ int main(void) {
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 	zest_example example;
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&example);
 	zest_SetUserUpdateCallback(UpdateCallback);
 
 	InitExample(&example);
 
 	zest_Start();
-	zest_Shutdown();
+	zest_DestroyContext();
 
 	return 0;
 }
@@ -86,7 +86,7 @@ int main(void) {
 
 	zest_example example;
     
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&example);
 	zest_SetUserUpdateCallback(UpdateCallback);
 

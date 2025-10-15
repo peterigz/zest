@@ -26,6 +26,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Rebuild the Zest font texture
 	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
 
+	zest_image_collection_handle atlas = zest_CreateImageAtlasCollection(app->context, zest_format_r8g8b8a8_unorm);
+	app->wabbit_sprite = zest_AddImageAtlasPNG(atlas, "examples/assets/wabbit_alpha.png", "wabbit_alpha");
+	zest_image_handle image_atlas = zest_CreateImageAtlas(atlas, 1024, 1024, 0);
 	//Create a texture to load in a test image to show drawing that image in an imgui window
 	//app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 	//Load in the image and add it to the texture
@@ -194,17 +197,17 @@ int main(void) {
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	imgui_app.context = zest_Initialise(device, window_handles, &create_info);
+	imgui_app.context = zest_CreateContext(device, window_handles, &create_info);
 
 	//Set the Zest use data
-	zest_SetUserData(&imgui_app);
+	zest_SetContextUserData(imgui_app.context, &imgui_app);
 	//Initialise our example
 	InitImGuiApp(&imgui_app);
 
 	//Start the main loop
 	MainLoop(&imgui_app);
 	zest_imgui_ShutdownGLFW();
-	zest_Shutdown(imgui_app.context);
+	zest_DestroyContext(imgui_app.context);
 
 	return 0;
 }
@@ -217,7 +220,7 @@ int main(void) {
 	ImGuiApp imgui_app;
 
     create_info.log_path = ".";
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
 	InitImGuiApp(&imgui_app);

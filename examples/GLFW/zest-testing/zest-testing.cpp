@@ -1314,7 +1314,7 @@ int main(void) {
 	ImGuiApp imgui_app;
 
 	//Initialise Zest
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	//Set the Zest use data
 	zest_SetUserData(&imgui_app);
 	//Set the udpate callback to be called every frame
@@ -1324,7 +1324,7 @@ int main(void) {
 
 	//Start the main loop
 	zest_Start();
-	zest_Shutdown();
+	zest_DestroyContext();
 
 	return 0;
 }
@@ -1337,7 +1337,7 @@ int main(void) {
 	ImGuiApp imgui_app;
 
     create_info.log_path = ".";
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
 	InitImGuiApp(&imgui_app);

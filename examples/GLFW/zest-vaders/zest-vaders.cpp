@@ -1231,13 +1231,13 @@ int main() {
 	VadersGame game;
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&game);
 	zest_SetUserUpdateCallback(UpdateTfxExample);
 	game.Init();
 
 	zest_Start();
-	zest_Shutdown();
+	zest_DestroyContext();
 
 	for (int i = 0; i != 2; ++i) {
 		game.player_bullets[i].free();
@@ -1262,7 +1262,7 @@ int main(void) {
 	VadersGame game;
 	InitialiseTimelineFX(12);
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&game);
 	zest_SetUserUpdateCallback(UpdateTfxExample);
 	game.Init();

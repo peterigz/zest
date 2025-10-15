@@ -139,7 +139,7 @@ int main(int argc, char *argv[]) {
 	ImGuiApp imgui_app = { 0 };
 
 	//Initialise Zest
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	//Set the Zest use data
 	zest_SetUserData(&imgui_app);
 	//Set the udpate callback to be called every frame
@@ -149,7 +149,7 @@ int main(int argc, char *argv[]) {
 
 	//Start the main loop
 	zest_Start();
-	zest_Shutdown();
+	zest_DestroyContext();
 
 	return 0;
 }
@@ -160,7 +160,7 @@ int main(void) {
 
 	ImGuiApp imgui_app;
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
 	InitImGuiApp(&imgui_app);

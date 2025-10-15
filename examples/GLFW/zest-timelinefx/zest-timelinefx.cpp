@@ -256,13 +256,13 @@ int main() {
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&game);
 	zest_SetUserUpdateCallback(UpdateTfxExample);
 	game.Init();
 
 	zest_Start();
-	zest_Shutdown();
+	zest_DestroyContext();
 
 	tfx_EndTimelineFX();
 
@@ -275,7 +275,7 @@ int main(void) {
 
 	ImGuiApp imgui_app;
 
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
 	InitImGuiApp(&imgui_app);

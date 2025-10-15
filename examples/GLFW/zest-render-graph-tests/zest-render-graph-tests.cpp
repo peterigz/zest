@@ -904,7 +904,7 @@ int main(void) {
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	tests.context = zest_Initialise(device, window_handles, &create_info);
+	tests.context = zest_CreateContext(device, window_handles, &create_info);
 
 	InitialiseTests(&tests);
 
@@ -913,7 +913,7 @@ int main(void) {
 	RunTests(&tests);
 	
 	//Start the main loop
-	zest_Shutdown(tests.context);
+	zest_DestroyContext(tests.context);
 
 	return 0;
 }
@@ -926,7 +926,7 @@ int main(void) {
 	ImGuiApp imgui_app;
 
     create_info.log_path = ".";
-	zest_Initialise(&create_info);
+	zest_CreateContext(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
 	InitImGuiApp(&imgui_app);
