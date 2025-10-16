@@ -5982,10 +5982,10 @@ zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, ze
     return index;
 }
 
-zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle, zest_global_binding_number binding_number) {
+zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle) {
     zest_sampler sampler = (zest_sampler)zest__get_store_resource_checked(sampler_handle.context, sampler_handle.value);
 	zest_context context = sampler_handle.context;
-    zest_uint index = zest__acquire_bindless_sampler_index(sampler, context->device->global_bindless_set_layout, context->device->global_set, binding_number);
+    zest_uint index = zest__acquire_bindless_sampler_index(sampler, context->device->global_bindless_set_layout, context->device->global_set, zest_sampler_binding);
     return index;
 }
 
@@ -7149,7 +7149,8 @@ void zest__pack_images(zest_image_collection atlas, zest_uint layer_width, zest_
 	atlas->layer_count = zest__calculate_texture_layers(allocator, rects, layer_width, layer_height, node_count);
 
 	zest_FreeBitmapArray(&atlas->bitmap_array);
-	zest_CreateBitmapArray(context, &atlas->bitmap_array, layer_width, layer_height, 4, atlas->layer_count);
+	zest_uint channels = atlas->image_bitmaps.data[0]->meta.channels;
+	zest_CreateBitmapArray(context, &atlas->bitmap_array, layer_width, layer_height, channels, atlas->layer_count);
 
     zest_byte current_layer = 0;
 
@@ -7179,7 +7180,7 @@ void zest__pack_images(zest_image_collection atlas, zest_uint layer_width, zest_
         zest_bitmap_t tmp_image = { 0 };
         tmp_image.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
 		tmp_image.context = context;
-        zest_AllocateBitmap(&tmp_image, layer_width, layer_height, 4);
+        zest_AllocateBitmap(&tmp_image, layer_width, layer_height, channels);
         int count = 0;
 
         zest_vec_foreach(i, current_rects) {
@@ -7264,12 +7265,11 @@ zest_imgui_image_t zest_NewImGuiImage(void) {
     return imgui_image;
 }
 
-zest_atlas_region zest_CreateAtlasRegion(zest_image_handle image_handle) {
-    zest_atlas_region region = (zest_atlas_region)ZEST__NEW_ALIGNED(image_handle.context->device->allocator, zest_atlas_region, 16);
+zest_atlas_region zest_CreateAtlasRegion(zest_context context) {
+    zest_atlas_region region = (zest_atlas_region)ZEST__NEW_ALIGNED(context->device->allocator, zest_atlas_region, 16);
     *region = ZEST__ZERO_INIT(zest_atlas_region_t);
     region->magic = zest_INIT_MAGIC(zest_struct_type_atlas_region);
-	region->context = image_handle.context;
-    region->image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
+	region->context = context;
     region->uv.x = 0.f;
     region->uv.y = 0.f;
     region->uv.z = 1.f;
@@ -7291,6 +7291,14 @@ zest_atlas_region zest_NewAtlasRegion(zest_context context) {
     region->layer_index = 0;
     region->frames = 1;
     return region;
+}
+
+void zest_BindAtlasRegionToImage(zest_atlas_region region, zest_uint sampler_index, zest_image_handle image_handle, zest_global_binding_number binding_number) {
+	ZEST_ASSERT_HANDLE(region);		//Not a valid region pointer
+	zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
+	region->image_index = image->bindless_index[binding_number];
+	region->sampler_index = sampler_index;
+	region->binding_number = binding_number;
 }
 
 void zest_FreeAtlasRegion(zest_atlas_region region) {
@@ -8108,6 +8116,35 @@ zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection_handle image_colle
 	return NULL;
 }
 
+zest_atlas_region zest_AddImageAtlasBitmap(zest_image_collection_handle image_collection_handle, zest_bitmap bitmap, const char *name) {
+	ZEST_ASSERT_HANDLE(bitmap);		//Not a valid bitmap handle
+	ZEST_ASSERT(bitmap->meta.width, "Width has not been set in the bitmap");			//Not a valid bitmap handle
+	ZEST_ASSERT(bitmap->meta.height, "Height has not been set in the bitmap");		//Not a valid bitmap handle
+	ZEST_ASSERT(bitmap->meta.channels, "Channels has not been set in the bitmap");		//Not a valid bitmap handle
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
+	zest_context context = image_collection_handle.context;
+	if (!bitmap->meta.format) {
+		switch (bitmap->meta.channels) {
+			case 1: bitmap->meta.format = zest_format_r8_unorm; break;
+			case 2: bitmap->meta.format = zest_format_r8g8_unorm; break;
+			case 3: bitmap->meta.format = zest_format_r8g8b8_unorm; break;
+			case 4: bitmap->meta.format = zest_format_r8g8b8a8_unorm; break;
+		}
+	}
+	if (bitmap) {
+		if (bitmap->meta.format != image_collection->format) {
+			zest_ConvertBitmap(bitmap, image_collection->format, 255);
+		}
+		zest_atlas_region region = zest_NewAtlasRegion(context);
+		bitmap->atlas_region = region;
+		region->width = bitmap->meta.width;
+		region->height = bitmap->meta.height;
+		zest_map_insert(context->device->allocator, image_collection->image_bitmaps, name, bitmap);
+		return region;
+	}
+	return NULL;
+}
+
 void zest_SetImageCollectionBitmapMeta(zest_image_collection_handle image_collection_handle, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset) {
 	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
 	ZEST_ASSERT(bitmap_index < zest_vec_size(image_collection->bitmap_array.meta));	//bitmap index is out of bounds
@@ -8378,6 +8415,8 @@ zest_image_handle zest_CreateImageAtlas(zest_image_collection_handle atlas_handl
 
 	if (flags == 0) {
 		info.flags = zest_image_preset_texture_mipmaps;
+	} else {
+		ZEST_ASSERT(info.flags & zest_image_preset_texture, "If you pass in flags to the zest_CreateImageAtlas function then it must at lease contain zest_image_preset_texture. You can leave as 0 and texture with mipmaps will be created.");
 	}
 
 	zest_context context = atlas->handle.context;
@@ -8397,13 +8436,17 @@ zest_image_handle zest_CreateImageAtlas(zest_image_collection_handle atlas_handl
     zest_uint width = atlas->bitmap_array.meta[0].width;
     zest_uint height = atlas->bitmap_array.meta[0].height;
 
-    zest_uint mip_levels = atlas->bitmap_array.size_of_array;
     zest_image image = (zest_image)zest__get_store_resource(image_handle.context, image_handle.value);
+    zest_uint mip_levels = image->info.mip_levels;
 
     context->device->platform->begin_single_time_commands(context);
     ZEST_CLEANUP_ON_FALSE(zest__transition_image_layout(image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, atlas->layer_count));
     ZEST_CLEANUP_ON_FALSE(context->device->platform->copy_buffer_regions_to_image(context, atlas->buffer_copy_regions, staging_buffer, staging_buffer->buffer_offset, image));
-    ZEST_CLEANUP_ON_FALSE(zest__transition_image_layout(image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, atlas->layer_count));
+	if (image->info.mip_levels > 1) {
+		ZEST_CLEANUP_ON_FALSE(context->device->platform->generate_mipmaps(image));
+	} else {
+		ZEST_CLEANUP_ON_FALSE(zest__transition_image_layout(image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, atlas->layer_count));
+	}
     context->device->platform->end_single_time_commands(context);
 
 	zest_FreeBuffer(staging_buffer);

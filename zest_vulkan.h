@@ -3278,6 +3278,7 @@ zest_bool zest__vk_transition_image_layout(zest_image image, zest_image_layout n
     vkCmdPipelineBarrier(context->backend->one_time_command_buffer, source_stage, destination_stage, 0, 0, ZEST_NULL, 0, ZEST_NULL, 1, &barrier);
 
     image->backend->vk_current_layout = (VkImageLayout)new_layout;
+	image->info.layout = new_layout;
 
     return ZEST_TRUE;
 }

@@ -100,14 +100,14 @@ layout(set = 0, binding = 1) uniform texture2D textures[];
 layout(push_constant) uniform imgui_push
 {
 	vec4 transform;
-	uint font_texture_index;
-	uint font_sampler_index;
+	uint texture_index;
+	uint sampler_index;
 	uint image_layer;
 } pc;
 
 void main()
 {
-	out_color = in_color * texture(sampler2D(textures[pc.font_texture_index], samplers[pc.font_sampler_index]), in_uv.xy);
+	out_color = in_color * texture(sampler2D(textures[pc.texture_index], samplers[pc.sampler_index]), in_uv.xy);
 }
 
 );

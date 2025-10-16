@@ -22,6 +22,8 @@ struct ImGuiApp {
 	zest_context context;
 	zest_atlas_region wabbit_sprite;
 	RenderCacheInfo cache_info;
+	zest_uint atlas_binding_index;
+	zest_uint atlas_sampler_binding_index;
 	bool sync_refresh;
 	bool request_graph_print;
 	bool reset;

@@ -5,6 +5,9 @@
 #include "zest-imgui-template.h"
 #include "imgui_internal.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
 	zest_imgui_InitialiseForGLFW(app->context);
@@ -27,8 +30,17 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
 
 	zest_image_collection_handle atlas = zest_CreateImageAtlasCollection(app->context, zest_format_r8g8b8a8_unorm);
-	app->wabbit_sprite = zest_AddImageAtlasPNG(atlas, "examples/assets/wabbit_alpha.png", "wabbit_alpha");
+	//app->wabbit_sprite = zest_AddImageAtlasPNG(atlas, "examples/assets/vaders/player.png", "wabbit_alpha");
+	int width, height, channels;
+	zest_byte *pixels = stbi_load("examples/assets/vaders/player.png", &width, &height, &channels, 4);
+	zest_bitmap bitmap = zest_CreateBitmapFromRawBuffer(app->context, "wabbit_alpha", pixels, width * height * channels, width, height, channels); 
+	app->wabbit_sprite = zest_AddImageAtlasBitmap(atlas, bitmap, "wabbit_alpha");
 	zest_image_handle image_atlas = zest_CreateImageAtlas(atlas, 1024, 1024, 0);
+    zest_sampler_handle sampler = zest_CreateSamplerForImage(image_atlas);
+	app->atlas_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_2d_binding);
+	app->atlas_sampler_binding_index = zest_AcquireGlobalSamplerIndex(sampler);
+	zest_BindAtlasRegionToImage(app->wabbit_sprite, app->atlas_sampler_binding_index, image_atlas, zest_texture_2d_binding);
+	free(pixels);
 	//Create a texture to load in a test image to show drawing that image in an imgui window
 	//app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 	//Load in the image and add it to the texture
@@ -99,8 +111,6 @@ void MainLoop(ImGuiApp *app) {
 			app->test_image = zest_AddTextureImageFile(app->test_texture, "examples/assets/wabbit_alpha.png");
 			zest_ProcessTextureImages(app->test_texture);
 		}
-		zest_vec4 uv = zest_ImageUV(app->test_image);
-		ImGui::Image((ImTextureID)app->test_image, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
 		*/
 			//Test for memory leaks in zest
 			/*
@@ -110,6 +120,8 @@ void MainLoop(ImGuiApp *app) {
 			ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb), Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024, stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 		}
 		*/
+			zest_vec4 uv = zest_ImageUV(app->wabbit_sprite);
+			ImGui::Image((ImTextureID)app->wabbit_sprite, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
 			ImGui::End();
 			ImGui::Render();
 			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.

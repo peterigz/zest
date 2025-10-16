@@ -21,14 +21,15 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     ZestImGui->font_texture = zest_CreateImage(context, &image_info);
-    ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->font_texture);
+    ZestImGui->font_region = zest_CreateAtlasRegion(context);
     zest_cmd_CopyBitmapToImage(font_bitmap, ZestImGui->font_texture, 0, 0, 0, 0, width, height);
     zest_FreeBitmap(font_bitmap);
 
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
     ZestImGui->font_sampler = zest_CreateSampler(context, &sampler_info);
     ZestImGui->font_texture_binding_index = zest_AcquireGlobalSampledImageIndex(ZestImGui->font_texture, zest_texture_2d_binding);
-    ZestImGui->font_sampler_binding_index = zest_AcquireGlobalSamplerIndex(ZestImGui->font_sampler, zest_sampler_binding);
+    ZestImGui->font_sampler_binding_index = zest_AcquireGlobalSamplerIndex(ZestImGui->font_sampler);
+	zest_BindAtlasRegionToImage(ZestImGui->font_region, ZestImGui->font_sampler_binding_index, ZestImGui->font_texture, zest_texture_2d_binding);
 
     //ZestImGui->vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
     //ZestImGui->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
@@ -93,9 +94,10 @@ void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned c
     image_info.flags = zest_image_preset_texture;
     ZestImGui->font_texture = zest_CreateImage(ZestImGui->context, &image_info);
     zest_FreeAtlasRegion(ZestImGui->font_region);
-    ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->font_texture);
+    ZestImGui->font_region = zest_CreateAtlasRegion(ZestImGui->context);
     zest_cmd_CopyBitmapToImage(font_bitmap, ZestImGui->font_texture, 0, 0, 0, 0, width, height);
     ZestImGui->font_texture_binding_index = zest_AcquireGlobalSampledImageIndex(ZestImGui->font_texture, zest_texture_2d_binding);
+	zest_BindAtlasRegionToImage(ZestImGui->font_region, ZestImGui->font_sampler_binding_index, ZestImGui->font_texture, zest_texture_2d_binding);
     zest_FreeBitmap(font_bitmap);
     
     ImGuiIO &io = ImGui::GetIO();
@@ -216,8 +218,8 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
                         zest_cmd_BindPipelineShaderResource(command_list, pipeline, last_resources);
                         last_pipeline = ZestImGui->pipeline;
                     }
-                    push_constants->font_texture_index = ZestImGui->font_texture_binding_index;
-                    push_constants->font_sampler_index = ZestImGui->font_sampler_binding_index;
+                    push_constants->font_texture_index = current_image->image_index;
+                    push_constants->font_sampler_index = current_image->sampler_index;
                     push_constants->image_layer = zest_RegionLayerIndex(current_image);
                     break;
                 }

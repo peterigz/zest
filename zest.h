@@ -4258,7 +4258,9 @@ typedef struct zest_atlas_region_t {
 	zest_u64 uv_packed;          //UV coords packed into 16bit floats
 	zest_index layer_index;      //the layer index of the image when it's packed into an image/texture array
 	zest_uint frames;            //Will be one if this is a single image or more if it's part of an animation
-	zest_image image;            //Handle to the texture that this atlas region belongs to
+	zest_global_binding_number binding_number;
+	zest_uint image_index;       //Index of the image to lookup in the shader
+	zest_uint sampler_index;     //Index of the sampler to lookup in the shader
 	zest_vec2 handle;
 	zest_vec2 min;
 	zest_vec2 max;
@@ -5002,7 +5004,7 @@ ZEST_API zest_set_layout_handle zest_FinishDescriptorSetLayout(zest_set_layout_b
 ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout_handle layout);
 ZEST_API zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number);
 ZEST_API zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number);
-ZEST_API zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle, zest_global_binding_number binding_number);
+ZEST_API zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle);
 ZEST_API zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer);
 ZEST_API zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle handle, zest_image_view_array_handle image_views, zest_global_binding_number binding_number, zest_descriptor_type descriptor_type);
 ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer_handle layer);
@@ -5401,6 +5403,7 @@ ZEST_API zest_image_view_array_handle zest_CreateImageViewsPerMip(zest_image_han
 ZEST_API zest_image_collection_handle zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags);
 ZEST_API zest_image_collection_handle zest_CreateImageAtlasCollection(zest_context context, zest_format format, zest_image_collection_flags flags);
 ZEST_API zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection_handle image_collection, const char *filename, const char *name);
+ZEST_API zest_atlas_region zest_AddImageAtlasBitmap(zest_image_collection_handle image_collection, zest_bitmap bitmap, const char *name);
 ZEST_API void zest_SetImageCollectionBitmapMeta(zest_image_collection_handle image_collection, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset);
 ZEST_API zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection_handle image_collection);
 ZEST_API zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection_handle image_collection, zest_uint bitmap_index);
@@ -5408,8 +5411,9 @@ ZEST_API zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection
 ZEST_API zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection_handle image_collection, zest_uint bitmap_index, const void *src_data, zest_size src_size);
 ZEST_API void zest_FreeImage(zest_image_handle image_handle);
 ZEST_API zest_imgui_image_t zest_NewImGuiImage(void);
-ZEST_API zest_atlas_region zest_CreateAtlasRegion(zest_image_handle handle);
+ZEST_API zest_atlas_region zest_CreateAtlasRegion(zest_context context);
 ZEST_API zest_atlas_region zest_NewAtlasRegion(zest_context context);
+ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region region, zest_uint sampler_index, zest_image_handle image_handle, zest_global_binding_number binding_number);
 ZEST_API void zest_FreeAtlasRegion(zest_atlas_region region);
 ZEST_API zest_atlas_region zest_CreateAnimation(zest_context context, zest_uint frames);
 zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name);
