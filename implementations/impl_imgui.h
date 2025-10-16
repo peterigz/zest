@@ -12,6 +12,18 @@ typedef struct zest_imgui_push_t {
 	zest_uint image_layer;
 } zest_imgui_push_t;
 
+typedef struct zest_imgui_render_state_t {
+	zest_pipeline pipeline;
+	zest_shader_resources_handle resources;
+} zest_imgui_render_state_t;
+
+typedef struct zest_imgui_callback_data_t {
+	void *user_data;
+	zest_command_list command_list;
+	zest_imgui_render_state_t *render_state;
+} zest_imgui_callback_data_t;
+
+
 //This struct must be filled and attached to the draw routine that implements imgui as user data
 typedef struct zest_imgui_t {
     int magic;
@@ -41,7 +53,7 @@ void zest_imgui_RecordLayer(const zest_command_list context, zest_buffer vertex_
 zest_resource_node zest_imgui_ImportVertexResources(const char *name);
 zest_resource_node zest_imgui_ImportIndexResources(const char *name);
 void zest_imgui_UpdateBuffers();
-void zest_imgui_DrawImage(zest_atlas_region image, float width, float height);
+void zest_imgui_DrawImage(zest_atlas_region image, float width, float height, ImDrawCallback callback, void *user_data);
 void zest_imgui_DrawImage2(zest_atlas_region image, float width, float height);
 void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
 bool zest_imgui_DrawButton(zest_atlas_region image, const char* user_texture_id, float width, float height, int frame_padding);

@@ -5084,6 +5084,7 @@ ZEST_API void zest_SetPipelineShaders(zest_pipeline_template pipeline_template, 
 ZEST_API void zest_SetPipelineFrontFace(zest_pipeline_template pipeline_template, zest_front_face front_face);
 ZEST_API void zest_SetPipelineTopology(zest_pipeline_template pipeline_template, zest_topology topology);
 ZEST_API void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template, zest_cull_mode cull_mode);
+ZEST_API void zest_SetPipelinePolygonFillMode(zest_pipeline_template pipeline_template, zest_polygon_mode polygon_mode);
 //Set the name of both the fragment and vertex shader to the same file (frag and vertex shaders can be combined into the same spv)
 ZEST_API void zest_SetPipelineShader(zest_pipeline_template pipeline_template, zest_shader_handle combined_vertex_and_fragment_shader);
 //Add a new binding description which is used to set the size of the struct (stride) and the vertex input rate.
@@ -7148,7 +7149,12 @@ int zest__decode_png(zest_context context, zest_bitmap out_bitmap, const zest_by
 			}
 		}
 		out_bitmap->meta.stride = out_bitmap->meta.channels * decoder.info.width;
-		out_bitmap->meta.size = zest_vec_size(out_vec);
+		if (convert_to_rgba32) {
+			out_bitmap->meta.channels = 4;
+			out_bitmap->meta.format = zest_format_r8g8b8a8_unorm;
+			out_bitmap->meta.stride = 4 * decoder.info.width;
+		}
+		out_bitmap->meta.size = zest_vec_size(out_vec);		
 		zest_AllocateBitmapMemory(out_bitmap, out_bitmap->meta.size);
         zloc_SafeCopy(out_bitmap->data, out_vec, zest_vec_size_in_bytes(out_vec));
         zest_vec_free(context->device->allocator, out_vec);
@@ -7170,7 +7176,7 @@ zest_bitmap zest_LoadPNG(zest_context context, const char *filename) {
     }
 
 	zest_bitmap bitmap = zest_NewBitmap(context);
-    int error = zest__decode_png(context, bitmap, buffer, zest_vec_size_in_bytes(buffer), 1);
+    int error = zest__decode_png(context, bitmap, buffer, zest_vec_size_in_bytes(buffer), 0);
 	zest_vec_free(context->device->allocator, buffer);
 	if (error) {
 		zest_FreeBitmap(bitmap);

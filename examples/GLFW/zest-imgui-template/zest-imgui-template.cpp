@@ -29,18 +29,18 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Rebuild the Zest font texture
 	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
 
-	zest_image_collection_handle atlas = zest_CreateImageAtlasCollection(app->context, zest_format_r8g8b8a8_unorm);
-	//app->wabbit_sprite = zest_AddImageAtlasPNG(atlas, "examples/assets/vaders/player.png", "wabbit_alpha");
-	int width, height, channels;
-	zest_byte *pixels = stbi_load("examples/assets/vaders/player.png", &width, &height, &channels, 4);
-	zest_bitmap bitmap = zest_CreateBitmapFromRawBuffer(app->context, "wabbit_alpha", pixels, width * height * channels, width, height, channels); 
-	app->wabbit_sprite = zest_AddImageAtlasBitmap(atlas, bitmap, "wabbit_alpha");
+	zest_image_collection_handle atlas = zest_CreateImageAtlasCollection(app->context, zest_format_r8g8_unorm);
+	app->wabbit_sprite = zest_AddImageAtlasPNG(atlas, "examples/assets/wabbit_alpha.png", "wabbit_alpha");
+	//int width, height, channels;
+	//zest_byte *pixels = stbi_load("examples/assets/vaders/player.png", &width, &height, &channels, 4);
+	//zest_bitmap bitmap = zest_CreateBitmapFromRawBuffer(app->context, "wabbit_alpha", pixels, width * height * channels, width, height, channels); 
+	//app->wabbit_sprite = zest_AddImageAtlasBitmap(atlas, bitmap, "wabbit_alpha");
 	zest_image_handle image_atlas = zest_CreateImageAtlas(atlas, 1024, 1024, 0);
     zest_sampler_handle sampler = zest_CreateSamplerForImage(image_atlas);
 	app->atlas_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_2d_binding);
 	app->atlas_sampler_binding_index = zest_AcquireGlobalSamplerIndex(sampler);
 	zest_BindAtlasRegionToImage(app->wabbit_sprite, app->atlas_sampler_binding_index, image_atlas, zest_texture_2d_binding);
-	free(pixels);
+	//free(pixels);
 	//Create a texture to load in a test image to show drawing that image in an imgui window
 	//app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 	//Load in the image and add it to the texture
@@ -48,10 +48,26 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Process the texture so that its ready to be used
 	//zest_ProcessTextureImages(app->test_texture);
 
+	shaderc_compiler_t compiler = shaderc_compiler_initialize();
+	app->imgui_sprite_shader = zest_CreateShader(app->context, zest_shader_imgui_r8g8_frag, shaderc_fragment_shader, "imgui_sprite_frag", ZEST_TRUE, compiler, 0);
+	shaderc_compiler_release(compiler);
+
+	app->imgui_sprite_pipeline = zest_CopyPipelineTemplate(app->context, "ImGui Sprite Pipeline", ZestImGui->pipeline);
+	zest_SetPipelineFragShader(app->imgui_sprite_pipeline, app->imgui_sprite_shader);
+
+
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(app->context, 60);
 	app->request_graph_print = true;
 	app->reset = false;
+}
+
+void ImGuiSpriteDrawCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd) {
+	zest_imgui_callback_data_t *data = (zest_imgui_callback_data_t *)cmd->UserCallbackData;
+	ImGuiApp *app = (ImGuiApp*)data->user_data;
+	data->render_state->pipeline = zest_PipelineWithTemplate(app->imgui_sprite_pipeline, data->command_list);
+	data->render_state->resources = ZestImGui->font_resources;
+	return;
 }
 
 void MainLoop(ImGuiApp *app) {
@@ -121,7 +137,8 @@ void MainLoop(ImGuiApp *app) {
 		}
 		*/
 			zest_vec4 uv = zest_ImageUV(app->wabbit_sprite);
-			ImGui::Image((ImTextureID)app->wabbit_sprite, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
+			//ImGui::Image((ImTextureID)app->wabbit_sprite, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
+			zest_imgui_DrawImage(app->wabbit_sprite, 50.f, 50.f, ImGuiSpriteDrawCallback, app);
 			ImGui::End();
 			ImGui::Render();
 			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.

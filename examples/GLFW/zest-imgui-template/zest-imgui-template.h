@@ -19,6 +19,8 @@ struct ImGuiApp {
 	zest_image_handle test_texture;
 	zest_atlas_region test_image;
 	zest_timer_handle timer;
+	zest_pipeline_template imgui_sprite_pipeline;
+	zest_shader_handle imgui_sprite_shader;
 	zest_context context;
 	zest_atlas_region wabbit_sprite;
 	RenderCacheInfo cache_info;
@@ -30,3 +32,33 @@ struct ImGuiApp {
 };
 
 void InitImGuiApp(ImGuiApp *app);
+void ImGuiSpriteDrawCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd);
+
+//----------------------
+//Imgui fragment shader for 2 channel images
+//----------------------
+static const char *zest_shader_imgui_r8g8_frag = ZEST_GLSL(450 core,
+
+layout(location = 0) in vec4 in_color;
+layout(location = 1) in vec3 in_uv;
+
+layout(location = 0) out vec4 out_color;
+layout(set = 0, binding = 0) uniform sampler samplers[];
+layout(set = 0, binding = 1) uniform texture2D textures[];
+
+//Not used by default by can be used in custom imgui image shaders
+layout(push_constant) uniform imgui_push
+{
+	vec4 transform;
+	uint texture_index;
+	uint sampler_index;
+	uint image_layer;
+} pc;
+
+void main()
+{
+	out_color = in_color * texture(sampler2D(textures[pc.texture_index], samplers[pc.sampler_index]), in_uv.xy);
+	out_color = vec4(out_color.r, out_color.r, out_color.r, out_color.g);
+}
+
+);

@@ -35,8 +35,8 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
     //ZestImGui->fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
 
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	ZestImGui->vertex_shader = zest_CreateShader(context, zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert", ZEST_FALSE, compiler, 0);
-	ZestImGui->fragment_shader = zest_CreateShader(context, zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag", ZEST_FALSE, compiler, 0);
+	ZestImGui->vertex_shader = zest_CreateShader(context, zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert", ZEST_TRUE, compiler, 0);
+	ZestImGui->fragment_shader = zest_CreateShader(context, zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag", ZEST_TRUE, compiler, 0);
 	shaderc_compiler_release(compiler);
 
     ZestImGui->font_resources = zest_CreateShaderResources(context);
@@ -49,19 +49,13 @@ zest_imgui_t *zest_imgui_Initialise(zest_context context) {
     zest_AddVertexAttribute(imgui_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position
     zest_AddVertexAttribute(imgui_pipeline, 0, 1, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, uv));    // Location 1: UV
     zest_AddVertexAttribute(imgui_pipeline, 0, 2, zest_format_r8g8b8a8_unorm, offsetof(zest_ImDrawVert_t, col));    // Location 2: Color
-
     zest_SetPipelineShaders(imgui_pipeline, ZestImGui->vertex_shader, ZestImGui->fragment_shader);
-
-    imgui_pipeline->flags |= zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild;
     zest_ClearPipelineDescriptorLayouts(imgui_pipeline);
     zest_AddPipelineDescriptorLayout(imgui_pipeline, zest_GetGlobalBindlessLayout(context));
-
-    imgui_pipeline->rasterization.polygon_mode = zest_polygon_mode_fill;
-    imgui_pipeline->rasterization.cull_mode = zest_cull_mode_none;
-    imgui_pipeline->rasterization.front_face = zest_front_face_counter_clockwise;
+	zest_SetPipelineFrontFace(imgui_pipeline, zest_front_face_counter_clockwise);
+	zest_SetPipelineCullMode(imgui_pipeline, zest_cull_mode_none);
     zest_SetPipelineTopology(imgui_pipeline, zest_topology_triangle_list);
-
-    imgui_pipeline->color_blend_attachment = zest_ImGuiBlendState();
+	zest_SetPipelineBlend(imgui_pipeline, zest_ImGuiBlendState());
     zest_SetPipelineDepthTest(imgui_pipeline, ZEST_FALSE, ZEST_FALSE);
     ZEST_APPEND_LOG(context->device->log_path.str, "ImGui pipeline");
 
@@ -179,8 +173,7 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
     zest_cmd_BindVertexBuffer(command_list, 0, 1, vertex_buffer);
     zest_cmd_BindIndexBuffer(command_list, index_buffer);
 
-    zest_pipeline_template last_pipeline = ZEST_NULL;
-    zest_shader_resources_handle last_resources = { 0 };
+	zest_imgui_render_state_t render_state = {};
 
     zest_cmd_SetScreenSizedViewport(command_list, 0, 1);
 
@@ -196,10 +189,10 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
 
         for (int32_t i = 0; i < imgui_draw_data->CmdListsCount; i++)
         {
-            const ImDrawList *cmd_list = imgui_draw_data->CmdLists[i];
+            ImDrawList *cmd_list = imgui_draw_data->CmdLists[i];
             for (int32_t j = 0; j < cmd_list->CmdBuffer.Size; j++)
             {
-                const ImDrawCmd *pcmd = &cmd_list->CmdBuffer[j];
+                ImDrawCmd *pcmd = &cmd_list->CmdBuffer[j];
 
                 zest_atlas_region current_image = (zest_atlas_region)pcmd->TextureId;
                 if (!current_image) {
@@ -210,28 +203,35 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
 
                 zest_imgui_push_t *push_constants = &ZestImGui->push_constants;
 
-				zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, command_list);
-                switch (ZEST_STRUCT_TYPE(current_image)) {
-                case zest_struct_type_atlas_region: {
-                    if (last_pipeline != ZestImGui->pipeline || last_resources.value != ZestImGui->font_resources.value) {
-                        last_resources = ZestImGui->font_resources;
-                        zest_cmd_BindPipelineShaderResource(command_list, pipeline, last_resources);
-                        last_pipeline = ZestImGui->pipeline;
-                    }
-                    push_constants->font_texture_index = current_image->image_index;
-                    push_constants->font_sampler_index = current_image->sampler_index;
-                    push_constants->image_layer = zest_RegionLayerIndex(current_image);
-                    break;
-                }
-                break;
-                default:
-                    //Invalid image
-					pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, command_list);
-                    ZEST_PRINT_WARNING("%s", "Invalid image found when trying to draw an imgui image. This is usually caused when a texture is changed in another thread before drawing is complete causing the image handle to become invalid due to it being freed.");
-                    continue;
-                }
+				if (pcmd->UserCallback) {
+					void* original_callback_data = pcmd->UserCallbackData;
+					zest_imgui_callback_data_t data_wrapper = {
+						original_callback_data,
+						command_list,
+						&render_state
+					};
+					pcmd->UserCallbackData = &data_wrapper;
+					pcmd->UserCallback(cmd_list, pcmd);
+					pcmd->UserCallbackData = original_callback_data;
+					continue;
+				}
 
-                zest_cmd_SendPushConstants(command_list, pipeline, push_constants);
+				if (current_image == ZestImGui->font_region) {
+					if (!render_state.pipeline) {
+						zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, command_list);
+						render_state.resources = ZestImGui->font_resources;
+						render_state.pipeline = pipeline;
+					}
+					zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
+				} else {
+					ZEST_ASSERT(render_state.pipeline && render_state.resources.value, "If the current atlas region is NOT the imgui font image then render state must have been set via a callback.");
+					zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
+				}
+				push_constants->font_texture_index = current_image->image_index;
+				push_constants->font_sampler_index = current_image->sampler_index;
+				push_constants->image_layer = zest_RegionLayerIndex(current_image);
+
+                zest_cmd_SendPushConstants(command_list, render_state.pipeline, push_constants);
 
                 ImVec2 clip_min((pcmd->ClipRect.x - clip_off.x) * clip_scale.x, (pcmd->ClipRect.y - clip_off.y) * clip_scale.y);
                 ImVec2 clip_max((pcmd->ClipRect.z - clip_off.x) * clip_scale.x, (pcmd->ClipRect.w - clip_off.y) * clip_scale.y);
@@ -338,7 +338,7 @@ void zest_imgui_UpdateBuffers() {
     }
 }
 
-void zest_imgui_DrawImage(zest_atlas_region image, float width, float height) {
+void zest_imgui_DrawImage(zest_atlas_region image, float width, float height, ImDrawCallback callback, void *user_data) {
     using namespace ImGui;
     zest_extent2d_t image_extent = zest_RegionDimensions(image);
     ImVec2 image_size((float)image_extent.width, (float)image_extent.height);
@@ -347,6 +347,9 @@ void zest_imgui_DrawImage(zest_atlas_region image, float width, float height) {
     image_size.y = ratio > 1 ? height / ratio : height;
     ImVec2 image_offset((width - image_size.x) * .5f, (height - image_size.y) * .5f);
     ImGuiWindow *window = GetCurrentWindow();
+	if (callback) {
+		window->DrawList->AddCallback(callback, user_data, 0);
+	}
     const ImRect image_bb(window->DC.CursorPos + image_offset, window->DC.CursorPos + image_offset + image_size);
     ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
     zest_vec4 uv = zest_ImageUV(image);

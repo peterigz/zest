@@ -3046,6 +3046,11 @@ void zest_SetPipelineCullMode(zest_pipeline_template pipeline_template, zest_cul
     pipeline_template->rasterization.cull_mode = cull_mode;
 }
 
+void zest_SetPipelinePolygonFillMode(zest_pipeline_template pipeline_template, zest_polygon_mode polygon_mode) {
+    ZEST_ASSERT_HANDLE(pipeline_template);  //invalid pipeline template handle
+    pipeline_template->rasterization.polygon_mode = polygon_mode;
+}
+
 void zest_SetPipelinePushConstantRange(zest_pipeline_template pipeline_template, zest_uint size, zest_supported_shader_stages stage_flags) {
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
     zest_push_constant_range_t range;
