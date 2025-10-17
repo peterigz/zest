@@ -217,12 +217,12 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_buffer ve
 				}
 
 				if (current_image == ZestImGui->font_region) {
-					if (!render_state.pipeline) {
-						zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, command_list);
+					zest_pipeline pipeline = zest_PipelineWithTemplate(ZestImGui->pipeline, command_list);
+					if (render_state.pipeline != pipeline) {
 						render_state.resources = ZestImGui->font_resources;
 						render_state.pipeline = pipeline;
+						zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
 					}
-					zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
 				} else {
 					ZEST_ASSERT(render_state.pipeline && render_state.resources.value, "If the current atlas region is NOT the imgui font image then render state must have been set via a callback.");
 					zest_cmd_BindPipelineShaderResource(command_list, render_state.pipeline, render_state.resources);
