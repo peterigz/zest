@@ -420,7 +420,8 @@ static inline zloc_bool zloc__is_used_block(const zloc_header *block) {
 }
 
 static inline zloc_bool zloc__is_free_block(const zloc_header *block) {
-	return block->size & zloc__BLOCK_IS_FREE;   //If you're crashing here, then you're probably trying to free
+	return block->size & zloc__BLOCK_IS_FREE;   
+	//If you're crashing here, then you're probably trying to free
 	//something that isn't a memory block. Maybe you should be
 	//zest_vec_free or zest_map_free or maybe freeing someting twice?
 }
@@ -918,9 +919,6 @@ static const char *zest_message_cannot_queue_for_execution = "Could not queue fr
 #else
 #define ZEST_PRINT_NOTICE(message_f, ...)
 #endif
-
-//#define ZEST_PRINT_FUNCTION ZEST_PRINT("%s %i", __FUNCTION__, __LINE__)
-#define ZEST_PRINT_FUNCTION
 
 #define ZEST_NL u8"\n"
 #define ZEST_TAB u8"\t"
@@ -2517,7 +2515,7 @@ typedef struct zest_resource_store_t {
 	zest_uint alignment;
 	zest_uint *generations;
 	zest_uint *free_slots;
-	zest_device device;
+	zest_context context;
 } zest_resource_store_t;
 
 ZEST_PRIVATE void zest__free_store(zest_resource_store_t *store);
@@ -2528,8 +2526,8 @@ ZEST_PRIVATE void zest__resize_store(zest_resource_store_t *store, zest_uint new
 ZEST_PRIVATE void zest__resize_bytes_store(zest_resource_store_t *store, zest_uint new_size);
 ZEST_PRIVATE zest_uint zest__size_in_bytes_store(zest_resource_store_t *store);
 ZEST_PRIVATE zest_handle zest__add_store_resource(zest_handle_type type, zest_context context);
-ZEST_PRIVATE void zest__remove_store_resource(zest_device device, zest_handle handle);
-ZEST_PRIVATE void zest__initialise_store(zest_device device, zest_resource_store_t *store, zest_uint struct_size);
+ZEST_PRIVATE void zest__remove_store_resource(zest_context context, zest_handle handle);
+ZEST_PRIVATE void zest__initialise_store(zest_context context, zest_resource_store_t *store, zest_uint struct_size);
 
 
 // --Pocket_Hasher, converted to c from Stephen Brumme's XXHash code (https://github.com/stbrumme/xxhash) by Peter Rigby
@@ -3439,7 +3437,7 @@ typedef struct zest_create_info_t {
 	zest_init_flags flags;                              //Set flags to apply different initialisation options
 	zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
 	zest_platform_type platform;
-	//Todo: Redo these, and do we even need them?
+	zest_size store_allocator_size;
 	zest_uint bindless_sampler_count;
 	zest_uint bindless_texture_2d_count;
 	zest_uint bindless_texture_cube_count;
@@ -3551,9 +3549,6 @@ typedef struct zest_device_t {
 	zest_map_buffer_pool_sizes pool_sizes;
 
 	zest_map_validation_errors validation_errors;
-
-	//Resource storage
-	zest_resource_store_t resource_stores[zest_max_handle_type];
 
 	//For scheduled tasks
 	zest_buffer *deferred_staging_buffers_for_freeing;
@@ -4688,6 +4683,10 @@ typedef struct zest_context_t {
 	//The device TLSF allocator
 	zloc_linear_allocator_t *frame_graph_allocator[ZEST_MAX_FIF];
 
+	//Resource storage
+	zloc_allocator *store_allocator;
+	zest_resource_store_t resource_stores[zest_max_handle_type];
+
 	//Flags
 	zest_context_flags flags;
 
@@ -4704,7 +4703,7 @@ ZEST_PRIVATE inline zest_bool zest__is_valid_handle(zest_context context, zest_h
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
 	zest_handle_type type = ZEST_HANDLE_TYPE(handle);
 	if (context && (zest_uint)type < (zest_uint)zest_max_handle_type && generation > 0) {
-		zest_resource_store_t *store = &context->device->resource_stores[type];
+		zest_resource_store_t *store = &context->resource_stores[type];
 		return index < store->current_size;
 	}
 	return ZEST_FALSE;
@@ -4723,7 +4722,7 @@ ZEST_PRIVATE inline void *zest__get_store_resource(zest_context context, zest_ha
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
 	zest_handle_type type = ZEST_HANDLE_TYPE(handle);
 	ZEST_ASSERT(type < zest_max_handle_type);	//Invalid handle type, is the handle valid?
-	zest_resource_store_t *store = &context->device->resource_stores[type];
+	zest_resource_store_t *store = &context->resource_stores[type];
 	if (index < store->capacity && store->generations[index] == generation) {
 		return (void *)((char *)store->data + index * store->struct_size);
 	}
@@ -4735,7 +4734,7 @@ ZEST_PRIVATE inline void *zest__get_store_resource_checked(zest_context context,
 	zest_uint generation = ZEST_HANDLE_GENERATION(handle);
 	zest_handle_type type = ZEST_HANDLE_TYPE(handle);
 	ZEST_ASSERT(type < zest_max_handle_type);	//Invalid handle type, is the handle valid?
-	zest_resource_store_t *store = &context->device->resource_stores[type];
+	zest_resource_store_t *store = &context->resource_stores[type];
 	void *resource = NULL;
 	if (index < store->capacity && store->generations[index] == generation) {
 		resource = (void *)((char *)store->data + index * store->struct_size);
@@ -4823,18 +4822,18 @@ ZEST_PRIVATE void zest__destroy_window_callback(zest_context window, void *user_
 ZEST_PRIVATE void zest__cleanup_swapchain(zest_swapchain swapchain);
 ZEST_PRIVATE void zest__cleanup_device(zest_device device);
 ZEST_PRIVATE void zest__cleanup_context(zest_context context);
-ZEST_PRIVATE void zest__cleanup_shader_resource_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_image_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_sampler_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_timer_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_layer_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_shader_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_compute_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_set_layout_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_view_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_view_array_store(zest_device device);
-ZEST_PRIVATE void zest__cleanup_image_collection_store(zest_device device);
+ZEST_PRIVATE void zest__cleanup_shader_resource_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_image_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_sampler_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_uniform_buffer_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_timer_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_layer_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_shader_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_compute_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_set_layout_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_view_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_view_array_store(zest_context context);
+ZEST_PRIVATE void zest__cleanup_image_collection_store(zest_context context);
 ZEST_PRIVATE void zest__free_handle(void *handle);
 ZEST_PRIVATE void zest__scan_memory_and_free_resources(zest_context context);
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);

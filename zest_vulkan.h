@@ -898,7 +898,6 @@ ZEST_PRIVATE inline zest_uint zest__vk_find_memory_type(zest_context context, ze
 }
 
 ZEST_PRIVATE inline VkFormat zest__vk_find_supported_format(zest_context context, VkFormat* candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features) {
-    ZEST_PRINT_FUNCTION;
     for (int i = 0; i != candidates_count; ++i) {
         VkFormatProperties props;
         vkGetPhysicalDeviceFormatProperties(context->device->backend->physical_device, candidates[i], &props);
@@ -940,7 +939,6 @@ ZEST_PRIVATE inline void zest__vk_insert_image_memory_barrier(VkCommandBuffer cm
 }
 
 ZEST_PRIVATE inline VkResult zest__vk_create_temporary_image(zest_context context, zest_uint width, zest_uint height, zest_uint mipLevels, VkSampleCountFlagBits sample_count, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage* image, VkDeviceMemory* memory) {
-    ZEST_PRINT_FUNCTION;
     VkImageCreateInfo image_info = ZEST__ZERO_INIT(VkImageCreateInfo);
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -976,7 +974,6 @@ ZEST_PRIVATE inline VkResult zest__vk_create_temporary_image(zest_context contex
 }
 
 ZEST_PRIVATE inline void zest__vk_place_image_barrier(VkCommandBuffer command_buffer, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage, VkImageMemoryBarrier *barrier) {
-    ZEST_PRINT_FUNCTION;
 	vkCmdPipelineBarrier(
 		command_buffer,
 		src_stage,
@@ -989,7 +986,6 @@ ZEST_PRIVATE inline void zest__vk_place_image_barrier(VkCommandBuffer command_bu
 }
 
 ZEST_PRIVATE inline VkFence zest__vk_create_fence(zest_context context) {
-    ZEST_PRINT_FUNCTION;
     VkFenceCreateInfo fence_info = ZEST__ZERO_INIT(VkFenceCreateInfo);
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = 0;
