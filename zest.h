@@ -2209,7 +2209,7 @@ typedef enum zest_report_category {
 	zest_report_cannot_execute,
 } zest_report_category;
 
-typedef enum zest_global_binding_number {
+typedef enum zest_binding_number_type {
 	zest_sampler_binding = 0,
 	zest_texture_2d_binding,
 	zest_texture_cube_binding,
@@ -2219,7 +2219,7 @@ typedef enum zest_global_binding_number {
 	zest_storage_image_binding,
 	zest_uniform_buffer_binding,
 	zest_max_global_binding_number
-} zest_global_binding_number;
+} zest_binding_number_type;
 
 typedef enum zest_frame_graph_result_bits {
 	zest_fgs_success = 0,
@@ -3242,7 +3242,7 @@ typedef struct zest_uniform_buffer_t {
 } zest_uniform_buffer_t;
 
 typedef struct zest_mip_index_collection {
-	zest_global_binding_number binding_number;
+	zest_binding_number_type binding_number;
 	zest_uint *mip_indexes;
 } zest_mip_index_collection;
 
@@ -4016,8 +4016,8 @@ ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
 ZEST_API void zest_EndPass();
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_global_binding_number binding_number);
-ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_global_binding_number binding_number);
+ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
+ZEST_API zest_uint *zest_GetTransientMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
 ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource);
 
 // --- Add callback tasks to passes
@@ -4258,7 +4258,7 @@ typedef struct zest_atlas_region_t {
 	zest_u64 uv_packed;          //UV coords packed into 16bit floats
 	zest_index layer_index;      //the layer index of the image when it's packed into an image/texture array
 	zest_uint frames;            //Will be one if this is a single image or more if it's part of an animation
-	zest_global_binding_number binding_number;
+	zest_binding_number_type binding_number;
 	zest_uint image_index;       //Index of the image to lookup in the shader
 	zest_uint sampler_index;     //Index of the sampler to lookup in the shader
 	zest_vec2 handle;
@@ -4925,8 +4925,8 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout);
 ZEST_PRIVATE void zest__add_descriptor_set_to_resources(zest_context context, zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif);
-ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number, zest_descriptor_type descriptor_type);
-ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_descriptor_type descriptor_type);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number);
 // --End Descriptor set functions
 
 // --Device_set_up
@@ -5002,16 +5002,16 @@ ZEST_API zest_set_layout_handle zest_FinishDescriptorSetLayoutForBindless(zest_s
 ZEST_API zest_set_layout_handle zest_FinishDescriptorSetLayout(zest_set_layout_builder_t *builder, const char *name, ...);
 
 ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout_handle layout);
-ZEST_API zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number);
-ZEST_API zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number);
+ZEST_API zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number);
+ZEST_API zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number);
 ZEST_API zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle);
 ZEST_API zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer);
-ZEST_API zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle handle, zest_image_view_array_handle image_views, zest_global_binding_number binding_number, zest_descriptor_type descriptor_type);
+ZEST_API zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle handle, zest_image_view_array_handle image_views, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type);
 ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer_handle layer);
 ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
-ZEST_API void zest_ReleaseGlobalImageIndex(zest_image_handle image, zest_global_binding_number binding_number);
+ZEST_API void zest_ReleaseGlobalImageIndex(zest_image_handle image, zest_binding_number_type binding_number);
 ZEST_API void zest_ReleaseAllGlobalImageIndexes(zest_image_handle image);
-ZEST_API void zest_ReleaseGlobalBindlessIndex(zest_context context, zest_uint index, zest_global_binding_number binding_number);
+ZEST_API void zest_ReleaseGlobalBindlessIndex(zest_context context, zest_uint index, zest_binding_number_type binding_number);
 ZEST_API zest_descriptor_set zest_GetGlobalBindlessSet(zest_context context);
 ZEST_API zest_set_layout_handle zest_GetGlobalBindlessLayout(zest_context context);
 //Create a new descriptor set shader_resources
@@ -5414,7 +5414,7 @@ ZEST_API void zest_FreeImage(zest_image_handle image_handle);
 ZEST_API zest_imgui_image_t zest_NewImGuiImage(void);
 ZEST_API zest_atlas_region zest_CreateAtlasRegion(zest_context context);
 ZEST_API zest_atlas_region zest_NewAtlasRegion(zest_context context);
-ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region region, zest_uint sampler_index, zest_image_handle image_handle, zest_global_binding_number binding_number);
+ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region region, zest_uint sampler_index, zest_image_handle image_handle, zest_binding_number_type binding_number);
 ZEST_API void zest_FreeAtlasRegion(zest_atlas_region region);
 ZEST_API zest_atlas_region zest_CreateAnimation(zest_context context, zest_uint frames);
 zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name);
@@ -5492,7 +5492,7 @@ ZEST_API zest_vec4 zest_ImageUV(zest_atlas_region image);
 ZEST_API const zest_image_info_t *zest_ImageInfo(zest_image_handle image_handle);
 //Get a descriptor index from an image for a specific binding number. You must have already acquired the index
 //for the binding number first with zest_GetGlobalSampler.
-ZEST_API zest_uint zest_ImageDescriptorIndex(zest_image_handle image_handle, zest_global_binding_number binding_number);
+ZEST_API zest_uint zest_ImageDescriptorIndex(zest_image_handle image_handle, zest_binding_number_type binding_number);
 //Get the raw value of the current image image of the image as an int. This will be whatever layout is represented
 //in the backend api you are using (vulkan, metal, dx12 etc.). You can use this if you just need the current layout
 //of the image without translating it into a zest layout enum because you just need to know if the layout changed

@@ -5903,7 +5903,7 @@ void zest_EmptyRenderPass(const zest_command_list command_list, void *user_data)
     //Nothing here to render, it's just for frame graphs that have nothing to render
 }
 
-zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number, zest_descriptor_type descriptor_type) {
+zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_descriptor_type descriptor_type) {
     zest_uint binding_number = ZEST_INVALID;
 	zest_vec_foreach(i, layout->bindings) {
 		zest_descriptor_binding_desc_t *binding = &layout->bindings[i];
@@ -5928,7 +5928,7 @@ zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view v
     return array_index;
 }
 
-zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_global_binding_number target_binding_number) {
+zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number) {
     zest_uint binding_number = ZEST_INVALID;
     zest_descriptor_type descriptor_type;
     zest_vec_foreach(i, layout->bindings) {
@@ -5974,14 +5974,14 @@ zest_uint zest__acquire_bindless_storage_buffer_index(zest_buffer buffer, zest_s
     return array_index;
 }
 
-zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number) {
+zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number) {
     zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
 	zest_context context = image_handle.context;
     zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, context->device->global_bindless_set_layout, context->device->global_set, binding_number, zest_descriptor_type_sampled_image);
     return index;
 }
 
-zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, zest_global_binding_number binding_number) {
+zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number) {
     zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
 	zest_context context = image_handle.context;
     zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, context->device->global_bindless_set_layout, context->device->global_set, binding_number, zest_descriptor_type_storage_image);
@@ -5995,7 +5995,7 @@ zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle) {
     return index;
 }
 
-zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zest_image_view_array_handle view_array_handle, zest_global_binding_number binding_number, zest_descriptor_type descriptor_type) {
+zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zest_image_view_array_handle view_array_handle, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type) {
 	ZEST_ASSERT(image_handle.context == view_array_handle.context);	//image and view arrays must have the same context!
     zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
     ZEST_ASSERT(image->info.mip_levels > 1);         //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
@@ -6045,7 +6045,7 @@ void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer) {
     zest__release_bindless_index(context->device->global_bindless_set_layout, zest_storage_buffer_binding, buffer->array_index);
 }
 
-void zest_ReleaseGlobalImageIndex(zest_image_handle handle, zest_global_binding_number binding_number) {
+void zest_ReleaseGlobalImageIndex(zest_image_handle handle, zest_binding_number_type binding_number) {
     zest_image image = (zest_image)zest__get_store_resource_checked(handle.context, handle.value);
 	zest_context context = handle.context;
     ZEST_ASSERT(binding_number < zest_max_global_binding_number);
@@ -6059,7 +6059,7 @@ void zest_ReleaseAllGlobalImageIndexes(zest_image_handle handle) {
     zest__release_all_global_texture_indexes(image);
 }
 
-void zest_ReleaseGlobalBindlessIndex(zest_context context, zest_uint index, zest_global_binding_number binding_number) {
+void zest_ReleaseGlobalBindlessIndex(zest_context context, zest_uint index, zest_binding_number_type binding_number) {
     ZEST_ASSERT(index != ZEST_INVALID);
     zest__release_bindless_index(context->device->global_bindless_set_layout, binding_number, index);
 }
@@ -6480,7 +6480,7 @@ zest_resource_node zest_GetPassOutputResource(const zest_command_list command_li
     return ZEST_VALID_HANDLE(usage->resource_node->aliased_resource) ? usage->resource_node->aliased_resource : usage->resource_node;
 }
 
-zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_global_binding_number binding_number) {
+zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number) {
     ZEST_PRINT_FUNCTION;
     ZEST_ASSERT_HANDLE(resource);            // Not a valid resource handle
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
@@ -6500,7 +6500,7 @@ zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list com
     return bindless_index;
 }
 
-zest_uint *zest_GetTransientMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_global_binding_number binding_number) {
+zest_uint *zest_GetTransientMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number) {
     ZEST_PRINT_FUNCTION;
     zest_set_layout bindless_layout = command_list->frame_graph->bindless_layout;
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
@@ -7252,7 +7252,7 @@ void zest__release_all_global_texture_indexes(zest_image image) {
     }
     for (int i = 0; i != zest_max_global_binding_number; ++i) {
         if (image->bindless_index[i] != ZEST_INVALID) {
-            zest__release_bindless_index(context->device->global_bindless_set_layout, (zest_global_binding_number)i, image->bindless_index[i]);
+            zest__release_bindless_index(context->device->global_bindless_set_layout, (zest_binding_number_type)i, image->bindless_index[i]);
             image->bindless_index[i] = ZEST_INVALID;
         }
     }
@@ -7299,7 +7299,7 @@ zest_atlas_region zest_NewAtlasRegion(zest_context context) {
     return region;
 }
 
-void zest_BindAtlasRegionToImage(zest_atlas_region region, zest_uint sampler_index, zest_image_handle image_handle, zest_global_binding_number binding_number) {
+void zest_BindAtlasRegionToImage(zest_atlas_region region, zest_uint sampler_index, zest_image_handle image_handle, zest_binding_number_type binding_number) {
 	ZEST_ASSERT_HANDLE(region);		//Not a valid region pointer
 	zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
 	region->image_index = image->bindless_index[binding_number];
@@ -8539,7 +8539,7 @@ const zest_image_info_t *zest_ImageInfo(zest_image_handle image_handle) {
     return &image->info;
 }
 
-zest_uint zest_ImageDescriptorIndex(zest_image_handle image_handle, zest_global_binding_number binding_number) {
+zest_uint zest_ImageDescriptorIndex(zest_image_handle image_handle, zest_binding_number_type binding_number) {
     ZEST_ASSERT(binding_number < zest_max_global_binding_number);   //Invalid binding number
     zest_image image = (zest_image)zest__get_store_resource(image_handle.context, image_handle.value);
     return image->bindless_index[binding_number];
