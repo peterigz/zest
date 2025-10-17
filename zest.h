@@ -672,6 +672,9 @@ static inline void zloc__remove_block_from_segregated_list(zloc_allocator *alloc
 	If split then the trimmed amount is added back to the segregated list of free blocks.
 */
 static inline zloc_header *zloc__maybe_split_block(zloc_allocator *allocator, zloc_header *block, zloc_size size, zloc_size remote_size) {
+	//If you crash here it could be that you tried to free something that isn't actually a block allocation,
+	//perhaps it's the first object in a list that was allocated like a zest store resource. So when that got
+	//freed it could be added to the free block lists as a 0 sized block.
 	ZLOC_ASSERT(!zloc__is_last_block_in_pool(block));
 	zloc_size size_plus_overhead = size + zloc__BLOCK_POINTER_OFFSET + zloc__block_extension_size;
 	if (size_plus_overhead + zloc__MINIMUM_BLOCK_SIZE >= zloc__block_size(block) - zloc__block_extension_size) {
