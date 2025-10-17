@@ -46,26 +46,24 @@ typedef struct zest_imgui_t {
 	zest_sampler_handle font_sampler;
 } zest_imgui_t;
 
-extern zest_imgui_t *ZestImGui;
-
-zest_imgui_t *zest_imgui_Initialise(zest_context context);
-void zest_imgui_RecordLayer(const zest_command_list context, zest_buffer vertex_buffer, zest_buffer index_buffer);
-zest_resource_node zest_imgui_ImportVertexResources(const char *name);
-zest_resource_node zest_imgui_ImportIndexResources(const char *name);
-void zest_imgui_UpdateBuffers();
+zest_imgui_t zest_imgui_Initialise(zest_context context);
+void zest_imgui_RecordLayer(const zest_command_list context, zest_imgui_t *imgui, zest_buffer vertex_buffer, zest_buffer index_buffer);
+zest_resource_node zest_imgui_ImportVertexResources(zest_imgui_t *imgui, const char *name);
+zest_resource_node zest_imgui_ImportIndexResources(zest_imgui_t *imgui, const char *name);
+void zest_imgui_UpdateBuffers(zest_imgui_t *imgui);
 void zest_imgui_DrawImage(zest_atlas_region image, float width, float height, ImDrawCallback callback, void *user_data);
 void zest_imgui_DrawImage2(zest_atlas_region image, float width, float height);
 void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
 bool zest_imgui_DrawButton(zest_atlas_region image, const char* user_texture_id, float width, float height, int frame_padding);
-void zest_imgui_RebuildFontTexture(zest_uint width, zest_uint height, unsigned char* pixels);
-zest_pass_node zest_imgui_BeginPass();
+void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels);
+zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui);
 zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource);
 zest_buffer zest_imgui_IndexBufferProvider(zest_resource_node resource);
 void zest_imgui_DrawImGuiRenderPass(const zest_command_list context, void *user_data);
 void zest_imgui_UploadImGuiPass(const zest_command_list context, void *user_data);
 void zest_imgui_DarkStyle();
 bool zest_imgui_HasGuiToDraw();
-void zest_imgui_Shutdown();
+void zest_imgui_Destroy(zest_imgui_t *imgui);
 
 //----------------------
 //Imgui vert shader

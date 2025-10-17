@@ -23,6 +23,7 @@ struct ImGuiApp {
 	zest_shader_handle imgui_sprite_shader;
 	zest_context context;
 	zest_atlas_region wabbit_sprite;
+	zest_imgui_t imgui;
 	RenderCacheInfo cache_info;
 	zest_uint atlas_binding_index;
 	zest_uint atlas_sampler_binding_index;

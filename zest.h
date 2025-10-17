@@ -3997,6 +3997,8 @@ ZEST_API zest_uint zest_GetResourceHeight(zest_resource_node resource);
 ZEST_API zest_image zest_GetResourceImage(zest_resource_node resource_node);
 ZEST_API zest_resource_type zest_GetResourceType(zest_resource_node resource_node);
 ZEST_API zest_image_info_t zest_GetResourceImageDescription(zest_resource_node resource_node);
+ZEST_API void *zest_GetResourceUserData(zest_resource_node resource_node);
+ZEST_API void zest_SetResourceUserData(zest_resource_node resource_node, void *user_data);
 ZEST_API void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha);
 ZEST_API zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph frame_graph);

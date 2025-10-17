@@ -6583,6 +6583,16 @@ zest_image_info_t zest_GetResourceImageDescription(zest_resource_node resource_n
 	return resource_node->image.info;
 }
 
+void *zest_GetResourceUserData(zest_resource_node resource_node) {
+	ZEST_ASSERT_HANDLE(resource_node);	 //Not a valid resource handle!
+	return resource_node->user_data;
+}
+
+void zest_SetResourceUserData(zest_resource_node resource_node, void *user_data) {
+	ZEST_ASSERT_HANDLE(resource_node);	 //Not a valid resource handle!
+	resource_node->user_data = user_data;
+}
+
 void zest_SetResourceClearColor(zest_resource_node resource, float red, float green, float blue, float alpha) {
     ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle!
     resource->clear_color = ZEST_STRUCT_LITERAL(zest_vec4, red, green, blue, alpha);

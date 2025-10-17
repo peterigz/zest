@@ -10,7 +10,9 @@
 
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
+	app->imgui = zest_imgui_Initialise(app->context);
 	zest_imgui_InitialiseForGLFW(app->context);
+
 	//Implement a dark style
 	zest_imgui_DarkStyle();
 	
@@ -27,7 +29,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 
 	//Rebuild the Zest font texture
-	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
+	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
 	zest_image_collection_handle atlas = zest_CreateImageAtlasCollection(app->context, zest_format_r8g8_unorm);
 	app->wabbit_sprite = zest_AddImageAtlasPNG(atlas, "examples/assets/wabbit_alpha.png", "wabbit_alpha");
@@ -52,7 +54,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->imgui_sprite_shader = zest_CreateShader(app->context, zest_shader_imgui_r8g8_frag, shaderc_fragment_shader, "imgui_sprite_frag", ZEST_TRUE, compiler, 0);
 	shaderc_compiler_release(compiler);
 
-	app->imgui_sprite_pipeline = zest_CopyPipelineTemplate(app->context, "ImGui Sprite Pipeline", ZestImGui->pipeline);
+	app->imgui_sprite_pipeline = zest_CopyPipelineTemplate(app->context, "ImGui Sprite Pipeline", app->imgui.pipeline);
 	zest_SetPipelineFragShader(app->imgui_sprite_pipeline, app->imgui_sprite_shader);
 
 
@@ -66,7 +68,7 @@ void ImGuiSpriteDrawCallback(const ImDrawList* parent_list, const ImDrawCmd* cmd
 	zest_imgui_callback_data_t *data = (zest_imgui_callback_data_t *)cmd->UserCallbackData;
 	ImGuiApp *app = (ImGuiApp*)data->user_data;
 	data->render_state->pipeline = zest_PipelineWithTemplate(app->imgui_sprite_pipeline, data->command_list);
-	data->render_state->resources = ZestImGui->font_resources;
+	data->render_state->resources = app->imgui.font_resources;
 	return;
 }
 
@@ -143,12 +145,12 @@ void MainLoop(ImGuiApp *app) {
 			ImGui::Render();
 			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
 			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-			zest_imgui_UpdateBuffers();
+			zest_imgui_UpdateBuffers(&app->imgui);
 		} zest_EndTimerLoop(app->timer);
 
 		if (app->reset) {
 			app->reset = false;
-			zest_imgui_Shutdown();
+			zest_imgui_Destroy(&app->imgui);
 			zest_ResetRenderer(app->context);
 			InitImGuiApp(app);
 		}
@@ -171,7 +173,7 @@ void MainLoop(ImGuiApp *app) {
 					//zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 					//------------------------ ImGui Pass ----------------------------------------------------------------
 					//If there's imgui to draw then draw it
-					zest_pass_node imgui_pass = zest_imgui_BeginPass();
+					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui);
 					if (imgui_pass) {
 						//zest_ConnectInput(test_texture, 0);
 						zest_ConnectSwapChainOutput();
@@ -236,6 +238,7 @@ int main(void) {
 	//Start the main loop
 	MainLoop(&imgui_app);
 	zest_imgui_ShutdownGLFW();
+	zest_imgui_Destroy(&imgui_app.imgui);
 	zest_DestroyContext(imgui_app.context);
 
 	return 0;
