@@ -241,6 +241,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	//------------------------------
 
 	//Initialise Dear ImGui
+	app->imgui = zest_imgui_Initialise(app->context);
 	zest_imgui_InitialiseForGLFW(app->context);
 	//Implement a dark style
 	zest_imgui_DarkStyle();
@@ -258,7 +259,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	io.Fonts->GetTexDataAsRGBA32(&font_data, &tex_width, &tex_height);
 
 	//Rebuild the Zest font texture
-	zest_imgui_RebuildFontTexture(tex_width, tex_height, font_data);
+	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
 	app->camera = zest_CreateCamera();
 	zest_CameraPosition(&app->camera, { -2.5f, 0.f, 0.f });
@@ -305,9 +306,9 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->skybox_sampler = zest_CreateSamplerForImage(app->skybox_texture);
 	app->skybox_bindless_texture_index = zest_AcquireGlobalSampledImageIndex(app->skybox_texture, zest_texture_cube_binding);
 
-	app->sampler_2d_index = zest_AcquireGlobalSamplerIndex(app->sampler_2d, zest_sampler_binding);
-	app->cube_sampler_index = zest_AcquireGlobalSamplerIndex(app->cube_sampler, zest_sampler_binding);
-	app->skybox_sampler_index = zest_AcquireGlobalSamplerIndex(app->skybox_sampler, zest_sampler_binding);
+	app->sampler_2d_index = zest_AcquireGlobalSamplerIndex(app->sampler_2d);
+	app->cube_sampler_index = zest_AcquireGlobalSamplerIndex(app->cube_sampler);
+	app->skybox_sampler_index = zest_AcquireGlobalSamplerIndex(app->skybox_sampler);
 
 	SetupBRDFLUT(app);
 	SetupIrradianceCube(app);
@@ -510,7 +511,7 @@ void MainLoop(ImGuiApp *app) {
 			ImGui::Render();
 			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
 			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-			zest_imgui_UpdateBuffers();
+			zest_imgui_UpdateBuffers(&app->imgui);
 
 			UpdateCameraPosition(app);
 
@@ -550,7 +551,7 @@ void MainLoop(ImGuiApp *app) {
 
 		if (app->reset) {
 			app->reset = false;
-			zest_imgui_Shutdown();
+			zest_imgui_Destroy(&app->imgui);
 			zest_ResetRenderer(app->context);
 			InitImGuiApp(app);
 		}
@@ -626,7 +627,7 @@ void MainLoop(ImGuiApp *app) {
 
 					//------------------------ ImGui Pass ----------------------------------------------------------------
 					//If there's imgui to draw then draw it
-					zest_pass_node imgui_pass = zest_imgui_BeginPass(); {
+					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui); {
 						if (imgui_pass) {
 							zest_ConnectGroupedOutput(group);
 						} else {
@@ -679,46 +680,12 @@ void loadFileCPP(std::vector<unsigned char>& buffer, const std::string& filename
   else buffer.clear();
 }
 
-int loadFile(unsigned char** buffer, size_t* size, const char* filename) {
-    FILE* file = fopen(filename, "rb");
-    if (!file) return 1;
-    fseek(file, 0, SEEK_END);
-    long filesize = ftell(file);
-    if (filesize < 0) { fclose(file); return 1; }
-    *size = filesize;
-    fseek(file, 0, SEEK_SET);
-    *buffer = (unsigned char*)malloc(*size);
-    if (!*buffer) { fclose(file); return 1; }
-    if (fread(*buffer, 1, *size, file) != *size) {
-        free(*buffer);
-        fclose(file);
-        return 1;
-    }
-    fclose(file);
-    return 0;
-}
-
 #if defined(_WIN32)
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
     const char* filename = "examples/assets/wabbit_alpha.png";
 
-	//CPP version test load and decode
-	std::vector<unsigned char> buffer, image;
-	loadFileCPP(buffer, filename);
-	unsigned long w, h;
-	int error = zest_decodePNG(image, w, h, buffer.empty() ? 0 : &buffer[0], (unsigned long)buffer.size());
-  
-	//if there's an error, display it
-	if(error != 0) std::cout << "error: " << error << std::endl;
-  
-	//the pixels are now in the vector "image", use it as texture, draw it, ...
-  
-	if(image.size() > 4) std::cout << "width: " << w << " height: " << h << " first pixel: " << std::hex << int(image[0]) << int(image[1]) << int(image[2]) << int(image[3]) << std::endl;
-	if(image.size() > 4) printf("first pixel: %02x%02x%02x%02x\n", image[0], image[1], image[2], image[3]);
-	//-------End CPP version test
- 
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	//zest_create_info_t create_info = zest_CreateInfo();
@@ -747,14 +714,13 @@ int main(void) {
 	//int *test = nullptr;
 	//zest_vec_push(imgui_app.context->device->allocator, test, 10);
 
-	//Set the Zest use data
-	zest_SetUserData(&imgui_app);
 	//Initialise our example
 	InitImGuiApp(&imgui_app);
 
 	//Start the main loop
 	MainLoop(&imgui_app);
 	zest_imgui_ShutdownGLFW();
+	zest_imgui_Destroy(&imgui_app.imgui);
 	zest_DestroyContext(imgui_app.context);
 
 	return 0;

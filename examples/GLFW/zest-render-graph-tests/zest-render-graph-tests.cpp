@@ -493,7 +493,7 @@ void zest_VerifyImageCompute(const zest_command_list command_list, void *user_da
 
 	if (!tests->sampler.value) {
 		tests->sampler = zest_CreateSampler(tests->context, &tests->sampler_info);
-		tests->sampler_index = zest_AcquireGlobalSamplerIndex(tests->sampler, zest_sampler_binding);
+		tests->sampler_index = zest_AcquireGlobalSamplerIndex(tests->sampler);
 	}
 
 	// Update push constants for the current dispatch
@@ -636,7 +636,7 @@ void zest_WriteImageCompute(const zest_command_list command_list, void *user_dat
 
 	if (!tests->sampler.value) {
 		tests->sampler = zest_CreateSampler(tests->context, &tests->sampler_info);
-		tests->sampler_index = zest_AcquireGlobalSamplerIndex(tests->sampler, zest_sampler_binding);
+		tests->sampler_index = zest_AcquireGlobalSamplerIndex(tests->sampler);
 	}
 
 	// Update push constants for the current dispatch
@@ -859,7 +859,7 @@ void RunTests(ZestTests *tests) {
 			}
 			if (tests->current_test < TEST_COUNT - 1) {
 				tests->current_test++;
-				zest_SetCreateInfo(&tests->tests[tests->current_test].create_info);
+				zest_SetCreateInfo(tests->context, &tests->tests[tests->current_test].create_info);
 				zest_ResetRenderer(tests->context);
 				zest_ResetValidationErrors(tests->context);
 				ResetTests(tests);
@@ -908,8 +908,6 @@ int main(void) {
 
 	InitialiseTests(&tests);
 
-	//Set the Zest use data
-	zest_SetUserData(&tests);
 	RunTests(&tests);
 	
 	//Start the main loop

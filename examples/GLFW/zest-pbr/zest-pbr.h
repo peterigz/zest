@@ -68,6 +68,7 @@ struct pbr_consts_t {
 
 struct ImGuiApp {
 	zest_context context;
+	zest_imgui_t imgui;
 	zest_index imgui_draw_routine_index;
 	zest_timer_handle timer;
 	zest_camera_t camera;

@@ -33,10 +33,6 @@ void InitImGuiApp(ImGuiApp *app) {
 
 	zest_image_collection_handle atlas = zest_CreateImageAtlasCollection(app->context, zest_format_r8g8_unorm);
 	app->wabbit_sprite = zest_AddImageAtlasPNG(atlas, "examples/assets/wabbit_alpha.png", "wabbit_alpha");
-	//int width, height, channels;
-	//zest_byte *pixels = stbi_load("examples/assets/vaders/player.png", &width, &height, &channels, 4);
-	//zest_bitmap bitmap = zest_CreateBitmapFromRawBuffer(app->context, "wabbit_alpha", pixels, width * height * channels, width, height, channels); 
-	//app->wabbit_sprite = zest_AddImageAtlasBitmap(atlas, bitmap, "wabbit_alpha");
 	zest_image_handle image_atlas = zest_CreateImageAtlas(atlas, 1024, 1024, 0);
     zest_sampler_handle sampler = zest_CreateSamplerForImage(image_atlas);
 	app->atlas_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_2d_binding);
@@ -99,6 +95,9 @@ void MainLoop(ImGuiApp *app) {
 				app->request_graph_print = true;
 				zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
 			}
+			if (ImGui::Button("Reset Renderer")) {
+				app->reset = true;
+			}
 			/*
 			if (ImGui::Button("Bordered")) {
 				zest_SetWindowMode(zest_GetCurrentWindow(), zest_window_mode_bordered);
@@ -111,9 +110,6 @@ void MainLoop(ImGuiApp *app) {
 			}
 			if (ImGui::Button("Set window size to 1000 x 750")) {
 				zest_SetWindowSize(zest_GetCurrentWindow(), 1000, 750);
-			}
-			if (ImGui::Button("Reset Renderer")) {
-				app->reset = true;
 			}
 			*/
 			/*
@@ -150,6 +146,7 @@ void MainLoop(ImGuiApp *app) {
 
 		if (app->reset) {
 			app->reset = false;
+			zest_imgui_ShutdownGLFW();
 			zest_imgui_Destroy(&app->imgui);
 			zest_ResetRenderer(app->context);
 			InitImGuiApp(app);
