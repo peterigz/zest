@@ -3247,6 +3247,7 @@ zest_pipeline_template zest_CopyPipelineTemplate(zest_context context, const cha
     copy->no_vertex_input = pipeline_to_copy->no_vertex_input;
     copy->primitive_topology = pipeline_to_copy->primitive_topology;
     copy->rasterization = pipeline_to_copy->rasterization;
+	copy->color_blend_attachment = pipeline_to_copy->color_blend_attachment;
     copy->push_constant_range = pipeline_to_copy->push_constant_range;
     zest_vec_clear(copy->set_layouts);
     zest_vec_foreach(i, pipeline_to_copy->set_layouts) {
