@@ -1,11 +1,32 @@
-#include "impl_slang.h"
+#pragma once
 
-zest_slang_info_t *zest_slang_Session(zest_context context) {
+#include <zest.h>
+#include <slang/slang.h>
+#include <slang/slang-com-ptr.h>
+#include <slang/slang-com-helper.h>
+
+typedef struct zest_slang_info_s {
+    int magic;
+    Slang::ComPtr<slang::IGlobalSession> global_session;
+} zest_slang_info_t;
+
+typedef Slang::ComPtr<slang::IBlob> zest_slang_compiled_shader;
+
+inline void diagnoseIfNeeded(zest_context context, slang::IBlob *diagnosticsBlob, const char *stage) {
+    if (diagnosticsBlob != nullptr) {
+        const char *diagnostics = (const char *)diagnosticsBlob->getBufferPointer();
+        if (diagnostics && strlen(diagnostics) > 0) {
+            ZEST_APPEND_LOG(context->device->log_path.str, "Slang diagnostics during [%s]:\n%s", stage, diagnostics);
+        }
+    }
+}
+
+inline zest_slang_info_t *zest_slang_Session(zest_context context) {
     ZEST_ASSERT(context->device->slang_info);  //Slang hasn't been initialise, call zest_slang_InitialiseSession
     return static_cast<zest_slang_info_t *>(context->device->slang_info);
 }
 
-void zest_slang_InitialiseSession(zest_context context) {
+inline void zest_slang_InitialiseSession(zest_context context) {
     void *memory = zest_AllocateMemory(context, sizeof(zest_slang_info_t));
     zest_slang_info_t *slang_info = new (memory) zest_slang_info_t();
     slang_info->magic = zest_INIT_MAGIC(zest_struct_type_slang_info);
@@ -13,7 +34,7 @@ void zest_slang_InitialiseSession(zest_context context) {
     context->device->slang_info = slang_info;
 }
 
-void zest_slang_Shutdown(zest_context context) {
+inline void zest_slang_Shutdown(zest_context context) {
     if (context->device->slang_info) {
         zest_slang_info_t *slang_info = static_cast<zest_slang_info_t *>(context->device->slang_info);
 
@@ -26,7 +47,7 @@ void zest_slang_Shutdown(zest_context context) {
     }
 }
 
-int zest_slang_Compile(zest_context context, const char *shader_path, const char *entry_point_name, SlangStage stage, zest_slang_compiled_shader &out_compiled_shader, slang::ShaderReflection *&out_reflection) {
+inline int zest_slang_Compile(zest_context context, const char *shader_path, const char *entry_point_name, SlangStage stage, zest_slang_compiled_shader &out_compiled_shader, slang::ShaderReflection *&out_reflection) {
     zest_slang_info_t *slang_info = zest_slang_Session(context);
     Slang::ComPtr<slang::IGlobalSession> global_session = slang_info->global_session;
 
@@ -123,14 +144,14 @@ int zest_slang_Compile(zest_context context, const char *shader_path, const char
 
             }
         }
-        ZEST_APPEND_LOG(context->device->log_path.str, "------------------------------------");
+        ZEST_APPEND_LOG(context->device->log_path.str, "------------------------------------\n");
     }
     */
 
     return 0;
 }
 
-SlangStage zest__slang_GetStage(shaderc_shader_kind kind) {
+inline SlangStage zest__slang_GetStage(shaderc_shader_kind kind) {
     switch (kind) {
     case shaderc_vertex_shader:   return SLANG_STAGE_VERTEX;
     case shaderc_fragment_shader: return SLANG_STAGE_FRAGMENT;
@@ -139,7 +160,7 @@ SlangStage zest__slang_GetStage(shaderc_shader_kind kind) {
     }
 }
 
-zest_shader_handle zest_slang_CreateShader(zest_context context, const char *shader_path, const char *name, const char *entry_point, shaderc_shader_kind type, bool disable_caching) {
+inline zest_shader_handle zest_slang_CreateShader(zest_context context, const char *shader_path, const char *name, const char *entry_point, shaderc_shader_kind type, bool disable_caching) {
     zest_slang_compiled_shader compiled_shader;
     slang::ShaderReflection *reflection_info = nullptr;
 
