@@ -84,12 +84,10 @@ void UpdateUniform3d(ComputeExample *example) {
 }
 
 //Send the command to the GPU to draw all of the sprites for all of the animation instances that are currently in play
-void RecordComputeSprites(struct zest_work_queue_t *queue, void *data) {
-	zest_draw_routine draw_routine = (zest_draw_routine)data;
-	ComputeExample &example = *static_cast<ComputeExample *>(draw_routine->user_data);
-	VkCommandBuffer command_buffer = zest_BeginRecording(draw_routine->recorder, draw_routine->draw_commands->render_pass, context->current_fif);
+void RecordComputeSprites(zest_command_list command_list, void *user_data) {
+	ComputeExample *example = *static_cast<ComputeExample *>(user_data);
 
-	zest_SetViewport(command_buffer, draw_routine);
+	zest_cmd_SetScreenSizedViewport(command_list);
 
 	//Bind the buffer that contains the sprite instances to draw. These are updated by the compute shader on the GPU
 	zest_cmd_BindVertexBuffer(command_buffer, example.sprite_buffer->buffer[0]);

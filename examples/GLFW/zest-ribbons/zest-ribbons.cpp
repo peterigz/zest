@@ -157,7 +157,7 @@ void RecordRibbonDrawing(VkCommandBuffer command_buffer, const zest_frame_graph_
 
 //Every frame the compute shader needs to be dispatched which means that all the commands for the compute shader
 //need to be added to the command buffer
-void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_graph_context_t *context, void *user_data) {
+void RecordComputeCommands(zest_command_list command_list, void *user_data) {
 	Ribbons *app = (Ribbons*)user_data;
 
 	zest_uint total_segments = CountSegments(app);
@@ -168,7 +168,7 @@ void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_grap
 	};
 
 	//Bind the compute shader pipeline
-	zest_cmd_BindComputePipeline(command_buffer, app->ribbon_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, app->ribbon_compute, sets, 1);
 
     zest_resource_node segment_buffer = zest_GetPassInputResource(context, "Ribbon Segment Buffer");
     zest_resource_node ribbon_instance_buffer = zest_GetPassInputResource(context, "Ribbon Instance Buffer");
@@ -181,11 +181,11 @@ void RecordComputeCommands(VkCommandBuffer command_buffer, const zest_frame_grap
 	app->camera_push.index_buffer_index = zest_GetTransientBufferBindlessIndex(context, index_buffer);
 
 	//Send the push constants in the compute object to the shader
-	zest_cmd_SendCustomComputePushConstants(command_buffer, app->ribbon_compute, &app->camera_push);
+	zest_cmd_SendCustomComputePushConstants(command_list, app->ribbon_compute, &app->camera_push);
 
 	//The 128 here refers to the local_size_x in the shader and is how many elements each group will work on
 	//For example if there are 1024 sprites, if we divide by 128 there will be 8 groups working on 128 sprites each in parallel
-	zest_cmd_DispatchCompute(command_buffer, app->ribbon_compute, ((SEGMENT_COUNT * app->ribbon_count) / 128) + 1, 1, 1);
+	zest_cmd_DispatchCompute(command_list, app->ribbon_compute, ((SEGMENT_COUNT * app->ribbon_count) / 128) + 1, 1, 1);
 }
 
 //Basic function for updating the uniform buffer
