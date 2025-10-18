@@ -1086,7 +1086,7 @@ void zest__register_platform(zest_platform_type type, zest__platform_setup callb
 }
 
 // Initialisation and destruction
-zest_context zest_CreateContext(zest_device device, zest_window_data_t window_data, zest_create_info_t* info) {
+zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_data, zest_create_info_t* info) {
 	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
 	zloc_allocator *allocator = device->allocator;
     zest_context context = (zest_context)zloc_Allocate(allocator, sizeof(zest_context_t));
@@ -1098,7 +1098,7 @@ zest_context zest_CreateContext(zest_device device, zest_window_data_t window_da
 	context->create_info = *info;
     context->backend = (zest_context_backend)device->platform->new_context_backend(context);
     context->fence_wait_timeout_ns = info->fence_wait_timeout_ms * 1000 * 1000;
-	context->window_data = window_data;
+	context->window_data = *window_data;
 	zest_bool result = zest__initialise_context(context, info);
 	if (result != ZEST_TRUE) {
 		ZEST_PRINT("Unable to initialise the renderer. Check the log for details.");
@@ -1328,12 +1328,15 @@ void zest_SetContextUserData(zest_context context, void *user_data) {
 	context->user_data = user_data;
 }
 
-void zest_ResetRenderer(zest_context context) {
+void zest_ResetRenderer(zest_context context, zest_window_data_t *window_data) {
 
     zest_WaitForIdleDevice(context);
 
     zest__cleanup_context(context);
 
+	if (window_data) {
+		context->window_data = *window_data;
+	}
     context->backend = (zest_context_backend)context->device->platform->new_context_backend(context);
     zest__initialise_context(context, &context->create_info);
 }
@@ -3953,7 +3956,7 @@ void zest__log_entry_v(char *str, const char *text, va_list args)
     ZEST_ASSERT(str);
 }
 
-void zest__add_report(zest_context context, zest_report_category category, int line_number, const char *file_name, const char *entry, ...) {
+void zest__add_report(zest_context context, zest_report_category category, int line_number, const char *file_name, const char *function_name, const char *entry, ...) {
     zest_text_t message = ZEST__ZERO_INIT(zest_text_t);
     va_list args;
     va_start(args, entry);
@@ -3969,6 +3972,7 @@ void zest__add_report(zest_context context, zest_report_category category, int l
         report.count = 1;
         report.line_number = line_number;
         report.file_name = file_name;
+        report.function_name = function_name;
         report.message = message;
         report.category = category;
         zest_map_insert_key(context->device->allocator, context->device->reports, report_hash, report);
@@ -6176,9 +6180,6 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
 zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer_handle layer_handle, zest_bool prev_fif) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
     zest_size layer_size = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
-    if (layer_size == 0) {
-        return NULL;
-    }
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
     ZEST__MAYBE_FLAG(layer->flags, zest_layer_flag_use_prev_fif, prev_fif);
@@ -9232,9 +9233,6 @@ void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user
         return;
     }
 
-    ZEST_ASSERT_HANDLE(layer->vertex_buffer_node);  //No resource node in the layer, check that you added this layer as a 
-                                                    //resource to the frame graph
-
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
 	zest_cmd_BindVertexBuffer(command_list, 1, 1, device_buffer);
 
@@ -9904,7 +9902,7 @@ void zest_PrintReports(zest_context context) {
         ZEST_PRINT("");
         zest_map_foreach(i, context->device->reports) {
             zest_report_t *report = &context->device->reports.data[i];
-            ZEST_PRINT("Count: %i. Message in %s on line %i: %s", report->count, report->file_name, report->line_number, report->message.str);
+			ZEST_PRINT("Count: %i. Message in file [%s] function [%s] on line %i: %s", report->count, report->file_name, report->function_name, report->line_number, report->message.str);
             ZEST_PRINT("-------------------------------------------------");
         }
         ZEST_PRINT("");

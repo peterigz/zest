@@ -2729,13 +2729,13 @@ ZEST_PRIVATE void zest__log_entry(zest_context context, const char *entry, ...);
 ZEST_PRIVATE void zest__log_entry_v(char *str, const char *entry, ...);
 ZEST_PRIVATE void zest__reset_frame_log(zest_context context, char *str, const char *entry, ...);
 
-ZEST_API void zest__add_report(zest_context context, zest_report_category category, int line_number, const char *entry, ...);
+ZEST_API void zest__add_report(zest_context context, zest_report_category category, int line_number, const char *file_name, const char *function_name, const char *entry, ...);
 
 #ifdef ZEST_DEBUGGING
 #define ZEST_FRAME_LOG(context, message_f, ...) zest__log_entry(context, message_f, ##__VA_ARGS__)
 #define ZEST_RESET_LOG() zest__reset_log()
-#define ZEST__MAYBE_REPORT(context, condition, category, entry, ...) if (condition) { zest__add_report(context, category, __LINE__, __FILE__, entry, ##__VA_ARGS__); }
-#define ZEST__REPORT(context, category, entry, ...) zest__add_report(context, category, __LINE__, __FILE__, entry, ##__VA_ARGS__)
+#define ZEST__MAYBE_REPORT(context, condition, category, entry, ...) if (condition) { zest__add_report(context, category, __LINE__, __FILE__, __FUNCTION__, entry, ##__VA_ARGS__); }
+#define ZEST__REPORT(context, category, entry, ...) zest__add_report(context, category, __LINE__, __FILE__, __FUNCTION__, entry, ##__VA_ARGS__)
 #else
 #define ZEST_FRAME_LOG(message_f, ...)
 #define ZEST_RESET_LOG()
@@ -3491,6 +3491,7 @@ typedef struct zest_report_t {
 	zest_report_category category;
 	int count;
 	const char *file_name;
+	const char *function_name;
 	int line_number;
 } zest_report_t;
 
@@ -4968,7 +4969,7 @@ ZEST_API zest_create_info_t zest_CreateInfo();
 //Create a new zest_create_info_t struct with default values for initialising Zest but also enable validation layers as well
 ZEST_API zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags flags);
 //Initialise Zest. You must call this in order to use Zest. Use zest_CreateInfo() to set up some default values to initialise the renderer.
-ZEST_API zest_context zest_CreateContext(zest_device device, zest_window_data_t window_data, zest_create_info_t* info);
+ZEST_API zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_data, zest_create_info_t* info);
 //Begin a new frame for a context. Within the BeginFrame and EndFrame you can create a frame graph and present a frame.
 //This funciton will wait on the fence from the previous time a frame was submitted.
 ZEST_API zest_bool zest_BeginFrame(zest_context context);
@@ -4976,7 +4977,7 @@ ZEST_API void zest_EndFrame(zest_context context);
 //Shutdown zest and unload/free everything. Call this after zest_Start.
 ZEST_API void zest_DestroyContext(zest_context context);
 //Free all memory used in the renderer and reset it back to an initial state.
-ZEST_API void zest_ResetRenderer(zest_context context);
+ZEST_API void zest_ResetRenderer(zest_context context, zest_window_data_t *window_data);
 //Set the create info for the renderer, to be used optionally before a call to zest_ResetRenderer to change the configuration
 //of the renderer
 ZEST_API void zest_SetCreateInfo(zest_context context, zest_create_info_t *info);
