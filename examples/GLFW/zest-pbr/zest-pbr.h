@@ -66,7 +66,7 @@ struct pbr_consts_t {
 	zest_uint skybox_sampler_index;
 };
 
-struct ImGuiApp {
+struct SimplePBRExample {
 	zest_context context;
 	zest_imgui_t imgui;
 	zest_index imgui_draw_routine_index;
@@ -141,11 +141,11 @@ struct ImGuiApp {
 	bool reset;
 };
 
-void InitImGuiApp(ImGuiApp *app);
-void UpdateLights(ImGuiApp *app, float timer);
-void SetupBillboards(ImGuiApp *app);
-void SetupBRDFLUT(ImGuiApp *app);
-void SetupIrradianceCube(ImGuiApp *app);
-void SetupPrefilteredCube(ImGuiApp *app);
+void InitSimplePBRExample(SimplePBRExample *app);
+void UpdateLights(SimplePBRExample *app, float timer);
+void SetupBillboards(SimplePBRExample *app);
+void SetupBRDFLUT(SimplePBRExample *app);
+void SetupIrradianceCube(SimplePBRExample *app);
+void SetupPrefilteredCube(SimplePBRExample *app);
 int zest_decodePNG(std::vector<unsigned char>& out_image, unsigned long& image_width, unsigned long& image_height, const unsigned char* in_png, size_t in_size, bool convert_to_rgba32 = true);
 

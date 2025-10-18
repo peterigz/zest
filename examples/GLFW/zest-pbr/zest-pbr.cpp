@@ -5,7 +5,7 @@
 #include "zest-pbr.h"
 #include "imgui_internal.h"
 
-void UpdateUniform3d(ImGuiApp *app) {
+void UpdateUniform3d(SimplePBRExample *app) {
 	uniform_buffer_data_t *ubo_ptr = static_cast<uniform_buffer_data_t *>(zest_GetUniformBufferData(app->view_buffer));
 	ubo_ptr->view = zest_LookAt(app->camera.position, zest_AddVec3(app->camera.position, app->camera.front), app->camera.up);
 	ubo_ptr->proj = zest_Perspective(app->camera.fov, zest_ScreenWidthf(app->context) / zest_ScreenHeightf(app->context), 0.001f, 10000.f);
@@ -14,7 +14,7 @@ void UpdateUniform3d(ImGuiApp *app) {
 	ubo_ptr->screen_size.y = zest_ScreenHeightf(app->context);
 }
 
-void SetupBillboards(ImGuiApp *app) {
+void SetupBillboards(SimplePBRExample *app) {
 	//Create and compile the shaders for our custom sprite pipeline
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	zest_shader_handle billboard_vert = zest_CreateShaderFromFile(app->context, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", shaderc_vertex_shader, true, compiler, 0);
@@ -48,7 +48,7 @@ void SetupBillboards(ImGuiApp *app) {
 }
 
 void zest_DispatchBRDSetup(const zest_command_list context, void *user_data) {
-	ImGuiApp *app = (ImGuiApp *)user_data;
+	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
 	const zest_uint local_size_x = 8;
 	const zest_uint local_size_y = 8;
@@ -73,7 +73,7 @@ void zest_DispatchBRDSetup(const zest_command_list context, void *user_data) {
 	zest_cmd_DispatchCompute(context, app->brd_compute, group_count_x, group_count_y, 1);
 }
 
-void SetupBRDFLUT(ImGuiApp *app) {
+void SetupBRDFLUT(SimplePBRExample *app) {
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
 	image_info.format = zest_format_r16g16_sfloat;
 	image_info.flags = zest_image_preset_storage;
@@ -100,7 +100,7 @@ void SetupBRDFLUT(ImGuiApp *app) {
 }
 
 void zest_DispatchIrradianceSetup(const zest_command_list context, void *user_data) {
-	ImGuiApp *app = (ImGuiApp *)user_data;
+	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
 	const zest_uint local_size = 8;
 
@@ -129,7 +129,7 @@ void zest_DispatchIrradianceSetup(const zest_command_list context, void *user_da
 	zest_cmd_DispatchCompute(context, app->irr_compute, group_count_x, group_count_y, 6);
 }
 
-void SetupIrradianceCube(ImGuiApp *app) {
+void SetupIrradianceCube(SimplePBRExample *app) {
 	zest_image_info_t image_info = zest_CreateImageInfo(64, 64);
 	image_info.format = zest_format_r32g32b32a32_sfloat;
 	image_info.flags = zest_image_preset_storage_cubemap;
@@ -158,7 +158,7 @@ void SetupIrradianceCube(ImGuiApp *app) {
 }
 
 void zest_DispatchPrefilteredSetup(const zest_command_list context, void *user_data) {
-	ImGuiApp *app = (ImGuiApp *)user_data;
+	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
 	const zest_uint local_size = 8;
 
@@ -191,7 +191,7 @@ void zest_DispatchPrefilteredSetup(const zest_command_list context, void *user_d
 	}
 }
 
-void SetupPrefilteredCube(ImGuiApp *app) {
+void SetupPrefilteredCube(SimplePBRExample *app) {
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
 	image_info.format = zest_format_r16g16_sfloat;
 	image_info.flags = zest_image_preset_storage_mipped_cubemap;
@@ -222,24 +222,7 @@ void SetupPrefilteredCube(ImGuiApp *app) {
 	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
 }
 
-void InitImGuiApp(ImGuiApp *app) {
-
-	//--------Pico C test-------------
-
-	zest_bitmap bitmap = zest_LoadPNG(app->context, "examples/assets/wabbit_alpha.png");
-
-    if (!bitmap) {
-        printf("Error!");
-    } else {
-        printf("width: %lu height: %lu\n", bitmap->meta.width, bitmap->meta.height);
-        if (bitmap->meta.size >= 4) {
-            printf("first pixel: %02x%02x%02x%02x\n", bitmap->data[0], bitmap->data[1], bitmap->data[2], bitmap->data[3]);
-        }
-    }
-
-	zest_FreeBitmap(bitmap);
-	//------------------------------
-
+void InitSimplePBRExample(SimplePBRExample *app) {
 	//Initialise Dear ImGui
 	app->imgui = zest_imgui_Initialise(app->context);
 	zest_imgui_InitialiseForGLFW(app->context);
@@ -371,7 +354,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	zest_FreeMesh(sky_box);
 }
 
-void UpdateLights(ImGuiApp *app, float timer) {
+void UpdateLights(SimplePBRExample *app, float timer) {
 	const float p = 15.0f;
 
 	UniformLights *buffer_data = (UniformLights*)zest_GetUniformBufferData(app->lights_buffer);
@@ -401,7 +384,7 @@ void UpdateLights(ImGuiApp *app, float timer) {
 }
 
 void UploadMeshData(const zest_command_list context, void *user_data) {
-	ImGuiApp *app = (ImGuiApp *)user_data;
+	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
 	zest_layer_handle layers[3]{
 		app->cube_layer,
@@ -415,7 +398,7 @@ void UploadMeshData(const zest_command_list context, void *user_data) {
 	}
 }
 
-void UpdateCameraPosition(ImGuiApp *app) {
+void UpdateCameraPosition(SimplePBRExample *app) {
 	float speed = 5.f * (float)zest_TimerUpdateTime(app->timer);
 	app->old_camera_position = app->camera.position;
 	if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
@@ -438,7 +421,7 @@ void UpdateCameraPosition(ImGuiApp *app) {
 	}
 }
 
-void UpdateMouse(ImGuiApp *app) {
+void UpdateMouse(SimplePBRExample *app) {
 	double mouse_x, mouse_y;
 	GLFWwindow *handle = (GLFWwindow *)zest_Window(app->context);
 	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
@@ -450,7 +433,7 @@ void UpdateMouse(ImGuiApp *app) {
 	app->mouse_delta_y = last_mouse_y - app->mouse_y;
 }
 
-void MainLoop(ImGuiApp *app) {
+void MainLoop(SimplePBRExample *app) {
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		glfwPollEvents();
 
@@ -551,9 +534,12 @@ void MainLoop(ImGuiApp *app) {
 
 		if (app->reset) {
 			app->reset = false;
+			zest_imgui_ShutdownGLFW();
 			zest_imgui_Destroy(&app->imgui);
-			zest_ResetRenderer(app->context);
-			InitImGuiApp(app);
+			zest_implglfw_DestroyWindow(app->context);
+			zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+			zest_ResetRenderer(app->context, &window_handles);
+			InitSimplePBRExample(app);
 		}
 
 		zest_swapchain swapchain = zest_GetSwapchain(app->context);
@@ -662,30 +648,10 @@ void MainLoop(ImGuiApp *app) {
 	}
 }
 
-void loadFileCPP(std::vector<unsigned char>& buffer, const std::string& filename) //designed for loading files from hard disk in an std::vector
-{
-  std::ifstream file(filename.c_str(), std::ios::in|std::ios::binary|std::ios::ate);
-
-  //get filesize
-  std::streamsize size = 0;
-  if(file.seekg(0, std::ios::end).good()) size = file.tellg();
-  if(file.seekg(0, std::ios::beg).good()) size -= file.tellg();
-
-  //read contents of the file into the vector
-  if(size > 0)
-  {
-    buffer.resize((size_t)size);
-    file.read((char*)(&buffer[0]), size);
-  }
-  else buffer.clear();
-}
-
 #if defined(_WIN32)
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
-    const char* filename = "examples/assets/wabbit_alpha.png";
-
 	//Create new config struct for Zest
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	//zest_create_info_t create_info = zest_CreateInfo();
@@ -695,7 +661,7 @@ int main(void) {
 	if (!glfwInit()) {
 		return 0;
 	}
-	ImGuiApp imgui_app = {};
+	SimplePBRExample imgui_app = {};
 	zest_uint count;
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
 
@@ -709,13 +675,13 @@ int main(void) {
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	imgui_app.context = zest_CreateContext(device, window_handles, &create_info);
+	imgui_app.context = zest_CreateContext(device, &window_handles, &create_info);
 
 	//int *test = nullptr;
 	//zest_vec_push(imgui_app.context->device->allocator, test, 10);
 
 	//Initialise our example
-	InitImGuiApp(&imgui_app);
+	InitSimplePBRExample(&imgui_app);
 
 	//Start the main loop
 	MainLoop(&imgui_app);
@@ -731,13 +697,13 @@ int main(void) {
 	zest_implglfw_SetCallbacks(&create_info);
     ZEST__FLAG(create_info.flags, zest_init_flag_maximised);
 
-	ImGuiApp imgui_app;
+	SimplePBRExample imgui_app;
 
     create_info.log_path = ".";
 	zest_CreateContext(&create_info);
 	zest_SetUserData(&imgui_app);
 	zest_SetUserUpdateCallback(UpdateCallback);
-	InitImGuiApp(&imgui_app);
+	InitSimplePBRExample(&imgui_app);
 
 	zest_Start();
 
