@@ -4,7 +4,7 @@
 #include <zest.h>
 #include "zest-compute-example.h"
 #include "imgui_internal.h"
-#include "impl_slang.h"
+#include "impl_slang.hpp"
 #include <random>
 
 void InitComputeExample(ComputeExample *app) {
@@ -199,11 +199,11 @@ void MainLoop(ComputeExample *app) {
 		{
 			if (app->anim_start > 0.0f)
 			{
-				app->anim_start -= app->frame_timer * 5.0f;
+				app->anim_start -= app->frame_timer * 10.0f;
 			}
 			else if (app->anim_start <= 0.0f)
 			{
-				app->timer += app->frame_timer * 0.04f;
+				app->timer += app->frame_timer * 0.01f;
 				if (app->timer > 1.f)
 					app->timer = 0.f;
 			}
