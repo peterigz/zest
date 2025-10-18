@@ -1118,6 +1118,7 @@ zest_device_builder zest__begin_device_builder() {
 	builder->allocator = allocator;
 	builder->memory_pool_size = zloc__MEGABYTE(256);
 	builder->thread_count = zest_GetDefaultThreadCount();
+	builder->log_path = "./";
 	return builder;
 }
 
@@ -1159,6 +1160,10 @@ void zest_DeviceBuilderLogToConsole(zest_device_builder builder) {
 
 void zest_DeviceBuilderLogToMemory(zest_device_builder builder) {
 	ZEST__FLAG(builder->flags, zest_init_flag_log_validation_errors_to_memory);
+}
+
+void zest_DeviceBuilderLogPath(zest_device_builder builder, const char *log_path) {
+	builder->log_path = log_path;
 }
 
 void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size) {
@@ -2011,7 +2016,9 @@ zest_bool zest_cmd_CopyBufferOneTime(zest_buffer src_buffer, zest_buffer dst_buf
     ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
     ZEST_ASSERT(size <= dst_buffer->size);
 	zest_context context = src_buffer->context;
+    context->device->platform->begin_single_time_commands(context);
 	context->device->platform->cmd_copy_buffer_one_time(src_buffer, dst_buffer, size);
+    context->device->platform->end_single_time_commands(context);
     return ZEST_TRUE;
 }
 
@@ -6417,7 +6424,7 @@ zest_pass_node zest_BeginGraphicBlankScreen(const char *name) {
 zest_pass_node zest_BeginRenderPass(const char *name) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT(!zest__frame_graph_builder->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
+    ZEST_ASSERT(!zest__frame_graph_builder->current_pass, "Already begun a pass. Make sure that you call zest_EndPass before starting a new one");   
     zest_pass_node node = zest__add_pass_node(name, zest_queue_graphics);
     node->queue_info.timeline_wait_stage = zest_pipeline_stage_vertex_input_bit | zest_pipeline_stage_vertex_shader_bit;
     zest__frame_graph_builder->current_pass = node;
@@ -6901,7 +6908,7 @@ void zest_ConnectSwapChainOutput() {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass); //No current pass found. Make sure you call zest_BeginPass
     zest_pass_node pass = zest__frame_graph_builder->current_pass;
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
-    ZEST_ASSERT_HANDLE(frame_graph->swapchain_resource);  //Not a valid swapchain resource, did you call zest_BeginFrameGraphSwapchain?
+    ZEST_ASSERT_HANDLE(frame_graph->swapchain_resource);  //Not a valid swapchain resource, did you call zest_ImportSwapchainResource?
     zest_clear_value_t cv = frame_graph->swapchain->clear_color;
     // Assuming clear for swapchain if not explicitly loaded
     ZEST__FLAG(pass->flags, zest_pass_flag_do_not_cull);
@@ -8415,24 +8422,61 @@ zest_image_handle zest_CreateImage(zest_context context, zest_image_info_t *crea
     image->default_view = context->device->platform->create_image_view(image, view_type, image->info.mip_levels, 0, 0, image->info.layer_count, 0);
     image->default_view->handle.context = context;
     return handle;
+} 
+
+zest_image_handle zest_CreateImageWithBitmap(zest_context context, zest_bitmap bitmap, zest_image_flags flags) {
+	ZEST_ASSERT_HANDLE(bitmap);	//Not a valid bitmap handle
+	ZEST_ASSERT(bitmap->data);	//No data in the bitmap
+	zest_image_info_t image_info = zest_CreateImageInfo(bitmap->meta.width, bitmap->meta.height);
+	image_info.format = bitmap->meta.format;
+
+	if (flags == 0) {
+		image_info.flags = zest_image_preset_texture_mipmaps;
+	} else {
+		ZEST_ASSERT(flags & zest_image_preset_texture, "If you pass in flags to the zest_CreateImageWithBitmap function then it must at lease contain zest_image_preset_texture flags. You can leave as 0 and an image with mipmaps will be created.");
+        image_info.flags = flags;
+	}
+
+	zest_image_handle image_handle = zest_CreateImage(context, &image_info);
+	if (!image_handle.value) {
+		ZEST_PRINT("Unable to create the image. Check for validation errors.");
+		return image_handle;
+	}
+	if (!zest_cmd_CopyBitmapToImage(bitmap, image_handle, 0, 0, 0, 0, image_info.extent.width, image_info.extent.height)) {
+		ZEST_PRINT("Unable to copy the bitmap to the image. Check for validation errors.");
+	}
+    zest_image image = (zest_image)zest__get_store_resource(image_handle.context, image_handle.value);
+	zest_uint mip_levels = image->info.mip_levels;
+    if (mip_levels > 1) {
+		context->device->platform->begin_single_time_commands(context);
+		ZEST_CLEANUP_ON_FALSE(zest__transition_image_layout(image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, 1));
+        ZEST_CLEANUP_ON_FALSE(context->device->platform->generate_mipmaps(image));
+		context->device->platform->end_single_time_commands(context);
+    }
+	return image_handle;
+
+	cleanup:
+	zest__cleanup_image(image);
+    return ZEST__ZERO_INIT(zest_image_handle);
 }
 
 zest_image_handle zest_CreateImageAtlas(zest_image_collection_handle atlas_handle, zest_uint layer_width, zest_uint layer_height, zest_image_flags flags) {
     zest_image_collection atlas = (zest_image_collection)zest__get_store_resource_checked(atlas_handle.context, atlas_handle.value);
-	zest_image_info_t info = zest_CreateImageInfo(layer_width, layer_height);
-	info.format = atlas->format;
+	zest_image_info_t image_info = zest_CreateImageInfo(layer_width, layer_height);
+	image_info.format = atlas->format;
 	zest__pack_images(atlas, layer_width, layer_height);
-	info.layer_count = atlas->layer_count;
+	image_info.layer_count = atlas->layer_count;
 
 	if (flags == 0) {
-		info.flags = zest_image_preset_texture_mipmaps;
+		image_info.flags = zest_image_preset_texture_mipmaps;
 	} else {
-		ZEST_ASSERT(info.flags & zest_image_preset_texture, "If you pass in flags to the zest_CreateImageAtlas function then it must at lease contain zest_image_preset_texture. You can leave as 0 and texture with mipmaps will be created.");
+		ZEST_ASSERT(flags & zest_image_preset_texture, "If you pass in flags to the zest_CreateImageAtlas function then it must at lease contain zest_image_preset_texture. You can leave as 0 an image with mipmaps will be created.");
+        image_info.flags = flags;
 	}
 
 	zest_context context = atlas->handle.context;
 
-	zest_image_handle image_handle = zest_CreateImage(context, &info);
+	zest_image_handle image_handle = zest_CreateImage(context, &image_info);
 
     zest_size image_size = atlas->bitmap_array.total_mem_size;
 

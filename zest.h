@@ -4960,6 +4960,7 @@ ZEST_API void zest_AddDeviceBuilderValidation(zest_device_builder builder);
 ZEST_API void zest_AddDeviceBuilderFullValidation(zest_device_builder builder);
 ZEST_API void zest_DeviceBuilderLogToConsole(zest_device_builder builder);
 ZEST_API void zest_DeviceBuilderLogToMemory(zest_device_builder builder);
+ZEST_API void zest_DeviceBuilderLogPath(zest_device_builder builder, const char *log_path);
 //Set the default pool size for the cpu memory used for the device
 ZEST_API void zest_SetDeviceBuilderMemoryPoolSize(zest_device_builder builder, zest_size size);
 //Finish and create the device
@@ -5403,6 +5404,7 @@ ZEST_API zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float
 ZEST_API zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint height);
 ZEST_API zest_image_view_create_info_t zest_CreateViewImageInfo(zest_image_handle image_handle);
 ZEST_API zest_image_handle zest_CreateImage(zest_context context, zest_image_info_t *create_info);
+ZEST_API zest_image_handle zest_CreateImageWithBitmap(zest_context context, zest_bitmap bitmap, zest_image_flags flags);
 ZEST_API zest_image_handle zest_CreateImageAtlas(zest_image_collection atlas, zest_uint layer_width, zest_uint layer_height);
 ZEST_API zest_image_view_handle zest_CreateImageView(zest_image_handle image_handle, zest_image_view_create_info_t *create_info);
 ZEST_API zest_image_view_array_handle zest_CreateImageViewsPerMip(zest_image_handle image_handle);
@@ -5498,7 +5500,7 @@ ZEST_API const zest_image_info_t *zest_ImageInfo(zest_image_handle image_handle)
 //Get a descriptor index from an image for a specific binding number. You must have already acquired the index
 //for the binding number first with zest_GetGlobalSampler.
 ZEST_API zest_uint zest_ImageDescriptorIndex(zest_image_handle image_handle, zest_binding_number_type binding_number);
-//Get the raw value of the current image image of the image as an int. This will be whatever layout is represented
+//Get the raw value of the current image layout of the image as an int. This will be whatever layout is represented
 //in the backend api you are using (vulkan, metal, dx12 etc.). You can use this if you just need the current layout
 //of the image without translating it into a zest layout enum because you just need to know if the layout changed
 //for frame graph caching purposes etc.

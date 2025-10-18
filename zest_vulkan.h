@@ -3433,6 +3433,7 @@ zest_bool zest__vk_create_sampler(zest_sampler sampler) {
 
 zest_bool zest__vk_generate_mipmaps(zest_image image) {
 	zest_context context = image->handle.context;
+	ZEST_ASSERT(context->backend->one_time_command_buffer, "No command buffer found. Make sure you call platform->begin_single_time_commands to begin a command buffer.");
     VkFormatProperties format_properties;
     vkGetPhysicalDeviceFormatProperties(context->device->backend->physical_device,
         image->backend->vk_format, &format_properties);
