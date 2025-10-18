@@ -148,7 +148,9 @@ void MainLoop(ImGuiApp *app) {
 			app->reset = false;
 			zest_imgui_ShutdownGLFW();
 			zest_imgui_Destroy(&app->imgui);
-			zest_ResetRenderer(app->context);
+			zest_implglfw_DestroyWindow(app->context);
+			zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+			zest_ResetRenderer(app->context, &window_handles);
 			InitImGuiApp(app);
 		}
 
@@ -225,7 +227,7 @@ int main(void) {
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	imgui_app.context = zest_CreateContext(device, window_handles, &create_info);
+	imgui_app.context = zest_CreateContext(device, &window_handles, &create_info);
 
 	//Set the Zest use data
 	zest_SetContextUserData(imgui_app.context, &imgui_app);
