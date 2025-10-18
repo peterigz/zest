@@ -4,7 +4,8 @@
  *
  */
 
-[[vk::binding(0, 0)]] Sampler2D samplers[];
+[[vk::binding(0, 0)]] SamplerState samplers[];
+[[vk::binding(1, 0)]] Texture2D images[];
 
 struct VSInput
 {
@@ -28,7 +29,7 @@ struct Particle
 	float4 gradientPos;
 };
 // Binding 0 : Position storage buffer
-[[vk::binding(1, 0)]] RWStructuredBuffer<Particle> particles[];
+[[vk::binding(5, 0)]] RWStructuredBuffer<Particle> particles[];
 
 struct UBO
 {
@@ -44,6 +45,7 @@ struct PushConsts
 {
 	int particle_index;
 	int gradient_index;
+	int sampler_index;
 };
 [[vk::push_constant]] ConstantBuffer<PushConsts> pc;
 
@@ -78,8 +80,8 @@ VSOutput vertexMain(VSInput input)
 [shader("fragment")]
 float4 fragmentMain(VSOutput input, float2 pointCoord: SV_PointCoord)
 {
-    float3 color = samplers[pc.gradient_index].Sample(float2(input.GradientPos, 0.0)).rgb;
-    return float4(samplers[pc.particle_index].Sample(pointCoord).rgb * color, 1.0);
+    float3 color = images[pc.gradient_index].Sample(samplers[pc.sampler_index], float2(input.GradientPos, 0.0)).rgb;
+    return float4(images[pc.particle_index].Sample(samplers[pc.sampler_index], pointCoord).rgb * color, 1.0);
 }
 
 [shader("compute")]
