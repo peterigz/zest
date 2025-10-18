@@ -39,7 +39,7 @@ void zest_implglfw_GetWindowSizeCallback(void *window_handle, int *fb_width, int
 	glfwGetWindowSize(handle, window_width, window_height);
 }
 
-void zest_implglfw_DestroyWindow(zest_context context, void *user_data) {
+void zest_implglfw_DestroyWindow(zest_context context) {
 	GLFWwindow *handle = (GLFWwindow *)zest_Window(context);
 	glfwDestroyWindow(handle);
 }
