@@ -36,8 +36,6 @@ function(buildExample EXAMPLE_NAME)
 	
 	file(GLOB IMPLEMENTATIONS_SOURCE
 		${IMPLEMENTATIONS}impl_imgui.cpp
-		${IMPLEMENTATIONS}impl_sdl2.cpp
-		${IMPLEMENTATIONS}impl_imgui_sdl2.cpp
 	)
 
 	# Organize shaders into a source group
@@ -48,7 +46,7 @@ function(buildExample EXAMPLE_NAME)
 	add_compile_definitions(IMGUI_USER_CONFIG="zest_imconfig.h")
 
 	if(WIN32)
-		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
+		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
 		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${SDL2_LIBRARIES} ${WINLIBS})
 	else(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
