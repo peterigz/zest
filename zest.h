@@ -77,8 +77,6 @@
 #define ZLOC_EXTRA_DEBUGGING
 #define ZLOC_OUTPUT_ERROR_MESSAGES
 
-#include "lib_bundle.h"
-
 //Zloc_header
 #define zloc__Min(a, b) (((a) < (b)) ? (a) : (b))
 #define zloc__Max(a, b) (((a) > (b)) ? (a) : (b))
@@ -4866,15 +4864,7 @@ ZEST_API_TMP void zest__reset_instance_layer_drawing(zest_layer layer);
 // --Image_internal_functions
 ZEST_PRIVATE zest_image_handle zest__new_image(zest_context context);
 ZEST_PRIVATE void zest__release_all_global_texture_indexes(zest_image image);
-ZEST_PRIVATE void zest__tinyktxCallbackError(void *user, char const *msg);
-ZEST_PRIVATE void *zest__tinyktxCallbackAlloc(void *user, size_t size);
-ZEST_PRIVATE void zest__tinyktxCallbackFree(void *user, void *data);
-ZEST_PRIVATE size_t zest__tinyktxCallbackRead(void *user, void *data, size_t size);
-ZEST_PRIVATE bool zest__tinyktxCallbackSeek(void *user, int64_t offset);
-ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
-ZEST_API zest_image_collection_handle zest__load_ktx(zest_context context, const char *file_path);
 ZEST_PRIVATE void zest__cleanup_image_collection(zest_image_collection image_collection);
-ZEST_PRIVATE zest_format zest__convert_tktx_format(TinyKtx_Format format);
 ZEST_PRIVATE int zest__decode_png(zest_context context, zest_bitmap out_bitmap, const zest_byte *in_png, zest_uint in_size, int convert_to_rgba32);
 ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
 ZEST_API_TMP zest_uint zest__get_format_channel_count(zest_format format);
@@ -5424,7 +5414,6 @@ ZEST_API zest_atlas_region zest_NewAtlasRegion(zest_context context);
 ZEST_API void zest_BindAtlasRegionToImage(zest_atlas_region region, zest_uint sampler_index, zest_image_handle image_handle, zest_binding_number_type binding_number);
 ZEST_API void zest_FreeAtlasRegion(zest_atlas_region region);
 ZEST_API zest_atlas_region zest_CreateAnimation(zest_context context, zest_uint frames);
-zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name);
 ZEST_API void zest_FreeBitmap(zest_bitmap image);
 //Free the memory used in a zest_bitmap_t
 ZEST_API void zest_FreeBitmapData(zest_bitmap image);
@@ -5840,6 +5829,8 @@ ZEST_API void zest_ResetValidationErrors(zest_context context);
 // All these functions are called inside a frame graph context in callbacks in order to perform commands
 // on the GPU. These all require a platform specific implementation
 //-----------------------------------------------
+ZEST_API void zest_BeginOneTimeCommandBuffer(zest_context context);
+ZEST_API void zest_EndOneTimeCommandBuffer(zest_context context);
 ZEST_API void zest_cmd_BlitImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 ZEST_API void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 // -- Helper functions to insert barrier functions within pass callbacks
@@ -5863,8 +5854,8 @@ ZEST_API void zest_cmd_BindComputePipeline(const zest_command_list command_list,
 //resource that is marked as static.
 ZEST_API void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle shader_resources);
 //Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
-//the size as well that you want to copy
-ZEST_API zest_bool zest_cmd_CopyBufferOneTime(zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+//the size as well that you want to copy. Must be called inside a zest_BeginOneTimeCommandBuffer.
+ZEST_API zest_bool zest_CopyBufferOneTime(zest_context context, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 //Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
 //one off copy with a separate command buffer
 ZEST_API void zest_cmd_CopyBuffer(const zest_command_list command_list, zest_buffer staging_buffer, zest_buffer device_buffer, zest_size size);

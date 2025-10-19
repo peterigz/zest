@@ -2012,13 +2012,21 @@ zest_buffer zest_CreateStagingBuffer(zest_context context, zest_size size, void*
     return buffer;
 }
 
-zest_bool zest_cmd_CopyBufferOneTime(zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
+void zest_BeginOneTimeCommandBuffer(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
+    context->device->platform->begin_single_time_commands(context);
+}
+
+void zest_EndOneTimeCommandBuffer(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
+    context->device->platform->end_single_time_commands(context);
+}
+
+zest_bool zest_CopyBufferOneTime(zest_context context, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
+	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
     ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
     ZEST_ASSERT(size <= dst_buffer->size);
-	zest_context context = src_buffer->context;
-    context->device->platform->begin_single_time_commands(context);
 	context->device->platform->cmd_copy_buffer_one_time(src_buffer, dst_buffer, size);
-    context->device->platform->end_single_time_commands(context);
     return ZEST_TRUE;
 }
 
@@ -7780,204 +7788,6 @@ void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
     zest__remove_store_resource(context, uniform_buffer->handle.value);
 }
 
-void zest__tinyktxCallbackError(void *user, char const *msg) {
-    ZEST_PRINT("Tiny_Ktx ERROR: %s", msg);
-}
-
-void *zest__tinyktxCallbackAlloc(void *user, size_t size) {
-	zest_ktx_user_context_t *user_context = (zest_ktx_user_context_t*)user;
-    return ZEST__ALLOCATE(user_context->context->device->allocator, size);
-}
-
-void zest__tinyktxCallbackFree(void *user, void *data) {
-	zest_ktx_user_context_t *user_context = (zest_ktx_user_context_t*)user;
-    ZEST__FREE(user_context->context->device->allocator, data);
-}
-
-size_t zest__tinyktxCallbackRead(void *user, void *data, size_t size) {
-	zest_ktx_user_context_t *user_context = (zest_ktx_user_context_t*)user;
-    FILE* handle = user_context->file;
-    return fread(data, 1, size, handle);
-}
-
-bool zest__tinyktxCallbackSeek(void *user, int64_t offset) {
-	zest_ktx_user_context_t *user_context = (zest_ktx_user_context_t*)user;
-    FILE* handle = user_context->file;
-    return fseek(handle, (long)offset, SEEK_SET) == 0;
-}
-
-int64_t zest__tinyktxCallbackTell(void *user) {
-	zest_ktx_user_context_t *user_context = (zest_ktx_user_context_t*)user;
-    FILE* handle = user_context->file;
-    return ftell(handle);
-}
-
-zest_format zest__convert_tktx_format(TinyKtx_Format ktx_format) {
-    TinyImageFormat_VkFormat format = (TinyImageFormat_VkFormat)ktx_format;
-    switch (format) {
-        case TIF_VK_FORMAT_R4G4_UNORM_PACK8: return zest_format_r4g4_unorm_pack8; break;
-        case TIF_VK_FORMAT_R4G4B4A4_UNORM_PACK16: return zest_format_r4g4b4a4_unorm_pack16; break;
-        case TIF_VK_FORMAT_B4G4R4A4_UNORM_PACK16: return zest_format_b4g4r4a4_unorm_pack16; break;
-        case TIF_VK_FORMAT_R5G6B5_UNORM_PACK16: return zest_format_r5g6b5_unorm_pack16; break;
-        case TIF_VK_FORMAT_B5G6R5_UNORM_PACK16: return zest_format_b5g6r5_unorm_pack16; break;
-        case TIF_VK_FORMAT_R5G5B5A1_UNORM_PACK16: return zest_format_r5g5b5a1_unorm_pack16; break;
-        case TIF_VK_FORMAT_B5G5R5A1_UNORM_PACK16: return zest_format_b5g5r5a1_unorm_pack16; break;
-        case TIF_VK_FORMAT_A1R5G5B5_UNORM_PACK16: return zest_format_a1r5g5b5_unorm_pack16; break;
-        case TIF_VK_FORMAT_R8_UNORM: return zest_format_r8_unorm; break;
-        case TIF_VK_FORMAT_R8_SNORM: return zest_format_r8_snorm; break;
-        case TIF_VK_FORMAT_R8_UINT: return zest_format_r8_uint; break;
-        case TIF_VK_FORMAT_R8_SINT: return zest_format_r8_sint; break;
-        case TIF_VK_FORMAT_R8_SRGB: return zest_format_r8_srgb; break;
-        case TIF_VK_FORMAT_R8G8_UNORM: return zest_format_r8g8_unorm; break;
-        case TIF_VK_FORMAT_R8G8_SNORM: return zest_format_r8g8_snorm; break;
-        case TIF_VK_FORMAT_R8G8_UINT: return zest_format_r8g8_uint; break;
-        case TIF_VK_FORMAT_R8G8_SINT: return zest_format_r8g8_sint; break;
-        case TIF_VK_FORMAT_R8G8_SRGB: return zest_format_r8g8_srgb; break;
-        case TIF_VK_FORMAT_R8G8B8_UNORM: return zest_format_r8g8b8_unorm; break;
-        case TIF_VK_FORMAT_R8G8B8_SNORM: return zest_format_r8g8b8_snorm; break;
-        case TIF_VK_FORMAT_R8G8B8_UINT: return zest_format_r8g8b8_uint; break;
-        case TIF_VK_FORMAT_R8G8B8_SINT: return zest_format_r8g8b8_sint; break;
-        case TIF_VK_FORMAT_R8G8B8_SRGB: return zest_format_r8g8b8_srgb; break;
-        case TIF_VK_FORMAT_B8G8R8_UNORM: return zest_format_b8g8r8_unorm; break;
-        case TIF_VK_FORMAT_B8G8R8_SNORM: return zest_format_b8g8r8_snorm; break;
-        case TIF_VK_FORMAT_B8G8R8_UINT: return zest_format_b8g8r8_uint; break;
-        case TIF_VK_FORMAT_B8G8R8_SINT: return zest_format_b8g8r8_sint; break;
-        case TIF_VK_FORMAT_B8G8R8_SRGB: return zest_format_b8g8r8_srgb; break;
-        case TIF_VK_FORMAT_R8G8B8A8_UNORM: return zest_format_r8g8b8a8_unorm; break;
-        case TIF_VK_FORMAT_R8G8B8A8_SNORM: return zest_format_r8g8b8a8_snorm; break;
-        case TIF_VK_FORMAT_R8G8B8A8_UINT: return zest_format_r8g8b8a8_uint; break;
-        case TIF_VK_FORMAT_R8G8B8A8_SINT: return zest_format_r8g8b8a8_sint; break;
-        case TIF_VK_FORMAT_R8G8B8A8_SRGB: return zest_format_r8g8b8a8_srgb; break;
-        case TIF_VK_FORMAT_B8G8R8A8_UNORM: return zest_format_b8g8r8a8_unorm; break;
-        case TIF_VK_FORMAT_B8G8R8A8_SNORM: return zest_format_b8g8r8a8_snorm; break;
-        case TIF_VK_FORMAT_B8G8R8A8_UINT: return zest_format_b8g8r8a8_uint; break;
-        case TIF_VK_FORMAT_B8G8R8A8_SINT: return zest_format_b8g8r8a8_sint; break;
-        case TIF_VK_FORMAT_B8G8R8A8_SRGB: return zest_format_b8g8r8a8_srgb; break;
-        case TIF_VK_FORMAT_A8B8G8R8_UNORM_PACK32: return zest_format_a8b8g8r8_unorm_pack32; break;
-        case TIF_VK_FORMAT_A8B8G8R8_SNORM_PACK32: return zest_format_a8b8g8r8_snorm_pack32; break;
-        case TIF_VK_FORMAT_A8B8G8R8_UINT_PACK32: return zest_format_a8b8g8r8_uint_pack32; break;
-        case TIF_VK_FORMAT_A8B8G8R8_SINT_PACK32: return zest_format_a8b8g8r8_sint_pack32; break;
-        case TIF_VK_FORMAT_A8B8G8R8_SRGB_PACK32: return zest_format_a8b8g8r8_srgb_pack32; break;
-        case TIF_VK_FORMAT_A2R10G10B10_UNORM_PACK32: return zest_format_a2r10g10b10_unorm_pack32; break;
-        case TIF_VK_FORMAT_A2R10G10B10_SNORM_PACK32: return zest_format_a2r10g10b10_snorm_pack32; break;
-        case TIF_VK_FORMAT_A2R10G10B10_UINT_PACK32: return zest_format_a2r10g10b10_uint_pack32; break;
-        case TIF_VK_FORMAT_A2R10G10B10_SINT_PACK32: return zest_format_a2r10g10b10_sint_pack32; break;
-        case TIF_VK_FORMAT_A2B10G10R10_UNORM_PACK32: return zest_format_a2b10g10r10_unorm_pack32; break;
-        case TIF_VK_FORMAT_A2B10G10R10_SNORM_PACK32: return zest_format_a2b10g10r10_snorm_pack32; break;
-        case TIF_VK_FORMAT_A2B10G10R10_UINT_PACK32: return zest_format_a2b10g10r10_uint_pack32; break;
-        case TIF_VK_FORMAT_A2B10G10R10_SINT_PACK32: return zest_format_a2b10g10r10_sint_pack32; break;
-        case TIF_VK_FORMAT_R16_UNORM: return zest_format_r16_unorm; break;
-        case TIF_VK_FORMAT_R16_SNORM: return zest_format_r16_snorm; break;
-        case TIF_VK_FORMAT_R16_UINT: return zest_format_r16_uint; break;
-        case TIF_VK_FORMAT_R16_SINT: return zest_format_r16_sint; break;
-        case TIF_VK_FORMAT_R16_SFLOAT: return zest_format_r16_sfloat; break;
-        case TIF_VK_FORMAT_R16G16_UNORM: return zest_format_r16g16_unorm; break;
-        case TIF_VK_FORMAT_R16G16_SNORM: return zest_format_r16g16_snorm; break;
-        case TIF_VK_FORMAT_R16G16_UINT: return zest_format_r16g16_uint; break;
-        case TIF_VK_FORMAT_R16G16_SINT: return zest_format_r16g16_sint; break;
-        case TIF_VK_FORMAT_R16G16_SFLOAT: return zest_format_r16g16_sfloat; break;
-        case TIF_VK_FORMAT_R16G16B16_UNORM: return zest_format_r16g16b16_unorm; break;
-        case TIF_VK_FORMAT_R16G16B16_SNORM: return zest_format_r16g16b16_snorm; break;
-        case TIF_VK_FORMAT_R16G16B16_UINT: return zest_format_r16g16b16_uint; break;
-        case TIF_VK_FORMAT_R16G16B16_SINT: return zest_format_r16g16b16_sint; break;
-        case TIF_VK_FORMAT_R16G16B16_SFLOAT: return zest_format_r16g16b16_sfloat; break;
-        case TIF_VK_FORMAT_R16G16B16A16_UNORM: return zest_format_r16g16b16a16_unorm; break;
-        case TIF_VK_FORMAT_R16G16B16A16_SNORM: return zest_format_r16g16b16a16_snorm; break;
-        case TIF_VK_FORMAT_R16G16B16A16_UINT: return zest_format_r16g16b16a16_uint; break;
-        case TIF_VK_FORMAT_R16G16B16A16_SINT: return zest_format_r16g16b16a16_sint; break;
-        case TIF_VK_FORMAT_R16G16B16A16_SFLOAT: return zest_format_r16g16b16a16_sfloat; break;
-        case TIF_VK_FORMAT_R32_UINT: return zest_format_r32_uint; break;
-        case TIF_VK_FORMAT_R32_SINT: return zest_format_r32_sint; break;
-        case TIF_VK_FORMAT_R32_SFLOAT: return zest_format_r32_sfloat; break;
-        case TIF_VK_FORMAT_R32G32_UINT: return zest_format_r32g32_uint; break;
-        case TIF_VK_FORMAT_R32G32_SINT: return zest_format_r32g32_sint; break;
-        case TIF_VK_FORMAT_R32G32_SFLOAT: return zest_format_r32g32_sfloat; break;
-        case TIF_VK_FORMAT_R32G32B32_UINT: return zest_format_r32g32b32_uint; break;
-        case TIF_VK_FORMAT_R32G32B32_SINT: return zest_format_r32g32b32_sint; break;
-        case TIF_VK_FORMAT_R32G32B32_SFLOAT: return zest_format_r32g32b32_sfloat; break;
-        case TIF_VK_FORMAT_R32G32B32A32_UINT: return zest_format_r32g32b32a32_uint; break;
-        case TIF_VK_FORMAT_R32G32B32A32_SINT: return zest_format_r32g32b32a32_sint; break;
-        case TIF_VK_FORMAT_R32G32B32A32_SFLOAT: return zest_format_r32g32b32a32_sfloat; break;
-        case TIF_VK_FORMAT_R64_UINT: return zest_format_r64_uint; break;
-        case TIF_VK_FORMAT_R64_SINT: return zest_format_r64_sint; break;
-        case TIF_VK_FORMAT_R64_SFLOAT: return zest_format_r64_sfloat; break;
-        case TIF_VK_FORMAT_R64G64_UINT: return zest_format_r64g64_uint; break;
-        case TIF_VK_FORMAT_R64G64_SINT: return zest_format_r64g64_sint; break;
-        case TIF_VK_FORMAT_R64G64_SFLOAT: return zest_format_r64g64_sfloat; break;
-        case TIF_VK_FORMAT_R64G64B64_UINT: return zest_format_r64g64b64_uint; break;
-        case TIF_VK_FORMAT_R64G64B64_SINT: return zest_format_r64g64b64_sint; break;
-        case TIF_VK_FORMAT_R64G64B64_SFLOAT: return zest_format_r64g64b64_sfloat; break;
-        case TIF_VK_FORMAT_R64G64B64A64_UINT: return zest_format_r64g64b64a64_uint; break;
-        case TIF_VK_FORMAT_R64G64B64A64_SINT: return zest_format_r64g64b64a64_sint; break;
-        case TIF_VK_FORMAT_R64G64B64A64_SFLOAT: return zest_format_r64g64b64a64_sfloat; break;
-        case TIF_VK_FORMAT_B10G11R11_UFLOAT_PACK32: return zest_format_b10g11r11_ufloat_pack32; break;
-        case TIF_VK_FORMAT_E5B9G9R9_UFLOAT_PACK32: return zest_format_e5b9g9r9_ufloat_pack32; break;
-        case TIF_VK_FORMAT_D16_UNORM: return zest_format_d16_unorm; break;
-        case TIF_VK_FORMAT_X8_D24_UNORM_PACK32: return zest_format_x8_d24_unorm_pack32; break;
-        case TIF_VK_FORMAT_D32_SFLOAT: return zest_format_d32_sfloat; break;
-        case TIF_VK_FORMAT_S8_UINT: return zest_format_s8_uint; break;
-        case TIF_VK_FORMAT_D16_UNORM_S8_UINT: return zest_format_d16_unorm_s8_uint; break;
-        case TIF_VK_FORMAT_D24_UNORM_S8_UINT: return zest_format_d24_unorm_s8_uint; break;
-        case TIF_VK_FORMAT_D32_SFLOAT_S8_UINT: return zest_format_d32_sfloat_s8_uint; break;
-        case TIF_VK_FORMAT_BC1_RGB_UNORM_BLOCK: return zest_format_bc1_rgb_unorm_block; break;
-        case TIF_VK_FORMAT_BC1_RGB_SRGB_BLOCK: return zest_format_bc1_rgb_srgb_block; break;
-        case TIF_VK_FORMAT_BC1_RGBA_UNORM_BLOCK: return zest_format_bc1_rgba_unorm_block; break;
-        case TIF_VK_FORMAT_BC1_RGBA_SRGB_BLOCK: return zest_format_bc1_rgba_srgb_block; break;
-        case TIF_VK_FORMAT_BC2_UNORM_BLOCK: return zest_format_bc2_unorm_block; break;
-        case TIF_VK_FORMAT_BC2_SRGB_BLOCK: return zest_format_bc2_srgb_block; break;
-        case TIF_VK_FORMAT_BC3_UNORM_BLOCK: return zest_format_bc3_unorm_block; break;
-        case TIF_VK_FORMAT_BC3_SRGB_BLOCK: return zest_format_bc3_srgb_block; break;
-        case TIF_VK_FORMAT_BC4_UNORM_BLOCK: return zest_format_bc4_unorm_block; break;
-        case TIF_VK_FORMAT_BC4_SNORM_BLOCK: return zest_format_bc4_snorm_block; break;
-        case TIF_VK_FORMAT_BC5_UNORM_BLOCK: return zest_format_bc5_unorm_block; break;
-        case TIF_VK_FORMAT_BC5_SNORM_BLOCK: return zest_format_bc5_snorm_block; break;
-        case TIF_VK_FORMAT_BC6H_UFLOAT_BLOCK: return zest_format_bc6h_ufloat_block; break;
-        case TIF_VK_FORMAT_BC6H_SFLOAT_BLOCK: return zest_format_bc6h_sfloat_block; break;
-        case TIF_VK_FORMAT_BC7_UNORM_BLOCK: return zest_format_bc7_unorm_block; break;
-        case TIF_VK_FORMAT_BC7_SRGB_BLOCK: return zest_format_bc7_srgb_block; break;
-        case TIF_VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK: return zest_format_etc2_r8g8b8_unorm_block; break;
-        case TIF_VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK: return zest_format_etc2_r8g8b8_srgb_block; break;
-        case TIF_VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK: return zest_format_etc2_r8g8b8a1_unorm_block; break;
-        case TIF_VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK: return zest_format_etc2_r8g8b8a1_srgb_block; break;
-        case TIF_VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK: return zest_format_etc2_r8g8b8a8_unorm_block; break;
-        case TIF_VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK: return zest_format_etc2_r8g8b8a8_srgb_block; break;
-        case TIF_VK_FORMAT_EAC_R11_UNORM_BLOCK: return zest_format_eac_r11_unorm_block; break;
-        case TIF_VK_FORMAT_EAC_R11_SNORM_BLOCK: return zest_format_eac_r11_snorm_block; break;
-        case TIF_VK_FORMAT_EAC_R11G11_UNORM_BLOCK: return zest_format_eac_r11g11_unorm_block; break;
-        case TIF_VK_FORMAT_EAC_R11G11_SNORM_BLOCK: return zest_format_eac_r11g11_snorm_block; break;
-        case TIF_VK_FORMAT_ASTC_4x4_UNORM_BLOCK: return zest_format_astc_4X4_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_4x4_SRGB_BLOCK: return zest_format_astc_4X4_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_5x4_UNORM_BLOCK: return zest_format_astc_5X4_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_5x4_SRGB_BLOCK: return zest_format_astc_5X4_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_5x5_UNORM_BLOCK: return zest_format_astc_5X5_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_5x5_SRGB_BLOCK: return zest_format_astc_5X5_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_6x5_UNORM_BLOCK: return zest_format_astc_6X5_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_6x5_SRGB_BLOCK: return zest_format_astc_6X5_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_6x6_UNORM_BLOCK: return zest_format_astc_6X6_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_6x6_SRGB_BLOCK: return zest_format_astc_6X6_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_8x5_UNORM_BLOCK: return zest_format_astc_8X5_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_8x5_SRGB_BLOCK: return zest_format_astc_8X5_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_8x6_UNORM_BLOCK: return zest_format_astc_8X6_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_8x6_SRGB_BLOCK: return zest_format_astc_8X6_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_8x8_UNORM_BLOCK: return zest_format_astc_8X8_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_8x8_SRGB_BLOCK: return zest_format_astc_8X8_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_10x5_UNORM_BLOCK: return zest_format_astc_10X5_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_10x5_SRGB_BLOCK: return zest_format_astc_10X5_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_10x6_UNORM_BLOCK: return zest_format_astc_10X6_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_10x6_SRGB_BLOCK: return zest_format_astc_10X6_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_10x8_UNORM_BLOCK: return zest_format_astc_10X8_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_10x8_SRGB_BLOCK: return zest_format_astc_10X8_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_10x10_UNORM_BLOCK: return zest_format_astc_10X10_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_10x10_SRGB_BLOCK: return zest_format_astc_10X10_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_12x10_UNORM_BLOCK: return zest_format_astc_12X10_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_12x10_SRGB_BLOCK: return zest_format_astc_12X10_srgb_block; break;
-        case TIF_VK_FORMAT_ASTC_12x12_UNORM_BLOCK: return zest_format_astc_12X12_unorm_block; break;
-        case TIF_VK_FORMAT_ASTC_12x12_SRGB_BLOCK: return zest_format_astc_12X12_srgb_block; break;
-        default: return zest_format_undefined;
-    }
-    return zest_format_undefined;
-}
-
 zest_uint zest__get_format_channel_count(zest_format format) {
     switch (format) {
     case zest_format_undefined:
@@ -8026,72 +7836,6 @@ zest_uint zest__get_format_channel_count(zest_format format) {
         break;
     }
     return 0;
-}
-
-zest_image_collection_handle zest__load_ktx(zest_context context, const char *file_path) {
-
-    TinyKtx_Callbacks callbacks = {
-            &zest__tinyktxCallbackError,
-            &zest__tinyktxCallbackAlloc,
-            &zest__tinyktxCallbackFree,
-            zest__tinyktxCallbackRead,
-            &zest__tinyktxCallbackSeek,
-            &zest__tinyktxCallbackTell
-    };
-
-    FILE *file = zest__open_file(file_path, "rb");
-	if (!file) {
-		ZEST_PRINT("Failed to open KTX file: %s", file_path);
-		return ZEST__ZERO_INIT(zest_image_collection_handle);
-    }
-
-	zest_ktx_user_context_t user_context;
-	user_context.context = context;
-	user_context.file = file;
-
-    TinyKtx_ContextHandle ctx = TinyKtx_CreateContext(&callbacks, &user_context);
-
-    if (!TinyKtx_ReadHeader(ctx)) {
-		return ZEST__ZERO_INIT(zest_image_collection_handle);
-    }
-
-    zest_format format = zest__convert_tktx_format(TinyKtx_GetFormat(ctx));
-    if (format == zest_format_undefined) {
-        TinyKtx_DestroyContext(ctx);
-		return ZEST__ZERO_INIT(zest_image_collection_handle);
-    }
-
-	zest_uint width = TinyKtx_Width(ctx);
-	zest_uint height = TinyKtx_Height(ctx);
-	zest_uint depth = TinyKtx_Depth(ctx);
-
-    zest_uint mip_count = TinyKtx_NumberOfMipmaps(ctx);
-	zest_image_collection_flags flags = TinyKtx_IsCubemap(ctx) ? zest_image_collection_flag_is_cube_map : 0;
-	zest_image_collection_handle image_collection_handle = zest_CreateImageCollection(context, format, mip_count, flags);
-	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(context, image_collection_handle.value);
-
-    //First pass to set the bitmap array
-    size_t offset = 0;
-    for (zest_uint i = 0; i < mip_count; ++i) {
-        zest_uint image_size = TinyKtx_ImageSize(ctx, i);
-		zest_SetImageCollectionBitmapMeta(image_collection_handle, i, width, height, 0, 0, image_size, offset);
-        offset += image_size;
-        if (width > 1) width /= 2;
-        if (height > 1) height /= 2;
-    }
-
-	zest_AllocateImageCollectionBitmapArray(image_collection_handle);
-	width = TinyKtx_Width(ctx);
-	height = TinyKtx_Height(ctx);
-
-	zest_bitmap_array_t *bitmap_array = zest_GetImageCollectionBitmapArray(image_collection_handle);
-
-    zest_vec_foreach (i, bitmap_array->meta) {
-		zest_ImageCollectionCopyToBitmapArray(image_collection_handle, i, TinyKtx_ImageRawData(ctx, i), TinyKtx_ImageSize(ctx, i));
-    }
-
-    TinyKtx_DestroyContext(ctx);
-    return image_collection_handle;
 }
 
 zest_image_collection_handle zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags) {
@@ -8299,71 +8043,6 @@ void zest__update_image_vertices(zest_atlas_region image) {
     image->min.y = image->height * (0.f - image->handle.y);
     image->max.x = image->width * (1.f - image->handle.x);
     image->max.y = image->height * (1.f - image->handle.y);
-}
-
-zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name) {
-    zest_image_collection_handle image_collection_handle = zest__load_ktx(context, file_name);
-
-    if (!image_collection_handle.context) {
-        return ZEST__ZERO_INIT(zest_image_handle);
-    }
-
-	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(context, image_collection_handle.value);
-
-	zest_bitmap_array_t *bitmap_array = &image_collection->bitmap_array;
-    zest_vec_foreach(mip_index, bitmap_array->meta) {
-        zest_buffer_image_copy_t buffer_copy_region = ZEST__ZERO_INIT(zest_buffer_image_copy_t);
-        buffer_copy_region.image_aspect = zest_image_aspect_color_bit;
-        buffer_copy_region.mip_level = mip_index;
-        buffer_copy_region.base_array_layer = 0;
-        buffer_copy_region.layer_count = 6;
-        buffer_copy_region.image_extent.width = bitmap_array->meta[mip_index].width;
-        buffer_copy_region.image_extent.height = bitmap_array->meta[mip_index].height;
-        buffer_copy_region.image_extent.depth = 1;
-        buffer_copy_region.buffer_offset = bitmap_array->meta[mip_index].offset;
-
-        zest_vec_push(context->device->allocator, image_collection->buffer_copy_regions, buffer_copy_region);
-    }
-    zest_size image_size = bitmap_array->total_mem_size;
-
-    zest_buffer staging_buffer = zest_CreateStagingBuffer(context, image_size, 0);
-
-    if (!staging_buffer) {
-        goto cleanup;
-    }
-
-    memcpy(staging_buffer->data, image_collection->bitmap_array.data, bitmap_array->total_mem_size);
-
-    zest_uint width = bitmap_array->meta[0].width;
-    zest_uint height = bitmap_array->meta[0].height;
-
-    zest_uint mip_levels = bitmap_array->size_of_array;
-    zest_image_info_t create_info = zest_CreateImageInfo(width, height);
-    create_info.mip_levels = mip_levels;
-    create_info.format = image_collection->format;
-    create_info.layer_count = 6;
-    create_info.flags = zest_image_preset_texture | zest_image_flag_cubemap | zest_image_flag_transfer_src;
-    zest_image_handle image_handle = zest_CreateImage(context, &create_info);
-    zest_image image = (zest_image)zest__get_store_resource(image_handle.context, image_handle.value);
-
-    context->device->platform->begin_single_time_commands(context);
-    ZEST_CLEANUP_ON_FALSE(zest__transition_image_layout(image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, 6));
-    ZEST_CLEANUP_ON_FALSE(context->device->platform->copy_buffer_regions_to_image(context, image_collection->buffer_copy_regions, staging_buffer, staging_buffer->buffer_offset, image));
-    ZEST_CLEANUP_ON_FALSE(zest__transition_image_layout(image, zest_image_layout_shader_read_only_optimal, 0, mip_levels, 0, 6));
-    context->device->platform->end_single_time_commands(context);
-
-    zest_FreeBitmapArray(bitmap_array);
-	zest_FreeBuffer(staging_buffer);
-	zest__cleanup_image_collection(image_collection);
-
-    return image_handle;
-
-    cleanup:
-    zest_FreeBitmapArray(bitmap_array);
-	zest__cleanup_image(image);
-	zest_FreeBuffer(staging_buffer);
-	zest_FreeImageCollection(image_collection_handle);
-    return ZEST__ZERO_INIT(zest_image_handle);
 }
 
 zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint height) {
@@ -9495,10 +9174,10 @@ void zest_AddMeshToLayer(zest_layer_handle layer_handle, zest_mesh src_mesh) {
 	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
 	layer->vertex_data = zest_CreateBuffer(context, vertex_staging_buffer->size, &vertex_info);
 	layer->index_data = zest_CreateBuffer(context, index_staging_buffer->size, &index_info);
-    context->device->platform->begin_single_time_commands(context);
-    zest_cmd_CopyBufferOneTime(vertex_staging_buffer, layer->vertex_data, vertex_staging_buffer->size);
-    zest_cmd_CopyBufferOneTime(index_staging_buffer, layer->index_data, index_staging_buffer->size);
-    context->device->platform->end_single_time_commands(context);
+	zest_BeginOneTimeCommandBuffer(context);
+    zest_CopyBufferOneTime(context, vertex_staging_buffer, layer->vertex_data, vertex_staging_buffer->size);
+    zest_CopyBufferOneTime(context, index_staging_buffer, layer->index_data, index_staging_buffer->size);
+	zest_EndOneTimeCommandBuffer(context);
     zest_FreeBuffer(vertex_staging_buffer);
     zest_FreeBuffer(index_staging_buffer);
 }
