@@ -1,9 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#define TINYKTX_IMPLEMENTATION
 #include <zest.h>
-#include "zest_utilities.h"
 #include "zest-imgui-template.h"
+#include "zest_utilities.h"
 #include "imgui_internal.h"
 
 void InitImGuiApp(ImGuiApp *app) {

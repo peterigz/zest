@@ -1,9 +1,9 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#define TINYKTX_IMPLEMENTATION
 #define ZEST_TEST_MODE
 #include "zest.h"
 #include "zest-render-graph-tests.h"
+#include "zest_utilities.h"
 #include "imgui_internal.h"
 
 //Empty Graph: Compile and execute an empty render graph. It should do nothing and not crash.
@@ -860,7 +860,7 @@ void RunTests(ZestTests *tests) {
 			if (tests->current_test < TEST_COUNT - 1) {
 				tests->current_test++;
 				zest_SetCreateInfo(tests->context, &tests->tests[tests->current_test].create_info);
-				zest_ResetRenderer(tests->context);
+				zest_ResetRenderer(tests->context, 0);
 				zest_ResetValidationErrors(tests->context);
 				ResetTests(tests);
 			} else {
@@ -904,7 +904,7 @@ int main(void) {
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	tests.context = zest_CreateContext(device, window_handles, &create_info);
+	tests.context = zest_CreateContext(device, &window_handles, &create_info);
 
 	InitialiseTests(&tests);
 
