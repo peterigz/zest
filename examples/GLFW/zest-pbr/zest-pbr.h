@@ -1,15 +1,11 @@
 #pragma once
 
 #include <zest.h>
+#include <GLFW/glfw3.h>
 #include "implementations/impl_imgui.h"
-#include "implementations/impl_glfw.h"
-#include "implementations/impl_imgui_glfw.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
 #include <imgui/backends/imgui_impl_glfw.h>
-#include <iostream>
-#include <fstream>
-#include <vector>
 
 struct RenderCacheInfo {
 	bool draw_imgui;
@@ -147,5 +143,4 @@ void SetupBillboards(SimplePBRExample *app);
 void SetupBRDFLUT(SimplePBRExample *app);
 void SetupIrradianceCube(SimplePBRExample *app);
 void SetupPrefilteredCube(SimplePBRExample *app);
-int zest_decodePNG(std::vector<unsigned char>& out_image, unsigned long& image_width, unsigned long& image_height, const unsigned char* in_png, size_t in_size, bool convert_to_rgba32 = true);
 

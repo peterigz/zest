@@ -3,6 +3,7 @@
 #define TINYKTX_IMPLEMENTATION
 #include "zest.h"
 #include "zest-pbr.h"
+#include "zest_utilities.h"
 #include "imgui_internal.h"
 
 void UpdateUniform3d(SimplePBRExample *app) {
@@ -225,7 +226,7 @@ void SetupPrefilteredCube(SimplePBRExample *app) {
 void InitSimplePBRExample(SimplePBRExample *app) {
 	//Initialise Dear ImGui
 	app->imgui = zest_imgui_Initialise(app->context);
-	zest_imgui_InitialiseForGLFW(app->context);
+    ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 	//Implement a dark style
 	zest_imgui_DarkStyle();
 	
@@ -534,7 +535,7 @@ void MainLoop(SimplePBRExample *app) {
 
 		if (app->reset) {
 			app->reset = false;
-			zest_imgui_ShutdownGLFW();
+			ImGui_ImplGlfw_Shutdown();
 			zest_imgui_Destroy(&app->imgui);
 			zest_implglfw_DestroyWindow(app->context);
 			zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
@@ -685,7 +686,7 @@ int main(void) {
 
 	//Start the main loop
 	MainLoop(&imgui_app);
-	zest_imgui_ShutdownGLFW();
+	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&imgui_app.imgui);
 	zest_DestroyContext(imgui_app.context);
 

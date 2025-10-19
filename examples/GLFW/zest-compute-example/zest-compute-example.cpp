@@ -1,10 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#define TINYKTX_IMPLEMENTATION
-#define ZEST_IMPLEMENT_GLFW
 #include <zest.h>
-#include "zest_utilities.h"
 #include "zest-compute-example.h"
+#include "zest_utilities.h"
 #include "imgui_internal.h"
 #include "impl_slang.hpp"
 #include <random>
@@ -60,7 +58,9 @@ void InitComputeExample(ComputeExample *app) {
 	zest_buffer_info_t particle_vertex_buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
 	app->particle_buffer = zest_CreateBuffer(app->context, storage_buffer_size, &particle_vertex_buffer_info);
 	//Copy the staging buffer to the desciptor buffer
-	zest_cmd_CopyBufferOneTime(staging_buffer, app->particle_buffer, storage_buffer_size);
+	zest_BeginOneTimeCommandBuffer(app->context);
+	zest_CopyBufferOneTime(app->context, staging_buffer, app->particle_buffer, storage_buffer_size);
+	zest_EndOneTimeCommandBuffer(app->context);
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 
