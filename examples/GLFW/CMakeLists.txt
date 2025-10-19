@@ -73,15 +73,11 @@ function(buildExample EXAMPLE_NAME)
 	if(${EXAMPLE_NAME} STREQUAL "zest-compute-example")
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp
-			${IMPLEMENTATIONS}impl_glfw.cpp
-			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
 			${IMPLEMENTATIONS}impl_slang.hpp
 		)
 	else()
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp
-			${IMPLEMENTATIONS}impl_glfw.cpp
-			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
 		)
 	endif()
 
@@ -96,22 +92,16 @@ function(buildExample EXAMPLE_NAME)
 		)
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp
-			${IMPLEMENTATIONS}impl_glfw.cpp
-			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
 			${IMPLEMENTATIONS}impl_timelinefx.c
 		)
 	elseif(${EXAMPLE_NAME} STREQUAL "zest-compute-example")
 		SET(TIMELINEFX_SOURCE "")
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp
-			${IMPLEMENTATIONS}impl_glfw.cpp
-			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
 		)
 	else()
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp
-			${IMPLEMENTATIONS}impl_glfw.cpp
-			${IMPLEMENTATIONS}impl_imgui_glfw.cpp
 		)
 	endif()
 

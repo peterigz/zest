@@ -1,7 +1,9 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
 #define TINYKTX_IMPLEMENTATION
+#define ZEST_IMPLEMENT_GLFW
 #include <zest.h>
+#include "zest_utilities.h"
 #include "zest-compute-example.h"
 #include "imgui_internal.h"
 #include "impl_slang.hpp"
@@ -11,7 +13,7 @@ void InitComputeExample(ComputeExample *app) {
 
 	//Initialise Imgui for zest, this function just sets up some things like display size and font texture
 	app->imgui = zest_imgui_Initialise(app->context);
-	zest_imgui_InitialiseForGLFW(app->context);
+    ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 
 	app->frame_timer = 1.f;
 	app->timer = 0.f;
@@ -317,7 +319,7 @@ int main(void) {
 	//Start the mainloop in Zest
 	MainLoop(&compute_example);
 	zest_slang_Shutdown(compute_example.context);
-	zest_imgui_ShutdownGLFW();
+	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&compute_example.imgui);
 	zest_DestroyContext(compute_example.context);
 
