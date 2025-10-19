@@ -30,7 +30,6 @@ tiny_ktx.h			Load and save ktx files		- Deano Calver https://github.com/DeanoC/t
 zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int height, zest_bool maximised, const char *title);
 void zest_implglfw_GetWindowSizeCallback( void* native_window_handle, int* fb_width, int* fb_height, int* window_width, int* window_height );
 void zest_implglfw_DestroyWindow(zest_context context);
-void zest_implglfw_PollEventsCallback(zest_context context);
 
 #ifdef GLFW_VERSION_MAJOR
 
