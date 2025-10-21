@@ -119,10 +119,10 @@ function(buildExample EXAMPLE_NAME)
 
 	if(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${IMGUI_TEST_ENGINE_SOURCE} ${IMGUI_TEST_SUITE_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE} ${IMPLOT_SOURCE})
-		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY} ${WINLIBS})
+		target_link_libraries(${EXAMPLE_NAME} zest-interface ${GLFW3_LIBRARY} ${WINLIBS})
 	else(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${IMGUI_TEST_ENGINE_SOURCE} ${IMGUI_TEST_SUITE_SOURCE} ${IMGUI_FILE_DIALOG_SOURCE})
-		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${GLFW3_LIBRARY})
+		target_link_libraries(${EXAMPLE_NAME} zest-interface ${GLFW3_LIBRARY})
 	endif(WIN32)
 
 	if(${EXAMPLE_NAME} STREQUAL "zest-msdf-font-maker")
@@ -160,6 +160,7 @@ set(EXAMPLES
 	zest-ribbons
 	zest-implot
 	zest-pbr
+	zest-fonts
 )
 
 buildExamples()
