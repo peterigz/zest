@@ -14,7 +14,7 @@ zest_imgui_t zest_imgui_Initialise(zest_context context) {
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
     int upload_size = width * height * 4 * sizeof(char);
 
-    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer(context, "font_bitmap", pixels, upload_size, width, height, 4);
+    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer(context, "font_bitmap", pixels, upload_size, width, height, zest_format_r8g8b8a8_unorm);
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     zest_imgui.font_texture = zest_CreateImage(context, &image_info);
@@ -79,7 +79,7 @@ zest_imgui_t zest_imgui_Initialise(zest_context context) {
 void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels) {
     zest_WaitForIdleDevice(imgui->context);
     int upload_size = width * height * 4 * sizeof(char);
-    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer(imgui->context, "font_bitmap", pixels, upload_size, width, height, 4);
+    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer(imgui->context, "font_bitmap", pixels, upload_size, width, height, zest_format_r8g8b8a8_unorm);
     zest_FreeImage(imgui->font_texture);
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
