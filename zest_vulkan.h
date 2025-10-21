@@ -4809,9 +4809,10 @@ zest_bool zest__vk_copy_buffer_to_image(zest_buffer buffer, zest_size src_offset
 
 zest_bool zest_cmd_CopyBitmapToImage(zest_bitmap bitmap, zest_image_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
     zest_image dst_image = (zest_image)zest__get_store_resource_checked(dst_handle.context, dst_handle.value);
-    zest_uint channels = bitmap->meta.channels;
-    ZEST_ASSERT(channels == zest__get_format_channel_count(dst_image->info.format));    //Incompatible destination image format
-    VkDeviceSize image_size = bitmap->meta.width * bitmap->meta.height * channels;
+    int channels = bitmap->meta.channels;
+    int bytes_per_pixel = bitmap->meta.bytes_per_pixel;
+    ZEST_ASSERT(bitmap->meta.format == dst_image->info.format, "Incompatible destination image format");
+    VkDeviceSize image_size = bitmap->meta.width * bitmap->meta.height * bytes_per_pixel;
 
     zest_buffer staging_buffer = 0;
 	zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);

@@ -50,7 +50,6 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->imgui_sprite_pipeline = zest_CopyPipelineTemplate(app->context, "ImGui Sprite Pipeline", app->imgui.pipeline);
 	zest_SetPipelineFragShader(app->imgui_sprite_pipeline, app->imgui_sprite_shader);
 
-
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(app->context, 60);
 	app->request_graph_print = true;

@@ -826,6 +826,21 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 #define ZEST_APPLY_MACRO(macro, args) macro args
 #define ZEST_CHOOSE_ASSERT(...) ZEST_APPLY_MACRO(ZEST_GET_MACRO, (__VA_ARGS__, ZEST_INTERNAL_ASSERT_IMPL, ZEST_INTERNAL_ASSERT_NO_MSG))
 #define ZEST_ASSERT(...) ZEST_APPLY_MACRO(ZEST_CHOOSE_ASSERT(__VA_ARGS__), (__VA_ARGS__))
+#define ZEST_ASSERT_TILING_FORMAT(format) ZEST_ASSERT( \
+    format == zest_format_r8_unorm || \
+    format == zest_format_r8g8_unorm || \
+    format == zest_format_r8g8b8a8_unorm || \
+    format == zest_format_b8g8r8a8_unorm || \
+    format == zest_format_r8g8b8a8_srgb || \
+    format == zest_format_b8g8r8a8_srgb || \
+    format == zest_format_r16_sfloat || \
+    format == zest_format_r16g16_sfloat || \
+    format == zest_format_r16g16b16a16_sfloat || \
+    format == zest_format_r32_sfloat || \
+    format == zest_format_r32g32_sfloat || \
+    format == zest_format_r32g32b32a32_sfloat \
+)
+
 
 #else
 #pragma message("ZEST_ASSERT is disabled because NDEBUG is defined.")
@@ -961,6 +976,7 @@ typedef zest_ull zest_key;
 typedef uint64_t zest_size;
 typedef unsigned char zest_byte;
 typedef unsigned int zest_bool;
+typedef char* zest_file;
 
 //Handles. These are pointers that remain stable until the object is freed.
 #define ZEST__MAKE_HANDLE(handle) typedef struct handle##_t* handle;
@@ -4269,6 +4285,7 @@ typedef struct zest_bitmap_meta_t {
 	int width;
 	int height;
 	int channels;
+	int bytes_per_pixel;
 	int stride;
 	zest_size size;
 	zest_size offset;
@@ -4867,7 +4884,7 @@ ZEST_PRIVATE void zest__release_all_global_texture_indexes(zest_image image);
 ZEST_PRIVATE void zest__cleanup_image_collection(zest_image_collection image_collection);
 ZEST_PRIVATE int zest__decode_png(zest_context context, zest_bitmap out_bitmap, const zest_byte *in_png, zest_uint in_size, int convert_to_rgba32);
 ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
-ZEST_API_TMP zest_uint zest__get_format_channel_count(zest_format format);
+ZEST_API_TMP void zest__get_format_pixel_data(zest_format format, int *channels, int *bytes_per_pixel);
 ZEST_API_TMP void zest__cleanup_image_view(zest_image_view layout);
 ZEST_PRIVATE void zest__cleanup_image_view_array(zest_image_view_array layout);
 ZEST_PRIVATE zest_bool zest__transition_image_layout(zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
@@ -5422,11 +5439,9 @@ ZEST_API zest_bitmap zest_LoadPNG(zest_context context, const char *filename);
 ZEST_API zest_bitmap zest_NewBitmap(zest_context context);
 //Create a new bitmap from a pixel buffer. Pass in the name of the bitmap, a pointer to the buffer, the size in bytes of the buffer, the width and height
 //and the number of color channels
-ZEST_API zest_bitmap zest_CreateBitmapFromRawBuffer(zest_context context, const char *name, unsigned char *pixels, int size, int width, int height, int channels);
+ZEST_API zest_bitmap zest_CreateBitmapFromRawBuffer(zest_context context, const char *name, void *pixels, int size, int width, int height, zest_format format);
 //Allocate the memory for a bitmap based on the width, height and number of color channels. You can also specify the fill color
-ZEST_API void zest_AllocateBitmap(zest_bitmap bitmap, int width, int height, int channels);
-//Allocate the memory for a bitmap based on the width, height and number of color channels. You can also specify the fill color
-ZEST_API void zest_AllocateBitmapAndClear(zest_bitmap bitmap, int width, int height, int channels, zest_color fill_color);
+ZEST_API zest_bool zest_AllocateBitmap(zest_bitmap bitmap, int width, int height, zest_format format);
 //Allocate the memory for a bitmap based the number of bytes required
 ZEST_API void zest_AllocateBitmapMemory(zest_bitmap bitmap, zest_size size_in_bytes);
 //Copy all of a source bitmap to a destination bitmap
@@ -5440,17 +5455,12 @@ ZEST_API void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width
 ZEST_API void zest_ConvertBitmap(zest_bitmap src, zest_format format, zest_byte alpha_level);
 //Convert a bitmap to BGRA format
 ZEST_API void zest_ConvertBitmapToBGRA(zest_bitmap src, zest_byte alpha_level);
-//Fill a bitmap with a color
-ZEST_API void zest_FillBitmap(zest_bitmap image, zest_color color);
-//plot a single pixel in the bitmap with a color
-ZEST_API void zest_PlotBitmap(zest_bitmap image, int x, int y, zest_color color);
 //Convert a bitmap to RGBA format
 ZEST_API void zest_ConvertBitmapToRGBA(zest_bitmap src, zest_byte alpha_level);
 //Convert a BGRA bitmap to RGBA format
 ZEST_API void zest_ConvertBGRAToRGBA(zest_bitmap src);
 //Convert a bitmap to a single alpha channel
 ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap image);
-ZEST_API void zest_ConvertBitmapTo1Channel(zest_bitmap image);
 //Sample the color of a pixel in a bitmap with the given x/y coordinates
 ZEST_API zest_color zest_SampleBitmap(zest_bitmap image, int x, int y);
 //Get a pointer to the first pixel in a bitmap within the bitmap array. Index must be less than the number of bitmaps in the array
@@ -5470,7 +5480,7 @@ ZEST_API zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t *bitmap_array, z
 //index so some drawcalls will use the outdated texture, some the new. Call before any draw calls are made or better still,
 //just call zest_ScheduleTextureReprocess which will recreate the texture between frames and then schedule a cleanup the next
 //frame after.
-ZEST_API void zest_CreateBitmapArray(zest_context context, zest_bitmap_array_t *images, int width, int height, int channels, zest_uint size_of_array);
+ZEST_API void zest_CreateBitmapArray(zest_context context, zest_bitmap_array_t *images, int width, int height, zest_format format, zest_uint size_of_array);
 ZEST_API void zest_InitialiseBitmapArray(zest_context context, zest_bitmap_array_t *images, zest_uint size_of_array);
 //Free a bitmap array and return memory resources to the allocator
 ZEST_API void zest_FreeBitmapArray(zest_bitmap_array_t *images);
@@ -5768,7 +5778,9 @@ zest_TimerSet(timer);
 //        General_Helper_functions
 //-----------------------------------------------
 //Read a file from disk into memory. Set terminate to 1 if you want to add \0 to the end of the file in memory
-ZEST_API char* zest_ReadEntireFile(zest_context context, const char *file_name, zest_bool terminate);
+ZEST_API zest_file zest_ReadEntireFile(zest_context context, const char *file_name, zest_bool terminate);
+//Free the data from a file
+ZEST_API void zest_FreeFile(zest_context context, zest_file file);
 //Get the swap chain extent which will basically be the size of the window returned in a zest_extent2d_t struct.
 ZEST_API zest_extent2d_t zest_GetSwapChainExtent(zest_context context);
 //Get the window size in a zest_extent2d_t. In most cases this is the same as the swap chain extent.

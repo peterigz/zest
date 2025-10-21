@@ -4205,7 +4205,7 @@ zest_create_info_t zest_CreateInfoWithValidationLayers(zest_validation_flags fla
     return create_info;
 }
 
-char* zest_ReadEntireFile(zest_context context, const char* file_name, zest_bool terminate) {
+zest_file zest_ReadEntireFile(zest_context context, const char* file_name, zest_bool terminate) {
     char* buffer = 0;
     FILE* file = NULL;
     file = zest__open_file(file_name, "rb");
@@ -4244,6 +4244,10 @@ char* zest_ReadEntireFile(zest_context context, const char* file_name, zest_bool
 
     fclose(file);
     return buffer;
+}
+
+void zest_FreeFile(zest_context context, zest_file file) {
+	zest_vec_free(context->device->allocator, file);
 }
 // --End General Helper Functions
 
@@ -7177,8 +7181,8 @@ void zest__pack_images(zest_image_collection atlas, zest_uint layer_width, zest_
 	atlas->layer_count = zest__calculate_texture_layers(allocator, rects, layer_width, layer_height, node_count);
 
 	zest_FreeBitmapArray(&atlas->bitmap_array);
-	zest_uint channels = atlas->image_bitmaps.data[0]->meta.channels;
-	zest_CreateBitmapArray(context, &atlas->bitmap_array, layer_width, layer_height, channels, atlas->layer_count);
+	zest_format format = atlas->format;
+	zest_CreateBitmapArray(context, &atlas->bitmap_array, layer_width, layer_height, format, atlas->layer_count);
 
     zest_byte current_layer = 0;
 
@@ -7208,7 +7212,7 @@ void zest__pack_images(zest_image_collection atlas, zest_uint layer_width, zest_
         zest_bitmap_t tmp_image = { 0 };
         tmp_image.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
 		tmp_image.context = context;
-        zest_AllocateBitmap(&tmp_image, layer_width, layer_height, channels);
+        zest_AllocateBitmap(&tmp_image, layer_width, layer_height, format);
         int count = 0;
 
         zest_vec_foreach(i, current_rects) {
@@ -7350,17 +7354,21 @@ void zest_AllocateBitmapMemory(zest_bitmap bitmap, zest_size size_in_bytes) {
 	bitmap->data = (zest_byte*)ZEST__ALLOCATE(bitmap->context->device->allocator, size_in_bytes);
 }
 
-void zest_AllocateBitmap(zest_bitmap bitmap, int width, int height, int channels) {
+zest_bool zest_AllocateBitmap(zest_bitmap bitmap, int width, int height, zest_format format) {
 	ZEST_ASSERT_HANDLE(bitmap);	//Not a valid bitmap handle
-    bitmap->meta.size = width * height * channels;
+	zest__get_format_pixel_data(format, &bitmap->meta.channels, &bitmap->meta.bytes_per_pixel);
+    bitmap->meta.size = width * height * bitmap->meta.channels * bitmap->meta.bytes_per_pixel;
     if (bitmap->meta.size > 0) {
         bitmap->data = (zest_byte*)ZEST__ALLOCATE(bitmap->context->device->allocator, bitmap->meta.size);
         bitmap->meta.width = width;
         bitmap->meta.height = height;
-        bitmap->meta.channels = channels;
-        bitmap->meta.stride = width * channels;
+        bitmap->meta.format = format;
+        bitmap->meta.stride = width * bitmap->meta.bytes_per_pixel;
         memset(bitmap->data, 0, bitmap->meta.size);
+		return ZEST_TRUE;
     }
+	ZEST_PRINT("Format not supported for bitmaps");
+	return ZEST_FALSE;
 }
 
 void zest_FreeBitmap(zest_bitmap image) {
@@ -7389,118 +7397,22 @@ zest_bitmap zest_NewBitmap(zest_context context) {
     return bitmap;
 }
 
-zest_bitmap zest_CreateBitmapFromRawBuffer(zest_context context, const char* name, unsigned char* pixels, int size, int width, int height, int channels) {
+zest_bitmap zest_CreateBitmapFromRawBuffer(zest_context context, const char* name, void* pixels, int size, int width, int height, zest_format format) {
     zest_bitmap bitmap = zest_NewBitmap(context);
     bitmap->is_imported = 1;
-    bitmap->data = pixels;
+	zest__get_format_pixel_data(format, &bitmap->meta.channels, &bitmap->meta.bytes_per_pixel);
+    bitmap->data = (zest_byte*)pixels;
     bitmap->meta.width = width;
     bitmap->meta.height = height;
-    bitmap->meta.channels = channels;
     bitmap->meta.size = size;
-    bitmap->meta.stride = width * channels;
+    bitmap->meta.stride = width * bitmap->meta.bytes_per_pixel;
+    bitmap->meta.format = format;
+	zest_size expected_size = height * bitmap->meta.stride;
+	ZEST_ASSERT(expected_size == size, "The size of the allocated bitmap is not the same size as the raw pixel data, check to make sure you're passing in the correct format.");
     if (name) {
         zest_SetText(context->device->allocator, &bitmap->name, name);
     }
     return bitmap;
-}
-
-void zest_ConvertBitmapTo1Channel(zest_bitmap image) {
-    if (image->meta.channels == 1) {
-        return;
-    }
-
-    zest_bitmap_t converted = ZEST__ZERO_INIT(zest_bitmap_t);
-    converted.magic = zest_INIT_MAGIC(zest_struct_type_bitmap);
-    zest_AllocateBitmap(&converted, image->meta.width, image->meta.height, 1);
-    zest_ConvertBitmapToAlpha(image);
-
-    zest_size pos = 0;
-    zest_size converted_pos = 0;
-    if (image->meta.channels == 4) {
-        while (pos < image->meta.size) {
-            converted.data[converted_pos++] = *(image->data + pos + 3);
-            pos += image->meta.channels;
-        }
-    }
-    else if (image->meta.channels == 3) {
-        while (pos < image->meta.size) {
-            converted.data[converted_pos++] = *(image->data + pos);
-            pos += image->meta.channels;
-        }
-    }
-    else if (image->meta.channels == 2) {
-        while (pos < image->meta.size) {
-            converted.data[converted_pos++] = *(image->data + pos + 1);
-            pos += image->meta.channels;
-        }
-    }
-    zest_FreeBitmapData(image);
-    *image = converted;
-}
-
-void zest_PlotBitmap(zest_bitmap image, int x, int y, zest_color color) {
-
-    size_t pos = y * image->meta.stride + (x * image->meta.channels);
-
-    if (pos >= image->meta.size) {
-        return;
-    }
-
-    if (image->meta.channels == 4) {
-		*(image->data + pos) = color.r;
-		*(image->data + pos + 1) = color.g;
-		*(image->data + pos + 2) = color.b;
-		*(image->data + pos + 3) = color.a;
-    }
-    else if (image->meta.channels == 3) {
-		*(image->data + pos) = color.r;
-		*(image->data + pos + 1) = color.g;
-		*(image->data + pos + 2) = color.b;
-    }
-    else if (image->meta.channels == 2) {
-		*(image->data + pos) = color.r;
-		*(image->data + pos + 3) = color.a;
-    }
-    else if (image->meta.channels == 1) {
-		*(image->data + pos) = color.r;
-    }
-
-}
-
-void zest_FillBitmap(zest_bitmap image, zest_color color) {
-
-    zest_size pos = 0;
-
-    if (image->meta.channels == 4) {
-        while (pos < image->meta.size) {
-            *(image->data + pos) = color.r;
-            *(image->data + pos + 1) = color.g;
-            *(image->data + pos + 2) = color.b;
-            *(image->data + pos + 3) = color.a;
-            pos += image->meta.channels;
-        }
-    }
-    else if (image->meta.channels == 3) {
-        while (pos < image->meta.size) {
-            *(image->data + pos) = color.r;
-            *(image->data + pos + 1) = color.g;
-            *(image->data + pos + 2) = color.b;
-            pos += image->meta.channels;
-        }
-    }
-    else if (image->meta.channels == 2) {
-        while (pos < image->meta.size) {
-            *(image->data + pos) = color.r;
-            *(image->data + pos + 3) = color.a;
-            pos += image->meta.channels;
-        }
-    }
-    else if (image->meta.channels == 1) {
-        while (pos < image->meta.size) {
-            *(image->data + pos) = color.r;
-            pos += image->meta.channels;
-        }
-    }
 }
 
 void zest_ConvertBitmapToAlpha(zest_bitmap  image) {
@@ -7545,11 +7457,13 @@ void zest_ConvertBitmap(zest_bitmap src, zest_format new_format, zest_byte alpha
 
     ZEST_ASSERT(src->data);	//no valid bitmap data found
 
-    int to_channels = zest__get_format_channel_count(new_format);
+	int to_channels;
+	int bytes_per_pixel;
+	zest__get_format_pixel_data(new_format, &to_channels, &bytes_per_pixel);
 	ZEST_ASSERT(to_channels);	//Not a valid format, must be an 8bit unorm format with 1 to 4 channels.
     int from_channels = src->meta.channels;
 
-    zest_size new_size = src->meta.width * src->meta.height * to_channels;
+    zest_size new_size = src->meta.width * src->meta.height * to_channels * bytes_per_pixel;
     zest_byte* new_image = (zest_byte*)ZEST__ALLOCATE(src->context->device->allocator, new_size);
 
     zest_byte *from_data = src->data;
@@ -7611,18 +7525,19 @@ void zest_ConvertBitmap(zest_bitmap src, zest_format new_format, zest_byte alpha
 
     ZEST__FREE(src->context->device->allocator, src->data);
     src->meta.channels = to_channels;
+    src->meta.bytes_per_pixel = bytes_per_pixel;
     src->meta.format = new_format;
     src->meta.size = new_size;
-    src->meta.stride = src->meta.width * to_channels;
+    src->meta.stride = src->meta.width * bytes_per_pixel;
     src->data = new_image;
 
 }
 
-void zest_ConvertBitmapToBGRA(zest_bitmap  src, zest_byte alpha_level) {
+void zest_ConvertBitmapToBGRA(zest_bitmap src, zest_byte alpha_level) {
     zest_ConvertBitmap(src, zest_format_b8g8r8a8_unorm, alpha_level);
 }
 
-void zest_ConvertBitmapToRGBA(zest_bitmap  src, zest_byte alpha_level) {
+void zest_ConvertBitmapToRGBA(zest_bitmap src, zest_byte alpha_level) {
     zest_ConvertBitmap(src, zest_format_r8g8b8a8_unorm, alpha_level);
 }
 
@@ -7662,9 +7577,9 @@ void zest_CopyWholeBitmap(zest_bitmap src, zest_bitmap dst) {
 }
 
 void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width, int height, zest_bitmap dst, int to_x, int to_y) {
-    ZEST_ASSERT(src->data);
-    ZEST_ASSERT(dst->data);
-    ZEST_ASSERT(src->meta.channels == dst->meta.channels);
+    ZEST_ASSERT(src->data, "No data was found in the source image");
+	ZEST_ASSERT(dst->data, "No data was found in the destination image");
+    ZEST_ASSERT(src->meta.format == dst->meta.format, "Both bitmaps must be the same format");
 
     if (from_x + width > src->meta.width)
         width = src->meta.width - from_x;
@@ -7677,9 +7592,9 @@ void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width, int hei
         to_y = dst->meta.height - height;
 
     if (src->data && dst->data && width > 0 && height > 0) {
-        int src_row = from_y * src->meta.stride + (from_x * src->meta.channels);
-        int dst_row = to_y * dst->meta.stride + (to_x * dst->meta.channels);
-        size_t row_size = width * src->meta.channels;
+        int src_row = from_y * src->meta.stride + (from_x * src->meta.bytes_per_pixel);
+        int dst_row = to_y * dst->meta.stride + (to_x * dst->meta.bytes_per_pixel);
+        size_t row_size = width * src->meta.bytes_per_pixel;
         int rows_copied = 0;
         while (rows_copied < height) {
             memcpy(dst->data + dst_row, src->data + src_row, row_size);
@@ -7690,7 +7605,7 @@ void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width, int hei
     }
 }
 
-zest_color zest_SampleBitmap(zest_bitmap  image, int x, int y) {
+zest_color zest_SampleBitmap(zest_bitmap image, int x, int y) {
     ZEST_ASSERT(image->data);
 
     size_t offset = y * image->meta.stride + (x * image->meta.channels);
@@ -7745,7 +7660,7 @@ zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_index
     image->meta.width = bitmap_array->meta[index].width;
     image->meta.height = bitmap_array->meta[index].height;
     image->meta.channels = bitmap_array->meta[index].channels;
-    image->meta.stride = bitmap_array->meta[index].width * bitmap_array->meta[index].channels;
+    image->meta.stride = bitmap_array->meta[index].width * bitmap_array->meta[index].bytes_per_pixel;
     image->data = bitmap_array->data + bitmap_array->meta[index].offset;
     return image;
 }
@@ -7788,13 +7703,16 @@ void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
     zest__remove_store_resource(context, uniform_buffer->handle.value);
 }
 
-zest_uint zest__get_format_channel_count(zest_format format) {
+void zest__get_format_pixel_data(zest_format format, int *channels, int *bytes_per_pixel) { 
+	*channels = 0;
+	*bytes_per_pixel = 0;
     switch (format) {
     case zest_format_undefined:
     case zest_format_r8_unorm:
     case zest_format_r8_snorm:
     case zest_format_r8_srgb: {
-        return 1;
+		*channels = 1;
+		*bytes_per_pixel = 1;
         break;
     }
     case zest_format_r8g8_unorm:
@@ -7802,7 +7720,8 @@ zest_uint zest__get_format_channel_count(zest_format format) {
     case zest_format_r8g8_uint:
     case zest_format_r8g8_sint:
     case zest_format_r8g8_srgb: {
-        return 2;
+		*channels = 2;
+		*bytes_per_pixel = 2;
         break;
     }
     case zest_format_r8g8b8_unorm:
@@ -7815,7 +7734,8 @@ zest_uint zest__get_format_channel_count(zest_format format) {
     case zest_format_b8g8r8_uint:
     case zest_format_b8g8r8_sint:
     case zest_format_b8g8r8_srgb: {
-        return 3;
+		*channels = 3;
+		*bytes_per_pixel = 3;
         break;
     }
     case zest_format_r8g8b8a8_unorm:
@@ -7828,14 +7748,41 @@ zest_uint zest__get_format_channel_count(zest_format format) {
     case zest_format_b8g8r8a8_uint:
     case zest_format_b8g8r8a8_sint:
     case zest_format_b8g8r8a8_srgb: {
-        return 4;
+		*channels = 4;
+		*bytes_per_pixel = 4;
+        break;
+    }
+    case zest_format_r32_sfloat:
+    case zest_format_r32_uint:
+	case zest_format_r32_sint: {
+		*channels = 1;
+		*bytes_per_pixel = 4;
+        break;
+    }
+    case zest_format_r32g32_sfloat:
+    case zest_format_r32g32_uint:
+	case zest_format_r32g32_sint: {
+		*channels = 2;
+		*bytes_per_pixel = 8;
+        break;
+    }
+    case zest_format_r32g32b32_sfloat:
+    case zest_format_r32g32b32_uint:
+	case zest_format_r32g32b32_sint: {
+		*channels = 3;
+		*bytes_per_pixel = 12;
+        break;
+    }
+    case zest_format_r32g32b32a32_sfloat:
+    case zest_format_r32g32b32a32_uint:
+	case zest_format_r32g32b32a32_sint: {
+		*channels = 4;
+		*bytes_per_pixel = 16;
         break;
     }
     default:
-        return 0;
         break;
     }
-    return 0;
 }
 
 zest_image_collection_handle zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags) {
@@ -7851,6 +7798,7 @@ zest_image_collection_handle zest_CreateImageCollection(zest_context context, ze
 }
 
 zest_image_collection_handle zest_CreateImageAtlasCollection(zest_context context, zest_format format) {
+	ZEST_ASSERT_TILING_FORMAT(format);	//Format not supported for tiled images that will be sampled in a shader
 	zest_image_collection_handle image_collection_handle = ZEST_STRUCT_LITERAL(zest_image_collection_handle, zest__add_store_resource(zest_handle_type_image_collection, context), context);
 	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(context, image_collection_handle.value);
 	*image_collection = ZEST__ZERO_INIT(zest_image_collection_t);
@@ -7881,19 +7829,11 @@ zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection_handle image_colle
 
 zest_atlas_region zest_AddImageAtlasBitmap(zest_image_collection_handle image_collection_handle, zest_bitmap bitmap, const char *name) {
 	ZEST_ASSERT_HANDLE(bitmap);		//Not a valid bitmap handle
-	ZEST_ASSERT(bitmap->meta.width, "Width has not been set in the bitmap");			//Not a valid bitmap handle
+	ZEST_ASSERT(bitmap->meta.width, "Width has not been set in the bitmap");		//Not a valid bitmap handle
 	ZEST_ASSERT(bitmap->meta.height, "Height has not been set in the bitmap");		//Not a valid bitmap handle
-	ZEST_ASSERT(bitmap->meta.channels, "Channels has not been set in the bitmap");		//Not a valid bitmap handle
+	ZEST_ASSERT(bitmap->meta.format, "Format has not been set in the bitmap");		//Not a valid bitmap handle
 	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
 	zest_context context = image_collection_handle.context;
-	if (!bitmap->meta.format) {
-		switch (bitmap->meta.channels) {
-			case 1: bitmap->meta.format = zest_format_r8_unorm; break;
-			case 2: bitmap->meta.format = zest_format_r8g8_unorm; break;
-			case 3: bitmap->meta.format = zest_format_r8g8b8_unorm; break;
-			case 4: bitmap->meta.format = zest_format_r8g8b8a8_unorm; break;
-		}
-	}
 	if (bitmap) {
 		if (bitmap->meta.format != image_collection->format) {
 			zest_ConvertBitmap(bitmap, image_collection->format, 255);
@@ -7967,7 +7907,7 @@ void zest_InitialiseBitmapArray(zest_context context, zest_bitmap_array_t *image
     images->size_of_array = size_of_array;
 }
 
-void zest_CreateBitmapArray(zest_context context, zest_bitmap_array_t* images, int width, int height, int channels, zest_uint size_of_array) {
+void zest_CreateBitmapArray(zest_context context, zest_bitmap_array_t *images, int width, int height, zest_format format, zest_uint size_of_array) {
     ZEST_ASSERT(size_of_array);            //must create with atleast one image in the array
     if (images->data) {
         ZEST__FREE(context->device->allocator, images->data);
@@ -7977,14 +7917,20 @@ void zest_CreateBitmapArray(zest_context context, zest_bitmap_array_t* images, i
 	images->context = context;
     zest_vec_resize(context->device->allocator, images->meta, size_of_array);
     size_t offset = 0;
-    size_t image_size = width * height * channels;
+	int channels, bytes_per_pixel;
+	zest__get_format_pixel_data(format, &channels, &bytes_per_pixel);
+	ZEST_ASSERT(channels, "Not a supported bitmap format.");
+    size_t image_size = width * height * channels * bytes_per_pixel;
+	int stride = bytes_per_pixel * width;
     zest_vec_foreach(i, images->meta) {
         images->meta[i] = ZEST_STRUCT_LITERAL(zest_bitmap_meta_t,
             width, height,
             channels,
-            width * channels,
+			bytes_per_pixel,
+            stride,
 			image_size,
-            offset
+            offset,
+			format
         );
         offset += image_size;
 		images->total_mem_size += images->meta[i].size;
