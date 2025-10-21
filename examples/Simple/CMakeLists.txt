@@ -94,7 +94,6 @@ endfunction(buildExample)
 
 set(EXAMPLES
 	zest-render-targets
-	zest-fonts
 	zest-minimal-template
 	zest-instance-layers
 	zest-remove-images

@@ -47,10 +47,10 @@ function(buildExample EXAMPLE_NAME)
 
 	if(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
-		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${SDL2_LIBRARIES} ${WINLIBS})
+		target_link_libraries(${EXAMPLE_NAME} zest-interface ${SDL2_LIBRARIES} ${WINLIBS})
 	else(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS} ${IMGUI_SOURCE} ${IMPLEMENTATIONS_SOURCE})
-		target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${SDL2_LIBRARIES})
+		target_link_libraries(${EXAMPLE_NAME} zest-interface ${SDL2_LIBRARIES})
 	endif(WIN32)
 
 	target_link_libraries(${EXAMPLE_NAME} freetype)

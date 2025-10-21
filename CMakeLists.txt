@@ -11,21 +11,18 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-# Add the zest library target
-file(GLOB LIB_SRC "*.c" "*.h")
-file(GLOB LIB_HEADERS "*.h")
-
-add_library(zest-lib STATIC ${LIB_SRC})
-target_include_directories(zest-lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# Add the zest interface library target
+add_library(zest-interface INTERFACE)
+target_include_directories(zest-interface INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # --- [NEW] Optional Slang Integration ---
 option(ZEST_ENABLE_SLANG "Enable Slang shader compiler support" OFF)
 
 if(ZEST_ENABLE_SLANG)
-    message(STATUS "Slang support enabled. Compiling zest-lib as C++.")
+    message(STATUS "Slang support enabled.")
 
     # Add a preprocessor definition to use in your code (#ifdef ZEST_ENABLE_SLANG)
-    target_compile_definitions(zest-lib PUBLIC ZEST_ENABLE_SLANG)
+    target_compile_definitions(zest-interface INTERFACE ZEST_ENABLE_SLANG)
 
     # Find the Slang library within the Vulkan SDK directory
     if(NOT DEFINED ENV{VULKAN_SDK})
@@ -46,7 +43,7 @@ if(ZEST_ENABLE_SLANG)
 
 else()
 	SET(SLANG_LIBRARY "")
-    message(STATUS "Slang support disabled. Compiling zest-lib as C.")
+    message(STATUS "Slang support disabled.")
 endif()
 # --- End Slang Integration ---
 
@@ -124,14 +121,14 @@ ELSE(WIN32)
 #   link_libraries(${XCB_LIBRARIES} ${Vulkan_LIBRARY} ${DIRECTFB_LIBRARIES} ${WAYLAND_CLIENT_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 ENDIF(WIN32)
 
-# Link zest-lib with Vulkan
-        # Link Slang to zest-lib
+# Link zest-interface with Vulkan
+        # Link Slang to zest-interface
 if(ZEST_ENABLE_SLANG)
-	target_link_libraries(zest-lib PUBLIC Vulkan::Vulkan Vulkan::shaderc_combined ${SLANG_LIBRARY})
+	target_link_libraries(zest-interface INTERFACE Vulkan::Vulkan Vulkan::shaderc_combined ${SLANG_LIBRARY})
 else ()
-	target_link_libraries(zest-lib Vulkan::Vulkan Vulkan::shaderc_combined)
+	target_link_libraries(zest-interface INTERFACE Vulkan::Vulkan Vulkan::shaderc_combined)
 endif ()
-set_target_properties(zest-lib PROPERTIES LINK_FLAGS "/ignore:4099")
+target_link_options(zest-interface INTERFACE "/ignore:4099")
 add_subdirectory(submodules/freetype)
 # Add the remaining example projects
 add_subdirectory(examples/Simple)
