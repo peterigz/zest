@@ -3697,15 +3697,21 @@ void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size,
 }
 
 void *zest__vec_linear_reserve(zloc_linear_allocator_t *allocator, void *T, zest_uint unit_size, zest_uint new_capacity) {
-    if (T && new_capacity <= zest__vec_header(T)->capacity)
-        return T;
+	if (T && new_capacity <= zest__vec_header(T)->capacity) {
+		return T;
+	}
     void* new_data = zloc_LinearAllocation(allocator, new_capacity * unit_size + zest__VEC_HEADER_OVERHEAD);
-    if (!T) memset(new_data, 0, zest__VEC_HEADER_OVERHEAD);
-    T = ((char*)new_data + zest__VEC_HEADER_OVERHEAD);
     zest_vec *header = (zest_vec *)new_data;
+	if (!T) {
+		memset(new_data, 0, zest__VEC_HEADER_OVERHEAD);
+	} else {
+		zest_vec *current_header = zest__vec_header(T);
+		memcpy(((char*)new_data + zest__VEC_HEADER_OVERHEAD), T, current_header->capacity * unit_size);
+		header->current_size = current_header->current_size;
+	}
     header->magic = zest_INIT_MAGIC(zest_struct_type_vector);
     header->capacity = new_capacity;
-    return T;
+    return ((char*)new_data + zest__VEC_HEADER_OVERHEAD);
 }
 
 void zest__initialise_bucket_array(zest_context context, zest_bucket_array_t *array, zest_uint element_size, zest_uint bucket_capacity) {
