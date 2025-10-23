@@ -1996,14 +1996,6 @@ typedef enum zest_camera_flag_bits {
 
 typedef zest_uint zest_camera_flags;
 
-typedef enum zest_character_flag_bits {
-	zest_character_flag_none = 0,
-	zest_character_flag_skip = 1 << 0,
-	zest_character_flag_new_line = 1 << 1,
-} zest_character_flag_bits;
-
-typedef zest_uint zest_character_flags;
-
 typedef enum zest_compute_flag_bits {
 	zest_compute_flag_none = 0,
 	zest_compute_flag_rewrite_command_buffer = 1 << 1,    // Command buffer for this compute shader should be rewritten
@@ -2150,7 +2142,8 @@ typedef enum zest_dynamic_resource_type {
 typedef enum zest_pipeline_set_flag_bits {
 	zest_pipeline_set_flag_none = 0,
 	zest_pipeline_set_flag_is_render_target_pipeline = 1 << 0,        //True if this pipeline is used for the final render of a render target to the swap chain
-	zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild = 1 << 1        //True if the pipeline should update it's view extent when the swap chain is recreated (the window is resized)
+	zest_pipeline_set_flag_match_swapchain_view_extent_on_rebuild = 1 << 1,        //True if the pipeline should update it's view extent when the swap chain is recreated (the window is resized)
+	zest_pipeline_invalid = 1 << 2        //The pipeline had validation errors when it was build and may be invalid
 } zest_pipeline_set_flag_bits;
 
 typedef zest_uint zest_pipeline_set_flags;
@@ -2222,6 +2215,7 @@ typedef enum zest_report_category {
 	zest_report_invalid_pass,
 	zest_report_multiple_swapchains,
 	zest_report_cannot_execute,
+	zest_report_pipeline_invalid,
 } zest_report_category;
 
 typedef enum zest_binding_number_type {
@@ -4860,6 +4854,7 @@ ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_context context);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
 ZEST_PRIVATE void zest__compile_builtin_shaders(zest_context context, zest_bool compile_shaders);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(zest_context context);
+ZEST_PRIVATE void zest__cleanup_pipeline(zest_pipeline pipeline);
 ZEST_PRIVATE void zest__cleanup_pipelines(zest_context context);
 ZEST_PRIVATE zest_render_pass zest__create_render_pass(void);
 // --End Renderer functions
@@ -4876,7 +4871,8 @@ ZEST_PRIVATE void zest__cleanup_layer(zest_layer layer);
 ZEST_PRIVATE void zest__initialise_instance_layer(zest_context context, zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
 ZEST_PRIVATE void zest__end_instance_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__start_instance_instructions(zest_layer layer);
-ZEST_API_TMP void zest__reset_instance_layer_drawing(zest_layer layer);
+ZEST_PRIVATE void zest__reset_instance_layer_drawing(zest_layer layer);
+ZEST_PRIVATE void zest__set_layer_push_constants(zest_layer layer);
 
 // --Image_internal_functions
 ZEST_PRIVATE zest_image_handle zest__new_image(zest_context context);
@@ -4884,8 +4880,8 @@ ZEST_PRIVATE void zest__release_all_global_texture_indexes(zest_image image);
 ZEST_PRIVATE void zest__cleanup_image_collection(zest_image_collection image_collection);
 ZEST_PRIVATE int zest__decode_png(zest_context context, zest_bitmap out_bitmap, const zest_byte *in_png, zest_uint in_size, int convert_to_rgba32);
 ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
-ZEST_API_TMP void zest__get_format_pixel_data(zest_format format, int *channels, int *bytes_per_pixel);
-ZEST_API_TMP void zest__cleanup_image_view(zest_image_view layout);
+ZEST_PRIVATE void zest__get_format_pixel_data(zest_format format, int *channels, int *bytes_per_pixel);
+ZEST_PRIVATE void zest__cleanup_image_view(zest_image_view layout);
 ZEST_PRIVATE void zest__cleanup_image_view_array(zest_image_view_array layout);
 ZEST_PRIVATE zest_bool zest__transition_image_layout(zest_image image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);
 
@@ -5143,6 +5139,7 @@ ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline
 ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(zest_context context, const char *name, zest_pipeline_template pipeline_template);
 //Delete a pipeline including the template and any cached versions of the pipeline
 ZEST_API void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template);
+ZEST_API zest_bool zest_PipelineIsValid(zest_pipeline_template pipeline);
 //-- End Pipeline related
 
 //--End Pipeline_related_helpers
@@ -5560,7 +5557,7 @@ ZEST_API zest_uint zest_GetInstanceLayerCount(zest_layer_handle layer);
 //This will return a void* so you can cast it to whatever struct you're using for the instance data
 #define zest_GetLayerInstance(type, layer, fif) (type *)layer->memory_refs[fif].instance_ptr
 //Move the pointer in memory to the next instance to write to.
-ZEST_API void zest_NextInstance(zest_layer_handle layer);
+ZEST_API void zest_NextInstance(zest_layer layer);
 //Free a layer and all it's resources
 ZEST_API void zest_FreeLayer(zest_layer_handle layer);
 //Set the viewport of a layer. This is important to set right as when the layer is drawn it needs to be clipped correctly and in a lot of cases match how the
@@ -7550,8 +7547,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 // -- End stb_rect_pack_implementation
 
-
 #include "zest_impl.h"
+#include "zest_utilities.h"
 
 #endif
 

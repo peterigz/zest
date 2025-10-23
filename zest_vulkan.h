@@ -2280,8 +2280,8 @@ void zest__vk_cleanup_uniform_buffer_backend(zest_uniform_buffer buffer) {
 
 void zest__vk_cleanup_pipeline_backend(zest_pipeline pipeline) {
 	zest_context context = pipeline->context;
-    vkDestroyPipeline(context->device->backend->logical_device, pipeline->backend->pipeline, &context->device->backend->allocation_callbacks);
-    vkDestroyPipelineLayout(context->device->backend->logical_device, pipeline->backend->pipeline_layout, &context->device->backend->allocation_callbacks);
+    if(pipeline->backend->pipeline_layout) vkDestroyPipelineLayout(context->device->backend->logical_device, pipeline->backend->pipeline_layout, &context->device->backend->allocation_callbacks);
+    if(pipeline->backend->pipeline) vkDestroyPipeline(context->device->backend->logical_device, pipeline->backend->pipeline, &context->device->backend->allocation_callbacks);
     ZEST__FREE(context->device->allocator, pipeline->backend);
     pipeline->backend = 0;
 }
@@ -3090,8 +3090,12 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     result = vkCreateGraphicsPipelines(context->device->backend->logical_device, context->backend->pipeline_cache, 1, &pipeline_info, &context->device->backend->allocation_callbacks, &pipeline->backend->pipeline);
     if (result != VK_SUCCESS) {
         ZEST_VK_PRINT_RESULT(context->device, result);
+		ZEST__FLAG(pipeline_template->flags, zest_pipeline_invalid);
+		vkDestroyPipelineLayout(context->device->backend->logical_device, pipeline->backend->pipeline_layout, &context->device->backend->allocation_callbacks);
+		vkDestroyPipeline(context->device->backend->logical_device, pipeline->backend->pipeline, &context->device->backend->allocation_callbacks);
     } else {
         ZEST_APPEND_LOG(context->device->log_path.str, "Built pipeline %s", pipeline_template->name);
+		ZEST__UNFLAG(pipeline_template->flags, zest_pipeline_invalid);
     }
 
 	cleanup:

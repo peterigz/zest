@@ -2331,6 +2331,12 @@ void zest__cleanup_swapchain(zest_swapchain swapchain) {
 	ZEST__FREE(context->device->allocator, swapchain);
 }
 
+void zest__cleanup_pipeline(zest_pipeline pipeline) {
+	zest_context context = pipeline->context;
+	context->device->platform->cleanup_pipeline_backend(pipeline);
+	ZEST__FREE(context->device->allocator, pipeline);
+}
+
 void zest__cleanup_pipelines(zest_context context) {
     zest_map_foreach(i, context->device->cached_pipelines) {
         zest_pipeline pipeline = *zest_map_at_index(context->device->cached_pipelines, i);
@@ -3252,9 +3258,14 @@ zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_co
 	zest_pipeline pipeline = zest__create_pipeline(context);
     pipeline->pipeline_template = pipeline_template;
     zest_bool result = context->device->platform->build_pipeline(pipeline, command_list);
-    zest_map_insert_key(pipeline_template->context->device->allocator, context->device->cached_pipelines, pipeline_key, pipeline);
-    zest_vec_push(pipeline_template->context->device->allocator, pipeline_template->cached_pipeline_keys, pipeline_key);
-    *out_pipeline = pipeline;
+	if (result == ZEST_TRUE) {
+		zest_map_insert_key(pipeline_template->context->device->allocator, context->device->cached_pipelines, pipeline_key, pipeline);
+		zest_vec_push(pipeline_template->context->device->allocator, pipeline_template->cached_pipeline_keys, pipeline_key);
+		*out_pipeline = pipeline;
+	} else {
+		ZEST__FLAG(pipeline_template->flags, zest_pipeline_invalid);
+		zest__cleanup_pipeline(pipeline);
+	}
     return result;
 }
 
@@ -3293,6 +3304,10 @@ void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template) {
 		}
 	}
     zest__cleanup_pipeline_template(pipeline_template);
+}
+
+zest_bool zest_PipelineIsValid(zest_pipeline_template pipeline) {
+	return ZEST__NOT_FLAGGED(pipeline->flags, zest_pipeline_invalid);
 }
 
 void zest__cleanup_pipeline_template(zest_pipeline_template pipeline_template) {
@@ -3526,6 +3541,7 @@ zest_pipeline_template zest_BeginPipelineTemplate(zest_context context, const ch
     pipeline_template->rasterization.depth_clamp_enable = ZEST_FALSE;
     pipeline_template->rasterization.rasterizer_discard_enable = ZEST_FALSE;
     pipeline_template->rasterization.polygon_mode = zest_polygon_mode_fill;
+	pipeline_template->primitive_topology = zest_topology_triangle_list;
     pipeline_template->rasterization.line_width = 1.0f;
     pipeline_template->rasterization.cull_mode = zest_cull_mode_none;
     pipeline_template->rasterization.front_face = zest_front_face_clockwise;
@@ -3558,6 +3574,10 @@ zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template
         ZEST_PRINT("ERROR: You're trying to build a pipeline (%s) that has no descriptor set layouts configured. You can add descriptor layouts when building the pipeline with zest_AddPipelineTemplateDescriptorLayout.", pipeline_template->name);
         return NULL;
     }
+	if (!zest_PipelineIsValid(pipeline_template)) {
+		ZEST__REPORT(context, zest_report_unused_pass, "You're trying to build a pipeline (%s) that has been marked as invalid. This means that the last time this pipeline was created it failed with errors. You can check for validation errors to see what they were.", pipeline_template->name);
+		return NULL;
+	}
     zest_key pipeline_key = (zest_key)pipeline_template;
 	zest_key cached_pipeline_key = zest_Hash(&command_list->rendering_info, sizeof(zest_rendering_info_t), pipeline_key);
     if (zest_map_valid_key(context->device->cached_pipelines, pipeline_key)) {
@@ -8339,6 +8359,11 @@ void zest__start_instance_instructions(zest_layer layer) {
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].instance_count ? layer->memory_refs[layer->fif].instance_count : 0;
 }
 
+void zest__set_layer_push_constants(zest_layer layer, void *push_constants, zest_size size) {
+    ZEST_ASSERT(size <= 128);   //Push constant size must not exceed 128 bytes
+    memcpy(layer->current_instruction.push_constant, push_constants, size);
+}
+
 void zest_StartInstanceInstructions(zest_layer_handle layer_handle) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].instance_count ? layer->memory_refs[layer->fif].instance_count : 0;
@@ -8434,8 +8459,7 @@ void zest__update_instance_layer_resolution(zest_layer layer) {
 }
 
 //Start general instance layer functionality -----
-void zest_NextInstance(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
+void zest_NextInstance(zest_layer layer) {
     zest_byte* instance_ptr = (zest_byte*)layer->memory_refs[layer->fif].instance_ptr + layer->instance_struct_size;
     //Make sure we're not trying to write outside of the buffer range
     ZEST_ASSERT(instance_ptr >= (zest_byte*)layer->memory_refs[layer->fif].staging_instance_data->data && instance_ptr <= (zest_byte*)layer->memory_refs[layer->fif].staging_instance_data->end);
@@ -8692,7 +8716,7 @@ zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char* 
 }
 
 zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_context context, zest_size type_size) {
-    zest_layer_builder_t builder = { context, 1000, (zest_uint)type_size };
+    zest_layer_builder_t builder = { context, (zest_uint)type_size, 1000 };
     return builder;
 }
 
@@ -8758,8 +8782,7 @@ void zest_SetLayerDrawingViewport(zest_layer_handle layer_handle, int x, int y, 
 void zest_SetLayerPushConstants(zest_layer_handle layer_handle, void *push_constants, zest_size size) {
 	zest_context context = layer_handle.context;
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(context, layer_handle.value);
-    ZEST_ASSERT(size <= 128);   //Push constant size must not exceed 128 bytes
-    memcpy(layer->current_instruction.push_constant, push_constants, size);
+	zest__set_layer_push_constants(layer, push_constants, size);
 }
 
 //-- Start Mesh Drawing API
@@ -9146,7 +9169,7 @@ void zest_DrawInstancedMesh(zest_layer_handle layer_handle, float pos[3], float 
     instance->color = layer->current_color;
     instance->parameters = 0;
 
-    zest_NextInstance(layer_handle);
+    zest_NextInstance(layer);
 }
 
 zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, float height, zest_color color, zest_bool cap) {
