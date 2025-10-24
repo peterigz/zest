@@ -24,7 +24,7 @@ tiny_ktx.h			Load and save ktx files		- Deano Calver https://github.com/DeanoC/t
 stb_truetype.h		Load tue type fonts		- v1.26 - public domain authored from 2009-2021 by Sean Barrett / RAD Game Tools
 * To use define STB_TRUETYPE_IMPLEMENTATION before including zest_utilities.h in a c/c++ file. Only do this once.
 	- [stb_truetype_fonts] 
-msdf.h				Create msdf bitmaps for font rendering
+msdf.h				Create msdf bitmaps for font rendering - From https://github.com/exezin/msdf-c
 * To use define MSDF_IMPLEMENTATION or ZEST_MSDF_IMPLEMENTATION before including zest_utilities.h in a c/c++ file. Only do this once.
 	- [msdf_fonts]
 */
@@ -9342,24 +9342,17 @@ typedef struct zest_font_character_t {
 } zest_font_character_t;
 
 typedef struct zest_msdf_font_settings_t {
-    float radius;
-    float bleed;
-    float aa_factor;
-    float thickness;
-    zest_uint sampler_index;
-    zest_uint image_index;
-} zest_msdf_font_settings_t;
-
-typedef struct zest_msdf_font_settings2_t {
+    zest_vec4 shadow_color;
+    zest_vec2 shadow_offset; // In screen pixels, e.g., (2.0, 2.0)
 	zest_vec2 unit_range;
 	float in_bias;
 	float out_bias;
-	float supersample;
 	float smoothness;
 	float gamma;
     zest_uint sampler_index;
     zest_uint image_index;
-} zest_msdf_font_settings2_t;
+	zest_uint padding[2];
+} zest_msdf_font_settings_t;
 
 typedef struct zest_msdf_font_t {
 	zest_image_collection_handle font_atlas;
@@ -9367,7 +9360,7 @@ typedef struct zest_msdf_font_t {
     zest_font_character_t *characters;
 	zest_uint font_binding_index;
 	int first_character_offset;
-	zest_msdf_font_settings2_t settings;
+	zest_msdf_font_settings_t settings;
 	zest_context context;
 	float size;
 	float sdf_range;
@@ -9399,7 +9392,7 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, zest_unifor
 	//Create and compile the shaders for our custom sprite pipeline
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	zest_shader_handle font_vert = zest_CreateShaderFromFile(context, "shaders/font.vert", "font_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_shader_handle font_frag = zest_CreateShaderFromFile(context, "shaders/font2.frag", "font_frag.spv", shaderc_fragment_shader, true, compiler, 0);
+	zest_shader_handle font_frag = zest_CreateShaderFromFile(context, "shaders/font.frag", "font_frag.spv", shaderc_fragment_shader, true, compiler, 0);
 	shaderc_compiler_release(compiler);
 
 	//Create a pipeline that we can use to draw billboards
@@ -9414,7 +9407,7 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, zest_unifor
     zest_AddVertexAttribute(font_pipeline, 0, 5, zest_format_r8g8b8a8_unorm, offsetof(zest_font_instance_t, color));        // Location 5: Instance Parameters
     zest_AddVertexAttribute(font_pipeline, 0, 6, zest_format_r32_uint, offsetof(zest_font_instance_t, texture_array));        // Location 5: Instance Parameters
 
-	zest_SetPipelinePushConstantRange(font_pipeline, sizeof(zest_msdf_font_settings2_t), zest_shader_fragment_stage);
+	zest_SetPipelinePushConstantRange(font_pipeline, sizeof(zest_msdf_font_settings_t), zest_shader_fragment_stage);
 	zest_SetPipelineVertShader(font_pipeline, font_vert);
 	zest_SetPipelineFragShader(font_pipeline, font_frag);
 	zest_AddPipelineDescriptorLayout(font_pipeline, zest_GetUniformBufferLayout(uniform_buffer));
@@ -9479,7 +9472,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 		zest_font_character_t* current_character = &font.characters[char_code - 32];
 
         msdf_result_t result;
-        if (msdf_genGlyph(&result, &font_info, glyph_index, 4, scale, sdf_range, NULL)) {
+        if (msdf_genGlyph(&result, &font_info, glyph_index, 8, scale, sdf_range, NULL)) {
 			char character[2] = { (char)char_code, '\0' };
 			int size = result.width * result.height * sizeof(float) * atlas_channels;
 			zest_bitmap tmp_bitmap = zest_CreateBitmapFromRawBuffer(context, character, result.rgba, size, result.width, result.height, zest_format_r32g32b32a32_sfloat);
@@ -9506,6 +9499,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 		}
     }
 
+	zest_SetImageCollectionPackedBorderSize(font.font_atlas, 2);
 	zest_image_handle image_atlas = zest_CreateImageAtlas(font.font_atlas, atlas_layer_width, atlas_layer_height, zest_image_preset_texture);
 	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_array_binding);
 	for (int i = 0; i != 95; ++i) {
@@ -9524,10 +9518,26 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	font.settings.unit_range = ZEST_STRUCT_LITERAL(zest_vec2, font.sdf_range / 512.f, font.sdf_range / 512.f);
 	font.settings.in_bias = 0.f;
 	font.settings.out_bias = 0.f;
-	font.settings.supersample = 0.f;
-	font.settings.smoothness = 0.f;
+	font.settings.smoothness = 3.f;
 	font.settings.gamma = 1.f;
+	font.settings.shadow_color = zest_Vec4Set(0.f, 0.f, 0.f, 1.f);
+	font.settings.shadow_offset = zest_Vec2Set(2.f, 2.f);
 	return font;
+}
+
+void zest_SetFontSettings(zest_msdf_font_t *font, float inner_bias, float outer_bias, float smoothness, float gamma) {
+	font->settings.in_bias = inner_bias;
+	font->settings.out_bias = inner_bias;
+	font->settings.smoothness = inner_bias;
+	font->settings.gamma = inner_bias;
+}
+
+void zest_SetFontShadowColor(zest_msdf_font_t *font, float r, float g, float b, float a) {
+	font->settings.shadow_color = zest_Vec4Set(r, g, b, a);
+}
+
+void zest_SetFontShadowOffset(zest_msdf_font_t *font, float x, float y) {
+	font->settings.shadow_offset = zest_Vec2Set(x, y);
 }
 
 void zest_FreeFont(zest_msdf_font_t *font) {
@@ -9566,7 +9576,7 @@ void zest_SetMSDFFontDrawing(zest_layer_handle layer_handle, zest_msdf_font_t *f
     layer->current_instruction.asset = font;
     layer->current_instruction.scissor = layer->scissor;
     layer->current_instruction.viewport = layer->viewport;
-	zest__set_layer_push_constants(layer, &font->settings, sizeof(zest_msdf_font_settings2_t));
+	zest__set_layer_push_constants(layer, &font->settings, sizeof(zest_msdf_font_settings_t));
     layer->last_draw_mode = zest_draw_mode_text;
 }
 
@@ -9615,7 +9625,6 @@ float zest_DrawMSDFText(zest_layer_handle layer_handle, const char* text, float 
         font_instance->color = layer->current_color;
 		font_instance->intensity = layer->intensity;
 		font_instance->texture_array = character->region->layer_index;
-        layer->current_instruction.total_instances++;
 
         zest_NextInstance(layer);
 

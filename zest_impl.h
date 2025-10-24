@@ -7887,6 +7887,11 @@ void zest_SetImageCollectionBitmapMeta(zest_image_collection_handle image_collec
 	bitmap_array->meta[bitmap_index].size = size_in_bytes;
 }
 
+void zest_SetImageCollectionPackedBorderSize(zest_image_collection_handle image_collection_handle, zest_uint border_size) {
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
+	image_collection->packed_border_size = border_size;
+}
+
 zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection_handle image_collection_handle) {
 	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
 	zest_context context = image_collection_handle.context;

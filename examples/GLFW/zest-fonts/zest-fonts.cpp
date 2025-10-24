@@ -54,7 +54,7 @@ void InitExample(zest_fonts_example *app) {
 	app->timer = zest_CreateTimer(app->context, 60);
 
 	app->font_uniform = zest_CreateUniformBuffer(app->context, "Font Uniform", sizeof(zest_font_uniform_buffer_data_t));
-	app->font = zest_CreateMSDF(app->context, "examples/assets/Lato-Regular.ttf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
+	app->font = zest_CreateMSDF(app->context, "examples/GLFW/zest-msdf-font-maker/fonts/KaushanScript-Regular.ttf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
 	app->font_resources = zest_CreateFontResources(app->context, app->font_uniform);
 	app->font_layer = zest_CreateFontLayer(app->context, "MSDF Font Example Layer");
 	app->font_size = 1.f;
@@ -74,11 +74,12 @@ void MainLoop(zest_fonts_example *app) {
 			ImGui::NewFrame();
 			ImGui::Begin("Test Window");
 
-			ImGui::DragFloat("Font Size", &app->font_size, 0.1f);
+			ImGui::DragFloat("Font Size", &app->font_size, 0.01f);
 			ImGui::DragFloat2("Unit range", &app->font.settings.unit_range.x, 0.001f);
+			ImGui::DragFloat2("Shadow Offset", &app->font.settings.shadow_offset.x, 0.01f);
+			ImGui::DragFloat4("Shadow Color", &app->font.settings.shadow_color.x, 0.01f);
 			ImGui::DragFloat("In bias", &app->font.settings.in_bias, 0.01f);
 			ImGui::DragFloat("Out bias", &app->font.settings.out_bias, 0.01f);
-			ImGui::DragFloat("Super sample", &app->font.settings.supersample, 0.01f);
 			ImGui::DragFloat("Smoothness", &app->font.settings.smoothness, 0.01f);
 			ImGui::DragFloat("Gamma", &app->font.settings.gamma, 0.01f);
 
@@ -98,12 +99,13 @@ void MainLoop(zest_fonts_example *app) {
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
 		if (zest_BeginFrame(app->context)) {
+			zest_SetSwapchainClearColor(app->context, 0.f, 0.2f, 0.5f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
+				if (zest_BeginFrameGraph(app->context, "ImGui", 0)) {
 					zest_resource_node font_layer_resource = zest_AddTransientLayerResource("Font layer", app->font_layer, ZEST_FALSE);
 					zest_ImportSwapchainResource();
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
@@ -147,6 +149,9 @@ void MainLoop(zest_fonts_example *app) {
 			}
 			zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			zest_EndFrame(app->context);
+		}
+		if (zest_SwapchainWasRecreated(app->context)) {
+			zest_SetLayerSizeToSwapchain(app->font_layer);
 		}
 	}
 

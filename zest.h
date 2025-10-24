@@ -5409,7 +5409,7 @@ ZEST_API zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint heigh
 ZEST_API zest_image_view_create_info_t zest_CreateViewImageInfo(zest_image_handle image_handle);
 ZEST_API zest_image_handle zest_CreateImage(zest_context context, zest_image_info_t *create_info);
 ZEST_API zest_image_handle zest_CreateImageWithBitmap(zest_context context, zest_bitmap bitmap, zest_image_flags flags);
-ZEST_API zest_image_handle zest_CreateImageAtlas(zest_image_collection atlas, zest_uint layer_width, zest_uint layer_height);
+ZEST_API zest_image_handle zest_CreateImageAtlas(zest_image_collection_handle atlas_handle, zest_uint layer_width, zest_uint layer_height, zest_image_flags flags);
 ZEST_API zest_image_view_handle zest_CreateImageView(zest_image_handle image_handle, zest_image_view_create_info_t *create_info);
 ZEST_API zest_image_view_array_handle zest_CreateImageViewsPerMip(zest_image_handle image_handle);
 ZEST_API zest_image_collection_handle zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags);
@@ -5417,6 +5417,7 @@ ZEST_API zest_image_collection_handle zest_CreateImageAtlasCollection(zest_conte
 ZEST_API zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection_handle image_collection, const char *filename, const char *name);
 ZEST_API zest_atlas_region zest_AddImageAtlasBitmap(zest_image_collection_handle image_collection, zest_bitmap bitmap, const char *name);
 ZEST_API void zest_SetImageCollectionBitmapMeta(zest_image_collection_handle image_collection, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset);
+ZEST_API void zest_SetImageCollectionPackedBorderSize(zest_image_collection_handle image_collection, zest_uint border_size);
 ZEST_API zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection_handle image_collection);
 ZEST_API zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection_handle image_collection, zest_uint bitmap_index);
 ZEST_API zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection_handle image_collection);
