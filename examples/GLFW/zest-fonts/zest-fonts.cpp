@@ -54,7 +54,7 @@ void InitExample(zest_fonts_example *app) {
 	app->timer = zest_CreateTimer(app->context, 60);
 
 	app->font_uniform = zest_CreateUniformBuffer(app->context, "Font Uniform", sizeof(zest_font_uniform_buffer_data_t));
-	app->font = zest_CreateMSDF(app->context, "examples/GLFW/zest-msdf-font-maker/fonts/KaushanScript-Regular.ttf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
+	app->font = zest_CreateMSDF(app->context, "examples/GLFW/zest-msdf-font-maker/fonts/Lato-Regular.ttf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
 	app->font_resources = zest_CreateFontResources(app->context, app->font_uniform);
 	app->font_layer = zest_CreateFontLayer(app->context, "MSDF Font Example Layer");
 	app->font_size = 1.f;
@@ -105,7 +105,7 @@ void MainLoop(zest_fonts_example *app) {
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(app->context, "ImGui", 0)) {
+				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
 					zest_resource_node font_layer_resource = zest_AddTransientLayerResource("Font layer", app->font_layer, ZEST_FALSE);
 					zest_ImportSwapchainResource();
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false

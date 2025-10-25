@@ -4788,7 +4788,7 @@ ZEST_PRIVATE inline void zest__add_host_memory_pool(zest_device device, zest_siz
 ZEST_PRIVATE inline void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 	void* allocation = zloc_Allocate(allocator, size);
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-	if (offset_from_allocator == 40522720) {
+	if (offset_from_allocator == 40735416) {
 		int d = 0;
 	}
 	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
@@ -5075,6 +5075,8 @@ ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(zest_context context, co
 ZEST_API void zest_AddShader(zest_shader_handle shader, const char *name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader_handle shader);
+//Get the maximum image dimension available on the device
+ZEST_API zest_uint zest_GetMaxImageSize(zest_context context);
 // -- End Platform_Helper_Functions
 
 //-----------------------------------------------
@@ -5415,6 +5417,7 @@ ZEST_API zest_image_collection_handle zest_CreateImageCollection(zest_context co
 ZEST_API zest_image_collection_handle zest_CreateImageAtlasCollection(zest_context context, zest_format format, zest_image_collection_flags flags);
 ZEST_API zest_atlas_region zest_AddImageAtlasPNG(zest_image_collection_handle image_collection, const char *filename, const char *name);
 ZEST_API zest_atlas_region zest_AddImageAtlasBitmap(zest_image_collection_handle image_collection, zest_bitmap bitmap, const char *name);
+ZEST_API zest_bool zest_GetBestFit(zest_image_collection_handle image_collection, zest_uint *width, zest_uint *height);
 ZEST_API void zest_SetImageCollectionBitmapMeta(zest_image_collection_handle image_collection, zest_uint bitmap_index, zest_uint width, zest_uint height, zest_uint channels, zest_uint stride, zest_size size_in_bytes, zest_size offset);
 ZEST_API void zest_SetImageCollectionPackedBorderSize(zest_image_collection_handle image_collection, zest_uint border_size);
 ZEST_API zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection_handle image_collection);

@@ -5,8 +5,7 @@
 
 precision mediump float;
 
-layout(location = 0) in vec4 frag_color;
-layout(location = 1) in vec3 frag_tex_coord;
+layout(location = 0) in vec3 frag_tex_coord;
 
 layout(location = 0) out vec4 out_color;
 
@@ -14,6 +13,7 @@ layout(set = 1, binding = 0) uniform sampler samplers[];
 layout(set = 1, binding = 3) uniform texture2DArray images[];
 
 layout(push_constant) uniform push_constants {
+    vec4 font_color;
     vec4 shadow_color;
     vec2 shadow_offset; // In screen pixels
 	vec2 unit_range;
@@ -56,7 +56,7 @@ void main() {
     float fill_alpha = contour(fill_sd);
 
     // 3. Correctly composite the text (foreground) over the shadow (background)
-    vec4 Fg = vec4(frag_color.rgb, fill_alpha);
+    vec4 Fg = vec4(font.font_color.rgb, fill_alpha);
     vec4 Bg = vec4(font.shadow_color.rgb, shadow_alpha);
 
     // Standard "A over B" alpha compositing

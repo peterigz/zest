@@ -3523,6 +3523,11 @@ void zest_FreeShader(zest_shader_handle shader_handle) {
     zest__remove_store_resource(shader_handle.context, shader_handle.value);
 }
 
+zest_uint zest_GetMaxImageSize(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);
+	return context->device->max_image_size;
+}
+
 zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer_handle, bool last_frame) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
     return layer->memory_refs[last_frame ? layer->prev_fif : layer->fif].device_vertex_data->array_index;
@@ -7173,6 +7178,65 @@ zest_byte zest__calculate_texture_layers(zloc_linear_allocator_t *allocator, zes
 
 	zloc_ResetToMarker(allocator, marker);
     return layers;
+}
+
+zest_bool zest_GetBestFit(zest_image_collection_handle image_collection_handle, zest_uint *width, zest_uint *height) {
+    zestrp_rect* rects = 0;
+    zestrp_rect* rects_to_process = 0;
+
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource(image_collection_handle.context, image_collection_handle.value);
+	zest_context context = image_collection->handle.context;
+	zloc_linear_allocator_t *allocator = context->device->scratch_arena;
+
+	zest_uint max_image_size = zest_GetMaxImageSize(context);
+
+	ZEST_ASSERT(max_image_size > *width, "Width you passed in is greater then the maximum available image size");
+	ZEST_ASSERT(max_image_size > *height, "Height you passed in is greater then the maximum available image size");
+
+    zest_map_foreach(i, image_collection->image_bitmaps) {
+        zest_bitmap bitmap = image_collection->image_bitmaps.data[i];
+        zestrp_rect rect;
+
+        rect.w = bitmap->meta.width + image_collection->packed_border_size * 2;
+        rect.h = bitmap->meta.height + image_collection->packed_border_size * 2;
+        rect.x = 0;
+        rect.y = 0;
+        rect.was_packed = 0;
+        rect.id = i;
+
+        zest_vec_linear_push(allocator, rects, rect);
+    }
+
+	zest_uint dim_flip = 1;
+	zest_size marker = zloc_GetMarker(allocator);
+
+	while (1) {
+		const zest_uint node_count = *width;
+		zestrp_node* nodes = 0;
+		zest_vec_linear_resize(allocator, nodes, node_count);
+
+		zestrp_context rp_context;
+		zestrp_init_target(&rp_context, *width, *height, nodes, node_count);
+		if (zestrp_pack_rects(&rp_context, rects, (int)zest_vec_size(rects))) {
+			*width = 0;
+			*height = 0;
+			zest_vec_foreach(i, rects) {
+				*width = ZEST__MAX(*width, (zest_uint)rects[i].x + rects[i].w);
+				*height = ZEST__MAX(*height, (zest_uint)rects[i].y + rects[i].h);
+			}
+			break;
+		} else {
+			if (dim_flip) {
+				*width *= 2;
+			} else {
+				*height *= 2;
+			}
+			dim_flip = dim_flip ^ 1;
+		}
+		zloc_ResetToMarker(allocator, marker);
+	}
+	zloc_ResetLinearAllocator(allocator);
+	return ZEST_TRUE;
 }
 
 void zest__pack_images(zest_image_collection atlas, zest_uint layer_width, zest_uint layer_height) {

@@ -7970,8 +7970,8 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
 // pixel at (x, y) in bitmap (arr)
 #define msdf_pixelAt(x, y, w, arr) (MSDF_STRUCT_LITERAL(msdf_Vec4, arr[(4 * (((y)*w) + x))], arr[(4 * (((y)*w) + x)) + 1], arr[(4 * (((y)*w) + x)) + 2], arr[(4 * (((y)*w) + x)) + 3]))
 
-#define msdf_max(x, y) (((x) > (y)) ? (x) : (y))
-#define msdf_min(x, y) (((x) < (y)) ? (x) : (y))
+#define MSDF_MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define MSDF_MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 #define MSDF_INF -1e24
 #define MSDF_EDGE_THRESHOLD 0.02f
@@ -8022,7 +8022,7 @@ typedef enum
 
 static float msdf_median(float a, float b, float c)
 {
-    return msdf_max(msdf_min(a, b), msdf_min(msdf_max(a, b), c));
+    return MSDF_MAX(MSDF_MIN(a, b), MSDF_MIN(MSDF_MAX(a, b), c));
 }
 
 static int msdf_nonZeroSign(float n)
@@ -8833,6 +8833,7 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
     }
 
     if (contour_count == 0) {
+		allocCtx.free(bitmap, allocCtx.ctx);
         return 0;
     }
 
@@ -9091,6 +9092,9 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
         windings[i] = ((0 < total) - (total < 0)); // sign
     }
 
+	float min_distance = 99999.f;
+	float max_distance = -99999.f;
+
     typedef struct {
         float r, g, b;
         float med;
@@ -9100,9 +9104,6 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
     contour_sd = (msdf_MultiDistance*)allocCtx.alloc(sizeof(msdf_MultiDistance) * contour_count, allocCtx.ctx);
 
     float invRange = 1.f / range;
-
-	float min_distance = 99999.f;
-	float max_distance = -99999.f;
 
     for (int y = 0; y < h; ++y) {
         int row = iy0 > iy1 ? y : h - y - 1;
@@ -9261,20 +9262,11 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
             float mr = ((float)msd.r) * invRange + 0.5f;
             float mg = ((float)msd.g) * invRange + 0.5f;
             float mb = ((float)msd.b) * invRange + 0.5f;
-            bitmap[index + 0] = mr;
-            bitmap[index + 1] = mg;
-            bitmap[index + 2] = mb;
+            bitmap[index + 0] = ZEST__CLAMP(mr, 0.f, 1.f);
+            bitmap[index + 1] = ZEST__CLAMP(mg, 0.f, 1.f);
+			bitmap[index + 2] = ZEST__CLAMP(mb, 0.f, 1.f);
             bitmap[index + 3] = 1.f;
             
-			min_distance = ZEST__MIN(mr, min_distance);
-			max_distance = ZEST__MAX(mr, max_distance);
-			min_distance = ZEST__MIN(mg, min_distance);
-			max_distance = ZEST__MAX(mg, max_distance);
-			min_distance = ZEST__MIN(mb, min_distance);
-			max_distance = ZEST__MAX(mb, max_distance);
-			if (min_distance < -99999.f) {
-				int d = 0;
-			}
         }
     }
 
@@ -9286,7 +9278,7 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
         allocCtx.free(contour_sd, allocCtx.ctx);
         allocCtx.free(contours, allocCtx.ctx);
         allocCtx.free(windings, allocCtx.ctx);
-        allocCtx.free(verts, allocCtx.ctx);
+		STBTT_free(verts, 0);
     }
 
     // msdf error correction
@@ -9300,16 +9292,18 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
     float ty = MSDF_EDGE_THRESHOLD / (scale * range);
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-            if ((x > 0 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(msdf_max(x - 1, 0), y, w, bitmap), tx)) || (x < w - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(msdf_min(x + 1, w - 1), y, w, bitmap), tx)) || (y > 0 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, msdf_max(y - 1, 0), w, bitmap), ty)) || (y < h - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, msdf_min(y + 1, h - 1), w, bitmap), ty))) {
+            if ((x > 0 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(MSDF_MAX(x - 1, 0), y, w, bitmap), tx)) || (x < w - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(MSDF_MIN(x + 1, w - 1), y, w, bitmap), tx)) || (y > 0 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, MSDF_MAX(y - 1, 0), w, bitmap), ty)) || (y < h - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, MSDF_MIN(y + 1, h - 1), w, bitmap), ty))) {
                 clashes[cindex].x = x;
                 clashes[cindex++].y = y;
             }
         }
+
     }
 
     for (int i = 0; i < cindex; i++) {
         size_t index = 4 * ((clashes[i].y * w) + clashes[i].x);
         float med = msdf_median(bitmap[index], bitmap[index + 1], bitmap[index + 2]);
+
         bitmap[index + 0] = med;
         bitmap[index + 1] = med;
         bitmap[index + 2] = med;
@@ -9320,17 +9314,14 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
         allocCtx.free(clashes, allocCtx.ctx);
     }
 
-	ZEST_PRINT("Min: %f", min_distance);
-	ZEST_PRINT("Max: %f", max_distance);
-
-	result->rgba = (unsigned int*)allocCtx.alloc(sizeof(unsigned int) * w * h, allocCtx.ctx);
 	size_t total_float_pixels = w * h * 4;
+	result->rgba = (unsigned int*)allocCtx.alloc(sizeof(unsigned int) * w * h, allocCtx.ctx);
 	int pixel_index = 0;
 	for (size_t i = 0; i < total_float_pixels; i += 4) {
 		zest_color color;
-		color.r = (unsigned int)ZEST__CLAMP((bitmap[i    ] + 1.f) * 128.f, 0.f, 255.f);
-		color.g = (unsigned int)ZEST__CLAMP((bitmap[i + 1] + 1.f) * 128.f, 0.f, 255.f);
-		color.b = (unsigned int)ZEST__CLAMP((bitmap[i + 2] + 1.f) * 128.f, 0.f, 255.f);
+		color.r = (unsigned int)(bitmap[i    ] * 255.f + 0.5f);
+		color.g = (unsigned int)(bitmap[i + 1] * 255.f + 0.5f);
+		color.b = (unsigned int)(bitmap[i + 2] * 255.f + 0.5f);
 		color.a = 255;
 		result->rgba[pixel_index] = color.color;
 		pixel_index++;
@@ -9375,6 +9366,7 @@ typedef struct zest_font_character_t {
 } zest_font_character_t;
 
 typedef struct zest_msdf_font_settings_t {
+    zest_vec4 font_color;
     zest_vec4 shadow_color;
     zest_vec2 shadow_offset; // In screen pixels, e.g., (2.0, 2.0)
 	zest_vec2 unit_range;
@@ -9390,9 +9382,8 @@ typedef struct zest_msdf_font_settings_t {
 typedef struct zest_msdf_font_t {
 	zest_image_collection_handle font_atlas;
 	zest_image_handle font_image;
-    zest_font_character_t *characters;
+	zest_font_character_t characters[256];
 	zest_uint font_binding_index;
-	int first_character_offset;
 	zest_msdf_font_settings_t settings;
 	zest_context context;
 	float size;
@@ -9403,11 +9394,8 @@ typedef struct zest_msdf_font_t {
 typedef struct zest_font_instance_t {           //48 bytes
 	zest_vec2 position;                   		//The position of the sprite with rotation in w and stretch in z
 	zest_u64 uv;                                //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
-	zest_u64 size_handle;                       //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
-	float rotation;
-	float intensity;
-	zest_color color;                           //The color tint of the sprite
-	zest_uint texture_array;             		//reference for the texture array (8bits) and intensity (24bits)
+	zest_uint size; 		                    //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
+	zest_uint texture_array;             		//Index in the texture array
 	zest_uint padding[2];
 } zest_font_instance_t;
 
@@ -9434,11 +9422,8 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, zest_unifor
 
     zest_AddVertexAttribute(font_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_font_instance_t, position));                  // Location 0: UV coords
     zest_AddVertexAttribute(font_pipeline, 0, 1, zest_format_r16g16b16a16_snorm, offsetof(zest_font_instance_t, uv));   // Location 1: Instance Position and rotation
-    zest_AddVertexAttribute(font_pipeline, 0, 2, zest_format_r16g16b16a16_sscaled, offsetof(zest_font_instance_t, size_handle));        // Location 2: Size of the sprite in pixels
-    zest_AddVertexAttribute(font_pipeline, 0, 3, zest_format_r32_sfloat, offsetof(zest_font_instance_t, rotation));                  // Location 3: Alignment
-    zest_AddVertexAttribute(font_pipeline, 0, 4, zest_format_r32_sfloat, offsetof(zest_font_instance_t, intensity));                    // Location 4: Instance Color
-    zest_AddVertexAttribute(font_pipeline, 0, 5, zest_format_r8g8b8a8_unorm, offsetof(zest_font_instance_t, color));        // Location 5: Instance Parameters
-    zest_AddVertexAttribute(font_pipeline, 0, 6, zest_format_r32_uint, offsetof(zest_font_instance_t, texture_array));        // Location 5: Instance Parameters
+    zest_AddVertexAttribute(font_pipeline, 0, 2, zest_format_r16g16_sscaled, offsetof(zest_font_instance_t, size));        // Location 2: Size of the sprite in pixels
+    zest_AddVertexAttribute(font_pipeline, 0, 3, zest_format_r32_uint, offsetof(zest_font_instance_t, texture_array));        // Location 5: Instance Parameters
 
 	zest_SetPipelinePushConstantRange(font_pipeline, sizeof(zest_msdf_font_settings_t), zest_shader_fragment_stage);
 	zest_SetPipelineVertShader(font_pipeline, font_vert);
@@ -9483,8 +9468,6 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
     }
 
     // Atlas properties
-    int atlas_layer_width = 512;
-    int atlas_layer_height = 512;
     int atlas_channels = 4; 
 	font.font_atlas = zest_CreateImageAtlasCollection(context, zest_format_r8g8b8a8_unorm);
 	font.size = font_size;
@@ -9496,19 +9479,20 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	allocation_context.alloc = zest__msdf_allocation;
 	allocation_context.free = zest__msdf_free;
 
-	zest_vec_resize(context->device->allocator, font.characters, 127 - 32);
-	memset(font.characters, 0, zest_vec_size_in_bytes(font.characters));
-	font.first_character_offset = 32;
+	memset(font.characters, 0, 256);
 
-    for (int char_code = 56; char_code < 127; ++char_code) {
+	zest_uint total_area_size = 0;
+
+    for (int char_code = 32; char_code < 127; ++char_code) {
         int glyph_index = stbtt_FindGlyphIndex(&font_info, char_code);
-		zest_font_character_t* current_character = &font.characters[char_code - 32];
+		zest_font_character_t* current_character = &font.characters[char_code];
 
         msdf_result_t result;
-        if (msdf_genGlyph(&result, &font_info, glyph_index, 8, scale, sdf_range, NULL)) {
+        if (msdf_genGlyph(&result, &font_info, glyph_index, 8, scale, sdf_range, &allocation_context)) {
 			char character[2] = { (char)char_code, '\0' };
 			int size = result.width * result.height * atlas_channels;
 			zest_bitmap tmp_bitmap = zest_CreateBitmapFromRawBuffer(context, character, result.rgba, size, result.width, result.height, zest_format_r8g8b8a8_unorm);
+			tmp_bitmap->is_imported = 0;
 			zest_atlas_region region = zest_AddImageAtlasBitmap(font.font_atlas, tmp_bitmap, character);
 			current_character->region = region;
 
@@ -9523,6 +9507,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
             current_character->x_offset = (scale * x0) - sdf_range;
             current_character->y_offset = (scale * y1) + sdf_range;
 			font.y_max_offset = ZEST__MAX(font.y_max_offset, current_character->y_offset);
+			total_area_size += result.width * result.height;
 		} else {
 			//Treat as whitespace
             int advance, lsb;
@@ -9532,23 +9517,24 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 		}
     }
 
+    zest_FreeFile(context, (zest_file)font_buffer);
+	zest_uint atlas_width = (zest_uint)zest_GetNextPower((zest_uint)sqrtf((float)total_area_size));
+	zest_uint atlas_height = atlas_width;
 	zest_SetImageCollectionPackedBorderSize(font.font_atlas, 2);
-	zest_image_handle image_atlas = zest_CreateImageAtlas(font.font_atlas, atlas_layer_width, atlas_layer_height, zest_image_preset_texture);
+	if (!zest_GetBestFit(font.font_atlas, &atlas_width, &atlas_height)) {
+		ZEST_PRINT("Unable to pack all fonts in to the image!");
+		zest_FreeImageCollection(font.font_atlas);
+	}
+	zest_image_handle image_atlas = zest_CreateImageAtlas(font.font_atlas, atlas_width, atlas_height, zest_image_preset_texture);
 	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_array_binding);
 	for (int i = 0; i != 95; ++i) {
 		if (font.characters[i].region) {
 			zest_BindAtlasRegionToImage(font.characters[i].region, font_sampler_binding_index, image_atlas, zest_texture_2d_binding);
 		}
 	}
-    zest_FreeFile(context, (zest_file)font_buffer);
 	font.context = context;
-	/*
-	font.settings.radius = 25.f;
-	font.settings.bleed = .25f;
-	font.settings.aa_factor = 5.f;
-	font.settings.thickness = 5.5f;
-	*/
 	font.settings.unit_range = ZEST_STRUCT_LITERAL(zest_vec2, font.sdf_range / 512.f, font.sdf_range / 512.f);
+	font.settings.font_color = zest_Vec4Set(1.f, 1.f, 1.f, 1.f);
 	font.settings.in_bias = 0.f;
 	font.settings.out_bias = 0.f;
 	font.settings.smoothness = 3.f;
@@ -9575,7 +9561,7 @@ void zest_SetFontShadowOffset(zest_msdf_font_t *font, float x, float y) {
 
 void zest_FreeFont(zest_msdf_font_t *font) {
 	if (font->characters) {
-		zest_vec_free(font->context->device->allocator, font->characters);
+		zest_FreeImageCollection(font->font_atlas);
 	}
 }
 
@@ -9631,10 +9617,9 @@ float zest_DrawMSDFText(zest_layer_handle layer_handle, const char* text, float 
 
     float xpos = x;
 
-	zest_uint max_character_index = zest_vec_size(font->characters);
-	int start_offset = font->first_character_offset;
+	zest_uint max_character_index = 255;
     for (zest_uint i = 0; i != length; ++i) {
-		zest_uint character_index = (zest_uint)text[i] - start_offset;
+		zest_uint character_index = (zest_uint)text[i];
 		if (character_index >= (int)max_character_index) {
 			continue;
 		}
@@ -9651,12 +9636,9 @@ float zest_DrawMSDFText(zest_layer_handle layer_handle, const char* text, float 
         float yoffset = character->y_offset * size;
 
         zest_font_instance_t* font_instance = (zest_font_instance_t*)zest_NextInstance(layer);
-		font_instance->size_handle = zest_Pack16bit4SScaledZWPacked(width, height, 0, 4096.f);
+		font_instance->size = zest_Pack16bit2SScaled(width, height, 4096.f);
         font_instance->position = zest_Vec2Set(xpos + xoffset, y - yoffset);
-        font_instance->rotation = 0.f;
         font_instance->uv = character->region->uv_packed;
-        font_instance->color = layer->current_color;
-		font_instance->intensity = layer->intensity;
 		font_instance->texture_array = character->region->layer_index;
 
         xpos += character->x_advance * size + letter_spacing;
