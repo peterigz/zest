@@ -8464,7 +8464,7 @@ void zest__update_instance_layer_resolution(zest_layer layer) {
 }
 
 //Start general instance layer functionality -----
-void zest_NextInstance(zest_layer layer) {
+void *zest_NextInstance(zest_layer layer) {
     zest_byte* instance_ptr = (zest_byte*)layer->memory_refs[layer->fif].instance_ptr + layer->instance_struct_size;
     //Make sure we're not trying to write outside of the buffer range
     ZEST_ASSERT(instance_ptr >= (zest_byte*)layer->memory_refs[layer->fif].staging_instance_data->data && instance_ptr <= (zest_byte*)layer->memory_refs[layer->fif].staging_instance_data->end);
@@ -8484,6 +8484,7 @@ void zest_NextInstance(zest_layer layer) {
         layer->memory_refs[layer->fif].instance_count++;
     }
     layer->memory_refs[layer->fif].instance_ptr = instance_ptr;
+	return (zest_byte *)instance_ptr - layer->instance_struct_size;
 }
 
 zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer_handle layer_handle, void *src, zest_uint amount) {
@@ -9166,7 +9167,7 @@ void zest_DrawInstancedMesh(zest_layer_handle layer_handle, float pos[3], float 
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
 
-    zest_mesh_instance_t* instance = (zest_mesh_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
+    zest_mesh_instance_t* instance = (zest_mesh_instance_t*)zest_NextInstance(layer);
 
     instance->pos = zest_Vec3Set(pos[0], pos[1], pos[2]);
     instance->rotation = zest_Vec3Set(rot[0], rot[1], rot[2]);
@@ -9174,7 +9175,6 @@ void zest_DrawInstancedMesh(zest_layer_handle layer_handle, float pos[3], float 
     instance->color = layer->current_color;
     instance->parameters = 0;
 
-    zest_NextInstance(layer);
 }
 
 zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, float height, zest_color color, zest_bool cap) {

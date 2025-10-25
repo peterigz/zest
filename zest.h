@@ -53,7 +53,6 @@
     [Images_and_textures]               Load and setup images for using in textures accessed on the GPU
     [Swapchain_helpers]                 General swapchain helpers to get, set clear color etc.
     [Fonts]                             Basic functions for loading MSDF fonts
-    [Main_loop_update_functions]        Only one function currently, for setting the current command queue to render with
     [Draw_Layers_API]                   General helper functions for layers
     [Draw_mesh_layers]                  Functions for drawing the builtin mesh layer pipeline
     [Draw_instance_mesh_layers]         Functions for drawing the builtin instance mesh layer pipeline
@@ -5558,7 +5557,7 @@ ZEST_API zest_uint zest_GetInstanceLayerCount(zest_layer_handle layer);
 //This will return a void* so you can cast it to whatever struct you're using for the instance data
 #define zest_GetLayerInstance(type, layer, fif) (type *)layer->memory_refs[fif].instance_ptr
 //Move the pointer in memory to the next instance to write to.
-ZEST_API void zest_NextInstance(zest_layer layer);
+ZEST_API void *zest_NextInstance(zest_layer layer);
 //Free a layer and all it's resources
 ZEST_API void zest_FreeLayer(zest_layer_handle layer);
 //Set the viewport of a layer. This is important to set right as when the layer is drawn it needs to be clipped correctly and in a lot of cases match how the
