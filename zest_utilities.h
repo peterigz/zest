@@ -7943,7 +7943,7 @@ typedef struct msdf_result_t {
 	int glyphIdx;
 	int left_bearing;
 	int advance;
-	float *rgba;
+	unsigned int *rgba;
 	int width;
 	int height;
 	int yOffset;
@@ -8759,8 +8759,9 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
     hF32 += 2.f * borderWidth;
     int w = (int)wF32;
     int h = (int)hF32;
-
-    float* bitmap = (float*) allocCtx.alloc(w * h * 4 * sizeof(float), allocCtx.ctx);
+	
+	size_t bitmap_size = w * h * 4 * sizeof(float);
+    float* bitmap = (float*) allocCtx.alloc(bitmap_size, allocCtx.ctx);
     memset(bitmap, 0x0, w * h * 4 * sizeof(float));
 
     // em scale
@@ -9100,9 +9101,18 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
 
     float invRange = 1.f / range;
 
+	float min_distance = 99999.f;
+	float max_distance = -99999.f;
+
     for (int y = 0; y < h; ++y) {
         int row = iy0 > iy1 ? y : h - y - 1;
         for (int x = 0; x < w; ++x) {
+            size_t index = 4 * ((row * w) + x);
+
+			if (index == 6436) {
+				int d = 0;
+			}
+
             float a64 = 64.f;
 			msdf_Vec2 p = {(translateX + x + xoff) / (scale * a64), (translateY + y + yoff) / (scale * a64)};
             //p[0] = ;
@@ -9248,8 +9258,6 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
                 msd.b = sb.min_distance.dist;
             }
 
-            size_t index = 4 * ((row * w) + x);
-
             float mr = ((float)msd.r) * invRange + 0.5f;
             float mg = ((float)msd.g) * invRange + 0.5f;
             float mb = ((float)msd.b) * invRange + 0.5f;
@@ -9258,6 +9266,15 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
             bitmap[index + 2] = mb;
             bitmap[index + 3] = 1.f;
             
+			min_distance = ZEST__MIN(mr, min_distance);
+			max_distance = ZEST__MAX(mr, max_distance);
+			min_distance = ZEST__MIN(mg, min_distance);
+			max_distance = ZEST__MAX(mg, max_distance);
+			min_distance = ZEST__MIN(mb, min_distance);
+			max_distance = ZEST__MAX(mb, max_distance);
+			if (min_distance < -99999.f) {
+				int d = 0;
+			}
         }
     }
 
@@ -9303,8 +9320,24 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
         allocCtx.free(clashes, allocCtx.ctx);
     }
 
+	ZEST_PRINT("Min: %f", min_distance);
+	ZEST_PRINT("Max: %f", max_distance);
+
+	result->rgba = (unsigned int*)allocCtx.alloc(sizeof(unsigned int) * w * h, allocCtx.ctx);
+	size_t total_float_pixels = w * h * 4;
+	int pixel_index = 0;
+	for (size_t i = 0; i < total_float_pixels; i += 4) {
+		zest_color color;
+		color.r = (unsigned int)ZEST__CLAMP((bitmap[i    ] + 1.f) * 128.f, 0.f, 255.f);
+		color.g = (unsigned int)ZEST__CLAMP((bitmap[i + 1] + 1.f) * 128.f, 0.f, 255.f);
+		color.b = (unsigned int)ZEST__CLAMP((bitmap[i + 2] + 1.f) * 128.f, 0.f, 255.f);
+		color.a = 255;
+		result->rgba[pixel_index] = color.color;
+		pixel_index++;
+	}
+
+	allocCtx.free(bitmap, allocCtx.ctx);
     result->glyphIdx = glyphIdx;
-    result->rgba = bitmap;
     result->width = w;
     result->height = h;
     result->yOffset = translateY;
@@ -9453,7 +9486,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
     int atlas_layer_width = 512;
     int atlas_layer_height = 512;
     int atlas_channels = 4; 
-	font.font_atlas = zest_CreateImageAtlasCollection(context, zest_format_r32g32b32a32_sfloat);
+	font.font_atlas = zest_CreateImageAtlasCollection(context, zest_format_r8g8b8a8_unorm);
 	font.size = font_size;
 
     float scale = stbtt_ScaleForMappingEmToPixels(&font_info, font_size);
@@ -9467,15 +9500,15 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	memset(font.characters, 0, zest_vec_size_in_bytes(font.characters));
 	font.first_character_offset = 32;
 
-    for (int char_code = 32; char_code < 127; ++char_code) {
+    for (int char_code = 56; char_code < 127; ++char_code) {
         int glyph_index = stbtt_FindGlyphIndex(&font_info, char_code);
 		zest_font_character_t* current_character = &font.characters[char_code - 32];
 
         msdf_result_t result;
         if (msdf_genGlyph(&result, &font_info, glyph_index, 8, scale, sdf_range, NULL)) {
 			char character[2] = { (char)char_code, '\0' };
-			int size = result.width * result.height * sizeof(float) * atlas_channels;
-			zest_bitmap tmp_bitmap = zest_CreateBitmapFromRawBuffer(context, character, result.rgba, size, result.width, result.height, zest_format_r32g32b32a32_sfloat);
+			int size = result.width * result.height * atlas_channels;
+			zest_bitmap tmp_bitmap = zest_CreateBitmapFromRawBuffer(context, character, result.rgba, size, result.width, result.height, zest_format_r8g8b8a8_unorm);
 			zest_atlas_region region = zest_AddImageAtlasBitmap(font.font_atlas, tmp_bitmap, character);
 			current_character->region = region;
 
@@ -9605,7 +9638,6 @@ float zest_DrawMSDFText(zest_layer_handle layer_handle, const char* text, float 
 		if (character_index >= (int)max_character_index) {
 			continue;
 		}
-        zest_font_instance_t* font_instance = (zest_font_instance_t*)layer->memory_refs[layer->fif].instance_ptr;
         zest_font_character_t* character = &font->characters[character_index];
 
         if (character->flags > 0) {
@@ -9618,6 +9650,7 @@ float zest_DrawMSDFText(zest_layer_handle layer_handle, const char* text, float 
         float xoffset = character->x_offset * size;
         float yoffset = character->y_offset * size;
 
+        zest_font_instance_t* font_instance = (zest_font_instance_t*)zest_NextInstance(layer);
 		font_instance->size_handle = zest_Pack16bit4SScaledZWPacked(width, height, 0, 4096.f);
         font_instance->position = zest_Vec2Set(xpos + xoffset, y - yoffset);
         font_instance->rotation = 0.f;
@@ -9625,8 +9658,6 @@ float zest_DrawMSDFText(zest_layer_handle layer_handle, const char* text, float 
         font_instance->color = layer->current_color;
 		font_instance->intensity = layer->intensity;
 		font_instance->texture_array = character->region->layer_index;
-
-        zest_NextInstance(layer);
 
         xpos += character->x_advance * size + letter_spacing;
     }
