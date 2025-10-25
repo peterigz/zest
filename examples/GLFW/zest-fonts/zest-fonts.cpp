@@ -23,7 +23,6 @@ typedef struct zest_fonts_example {
 	zest_msdf_font_t font;
 	zest_font_resources_t font_resources;
 	zest_layer_handle font_layer;
-	zest_uniform_buffer_handle font_uniform;
 	float font_size;
 } zest_fonts_example;
 
@@ -53,9 +52,8 @@ void InitExample(zest_fonts_example *app) {
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(app->context, 60);
 
-	app->font_uniform = zest_CreateUniformBuffer(app->context, "Font Uniform", sizeof(zest_font_uniform_buffer_data_t));
 	app->font = zest_CreateMSDF(app->context, "examples/GLFW/zest-msdf-font-maker/fonts/Lato-Regular.ttf", app->imgui.font_sampler_binding_index, 64.f, 4.f);
-	app->font_resources = zest_CreateFontResources(app->context, app->font_uniform);
+	app->font_resources = zest_CreateFontResources(app->context);
 	app->font_layer = zest_CreateFontLayer(app->context, "MSDF Font Example Layer");
 	app->font_size = 1.f;
 }
@@ -63,7 +61,6 @@ void InitExample(zest_fonts_example *app) {
 void MainLoop(zest_fonts_example *app) {
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		glfwPollEvents();
-		zest_UpdateFontUniformBuffer(app->font_uniform);
 		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
 		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
 		//less frequently.
@@ -152,6 +149,7 @@ void MainLoop(zest_fonts_example *app) {
 		}
 		if (zest_SwapchainWasRecreated(app->context)) {
 			zest_SetLayerSizeToSwapchain(app->font_layer);
+			zest_UpdateFontTransform(&app->font);
 		}
 	}
 

@@ -5,26 +5,27 @@
 const int indexes[6] = {0, 1, 2, 2, 1, 3};
 const float scale_max_value = 4096.0 / 32767.0;
 
-layout (binding = 0) uniform UboView 
-{
-	mat4 view;
-	mat4 proj;
-	vec4 parameters1;
-	vec4 parameters2;
-	vec2 res;
-	uint millisecs;
-} uboView;
-
-//Vertex
-//layout(location = 0) in vec2 vertex_position;
-
 //Instance
-layout(location = 0) in vec2 position;
+layout(location = 0) in vec2 in_position;
 layout(location = 1) in vec4 uv;
 layout(location = 2) in vec2 scale;
 layout(location = 3) in uint texture_array_index;
 
 layout(location = 0) out vec3 out_tex_coord;
+
+layout(push_constant) uniform push_constants {
+	vec4 transform;
+    vec4 font_color;
+    vec4 shadow_color;
+    vec2 shadow_offset; // In screen pixels
+	vec2 unit_range;
+	float in_bias;
+	float out_bias;
+	float smoothness;
+	float gamma;
+	uint sampler_index;
+	uint image_index;
+} font;
 
 void main() {
     vec2 size = scale * scale_max_value;
@@ -47,11 +48,8 @@ void main() {
 
 	int index = indexes[gl_VertexIndex];
 
-	vec2 vertex_position = bounds[index];
-
-	vec3 pos = vec3(vertex_position.x, vertex_position.y, 1);
-	pos.xy += position;
-	gl_Position = uboView.proj * uboView.view * vec4(pos, 1.0);
+	vec2 vertex_position = bounds[index] + in_position;
+	gl_Position = vec4(vertex_position * font.transform.xy + font.transform.zw, 0.0, 1.0);
 
 	//----------------
 	out_tex_coord = vec3(uvs[index], texture_array_index);

@@ -9,10 +9,11 @@ layout(location = 0) in vec3 frag_tex_coord;
 
 layout(location = 0) out vec4 out_color;
 
-layout(set = 1, binding = 0) uniform sampler samplers[];
-layout(set = 1, binding = 3) uniform texture2DArray images[];
+layout(set = 0, binding = 0) uniform sampler samplers[];
+layout(set = 0, binding = 3) uniform texture2DArray images[];
 
 layout(push_constant) uniform push_constants {
+	vec4 transform;
     vec4 font_color;
     vec4 shadow_color;
     vec2 shadow_offset; // In screen pixels
