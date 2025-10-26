@@ -26,11 +26,13 @@ Zest Vulkan Implementation
 	-- [Allocation_callbacks]
     -- [Internal_Frame_graph_context_functions]
     -- [Frame_graph_context_functions]
+	-- [Shader_compiling]
     -- [Debug_functions]
 */
 
 #include <vulkan/vulkan.h>
 #include "vulkan/vulkan_win32.h"
+#include <shaderc/shaderc.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -158,6 +160,10 @@ ZEST_PRIVATE void zest__vk_free_callback(void* pUserData, void *memory);
 
 //Device/OS
 ZEST_PRIVATE void zest__vk_os_add_platform_extensions(zest_context);
+
+//Shader compiling with shaderc
+ZEST_PRIVATE zest_bool zest__vk_validate_shader(zest_context context, const char *shader_code, zest_shader_type type, const char *name);
+ZEST_PRIVATE zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, void *options);
 
 //Fences
 ZEST_PRIVATE zest_fence_status zest__vk_wait_for_renderer_fences(zest_context context);
@@ -314,6 +320,7 @@ typedef struct zest_device_backend_t {
     PFN_vkCmdEndRenderingKHR pfn_vkCmdEndRendering;
     VkFormat color_format;
     VkResult last_result;
+	shaderc_compiler_t shaderc_compiler;
 } zest_device_backend_t;
 
 typedef struct zest_swapchain_backend_t {
@@ -469,6 +476,9 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->initialise_device                      	= zest__vk_initialise_device;
 	platform->os_add_platform_extensions 			    = zest__vk_os_add_platform_extensions;
 	platform->create_window_surface 				        = zest__vk_create_window_surface;
+
+	platform->validate_shader 							= zest__vk_validate_shader;
+	platform->compile_shader 							= zest__vk_compile_shader;
 
 	platform->reset_queue_command_pool 					= zest__vk_reset_queue_command_pool;
 	platform->begin_single_time_commands 				= zest__vk_begin_single_time_commands;
@@ -789,6 +799,10 @@ ZEST_PRIVATE inline VkImageTiling zest__to_vk_image_tiling(VkImageTiling tiling)
 
 ZEST_PRIVATE inline VkSampleCountFlagBits zest__to_vk_sample_count(VkSampleCountFlags flags) {
     return (VkSampleCountFlagBits)flags;
+}
+
+ZEST_PRIVATE inline shaderc_shader_kind zest__to_shaderc_shader_kind(zest_shader_type type) {
+    return (shaderc_shader_kind)type;
 }
 // -- End Type_converters
 
@@ -2373,6 +2387,9 @@ void zest__vk_cleanup_frame_graph_semaphore(zest_context context, zest_frame_gra
 }
 
 void zest__vk_cleanup_device_backend(zest_device device) {
+	if (device->backend->shaderc_compiler) {
+		shaderc_compiler_release(device->backend->shaderc_compiler);
+	}
     if (device->backend->debug_messenger != VK_NULL_HANDLE) {
         PFN_vkDestroyDebugUtilsMessengerEXT destroyDebugUtilsMessenger =
             (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(device->backend->instance, "vkDestroyDebugUtilsMessengerEXT");
@@ -4866,6 +4883,56 @@ void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_lay
 }
 
 // -- End Frame graph command_list functions
+
+// -- Shader_compiling
+zest_bool zest__vk_validate_shader(zest_context context, const char *shader_code, zest_shader_type type, const char *name) {
+	shaderc_compiler_t compiler = context->device->backend->shaderc_compiler;
+	if (!compiler) {
+		context->device->backend->shaderc_compiler = shaderc_compiler_initialize();
+	}
+    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader_code, strlen(shader_code), zest__to_shaderc_shader_kind(type), name, "main", NULL);
+    if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
+		ZEST_APPEND_LOG(context->device->log_path.str, "Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
+		ZEST_PRINT("Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
+        shaderc_result_release(result);
+		return ZEST_FALSE;
+    }
+	return ZEST_TRUE;
+}
+
+zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, void *options) {
+	zest_context context = shader->handle.context;
+	shaderc_compiler_t compiler = context->device->backend->shaderc_compiler;
+	if (!compiler) {
+		context->device->backend->shaderc_compiler = shaderc_compiler_initialize();
+        compiler = context->device->backend->shaderc_compiler;
+	}
+    
+    if(!compiler) {
+        ZEST_APPEND_LOG(context->device->log_path.str, "Was unable to load the shader from the cached shaders location and compiler is disabled, so cannot go any further with shader %s", name);
+        return ZEST_FALSE;
+    }
+
+	shaderc_compile_options_t shaderc_options = (shaderc_compile_options_t)options;
+    shaderc_compilation_result_t result = shaderc_compile_into_spv(compiler, shader->shader_code.str, zest_TextLength(&shader->shader_code), zest__to_shaderc_shader_kind(shader->type), name, "main", shaderc_options );
+
+    if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
+		ZEST_APPEND_LOG(context->device->log_path.str, "Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
+		ZEST_PRINT("Shader compilation failed: %s, %s", name, shaderc_result_get_error_message(result));
+        shaderc_result_release(result);
+		return ZEST_FALSE;
+    }
+
+    zest_uint spv_size = (zest_uint)shaderc_result_get_length(result);
+    const char *spv_binary = shaderc_result_get_bytes(result);
+    zest_vec_resize(context->device->allocator, shader->spv, spv_size);
+    memcpy(shader->spv, spv_binary, spv_size);
+    shader->spv_size = spv_size;
+    shaderc_result_release(result);
+	return ZEST_TRUE;
+}
+
+// -- End Shader_compiling
 
 // -- Debug_functions
 void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {

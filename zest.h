@@ -94,6 +94,7 @@ typedef void* zloc_pool;
 #include <stdlib.h>
 #include <stddef.h>
 #include <assert.h>
+#include <stdint.h>
 #if !defined (ZLOC_ASSERT)
 #define ZLOC_ASSERT assert
 #endif
@@ -776,7 +777,6 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
 
 //--End of header declarations
 
-#include <shaderc/shaderc.h>
 #include <math.h>
 #include <float.h>
 #include <string.h>
@@ -962,11 +962,11 @@ static const char *zest_message_cannot_queue_for_execution = "Could not queue fr
 
 typedef unsigned int zest_uint;
 typedef unsigned long zest_long;
-typedef uint64_t zest_handle;
 typedef int zest_index;
 typedef unsigned long long zest_ull;
 typedef uint16_t zest_u16;
 typedef uint64_t zest_u64;
+typedef uint64_t zest_handle;
 typedef zest_uint zest_id;
 typedef zest_uint zest_millisecs;
 typedef zest_uint zest_thread_access;
@@ -1591,6 +1591,12 @@ typedef enum {
 	zest_pipeline_stage_none = 0
 } zest_pipeline_stage_flag_bits;
 
+typedef enum {
+  zest_vertex_shader,
+  zest_fragment_shader,
+  zest_compute_shader,
+} zest_shader_type;
+
 typedef zest_uint zest_image_aspect_flags;
 typedef zest_uint zest_sample_count_flags;
 typedef zest_uint zest_access_flags;
@@ -1808,7 +1814,6 @@ typedef enum zest_init_flag_bits {
 	zest_init_flag_cache_shaders = 1 << 2,
 	zest_init_flag_enable_vsync = 1 << 3,
 	zest_init_flag_enable_fragment_stores_and_atomics = 1 << 4,
-	zest_init_flag_disable_shaderc = 1 << 5,
 	zest_init_flag_enable_validation_layers = 1 << 6,
 	zest_init_flag_enable_validation_layers_with_sync = 1 << 7,
 	zest_init_flag_enable_validation_layers_with_best_practices = 1 << 8,
@@ -4129,7 +4134,7 @@ typedef struct zest_shader_t {
 	zest_text_t file_path;
 	zest_text_t shader_code;
 	zest_text_t name;
-	shaderc_shader_kind type;
+	zest_shader_type type;
 } zest_shader_t;
 
 typedef struct zest_shader_resources_t {
@@ -4624,6 +4629,9 @@ typedef struct zest_platform_t {
 	zest_bool 				   (*initialise_device)(zest_device device);
 	void					   (*os_add_platform_extensions)(zest_context context);
 	zest_bool				   (*create_window_surface)(zest_context context);
+	//Shader Compiling
+	zest_bool				   (*validate_shader)(zest_context context, const char *shader_code, zest_shader_type type, const char *name);
+	zest_bool				   (*compile_shader)(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, void *options);
 	//Create backends
 	void*                      (*new_frame_graph_semaphores_backend)(zest_context context);
 	void*                      (*new_execution_barriers_backend)(zloc_linear_allocator_t *allocator);
@@ -4851,7 +4859,7 @@ ZEST_PRIVATE void zest__scan_memory_and_free_resources(zest_context context);
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_context context);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
-ZEST_PRIVATE void zest__compile_builtin_shaders(zest_context context, zest_bool compile_shaders);
+ZEST_PRIVATE void zest__compile_builtin_shaders(zest_context context);
 ZEST_PRIVATE void zest__prepare_standard_pipelines(zest_context context);
 ZEST_PRIVATE void zest__cleanup_pipeline(zest_pipeline pipeline);
 ZEST_PRIVATE void zest__cleanup_pipelines(zest_context context);
@@ -4919,8 +4927,7 @@ ZEST_PRIVATE void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffe
 // --End Maintenance functions
 
 // --Shader_functions
-ZEST_PRIVATE zest_shader_handle zest__new_shader(zest_context context, shaderc_shader_kind type);
-ZEST_PRIVATE void zest__update_shader_spv(zest_shader shader, shaderc_compilation_result_t result);
+ZEST_PRIVATE zest_shader_handle zest__new_shader(zest_context context, zest_shader_type type);
 ZEST_API void zest__cache_shader(zest_shader shader);
 // --End Shader functions
 
@@ -5050,27 +5057,27 @@ ZEST_API zest_viewport_t zest_CreateViewport(float x, float y, float width, floa
 //Create a zest_scissor_rect_t for render clipping
 ZEST_API zest_scissor_rect_t zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 //Validate a shader from a string and add it to the library of shaders in the renderer
-ZEST_API shaderc_compilation_result_t zest_ValidateShader(const char *shader_code, shaderc_shader_kind type, const char *name, shaderc_compiler_t compiler);
+ZEST_API zest_bool zest_ValidateShader(zest_context context, const char *shader_code, zest_shader_type type, const char *name);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader_handle zest_CreateShader(zest_context context, const char *shader_code, shaderc_shader_kind type, const char *name, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options);
+ZEST_API zest_shader_handle zest_CreateShader(zest_context context, const char *shader_code, zest_shader_type type, const char *name, zest_bool disable_caching);
 //Creates a shader from a file containing the shader glsl code
-ZEST_API zest_shader_handle zest_CreateShaderFromFile(zest_context context, const char *file, const char *name, shaderc_shader_kind type, zest_bool disable_caching, shaderc_compiler_t compiler, shaderc_compile_options_t options);
+ZEST_API zest_shader_handle zest_CreateShaderFromFile(zest_context context, const char *file, const char *name, zest_shader_type type, zest_bool disable_caching);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader_handle zest_CreateShaderSPVMemory(zest_context context, const unsigned char *shader_code, zest_uint spv_length, const char *name, shaderc_shader_kind type);
+ZEST_API zest_shader_handle zest_CreateShaderSPVMemory(zest_context context, const unsigned char *shader_code, zest_uint spv_length, const char *name, zest_shader_type type);
 //Reload a shader. Use this if you edited a shader file and you want to refresh it/hot reload it
 //The shader must have been created from a file with zest_CreateShaderFromFile. Once the shader is reloaded you can call
 //zest_CompileShader or zest_ValidateShader to recompile it. You'll then have to call zest_SchedulePipelineRecreate to recreate
 //the pipeline that uses the shader. Returns true if the shader was successfully loaded.
 ZEST_API zest_bool zest_ReloadShader(zest_shader_handle shader);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader, shaderc_compiler_t compiler);
+ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader);
 //Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 
 //pass in the full path to the file relative to the executable being run.
-ZEST_API zest_shader_handle zest_AddShaderFromSPVFile(zest_context context, const char *filename, shaderc_shader_kind type);
+ZEST_API zest_shader_handle zest_AddShaderFromSPVFile(zest_context context, const char *filename, zest_shader_type type);
 //Add an spv shader straight from memory and return a handle to the shader. Note that the name should just be the name of the shader, 
 //If a path prefix is set (context->device->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
-ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(zest_context context, const char *name, const void *buffer, zest_uint size, shaderc_shader_kind type);
+ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(zest_context context, const char *name, const void *buffer, zest_uint size, zest_shader_type type);
 //Add a shader to the renderer list of shaders.
 ZEST_API void zest_AddShader(zest_shader_handle shader, const char *name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)

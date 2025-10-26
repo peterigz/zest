@@ -31,10 +31,8 @@ zest_imgui_t zest_imgui_Initialise(zest_context context) {
     //zest_imgui.vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
     //zest_imgui.fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
 
-	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_imgui.vertex_shader = zest_CreateShader(context, zest_shader_imgui_vert, shaderc_vertex_shader, "imgui_vert", ZEST_TRUE, compiler, 0);
-	zest_imgui.fragment_shader = zest_CreateShader(context, zest_shader_imgui_frag, shaderc_fragment_shader, "imgui_frag", ZEST_TRUE, compiler, 0);
-	shaderc_compiler_release(compiler);
+	zest_imgui.vertex_shader = zest_CreateShader(context, zest_shader_imgui_vert, zest_vertex_shader, "imgui_vert", ZEST_TRUE);
+	zest_imgui.fragment_shader = zest_CreateShader(context, zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", ZEST_TRUE);
 
     zest_imgui.font_resources = zest_CreateShaderResources(context);
     zest_AddGlobalBindlessSetToResources(zest_imgui.font_resources);

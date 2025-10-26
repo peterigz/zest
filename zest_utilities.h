@@ -9377,7 +9377,6 @@ typedef struct zest_msdf_font_settings_t {
 	float gamma;
     zest_uint sampler_index;
     zest_uint image_index;
-	zest_uint padding[2];
 } zest_msdf_font_settings_t;
 
 typedef struct zest_msdf_font_t {
@@ -9412,10 +9411,8 @@ void zest__msdf_free(void* ptr, void* ctx) {
 
 zest_font_resources_t zest_CreateFontResources(zest_context context) {
 	//Create and compile the shaders for our custom sprite pipeline
-	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_shader_handle font_vert = zest_CreateShaderFromFile(context, "shaders/font.vert", "font_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_shader_handle font_frag = zest_CreateShaderFromFile(context, "shaders/font.frag", "font_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	shaderc_compiler_release(compiler);
+	zest_shader_handle font_vert = zest_CreateShaderFromFile(context, "shaders/font.vert", "font_vert.spv", zest_vertex_shader, true);
+	zest_shader_handle font_frag = zest_CreateShaderFromFile(context, "shaders/font.frag", "font_frag.spv", zest_fragment_shader, true);
 
 	//Create a pipeline that we can use to draw billboards
 	zest_pipeline_template font_pipeline = zest_BeginPipelineTemplate(context, "pipeline_billboard");
