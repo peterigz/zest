@@ -5431,6 +5431,7 @@ ZEST_API zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_coll
 ZEST_API zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection_handle image_collection, zest_uint bitmap_index);
 ZEST_API zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection_handle image_collection);
 ZEST_API zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection_handle image_collection, zest_uint bitmap_index, const void *src_data, zest_size src_size);
+ZEST_API zest_bitmap_meta_t zest_ImageCollectionBitmapArrayMeta(zest_image_collection_handle image_collection);
 ZEST_API void zest_FreeImage(zest_image_handle image_handle);
 ZEST_API zest_imgui_image_t zest_NewImGuiImage(void);
 ZEST_API zest_atlas_region zest_CreateAtlasRegion(zest_context context);

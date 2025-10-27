@@ -56,6 +56,7 @@ void InitExample(zest_fonts_example *app) {
 	app->font_resources = zest_CreateFontResources(app->context);
 	app->font_layer = zest_CreateFontLayer(app->context, "MSDF Font Example Layer");
 	app->font_size = 1.f;
+	zest_SaveMSDF(&app->font, "lato_test.png");
 }
 
 void MainLoop(zest_fonts_example *app) {

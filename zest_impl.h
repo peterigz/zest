@@ -7190,6 +7190,8 @@ zest_bool zest_GetBestFit(zest_image_collection_handle image_collection_handle, 
 				*width = ZEST__MAX(*width, (zest_uint)rects[i].x + rects[i].w);
 				*height = ZEST__MAX(*height, (zest_uint)rects[i].y + rects[i].h);
 			}
+			*width = (zest_uint)zest_GetNextPower(*width);
+			*height = (zest_uint)zest_GetNextPower(*height);
 			break;
 		} else {
 			if (dim_flip) {
@@ -7953,6 +7955,15 @@ zest_bool zest_ImageCollectionCopyToBitmapArray(zest_image_collection_handle ima
 zest_bitmap_array_t *zest_GetImageCollectionBitmapArray(zest_image_collection_handle image_collection_handle) {
 	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
 	return &image_collection->bitmap_array;
+}
+
+zest_bitmap_meta_t zest_ImageCollectionBitmapArrayMeta(zest_image_collection_handle image_collection_handle) {
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.context, image_collection_handle.value);
+	if (zest_vec_size(image_collection->bitmap_array.meta)) {
+		return image_collection->bitmap_array.meta[0];
+	} else {
+		return ZEST__ZERO_INIT(zest_bitmap_meta_t);
+	}
 }
 
 zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection_handle image_collection_handle, zest_uint bitmap_index) {

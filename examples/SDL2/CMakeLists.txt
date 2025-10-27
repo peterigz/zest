@@ -6,6 +6,7 @@ function(buildExample EXAMPLE_NAME)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui/backends)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui_test_engine/imgui_test_engine)
 	include_directories(${CMAKE_SOURCE_DIR}/implementations) 
+	include_directories(${CMAKE_SOURCE_DIR}/examples/libs)
 	
 	SET(IMGUI ${CMAKE_SOURCE_DIR}/submodules/imgui/)
 	SET(IMGUI_FILE_DIALOG ${CMAKE_SOURCE_DIR}/submodules/imgui_file_dialog/)

@@ -8,6 +8,7 @@ function(buildExample EXAMPLE_NAME)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui_test_engine/imgui_test_engine)
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/imgui_test_engine/imgui_test_suite)
 	include_directories(${CMAKE_SOURCE_DIR}/implementations) 
+	include_directories(${CMAKE_SOURCE_DIR}/examples/libs)
 	
 	SET(IMGUI ${CMAKE_SOURCE_DIR}/submodules/imgui/)
 	SET(IMGUI_TEST_ENGINE ${CMAKE_SOURCE_DIR}/submodules/imgui_test_engine/imgui_test_engine/)
