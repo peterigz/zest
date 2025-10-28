@@ -122,6 +122,15 @@ FILE* zest__open_file(const char* file_name, const char* mode) {
 
 #endif
 
+zest_bool zest__file_exists(const char* file_name) {
+	FILE* file = zest__open_file(file_name, "r");
+	if (file) {
+		fclose(file);
+		return ZEST_TRUE;
+	}
+	return ZEST_FALSE;
+}
+
 bool zest__create_folder(zest_context context, const char *path) {
     int result = ZEST_CREATE_DIR(path);
     if (result == 0) {

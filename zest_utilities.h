@@ -94,6 +94,7 @@ typedef struct zest_font_character_t {
     float width; 
 	float height;
     float x_advance;
+	zest_u64 uv_packed;
 	zest_character_flags flags;
 } zest_font_character_t;
 
@@ -121,7 +122,14 @@ typedef struct zest_msdf_font_t {
 	float size;
 	float sdf_range;
 	float y_max_offset;
+	zest_bool is_loaded_from_file;
 } zest_msdf_font_t;
+
+typedef struct zest_msdf_font_file_t {
+	zest_uint magic;
+	zest_msdf_font_t font_details;
+	zest_uint png_size;
+} zest_msdf_font_file_t;
 
 typedef struct zest_font_instance_t {           //48 bytes
 	zest_vec2 position;                   		//The position of the sprite with rotation in w and stretch in z
@@ -131,12 +139,19 @@ typedef struct zest_font_instance_t {           //48 bytes
 	zest_uint padding[2];
 } zest_font_instance_t;
 
+typedef struct zest_stbi_mem_context_t {
+	int last_pos;
+	int file_size;
+	void *context;
+} zest_stbi_mem_context_t ;
+
 ZEST_PRIVATE void* zest__msdf_allocation(size_t size, void* ctx);
 ZEST_PRIVATE void zest__msdf_free(void* ptr, void* ctx);
 ZEST_API zest_font_resources_t zest_CreateFontResources(zest_context context);
 ZEST_API zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name);
 ZEST_API zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_uint font_sampler_binding_index, float font_size, float sdf_range);
 ZEST_API void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename);
+ZEST_API zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_uint font_sampler_binding_index);
 ZEST_API void zest_UpdateFontTransform(zest_msdf_font_t *font);
 ZEST_API void zest_SetFontTransform(zest_msdf_font_t *font, float transform[4]);
 ZEST_API void zest_SetFontSettings(zest_msdf_font_t *font, float inner_bias, float outer_bias, float smoothness, float gamma);
@@ -767,9 +782,10 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	}
 	zest_image_handle image_atlas = zest_CreateImageAtlas(font.font_atlas, atlas_width, atlas_height, zest_image_preset_texture);
 	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_array_binding);
-	for (int i = 0; i != 95; ++i) {
+	for (int i = 0; i != 256; ++i) {
 		if (font.characters[i].region) {
-			zest_BindAtlasRegionToImage(font.characters[i].region, font_sampler_binding_index, image_atlas, zest_texture_2d_binding);
+			font.characters[i].uv_packed = font.characters[i].region->uv_packed;
+			zest_BindAtlasRegionToImage(font.characters[i].region, font_sampler_binding_index, image_atlas, zest_texture_array_binding);
 		}
 	}
 	font.context = context;
@@ -778,18 +794,93 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	font.settings.font_color = zest_Vec4Set(1.f, 1.f, 1.f, 1.f);
 	font.settings.in_bias = 0.f;
 	font.settings.out_bias = 0.f;
-	font.settings.smoothness = 2.f;
+	font.settings.smoothness = 0.f;
 	font.settings.gamma = 1.f;
 	font.settings.shadow_color = zest_Vec4Set(0.f, 0.f, 0.f, 1.f);
 	font.settings.shadow_offset = zest_Vec2Set(2.f, 2.f);
 	return font;
 }
 
+static void zest__stbi_write_mem(void *context, void *data, int size) {
+	zest_stbi_mem_context_t *c = (zest_stbi_mem_context_t*)context;
+	char *buffer = (char*)(c->context);
+	char *src = (char *)data;
+	int cur_pos = c->last_pos;
+	ZEST_ASSERT(c->file_size + size < zloc__MEGABYTE(4));
+	memcpy(buffer + cur_pos, src, size);
+	c->file_size += size;
+	c->last_pos = cur_pos;
+}
+
 void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename) {
 	zest_image_collection atlas = (zest_image_collection)zest__get_store_resource(font->context, font->font_atlas.value);
 	zest_byte *atlas_bitmap = zest_GetImageCollectionRawBitmap(font->font_atlas, 0);
 	zest_bitmap_meta_t atlas_meta = zest_ImageCollectionBitmapArrayMeta(font->font_atlas);
-	stbi_write_png(filename, atlas_meta.width, atlas_meta.height, atlas_meta.channels, atlas_bitmap, atlas_meta.stride);
+	zest_msdf_font_file_t file;
+	file.magic = zest_INIT_MAGIC(zest_struct_type_file);
+	memcpy(&file.font_details, font, sizeof(zest_msdf_font_t));
+	
+	zest_stbi_mem_context_t mem_context = ZEST__ZERO_INIT(zest_stbi_mem_context_t);
+	mem_context.context = malloc(zloc__MEGABYTE(4));
+	stbi_write_png_to_func(zest__stbi_write_mem, &mem_context, atlas_meta.width, atlas_meta.height, atlas_meta.channels, atlas_bitmap, atlas_meta.stride);
+    FILE *font_file = zest__open_file(filename, "wb");
+	file.png_size = mem_context.file_size;
+    size_t written = fwrite(&file.magic, sizeof(zest_uint), 1, font_file);
+	written += fwrite(&file.font_details, sizeof(zest_msdf_font_t), 1, font_file);
+	written += fwrite(&file.png_size, sizeof(zest_uint), 1, font_file);
+	written += fwrite(mem_context.context, sizeof(char), mem_context.file_size, font_file);
+	if (written != 3 + mem_context.file_size) {
+		ZEST_PRINT("Failed to save the font to disk!");
+	}
+	free(mem_context.context);
+	fclose(font_file);
+}
+
+zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_uint font_sampler_binding_index) {
+	zest_msdf_font_file_t file;
+    FILE *font_file = zest__open_file(filename, "rb");
+
+    fread(&file.magic, sizeof(zest_uint), 1, font_file);
+	unsigned char *png_buffer = 0;
+	if (ZEST_VALID_HANDLE(&file)) {
+		fread(&file.font_details, sizeof(zest_msdf_font_t), 1, font_file);
+		fread(&file.png_size, sizeof(zest_uint), 1, font_file);
+		png_buffer = (unsigned char*)malloc(file.png_size);
+		size_t read = fread(png_buffer, sizeof(char), file.png_size, font_file);
+	} else {
+		ZEST_PRINT("Unable to read font file");
+		return ZEST__ZERO_INIT(zest_msdf_font_t);
+	}
+	zest_bitmap font_bitmap = zest_LoadPNGMemory(context, png_buffer, file.png_size);
+	zest_msdf_font_t font = file.font_details;
+	fclose(font_file);
+
+	zest_image_info_t image_info = zest_CreateImageInfo(font_bitmap->meta.width, font_bitmap->meta.height);
+	image_info.flags = zest_image_preset_texture;
+	font.font_image = zest_CreateImage(context, &image_info);
+	zest_cmd_CopyBitmapToImage(font_bitmap, font.font_image, 0, 0, 0, 0, font_bitmap->meta.width, font_bitmap->meta.height);
+	zest_FreeBitmap(font_bitmap);
+
+	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(font.font_image, zest_texture_array_binding);
+	for (int i = 0; i != 255; ++i) {
+		if (font.characters[i].width && font.characters[i].height) {
+			font.characters[i].region = zest_NewAtlasRegion(context);
+			font.characters[i].region->uv_packed = font.characters[i].uv_packed;
+			zest_BindAtlasRegionToImage(font.characters[i].region, font_sampler_binding_index, font.font_image, zest_texture_array_binding);
+		}
+	}
+	font.context = context;
+	font.is_loaded_from_file = ZEST_TRUE;
+	font.settings.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(context), 2.0f / zest_ScreenHeightf(context), -1.f, -1.f);
+	font.settings.unit_range = ZEST_STRUCT_LITERAL(zest_vec2, font.sdf_range / 512.f, font.sdf_range / 512.f);
+	font.settings.font_color = zest_Vec4Set(1.f, 1.f, 1.f, 1.f);
+	font.settings.in_bias = 0.f;
+	font.settings.out_bias = 0.f;
+	font.settings.smoothness = 0.f;
+	font.settings.gamma = 1.f;
+	font.settings.shadow_color = zest_Vec4Set(0.f, 0.f, 0.f, 1.f);
+	font.settings.shadow_offset = zest_Vec2Set(2.f, 2.f);
+	return font;
 }
 
 void zest_UpdateFontTransform(zest_msdf_font_t *font) {
@@ -824,8 +915,16 @@ void zest_SetFontShadowOffset(zest_msdf_font_t *font, float x, float y) {
 }
 
 void zest_FreeFont(zest_msdf_font_t *font) {
-	if (font->characters) {
-		zest_FreeImageCollection(font->font_atlas);
+	if (font->is_loaded_from_file) {
+		for (int i = 0; i != 256; ++i) {
+			if (font->characters[i].region) {
+				zest_FreeAtlasRegion(font->characters[i].region);
+			}
+		}
+	} else {
+		if (font->characters) {
+			zest_FreeImageCollection(font->font_atlas);
+		}
 	}
 }
 

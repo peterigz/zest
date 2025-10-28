@@ -1038,6 +1038,7 @@ typedef union zest_packed8bit
 /* Platform_specific_code*/
 
 FILE *zest__open_file(const char *file_name, const char *mode);
+zest_bool zest__file_exists(const char *file_name);
 ZEST_API zest_millisecs zest_Millisecs(void);
 ZEST_API zest_microsecs zest_Microsecs(void);
 
@@ -1712,7 +1713,8 @@ typedef enum zest_struct_type {
 	zest_struct_type_view = 43 << 16,
 	zest_struct_type_buffer_backend = 44 << 16,
 	zest_struct_type_context = 45 << 16,
-	zest_struct_type_device_builder = 46 << 16
+	zest_struct_type_device_builder = 46 << 16,
+	zest_struct_type_file = 47 << 16
 } zest_struct_type;
 
 typedef enum zest_platform_memory_context {
@@ -5443,6 +5445,7 @@ ZEST_API void zest_FreeBitmap(zest_bitmap image);
 //Free the memory used in a zest_bitmap_t
 ZEST_API void zest_FreeBitmapData(zest_bitmap image);
 ZEST_API zest_bitmap zest_LoadPNG(zest_context context, const char *filename);
+ZEST_API zest_bitmap zest_LoadPNGMemory(zest_context context, unsigned char *buffer, zest_uint size);
 //Create a new initialise zest_bitmap_t
 ZEST_API zest_bitmap zest_NewBitmap(zest_context context);
 //Create a new bitmap from a pixel buffer. Pass in the name of the bitmap, a pointer to the buffer, the size in bytes of the buffer, the width and height
@@ -7200,6 +7203,23 @@ zest_bitmap zest_LoadPNG(zest_context context, const char *filename) {
 		zest_FreeBitmap(bitmap);
 		return NULL;
 	}
+	zest__get_format_pixel_data(bitmap->meta.format, &bitmap->meta.channels, &bitmap->meta.bytes_per_pixel);
+	return bitmap;
+}
+
+zest_bitmap zest_LoadPNGMemory(zest_context context, unsigned char *buffer, zest_uint size) {
+    if (!buffer || !size) {
+        ZEST_PRINT("Error: could not load png from memory, there was no size or buffer defined\n");
+        return NULL;
+    }
+
+	zest_bitmap bitmap = zest_NewBitmap(context);
+    int error = zest__decode_png(context, bitmap, buffer, size, 0);
+	if (error) {
+		zest_FreeBitmap(bitmap);
+		return NULL;
+	}
+	zest__get_format_pixel_data(bitmap->meta.format, &bitmap->meta.channels, &bitmap->meta.bytes_per_pixel);
 	return bitmap;
 }
 // --End Pico_png_decoder
