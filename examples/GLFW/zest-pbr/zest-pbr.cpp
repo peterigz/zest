@@ -1,9 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#define TINYKTX_IMPLEMENTATION
-#include "zest.h"
+#define ZEST_KTX_IMPLEMENTATION
 #include "zest-pbr.h"
-#include "zest_utilities.h"
+#include "zest.h"
 #include "imgui_internal.h"
 
 void UpdateUniform3d(SimplePBRExample *app) {
@@ -17,10 +16,8 @@ void UpdateUniform3d(SimplePBRExample *app) {
 
 void SetupBillboards(SimplePBRExample *app) {
 	//Create and compile the shaders for our custom sprite pipeline
-	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_shader_handle billboard_vert = zest_CreateShaderFromFile(app->context, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_shader_handle billboard_frag = zest_CreateShaderFromFile(app->context, "examples/assets/shaders/billboard.frag", "billboard_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	shaderc_compiler_release(compiler);
+	zest_shader_handle billboard_vert = zest_CreateShaderFromFile(app->context, "examples/assets/shaders/billboard.vert", "billboard_vert.spv", zest_vertex_shader, true);
+	zest_shader_handle billboard_frag = zest_CreateShaderFromFile(app->context, "examples/assets/shaders/billboard.frag", "billboard_frag.spv", zest_fragment_shader, true);
 
 	//Create a pipeline that we can use to draw billboards
 	app->billboard_pipeline = zest_BeginPipelineTemplate(app->context, "pipeline_billboard");
@@ -272,15 +269,13 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 
 
 	//Compile the shaders we will use to render the particles
-	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	zest_shader_handle pbr_irradiance_vert = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_shader_handle pbr_irradiance_frag = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/sky_box.vert", "sky_box_vert.spv", shaderc_vertex_shader, true, compiler, 0);
-	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/sky_box.frag", "sky_box_frag.spv", shaderc_fragment_shader, true, compiler, 0);
-	app->brd_shader = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/genbrdflut.comp", "genbrdflut_comp.spv", shaderc_compute_shader, true, compiler, 0);
-	app->irr_shader = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/irradiancecube.comp", "irradiancecube_comp.spv", shaderc_compute_shader, true, compiler, 0);
-	app->prefiltered_shader = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/prefilterenvmap.comp", "prefilterenvmap_comp.spv", shaderc_compute_shader, true, compiler, 0);
-	shaderc_compiler_release(compiler);
+	zest_shader_handle pbr_irradiance_vert = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", zest_vertex_shader, true);
+	zest_shader_handle pbr_irradiance_frag = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/pbr_irradiance.frag", "pbr_irradiance_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle skybox_vert = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/sky_box.vert", "sky_box_vert.spv", zest_vertex_shader, true);
+	zest_shader_handle skybox_frag = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/sky_box.frag", "sky_box_frag.spv", zest_fragment_shader, true);
+	app->brd_shader = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/genbrdflut.comp", "genbrdflut_comp.spv", zest_compute_shader, true);
+	app->irr_shader = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/irradiancecube.comp", "irradiancecube_comp.spv", zest_compute_shader, true);
+	app->prefiltered_shader = zest_CreateShaderFromFile(app->context, "examples/GLFW/zest-pbr/shaders/prefilterenvmap.comp", "prefilterenvmap_comp.spv", zest_compute_shader, true);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
 	app->sampler_2d = zest_CreateSampler(app->context, &sampler_info);

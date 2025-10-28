@@ -74,6 +74,7 @@ typedef enum zest_character_flag_bits {
 	zest_character_flag_new_line = 1 << 1,
 	zest_character_flag_whitespace = 1 << 2,
 } zest_character_flag_bits;
+
 typedef zest_uint zest_character_flags;
 
 typedef struct zest_font_resources_t {
@@ -298,18 +299,15 @@ void zest_implsdl2_DestroyWindow(zest_context context) {
 // --- End SDL2 Utilities ----------------------------------------------------
 
 //Zest_ktx_helper_functions
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include "tinyktx.h"
-
 //End Zest_ktx_helper_functions
-
 #ifdef ZEST_KTX_IMPLEMENTATION
 
 #define TINYKTX_IMPLEMENTATION
 #include "tinyktx.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 //Zest_ktx_helper_implementation
 void zest__tinyktxCallbackError(void *user, char const *msg) {
 	ZEST_PRINT("Tiny_Ktx ERROR: %s", msg);
@@ -641,10 +639,10 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
 }
 //End Zest_ktx_helper_implementation
 
-#endif
-
 #ifdef __cplusplus
 }
+#endif
+
 #endif
 
 #ifdef ZEST_MSDF_IMPLEMENTATION
