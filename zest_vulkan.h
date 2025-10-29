@@ -2981,7 +2981,7 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     if (!pipeline_template->no_vertex_input) {
         //If the pipeline is set to have vertex input, then you must add bindingDescriptions. 
         //You can use zest_AddVertexInputBindingDescription for this
-        ZEST_ASSERT(zest_vec_size(pipeline_template->binding_descriptions));
+        ZEST_ASSERT(zest_vec_size(pipeline_template->binding_descriptions), "If the pipeline is set to have vertex input, then you must add bindingDescriptions. You can use zest_AddVertexInputBindingDescription for this, otherwise make sure you call zest_SetPipelineDisableVertexInput when setting up the pipeline template if the pipeline doesn't need any vertex input.");
         zest_vec_foreach(i, pipeline_template->binding_descriptions) {
             VkVertexInputBindingDescription description = {
                 pipeline_template->binding_descriptions[i].binding,
@@ -3633,7 +3633,7 @@ zest_bool zest__vk_end_single_time_commands(zest_context context) {
  
 void *zest__vk_allocate_callback(void *pUserData, size_t size, size_t alignment, VkSystemAllocationScope allocationScope) {
     zest_device device = (zest_device)pUserData;
-    if (device->platform_memory_info.timestamp == 43) {
+    if (device->platform_memory_info.timestamp == 69) {
         int d = 0;
     }
     void *pAllocation = ZEST__ALLOCATE(device->allocator, size + sizeof(zest_platform_memory_info_t));
@@ -4517,7 +4517,7 @@ void zest_cmd_InsertComputeImageBarrier(const zest_command_list command_list, ze
 	);
 }
 
-zest_bool zest_cmd_ImageClear(zest_image_handle handle, const zest_command_list command_list) {
+zest_bool zest_cmd_ImageClear(const zest_command_list command_list, zest_image_handle handle) {
     zest_image image = (zest_image)zest__get_store_resource_checked(handle.context, handle.value);
 	zest_context context = handle.context;
     VkCommandBuffer command_buffer = command_list ? command_list->backend->command_buffer : context->backend->one_time_command_buffer;
@@ -4561,7 +4561,7 @@ zest_bool zest_cmd_ImageClear(zest_image_handle handle, const zest_command_list 
     return ZEST_TRUE;
 }
 
-zest_bool zest_cmd_CopyImageToImage(zest_image_handle src_handle, zest_image_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
+zest_bool zest_imm_CopyImageToImage(zest_image_handle src_handle, zest_image_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
     zest_image src_image = (zest_image)zest__get_store_resource_checked(src_handle.context, src_handle.value);
     ZEST_ASSERT_HANDLE(src_image);    //Not a valid texture resource
     zest_image dst_image = (zest_image)zest__get_store_resource_checked(dst_handle.context, dst_handle.value);
@@ -4828,7 +4828,7 @@ zest_bool zest__vk_copy_buffer_to_image(zest_buffer buffer, zest_size src_offset
     return ZEST_TRUE;
 }
 
-zest_bool zest_cmd_CopyBitmapToImage(zest_bitmap bitmap, zest_image_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
+zest_bool zest_CopyBitmapToImage(zest_bitmap bitmap, zest_image_handle dst_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height) {
     zest_image dst_image = (zest_image)zest__get_store_resource_checked(dst_handle.context, dst_handle.value);
     int channels = bitmap->meta.channels;
     int bytes_per_pixel = bitmap->meta.bytes_per_pixel;
