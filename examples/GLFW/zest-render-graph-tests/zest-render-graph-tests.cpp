@@ -1,9 +1,8 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
 #define ZEST_TEST_MODE
-#include "zest.h"
 #include "zest-render-graph-tests.h"
-#include "zest_utilities.h"
+#include "zest.h"
 #include "imgui_internal.h"
 
 //Empty Graph: Compile and execute an empty render graph. It should do nothing and not crash.
@@ -352,9 +351,7 @@ void zest_VerifyBufferCompute(const zest_command_list command_list, void *user_d
 */
 int test__buffer_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidComputeHandle(tests->compute_write)) {
-		shaderc_compiler_t compiler = shaderc_compiler_initialize();
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/buffer_write.comp", "buffer_write.spv", shaderc_compute_shader, 1, compiler, 0);
-		shaderc_compiler_release(compiler);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
 		zest_SetComputeBindlessLayout(&builder, zest_GetGlobalBindlessLayout(tests->context));
 		zest_SetComputeUserData(&builder, tests);
@@ -368,9 +365,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 		}
 	}
 	if (!zest_IsValidComputeHandle(tests->compute_verify)) {
-		shaderc_compiler_t compiler = shaderc_compiler_initialize();
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/buffer_verify.comp", "buffer_verify.spv", shaderc_compute_shader, 1, compiler, 0);
-		shaderc_compiler_release(compiler);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/buffer_verify.comp", "buffer_verify.spv", zest_compute_shader, 1);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
 		zest_SetComputeBindlessLayout(&builder, zest_GetGlobalBindlessLayout(tests->context));
 		zest_SetComputeUserData(&builder, tests);
@@ -521,9 +516,7 @@ Image Write / Read(Clear Color) :
 */
 int test__image_read_write(ZestTests *tests, Test *test) {
 	if (!zest_IsValidComputeHandle(tests->compute_verify)) {
-		shaderc_compiler_t compiler = shaderc_compiler_initialize();
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/image_verify.comp", "image_verify.spv", shaderc_compute_shader, 1, compiler, 0);
-		shaderc_compiler_release(compiler);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/image_verify.comp", "image_verify.spv", zest_compute_shader, 1);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
 		zest_SetComputeBindlessLayout(&builder, zest_GetGlobalBindlessLayout(tests->context));
 		zest_SetComputeUserData(&builder, tests);
@@ -662,9 +655,7 @@ Multi-Queue Synchronization:
 */
 int test__multi_queue_sync(ZestTests *tests, Test *test) {
 	if (!zest_IsValidComputeHandle(tests->compute_write)) {
-		shaderc_compiler_t compiler = shaderc_compiler_initialize();
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/image_write2.comp", "image_write.spv", shaderc_compute_shader, 1, compiler, 0);
-		shaderc_compiler_release(compiler);
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/image_write2.comp", "image_write.spv", zest_compute_shader, 1);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
 		zest_SetComputeBindlessLayout(&builder, zest_GetGlobalBindlessLayout(tests->context));
 		zest_SetComputeUserData(&builder, tests);

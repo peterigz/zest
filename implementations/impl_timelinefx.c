@@ -125,7 +125,7 @@ void zest_tfx_UpdateTimelineFXImageData(tfx_render_resources_t *tfx_rendering, t
 	zest_buffer image_data_buffer = tfx_rendering->image_data;
 	tfx_gpu_shapes shapes = tfx_GetLibraryGPUShapes(library);
 	zest_buffer staging_buffer = zest_CreateStagingBuffer(tfx_GetGPUShapesSizeInBytes(shapes), tfx_GetGPUShapesArray(shapes));
-	zest_CopyBufferOneTime(staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
+	zest_imm_CopyBuffer(staging_buffer, image_data_buffer, tfx_GetGPUShapesSizeInBytes(shapes));
 	zest_FreeBuffer(staging_buffer);
 }
 

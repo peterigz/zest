@@ -45,7 +45,7 @@ void SetupBillboards(SimplePBRExample *app) {
 	zest_AddGlobalBindlessSetToResources(app->sprite_resources);
 }
 
-void zest_DispatchBRDSetup(const zest_command_list context, void *user_data) {
+void zest_DispatchBRDSetup(const zest_command_list command_list, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
 	const zest_uint local_size_x = 8;
@@ -56,19 +56,19 @@ void zest_DispatchBRDSetup(const zest_command_list context, void *user_data) {
 	};
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(context, app->brd_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, app->brd_compute, sets, 1);
 
 	zest_uint push;
 
 	push = app->brd_bindless_texture_index;
 
-	zest_cmd_SendCustomComputePushConstants(context, app->brd_compute, &push);
+	zest_cmd_SendCustomComputePushConstants(command_list, app->brd_compute, &push);
 
 	zest_uint group_count_x = (512 + local_size_x - 1) / local_size_x;
 	zest_uint group_count_y = (512 + local_size_y - 1) / local_size_y;
 
 	//Dispatch the compute shader
-	zest_cmd_DispatchCompute(context, app->brd_compute, group_count_x, group_count_y, 1);
+	zest_cmd_DispatchCompute(command_list, app->brd_compute, group_count_x, group_count_y, 1);
 }
 
 void SetupBRDFLUT(SimplePBRExample *app) {
@@ -97,7 +97,7 @@ void SetupBRDFLUT(SimplePBRExample *app) {
 	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
 }
 
-void zest_DispatchIrradianceSetup(const zest_command_list context, void *user_data) {
+void zest_DispatchIrradianceSetup(const zest_command_list command_list, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
 	const zest_uint local_size = 8;
@@ -107,7 +107,7 @@ void zest_DispatchIrradianceSetup(const zest_command_list context, void *user_da
 	};
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(context, app->irr_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, app->irr_compute, sets, 1);
 
 	app->irr_push_constant.source_env_index = app->skybox_bindless_texture_index;
 	app->irr_push_constant.irr_index = app->irr_bindless_texture_index;
@@ -117,14 +117,14 @@ void zest_DispatchIrradianceSetup(const zest_command_list context, void *user_da
 	app->irr_push_constant.delta_phi = delta_phi;
 	app->irr_push_constant.delta_theta = delta_theta;
 	
-	zest_cmd_SendCustomComputePushConstants(context, app->irr_compute, &app->irr_push_constant);
+	zest_cmd_SendCustomComputePushConstants(command_list, app->irr_compute, &app->irr_push_constant);
 
 	const zest_image_info_t *info = zest_ImageInfo(app->irr_texture);
 	zest_uint group_count_x = (info->extent.width + local_size - 1) / local_size;
 	zest_uint group_count_y = (info->extent.height + local_size - 1) / local_size;
 
 	//Dispatch the compute shader
-	zest_cmd_DispatchCompute(context, app->irr_compute, group_count_x, group_count_y, 6);
+	zest_cmd_DispatchCompute(command_list, app->irr_compute, group_count_x, group_count_y, 6);
 }
 
 void SetupIrradianceCube(SimplePBRExample *app) {
@@ -155,7 +155,7 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
 }
 
-void zest_DispatchPrefilteredSetup(const zest_command_list context, void *user_data) {
+void zest_DispatchPrefilteredSetup(const zest_command_list command_list, void *user_data) {
 	SimplePBRExample *app = (SimplePBRExample *)user_data;
 
 	const zest_uint local_size = 8;
@@ -165,7 +165,7 @@ void zest_DispatchPrefilteredSetup(const zest_command_list context, void *user_d
 	};
 
 	// Bind the pipeline once before the loop
-	zest_cmd_BindComputePipeline(context, app->prefiltered_compute, sets, 1);
+	zest_cmd_BindComputePipeline(command_list, app->prefiltered_compute, sets, 1);
 	
 	const zest_image_info_t *image_info = zest_ImageInfo(app->prefiltered_texture);
 
@@ -177,7 +177,7 @@ void zest_DispatchPrefilteredSetup(const zest_command_list context, void *user_d
 		app->prefiltered_push_constant.roughness = (float)m / (float)(image_info->mip_levels - 1);
 		app->prefiltered_push_constant.prefiltered_index = app->prefiltered_mip_indexes[m];
 
-		zest_cmd_SendCustomComputePushConstants(context, app->prefiltered_compute, &app->prefiltered_push_constant);
+		zest_cmd_SendCustomComputePushConstants(command_list, app->prefiltered_compute, &app->prefiltered_push_constant);
 
 		float mip_width = static_cast<float>(image_info->extent.width * powf(0.5f, (float)m));
 		float mip_height = static_cast<float>(image_info->extent.height * powf(0.5f, (float)m));
@@ -185,7 +185,7 @@ void zest_DispatchPrefilteredSetup(const zest_command_list context, void *user_d
 		zest_uint group_count_y = (zest_uint)ceilf(mip_height / local_size);
 
 		//Dispatch the compute shader
-		zest_cmd_DispatchCompute(context, app->prefiltered_compute, group_count_x, group_count_y, 6);
+		zest_cmd_DispatchCompute(command_list, app->prefiltered_compute, group_count_x, group_count_y, 6);
 	}
 }
 
@@ -657,6 +657,7 @@ int main(void) {
 	if (!glfwInit()) {
 		return 0;
 	}
+
 	SimplePBRExample imgui_app = {};
 	zest_uint count;
 	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);

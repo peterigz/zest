@@ -58,9 +58,9 @@ void InitComputeExample(ComputeExample *app) {
 	zest_buffer_info_t particle_vertex_buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
 	app->particle_buffer = zest_CreateBuffer(app->context, storage_buffer_size, &particle_vertex_buffer_info);
 	//Copy the staging buffer to the desciptor buffer
-	zest_BeginOneTimeCommandBuffer(app->context);
-	zest_CopyBufferOneTime(app->context, staging_buffer, app->particle_buffer, storage_buffer_size);
-	zest_EndOneTimeCommandBuffer(app->context);
+	zest_BeginImmediateCommandBuffer(app->context);
+	zest_imm_CopyBuffer(app->context, staging_buffer, app->particle_buffer, storage_buffer_size);
+	zest_EndImmediateCommandBuffer(app->context);
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 

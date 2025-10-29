@@ -1,6 +1,7 @@
 function(buildExample EXAMPLE_NAME)
     SET(EXAMPLE_FOLDER ${CMAKE_CURRENT_SOURCE_DIR}/${EXAMPLE_NAME})
 
+	include_directories(${CMAKE_SOURCE_DIR}/)
 	include_directories(${CMAKE_SOURCE_DIR}/implementations) 
 	include_directories(${CMAKE_SOURCE_DIR}/submodules/)
 
@@ -57,7 +58,7 @@ function(buildExample EXAMPLE_NAME)
     source_group("Shaders" FILES ${SHADERS})
     
     if(WIN32)
-        add_executable(${EXAMPLE_NAME} WIN32 ${MAIN} ${SOURCE} ${SLANG_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${MAIN_HEADER} ${SHADERS})
+        add_executable(${EXAMPLE_NAME} ${MAIN} ${SOURCE} ${SLANG_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${MAIN_HEADER} ${SHADERS})
     else(WIN32)
         add_executable(${EXAMPLE_NAME} ${MAIN} ${SOURCE} ${MAIN_HEADER} ${SLANG_SOURCE} ${IMPLEMENTATIONS_SOURCE} ${TIMELINEFX_SOURCE} ${SHADERS})
     endif(WIN32)
@@ -83,9 +84,9 @@ function(buildExample EXAMPLE_NAME)
     endif()
     
     if(WIN32)
-        target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY} ${WINLIBS})
+        target_link_libraries(${EXAMPLE_NAME} zest-interface ${Vulkan_LIBRARY} ${WINLIBS})
     else(WIN32)
-        target_link_libraries(${EXAMPLE_NAME} zest-lib ${Vulkan_LIBRARY})
+        target_link_libraries(${EXAMPLE_NAME} zest-interface ${Vulkan_LIBRARY})
     endif(WIN32)
     
     set_target_properties(${EXAMPLE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
@@ -93,8 +94,6 @@ function(buildExample EXAMPLE_NAME)
 endfunction(buildExample)
 
 set(EXAMPLES
-	zest-render-targets
-	zest-minimal-template
 	zest-instance-layers
 	zest-remove-images
 	zest-lines
