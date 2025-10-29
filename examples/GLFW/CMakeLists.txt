@@ -71,9 +71,7 @@ function(buildExample EXAMPLE_NAME)
 			${IMPLEMENTATIONS}impl_slang.hpp
 		)
 		source_group("ImGui" FILES ${IMGUI_SOURCE})
-	endif()
-
-	if(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR 
+	elseif(${EXAMPLE_NAME} STREQUAL "zest-vaders" OR 
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx" OR 
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-instanced-effects" OR 
 		${EXAMPLE_NAME} STREQUAL "zest-timelinefx-prerecorded-effects" OR 
@@ -87,7 +85,7 @@ function(buildExample EXAMPLE_NAME)
 			${IMPLEMENTATIONS}impl_timelinefx.c
 		)
 		source_group("ImGui" FILES ${IMGUI_SOURCE})
-	elseif(${EXAMPLE_NAME} STREQUAL "zest-compute-example")
+	elseif(${EXAMPLE_NAME} STREQUAL "zest-fonts")
 		SET(TIMELINEFX_SOURCE "")
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp

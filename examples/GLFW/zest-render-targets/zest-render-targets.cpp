@@ -29,6 +29,7 @@ void InitExample(render_target_app_t *example) {
 	zest_AddPipelineDescriptorLayout(example->composite_pipeline, zest_GetGlobalBindlessLayout(example->context));
 	zest_SetPipelinePushConstantRange(example->composite_pipeline, sizeof(CompositePushConstants), zest_shader_fragment_stage);
     zest_SetPipelineBlend(example->composite_pipeline, zest_AdditiveBlendState());
+	zest_SetPipelineDisableVertexInput(example->composite_pipeline);
 
 	example->render_target_resources = zest_CreateShaderResources(example->context);
 	zest_AddGlobalBindlessSetToResources(example->render_target_resources);
@@ -45,14 +46,6 @@ void InitExample(render_target_app_t *example) {
 
 	example->font_resources = zest_CreateFontResources(example->context, "shaders/font.vert", "shaders/font.frag");
 	example->font_layer = zest_CreateFontLayer(example->context, "MSDF Font Example Layer");
-
-	/*
-	example->composite_push_constants.tonemapping.x = 1.f;
-	example->composite_push_constants.tonemapping.y = 1.f;
-	example->composite_push_constants.tonemapping.z = 0.f;
-	example->composite_push_constants.tonemapping.w = 1.f;
-	example->composite_push_constants.composting.x = 0.1f;
-	*/
 
 	//Set up the compute shader for downsampling
 	//A builder is used to simplify the compute shader setup process
@@ -229,7 +222,6 @@ void Mainloop(render_target_app_t *example) {
 		knee = ZEST__CLAMP(knee, 0.f, 1.f) * .5f;
 		threshold = ZEST__CLAMP(threshold, 0.f, 2.f);
 
-		//example->composite_push_constants.composting.x = threshold;
 		example->bloom_constants.settings.x = threshold;
 		example->bloom_constants.settings.y = knee;
 		//example->downsampler->recorder->outdated[context->current_fif] = 1;
@@ -237,14 +229,17 @@ void Mainloop(render_target_app_t *example) {
 		//Set the font to use for the font layer
 		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
 		//Set the shadow and color
-		zest_SetLayerColor(example->font_layer, 255, 255, 255, 255);
+		zest_SetFontColor(&example->font, 1.f, 1.f, 1.f, 1.f);
 		//Draw the text
 		zest_DrawMSDFText(example->font_layer, "Basic Bloom Effect ...", zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .15f, .5f, .5f, 1.f, 0.f);
-		zest_SetLayerColor(example->font_layer, 0, 255, 0, 255);
+		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
+		zest_SetFontColor(&example->font, 0.f, 1.f, 0.f, 1.f);
 		zest_DrawMSDFText(example->font_layer, "Using down/up sampling", zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .35f, .5f, .5f, 1.f, 0.f);
-		zest_SetLayerColor(example->font_layer, 255, 0, 0, 255);
+		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
+		zest_SetFontColor(&example->font, 1.f, 0.f, 0.f, 1.f);
 		zest_DrawMSDFText(example->font_layer, "No thresholding just as is", zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .55f, .5f, .5f, 1.f, 0.f);
-		zest_SetLayerColor(example->font_layer, 0, 0, 255, 255);
+		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
+		zest_SetFontColor(&example->font, 0.f, 0.f, 1.f, 1.f);
 		zest_DrawMSDFText(example->font_layer, "With HDR texture", zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .75f, .5f, .5f, 1.f, 0.f);
 
 		zest_image_resource_info_t image_info = {
@@ -256,7 +251,7 @@ void Mainloop(render_target_app_t *example) {
 		};
 
 		zest_frame_graph_cache_key_t cache_key = {};
-		cache_key = zest_InitialiseCacheKey(example->context, 0, 0);
+		cache_key = zest_InitialiseCacheKey(example->context, &example->cache_info, sizeof(RenderCacheInfo));
 
 		//Create the render graph
 		zest_SetSwapchainClearColor(example->context, 0.f, .1f, .2f, 1.f);
@@ -330,11 +325,11 @@ void Mainloop(render_target_app_t *example) {
 					//End and execute the render graph
 					frame_graph = zest_EndFrameGraph();
 					zest_QueueFrameGraphForExecution(example->context, frame_graph);
-				} else {
-					zest_QueueFrameGraphForExecution(example->context, frame_graph);
 				}
-				zest_EndFrame(example->context);
+			} else {
+				zest_QueueFrameGraphForExecution(example->context, frame_graph);
 			}
+			zest_EndFrame(example->context);
 		}
 	}
 
@@ -345,7 +340,6 @@ void Mainloop(render_target_app_t *example) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main()
 {
-
 	//Make a config struct where you can configure zest with some options
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	//zest_create_info_t create_info = zest_CreateInfo();
@@ -362,6 +356,7 @@ int main()
 
 	//Start the Zest main loop
 	Mainloop(&app);
+	zest_FreeFont(&app.font);
 	zest_DestroyContext(app.context);
 
 	return 0;
