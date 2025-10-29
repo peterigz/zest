@@ -2222,6 +2222,7 @@ typedef enum zest_report_category {
 	zest_report_multiple_swapchains,
 	zest_report_cannot_execute,
 	zest_report_pipeline_invalid,
+	zest_report_no_frame_graphs_to_execute,
 } zest_report_category;
 
 typedef enum zest_binding_number_type {
@@ -3497,6 +3498,7 @@ typedef struct zest_destruction_queue_t {
 	void **resources[ZEST_MAX_FIF];
 	zest_image_t *images[ZEST_MAX_FIF];
 	zest_image_view_t *views[ZEST_MAX_FIF];
+	zest_image_view_array_t *view_arrays[ZEST_MAX_FIF];
 	zest_binding_index_for_release_t *binding_indexes[ZEST_MAX_FIF];
 } zest_destruction_queue_t;
 
@@ -3968,6 +3970,8 @@ ZEST_API_TMP zest_image_aspect_flags zest__determine_aspect_flag(zest_format for
 ZEST_PRIVATE void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint usage_hints);
 ZEST_PRIVATE void zest__deferr_resource_destruction(zest_context context, void *handle);
 ZEST_PRIVATE void zest__deferr_image_destruction(zest_context context, zest_image image);
+ZEST_PRIVATE void zest__deferr_view_destruction(zest_context context, zest_image_view view);
+ZEST_PRIVATE void zest__deferr_view_array_destruction(zest_context context, zest_image_view_array view_array);
 ZEST_PRIVATE zest_pass_node zest__add_pass_node(const char *name, zest_device_queue_type queue_type);
 ZEST_PRIVATE zest_resource_node zest__add_frame_graph_resource(zest_resource_node resource);
 ZEST_PRIVATE zest_resource_versions_t *zest__maybe_add_resource_version(zest_resource_node resource);
@@ -4798,7 +4802,7 @@ ZEST_PRIVATE inline void zest__add_host_memory_pool(zest_device device, zest_siz
 ZEST_PRIVATE inline void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 	void* allocation = zloc_Allocate(allocator, size);
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-	if (offset_from_allocator == 40735416) {
+	if (offset_from_allocator == 32732560) {
 		int d = 0;
 	}
 	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
@@ -5128,6 +5132,8 @@ ZEST_API void zest_SetPipelinePushConstantRange(zest_pipeline_template create_in
 ZEST_API void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, void *push_constants);
 ZEST_API void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, zest_color_blend_attachment_t blend_attachment);
 ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, bool enable_test, bool write_enable);
+ZEST_API void zest_SetPipelineEnableVertexInput(zest_pipeline_template pipeline_template);
+ZEST_API void zest_SetPipelineDisableVertexInput(zest_pipeline_template pipeline_template);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest__build_pipeline
 ZEST_API void zest_AddPipelineDescriptorLayout(zest_pipeline_template pipeline_template, zest_set_layout_handle layout);
 //Clear the descriptor layouts in a pipeline template create info
@@ -5212,9 +5218,6 @@ ZEST_API void zest_SetDeviceImagePoolSize(zest_device device, const char *name, 
 ZEST_API zest_uniform_buffer_handle zest_CreateUniformBuffer(zest_context context, const char *name, zest_size uniform_struct_size);
 //Free a uniform buffer and all it's resources
 ZEST_API void zest_FreeUniformBuffer(zest_uniform_buffer_handle uniform_buffer);
-//Standard builtin functions for updating a uniform buffer for use in 2d shaders where x,y coordinates represent a location on the screen. This will
-//update the current frame in flight. If you need to update a specific frame in flight then call zest_UpdateUniformBufferFIF.
-ZEST_API void zest_Update2dUniformBuffer(void);
 //Get a pointer to a uniform buffer. This will return a void* which you can cast to whatever struct your storing in the uniform buffer. This will get the buffer
 //with the current frame in flight index.
 ZEST_API void *zest_GetUniformBufferData(zest_uniform_buffer_handle uniform_buffer);
@@ -5517,6 +5520,8 @@ ZEST_API zest_uint zest_ImageDescriptorIndex(zest_image_handle image_handle, zes
 ZEST_API int zest_ImageRawLayout(zest_image_handle image_handle);
 //Begin a new image collection.
 ZEST_API void zest_AddImageCollectionPNG(zest_image_collection_handle image_collection, const char *filename);
+//Copies an area of a zest_bitmap to a zest_image.
+ZEST_API zest_bool zest_CopyBitmapToImage(zest_bitmap src_bitmap, zest_image_handle dst_image_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 
 // --Sampler functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
@@ -5847,13 +5852,24 @@ ZEST_API zest_uint zest_GetValidationErrorCount(zest_context context);
 ZEST_API void zest_ResetValidationErrors(zest_context context);
 //--End Debug Helpers
 
+//Helper functions for executing commands on the GPU immediately
+//For now this just handles buffer/image copying but will expand this as we go.
+ZEST_API void zest_BeginImmediateCommandBuffer(zest_context context);
+ZEST_API void zest_EndImmediateCommandBuffer(zest_context context);
+//Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
+//the size as well that you want to copy. Must be called inside a zest_BeginOneTimeCommandBuffer.
+ZEST_API zest_bool zest_imm_CopyBuffer(zest_context context, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+//Copies an area of a zest_texture to another zest_texture
+ZEST_API zest_bool zest_imm_CopyImageToImage(zest_image_handle src_image, zest_image_handle target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
+//Copies an area of a zest_texture to a zest_bitmap_t.
+ZEST_API zest_bool zest_imm_CopyTextureToBitmap(zest_image_handle src_image, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
+//Get the vertex staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
+
 //-----------------------------------------------
 // Command_buffer_functions
 // All these functions are called inside a frame graph context in callbacks in order to perform commands
 // on the GPU. These all require a platform specific implementation
 //-----------------------------------------------
-ZEST_API void zest_BeginOneTimeCommandBuffer(zest_context context);
-ZEST_API void zest_EndOneTimeCommandBuffer(zest_context context);
 ZEST_API void zest_cmd_BlitImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 ZEST_API void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 // -- Helper functions to insert barrier functions within pass callbacks
@@ -5876,9 +5892,6 @@ ZEST_API void zest_cmd_BindComputePipeline(const zest_command_list command_list,
 //you pass to the function. Pass in a manual frame in flight which will be used as the fif for any descriptor set in the shader
 //resource that is marked as static.
 ZEST_API void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle shader_resources);
-//Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
-//the size as well that you want to copy. Must be called inside a zest_BeginOneTimeCommandBuffer.
-ZEST_API zest_bool zest_CopyBufferOneTime(zest_context context, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 //Exactly the same as zest_CopyBuffer but you can specify a command buffer to use to make the copy. This can be useful if you are doing a
 //one off copy with a separate command buffer
 ZEST_API void zest_cmd_CopyBuffer(const zest_command_list command_list, zest_buffer staging_buffer, zest_buffer device_buffer, zest_size size);
@@ -5888,14 +5901,7 @@ ZEST_API void zest_cmd_BindVertexBuffer(const zest_command_list command_list, ze
 //Bind an index buffer. For use inside a draw routine callback function.
 ZEST_API void zest_cmd_BindIndexBuffer(const zest_command_list command_list, zest_buffer buffer);
 //Clear an image within a frame graph
-ZEST_API zest_bool zest_cmd_ImageClear(zest_image_handle image, const zest_command_list command_list);
-//Copies an area of a zest_texture to another zest_texture
-ZEST_API zest_bool zest_cmd_CopyImageToImage(zest_image_handle src_image, zest_image_handle target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
-//Copies an area of a zest_texture to a zest_bitmap_t.
-ZEST_API zest_bool zest_cmd_CopyTextureToBitmap(zest_image_handle src_image, zest_bitmap image, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
-//Copies an area of a zest_bitmap to a zest_image.
-ZEST_API zest_bool zest_cmd_CopyBitmapToImage(zest_bitmap src_bitmap, zest_image_handle dst_image_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
-//Get the vertex staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
+ZEST_API zest_bool zest_cmd_ImageClear(const zest_command_list command_list, zest_image_handle image);
 ZEST_API void zest_cmd_BindMeshVertexBuffer(const zest_command_list command_list, zest_layer_handle layer);
 ZEST_API void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_layer_handle layer);
 //Send custom push constants. Use inside a compute update command buffer callback function. The push constatns you pass in to the 
