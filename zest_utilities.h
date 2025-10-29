@@ -48,6 +48,7 @@ extern "C" {
 #endif
 
 //GLFW Header
+zest_device zest_implglfw_CreateDevice();
 zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int height, zest_bool maximised, const char *title);
 void zest_implglfw_GetWindowSizeCallback( void* native_window_handle, int* fb_width, int* fb_height, int* window_width, int* window_height );
 void zest_implglfw_DestroyWindow(zest_context context);
@@ -148,7 +149,7 @@ typedef struct zest_stbi_mem_context_t {
 
 ZEST_PRIVATE void* zest__msdf_allocation(size_t size, void* ctx);
 ZEST_PRIVATE void zest__msdf_free(void* ptr, void* ctx);
-ZEST_API zest_font_resources_t zest_CreateFontResources(zest_context context);
+ZEST_API zest_font_resources_t zest_CreateFontResources(zest_context context, const char *vert_shader, const char *frag_shader);
 ZEST_API zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name);
 ZEST_API zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_uint font_sampler_binding_index, float font_size, float sdf_range);
 ZEST_API void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename);
@@ -172,6 +173,23 @@ ZEST_API void zest_UpdateFontUniformBuffer(zest_uniform_buffer_handle handle);
 #endif
 
 #ifdef GLFW_VERSION_MAJOR
+zest_device zest_implglfw_CreateDevice() {
+	if (!glfwInit()) {
+		return 0;
+	}
+
+	zest_uint count;
+	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
+
+	//Create the device that serves all vulkan based contexts
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+	zest_AddDeviceBuilderValidation(device_builder);
+	zest_DeviceBuilderLogToConsole(device_builder);
+	zest_device device = zest_EndDeviceBuilder(device_builder);
+
+	return device;
+}
 
 zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int height, zest_bool maximised, const char *title) {
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -666,10 +684,10 @@ void zest__msdf_free(void* ptr, void* ctx) {
     zest_FreeMemory(context, ptr);
 }
 
-zest_font_resources_t zest_CreateFontResources(zest_context context) {
+zest_font_resources_t zest_CreateFontResources(zest_context context, const char *vert_shader, const char *frag_shader) {
 	//Create and compile the shaders for our custom sprite pipeline
-	zest_shader_handle font_vert = zest_CreateShaderFromFile(context, "shaders/font.vert", "font_vert.spv", zest_vertex_shader, true);
-	zest_shader_handle font_frag = zest_CreateShaderFromFile(context, "shaders/font.frag", "font_frag.spv", zest_fragment_shader, true);
+	zest_shader_handle font_vert = zest_CreateShaderFromFile(context, vert_shader, "font_vert.spv", zest_vertex_shader, true);
+	zest_shader_handle font_frag = zest_CreateShaderFromFile(context, frag_shader, "font_frag.spv", zest_fragment_shader, true);
 
 	//Create a pipeline that we can use to draw billboards
 	zest_pipeline_template font_pipeline = zest_BeginPipelineTemplate(context, "pipeline_billboard");
@@ -856,7 +874,7 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 	zest_image_info_t image_info = zest_CreateImageInfo(font_bitmap->meta.width, font_bitmap->meta.height);
 	image_info.flags = zest_image_preset_texture;
 	font.font_image = zest_CreateImage(context, &image_info);
-	zest_cmd_CopyBitmapToImage(font_bitmap, font.font_image, 0, 0, 0, 0, font_bitmap->meta.width, font_bitmap->meta.height);
+	zest_CopyBitmapToImage(font_bitmap, font.font_image, 0, 0, 0, 0, font_bitmap->meta.width, font_bitmap->meta.height);
 	zest_FreeBitmap(font_bitmap);
 
 	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(font.font_image, zest_texture_array_binding);
