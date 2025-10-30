@@ -1,8 +1,7 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#include <zest.h>
 #include "zest-compute-example.h"
-#include "zest_utilities.h"
+#include <zest.h>
 #include "imgui_internal.h"
 #include "impl_slang.hpp"
 #include <random>
@@ -75,9 +74,9 @@ void InitComputeExample(ComputeExample *app) {
 	*/
 	zest_slang_InitialiseSession(app->context);
 	const char *path = "examples/GLFW/zest-compute-example/shaders/particle.slang";
-	zest_shader_handle frag_shader = zest_slang_CreateShader(app->context, path, "particle_frag.spv", "fragmentMain", shaderc_fragment_shader, false);
-	zest_shader_handle vert_shader = zest_slang_CreateShader(app->context, path, "particle_vert.spv", "vertexMain", shaderc_vertex_shader, false);
-	zest_shader_handle comp_shader = zest_slang_CreateShader(app->context, path, "particle_comp.spv", "computeMain", shaderc_compute_shader, false);
+	zest_shader_handle frag_shader = zest_slang_CreateShader(app->context, path, "particle_frag.spv", "fragmentMain", zest_fragment_shader, false);
+	zest_shader_handle vert_shader = zest_slang_CreateShader(app->context, path, "particle_vert.spv", "vertexMain", zest_vertex_shader, false);
+	zest_shader_handle comp_shader = zest_slang_CreateShader(app->context, path, "particle_comp.spv", "computeMain", zest_compute_shader, false);
 
 	assert(frag_shader.value && vert_shader.value && comp_shader.value);
 
@@ -186,10 +185,25 @@ void UpdateComputeUniformBuffers(ComputeExample *app) {
 }
 
 void MainLoop(ComputeExample *app) {
+	zest_microsecs running_time = zest_Microsecs();
+	zest_microsecs frame_time = 0;
+	zest_uint frame_count = 0;
+	zest_uint fps = 0;
+
 	zest_microsecs last_time = zest_Microsecs();
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		zest_microsecs elapsed = zest_Microsecs() - last_time;
 		last_time = zest_Microsecs();
+
+		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
+		running_time = zest_Microsecs();
+		frame_time += current_frame_time;
+		frame_count += 1;
+		if (frame_time >= ZEST_MICROSECS_SECOND) {
+			frame_time -= ZEST_MICROSECS_SECOND;
+			fps = frame_count;
+			frame_count = 0;
+		}
 
 		glfwPollEvents();
 		//Don't forget to update the uniform buffer!
@@ -216,6 +230,7 @@ void MainLoop(ComputeExample *app) {
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
 			ImGui::Begin("Test Window");
+			ImGui::Text("FPS: %u", fps);
 			ImGui::Text("Particle Count: %u", PARTICLE_COUNT);
 			ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
 			if (ImGui::Button("Print Render Graph")) {
@@ -274,7 +289,7 @@ void MainLoop(ComputeExample *app) {
 				zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			}
 			if (app->request_graph_print) {
-				zest_PrintCompiledRenderGraph(frame_graph);
+				zest_PrintCompiledFrameGraph(frame_graph);
 				app->request_graph_print = false;
 			}
 			zest_EndFrame(app->context);
@@ -292,21 +307,9 @@ int main(void) {
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
-	if (!glfwInit()) {
-		return 0;
-	}
-
 	ComputeExample compute_example = { 0 };
 
-	zest_uint count;
-	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
-
-	//Create the device that serves all vulkan based contexts
-	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
-	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
-	zest_device device = zest_EndDeviceBuilder(device_builder);
+	zest_device device = zest_implglfw_CreateDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");

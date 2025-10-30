@@ -1,7 +1,7 @@
 #pragma once
 
-#include <zest.h>
 #include <GLFW/glfw3.h>
+#include <zest.h>
 #include "implementations/impl_imgui.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>

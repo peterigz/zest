@@ -151,16 +151,16 @@ inline int zest_slang_Compile(zest_context context, const char *shader_path, con
     return 0;
 }
 
-inline SlangStage zest__slang_GetStage(shaderc_shader_kind kind) {
-    switch (kind) {
-    case shaderc_vertex_shader:   return SLANG_STAGE_VERTEX;
-    case shaderc_fragment_shader: return SLANG_STAGE_FRAGMENT;
-    case shaderc_compute_shader:  return SLANG_STAGE_COMPUTE;
+inline SlangStage zest__slang_GetStage(zest_shader_type type) {
+    switch (type) {
+    case zest_vertex_shader:   return SLANG_STAGE_VERTEX;
+    case zest_fragment_shader: return SLANG_STAGE_FRAGMENT;
+    case zest_compute_shader:  return SLANG_STAGE_COMPUTE;
     default: return SLANG_STAGE_NONE;
     }
 }
 
-inline zest_shader_handle zest_slang_CreateShader(zest_context context, const char *shader_path, const char *name, const char *entry_point, shaderc_shader_kind type, bool disable_caching) {
+inline zest_shader_handle zest_slang_CreateShader(zest_context context, const char *shader_path, const char *name, const char *entry_point, zest_shader_type type, bool disable_caching) {
     zest_slang_compiled_shader compiled_shader;
     slang::ShaderReflection *reflection_info = nullptr;
 
@@ -173,9 +173,9 @@ inline zest_shader_handle zest_slang_CreateShader(zest_context context, const ch
     const char *final_entry_point = entry_point;
     if (!final_entry_point) {
         switch (type) {
-        case shaderc_vertex_shader: final_entry_point = "vertexMain"; break;
-        case shaderc_fragment_shader: final_entry_point = "fragmentMain"; break;
-        case shaderc_compute_shader: final_entry_point = "computeMain"; break;
+        case zest_vertex_shader: final_entry_point = "vertexMain"; break;
+        case zest_fragment_shader: final_entry_point = "fragmentMain"; break;
+        case zest_compute_shader: final_entry_point = "computeMain"; break;
 			default: ZEST_APPEND_LOG(context->device->log_path.str, "No default entry point for shader type."); return {};
         }
     }
