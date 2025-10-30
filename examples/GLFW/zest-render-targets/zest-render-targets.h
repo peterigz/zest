@@ -41,6 +41,7 @@ struct render_target_app_t {
 	zest_font_resources_t font_resources;
 	BloomPushConstants bloom_constants;		        //The push constants containing the bloom thresholds
 	RenderCacheInfo cache_info;
+	zest_timer_handle timer;
 
 	double mouse_x, mouse_y;
 	double mouse_delta_x, mouse_delta_y;

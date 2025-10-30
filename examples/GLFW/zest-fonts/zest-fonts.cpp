@@ -65,7 +65,22 @@ void InitExample(zest_fonts_example *app) {
 }
 
 void MainLoop(zest_fonts_example *app) {
+	zest_microsecs running_time = zest_Microsecs();
+	zest_microsecs frame_time = 0;
+	zest_uint frame_count = 0;
+	zest_uint fps = 0;
+
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
+		running_time = zest_Microsecs();
+		frame_time += current_frame_time;
+		frame_count += 1;
+		if (frame_time >= ZEST_MICROSECS_SECOND) {
+			frame_time -= ZEST_MICROSECS_SECOND;
+			fps = frame_count;
+			frame_count = 0;
+		}
+
 		glfwPollEvents();
 		//We can use a timer to only update the gui every 60 times a second (or whatever you decide). This
 		//means that the buffers are uploaded less frequently and the command buffer is also re-recorded
@@ -95,7 +110,7 @@ void MainLoop(zest_fonts_example *app) {
 
 		zest_SetMSDFFontDrawing(app->font_layer, &app->font, &app->font_resources);
 		zest_SetLayerColor(app->font_layer, 255, 255, 255, 255);
-		zest_DrawMSDFText(app->font_layer, "This is a test 123456780 !£$%^&", 20.f, 150.f, .0f, 0.0f, app->font_size, 0.f);
+		zest_DrawMSDFText(app->font_layer, 20.f, 150.f, .0f, 0.0f, app->font_size, 0.f, "This is a test %u !£$%^&", fps);
 
 		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
 		zest_frame_graph_cache_key_t cache_key = {};
@@ -166,8 +181,8 @@ void MainLoop(zest_fonts_example *app) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
 	//Create new config struct for Zest
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	//zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfo();
+	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 
 	if (!glfwInit()) {
 		return 0;
@@ -181,8 +196,8 @@ int main(void) {
 	//Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
+	//zest_AddDeviceBuilderValidation(device_builder);
+	//zest_DeviceBuilderLogToConsole(device_builder);
 	zest_device device = zest_EndDeviceBuilder(device_builder);
 
 	//Create a window using GLFW
