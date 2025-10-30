@@ -48,7 +48,7 @@ extern "C" {
 #endif
 
 //GLFW Header
-zest_device zest_implglfw_CreateDevice();
+zest_device zest_implglfw_CreateDevice(zest_bool enable_validation);
 zest_window_data_t zest_implglfw_CreateWindow( int x, int y, int width, int height, zest_bool maximised, const char *title);
 void zest_implglfw_GetWindowSizeCallback( void* native_window_handle, int* fb_width, int* fb_height, int* window_width, int* window_height );
 void zest_implglfw_DestroyWindow(zest_context context);
@@ -163,7 +163,7 @@ ZEST_API void zest_SetFontShadowOffset(zest_msdf_font_t *font, float x, float y)
 ZEST_API void zest_FreeFont(zest_msdf_font_t *font);
 ZEST_API float zest_TextWidth(zest_msdf_font_t *font, const char* text, float font_size, float letter_spacing);
 ZEST_API void zest_SetMSDFFontDrawing(zest_layer_handle layer_handle, zest_msdf_font_t *font, zest_font_resources_t *font_resources);
-ZEST_API float zest_DrawMSDFText(zest_layer_handle layer_handle, const char* text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing);
+ZEST_API float zest_DrawMSDFText(zest_layer_handle layer_handle, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, const char* format, ...);
 ZEST_API void zest_UpdateFontUniformBuffer(zest_uniform_buffer_handle handle);
 
 #ifdef __cplusplus
@@ -173,7 +173,7 @@ ZEST_API void zest_UpdateFontUniformBuffer(zest_uniform_buffer_handle handle);
 #endif
 
 #ifdef GLFW_VERSION_MAJOR
-zest_device zest_implglfw_CreateDevice() {
+zest_device zest_implglfw_CreateDevice(zest_bool enable_validation) {
 	if (!glfwInit()) {
 		return 0;
 	}
@@ -184,8 +184,10 @@ zest_device zest_implglfw_CreateDevice() {
 	//Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
+	if (enable_validation) {
+		zest_AddDeviceBuilderValidation(device_builder);
+		zest_DeviceBuilderLogToConsole(device_builder);
+	}
 	zest_device device = zest_EndDeviceBuilder(device_builder);
 
 	return device;
@@ -663,6 +665,9 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
 
 #endif
 
+#include <stdarg.h>
+#include <stdio.h>
+
 #ifdef ZEST_MSDF_IMPLEMENTATION
 
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -978,7 +983,7 @@ void zest_SetMSDFFontDrawing(zest_layer_handle layer_handle, zest_msdf_font_t *f
     layer->last_draw_mode = zest_draw_mode_text;
 }
 
-float zest_DrawMSDFText(zest_layer_handle layer_handle, const char* text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing) {
+float zest__draw_msdf_text(zest_layer_handle layer_handle, const char* text, float x, float y, float handle_x, float handle_y, float size, float letter_spacing) {
 	zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_text);        //Call zest_StartFontDrawing before calling this function
 
@@ -1024,6 +1029,16 @@ float zest_DrawMSDFText(zest_layer_handle layer_handle, const char* text, float 
     }
 
     return xpos;
+}
+
+float zest_DrawMSDFText(zest_layer_handle layer_handle, float x, float y, float handle_x, float handle_y, float size, float letter_spacing, const char* format, ...) {
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    return zest__draw_msdf_text(layer_handle, buffer, x, y, handle_x, handle_y, size, letter_spacing);
 }
 
 void zest_UpdateFontUniformBuffer(zest_uniform_buffer_handle handle) {

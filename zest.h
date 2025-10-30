@@ -40,7 +40,7 @@
         [Descriptor_set_functions]
         [Device_set_up]
         [App_initialise_and_run_functions]
-        [Window_related_functions]
+		[Enum_to_string_functions]
 
     --API functions
     [Essential_setup_functions]         Functions for initialising Zest
@@ -839,11 +839,13 @@ static inline zloc_header *zloc__find_free_block(zloc_allocator *allocator, zloc
     format == zest_format_r32g32_sfloat || \
     format == zest_format_r32g32b32a32_sfloat \
 )
+#define ZEST_TEST_MODE
 
 
 #else
 #pragma message("ZEST_ASSERT is disabled because NDEBUG is defined.")
 #define ZEST_ASSERT(...) (void)0
+#define ZEST_ASSERT_TILING_FORMAT(format) void(0)
 #endif
 
 #endif
@@ -4094,8 +4096,8 @@ ZEST_API zest_uint zest_GetFrameGraphSubmissionBatchCount(zest_frame_graph frame
 ZEST_API zest_uint zest_GetSubmissionBatchPassCount(const zest_submission_batch_t *batch);
 ZEST_API const zest_submission_batch_t *zest_GetFrameGraphSubmissionBatch(zest_frame_graph frame_graph, zest_uint submission_index, zest_uint batch_index);
 ZEST_API const zest_pass_group_t *zest_GetFrameGraphFinalPass(zest_frame_graph frame_graph, zest_uint pass_index);
-ZEST_API void zest_PrintCompiledRenderGraph(zest_frame_graph frame_graph);
-ZEST_API void zest_PrintCachedRenderGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
+ZEST_API void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph);
+ZEST_API void zest_PrintCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key);
 
 // --- [Swapchain_helpers]
 ZEST_API zest_swapchain zest_GetSwapchain(zest_context context);
@@ -4582,7 +4584,6 @@ typedef struct zest_platform_t {
 		zest_access_flags src_access, zest_access_flags dst_access, zest_image_layout old_layout, zest_image_layout new_layout,
 		zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
 	void                       (*validate_barrier_pipeline_stages)(zest_execution_barriers_t *barriers);
-	void                       (*print_compiled_frame_graph)(zest_frame_graph frame_graph);
 	zest_bool                  (*present_frame)(zest_context context);
 	zest_bool                  (*dummy_submit_for_present_only)(zest_context context);
 	zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
@@ -4676,6 +4677,9 @@ typedef struct zest_platform_t {
 	void 					   (*cleanup_sampler_backend)(zest_sampler sampler);
 	void 					   (*cleanup_queue_backend)(zest_device device, zest_queue sampler);
 	void 					   (*cleanup_set_layout_backend)(zest_set_layout sampler);
+	//Debugging
+	void*                      (*get_final_signal_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
+	void*                      (*get_final_wait_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 } zest_platform_t;
 
 typedef struct zest_context_t {
@@ -4960,6 +4964,12 @@ ZEST_PRIVATE void zest__do_scheduled_tasks(zest_context context);
 ZEST_PRIVATE void zest__destroy(zest_context context);
 ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait(zest_context context);
 //-- end of internal functions
+
+// Enum_to_string_functions - Helper functions to convert enums to strings 
+ZEST_PRIVATE const char *zest__image_layout_to_string(zest_image_layout layout);
+ZEST_PRIVATE zest_text_t zest__access_flags_to_string(zest_context context, zest_access_flags flags);
+ZEST_PRIVATE zest_text_t zest__pipeline_stage_flags_to_string(zest_context context, zest_pipeline_stage_flags flags);
+// -- end Enum_to_string_functions
 
 //User API functions
 
@@ -6806,7 +6816,7 @@ static void zest__inflator_inflate(zloc_allocator *allocator, zest_inflator_t* i
         else zest__inflate_huffman_block(allocator, inflator, *out, &pos, &in[inpos], &bp, zest_vec_size(in), BTYPE);
     }
     if (!inflator->error) {
-		zest_vec_resize(allocator, out, pos);
+		zest_vec_resize(allocator, *out, pos);
     }
 }
 

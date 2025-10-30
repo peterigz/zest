@@ -118,11 +118,6 @@ ZEST_PRIVATE zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain
 ZEST_PRIVATE VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData);
 ZEST_PRIVATE VkResult zest__vk_create_debug_messenger(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger);
 
-// Helper functions to convert enums to strings 
-ZEST_PRIVATE const char *zest__vk_image_layout_to_string(VkImageLayout layout);
-ZEST_PRIVATE zest_text_t zest__vk_access_flags_to_string(zest_context context, VkAccessFlags flags);
-ZEST_PRIVATE zest_text_t zest__vk_pipeline_stage_flags_to_string(zest_context context, VkPipelineStageFlags flags);
-
 //Buffers and memory
 ZEST_PRIVATE zest_bool zest__vk_create_buffer_memory_pool(zest_context context, zest_size size, zest_buffer_info_t *buffer_info, zest_device_memory_pool memory_pool, const char *name);
 ZEST_PRIVATE zest_bool zest__vk_create_image_memory_pool(zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
@@ -239,9 +234,10 @@ ZEST_PRIVATE void zest__vk_add_image_barrier(zest_resource_node resource, zest_e
 ZEST_PRIVATE void zest__vk_add_memory_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access, 
 				zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage);
 ZEST_PRIVATE void zest__vk_validate_barrier_pipeline_stages(zest_execution_barriers_t *barriers);
-ZEST_PRIVATE void* zest__vk_new_execution_barriers_backend(zloc_linear_allocator_t *allocator);
+ZEST_PRIVATE void *zest__vk_new_execution_barriers_backend(zloc_linear_allocator_t *allocator);
 ZEST_PRIVATE void zest__vk_cleanup_frame_graph_semaphore(zest_context context, zest_frame_graph_semaphores semaphores);
-ZEST_PRIVATE void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph);
+ZEST_PRIVATE void *zest__vk_get_final_signal_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
+ZEST_PRIVATE void *zest__vk_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
 
 ZEST_API zest_device_builder zest_BeginVulkanDeviceBuilder();
 
@@ -427,7 +423,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->add_frame_graph_buffer_barrier             = zest__vk_add_memory_buffer_barrier;
     platform->add_frame_graph_image_barrier              = zest__vk_add_image_barrier;
     platform->validate_barrier_pipeline_stages           = zest__vk_validate_barrier_pipeline_stages;
-    platform->print_compiled_frame_graph                 = zest__vk_print_compiled_frame_graph;
     platform->present_frame                              = zest__vk_present_frame;
     platform->dummy_submit_for_present_only              = zest__vk_dummy_submit_for_present_only;
     platform->acquire_swapchain_image                    = zest__vk_acquire_swapchain_image;
@@ -519,7 +514,11 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	platform->cleanup_set_layout_backend				    = zest__vk_cleanup_set_layout_backend;
 	platform->cleanup_pipeline_backend 					= zest__vk_cleanup_pipeline_backend;
 	platform->cleanup_sampler_backend 					= zest__vk_cleanup_sampler_backend;
-	platform->cleanup_queue_backend 					    = zest__vk_cleanup_queue_backend;
+	platform->cleanup_queue_backend 					= zest__vk_cleanup_queue_backend;
+
+	//Debugging
+    platform->get_final_signal_ptr                      = zest__vk_get_final_signal_ptr;
+    platform->get_final_wait_ptr                        = zest__vk_get_final_wait_ptr;
 }
 
 // -- Error_logging
@@ -613,104 +612,6 @@ zest_text_t zest__vk_queue_flags_to_string(zest_device device, VkQueueFlags flag
     return string;
 }
 
-const char *zest__vk_image_layout_to_string(VkImageLayout layout) {
-    switch (layout) {
-    case VK_IMAGE_LAYOUT_UNDEFINED: return "UNDEFINED"; break;
-    case VK_IMAGE_LAYOUT_GENERAL: return "GENERAL"; break;
-    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL: return "COLOR_ATTACHMENT_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL: return "DEPTH_STENCIL_ATTACHMENT_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL: return "DEPTH_STENCIL_READ_ONLY_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL: return "SHADER_READ_ONLY_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL: return "TRANSFER_SRC_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL: return "TRANSFER_DST_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_PREINITIALIZED: return "PREINITIALIZED"; break;
-    case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL: return "DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL: return "DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL: return "DEPTH_ATTACHMENT_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL: return "DEPTH_READ_ONLY_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL: return "STENCIL_ATTACHMENT_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL: return "STENCIL_READ_ONLY_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL: return "READ_ONLY_OPTIMAL"; break;
-    case VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL: return "ATTACHMENT_OPTIMAL"; break;
-    default: return "Unknown Layout";
-    }
-}
-
-zest_text_t zest__vk_access_flags_to_string(zest_context context, VkAccessFlags flags) {
-    zest_text_t string = ZEST__ZERO_INIT(zest_text_t);
-    if (!flags) {
-        zest_AppendTextf(context->device->allocator, &string, "%s", "NONE");
-        return string;
-    }
-    zloc_size flags_field = flags;
-    while (flags_field) {
-        if (zest_TextSize(&string)) {
-            zest_AppendTextf(context->device->allocator, &string, ", ");
-        }
-        zest_uint index = zloc__scan_forward(flags_field);
-        switch (1ull << index) {
-        case VK_ACCESS_INDIRECT_COMMAND_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "INDIRECT_COMMAND_READ_BIT"); break;
-        case VK_ACCESS_INDEX_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "INDEX_READ_BIT"); break;
-        case VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "VERTEX_ATTRIBUTE_READ_BIT"); break;
-        case VK_ACCESS_UNIFORM_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "UNIFORM_READ_BIT"); break;
-        case VK_ACCESS_INPUT_ATTACHMENT_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "INPUT_ATTACHMENT_READ_BIT"); break;
-        case VK_ACCESS_SHADER_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "SHADER_READ_BIT"); break;
-        case VK_ACCESS_SHADER_WRITE_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "SHADER_WRITE_BIT"); break;
-        case VK_ACCESS_COLOR_ATTACHMENT_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "COLOR_ATTACHMENT_READ_BIT"); break;
-        case VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "COLOR_ATTACHMENT_WRITE_BIT"); break;
-        case VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "DEPTH_STENCIL_ATTACHMENT_READ_BIT"); break;
-        case VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "DEPTH_STENCIL_ATTACHMENT_WRITE_BIT"); break;
-        case VK_ACCESS_TRANSFER_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "TRANSFER_READ_BIT"); break;
-        case VK_ACCESS_TRANSFER_WRITE_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "TRANSFER_WRITE_BIT"); break;
-        case VK_ACCESS_HOST_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "HOST_READ_BIT"); break;
-        case VK_ACCESS_HOST_WRITE_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "HOST_WRITE_BIT"); break;
-        case VK_ACCESS_MEMORY_READ_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "MEMORY_READ_BIT"); break;
-        case VK_ACCESS_MEMORY_WRITE_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "MEMORY_WRITE_BIT"); break;
-        case VK_ACCESS_NONE: zest_AppendTextf(context->device->allocator, &string, "%s", "NONE"); break;
-        default: zest_AppendTextf(context->device->allocator, &string, "%s", "Unknown Access Flags"); break;
-        }
-        flags_field &= ~(1ull << index);
-    }
-    return string;
-}
-
-zest_text_t zest__vk_pipeline_stage_flags_to_string(zest_context context, VkPipelineStageFlags flags) {
-    zest_text_t string = ZEST__ZERO_INIT(zest_text_t);
-    if (!flags) {
-        zest_AppendTextf(context->device->allocator, &string, "%s", "NONE");
-        return string;
-    }
-    zloc_size flags_field = flags;
-    while (flags_field) {
-        if (zest_TextSize(&string)) {
-            zest_AppendTextf(context->device->allocator, &string, ", ");
-        }
-        zest_uint index = zloc__scan_forward(flags_field);
-        switch (1ull << index) {
-        case VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "TOP_OF_PIPE_BIT"); break;
-        case VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "DRAW_INDIRECT_BIT"); break;
-        case VK_PIPELINE_STAGE_VERTEX_INPUT_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "VERTEX_INPUT_BIT"); break;
-        case VK_PIPELINE_STAGE_VERTEX_SHADER_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "VERTEX_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "TESSELLATION_CONTROL_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "TESSELLATION_EVALUATION_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "GEOMETRY_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "FRAGMENT_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "EARLY_FRAGMENT_TESTS_BIT"); break;
-        case VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "LATE_FRAGMENT_TESTS_BIT"); break;
-        case VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "COLOR_ATTACHMENT_OUTPUT_BIT"); break;
-        case VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "COMPUTE_SHADER_BIT"); break;
-        case VK_PIPELINE_STAGE_TRANSFER_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "TRANSFER_BIT"); break;
-        case VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "BOTTOM_OF_PIPE_BIT"); break;
-        case VK_PIPELINE_STAGE_HOST_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "HOST_BIT"); break;
-        case VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "ALL_GRAPHICS_BIT"); break;
-        case VK_PIPELINE_STAGE_ALL_COMMANDS_BIT: zest_AppendTextf(context->device->allocator, &string, "%s", "ALL_COMMANDS_BIT"); break;
-        case VK_PIPELINE_STAGE_NONE: zest_AppendTextf(context->device->allocator, &string, "%s", "NONE"); break;
-        default: zest_AppendTextf(context->device->allocator, &string, "%s", "Unknown Pipeline Stage"); break;
-        }
-        flags_field &= ~(1ull << index);
-    }
-    return string;
-}
 // -- End Enum_to_string_functions
 
 // -- Type_converters
@@ -2649,8 +2550,8 @@ zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_se
         binding_flag_list[i] = binding_flags;
     }
 
+	VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_create_info = ZEST__ZERO_INIT(VkDescriptorSetLayoutBindingFlagsCreateInfo);
     if (is_bindless) {
-        VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_create_info = ZEST__ZERO_INIT(VkDescriptorSetLayoutBindingFlagsCreateInfo);
         binding_flags_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
         binding_flags_create_info.bindingCount = layoutInfo.bindingCount;
         binding_flags_create_info.pBindingFlags = binding_flag_list;
@@ -4935,194 +4836,17 @@ zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uin
 // -- End Shader_compiling
 
 // -- Debug_functions
-void zest__vk_print_compiled_frame_graph(zest_frame_graph frame_graph) {
-	zest_context context = frame_graph->command_list.context;
-    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
-    ZEST_PRINT("--- frame graph Execution Plan, Current FIF: %i ---", context->current_fif);
-    if (!ZEST_VALID_HANDLE(frame_graph)) {
-        ZEST_PRINT("frame graph handle is NULL.");
-        return;
-    }
-
-    if (ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_is_compiled)) {
-        ZEST_PRINT("frame graph is not in a compiled state");
-        return;
-    }
-
-    ZEST_PRINT("Resource List: Total Resources: %u\n", zest_bucket_array_size(&frame_graph->resources));
-
-    zest_bucket_array_foreach(resource_index, frame_graph->resources) {
-		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
-        if (resource->type == zest_resource_type_buffer) {
-			ZEST_PRINT("Buffer: %s - Size: %zu", resource->name, resource->buffer_desc.size);
-        } else if (resource->type & zest_resource_type_image) {
-            ZEST_PRINT("Image: %s - VkImage: %p, Size: %u x %u", 
-                resource->name, resource->image.backend->vk_image,  
-                resource->image.info.extent.width, resource->image.info.extent.height);
-        } else if (resource->type == zest_resource_type_swap_chain_image) {
-            ZEST_PRINT("Image: %s - VkImage: %p", 
-                resource->name, resource->image.backend->vk_image);
-        }
-    }
-
-    ZEST_PRINT("");
-    ZEST_PRINT("Number of Submission Batches: %u\n", zest_vec_size(frame_graph->submissions));
-
-    zest_vec_foreach(submission_index, frame_graph->submissions) {
-        zest_wave_submission_t *wave_submission = &frame_graph->submissions[submission_index];
-		ZEST_PRINT("Wave Submission Index %i:", submission_index);
-        for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
-            zest_submission_batch_t *batch = &wave_submission->batches[queue_index];
-            if (!batch->magic) continue;
-            if (zest_map_valid_key(context->device->queue_names, batch->queue_family_index)) {
-                ZEST_PRINT("  Target Queue Family: %s - index: %u (VkQueue: %p)", *zest_map_at_key(context->device->queue_names, batch->queue_family_index), batch->queue_family_index, (void *)batch->queue->backend->vk_queue);
-            } else {
-                ZEST_PRINT("  Target Queue Family: %s - index: %u (VkQueue: %p)", "Ignored", batch->queue_family_index, (void *)batch->queue->backend->vk_queue);
-            }
-
-            // --- Print Wait Semaphores for the Batch ---
-            // (Your batch struct needs to store enough info for this, e.g., an array of wait semaphores and stages)
-            // For simplicity, assuming single wait_on_batch_semaphore for now, and you'd identify if it's external
-            if (batch->backend->final_wait_semaphores) {
-                // This stage should ideally be stored with the batch submission info by EndRenderGraph
-                ZEST_PRINT("  Waits on the following Semaphores:");
-                zest_vec_foreach(semaphore_index, batch->backend->final_wait_semaphores) {
-                    zest_text_t pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, zest__to_vk_pipeline_stage(batch->wait_stages[semaphore_index]));
-                    if (zest_vec_size(batch->wait_values) && batch->wait_values[semaphore_index] > 0) {
-                        ZEST_PRINT("     Timeline Semaphore: %p, Value: %zu at Stage: %s", (void *)batch->backend->final_wait_semaphores[semaphore_index], batch->wait_values[semaphore_index], pipeline_stages.str);
-                    } else {
-                        ZEST_PRINT("     Binary Semaphore:   %p at Stage: %s", (void *)batch->backend->final_wait_semaphores[semaphore_index], pipeline_stages.str);
-                    }
-                    zest_FreeText(context->device->allocator, &pipeline_stages);
-                }
-            } else {
-                ZEST_PRINT("  Does not wait on any semaphores.");
-            }
-
-            ZEST_PRINT("  Passes in this batch:");
-            zest_vec_foreach(batch_pass_index, batch->pass_indices) {
-                int pass_index = batch->pass_indices[batch_pass_index];
-                zest_pass_group_t *pass_node = &frame_graph->final_passes.data[pass_index];
-                zest_execution_details_t *exe_details = &pass_node->execution_details;
-
-                ZEST_PRINT("    Pass [%d] (QueueType: %d)",
-                    pass_index, pass_node->queue_info.queue_type);
-                zest_vec_foreach(pass_index, pass_node->passes) {
-                    ZEST_PRINT("       %s", pass_node->passes[pass_index]->name);
-                }
-
-                if (zest_vec_size(exe_details->barriers.backend->acquire_buffer_barriers) > 0 ||
-                    zest_vec_size(exe_details->barriers.backend->acquire_image_barriers) > 0) {
-                    zest_text_t overal_src_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, exe_details->barriers.backend->overall_src_stage_mask_for_acquire_barriers);
-                    zest_text_t overal_dst_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, exe_details->barriers.backend->overall_dst_stage_mask_for_acquire_barriers);
-                    ZEST_PRINT("      Acquire Barriers (Overall Pipeline Src Stages: %s, Dst Stages: %s):",
-                        overal_src_pipeline_stages.str,
-                        overal_dst_pipeline_stages.str);
-                    zest_FreeText(context->device->allocator, &overal_src_pipeline_stages);
-                    zest_FreeText(context->device->allocator, &overal_dst_pipeline_stages);
-
-                    ZEST_PRINT("        Images:");
-                    zest_vec_foreach(barrier_index, exe_details->barriers.backend->acquire_image_barriers) {
-                        VkImageMemoryBarrier *imb = &exe_details->barriers.backend->acquire_image_barriers[barrier_index];
-                        zest_resource_node image_resource = exe_details->barriers.acquire_image_barrier_nodes[barrier_index];
-                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(context, imb->srcAccessMask);
-                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(context, imb->dstAccessMask);
-                        ZEST_PRINT("            %s, Layout: %s -> %s, Access: %s -> %s, QFI: %u -> %u",
-                            image_resource->name,
-                            zest__vk_image_layout_to_string(imb->oldLayout), zest__vk_image_layout_to_string(imb->newLayout),
-                            src_access_mask.str, dst_access_mask.str,
-                            imb->srcQueueFamilyIndex, imb->dstQueueFamilyIndex);
-                        zest_FreeText(context->device->allocator, &src_access_mask);
-                        zest_FreeText(context->device->allocator, &dst_access_mask);
-                    }
-
-                    ZEST_PRINT("        Buffers:");
-                    zest_vec_foreach(barrier_index, exe_details->barriers.backend->acquire_buffer_barriers) {
-                        VkBufferMemoryBarrier *bmb = &exe_details->barriers.backend->acquire_buffer_barriers[barrier_index];
-                        zest_resource_node buffer_resource = exe_details->barriers.acquire_buffer_barrier_nodes[barrier_index];
-                        // You need a robust way to get resource_name from bmb->image
-                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(context, bmb->srcAccessMask);
-                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(context, bmb->dstAccessMask);
-                        ZEST_PRINT("            %s | Access: %s -> %s, QFI: %u -> %u, Size: %zu",
-                            buffer_resource->name,
-                            src_access_mask.str, dst_access_mask.str,
-                            bmb->srcQueueFamilyIndex, bmb->dstQueueFamilyIndex,
-                            buffer_resource->buffer_desc.size);
-                        zest_FreeText(context->device->allocator, &src_access_mask);
-                        zest_FreeText(context->device->allocator, &dst_access_mask);
-                    }
-                }
-
-                // Print Inputs and Outputs (simplified)
-                // ...
-
-                if (zest_vec_size(exe_details->color_attachments)) {
-                    ZEST_PRINT("      RenderArea: (%d,%d)-(%ux%u)",
-                        exe_details->render_area.offset.x, exe_details->render_area.offset.y,
-                        exe_details->render_area.extent.width, exe_details->render_area.extent.height);
-                    // Further detail: iterate VkRenderPassCreateInfo's attachments (if stored or re-derived)
-                    // and print each VkAttachmentDescription's load/store/layouts and clear values.
-                }
-
-                if (zest_vec_size(exe_details->barriers.backend->release_buffer_barriers) > 0 ||
-                    zest_vec_size(exe_details->barriers.backend->release_image_barriers) > 0) {
-                    zest_text_t overal_src_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, exe_details->barriers.backend->overall_src_stage_mask_for_release_barriers);
-                    zest_text_t overal_dst_pipeline_stages = zest__vk_pipeline_stage_flags_to_string(context, exe_details->barriers.backend->overall_dst_stage_mask_for_release_barriers);
-                    ZEST_PRINT("      Release Barriers (Overall Pipeline Src Stages: %s, Dst Stages: %s):",
-                        overal_src_pipeline_stages.str,
-                        overal_dst_pipeline_stages.str);
-                    zest_FreeText(context->device->allocator, &overal_src_pipeline_stages);
-                    zest_FreeText(context->device->allocator, &overal_dst_pipeline_stages);
-
-                    ZEST_PRINT("        Images:");
-                    zest_vec_foreach(barrier_index, exe_details->barriers.backend->release_image_barriers) {
-                        VkImageMemoryBarrier *imb = &exe_details->barriers.backend->release_image_barriers[barrier_index];
-                        zest_resource_node image_resource = exe_details->barriers.release_image_barrier_nodes[barrier_index];
-                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(context, imb->srcAccessMask);
-                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(context, imb->dstAccessMask);
-                        ZEST_PRINT("            %s, Layout: %s -> %s, Access: %s -> %s, QFI: %u -> %u",
-                            image_resource->name,
-                            zest__vk_image_layout_to_string(imb->oldLayout), zest__vk_image_layout_to_string(imb->newLayout),
-                            src_access_mask.str, dst_access_mask.str,
-                            imb->srcQueueFamilyIndex, imb->dstQueueFamilyIndex);
-                        zest_FreeText(context->device->allocator, &src_access_mask);
-                        zest_FreeText(context->device->allocator, &dst_access_mask);
-                    }
-
-                    ZEST_PRINT("        Buffers:");
-                    zest_vec_foreach(barrier_index, exe_details->barriers.backend->release_buffer_barriers) {
-                        VkBufferMemoryBarrier *bmb = &exe_details->barriers.backend->release_buffer_barriers[barrier_index];
-                        zest_resource_node buffer_resource = exe_details->barriers.release_buffer_barrier_nodes[barrier_index];
-                        // You need a robust way to get resource_name from bmb->image
-                        zest_text_t src_access_mask = zest__vk_access_flags_to_string(context, bmb->srcAccessMask);
-                        zest_text_t dst_access_mask = zest__vk_access_flags_to_string(context, bmb->dstAccessMask);
-                        ZEST_PRINT("            %s, Access: %s -> %s, QFI: %u -> %u, Size: %zu",
-                            buffer_resource->name,
-                            src_access_mask.str, dst_access_mask.str,
-                            bmb->srcQueueFamilyIndex, bmb->dstQueueFamilyIndex,
-                            buffer_resource->buffer_desc.size);
-                        zest_FreeText(context->device->allocator, &src_access_mask);
-                        zest_FreeText(context->device->allocator, &dst_access_mask);
-                    }
-                }
-            }
-
-            // --- Print Signal Semaphores for the Batch ---
-            if (batch->backend->final_signal_semaphores != 0) {
-                ZEST_PRINT("  Signal Semaphores:");
-                zest_vec_foreach(signal_index, batch->backend->final_signal_semaphores) {
-                    if (batch->signal_values[signal_index] > 0) {
-                        ZEST_PRINT("  Timeline Semaphore: %p, Value: %zu", (void *)batch->backend->final_signal_semaphores[signal_index], batch->signal_values[signal_index]);
-                    } else {
-                        ZEST_PRINT("  Binary Semaphore: %p", (void *)batch->backend->final_signal_semaphores[signal_index]);
-                    }
-                }
-            }
-            ZEST_PRINT(""); // End of batch
-        }
-    }
-	ZEST_PRINT("--- End of Report ---");
+void *zest__vk_get_final_signal_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index) {
+	ZEST_ASSERT(semaphore_index < zest_vec_size(batch->backend->final_signal_semaphores)); //Out of bounds index
+	return (void*)batch->backend->final_signal_semaphores[semaphore_index];
 }
+
+void *zest__vk_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index) {
+	ZEST_ASSERT(semaphore_index < zest_vec_size(batch->backend->final_wait_semaphores)); //Out of bounds index
+	return (void*)batch->backend->final_wait_semaphores[semaphore_index];
+}
+
+
 #endif
 // -- End Debug_functions
 
