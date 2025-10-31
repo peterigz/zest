@@ -2083,11 +2083,10 @@ typedef zest_uint zest_resource_usage_hint;
 typedef enum zest_frame_graph_flag_bits {
 	zest_frame_graph_flag_none = 0,
 	zest_frame_graph_expecting_swap_chain_usage = 1 << 0,
-	zest_frame_graph_force_on_graphics_queue = 1 << 1,
-	zest_frame_graph_is_compiled = 1 << 2,
-	zest_frame_graph_is_executed = 1 << 3,
-	zest_frame_graph_present_after_execute = 1 << 4,
-	zest_frame_graph_is_cached = 1 << 5,
+	zest_frame_graph_is_compiled = 1 << 1,
+	zest_frame_graph_is_executed = 1 << 2,
+	zest_frame_graph_present_after_execute = 1 << 3,
+	zest_frame_graph_is_cached = 1 << 4,
 } zest_frame_graph_flag_bits;
 
 typedef zest_uint zest_frame_graph_flags;
@@ -3836,6 +3835,7 @@ typedef struct zest_resource_node_t {
 
 typedef struct zest_pass_group_t {
 	zest_pass_queue_info_t queue_info;
+	zest_pass_queue_info_t compiled_queue_info;
 	zest_map_resource_usages inputs;
 	zest_map_resource_usages outputs;
 	zest_resource_node *transient_resources_to_create;
@@ -4025,7 +4025,6 @@ ZEST_API void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_
 // -- Creating and Executing the render graph
 ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_frame_graph_cache_key_t *cache_key);
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
-ZEST_API void zest_ForceFrameGraphOnGraphicsQueue();
 ZEST_API zest_frame_graph zest_EndFrameGraph();
 ZEST_API zest_frame_graph zest_EndFrameGraphAndWait();
 

@@ -4486,7 +4486,7 @@ void zest_QueueFrameGraphForExecution(zest_context context, zest_frame_graph fra
 	if (frame_graph->error_status == zest_fgs_success) {
 		zest_vec_linear_push(context->frame_graph_allocator[context->current_fif], context->frame_graphs, frame_graph);
 	} else {
-		ZEST__REPORT(context, zest_report_cyclic_dependency, zest_message_cannot_queue_for_execution, frame_graph->name);
+		ZEST__REPORT(context, zest_report_cannot_execute, zest_message_cannot_queue_for_execution, frame_graph->name);
 	}
 }
 
@@ -4515,11 +4515,6 @@ zest_bool zest_BeginFrameGraph(zest_context context, const char *name, zest_fram
 	ZEST__FLAG(context->flags, zest_context_flag_building_frame_graph);
 	zest__frame_graph_builder->frame_graph = frame_graph;
     return ZEST_TRUE;
-}
-
-void zest_ForceFrameGraphOnGraphicsQueue() {
-    ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);      //This function should only be called immediately after BeginRenderGraph/BeginRenderToScreen
-    ZEST__FLAG(zest__frame_graph_builder->frame_graph->flags, zest_frame_graph_force_on_graphics_queue);
 }
 
 zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to_check, zest_device_queue_type queue_family_capabilities) {
@@ -4698,7 +4693,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
                     resource->last_stage_mask, current_usage->stage_mask);
 				#endif
             }
-        } else if (ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_force_on_graphics_queue)) {
+        } else {
             //This resource already belongs to a queue which means that it's an imported resource
             //If the frame graph is on the graphics queue only then there's no need to acquire from a prior release.
             ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
@@ -4789,8 +4784,7 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
 			#endif
         }
     } else if (resource->flags & zest_resource_node_flag_imported
-        && current_state->queue_family_index != context->device->transfer_queue_family_index
-        && ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_force_on_graphics_queue)) {
+        && current_state->queue_family_index != context->device->transfer_queue_family_index) {
         //Maybe we add something for images here if it's needed.
     }
 }
@@ -4840,9 +4834,9 @@ Main compile phases:
 [Check_unused_resources_and_passes]
 [Set_producers_and_consumers]
 [Set_adjacency_list]
-[Process_dependency_queue]
-[Resource_journeys]
+[Create_execution_waves]
 [Create_command_batches]
+[Resource_journeys]
 [Calculate_lifetime_of_resources]
 [Create_semaphores]
 [Plan_transient_buffers]
@@ -5045,6 +5039,8 @@ zest_frame_graph zest__compile_frame_graph() {
             break;
         }
 
+		pass_node->compiled_queue_info = pass_node->queue_info;
+
         zest_map_foreach(j, pass_node->inputs) {
             zest_resource_usage_t *input_usage = &pass_node->inputs.data[j];
             zest_resource_node resource = input_usage->resource_node;
@@ -5134,6 +5130,8 @@ zest_frame_graph zest__compile_frame_graph() {
         }
     }
     
+	//[Create_execution_waves]
+	zest_execution_wave_t *initial_waves = 0;
     zest_execution_wave_t first_wave = ZEST__ZERO_INIT(zest_execution_wave_t);
     zest_uint pass_count = 0;
 
@@ -5148,18 +5146,29 @@ zest_frame_graph zest__compile_frame_graph() {
         }
     }
     if (pass_count > 0) {
-        zest_vec_linear_push(allocator, frame_graph->execution_waves, first_wave);
+		if (zloc__count_bits(first_wave.queue_bits) == 1) {
+			zest_vec_foreach(i, first_wave.pass_indices) {
+				zest_pass_group_t *pass = &frame_graph->final_passes.data[first_wave.pass_indices[i]];
+				if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
+					pass->compiled_queue_info.queue = &context->device->graphics_queue;
+					pass->compiled_queue_info.queue_family_index = context->device->graphics_queue_family_index;
+					pass->compiled_queue_info.queue_type = zest_queue_graphics;
+				}
+			}
+			first_wave.queue_bits = zest_queue_graphics;
+		}
+        zest_vec_linear_push(allocator, initial_waves, first_wave);
     }
 
     zest_uint current_wave_index = 0;
-    while (current_wave_index < zest_vec_size(frame_graph->execution_waves)) {
+    while (current_wave_index < zest_vec_size(initial_waves)) {
         zest_execution_wave_t next_wave = ZEST__ZERO_INIT(zest_execution_wave_t);
-        zest_execution_wave_t *current_wave = &frame_graph->execution_waves[current_wave_index];
+        zest_execution_wave_t *current_wave = &initial_waves[current_wave_index];
         next_wave.level = current_wave->level + 1;
         zest_vec_foreach(i, current_wave->pass_indices) {
-            int finished_pass_index = current_wave->pass_indices[i];
-            zest_vec_foreach(j, adjacency_list[finished_pass_index].pass_indices) {
-                int dependent_pass_index = adjacency_list[finished_pass_index].pass_indices[j];
+            int pass_index_of_current_wave = current_wave->pass_indices[i];
+            zest_vec_foreach(j, adjacency_list[pass_index_of_current_wave].pass_indices) {
+                int dependent_pass_index = adjacency_list[pass_index_of_current_wave].pass_indices[j];
                 dependency_count[dependent_pass_index]--;
                 if (dependency_count[dependent_pass_index] == 0) {
 					zest_pass_group_t *pass = &frame_graph->final_passes.data[dependent_pass_index];
@@ -5170,15 +5179,57 @@ zest_frame_graph zest__compile_frame_graph() {
             }
         }
         if (zest_vec_size(next_wave.pass_indices) > 0) {
-            zest_vec_linear_push(allocator, frame_graph->execution_waves, next_wave);
+			//If this wave is NOT an async wave (ie., only a single queue is used) then it should only
+			//use the graphics queue.
+			if (zloc__count_bits(next_wave.queue_bits) == 1) {
+				zest_vec_foreach(i, next_wave.pass_indices) {
+					zest_pass_group_t *pass = &frame_graph->final_passes.data[next_wave.pass_indices[i]];
+					if (pass->compiled_queue_info.queue_type != zest_queue_graphics) {
+						pass->compiled_queue_info.queue = &context->device->graphics_queue;
+						pass->compiled_queue_info.queue_family_index = context->device->graphics_queue_family_index;
+						pass->compiled_queue_info.queue_type = zest_queue_graphics;
+					}
+				}
+				next_wave.queue_bits = zest_queue_graphics;
+			}
+			zest_vec_linear_push(allocator, initial_waves, next_wave);
         }
         current_wave_index++;
     }
 
-    if (zest_vec_size(frame_graph->execution_waves) == 0) {
+    if (zest_vec_size(initial_waves) == 0) {
         //Nothing to send to the GPU!
         return frame_graph;
     }
+
+	for (zest_uint i = 0; i < zest_vec_size(initial_waves); ++i) {
+		zest_execution_wave_t *current_wave = &initial_waves[i];
+		if (current_wave->queue_bits == zest_queue_graphics) {
+			// This is a graphics wave. Start a new merged wave.
+			zest_execution_wave_t merged_wave = *current_wave;
+			// Look ahead to see how many subsequent waves are also graphics waves.
+			zest_uint waves_to_merge = 0;
+			for (zest_uint j = i + 1; j < zest_vec_size(initial_waves); ++j) {
+				if (initial_waves[j].queue_bits == zest_queue_graphics) {
+					// Merge the passes from the next graphics wave into our new merged_wave.
+					zest_vec_foreach(k, initial_waves[j].pass_indices) {
+						zest_vec_linear_push(allocator, merged_wave.pass_indices, initial_waves[j].pass_indices[k]);
+					}
+					waves_to_merge++;
+				} else {
+					// Stop when we hit a non-graphics (async) wave.
+					break;
+				}
+			}
+			// Add the big merged wave to our final list.
+			zest_vec_linear_push(allocator, frame_graph->execution_waves, merged_wave);
+			// Skip the outer loop ahead past the waves we just merged.
+			i += waves_to_merge;
+		} else {
+			// This is a true async wave (mixed queues), so add it to the list as-is.
+			zest_vec_linear_push(allocator, frame_graph->execution_waves, *current_wave);
+		}
+	}
 
     //Bug, pass count which is a count of all pass groups added to waves should equal the number of final passes.
     ZEST_ASSERT(pass_count == zest_map_size(frame_graph->final_passes));
@@ -5206,18 +5257,18 @@ zest_frame_graph zest__compile_frame_graph() {
             zest_vec_foreach(pass_index, wave->pass_indices) {
                 zest_uint current_pass_index = wave->pass_indices[pass_index];
                 zest_pass_group_t *pass = &frame_graph->final_passes.data[current_pass_index];
-                zest_uint qi = zloc__scan_reverse(pass->queue_info.queue_type);
+                zest_uint qi = zloc__scan_reverse(pass->compiled_queue_info.queue_type);
                 if (!current_submission.batches[qi].magic) {
                     current_submission.batches[qi].magic = zest_INIT_MAGIC(zest_struct_type_wave_submission);
                     current_submission.batches[qi].backend = (zest_submission_batch_backend)context->device->platform->new_submission_batch_backend(context);
-                    current_submission.batches[qi].queue = pass->queue_info.queue;
-                    current_submission.batches[qi].queue_family_index = pass->queue_info.queue_family_index;
-                    current_submission.batches[qi].timeline_wait_stage = pass->queue_info.timeline_wait_stage;
-                    current_submission.batches[qi].queue_type = pass->queue_info.queue_type;
+                    current_submission.batches[qi].queue = pass->compiled_queue_info.queue;
+                    current_submission.batches[qi].queue_family_index = pass->compiled_queue_info.queue_family_index;
+                    current_submission.batches[qi].timeline_wait_stage = pass->compiled_queue_info.timeline_wait_stage;
+                    current_submission.batches[qi].queue_type = pass->compiled_queue_info.queue_type;
                     current_submission.batches[qi].need_timeline_wait = interframe_has_waited[qi] ? ZEST_FALSE : ZEST_TRUE;
                     interframe_has_waited[qi] = ZEST_TRUE;
                 }
-				current_submission.queue_bits |= pass->queue_info.queue_type;
+				current_submission.queue_bits |= pass->compiled_queue_info.queue_type;
                 zest_vec_linear_push(allocator, current_submission.batches[qi].pass_indices, current_pass_index);
             }
             zest_vec_linear_push(allocator, frame_graph->submissions, current_submission);
@@ -5236,14 +5287,14 @@ zest_frame_graph zest__compile_frame_graph() {
                 if (!current_submission.batches[qi].magic) {
                     current_submission.batches[qi].magic = zest_INIT_MAGIC(zest_struct_type_wave_submission);
                     current_submission.batches[qi].backend = (zest_submission_batch_backend)context->device->platform->new_submission_batch_backend(context);
-                    current_submission.batches[qi].queue = pass->queue_info.queue;
-                    current_submission.batches[qi].queue_family_index = pass->queue_info.queue_family_index;
-                    current_submission.batches[qi].timeline_wait_stage = pass->queue_info.timeline_wait_stage;
-                    current_submission.batches[qi].queue_type = pass->queue_info.queue_type;
+                    current_submission.batches[qi].queue = pass->compiled_queue_info.queue;
+                    current_submission.batches[qi].queue_family_index = pass->compiled_queue_info.queue_family_index;
+                    current_submission.batches[qi].timeline_wait_stage = pass->compiled_queue_info.timeline_wait_stage;
+                    current_submission.batches[qi].queue_type = pass->compiled_queue_info.queue_type;
                     current_submission.batches[qi].need_timeline_wait = interframe_has_waited[qi] ? ZEST_FALSE : ZEST_TRUE;
                     interframe_has_waited[qi] = ZEST_TRUE;
                 }
-				current_submission.queue_bits = pass->queue_info.queue_type;
+				current_submission.queue_bits = pass->compiled_queue_info.queue_type;
                 zest_vec_linear_push(allocator, current_submission.batches[qi].pass_indices, current_pass_index);
             }
         }
@@ -5271,7 +5322,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 zest_vec_linear_push(allocator, frame_graph->pass_execution_order, current_pass);
 
                 zest_batch_key batch_key = ZEST__ZERO_INIT(zest_batch_key);
-                batch_key.current_family_index = current_pass->queue_info.queue_family_index;
+                batch_key.current_family_index = current_pass->compiled_queue_info.queue_family_index;
 
                 //Calculate_lifetime_of_resources and also create a state for each resource and plot
                 //it's journey through the frame graph so that the appropriate barriers and semaphores
@@ -5292,7 +5343,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     }
                     zest_resource_state_t state = ZEST__ZERO_INIT(zest_resource_state_t);
                     state.pass_index = current_pass_index;
-                    state.queue_family_index = current_pass->queue_info.queue_family_index;
+                    state.queue_family_index = current_pass->compiled_queue_info.queue_family_index;
                     state.usage = current_pass->inputs.data[input_idx];
                     state.submission_id = current_pass->submission_id;
                     zest_vec_linear_push(allocator, resource_node->journey, state);
@@ -5309,14 +5360,14 @@ zest_frame_graph zest__compile_frame_graph() {
                     }
                     zest_resource_state_t state = ZEST__ZERO_INIT(zest_resource_state_t);
                     state.pass_index = current_pass_index;
-                    state.queue_family_index = current_pass->queue_info.queue_family_index;
+                    state.queue_family_index = current_pass->compiled_queue_info.queue_family_index;
                     state.usage = current_pass->outputs.data[output_idx];
                     state.submission_id = current_pass->submission_id;
                     zest_vec_linear_push(allocator, resource_node->journey, state);
                     zest_vec_foreach(adjacent_index, adjacency_list[current_pass_index].pass_indices) {
                         zest_uint consumer_pass_index = adjacency_list[current_pass_index].pass_indices[adjacent_index];
                         batch_key.next_pass_indexes |= (1ull << consumer_pass_index);
-                        batch_key.next_family_indexes |= (1ull << frame_graph->final_passes.data[consumer_pass_index].queue_info.queue_family_index);
+                        batch_key.next_family_indexes |= (1ull << frame_graph->final_passes.data[consumer_pass_index].compiled_queue_info.queue_family_index);
                     }
                 }
                 execution_order_index++;
@@ -5499,7 +5550,7 @@ zest_frame_graph zest__compile_frame_graph() {
                                 resource->last_stage_mask, current_state->usage.stage_mask);
 							#endif
                         }
-                    } else if (ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_force_on_graphics_queue)) {
+                    } else {
                         //This resource already belongs to a queue which means that it's an imported resource
                         //If the frame graph is on the graphics queue only then there's no need to acquire from a prior release.
 
@@ -5583,8 +5634,7 @@ zest_frame_graph zest__compile_frame_graph() {
 						#endif
                     }
                 } else if (resource->flags & zest_resource_node_flag_release_after_use
-                    && current_state->queue_family_index != context->device->transfer_queue_family_index
-                    && ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_force_on_graphics_queue)) {
+                    && current_state->queue_family_index != context->device->transfer_queue_family_index) {
                     //Release the buffer so that it's ready to be acquired by any other queue in the next frame
                     //Release to the transfer queue by default (if it's not already on the transfer queue).
 					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, false,
@@ -5710,7 +5760,6 @@ zest_frame_graph zest_EndFrameGraph() {
     if (frame_graph->error_status != zest_fgs_critical_error) {
         zest__cache_frame_graph(frame_graph);
     } else {
-		zest_vec_pop(context->frame_graphs);
         ZEST__UNFLAG(context->flags, zest_context_flag_work_was_submitted);
     }
 
@@ -6140,7 +6189,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
                 zest_execution_details_t *exe_details = &pass_node->execution_details;
 
                 ZEST_PRINT("    Pass [%d] (QueueType: %d)",
-                    pass_index, pass_node->queue_info.queue_type);
+                    pass_index, pass_node->compiled_queue_info.queue_type);
                 zest_vec_foreach(pass_index, pass_node->passes) {
                     ZEST_PRINT("       %s", pass_node->passes[pass_index]->name);
                 }
@@ -6792,8 +6841,7 @@ zest_pass_node zest_BeginComputePass(zest_compute_handle compute_handle, const c
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT(!zest__frame_graph_builder->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
-    bool force_graphics_queue = (zest__frame_graph_builder->frame_graph->flags & zest_frame_graph_force_on_graphics_queue) > 0;
-    zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_compute);
+    zest_pass_node node = zest__add_pass_node(name, zest_queue_compute);
     zest_compute compute = (zest_compute)zest__get_store_resource_checked(compute_handle.context, compute_handle.value);
     node->compute = compute;
     node->queue_info.timeline_wait_stage = zest_pipeline_stage_compute_shader_bit;
@@ -6805,8 +6853,7 @@ zest_pass_node zest_BeginTransferPass(const char *name) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT(!zest__frame_graph_builder->current_pass);   //Already begun a pass. Make sure that you call zest_EndPass before starting a new one
-    bool force_graphics_queue = (zest__frame_graph_builder->frame_graph->flags & zest_frame_graph_force_on_graphics_queue) > 0;
-    zest_pass_node node = zest__add_pass_node(name, force_graphics_queue ? zest_queue_graphics : zest_queue_transfer);
+    zest_pass_node node = zest__add_pass_node(name, zest_queue_transfer);
     node->queue_info.timeline_wait_stage = zest_pipeline_stage_transfer_bit;
     zest__frame_graph_builder->current_pass = node;
     return node;
@@ -7325,10 +7372,15 @@ void zest_ConnectOutput(zest_resource_node resource) {
         //Buffer output
         switch (pass->type) {
         case zest_pass_type_graphics: {
-            ZEST_ASSERT(resource->type & zest_resource_type_is_image); //Resource must be an image buffer when used as output in a graphics pass
-            zest__add_pass_buffer_usage(pass, resource, zest_purpose_storage_buffer_write,
-                zest_pipeline_stage_color_attachment_output_bit, ZEST_TRUE);
+			if (resource->type & zest_resource_type_is_image) {
+				zest__add_pass_buffer_usage(pass, resource, zest_purpose_storage_image_write,
+											zest_pipeline_stage_color_attachment_output_bit, ZEST_TRUE);
+			} else {
+				zest__add_pass_buffer_usage(pass, resource, zest_purpose_transfer_buffer,
+											zest_pipeline_transfer_stage, ZEST_TRUE);
+			}
             break;
+
         }
         case zest_pass_type_compute: {
             zest__add_pass_buffer_usage(pass, resource, zest_purpose_storage_buffer_write,
@@ -7337,7 +7389,7 @@ void zest_ConnectOutput(zest_resource_node resource) {
         }
         case zest_pass_type_transfer: {
             zest__add_pass_buffer_usage(pass, resource, zest_purpose_transfer_buffer, 
-                zest_pipeline_compute_stage, ZEST_TRUE);
+                zest_pipeline_transfer_stage, ZEST_TRUE);
             break;
         }
         }
