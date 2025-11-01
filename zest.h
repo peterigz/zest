@@ -1389,6 +1389,8 @@ typedef enum {
 	zest_buffer_usage_shader_device_address_bit = 0x00020000,
 } zest_buffer_usage_flag_bits;
 
+typedef zest_uint zest_buffer_usage_flags;
+
 typedef enum zest_resource_state {
 	zest_resource_state_undefined,
 
@@ -1410,8 +1412,6 @@ typedef enum zest_resource_state {
 	zest_resource_state_uniform_buffer,
 	zest_resource_state_indirect_argument,
 } zest_resource_state;
-
-typedef zest_uint zest_buffer_usage_flags;
 
 typedef enum {
 	zest_memory_property_device_local_bit = 0x00000001,
@@ -2043,12 +2043,15 @@ typedef enum {
 	zest_resource_type_none = 0,
 	zest_resource_type_image = 1 << 0,
 	zest_resource_type_buffer = 1 << 1,
-	zest_resource_type_swap_chain_image = 1 << 2,
-	zest_resource_type_depth = 1 << 3,
-	//zest_resource_type_msaa              = 1 << 4,
+	zest_resource_type_vertex_buffer = 1 << 2,
+	zest_resource_type_index_buffer = 1 << 3,
+	zest_resource_type_swap_chain_image = 1 << 4,
+	zest_resource_type_depth = 1 << 5,
 	zest_resource_type_is_image = zest_resource_type_image | zest_resource_type_swap_chain_image | zest_resource_type_depth,
 	zest_resource_type_is_image_or_depth = zest_resource_type_image | zest_resource_type_depth
-} zest_resource_type;
+} zest_resource_type_bits;
+
+typedef zest_uint zest_resource_type;
 
 typedef enum zest_resource_node_flag_bits {
 	zest_resource_node_flag_none = 0,
@@ -2131,6 +2134,7 @@ typedef enum zest_pass_flag_bits {
 	zest_pass_flag_do_not_cull = 1 << 1,
 	zest_pass_flag_culled = 1 << 2,
 	zest_pass_flag_output_resolve = 1 << 3,
+	zest_pass_flag_outputs_to_swapchain = 1 << 4,
 } zest_pass_flag_bits;
 
 typedef enum zest_pass_type {
@@ -3857,7 +3861,7 @@ typedef struct zest_submission_batch_t {
 	zest_uint queue_family_index;
 	zest_device_queue_type queue_type;
 	zest_uint *pass_indices;
-	zest_bool waits_for_acquire_semaphore;
+	zest_bool outputs_to_swapchain;
 	zest_semaphore_reference_t *wait_semaphores;
 	zest_semaphore_reference_t *signal_semaphores;
 	zest_pipeline_stage_flags timeline_wait_stage;

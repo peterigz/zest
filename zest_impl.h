@@ -4593,7 +4593,7 @@ zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to
 }
 
 void zest__free_transient_resource(zest_resource_node resource) {
-    if (resource->type == zest_resource_type_buffer) {
+    if (resource->type & zest_resource_type_buffer) {
         zest_FreeBuffer(resource->storage_buffer);
         resource->storage_buffer = 0;
     } else if (resource->type & zest_resource_type_is_image_or_depth) {
@@ -4613,7 +4613,7 @@ zest_bool zest__create_transient_resource(zest_context context, zest_resource_no
         resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
 		zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
 		zest_vec_linear_push(context->frame_graph_allocator[context->current_fif], frame_graph->deferred_image_destruction, resource);
-    } else if (resource->type == zest_resource_type_buffer && resource->storage_buffer == NULL) {
+    } else if (ZEST__FLAGGED(resource->type, zest_resource_type_buffer) && resource->storage_buffer == NULL) {
         zest__create_transient_buffer(context, resource);
         if (!resource->storage_buffer) {
             return ZEST_FALSE;
@@ -4953,6 +4953,9 @@ zest_frame_graph zest__compile_frame_graph() {
 						frame_graph->error_status |= zest_fgs_critical_error;
 						return frame_graph;
                     }
+					if (ZEST__FLAGGED(usage->resource_node->type, zest_resource_type_swap_chain_image)) {
+						ZEST__FLAG(pass_group.flags, zest_pass_flag_outputs_to_swapchain);
+					}
                     if (usage->resource_node->reference_count > 0 || ZEST__FLAGGED(usage->resource_node->flags, zest_resource_node_flag_essential_output)) {
                         zest_map_insert_linear_key(allocator, pass_group.outputs, pass_node->outputs.map[output_index].key, *usage);
                     }
@@ -5258,16 +5261,19 @@ zest_frame_graph zest__compile_frame_graph() {
                 zest_uint current_pass_index = wave->pass_indices[pass_index];
                 zest_pass_group_t *pass = &frame_graph->final_passes.data[current_pass_index];
                 zest_uint qi = zloc__scan_reverse(pass->compiled_queue_info.queue_type);
-                if (!current_submission.batches[qi].magic) {
-                    current_submission.batches[qi].magic = zest_INIT_MAGIC(zest_struct_type_wave_submission);
-                    current_submission.batches[qi].backend = (zest_submission_batch_backend)context->device->platform->new_submission_batch_backend(context);
-                    current_submission.batches[qi].queue = pass->compiled_queue_info.queue;
-                    current_submission.batches[qi].queue_family_index = pass->compiled_queue_info.queue_family_index;
-                    current_submission.batches[qi].timeline_wait_stage = pass->compiled_queue_info.timeline_wait_stage;
-                    current_submission.batches[qi].queue_type = pass->compiled_queue_info.queue_type;
-                    current_submission.batches[qi].need_timeline_wait = interframe_has_waited[qi] ? ZEST_FALSE : ZEST_TRUE;
-                    interframe_has_waited[qi] = ZEST_TRUE;
-                }
+				if (!current_submission.batches[qi].magic) {
+					current_submission.batches[qi].magic = zest_INIT_MAGIC(zest_struct_type_wave_submission);
+					current_submission.batches[qi].backend = (zest_submission_batch_backend)context->device->platform->new_submission_batch_backend(context);
+					current_submission.batches[qi].queue = pass->compiled_queue_info.queue;
+					current_submission.batches[qi].queue_family_index = pass->compiled_queue_info.queue_family_index;
+					current_submission.batches[qi].queue_type = pass->compiled_queue_info.queue_type;
+					current_submission.batches[qi].need_timeline_wait = interframe_has_waited[qi] ? ZEST_FALSE : ZEST_TRUE;
+				}
+				current_submission.batches[qi].timeline_wait_stage |= pass->compiled_queue_info.timeline_wait_stage;
+				if (ZEST__FLAGGED(pass->flags, zest_pass_flag_outputs_to_swapchain)) {
+					current_submission.batches[qi].outputs_to_swapchain = ZEST_TRUE;
+				}
+				interframe_has_waited[qi] = ZEST_TRUE;
 				current_submission.queue_bits |= pass->compiled_queue_info.queue_type;
                 zest_vec_linear_push(allocator, current_submission.batches[qi].pass_indices, current_pass_index);
             }
@@ -5284,16 +5290,19 @@ zest_frame_graph zest__compile_frame_graph() {
             zest_vec_foreach(pass_index, wave->pass_indices) {
                 zest_uint current_pass_index = wave->pass_indices[pass_index];
                 zest_pass_group_t *pass = &frame_graph->final_passes.data[current_pass_index];
-                if (!current_submission.batches[qi].magic) {
-                    current_submission.batches[qi].magic = zest_INIT_MAGIC(zest_struct_type_wave_submission);
-                    current_submission.batches[qi].backend = (zest_submission_batch_backend)context->device->platform->new_submission_batch_backend(context);
-                    current_submission.batches[qi].queue = pass->compiled_queue_info.queue;
-                    current_submission.batches[qi].queue_family_index = pass->compiled_queue_info.queue_family_index;
-                    current_submission.batches[qi].timeline_wait_stage = pass->compiled_queue_info.timeline_wait_stage;
-                    current_submission.batches[qi].queue_type = pass->compiled_queue_info.queue_type;
-                    current_submission.batches[qi].need_timeline_wait = interframe_has_waited[qi] ? ZEST_FALSE : ZEST_TRUE;
-                    interframe_has_waited[qi] = ZEST_TRUE;
-                }
+				if (!current_submission.batches[qi].magic) {
+					current_submission.batches[qi].magic = zest_INIT_MAGIC(zest_struct_type_wave_submission);
+					current_submission.batches[qi].backend = (zest_submission_batch_backend)context->device->platform->new_submission_batch_backend(context);
+					current_submission.batches[qi].queue = pass->compiled_queue_info.queue;
+					current_submission.batches[qi].queue_family_index = pass->compiled_queue_info.queue_family_index;
+					current_submission.batches[qi].queue_type = pass->compiled_queue_info.queue_type;
+					current_submission.batches[qi].need_timeline_wait = interframe_has_waited[qi] ? ZEST_FALSE : ZEST_TRUE;
+				}
+				current_submission.batches[qi].timeline_wait_stage |= pass->compiled_queue_info.timeline_wait_stage;
+				if (ZEST__FLAGGED(pass->flags, zest_pass_flag_outputs_to_swapchain)) {
+					current_submission.batches[qi].outputs_to_swapchain = ZEST_TRUE;
+				}
+				interframe_has_waited[qi] = ZEST_TRUE;
 				current_submission.queue_bits = pass->compiled_queue_info.queue_type;
                 zest_vec_linear_push(allocator, current_submission.batches[qi].pass_indices, current_pass_index);
             }
@@ -5462,9 +5471,8 @@ zest_frame_graph zest__compile_frame_graph() {
 
         // --- Handle renderFinishedSemaphore for the last batch ---
         zest_wave_submission_t *last_wave = &zest_vec_back(frame_graph->submissions);
-        if (last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].magic) {  //Only if it's a graphics queue... We should probably check that it renders to a swap chain as well
+		if (last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].magic && last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].outputs_to_swapchain == ZEST_TRUE) {  //Only if it's a graphics queue and it actually outputs to the swapchain
             // This assumes the last batch's *primary* signal is renderFinished.
-            // If it also needs to signal internal semaphores, `signal_semaphore` needs to become a list.
             if (!last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores) {
 				zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_render_finished_semaphore, 0 };
                 zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores, semaphore_reference);
@@ -5529,7 +5537,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 if (current_state->usage.access_mask & zest_access_render_pass_bits) {
                     exe_details->requires_dynamic_render_pass = true;
                 }
-            } else if(resource->type == zest_resource_type_buffer) {
+            } else if(resource->type & zest_resource_type_buffer) {
                 if (!prev_state) {
                     //This is the first state of the resource
                     //If there's no previous state then we need to see if a barrier is needed to transition from the resource
@@ -6137,7 +6145,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 
     zest_bucket_array_foreach(resource_index, frame_graph->resources) {
 		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
-        if (resource->type == zest_resource_type_buffer) {
+        if (resource->type & zest_resource_type_buffer) {
 			ZEST_PRINT("Buffer: %s - Size: %zu", resource->name, resource->buffer_desc.size);
         } else if (resource->type & zest_resource_type_image) {
             ZEST_PRINT("Image: %s - Size: %u x %u", 
@@ -6147,6 +6155,19 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
                 resource->name);
         }
     }
+
+    ZEST_PRINT("");
+	ZEST_PRINT("Graph Wave Layout ([G]raphics, [C]ompute, [T]ransfer)");
+	ZEST_PRINT("Wave Index\tG\tC\tT\tPass Count");
+	zest_vec_foreach(wave_index, frame_graph->execution_waves) {
+		zest_execution_wave_t *wave = &frame_graph->execution_waves[wave_index];
+		char g[2] = { (wave->queue_bits & zest_queue_graphics) > 0 ? 'X' : ' ', '\0' };
+		char c[2] = { (wave->queue_bits & zest_queue_compute) > 0 ? 'X' : ' ', '\0' };
+		char t[2] = { (wave->queue_bits & zest_queue_transfer) > 0 ? 'X' : ' ', '\0' };
+		zest_uint pass_count = zest_vec_size(wave->pass_indices);
+		ZEST_PRINT("%u\t\t%s\t%s\t%s\t%u", wave_index, g, c, t, pass_count);
+	}
+
 
     ZEST_PRINT("");
     ZEST_PRINT("Number of Submission Batches: %u\n", zest_vec_size(frame_graph->submissions));
@@ -6569,18 +6590,20 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
     node.id = frame_graph->id_counter++;
     node.first_usage_pass_idx = ZEST_INVALID;
     node.buffer_desc.size = info->size;
+    node.type = zest_resource_type_buffer;
 	zest_memory_usage usage = info->usage_hints & zest_resource_usage_hint_cpu_transfer ? zest_memory_usage_cpu_to_gpu : zest_memory_usage_gpu_only;
     if (info->usage_hints & zest_resource_usage_hint_vertex_buffer) {
         node.buffer_desc.buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex, usage);
+		ZEST__FLAG(node.type, zest_resource_type_vertex_buffer);
     } else if (info->usage_hints & zest_resource_usage_hint_index_buffer) {
         node.buffer_desc.buffer_info = zest_CreateBufferInfo(zest_buffer_type_index, usage);
+		ZEST__FLAG(node.type, zest_resource_type_index_buffer);
     } else {
         node.buffer_desc.buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, usage);
     }
     if (info->usage_hints & zest_resource_usage_hint_copy_src) {
         node.buffer_desc.buffer_info.buffer_usage_flags |= zest_buffer_usage_transfer_src_bit;
     }
-    node.type = zest_resource_type_buffer;
     node.frame_graph = frame_graph;
 	node.buffer_desc.buffer_info.flags = zest_memory_pool_flag_single_buffer;
     node.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
@@ -6625,6 +6648,11 @@ zest_resource_node_t zest__create_import_buffer_resource_node(const char *name, 
 	node.id = frame_graph->id_counter++;
     node.first_usage_pass_idx = ZEST_INVALID;
 	node.type = zest_resource_type_buffer;
+	if (buffer->buffer_allocator->buffer_info.buffer_usage_flags & zest_buffer_usage_index_buffer_bit) {
+		ZEST__FLAG(node.type, zest_resource_type_index_buffer);
+	} else if (buffer->buffer_allocator->buffer_info.buffer_usage_flags & zest_buffer_usage_vertex_buffer_bit) {
+		ZEST__FLAG(node.type, zest_resource_type_vertex_buffer);
+	}
     node.frame_graph = frame_graph;
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     node.storage_buffer = buffer;
@@ -6946,7 +6974,7 @@ zest_uint *zest_GetTransientMipBindlessIndexes(const zest_command_list command_l
 zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource) {
     zest_set_layout bindless_layout = command_list->frame_graph->bindless_layout;
     ZEST_ASSERT_HANDLE(resource);   //Not a valid resource handle
-    ZEST_ASSERT(resource->type == zest_resource_type_buffer);   //Must be a buffer resource type for this bindlesss index acquisition
+    ZEST_ASSERT(resource->type & zest_resource_type_buffer);   //Must be a buffer resource type for this bindlesss index acquisition
 	zest_context context = zest__frame_graph_builder->context;
     if (resource->bindless_index[0] != ZEST_INVALID) return resource->bindless_index[0];
     zest_frame_graph frame_graph = command_list->frame_graph;
@@ -7290,7 +7318,11 @@ void zest_ConnectInput(zest_resource_node resource) {
         switch (pass->type) {
         case zest_pass_type_graphics: {
             stages = zest_pipeline_vertex_input_stage;
-            purpose = zest_purpose_vertex_buffer;
+			if (resource->type & zest_resource_type_index_buffer) {
+				purpose = zest_purpose_index_buffer;
+			} else {
+				purpose = zest_purpose_vertex_buffer;
+			}
             break;
         }
         case zest_pass_type_compute: {

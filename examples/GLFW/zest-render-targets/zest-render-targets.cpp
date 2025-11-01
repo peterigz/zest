@@ -341,12 +341,16 @@ void Mainloop(render_target_app_t *example) {
 					//End and execute the render graph
 					frame_graph = zest_EndFrameGraph();
 					zest_QueueFrameGraphForExecution(example->context, frame_graph);
-					zest_PrintCompiledFrameGraph(frame_graph);
 				}
 			} else {
 				zest_QueueFrameGraphForExecution(example->context, frame_graph);
 			}
 			zest_EndFrame(example->context);
+			static bool printed = false;
+			if (!printed) {
+				zest_PrintCompiledFrameGraph(frame_graph);
+				printed = true;
+			}
 		}
 	}
 
@@ -364,7 +368,7 @@ int main()
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
 	render_target_app_t app = {};
-	zest_device device = zest_implglfw_CreateDevice(0);
+	zest_device device = zest_implglfw_CreateDevice(true);
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
 	//Initialise Zest
 	app.context = zest_CreateContext(device, &window_handles, &create_info);

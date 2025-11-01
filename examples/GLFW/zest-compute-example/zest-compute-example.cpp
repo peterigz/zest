@@ -309,7 +309,7 @@ int main(void) {
 
 	ComputeExample compute_example = { 0 };
 
-	zest_device device = zest_implglfw_CreateDevice(false);
+	zest_device device = zest_implglfw_CreateDevice(true);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
