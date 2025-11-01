@@ -85,7 +85,8 @@ function(buildExample EXAMPLE_NAME)
 			${IMPLEMENTATIONS}impl_timelinefx.c
 		)
 		source_group("ImGui" FILES ${IMGUI_SOURCE})
-	elseif(${EXAMPLE_NAME} STREQUAL "zest-fonts")
+	elseif(${EXAMPLE_NAME} STREQUAL "zest-fonts" OR
+		${EXAMPLE_NAME} STREQUAL "zest-pbr")
 		SET(TIMELINEFX_SOURCE "")
 		file(GLOB IMPLEMENTATIONS_SOURCE
 			${IMPLEMENTATIONS}impl_imgui.cpp
