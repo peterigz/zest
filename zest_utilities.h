@@ -707,7 +707,7 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, const char 
 	zest_SetPipelineVertShader(font_pipeline, font_vert);
 	zest_SetPipelineFragShader(font_pipeline, font_frag);
 	zest_AddPipelineDescriptorLayout(font_pipeline, zest_GetGlobalBindlessLayout(context));
-	zest_SetPipelineDepthTest(font_pipeline, true, false);
+	zest_SetPipelineDepthTest(font_pipeline, false, false);
 
 	zest_shader_resources_handle font_resources = zest_CreateShaderResources(context);
 	zest_AddGlobalBindlessSetToResources(font_resources);
