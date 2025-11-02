@@ -241,7 +241,6 @@ void Mainloop(render_target_app_t *example) {
 		//example->downsampler->recorder->outdated[context->current_fif] = 1;
 
 		//Set the font to use for the font layer
-		/*
 		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
 		//Set the shadow and color
 		zest_SetFontColor(&example->font, 1.f, 1.f, 1.f, 1.f);
@@ -253,7 +252,6 @@ void Mainloop(render_target_app_t *example) {
 		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
 		zest_SetFontColor(&example->font, 1.f, 0.f, 0.f, 1.f);
 		zest_DrawMSDFText(example->font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .55f, .5f, .5f, 1.f, 0.f, "No thresholding just as is");
-		*/
 		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
 		zest_SetFontColor(&example->font, 0.f, 0.f, 1.f, 1.f);
 		zest_DrawMSDFText(example->font_layer, zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .75f, .5f, .5f, 1.f, 0.f, "FPS: %u", fps);
