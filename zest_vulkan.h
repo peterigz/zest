@@ -2520,6 +2520,7 @@ inline VkDescriptorType zest__vk_get_descriptor_type(zest_descriptor_type type) 
     case zest_descriptor_type_storage_image: return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     case zest_descriptor_type_uniform_buffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     case zest_descriptor_type_storage_buffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    case zest_descriptor_type_combined_image_sampler: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     default:
         ZEST_ASSERT(ZEST_FALSE);  //Unknown descriptor type
         return VK_DESCRIPTOR_TYPE_MAX_ENUM; 
@@ -2569,7 +2570,7 @@ zest_bool zest__vk_create_set_layout(zest_set_layout_builder_t *builder, zest_se
         return ZEST_FALSE;
     }
 
-    zest_uint count = zest_vec_size(layout->backend->layout_bindings);
+    zest_uint count = zest_vec_size(bindings);
     zest_uint size_of_binding = sizeof(VkDescriptorSetLayoutBinding);
     zest_uint size_in_bytes = zest_vec_size_in_bytes(builder->bindings);
 	layout->backend->layout_bindings = bindings;
@@ -2585,12 +2586,23 @@ zest_bool zest__vk_create_set_pool(zest_descriptor_pool pool, zest_set_layout la
         bool is_purely_immutable_sampler = (binding->descriptorType == VK_DESCRIPTOR_TYPE_SAMPLER && binding->pImmutableSamplers != NULL);
 
         if (!is_purely_immutable_sampler) {
-            if (!zest_map_valid_key(type_counts, (zest_key)binding->descriptorType)) {
-                zest_map_insert_key(layout->handle.context->device->allocator, type_counts, (zest_key)binding->descriptorType, binding->descriptorCount);
-            } else {
-                zest_uint *count = zest_map_at_key(type_counts, (zest_key)binding->descriptorType);
-                *count += binding->descriptorCount;
-            }
+			zest_uint current_count = 0;
+            if (zest_map_valid_key(type_counts, (zest_key)binding->descriptorType)) {
+                current_count = *zest_map_at_key(type_counts, (zest_key)binding->descriptorType);
+            } 
+            {
+                zest_hash_pair *it = zest__lower_bound(type_counts.map, (zest_key)binding->descriptorType); if (!type_counts.map || it == (&(type_counts.map[((type_counts.map) ? ((zest_vec *)type_counts.map - 1)->current_size : 0)])) || it->key != (zest_key)binding->descriptorType) {
+                    if (((type_counts.free_slots) ? ((zest_vec *)type_counts.free_slots - 1)->current_size : 0)) {
+                        type_counts.last_index = (((zest_vec *)type_counts.free_slots - 1)->current_size--, type_counts.free_slots[((zest_vec *)type_counts.free_slots - 1)->current_size]); type_counts.data[type_counts.last_index] = current_count + binding->descriptorCount;
+                    } else {
+                        type_counts.last_index = ((type_counts.data) ? ((zest_vec *)type_counts.data - 1)->current_size : 0); (((!(type_counts.data) || (((zest_vec *)type_counts.data - 1)->current_size == ((zest_vec *)type_counts.data - 1)->capacity)) ? type_counts.data = zest__vec_reserve_wrapper(layout->handle.context->device->allocator, type_counts.data, sizeof(*type_counts.data), (type_counts.data ? zest__grow_capacity(type_counts.data, ((zest_vec *)type_counts.data - 1)->current_size) : 8)) : (void)0), (type_counts.data)[((zest_vec *)type_counts.data - 1)->current_size++] = current_count + binding->descriptorCount);
+                    } zest_hash_pair new_pair; new_pair.key = (zest_key)binding->descriptorType; new_pair.index = type_counts.last_index; do {
+                        ptrdiff_t offset = it - type_counts.map; ((!(type_counts.map) || (((zest_vec *)type_counts.map - 1)->current_size == ((zest_vec *)type_counts.map - 1)->capacity)) ? type_counts.map = zest__vec_reserve_wrapper(layout->handle.context->device->allocator, type_counts.map, sizeof(*type_counts.map), (type_counts.map ? zest__grow_capacity(type_counts.map, ((zest_vec *)type_counts.map - 1)->current_size) : 8)) : (void)0); if (offset < ((type_counts.map) ? ((zest_vec *)type_counts.map - 1)->current_size : 0)) memmove(type_counts.map + offset + 1, type_counts.map + offset, ((size_t)((type_counts.map) ? ((zest_vec *)type_counts.map - 1)->current_size : 0) - offset) * sizeof(*type_counts.map)); type_counts.map[offset] = new_pair; ((zest_vec *)type_counts.map - 1)->current_size++;
+                    } while (0);
+                } else {
+                    type_counts.data[it->index] = current_count + binding->descriptorCount;
+                }
+            };
         }
     }
 
@@ -2598,10 +2610,11 @@ zest_bool zest__vk_create_set_pool(zest_descriptor_pool pool, zest_set_layout la
     zest_map_foreach(i, type_counts) {
         VkDescriptorPoolSize new_pool_size = ZEST__ZERO_INIT(VkDescriptorPoolSize);
         new_pool_size.type = (VkDescriptorType)type_counts.map[i].key;
+        zest_uint index = type_counts.map[i].index;
         if (bindless) {
-            new_pool_size.descriptorCount = type_counts.data[i];
+            new_pool_size.descriptorCount = type_counts.data[index];
         } else {
-            new_pool_size.descriptorCount = type_counts.data[i] * max_set_count;
+            new_pool_size.descriptorCount = type_counts.data[index] * max_set_count;
         }
         zest_vec_push(layout->handle.context->device->allocator, pool_sizes, new_pool_size);
     }
