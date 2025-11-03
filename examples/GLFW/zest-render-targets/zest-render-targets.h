@@ -32,10 +32,8 @@ struct render_target_app_t {
 	zest_compute_handle downsampler_compute;
 	zest_compute_handle upsampler_compute;
 	zest_uint render_target_push;
-	zest_sampler_handle pass_through_sampler;
-	zest_sampler_handle mipped_sampler;
-	zest_uint pass_through_sampler_index;
-	zest_uint mipped_sampler_index;
+	zest_sampler_handle sampler;
+	zest_uint sampler_index;
 	zest_layer_handle font_layer;				            //Font layer for drawing some text to the top layer
 	zest_msdf_font_t font;					            //Handle to the font
 	zest_font_resources_t font_resources;

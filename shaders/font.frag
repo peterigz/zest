@@ -9,8 +9,7 @@ layout(location = 0) in vec3 frag_tex_coord;
 
 layout(location = 0) out vec4 out_color;
 
-layout(set = 0, binding = 0) uniform sampler samplers[];
-layout(set = 0, binding = 3) uniform texture2DArray images[];
+layout(set = 0, binding = 3) uniform sampler2DArray images[];
 
 layout(push_constant) uniform push_constants {
 	vec4 transform;
@@ -47,12 +46,12 @@ void main() {
     // 1. Calculate shadow alpha
     vec2 texture_size = textureSize(images[font.image_index], 0).xy;
     vec2 shadow_uv_offset = font.shadow_offset / texture_size;
-    vec3 shadow_msd = texture(sampler2DArray(images[font.image_index], samplers[font.sampler_index]), vec3(frag_tex_coord.xy - shadow_uv_offset, frag_tex_coord.z)).rgb;
+    vec3 shadow_msd = texture(images[font.image_index], vec3(frag_tex_coord.xy - shadow_uv_offset, frag_tex_coord.z)).rgb;
     float shadow_sd = median(shadow_msd.r, shadow_msd.g, shadow_msd.b);
     float shadow_alpha = contour(shadow_sd) * font.shadow_color.a;
 
     // 2. Calculate fill alpha
-    vec3 fill_msd = texture(sampler2DArray(images[font.image_index], samplers[font.sampler_index]), frag_tex_coord).rgb;
+    vec3 fill_msd = texture(images[font.image_index], frag_tex_coord).rgb;
     float fill_sd = median(fill_msd.r, fill_msd.g, fill_msd.b);
     float fill_alpha = contour(fill_sd);
 

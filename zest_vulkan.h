@@ -406,119 +406,119 @@ typedef struct zest_swapchain_support_details_t {
 
 void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     //Frame Graph Related
-    platform->begin_command_buffer                       = zest__vk_begin_command_buffer;
-    platform->end_command_buffer                         = zest__vk_end_command_buffer;
-    platform->set_next_command_buffer                    = zest__vk_set_next_command_buffer;
-    platform->set_execution_fence                        = zest__vk_set_execution_fence;
-    platform->acquire_barrier                            = zest__vk_acquire_barrier;
-    platform->release_barrier                            = zest__vk_release_barrier;
-    platform->get_frame_graph_semaphores                 = zest__vk_get_frame_graph_semaphores;
-    platform->submit_frame_graph_batch                   = zest__vk_submit_frame_graph_batch;
-    platform->begin_render_pass                          = zest__vk_begin_render_pass;
-    platform->end_render_pass                            = zest__vk_end_render_pass;
-    platform->carry_over_semaphores                      = zest__vk_carry_over_semaphores;
-    platform->frame_graph_fence_wait                     = zest__vk_frame_graph_fence_wait;
-    platform->create_execution_timeline_backend          = zest__vk_create_execution_timeline_backend;
-    platform->new_execution_barriers_backend             = zest__vk_new_execution_barriers_backend;
-    platform->add_frame_graph_buffer_barrier             = zest__vk_add_memory_buffer_barrier;
-    platform->add_frame_graph_image_barrier              = zest__vk_add_image_barrier;
-    platform->validate_barrier_pipeline_stages           = zest__vk_validate_barrier_pipeline_stages;
-    platform->present_frame                              = zest__vk_present_frame;
-    platform->dummy_submit_for_present_only              = zest__vk_dummy_submit_for_present_only;
-    platform->acquire_swapchain_image                    = zest__vk_acquire_swapchain_image;
-    platform->new_frame_graph_image_backend              = zest__vk_new_frame_graph_image_backend;
+    platform->begin_command_buffer                          = zest__vk_begin_command_buffer;
+    platform->end_command_buffer                            = zest__vk_end_command_buffer;
+    platform->set_next_command_buffer                       = zest__vk_set_next_command_buffer;
+    platform->set_execution_fence                           = zest__vk_set_execution_fence;
+    platform->acquire_barrier                               = zest__vk_acquire_barrier;
+    platform->release_barrier                               = zest__vk_release_barrier;
+    platform->get_frame_graph_semaphores                    = zest__vk_get_frame_graph_semaphores;
+    platform->submit_frame_graph_batch                      = zest__vk_submit_frame_graph_batch;
+    platform->begin_render_pass                             = zest__vk_begin_render_pass;
+    platform->end_render_pass                               = zest__vk_end_render_pass;
+    platform->carry_over_semaphores                         = zest__vk_carry_over_semaphores;
+    platform->frame_graph_fence_wait                        = zest__vk_frame_graph_fence_wait;
+    platform->create_execution_timeline_backend             = zest__vk_create_execution_timeline_backend;
+    platform->new_execution_barriers_backend                = zest__vk_new_execution_barriers_backend;
+    platform->add_frame_graph_buffer_barrier                = zest__vk_add_memory_buffer_barrier;
+    platform->add_frame_graph_image_barrier                 = zest__vk_add_image_barrier;
+    platform->validate_barrier_pipeline_stages              = zest__vk_validate_barrier_pipeline_stages;
+    platform->present_frame                                 = zest__vk_present_frame;
+    platform->dummy_submit_for_present_only                 = zest__vk_dummy_submit_for_present_only;
+    platform->acquire_swapchain_image                       = zest__vk_acquire_swapchain_image;
+    platform->new_frame_graph_image_backend                 = zest__vk_new_frame_graph_image_backend;
 
-    platform->create_buffer_memory_pool                  = zest__vk_create_buffer_memory_pool;
-    platform->create_image_memory_pool                   = zest__vk_create_image_memory_pool;
-    platform->map_memory                                 = zest__vk_map_memory;
-    platform->unmap_memory                               = zest__vk_unmap_memory;
-    platform->set_buffer_backend_details                 = zest__vk_set_buffer_backend_details;
-    platform->flush_used_buffers                         = zest__vk_flush_used_buffers;
-    platform->cmd_copy_buffer_one_time                   = zest__vk_cmd_copy_buffer_one_time;
-    platform->push_buffer_for_freeing                    = zest__vk_push_buffer_for_freeing;
-    platform->get_buffer_last_access_mask                = zest__vk_get_buffer_last_access_mask;
+    platform->create_buffer_memory_pool                     = zest__vk_create_buffer_memory_pool;
+    platform->create_image_memory_pool                      = zest__vk_create_image_memory_pool;
+    platform->map_memory                                    = zest__vk_map_memory;
+    platform->unmap_memory                                  = zest__vk_unmap_memory;
+    platform->set_buffer_backend_details                    = zest__vk_set_buffer_backend_details;
+    platform->flush_used_buffers                            = zest__vk_flush_used_buffers;
+    platform->cmd_copy_buffer_one_time                      = zest__vk_cmd_copy_buffer_one_time;
+    platform->push_buffer_for_freeing                       = zest__vk_push_buffer_for_freeing;
+    platform->get_buffer_last_access_mask                   = zest__vk_get_buffer_last_access_mask;
 
-	platform->create_image 								= zest__vk_create_image;
+	platform->create_image 								    = zest__vk_create_image;
 	platform->create_image_view         				    = zest__vk_create_image_view;
 	platform->create_image_views_per_mip		 		    = zest__vk_create_image_views_per_mip;
-	platform->copy_buffer_regions_to_image		 		= zest__vk_copy_buffer_regions_to_image;
-	platform->transition_image_layout			 		= zest__vk_transition_image_layout;
+	platform->copy_buffer_regions_to_image		 		    = zest__vk_copy_buffer_regions_to_image;
+	platform->transition_image_layout			 		    = zest__vk_transition_image_layout;
 	platform->create_sampler		 					    = zest__vk_create_sampler;
-	platform->get_image_raw_layout		 				= zest__vk_get_image_raw_layout;
-	platform->copy_buffer_to_image		 				= zest__vk_copy_buffer_to_image;
-	platform->generate_mipmaps		 					= zest__vk_generate_mipmaps;
+	platform->get_image_raw_layout		 				    = zest__vk_get_image_raw_layout;
+	platform->copy_buffer_to_image		 				    = zest__vk_copy_buffer_to_image;
+	platform->generate_mipmaps		 					    = zest__vk_generate_mipmaps;
 
-    platform->create_uniform_descriptor_set              = zest__vk_create_uniform_descriptor_set;
+    platform->create_uniform_descriptor_set                 = zest__vk_create_uniform_descriptor_set;
 
-    platform->build_pipeline                             = zest__vk_build_pipeline;
-    platform->finish_compute                             = zest__vk_finish_compute;
+    platform->build_pipeline                                = zest__vk_build_pipeline;
+    platform->finish_compute                                = zest__vk_finish_compute;
 
-	platform->wait_for_renderer_fences 					= zest__vk_wait_for_renderer_fences;
+	platform->wait_for_renderer_fences 					    = zest__vk_wait_for_renderer_fences;
 	platform->reset_renderer_fences 				   	    = zest__vk_reset_renderer_fences;
 
-    platform->create_set_layout                          = zest__vk_create_set_layout;
-    platform->create_set_pool                            = zest__vk_create_set_pool;
-    platform->create_bindless_set                        = zest__vk_create_bindless_set;
-    platform->update_bindless_image_descriptor           = zest__vk_update_bindless_image_descriptor;
-    platform->update_bindless_buffer_descriptor          = zest__vk_update_bindless_buffer_descriptor;
+    platform->create_set_layout                             = zest__vk_create_set_layout;
+    platform->create_set_pool                               = zest__vk_create_set_pool;
+    platform->create_bindless_set                           = zest__vk_create_bindless_set;
+    platform->update_bindless_image_descriptor              = zest__vk_update_bindless_image_descriptor;
+    platform->update_bindless_buffer_descriptor             = zest__vk_update_bindless_buffer_descriptor;
 
-    platform->set_depth_format                           = zest__vk_set_depth_format;
-    platform->initialise_context_backend                = zest__vk_initialise_context_backend;
-    platform->get_msaa_sample_count						= zest__vk_get_msaa_sample_count;
-    platform->initialise_swapchain						= zest__vk_initialise_swapchain;
+    platform->set_depth_format                              = zest__vk_set_depth_format;
+    platform->initialise_context_backend                    = zest__vk_initialise_context_backend;
+    platform->get_msaa_sample_count						    = zest__vk_get_msaa_sample_count;
+    platform->initialise_swapchain						    = zest__vk_initialise_swapchain;
 
-	platform->wait_for_idle_device                       = zest__vk_wait_for_idle_device;
-	platform->initialise_device                      	= zest__vk_initialise_device;
-	platform->os_add_platform_extensions 			    = zest__vk_os_add_platform_extensions;
+	platform->wait_for_idle_device                          = zest__vk_wait_for_idle_device;
+	platform->initialise_device                      	    = zest__vk_initialise_device;
+	platform->os_add_platform_extensions 			        = zest__vk_os_add_platform_extensions;
 	platform->create_window_surface 				        = zest__vk_create_window_surface;
 
-	platform->validate_shader 							= zest__vk_validate_shader;
-	platform->compile_shader 							= zest__vk_compile_shader;
+	platform->validate_shader 							    = zest__vk_validate_shader;
+	platform->compile_shader 							    = zest__vk_compile_shader;
 
-	platform->reset_queue_command_pool 					= zest__vk_reset_queue_command_pool;
-	platform->begin_single_time_commands 				= zest__vk_begin_single_time_commands;
-	platform->end_single_time_commands 					= zest__vk_end_single_time_commands;
+	platform->reset_queue_command_pool 					    = zest__vk_reset_queue_command_pool;
+	platform->begin_single_time_commands 				    = zest__vk_begin_single_time_commands;
+	platform->end_single_time_commands 					    = zest__vk_end_single_time_commands;
 
-    platform->new_execution_backend                      = zest__vk_new_execution_backend;
-    platform->new_frame_graph_semaphores_backend         = zest__vk_new_frame_graph_semaphores_backend;
-    platform->new_pipeline_backend                       = zest__vk_new_pipeline_backend;
-    platform->new_memory_pool_backend                    = zest__vk_new_memory_pool_backend;
-	platform->new_device_backend                         = zest__vk_new_device_backend;
-	platform->new_context_backend                       = zest__vk_new_context_backend;
-	platform->new_frame_graph_context_backend            = zest__vk_new_frame_graph_context_backend;
-	platform->new_swapchain_backend                      = zest__vk_new_swapchain_backend;
-	platform->new_buffer_backend                         = zest__vk_new_buffer_backend;
-	platform->new_uniform_buffer_backend                 = zest__vk_new_uniform_buffer_backend;
-	platform->set_uniform_buffer_backend                 = zest__vk_set_uniform_buffer_backend;
-	platform->new_image_backend                          = zest__vk_new_image_backend;
-	platform->new_compute_backend                        = zest__vk_new_compute_backend;
-	platform->new_queue_backend                          = zest__vk_new_queue_backend;
-	platform->new_submission_batch_backend               = zest__vk_new_submission_batch_backend;
-	platform->new_set_layout_backend                     = zest__vk_new_set_layout_backend;
-	platform->new_descriptor_pool_backend                = zest__vk_new_descriptor_pool_backend;
-	platform->new_sampler_backend                        = zest__vk_new_sampler_backend;
+    platform->new_execution_backend                         = zest__vk_new_execution_backend;
+    platform->new_frame_graph_semaphores_backend            = zest__vk_new_frame_graph_semaphores_backend;
+    platform->new_pipeline_backend                          = zest__vk_new_pipeline_backend;
+    platform->new_memory_pool_backend                       = zest__vk_new_memory_pool_backend;
+	platform->new_device_backend                            = zest__vk_new_device_backend;
+	platform->new_context_backend                           = zest__vk_new_context_backend;
+	platform->new_frame_graph_context_backend               = zest__vk_new_frame_graph_context_backend;
+	platform->new_swapchain_backend                         = zest__vk_new_swapchain_backend;
+	platform->new_buffer_backend                            = zest__vk_new_buffer_backend;
+	platform->new_uniform_buffer_backend                    = zest__vk_new_uniform_buffer_backend;
+	platform->set_uniform_buffer_backend                    = zest__vk_set_uniform_buffer_backend;
+	platform->new_image_backend                             = zest__vk_new_image_backend;
+	platform->new_compute_backend                           = zest__vk_new_compute_backend;
+	platform->new_queue_backend                             = zest__vk_new_queue_backend;
+	platform->new_submission_batch_backend                  = zest__vk_new_submission_batch_backend;
+	platform->new_set_layout_backend                        = zest__vk_new_set_layout_backend;
+	platform->new_descriptor_pool_backend                   = zest__vk_new_descriptor_pool_backend;
+	platform->new_sampler_backend                           = zest__vk_new_sampler_backend;
 
-    platform->cleanup_frame_graph_semaphore              = zest__vk_cleanup_frame_graph_semaphore;
-    platform->cleanup_image_backend                      = zest__vk_cleanup_image_backend;
-    platform->cleanup_image_view_backend                 = zest__vk_cleanup_image_view_backend;
-    platform->cleanup_image_view_array_backend           = zest__vk_cleanup_image_view_array_backend;
-    platform->cleanup_memory_pool_backend                = zest__vk_cleanup_memory_pool_backend;
-    platform->cleanup_device_backend                     = zest__vk_cleanup_device_backend;
-    platform->cleanup_buffer_backend                     = zest__vk_cleanup_buffer_backend;
-    platform->cleanup_context_backend                   = zest__vk_cleanup_context_backend;
-    platform->destroy_context_surface                   = zest__vk_destroy_context_surface;
-    platform->cleanup_shader_resources_backend           = zest__vk_cleanup_shader_resources_backend;
+    platform->cleanup_frame_graph_semaphore                 = zest__vk_cleanup_frame_graph_semaphore;
+    platform->cleanup_image_backend                         = zest__vk_cleanup_image_backend;
+    platform->cleanup_image_view_backend                    = zest__vk_cleanup_image_view_backend;
+    platform->cleanup_image_view_array_backend              = zest__vk_cleanup_image_view_array_backend;
+    platform->cleanup_memory_pool_backend                   = zest__vk_cleanup_memory_pool_backend;
+    platform->cleanup_device_backend                        = zest__vk_cleanup_device_backend;
+    platform->cleanup_buffer_backend                        = zest__vk_cleanup_buffer_backend;
+    platform->cleanup_context_backend                       = zest__vk_cleanup_context_backend;
+    platform->destroy_context_surface                       = zest__vk_destroy_context_surface;
+    platform->cleanup_shader_resources_backend              = zest__vk_cleanup_shader_resources_backend;
 	platform->cleanup_swapchain_backend 				    = zest__vk_cleanup_swapchain_backend;
-	platform->cleanup_uniform_buffer_backend 			= zest__vk_cleanup_uniform_buffer_backend;
-	platform->cleanup_compute_backend 					= zest__vk_cleanup_compute_backend;
+	platform->cleanup_uniform_buffer_backend 			    = zest__vk_cleanup_uniform_buffer_backend;
+	platform->cleanup_compute_backend 					    = zest__vk_cleanup_compute_backend;
 	platform->cleanup_set_layout_backend				    = zest__vk_cleanup_set_layout_backend;
-	platform->cleanup_pipeline_backend 					= zest__vk_cleanup_pipeline_backend;
-	platform->cleanup_sampler_backend 					= zest__vk_cleanup_sampler_backend;
-	platform->cleanup_queue_backend 					= zest__vk_cleanup_queue_backend;
+	platform->cleanup_pipeline_backend 					    = zest__vk_cleanup_pipeline_backend;
+	platform->cleanup_sampler_backend 					    = zest__vk_cleanup_sampler_backend;
+	platform->cleanup_queue_backend 					    = zest__vk_cleanup_queue_backend;
 
 	//Debugging
-    platform->get_final_signal_ptr                      = zest__vk_get_final_signal_ptr;
-    platform->get_final_wait_ptr                        = zest__vk_get_final_wait_ptr;
+    platform->get_final_signal_ptr                          = zest__vk_get_final_signal_ptr;
+    platform->get_final_wait_ptr                            = zest__vk_get_final_wait_ptr;
 }
 
 // -- Error_logging

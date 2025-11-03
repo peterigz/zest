@@ -1,0 +1,65 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// Bindless descriptor sets
+layout (set = 0, binding = 1) uniform sampler2D u_textures[];
+layout (set = 0, binding = 6, rgba16f) uniform image2D u_storage_images[];
+
+layout(push_constant) uniform PushConstants
+{
+	uint storage_image_index;   //upsample texture write to index
+	uint src_mip_index;         //sample from mip index in the up sample texture
+	uint downsampler_mip_index; //downsampler texture mip index
+	uint sampler_index;
+} pc;
+
+void main(void)
+{
+	ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
+
+    // Get the dimensions of the image we are writing to (the destination mip)
+    ivec2 image_dims = imageSize(u_storage_images[nonuniformEXT(pc.storage_image_index)]);
+
+    // Bounds check to terminate extra threads
+    if (pixel_coords.x >= image_dims.x || pixel_coords.y >= image_dims.y) {
+        return;
+    }
+
+    // The filter kernel is applied with a radius, specified in texture
+    // coordinates, so that the radius will vary across mip resolutions.
+    float x_offset_uv = 1.0 / float(image_dims.x);
+    float y_offset_uv = 1.0 / float(image_dims.y); // Corrected to use image_dims.y
+
+    // Calculate the UV in the source texture that corresponds to the current pixel in the destination texture
+    vec2 uv = (vec2(pixel_coords) + 0.5) / vec2(image_dims);
+
+    // Take 9 samples from the upsampler texture around current texel:
+    vec3 a = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x - x_offset_uv, uv.y + y_offset_uv)).rgb;
+    vec3 b = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x,               uv.y + y_offset_uv)).rgb;
+    vec3 c = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x + x_offset_uv, uv.y + y_offset_uv)).rgb;
+
+    vec3 d = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x - x_offset_uv, uv.y)).rgb;
+    vec3 e = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x,               uv.y)).rgb;
+    vec3 f = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x + x_offset_uv, uv.y)).rgb;
+
+    vec3 g = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x - x_offset_uv, uv.y - y_offset_uv)).rgb;
+    vec3 h = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x,               uv.y - y_offset_uv)).rgb;
+    vec3 i = texture(u_textures[nonuniformEXT(pc.src_mip_index)], vec2(uv.x + x_offset_uv, uv.y - y_offset_uv)).rgb;
+
+    // Sample from the corresponding mip in the downsampler chain
+    vec3 downsample_color = texture(u_textures[nonuniformEXT(pc.downsampler_mip_index)], uv).rgb;
+
+    // Apply weighted distribution (3x3 tent filter) for a nice blur
+    vec3 upsample = e*4.0;
+    upsample += (b+d+f+h)*2.0;
+    upsample += (a+c+g+i);
+    upsample *= 1.0 / 16.0;
+
+    // Additively blend the blurred upsample result with the downsample result
+    vec4 final_color = vec4(upsample + downsample_color, 1.0);
+
+    // Write the final blended color to the storage image
+	imageStore(u_storage_images[nonuniformEXT(pc.storage_image_index)], pixel_coords, final_color);
+}

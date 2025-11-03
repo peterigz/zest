@@ -4,13 +4,15 @@
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // Bindless descriptor sets
-layout (set = 0, binding = 0) uniform sampler2D u_textures[];
-layout (set = 0, binding = 4, rgba16f) uniform image2D u_storage_images[];
+layout (set = 0, binding = 1) uniform sampler2D u_textures[];
+layout (set = 0, binding = 6, rgba16f) uniform image2D u_storage_images[];
 
 layout(push_constant) uniform PushConstants
 {
 	uint storage_image_index;
 	uint src_mip_index;
+	uint downsampler_mip_index;
+	uint sampler_index;
 } pc;
 
 void main(void)

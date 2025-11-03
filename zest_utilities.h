@@ -151,9 +151,9 @@ ZEST_PRIVATE void* zest__msdf_allocation(size_t size, void* ctx);
 ZEST_PRIVATE void zest__msdf_free(void* ptr, void* ctx);
 ZEST_API zest_font_resources_t zest_CreateFontResources(zest_context context, const char *vert_shader, const char *frag_shader);
 ZEST_API zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name);
-ZEST_API zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_uint font_sampler_binding_index, float font_size, float sdf_range);
+ZEST_API zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_sampler_handle font_sampler_handle, float font_size, float sdf_range);
 ZEST_API void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename);
-ZEST_API zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_uint font_sampler_binding_index);
+ZEST_API zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_sampler_handle font_sampler_sampler);
 ZEST_API void zest_UpdateFontTransform(zest_msdf_font_t *font);
 ZEST_API void zest_SetFontTransform(zest_msdf_font_t *font, float transform[4]);
 ZEST_API void zest_SetFontSettings(zest_msdf_font_t *font, float inner_bias, float outer_bias, float smoothness, float gamma);
@@ -725,7 +725,7 @@ zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name) {
 	return layer;
 }
 
-zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_uint font_sampler_binding_index, float font_size, float sdf_range) {
+zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_sampler_handle font_sampler_handle, float font_size, float sdf_range) {
 	zest_msdf_font_t font = ZEST__ZERO_INIT(zest_msdf_font_t);
 	font.sdf_range = sdf_range;
 
@@ -802,11 +802,12 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 		zest_FreeImageCollection(font.font_atlas);
 	}
 	zest_image_handle image_atlas = zest_CreateImageAtlas(font.font_atlas, atlas_width, atlas_height, zest_image_preset_texture);
-	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_array_binding);
+	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_array_binding, font_sampler_handle);
+	font.settings.sampler_index = zest_AcquireGlobalSamplerIndex(font_sampler_handle);
 	for (int i = 0; i != 256; ++i) {
 		if (font.characters[i].region) {
 			font.characters[i].uv_packed = font.characters[i].region->uv_packed;
-			zest_BindAtlasRegionToImage(font.characters[i].region, font_sampler_binding_index, image_atlas, zest_texture_array_binding);
+			zest_BindAtlasRegionToImage(font.characters[i].region, font.settings.sampler_index, image_atlas, zest_texture_array_binding);
 		}
 	}
 	font.context = context;
@@ -857,7 +858,7 @@ void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename) {
 	fclose(font_file);
 }
 
-zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_uint font_sampler_binding_index) {
+zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_sampler_handle font_sampler_handle) {
 	zest_msdf_font_file_t file;
     FILE *font_file = zest__open_file(filename, "rb");
 
@@ -882,12 +883,13 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 	zest_CopyBitmapToImage(font_bitmap, font.font_image, 0, 0, 0, 0, font_bitmap->meta.width, font_bitmap->meta.height);
 	zest_FreeBitmap(font_bitmap);
 
-	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(font.font_image, zest_texture_array_binding);
+	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(font.font_image, zest_texture_array_binding, font_sampler_handle);
+	font.settings.sampler_index = zest_AcquireGlobalSamplerIndex(font_sampler_handle);
 	for (int i = 0; i != 255; ++i) {
 		if (font.characters[i].width && font.characters[i].height) {
 			font.characters[i].region = zest_NewAtlasRegion(context);
 			font.characters[i].region->uv_packed = font.characters[i].uv_packed;
-			zest_BindAtlasRegionToImage(font.characters[i].region, font_sampler_binding_index, font.font_image, zest_texture_array_binding);
+			zest_BindAtlasRegionToImage(font.characters[i].region, font.settings.sampler_index, font.font_image, zest_texture_array_binding);
 		}
 	}
 	font.context = context;

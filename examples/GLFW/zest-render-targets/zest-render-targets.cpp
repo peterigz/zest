@@ -11,16 +11,13 @@ void InitExample(render_target_app_t *example) {
 	//will be where we draw the result of the the blur effect.
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-	zest_sampler_info_t mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
-	example->pass_through_sampler = zest_CreateSampler(example->context, &sampler_info);
-	example->mipped_sampler = zest_CreateSampler(example->context, &mipped_sampler_info);
-	example->pass_through_sampler_index = zest_AcquireGlobalSamplerIndex(example->pass_through_sampler);
-	example->mipped_sampler_index = zest_AcquireGlobalSamplerIndex(example->mipped_sampler);
+	example->sampler = zest_CreateSampler(example->context, &sampler_info);
+	example->sampler_index = zest_AcquireGlobalSamplerIndex(example->sampler);
 
-	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", zest_compute_shader, 1);
-	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", zest_compute_shader, 1);
+	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/old_downsampler.comp", "downsample_comp.spv", zest_compute_shader, 1);
+	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/old_upsample.comp", "upsample_comp.spv", zest_compute_shader, 1);
 	zest_shader_handle blur_vert = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/blur.vert", "blur_vert.spv", zest_vertex_shader, 1);
-	zest_shader_handle pass_frag = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/pass.frag", "pass_frag.spv", zest_fragment_shader, 1);
+	zest_shader_handle pass_frag = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/old_pass.frag", "pass_frag.spv", zest_fragment_shader, 1);
 
     example->composite_pipeline = zest_BeginPipelineTemplate(example->context, "pipeline_pass_through");
 	zest_SetPipelineVertShader(example->composite_pipeline, blur_vert);
@@ -38,10 +35,10 @@ void InitExample(render_target_app_t *example) {
 
 	//Load a font
 	if (!zest__file_exists("examples/assets/Lato-Regular.msdf")) {
-		example->font = zest_CreateMSDF(example->context, "examples/assets/Lato-Regular.ttf", example->pass_through_sampler_index, 64.f, 4.f);
+		example->font = zest_CreateMSDF(example->context, "examples/assets/Lato-Regular.ttf", example->sampler, 64.f, 4.f);
 		zest_SaveMSDF(&example->font, "examples/assets/Lato-Regular.msdf");
 	} else {
-		example->font = zest_LoadMSDF(example->context, "examples/assets/Lato-Regular.msdf", example->pass_through_sampler_index);
+		example->font = zest_LoadMSDF(example->context, "examples/assets/Lato-Regular.msdf", example->sampler);
 	}
 
 	example->font_resources = zest_CreateFontResources(example->context, "shaders/font.vert", "shaders/font.frag");
@@ -70,13 +67,13 @@ void InitExample(render_target_app_t *example) {
 	example->upsampler_compute = zest_FinishCompute(&upsampler_builder, "Upsampler Compute");
 }
 
-void zest_DrawRenderTargetSimple(zest_command_list command_list, void *user_data) {
+void zest_DrawRenderTarget(zest_command_list command_list, void *user_data) {
     render_target_app_t *example = (render_target_app_t*)user_data;
 	zest_resource_node downsampler = zest_GetPassInputResource(command_list, "Downsampler");
 	zest_resource_node render_target = zest_GetPassInputResource(command_list, "Upsampler");
 
-	zest_uint up_bindless_index = zest_GetTransientSampledImageBindlessIndex(command_list, render_target, zest_texture_2d_binding);
-	zest_uint down_bindless_index = zest_GetTransientSampledImageBindlessIndex(command_list, downsampler, zest_texture_2d_binding);
+	zest_uint up_bindless_index = zest_GetTransientSampledImageBindlessIndex(command_list, render_target, zest_texture_2d_binding, example->sampler);
+	zest_uint down_bindless_index = zest_GetTransientSampledImageBindlessIndex(command_list, downsampler, zest_texture_2d_binding, example->sampler);
 
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 
@@ -87,7 +84,7 @@ void zest_DrawRenderTargetSimple(zest_command_list command_list, void *user_data
 	push.base_index = down_bindless_index;
 	push.bloom_index = up_bindless_index;
 	push.bloom_alpha = example->bloom_constants.settings.x;
-	push.sampler_index = example->pass_through_sampler_index;
+	push.sampler_index = example->sampler_index;
 
 	zest_cmd_SendPushConstants(command_list, pipeline, &push);
 
@@ -100,8 +97,8 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 	zest_resource_node downsampler_target = zest_GetPassInputResource(command_list, "Downsampler");
 
 	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
-	zest_uint* sampler_mip_indices = zest_GetTransientMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding);
-	zest_uint* storage_mip_indices = zest_GetTransientMipBindlessIndexes(command_list, downsampler_target, zest_storage_image_binding);
+	zest_uint* sampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding, example->sampler);
+	zest_uint* storage_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_storage_image_binding, example->sampler);
 
 	BlurPushConstants push = { 0 };
 
@@ -117,7 +114,7 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 
 	// Bind the pipeline once before the loop
 	zest_cmd_BindComputePipeline(command_list, example->downsampler_compute, sets, 1);
-	push.sampler_index = example->mipped_sampler_index;
+	push.sampler_index = example->sampler_index;
 
 	zest_uint mip_levels = zest_GetResourceMipLevels(downsampler_target);
 	for (zest_uint mip_index = 1; mip_index != mip_levels; ++mip_index) {
@@ -149,9 +146,9 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 	zest_resource_node downsampler_target = zest_GetPassInputResource(command_list, "Downsampler");
 
 	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
-	zest_uint *sampler_mip_indices = zest_GetTransientMipBindlessIndexes(command_list, upsampler_target, zest_texture_2d_binding);
-	zest_uint *storage_mip_indices = zest_GetTransientMipBindlessIndexes(command_list, upsampler_target, zest_storage_image_binding);
-	zest_uint *downsampler_mip_indices = zest_GetTransientMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding);
+	zest_uint *sampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, upsampler_target, zest_texture_2d_binding, example->sampler);
+	zest_uint *storage_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, upsampler_target, zest_storage_image_binding, example->sampler);
+	zest_uint *downsampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding, example->sampler);
 
 	BlurPushConstants push = { 0 };
 
@@ -172,7 +169,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 
 	zest_uint resource_width = zest_GetResourceWidth(upsampler_target);
 	zest_uint resource_height = zest_GetResourceHeight(upsampler_target);
-	push.sampler_index = example->mipped_sampler_index;
+	push.sampler_index = example->sampler_index;
 
 	for (int mip_index = mip_levels - 2; mip_index >= 0; --mip_index) {
 		zest_uint current_width = ZEST__MAX(1u, resource_width >> mip_index);
@@ -331,7 +328,7 @@ void Mainloop(render_target_app_t *example) {
 						//outputs
 						zest_ConnectSwapChainOutput();
 						//tasks
-						zest_SetPassTask(zest_DrawRenderTargetSimple, example);
+						zest_SetPassTask(zest_DrawRenderTarget, example);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
