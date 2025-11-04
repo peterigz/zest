@@ -6334,7 +6334,7 @@ void zest_EmptyRenderPass(const zest_command_list command_list, void *user_data)
     //Nothing here to render, it's just for frame graphs that have nothing to render
 }
 
-zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_sampler_handle sampler_handle, zest_descriptor_type descriptor_type) {
+zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_descriptor_type descriptor_type) {
     zest_uint binding_number = ZEST_INVALID;
 	zest_vec_foreach(i, layout->bindings) {
 		zest_descriptor_binding_desc_t *binding = &layout->bindings[i];
@@ -6353,11 +6353,7 @@ zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view v
     }
 
 	zest_context context = image->handle.context;
-	zest_sampler sampler = 0;
-	if (descriptor_type == zest_descriptor_type_combined_image_sampler) {
-		sampler = (zest_sampler)zest__get_store_resource_checked(context, sampler_handle.value);
-	}
-    context->device->platform->update_bindless_image_descriptor(context, binding_number, array_index, descriptor_type, image, view, sampler, set);
+    context->device->platform->update_bindless_image_descriptor(context, binding_number, array_index, descriptor_type, image, view, 0, set);
 
     image->bindless_index[binding_number] = array_index;
     return array_index;
@@ -6409,18 +6405,18 @@ zest_uint zest__acquire_bindless_storage_buffer_index(zest_buffer buffer, zest_s
     return array_index;
 }
 
-zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number, zest_sampler_handle sampler_handle) {
+zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number) {
     zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
 	zest_context context = image_handle.context;
     zest_descriptor_type desriptor_type = zest__is_vulkan_device(context->device) ? zest_descriptor_type_combined_image_sampler : zest_descriptor_type_sampled_image;
-    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, context->device->global_bindless_set_layout, context->device->global_set, binding_number, sampler_handle, desriptor_type);
+    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, context->device->global_bindless_set_layout, context->device->global_set, binding_number, desriptor_type);
     return index;
 }
 
 zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number) {
     zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
 	zest_context context = image_handle.context;
-    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, context->device->global_bindless_set_layout, context->device->global_set, binding_number, ZEST__ZERO_INIT(zest_sampler_handle), zest_descriptor_type_storage_image);
+    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, context->device->global_bindless_set_layout, context->device->global_set, binding_number, zest_descriptor_type_storage_image);
     return index;
 }
 
@@ -6450,8 +6446,8 @@ zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zes
 	zest_sampler sampler = 0;
 	if (zest__is_vulkan_device(context->device) && descriptor_type == zest_descriptor_type_sampled_image) {
 		ZEST_ASSERT(sampler_handle.value, "When creating a sampled image on Vulkan you must pass in a valid sample handle in order to create a combined image sampler.");
-		descriptor_type = zest_descriptor_type_combined_image_sampler;
-		sampler = (zest_sampler)zest__get_store_resource_checked(context, sampler_handle.value);
+		//descriptor_type = zest_descriptor_type_combined_image_sampler;
+		//sampler = (zest_sampler)zest__get_store_resource_checked(context, sampler_handle.value);
 	}
     for (int mip_index = 0; mip_index != view_array->count; ++mip_index) {
         zest_uint bindless_index = zest__acquire_bindless_index(global_layout, binding_number);
@@ -6924,7 +6920,7 @@ zest_resource_node zest_GetPassOutputResource(const zest_command_list command_li
     return ZEST_VALID_HANDLE(usage->resource_node->aliased_resource) ? usage->resource_node->aliased_resource : usage->resource_node;
 }
 
-zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number, zest_sampler_handle sampler_handle) {
+zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number) {
     ZEST_ASSERT_HANDLE(resource);            // Not a valid resource handle
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
 	zest_context context = zest__frame_graph_builder->context;
@@ -6934,13 +6930,7 @@ zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list com
     zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
 
 	zest_descriptor_type descriptor_type = binding_number == zest_storage_image_binding ? zest_descriptor_type_storage_image : zest_descriptor_type_sampled_image;
-	zest_sampler sampler = 0;
-	if (zest__is_vulkan_device(context->device) && descriptor_type == zest_descriptor_type_sampled_image) {
-		ZEST_ASSERT(sampler_handle.value, "When creating a sampled image on Vulkan you must pass in a valid sample handle in order to create a combined image sampler.");
-		descriptor_type = zest_descriptor_type_combined_image_sampler;
-		sampler = (zest_sampler)zest__get_store_resource_checked(context, sampler_handle.value);
-	}
-    context->device->platform->update_bindless_image_descriptor(context, binding_number, bindless_index, descriptor_type, &resource->image, resource->view, sampler, frame_graph->bindless_set);
+    context->device->platform->update_bindless_image_descriptor(context, binding_number, bindless_index, descriptor_type, &resource->image, resource->view, 0, frame_graph->bindless_set);
 
     zest_binding_index_for_release_t binding_index = { frame_graph->bindless_layout, bindless_index, (zest_uint)binding_number };
     zest_vec_push(context->device->allocator, context->device->deferred_resource_freeing_list.binding_indexes[context->current_fif], binding_index);
@@ -6949,7 +6939,7 @@ zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list com
     return bindless_index;
 }
 
-zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number, zest_sampler_handle sampler_handle) {
+zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number) {
     zest_set_layout bindless_layout = command_list->frame_graph->bindless_layout;
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
     ZEST_ASSERT(resource->image.info.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
@@ -6967,18 +6957,12 @@ zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list co
 		resource->view_array->handle.context = context;
     }
 	zest_descriptor_type descriptor_type = binding_number == zest_storage_image_binding ? zest_descriptor_type_storage_image : zest_descriptor_type_sampled_image;
-	zest_sampler sampler = 0;
-	if (zest__is_vulkan_device(context->device) && descriptor_type == zest_descriptor_type_sampled_image) {
-		ZEST_ASSERT(sampler_handle.value, "When creating a sampled image on Vulkan you must pass in a valid sample handle in order to create a combined image sampler.");
-		descriptor_type = zest_descriptor_type_combined_image_sampler;
-		sampler = (zest_sampler)zest__get_store_resource_checked(context, sampler_handle.value);
-	}
     zest_mip_index_collection mip_collection = ZEST__ZERO_INIT(zest_mip_index_collection);
 	for (int mip_index = 0; mip_index != resource->view_array->count; ++mip_index) {
 		zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
 		zest_vec_linear_push(allocator, resource->mip_level_bindless_indexes, bindless_index);
 
-        context->device->platform->update_bindless_image_descriptor(context, binding_number, bindless_index, descriptor_type, &resource->image, &resource->view_array->views[mip_index], sampler, frame_graph->bindless_set);
+        context->device->platform->update_bindless_image_descriptor(context, binding_number, bindless_index, descriptor_type, &resource->image, &resource->view_array->views[mip_index], 0, frame_graph->bindless_set);
 
 		zest_binding_index_for_release_t mip_binding_index = { frame_graph->bindless_layout, bindless_index, (zest_uint)binding_number };
 		zest_vec_push(context->device->allocator, context->device->deferred_resource_freeing_list.binding_indexes[context->current_fif], mip_binding_index);

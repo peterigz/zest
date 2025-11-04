@@ -725,7 +725,7 @@ zest_layer_handle zest_CreateFontLayer(zest_context context, const char *name) {
 	return layer;
 }
 
-zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_sampler_handle font_sampler_handle, float font_size, float sdf_range) {
+zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zest_uint font_sampler_index, float font_size, float sdf_range) {
 	zest_msdf_font_t font = ZEST__ZERO_INIT(zest_msdf_font_t);
 	font.sdf_range = sdf_range;
 
@@ -802,8 +802,8 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 		zest_FreeImageCollection(font.font_atlas);
 	}
 	zest_image_handle image_atlas = zest_CreateImageAtlas(font.font_atlas, atlas_width, atlas_height, zest_image_preset_texture);
-	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_array_binding, font_sampler_handle);
-	font.settings.sampler_index = zest_AcquireGlobalSamplerIndex(font_sampler_handle);
+	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_array_binding);
+	font.settings.sampler_index = font_sampler_index;
 	for (int i = 0; i != 256; ++i) {
 		if (font.characters[i].region) {
 			font.characters[i].uv_packed = font.characters[i].region->uv_packed;
@@ -858,7 +858,7 @@ void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename) {
 	fclose(font_file);
 }
 
-zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_sampler_handle font_sampler_handle) {
+zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_uint font_sampler_index) {
 	zest_msdf_font_file_t file;
     FILE *font_file = zest__open_file(filename, "rb");
 
@@ -883,8 +883,8 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 	zest_CopyBitmapToImage(font_bitmap, font.font_image, 0, 0, 0, 0, font_bitmap->meta.width, font_bitmap->meta.height);
 	zest_FreeBitmap(font_bitmap);
 
-	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(font.font_image, zest_texture_array_binding, font_sampler_handle);
-	font.settings.sampler_index = zest_AcquireGlobalSamplerIndex(font_sampler_handle);
+	font.font_binding_index = zest_AcquireGlobalSampledImageIndex(font.font_image, zest_texture_array_binding);
+	font.settings.sampler_index = font_sampler_index;
 	for (int i = 0; i != 255; ++i) {
 		if (font.characters[i].width && font.characters[i].height) {
 			font.characters[i].region = zest_NewAtlasRegion(context);

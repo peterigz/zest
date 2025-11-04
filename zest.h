@@ -4046,8 +4046,8 @@ ZEST_API zest_pass_node zest_BeginTransferPass(const char *name);
 ZEST_API void zest_EndPass();
 
 // --- Helper functions for acquiring bindless desriptor array indexes---
-ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number, zest_sampler_handle sampler);
-ZEST_API zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number, zest_sampler_handle sampler);
+ZEST_API zest_uint zest_GetTransientSampledImageBindlessIndex(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
+ZEST_API zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list command_list, zest_resource_node resource, zest_binding_number_type binding_number);
 ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource);
 
 // --- Add callback tasks to passes
@@ -4958,7 +4958,7 @@ ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout);
 ZEST_PRIVATE void zest__add_descriptor_set_to_resources(zest_context context, zest_shader_resources resources, zest_descriptor_set descriptor_set, zest_uint fif);
-ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_sampler_handle sampler_handle, zest_descriptor_type descriptor_type);
+ZEST_PRIVATE zest_uint zest__acquire_bindless_image_index(zest_image image, zest_image_view view, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number, zest_descriptor_type descriptor_type);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_sampler_index(zest_sampler sampler, zest_set_layout layout, zest_descriptor_set set, zest_binding_number_type target_binding_number);
 // --End Descriptor set functions
 
@@ -5043,11 +5043,11 @@ ZEST_API zest_set_layout_handle zest_FinishDescriptorSetLayoutForBindless(zest_s
 ZEST_API zest_set_layout_handle zest_FinishDescriptorSetLayout(zest_set_layout_builder_t *builder, const char *name, ...);
 
 ZEST_API zest_descriptor_set zest_CreateBindlessSet(zest_set_layout_handle layout);
-ZEST_API zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number, zest_sampler_handle sampler_handle);
+ZEST_API zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number);
 ZEST_API zest_uint zest_AcquireGlobalStorageImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number);
 ZEST_API zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle);
 ZEST_API zest_uint zest_AcquireGlobalStorageBufferIndex(zest_buffer buffer);
-ZEST_API zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle handle, zest_image_view_array_handle image_views, zest_binding_number_type binding_number, zest_sampler_handle sampler_handle, zest_descriptor_type descriptor_type);
+ZEST_API zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle handle, zest_image_view_array_handle image_views, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type);
 ZEST_API void zest_AcquireGlobalInstanceLayerBufferIndex(zest_layer_handle layer);
 ZEST_API void zest_ReleaseGlobalStorageBufferIndex(zest_buffer buffer);
 ZEST_API void zest_ReleaseGlobalImageIndex(zest_image_handle image, zest_binding_number_type binding_number);

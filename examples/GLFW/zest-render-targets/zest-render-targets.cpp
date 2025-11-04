@@ -14,10 +14,10 @@ void InitExample(render_target_app_t *example) {
 	example->sampler = zest_CreateSampler(example->context, &sampler_info);
 	example->sampler_index = zest_AcquireGlobalSamplerIndex(example->sampler);
 
-	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/old_downsampler.comp", "downsample_comp.spv", zest_compute_shader, 1);
-	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/old_upsample.comp", "upsample_comp.spv", zest_compute_shader, 1);
+	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", zest_compute_shader, 1);
+	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", zest_compute_shader, 1);
 	zest_shader_handle blur_vert = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/blur.vert", "blur_vert.spv", zest_vertex_shader, 1);
-	zest_shader_handle pass_frag = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/old_pass.frag", "pass_frag.spv", zest_fragment_shader, 1);
+	zest_shader_handle pass_frag = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/pass.frag", "pass_frag.spv", zest_fragment_shader, 1);
 
     example->composite_pipeline = zest_BeginPipelineTemplate(example->context, "pipeline_pass_through");
 	zest_SetPipelineVertShader(example->composite_pipeline, blur_vert);
@@ -35,10 +35,10 @@ void InitExample(render_target_app_t *example) {
 
 	//Load a font
 	if (!zest__file_exists("examples/assets/Lato-Regular.msdf")) {
-		example->font = zest_CreateMSDF(example->context, "examples/assets/Lato-Regular.ttf", example->sampler, 64.f, 4.f);
+		example->font = zest_CreateMSDF(example->context, "examples/assets/Lato-Regular.ttf", example->sampler_index, 64.f, 4.f);
 		zest_SaveMSDF(&example->font, "examples/assets/Lato-Regular.msdf");
 	} else {
-		example->font = zest_LoadMSDF(example->context, "examples/assets/Lato-Regular.msdf", example->sampler);
+		example->font = zest_LoadMSDF(example->context, "examples/assets/Lato-Regular.msdf", example->sampler_index);
 	}
 
 	example->font_resources = zest_CreateFontResources(example->context, "shaders/font.vert", "shaders/font.frag");
@@ -72,8 +72,8 @@ void zest_DrawRenderTarget(zest_command_list command_list, void *user_data) {
 	zest_resource_node downsampler = zest_GetPassInputResource(command_list, "Downsampler");
 	zest_resource_node render_target = zest_GetPassInputResource(command_list, "Upsampler");
 
-	zest_uint up_bindless_index = zest_GetTransientSampledImageBindlessIndex(command_list, render_target, zest_texture_2d_binding, example->sampler);
-	zest_uint down_bindless_index = zest_GetTransientSampledImageBindlessIndex(command_list, downsampler, zest_texture_2d_binding, example->sampler);
+	zest_uint up_bindless_index = zest_GetTransientSampledImageBindlessIndex(command_list, render_target, zest_texture_2d_binding);
+	zest_uint down_bindless_index = zest_GetTransientSampledImageBindlessIndex(command_list, downsampler, zest_texture_2d_binding);
 
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 
@@ -97,8 +97,8 @@ void zest_DownsampleCompute(zest_command_list command_list, void* user_data) {
 	zest_resource_node downsampler_target = zest_GetPassInputResource(command_list, "Downsampler");
 
 	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
-	zest_uint* sampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding, example->sampler);
-	zest_uint* storage_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_storage_image_binding, example->sampler);
+	zest_uint* sampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding);
+	zest_uint* storage_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_storage_image_binding);
 
 	BlurPushConstants push = { 0 };
 
@@ -146,9 +146,9 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 	zest_resource_node downsampler_target = zest_GetPassInputResource(command_list, "Downsampler");
 
 	// Get separate bindless indices for each mip level for reading (sampler) and writing (storage)
-	zest_uint *sampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, upsampler_target, zest_texture_2d_binding, example->sampler);
-	zest_uint *storage_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, upsampler_target, zest_storage_image_binding, example->sampler);
-	zest_uint *downsampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding, example->sampler);
+	zest_uint *sampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, upsampler_target, zest_texture_2d_binding);
+	zest_uint *storage_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, upsampler_target, zest_storage_image_binding);
+	zest_uint *downsampler_mip_indices = zest_GetTransientSampledMipBindlessIndexes(command_list, downsampler_target, zest_texture_2d_binding);
 
 	BlurPushConstants push = { 0 };
 
