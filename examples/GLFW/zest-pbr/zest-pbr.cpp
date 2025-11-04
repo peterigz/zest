@@ -519,7 +519,7 @@ void MainLoop(SimplePBRExample *app) {
 		app->material_push.sampler_index = app->sampler_2d_index;
 		app->material_push.skybox_sampler_index = app->skybox_sampler_index;
 		zest_SetInstanceDrawing(app->cube_layer, app->pbr_shader_resources, app->pbr_pipeline);
-		zest_SetLayerPushConstants(app->cube_layer, &app->material_push, sizeof(zest_push_constants_t));
+		zest_SetLayerPushConstants(app->cube_layer, &app->material_push, sizeof(pbr_consts_t));
 		zest_SetLayerColor(app->cube_layer, 255, 255, 255, 255);
 		zest_DrawInstancedMesh(app->cube_layer, &position.x, &rotation.x, &scale.x);
 

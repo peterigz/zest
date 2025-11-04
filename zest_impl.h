@@ -2394,12 +2394,11 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
 
     //Create a global bindless descriptor set for storage buffers and texture samplers
     zest_set_layout_builder_t layout_builder = zest_BeginSetLayoutBuilder(context);
-	zest_descriptor_type sampled_image_type = context->device->setup_info.platform == zest_platform_vulkan ? zest_descriptor_type_combined_image_sampler : zest_descriptor_type_sampled_image;
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_sampler_binding, zest_descriptor_type_sampler, create_info->bindless_sampler_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, sampled_image_type, create_info->bindless_texture_2d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, sampled_image_type, create_info->bindless_texture_cube_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, sampled_image_type, create_info->bindless_texture_array_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
-    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, sampled_image_type, create_info->bindless_texture_3d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_2d_binding, zest_descriptor_type_sampled_image, create_info->bindless_texture_2d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_cube_binding, zest_descriptor_type_sampled_image, create_info->bindless_texture_cube_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_array_binding, zest_descriptor_type_sampled_image, create_info->bindless_texture_array_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
+    zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_texture_3d_binding, zest_descriptor_type_sampled_image, create_info->bindless_texture_3d_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, create_info->bindless_storage_buffer_count, zest_shader_all_stages ) );
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_image_binding, zest_descriptor_type_storage_image, create_info->bindless_storage_image_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
     context->device->global_bindless_set_layout_handle = zest_FinishDescriptorSetLayoutForBindless(&layout_builder, 1, "Zest Descriptor Layout");
@@ -6408,8 +6407,7 @@ zest_uint zest__acquire_bindless_storage_buffer_index(zest_buffer buffer, zest_s
 zest_uint zest_AcquireGlobalSampledImageIndex(zest_image_handle image_handle, zest_binding_number_type binding_number) {
     zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
 	zest_context context = image_handle.context;
-    zest_descriptor_type desriptor_type = zest__is_vulkan_device(context->device) ? zest_descriptor_type_combined_image_sampler : zest_descriptor_type_sampled_image;
-    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, context->device->global_bindless_set_layout, context->device->global_set, binding_number, desriptor_type);
+    zest_uint index = zest__acquire_bindless_image_index(image, image->default_view, context->device->global_bindless_set_layout, context->device->global_set, binding_number, zest_descriptor_type_sampled_image);
     return index;
 }
 
@@ -6427,7 +6425,7 @@ zest_uint zest_AcquireGlobalSamplerIndex(zest_sampler_handle sampler_handle) {
     return index;
 }
 
-zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zest_image_view_array_handle view_array_handle, zest_binding_number_type binding_number, zest_sampler_handle sampler_handle, zest_descriptor_type descriptor_type) {
+zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zest_image_view_array_handle view_array_handle, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type) {
 	ZEST_ASSERT(image_handle.context == view_array_handle.context);	//image and view arrays must have the same context!
     zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.context, image_handle.value);
     ZEST_ASSERT(image->info.mip_levels > 1);         //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
@@ -6444,11 +6442,6 @@ zest_uint *zest_AcquireGlobalImageMipIndexes(zest_image_handle image_handle, zes
     mip_collection.binding_number = binding_number;
     zest_set_layout global_layout = context->device->global_bindless_set_layout;
 	zest_sampler sampler = 0;
-	if (zest__is_vulkan_device(context->device) && descriptor_type == zest_descriptor_type_sampled_image) {
-		ZEST_ASSERT(sampler_handle.value, "When creating a sampled image on Vulkan you must pass in a valid sample handle in order to create a combined image sampler.");
-		//descriptor_type = zest_descriptor_type_combined_image_sampler;
-		//sampler = (zest_sampler)zest__get_store_resource_checked(context, sampler_handle.value);
-	}
     for (int mip_index = 0; mip_index != view_array->count; ++mip_index) {
         zest_uint bindless_index = zest__acquire_bindless_index(global_layout, binding_number);
         context->device->platform->update_bindless_image_descriptor(context, binding_number, bindless_index, descriptor_type, image, &view_array->views[mip_index], sampler, context->device->global_set);
@@ -10415,5 +10408,154 @@ zest_bool zest_TimerUpdateWasRun(zest_timer_handle timer_handle) {
     return timer->update_count > 0;
 }
 //-- End Timer Functions
+
+//-- Command_buffer_functions
+// -- Frame_graph_context_functions
+zest_bool zest_cmd_UploadBuffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader) {
+    if (!zest_vec_size(uploader->buffer_copies)) {
+        return ZEST_FALSE;
+    }
+    return command_list->context->device->platform->upload_buffer(command_list, uploader);
+}
+
+void zest_cmd_DrawIndexed(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->draw_indexed(command_list, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void zest_cmd_CopyBuffer(const zest_command_list command_list, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size) {
+    ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
+    ZEST_ASSERT(size <= dst_buffer->size);
+    ZEST_ASSERT_HANDLE(command_list);                  //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->copy_buffer(command_list, src_buffer, dst_buffer, size);
+}
+
+void zest_cmd_BindPipelineShaderResource(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle handle) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->bind_pipeline_shader_resource(command_list, pipeline, handle);
+}
+
+void zest_cmd_BindPipeline(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    ZEST_ASSERT(set_count && descriptor_sets);    //No descriptor sets. Must bind the pipeline with a valid desriptor set
+	command_list->context->device->platform->bind_pipeline(command_list, pipeline, descriptor_sets, set_count);
+}
+
+void zest_cmd_BindComputePipeline(const zest_command_list command_list, zest_compute_handle compute_handle, zest_descriptor_set *descriptor_sets, zest_uint set_count) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    ZEST_ASSERT(set_count && descriptor_sets);   //No descriptor sets. Must bind the pipeline with a valid desriptor set
+	command_list->context->device->platform->bind_compute_pipeline(command_list, compute_handle, descriptor_sets, set_count);
+}
+
+void zest_cmd_BindVertexBuffer(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->bind_vertex_buffer(command_list, first_binding, binding_count, buffer);
+}
+
+void zest_cmd_BindIndexBuffer(const zest_command_list command_list, zest_buffer buffer) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->bind_index_buffer(command_list, buffer);
+}
+
+void zest_cmd_SendPushConstants(const zest_command_list command_list, zest_pipeline pipeline, void *data) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->send_push_constants(command_list, pipeline, data);
+}
+
+void zest_cmd_SendCustomComputePushConstants(const zest_command_list command_list, zest_compute_handle compute_handle, const void *push_constant) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->send_custom_compute_push_constants(command_list, compute_handle, push_constant);
+}
+
+void zest_cmd_Draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->draw(command_list, vertex_count, instance_count, first_vertex, first_instance);
+}
+
+void zest_cmd_DrawLayerInstruction(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->draw_layer_instruction(command_list, vertex_count, instruction);
+}
+
+void zest_cmd_DispatchCompute(const zest_command_list command_list, zest_compute_handle compute_handle, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->dispatch_compute(command_list, compute_handle, group_count_x, group_count_y, group_count_z);
+}
+
+void zest_cmd_SetScreenSizedViewport(const zest_command_list command_list, float min_depth, float max_depth) {
+    //This function must be called within a frame graph execution pass callback
+    ZEST_ASSERT(command_list);    //Must be a valid command buffer
+    ZEST_ASSERT_HANDLE(command_list->frame_graph);
+    ZEST_ASSERT_HANDLE(command_list->frame_graph->swapchain);    //frame graph must be set up with a swapchain to use this function
+	command_list->context->device->platform->set_screensized_viewport(command_list, min_depth, max_depth);
+}
+
+void zest_cmd_Scissor(const zest_command_list command_list, zest_scissor_rect_t *scissor) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->scissor(command_list, scissor);
+}
+
+void zest_cmd_ViewPort(const zest_command_list command_list, zest_viewport_t *viewport) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->viewport(command_list, viewport);
+}
+
+void zest_cmd_BlitImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    ZEST_ASSERT_HANDLE(src);
+    ZEST_ASSERT_HANDLE(dst);
+    ZEST_ASSERT(src->type == zest_resource_type_image && dst->type == zest_resource_type_image);
+    //Source and destination images must be the same width/height and have the same number of mip levels
+    ZEST_ASSERT(src->image.info.extent.width == dst->image.info.extent.width);
+    ZEST_ASSERT(src->image.info.extent.height == dst->image.info.extent.height);
+    ZEST_ASSERT(src->image.info.mip_levels == dst->image.info.mip_levels);
+	command_list->context->device->platform->blit_image_mip(command_list, src, dst, mip_to_blit, pipeline_stage);
+}
+
+void zest_cmd_CopyImageMip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_supported_pipeline_stages pipeline_stage) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    ZEST_ASSERT_HANDLE(src);
+    ZEST_ASSERT_HANDLE(dst);
+    ZEST_ASSERT(src->type == zest_resource_type_image && dst->type == zest_resource_type_image);
+    //Source and destination images must be the same width/height and have the same number of mip levels
+    ZEST_ASSERT(src->image.info.extent.width == dst->image.info.extent.width);
+    ZEST_ASSERT(src->image.info.extent.height == dst->image.info.extent.height);
+    ZEST_ASSERT(src->image.info.mip_levels == dst->image.info.mip_levels);
+
+    //You must ensure that when creating the images that you use usage hints to indicate that you intend to copy
+    //the images. When creating a transient image resource you can set the usage hints in the zest_image_resource_info_t
+    //type that you pass into zest_CreateTransientImageResource. Trying to copy images that don't have the appropriate
+    //usage flags set will result in validation errors.
+    ZEST_ASSERT(src->image.info.flags & zest_image_flag_transfer_src);
+    ZEST_ASSERT(dst->image.info.flags & zest_image_flag_transfer_dst);
+	command_list->context->device->platform->copy_image_mip(command_list, src, dst, mip_to_copy, pipeline_stage);
+}
+
+void zest_cmd_Clip(const zest_command_list command_list, float x, float y, float width, float height, float min_depth, float max_depth) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->clip(command_list, x, y, width, height, min_depth, max_depth);
+}
+
+void zest_cmd_InsertComputeImageBarrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+    ZEST_ASSERT_HANDLE(resource);    //Not a valid resource handle!
+    ZEST_ASSERT(resource->type == zest_resource_type_image);    //resource type must be an image
+	command_list->context->device->platform->insert_compute_image_barrier(command_list, resource, base_mip);
+}
+
+zest_bool zest_cmd_ImageClear(const zest_command_list command_list, zest_image_handle handle) {
+	return command_list->context->device->platform->image_clear(command_list, handle);
+}
+
+void zest_cmd_BindMeshVertexBuffer(const zest_command_list command_list, zest_layer_handle layer_handle) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->bind_mesh_vertex_buffer(command_list, layer_handle);
+}
+
+void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_layer_handle layer_handle) {
+    ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
+	command_list->context->device->platform->bind_mesh_index_buffer(command_list, layer_handle);
+}
+//-- End Command_buffer_functions
 
 #endif

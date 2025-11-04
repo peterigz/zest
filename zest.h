@@ -4445,14 +4445,6 @@ typedef struct zest_ImDrawVert_t
 	zest_uint col;
 } zest_ImDrawVert_t;
 
-typedef struct zest_push_constants_t {             //128 bytes seems to be the limit for push constants on AMD cards, NVidia 256 bytes
-	zest_uint descriptor_index[4];
-	zest_vec4 parameters1;                         //Can be used for anything
-	zest_vec4 parameters2;                         //Can be used for anything
-	zest_vec4 parameters3;                         //Can be used for anything
-	zest_vec4 global;                              //Can be set every frame for all current draw instructions
-} zest_push_constants_t ZEST_ALIGN_AFFIX(16);
-
 typedef struct zest_layer_buffers_t {
 	union {
 		zest_buffer staging_vertex_data;
@@ -4560,7 +4552,7 @@ typedef struct zest_imgui_image_t {
 	zest_atlas_region image;
 	zest_pipeline_template pipeline;
 	zest_shader_resources_handle shader_resources;
-	zest_push_constants_t push_constants;
+	void *push_constants;
 } zest_imgui_image_t;
 
 zest_hash_map(zest_render_pass) zest_map_render_passes;
@@ -4689,6 +4681,30 @@ typedef struct zest_platform_t {
 	//Debugging
 	void*                      (*get_final_signal_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_final_wait_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
+	//Command recording
+	void					   (*blit_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
+	void                       (*copy_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
+	void                       (*insert_compute_image_barrier)(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip);
+	void                       (*set_screensized_viewport)(const zest_command_list command_list, float min_depth, float max_depth);
+	void                       (*scissor)(const zest_command_list command_list, zest_scissor_rect_t *scissor);
+	void                       (*viewport)(const zest_command_list command_list, zest_viewport_t *viewport);
+	void                       (*clip)(const zest_command_list command_list, float x, float y, float width, float height, float minDepth, float maxDepth);
+	void                       (*bind_pipeline)(const zest_command_list command_list, zest_pipeline pipeline, zest_descriptor_set *descriptor_set, zest_uint set_count);
+	void                       (*bind_compute_pipeline)(const zest_command_list command_list, zest_compute_handle compute, zest_descriptor_set *descriptor_set, zest_uint set_count);
+	void                       (*bind_pipeline_shader_resource)(const zest_command_list command_list, zest_pipeline pipeline, zest_shader_resources_handle shader_resources);
+	void                       (*copy_buffer)(const zest_command_list command_list, zest_buffer staging_buffer, zest_buffer device_buffer, zest_size size);
+	zest_bool                  (*upload_buffer)(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
+	void                       (*bind_vertex_buffer)(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer);
+	void                       (*bind_index_buffer)(const zest_command_list command_list, zest_buffer buffer);
+	zest_bool                  (*image_clear)(const zest_command_list command_list, zest_image_handle image);
+	void                       (*bind_mesh_vertex_buffer)(const zest_command_list command_list, zest_layer_handle layer);
+	void                       (*bind_mesh_index_buffer)(const zest_command_list command_list, zest_layer_handle layer);
+	void                       (*send_custom_compute_push_constants)(const zest_command_list command_list, zest_compute_handle compute, const void *push_constant);
+	void                       (*dispatch_compute)(const zest_command_list command_list, zest_compute_handle compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
+	void                       (*send_push_constants)(const zest_command_list command_list, zest_pipeline pipeline, void *data);
+	void                       (*draw)(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
+	void                       (*draw_layer_instruction)(const zest_command_list command_list, zest_uint vertex_count, zest_layer_instruction_t *instruction);
+	void                       (*draw_indexed)(const zest_command_list command_list, zest_uint index_count, zest_uint instance_count, zest_uint first_index, int32_t vertex_offset, zest_uint first_instance);
 } zest_platform_t;
 
 typedef struct zest_context_t {
@@ -5931,8 +5947,6 @@ ZEST_API void zest_cmd_DispatchCompute(const zest_command_list command_list, zes
 //Send push constants. For use inside a draw routine callback function. pass in the pipeline,
 //and a pointer to the data containing the push constants. The data MUST match the push constant range in the pipeline
 ZEST_API void zest_cmd_SendPushConstants(const zest_command_list command_list, zest_pipeline pipeline, void *data);
-//Helper function to send the standard zest_push_constants_t push constants struct.
-ZEST_API void zest_cmd_SendStandardPushConstants(const zest_command_list command_list, zest_pipeline_t *pipeline_layout, void *data);
 //Helper function to record the command to draw via a pipeline. Will record with the current command buffer being used in the active command queue. For use inside
 //a draw routine callback function
 ZEST_API void zest_cmd_Draw(const zest_command_list command_list, zest_uint vertex_count, zest_uint instance_count, zest_uint first_vertex, zest_uint first_instance);
