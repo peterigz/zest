@@ -5816,6 +5816,7 @@ void zest__interpret_hints(zest_resource_node resource, zest_resource_usage_hint
     }
     if (usage_hints & zest_resource_usage_hint_cpu_transfer) {
         resource->image.info.flags |= zest_image_flag_host_visible | zest_image_flag_host_coherent;
+        resource->image.info.flags |= zest_image_flag_transfer_src | zest_image_flag_transfer_dst;
     }
 }
 
