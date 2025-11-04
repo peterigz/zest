@@ -347,6 +347,10 @@ void Mainloop(render_target_app_t *example) {
 				printed = true;
 			}
 		}
+		if (zest_SwapchainWasRecreated(example->context)) {
+			zest_SetLayerSizeToSwapchain(example->font_layer);
+			zest_UpdateFontTransform(&example->font);
+		}
 	}
 
 }
