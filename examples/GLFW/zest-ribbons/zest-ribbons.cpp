@@ -250,7 +250,7 @@ void UpdateRibbons(Ribbons *app) {
 		float time = (float(app->seconds_passed) + r * 500.f) * 0.001f;
 		float radius;
 		zest_vec3 position;
-		zest_color color;
+		zest_color_t color;
 
 		// Different patterns for each ribbon
 		switch (r) {

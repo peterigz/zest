@@ -3140,13 +3140,13 @@ typedef struct zest_frustum
 	zest_plane near_face;
 } zest_frustum;
 
-typedef struct zest_rgba8 {
+typedef struct zest_rgba8_t {
 	union {
 		struct { unsigned char r, g, b, a; };
 		struct { zest_uint color; };
 	};
-} zest_rgba8;
-typedef zest_rgba8 zest_color;
+} zest_rgba8_t;
+typedef zest_rgba8_t zest_color_t;
 
 typedef struct zest_rgba32 {
 	float r, g, b, a;
@@ -4381,7 +4381,7 @@ typedef struct zest_sprite_instance_t {            //52 bytes
 	zest_vec4 position_rotation;                   //The position of the sprite with rotation in w and stretch in z
 	zest_u64 size_handle;                          //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
 	zest_uint alignment;                           //normalised alignment vector 2 floats packed into 16bits
-	zest_color color;                              //The color tint of the sprite
+	zest_color_t color;                            //The color tint of the sprite
 	zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
 	zest_uint padding[3];
 } zest_sprite_instance_t;
@@ -4393,7 +4393,7 @@ typedef struct zest_billboard_instance_t {         //56 bytes
 	zest_u64 uv;                                   //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
 	zest_u64 scale_handle;                         //The scale and handle of the billboard packed into u64 (4 16bit floats)
 	zest_uint intensity_texture_array;             //reference for the texture array (8bits) and intensity (24bits)
-	zest_color color;                              //The color tint of the sprite
+	zest_color_t color;                              //The color tint of the sprite
 	zest_u64 padding;
 } zest_billboard_instance_t;
 
@@ -4401,29 +4401,29 @@ typedef struct zest_billboard_instance_t {         //56 bytes
 typedef struct zest_shape_instance_t {
 	zest_vec4 rect;                                //The rectangle containing the sdf shade, x,y = top left, z,w = bottom right
 	zest_vec4 parameters;                          //Extra parameters, for example line widths, roundness, depending on the shape type
-	zest_color start_color;                        //The color tint of the first point in the line
-	zest_color end_color;                          //The color tint of the second point in the line
+	zest_color_t start_color;                        //The color tint of the first point in the line
+	zest_color_t end_color;                          //The color tint of the second point in the line
 } zest_shape_instance_t;
 
 //SDF 3D Lines
 typedef struct zest_line_instance_t {
 	zest_vec4 start;
 	zest_vec4 end;
-	zest_color start_color;
-	zest_color end_color;
+	zest_color_t start_color;
+	zest_color_t end_color;
 } zest_line_instance_t;
 
 typedef struct zest_textured_vertex_t {
 	zest_vec3 pos;                                 //3d position
 	float intensity;                               //Alpha level (can go over 1 to increase intensity of colors)
 	zest_vec2 uv;                                  //Texture coordinates
-	zest_color color;                              //packed color
+	zest_color_t color;                              //packed color
 	zest_uint parameters;                          //packed parameters such as texture layer
 } zest_textured_vertex_t;
 
 typedef struct zest_mesh_instance_t {
 	zest_vec3 pos;                                 //3d position
-	zest_color color;                              //packed color
+	zest_color_t color;                              //packed color
 	zest_vec3 rotation;
 	zest_uint parameters;                          //packed parameters
 	zest_vec3 scale;
@@ -4431,7 +4431,7 @@ typedef struct zest_mesh_instance_t {
 
 typedef struct zest_vertex_t {
 	zest_vec3 pos;                                 //3d position
-	zest_color color;
+	zest_color_t color;
 	zest_vec3 normal;                              //3d normal
 	zest_uint group;
 } zest_vertex_t;
@@ -4516,7 +4516,7 @@ typedef struct zest_layer_t {
 		struct { zest_size vertex_struct_size; };
 	};
 
-	zest_color current_color;
+	zest_color_t current_color;
 	float intensity;
 
 	zest_vec2 layer_size;
@@ -5392,9 +5392,9 @@ ZEST_API zest_vec2 zest_Vec2Set(float x, float y);
 ZEST_API zest_vec3 zest_Vec3Set(float x, float y, float z);
 ZEST_API zest_vec4 zest_Vec4Set(float x, float y, float z, float w);
 //Set the color with the passed in rgba values
-ZEST_API zest_color zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a);
+ZEST_API zest_color_t zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a);
 //Set the color with a single value
-ZEST_API zest_color zest_ColorSet1(zest_byte c);
+ZEST_API zest_color_t zest_ColorSet1(zest_byte c);
 //--End General Math
 
 
@@ -5512,7 +5512,7 @@ ZEST_API void zest_ConvertBGRAToRGBA(zest_bitmap src);
 //Convert a bitmap to a single alpha channel
 ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap image);
 //Sample the color of a pixel in a bitmap with the given x/y coordinates
-ZEST_API zest_color zest_SampleBitmap(zest_bitmap image, int x, int y);
+ZEST_API zest_color_t zest_SampleBitmap(zest_bitmap image, int x, int y);
 //Get a pointer to the first pixel in a bitmap within the bitmap array. Index must be less than the number of bitmaps in the array
 ZEST_API zest_byte *zest_BitmapArrayLookUp(zest_bitmap_array_t *bitmap_array, zest_index index);
 //Get the size of a bitmap at a specific index
@@ -5691,7 +5691,7 @@ ZEST_API void zest_GrowMeshIndexBuffers(zest_layer_handle layer);
 //Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
 ZEST_API void zest_SetMeshDrawing(zest_layer_handle layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
 //Helper funciton Push a vertex to the vertex staging buffer. It will automatically grow the buffers if needed
-ZEST_API void zest_PushVertex(zest_layer_handle layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters);
+ZEST_API void zest_PushVertex(zest_layer_handle layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color_t color, zest_uint parameters);
 //Helper funciton Push an index to the index staging buffer. It will automatically grow the buffers if needed
 ZEST_API void zest_PushIndex(zest_layer_handle layer, zest_uint offset);
 //Callback for the frame graph
@@ -5706,7 +5706,7 @@ ZEST_API void zest_DrawInstanceMeshLayer(const zest_command_list command_list, v
 //-----------------------------------------------
 ZEST_API void zest_SetInstanceMeshDrawing(zest_layer_handle layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
-ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color color);
+ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color);
 //Push an index to a mesh to build triangles
 ZEST_API void zest_PushMeshIndex(zest_mesh mesh, zest_uint index);
 //Rather then PushMeshIndex you can call this to add three indexes at once to build a triangle in the mesh
@@ -5741,15 +5741,15 @@ ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh mesh);
 //You must call zest_SetInstanceDrawing before calling this function as many times as you need.
 ZEST_API void zest_DrawInstancedMesh(zest_layer_handle mesh_layer, float pos[3], float rot[3], float scale[3]);
 //Create a cylinder mesh of given number of sides, radius and height. Set cap to 1 to cap the cylinder.
-ZEST_API zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, float height, zest_color color, zest_bool cap);
+ZEST_API zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, float height, zest_color_t color, zest_bool cap);
 //Create a cone mesh of given number of sides, radius and height.
-ZEST_API zest_mesh zest_CreateCone(zest_context context, int sides, float radius, float height, zest_color color);
+ZEST_API zest_mesh zest_CreateCone(zest_context context, int sides, float radius, float height, zest_color_t color);
 //Create a uv sphere mesh made up using a number of horizontal rings and vertical sectors of a give radius.
-ZEST_API zest_mesh zest_CreateSphere(zest_context context, int rings, int sectors, float radius, zest_color color);
+ZEST_API zest_mesh zest_CreateSphere(zest_context context, int rings, int sectors, float radius, zest_color_t color);
 //Create a cube mesh of a given size.
-ZEST_API zest_mesh zest_CreateCube(zest_context context, float size, zest_color color);
+ZEST_API zest_mesh zest_CreateCube(zest_context context, float size, zest_color_t color);
 //Create a flat rounded rectangle of a give width and height. Pass in the radius to use for the corners and number of segments to use for the corners.
-ZEST_API zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float height, float radius, int segments, zest_bool backface, zest_color color);
+ZEST_API zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float height, float radius, int segments, zest_bool backface, zest_color_t color);
 //--End Instance Draw mesh layers
 
 //-----------------------------------------------

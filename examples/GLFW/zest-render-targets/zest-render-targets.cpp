@@ -239,18 +239,14 @@ void Mainloop(render_target_app_t *example) {
 
 		//Set the font to use for the font layer
 		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
-		//Set the shadow and color
-		zest_SetFontColor(&example->font, 1.f, 1.f, 1.f, 1.f);
+		zest_SetLayerColor(example->font_layer, 255, 100, 255, 255);
 		//Draw the text
 		zest_DrawMSDFText(example->font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .15f, .5f, .5f, 1.f, 0.f, "Basic Bloom Effect ...");
-		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
-		zest_SetFontColor(&example->font, 0.f, 1.f, 0.f, 1.f);
+		zest_SetLayerColor(example->font_layer, 50, 255, 50, 255);
 		zest_DrawMSDFText(example->font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .35f, .5f, .5f, 1.f, 0.f, "Using down/up sampling");
-		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
-		zest_SetFontColor(&example->font, 1.f, 0.f, 0.f, 1.f);
+		zest_SetLayerColor(example->font_layer, 50, 50, 255, 255);
 		zest_DrawMSDFText(example->font_layer,  zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .55f, .5f, .5f, 1.f, 0.f, "No thresholding just as is");
-		zest_SetMSDFFontDrawing(example->font_layer, &example->font, &example->font_resources);
-		zest_SetFontColor(&example->font, 0.f, 0.f, 1.f, 1.f);
+		zest_SetLayerColor(example->font_layer, 255, 50, 50, 255);
 		zest_DrawMSDFText(example->font_layer, zest_ScreenWidth(example->context) * .5f, zest_ScreenHeightf(example->context) * .75f, .5f, .5f, 1.f, 0.f, "FPS: %u", fps);
 
 		zest_image_resource_info_t image_info = {

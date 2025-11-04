@@ -8,14 +8,15 @@ const float scale_max_value = 4096.0 / 32767.0;
 //Instance
 layout(location = 0) in vec2 in_position;
 layout(location = 1) in vec4 uv;
-layout(location = 2) in vec2 scale;
-layout(location = 3) in uint texture_array_index;
+layout(location = 2) in vec4 color;
+layout(location = 3) in vec2 scale;
+layout(location = 4) in uint texture_array_index;
 
 layout(location = 0) out vec3 out_tex_coord;
+layout(location = 1) out vec4 out_color;
 
 layout(push_constant) uniform push_constants {
 	vec4 transform;
-    vec4 font_color;
     vec4 shadow_color;
     vec2 shadow_offset; // In screen pixels
 	vec2 unit_range;
@@ -53,4 +54,5 @@ void main() {
 
 	//----------------
 	out_tex_coord = vec3(uvs[index], texture_array_index);
+	out_color = color;
 }

@@ -45,7 +45,6 @@ struct ZestTests {
 	Test tests[TEST_COUNT];
 	int current_test;
 	zest_sampler_info_t sampler_info;
-	zest_sampler_info_t mipped_sampler_info;
 	zest_image_handle texture;
 	zest_sampler_handle sampler;
 	zest_uint sampler_index;

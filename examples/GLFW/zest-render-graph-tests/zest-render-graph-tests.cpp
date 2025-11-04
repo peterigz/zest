@@ -821,7 +821,6 @@ void InitialiseTests(ZestTests *tests) {
 	tests->tests[16] = { "Simple Graph Cache", test__simple_caching, 0, 0, 0, tests->simple_create_info };
 
 	tests->sampler_info = zest_CreateSamplerInfo();
-	tests->mipped_sampler_info = zest_CreateMippedSamplerInfo(7);
 
 	tests->current_test = 0;
     zest_ResetValidationErrors(tests->context);

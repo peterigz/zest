@@ -1413,7 +1413,7 @@ int msdf_genGlyph(msdf_result_t* result, stbtt_fontinfo *font, int stbttGlyphInd
 	result->rgba = (unsigned int*)allocCtx.alloc(sizeof(unsigned int) * w * h, allocCtx.ctx);
 	int pixel_index = 0;
 	for (size_t i = 0; i < total_float_pixels; i += 4) {
-		zest_color color;
+		zest_color_t color;
 		color.r = (unsigned int)(bitmap[i    ] * 255.f + 0.5f);
 		color.g = (unsigned int)(bitmap[i + 1] * 255.f + 0.5f);
 		color.b = (unsigned int)(bitmap[i + 2] * 255.f + 0.5f);

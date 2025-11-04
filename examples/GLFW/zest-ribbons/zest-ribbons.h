@@ -14,7 +14,7 @@
 
 struct ribbon_segment {
 	zest_vec4 position_and_width;
-	zest_color color;
+	zest_color_t color;
 	zest_uint padding[3];
 };
 
@@ -32,7 +32,7 @@ struct ribbon_instance {
 struct ribbon_vertex {
 	zest_vec4 position;
 	zest_vec4 uv;
-	zest_color color;
+	zest_color_t color;
 	zest_uint padding[3];
 };
 

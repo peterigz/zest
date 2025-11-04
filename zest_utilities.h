@@ -102,7 +102,6 @@ typedef struct zest_font_character_t {
 
 typedef struct zest_msdf_font_settings_t {
 	zest_vec4 transform;
-    zest_vec4 font_color;
     zest_vec4 shadow_color;
     zest_vec2 shadow_offset; // In screen pixels, e.g., (2.0, 2.0)
 	zest_vec2 unit_range;
@@ -136,9 +135,10 @@ typedef struct zest_msdf_font_file_t {
 typedef struct zest_font_instance_t {           //48 bytes
 	zest_vec2 position;                   		//The position of the sprite with rotation in w and stretch in z
 	zest_u64 uv;                                //The UV coords of the image in the texture packed into a u64 snorm (4 16bit floats)
+	zest_color_t color;							//The color of the font instance in rgba8
 	zest_uint size; 		                    //Size of the sprite in pixels and the handle packed into a u64 (4 16bit floats)
 	zest_uint texture_array;             		//Index in the texture array
-	zest_uint padding[2];
+	zest_uint padding;							//Pad up to 48 bytes
 } zest_font_instance_t;
 
 typedef struct zest_stbi_mem_context_t {
@@ -157,7 +157,6 @@ ZEST_API zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filena
 ZEST_API void zest_UpdateFontTransform(zest_msdf_font_t *font);
 ZEST_API void zest_SetFontTransform(zest_msdf_font_t *font, float transform[4]);
 ZEST_API void zest_SetFontSettings(zest_msdf_font_t *font, float inner_bias, float outer_bias, float smoothness, float gamma);
-ZEST_API void zest_SetFontColor(zest_msdf_font_t *font, float r, float g, float b, float a);
 ZEST_API void zest_SetFontShadowColor(zest_msdf_font_t *font, float r, float g, float b, float a);
 ZEST_API void zest_SetFontShadowOffset(zest_msdf_font_t *font, float x, float y);
 ZEST_API void zest_FreeFont(zest_msdf_font_t *font);
@@ -698,10 +697,11 @@ zest_font_resources_t zest_CreateFontResources(zest_context context, const char 
 	zest_pipeline_template font_pipeline = zest_BeginPipelineTemplate(context, "pipeline_billboard");
 	zest_AddVertexInputBindingDescription(font_pipeline, 0, sizeof(zest_font_instance_t), zest_input_rate_instance);
 
-    zest_AddVertexAttribute(font_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_font_instance_t, position));                  // Location 0: UV coords
-    zest_AddVertexAttribute(font_pipeline, 0, 1, zest_format_r16g16b16a16_snorm, offsetof(zest_font_instance_t, uv));   // Location 1: Instance Position and rotation
-    zest_AddVertexAttribute(font_pipeline, 0, 2, zest_format_r16g16_sscaled, offsetof(zest_font_instance_t, size));        // Location 2: Size of the sprite in pixels
-    zest_AddVertexAttribute(font_pipeline, 0, 3, zest_format_r32_uint, offsetof(zest_font_instance_t, texture_array));        // Location 5: Instance Parameters
+    zest_AddVertexAttribute(font_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_font_instance_t, position));  
+    zest_AddVertexAttribute(font_pipeline, 0, 1, zest_format_r16g16b16a16_snorm, offsetof(zest_font_instance_t, uv));  
+    zest_AddVertexAttribute(font_pipeline, 0, 2, zest_format_r8g8b8a8_unorm, offsetof(zest_font_instance_t, color));
+    zest_AddVertexAttribute(font_pipeline, 0, 3, zest_format_r16g16_sscaled, offsetof(zest_font_instance_t, size));  
+    zest_AddVertexAttribute(font_pipeline, 0, 4, zest_format_r32_uint, offsetof(zest_font_instance_t, texture_array));
 
 	zest_SetPipelinePushConstantRange(font_pipeline, sizeof(zest_msdf_font_settings_t), zest_shader_all_stages);
 	zest_SetPipelineVertShader(font_pipeline, font_vert);
@@ -813,7 +813,6 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	font.context = context;
 	font.settings.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(context), 2.0f / zest_ScreenHeightf(context), -1.f, -1.f);
 	font.settings.unit_range = ZEST_STRUCT_LITERAL(zest_vec2, font.sdf_range / 512.f, font.sdf_range / 512.f);
-	font.settings.font_color = zest_Vec4Set(1.f, 1.f, 1.f, 1.f);
 	font.settings.in_bias = 0.f;
 	font.settings.out_bias = 0.f;
 	font.settings.smoothness = 0.f;
@@ -896,7 +895,6 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 	font.is_loaded_from_file = ZEST_TRUE;
 	font.settings.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(context), 2.0f / zest_ScreenHeightf(context), -1.f, -1.f);
 	font.settings.unit_range = ZEST_STRUCT_LITERAL(zest_vec2, font.sdf_range / 512.f, font.sdf_range / 512.f);
-	font.settings.font_color = zest_Vec4Set(1.f, 1.f, 1.f, 1.f);
 	font.settings.in_bias = 0.f;
 	font.settings.out_bias = 0.f;
 	font.settings.smoothness = 0.f;
@@ -923,10 +921,6 @@ void zest_SetFontSettings(zest_msdf_font_t *font, float inner_bias, float outer_
 	font->settings.out_bias = inner_bias;
 	font->settings.smoothness = inner_bias;
 	font->settings.gamma = inner_bias;
-}
-
-void zest_SetFontColor(zest_msdf_font_t *font, float r, float g, float b, float a) {
-	font->settings.font_color = zest_Vec4Set(r, g, b, a);
 }
 
 void zest_SetFontShadowColor(zest_msdf_font_t *font, float r, float g, float b, float a) {
@@ -1023,6 +1017,7 @@ float zest__draw_msdf_text(zest_layer_handle layer_handle, const char* text, flo
 
         zest_font_instance_t* font_instance = (zest_font_instance_t*)zest_NextInstance(layer);
 		font_instance->size = zest_Pack16bit2SScaled(width, height, 4096.f);
+		font_instance->color = layer->current_color;
         font_instance->position = zest_Vec2Set(xpos + xoffset, y - yoffset);
         font_instance->uv = character->region->uv_packed;
 		font_instance->texture_array = character->region->layer_index;

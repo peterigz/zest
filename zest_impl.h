@@ -216,8 +216,8 @@ zest_vec4 zest_Vec4SetVec(zest_vec4 in) {
     zest_vec4 vec; vec.x = in.x; vec.y = in.y; vec.z = in.z; vec.w = in.w; return vec;
 }
 
-zest_color zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a) {
-	zest_color color;
+zest_color_t zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a) {
+	zest_color_t color;
 	color.r = r;
 	color.g = g;
 	color.b = b;
@@ -225,8 +225,8 @@ zest_color zest_ColorSet(zest_byte r, zest_byte g, zest_byte b, zest_byte a) {
     return color;
 }
 
-zest_color zest_ColorSet1(zest_byte c) {
-	zest_color color;
+zest_color_t zest_ColorSet1(zest_byte c) {
+	zest_color_t color;
 	color.r = c;
 	color.g = c;
 	color.b = c;
@@ -7677,7 +7677,7 @@ void zest__pack_images(zest_image_collection atlas, zest_uint layer_width, zest_
     }
     zest_vec_clear(atlas->layers);
 
-    zest_color fillcolor;
+    zest_color_t fillcolor;
     fillcolor.r = 0;
     fillcolor.g = 0;
     fillcolor.b = 0;
@@ -7957,7 +7957,7 @@ void zest_ConvertBitmap(zest_bitmap src, zest_format new_format, zest_byte alpha
 
     for (int y = 0; y < src->meta.height; ++y) {
         for (int x = 0; x < src->meta.width; ++x) {
-            zest_color source_pixel = { 0, 0, 0, alpha_level };
+            zest_color_t source_pixel = { 0, 0, 0, alpha_level };
             zest_size from_idx = (y * src->meta.width + x) * from_channels;
             zest_size to_idx = (y * src->meta.width + x) * to_channels;
 
@@ -8091,11 +8091,11 @@ void zest_CopyBitmap(zest_bitmap src, int from_x, int from_y, int width, int hei
     }
 }
 
-zest_color zest_SampleBitmap(zest_bitmap image, int x, int y) {
+zest_color_t zest_SampleBitmap(zest_bitmap image, int x, int y) {
     ZEST_ASSERT(image->data);
 
     size_t offset = y * image->meta.stride + (x * image->meta.channels);
-    zest_color c = ZEST__ZERO_INIT(zest_color);
+    zest_color_t c = ZEST__ZERO_INIT(zest_color_t);
     if (offset < image->meta.size) {
         c.r = *(image->data + offset);
 
@@ -8124,7 +8124,7 @@ float zest_FindBitmapRadius(zest_bitmap  image) {
     float max_radius = 0;
     for (int x = 0; x < image->meta.width; ++x) {
         for (int y = 0; y < image->meta.height; ++y) {
-            zest_color c = zest_SampleBitmap(image, x, y);
+            zest_color_t c = zest_SampleBitmap(image, x, y);
             if (c.a) {
                 max_radius = ceilf(ZEST__MAX(max_radius, zest_Distance((float)image->meta.width / 2.f, (float)image->meta.height / 2.f, (float)x, (float)y)));
             }
@@ -9321,7 +9321,7 @@ void zest_GrowMeshIndexBuffers(zest_layer_handle layer_handle) {
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_index_data, sizeof(zest_uint), memory_in_use);
 }
 
-void zest_PushVertex(zest_layer_handle layer_handle, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color color, zest_uint parameters) {
+void zest_PushVertex(zest_layer_handle layer_handle, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color_t color, zest_uint parameters) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.context, layer_handle.value);
     zest_textured_vertex_t vertex = ZEST__ZERO_INIT(zest_textured_vertex_t);
     vertex.pos = zest_Vec3Set(pos_x, pos_y, pos_z);
@@ -9458,7 +9458,7 @@ void zest_SetInstanceMeshDrawing(zest_layer_handle layer_handle, zest_shader_res
     layer->last_draw_mode = zest_draw_mode_mesh_instance;
 }
 
-void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color color) {
+void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color) {
     zest_vertex_t vertex = { {pos_x, pos_y, pos_z}, color, {0.f, 0.f, 0.f}, 0 };
     zest_vec_push(mesh->context->device->allocator, mesh->vertices, vertex);
 }
@@ -9646,7 +9646,7 @@ void zest_DrawInstancedMesh(zest_layer_handle layer_handle, float pos[3], float 
 
 }
 
-zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, float height, zest_color color, zest_bool cap) {
+zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, float height, zest_color_t color, zest_bool cap) {
     float angle_increment = 2.0f * ZEST_PI / sides;
 
     int vertex_count = sides * 2 + (cap ? sides * 2 : 0);
@@ -9711,7 +9711,7 @@ zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, flo
     return mesh;
 }
 
-zest_mesh zest_CreateCone(zest_context context, int sides, float radius, float height, zest_color color) {
+zest_mesh zest_CreateCone(zest_context context, int sides, float radius, float height, zest_color_t color) {
     // Calculate the angle between each side
     float angle_increment = 2.0f * ZEST_PI / sides;
 
@@ -9763,7 +9763,7 @@ zest_mesh zest_CreateCone(zest_context context, int sides, float radius, float h
     return mesh;
 }
 
-zest_mesh zest_CreateSphere(zest_context context, int rings, int sectors, float radius, zest_color color) {
+zest_mesh zest_CreateSphere(zest_context context, int rings, int sectors, float radius, zest_color_t color) {
     // Calculate the angles between rings and sectors
     float ring_angle_increment = ZEST_PI / rings;
     float sector_angle_increment = 2.0f * ZEST_PI / sectors;
@@ -9826,7 +9826,7 @@ zest_mesh zest_CreateSphere(zest_context context, int rings, int sectors, float 
     return mesh;
 }
 
-zest_mesh zest_CreateCube(zest_context context, float size, zest_color color) {
+zest_mesh zest_CreateCube(zest_context context, float size, zest_color_t color) {
     zest_mesh mesh = zest_NewMesh(context);
     float half_size = size * .5f;
 
@@ -9883,7 +9883,7 @@ zest_mesh zest_CreateCube(zest_context context, float size, zest_color color) {
     return mesh;
 }
 
-zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float height, float radius, int segments, zest_bool backface, zest_color color) {
+zest_mesh zest_CreateRoundedRectangle(zest_context context, float width, float height, float radius, int segments, zest_bool backface, zest_color_t color) {
     // Calculate the number of vertices and indices needed
     int num_vertices = segments * 4 + 8;
 
