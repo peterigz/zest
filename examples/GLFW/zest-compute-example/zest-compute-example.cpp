@@ -123,7 +123,7 @@ void InitComputeExample(ComputeExample *app) {
 	app->compute = zest_FinishCompute(&builder, "Particles Compute");
 
 	//Create a timer for a fixed update loop
-	app->loop_timer = zest_CreateTimer(app->context, 60.0);
+	app->loop_timer = zest_CreateTimer(60.0);
 }
 
 void RecordComputeSprites(zest_command_list command_list, void *user_data) {
@@ -309,7 +309,7 @@ int main(void) {
 
 	ComputeExample compute_example = { 0 };
 
-	zest_device device = zest_implglfw_CreateDevice(true);
+	zest_device device = zest_implglfw_CreateDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");

@@ -19,8 +19,6 @@ typedef struct zest_output_group_t {
 } zest_output_group_t;
 
 typedef struct zest_timer_t {
-    int magic;
-    zest_timer_handle handle;
     double start_time;
     double delta_time;
     double update_frequency;
@@ -2374,7 +2372,6 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
 			case zest_handle_type_view_arrays: zest__initialise_store(context, &context->resource_stores[i], sizeof(zest_image_view_array)); break;
 			case zest_handle_type_samplers: zest__initialise_store(context, &context->resource_stores[i], sizeof(zest_sampler_t)); break;
 			case zest_handle_type_uniform_buffers: zest__initialise_store(context, &context->resource_stores[i], sizeof(zest_uniform_buffer_t)); break;
-			case zest_handle_type_timers: zest__initialise_store(context, &context->resource_stores[i], sizeof(zest_timer_t)); break;
 			case zest_handle_type_layers: zest__initialise_store(context, &context->resource_stores[i], sizeof(zest_layer_t)); break;
 			case zest_handle_type_shaders: zest__initialise_store(context, &context->resource_stores[i], sizeof(zest_shader_t)); break;
 			case zest_handle_type_compute_pipelines: zest__initialise_store(context, &context->resource_stores[i], sizeof(zest_compute_t)); break;
@@ -2563,18 +2560,6 @@ void zest__cleanup_uniform_buffer_store(zest_context context) {
 	zest__free_store(store);
 }
 
-void zest__cleanup_timer_store(zest_context context) {
-	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_timers];
-    zest_timer_t *timers = (zest_timer_t*)store->data;
-    for (int i = 0; i != store->current_size; ++i) {
-        if (ZEST_VALID_HANDLE(&timers[i])) {
-            zest_timer resource = &timers[i];
-            zest_FreeTimer(resource->handle);
-        }
-    }
-	zest__free_store(store);
-}
-
 void zest__cleanup_layer_store(zest_context context) {
 	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_layers];
     zest_layer_t *layers = (zest_layer_t*)store->data;
@@ -2677,7 +2662,6 @@ void zest__cleanup_context(zest_context context) {
     zest__cleanup_shader_resource_store(context);
     zest__cleanup_image_store(context);
     zest__cleanup_uniform_buffer_store(context);
-    zest__cleanup_timer_store(context);
     zest__cleanup_layer_store(context);
     zest__cleanup_shader_store(context);
     zest__cleanup_compute_store(context);
@@ -10294,56 +10278,40 @@ zest_bool zest_SetErrorLogPath(zest_device device, const char* path) {
 //-- End Debug helpers
 
 //-- Timer functions
-zest_timer_handle zest_CreateTimer(zest_context context, double update_frequency) {
-    zest_timer_handle handle = { zest__add_store_resource(zest_handle_type_timers, context) };
-	handle.context = context;
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(context, handle.value);
-    *timer = ZEST__ZERO_INIT(zest_timer_t);
-    timer->magic = zest_INIT_MAGIC(zest_struct_type_timer);
-    timer->handle = handle;
-    timer->update_frequency = update_frequency;
-    timer->update_tick_length = ZEST_MICROSECS_SECOND / timer->update_frequency;
-    timer->update_time = 1.f / timer->update_frequency;
-    timer->ticker = zest_Microsecs() - timer->update_tick_length;
-    timer->max_elapsed_time = timer->update_tick_length * 4.0;
-    timer->start_time = (double)zest_Microsecs();
-    timer->current_time = (double)zest_Microsecs();
-    return handle;
+zest_timer_t zest_CreateTimer(double update_frequency) {
+    zest_timer_t timer = ZEST__ZERO_INIT(zest_timer_t);
+    timer.update_frequency = update_frequency;
+    timer.update_tick_length = ZEST_MICROSECS_SECOND / timer.update_frequency;
+    timer.update_time = 1.f / timer.update_frequency;
+    timer.ticker = zest_Microsecs() - timer.update_tick_length;
+    timer.max_elapsed_time = timer.update_tick_length * 4.0;
+    timer.start_time = (double)zest_Microsecs();
+    timer.current_time = (double)zest_Microsecs();
+    return timer;
 }
 
-void zest_FreeTimer(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
-    zest__remove_store_resource(timer_handle.context, timer_handle.value);
-}
-
-void zest_TimerReset(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+void zest_TimerReset(zest_timer_t *timer) {
     timer->start_time = (double)zest_Microsecs();
     timer->current_time = (double)zest_Microsecs();
 }
 
-double zest_TimerDeltaTime(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+double zest_TimerDeltaTime(zest_timer_t *timer) {
     return timer->delta_time;
 }
 
-void zest_TimerTick(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+void zest_TimerTick(zest_timer_t *timer) {
     timer->delta_time = (double)zest_Microsecs() - timer->start_time;
 }
 
-double zest_TimerUpdateTime(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+double zest_TimerUpdateTime(zest_timer_t *timer) {
     return timer->update_time;
 }
 
-double zest_TimerFrameLength(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+double zest_TimerFrameLength(zest_timer_t *timer) {
     return timer->update_tick_length;
 }
 
-double zest_TimerAccumulate(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+double zest_TimerAccumulate(zest_timer_t *timer) {
     double new_time = (double)zest_Microsecs();
     double frame_time = fabs(new_time - timer->current_time);
     frame_time = ZEST__MIN(frame_time, ZEST_MICROSECS_SECOND);
@@ -10356,13 +10324,11 @@ double zest_TimerAccumulate(zest_timer_handle timer_handle) {
     return frame_time;
 }
 
-int zest_TimerPendingTicks(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+int zest_TimerPendingTicks(zest_timer_t *timer) {
     return (int)(timer->accumulator / timer->update_tick_length);
 }
 
-void zest_TimerUnAccumulate(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+void zest_TimerUnAccumulate(zest_timer_t *timer) {
     timer->accumulator -= timer->update_tick_length;
     timer->accumulator_delta = timer->accumulator_delta - timer->accumulator;
     timer->update_count++;
@@ -10370,41 +10336,34 @@ void zest_TimerUnAccumulate(zest_timer_handle timer_handle) {
     timer->seconds_passed += timer->update_time * 1000.f;
 }
 
-zest_bool zest_TimerDoUpdate(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+zest_bool zest_TimerDoUpdate(zest_timer_t *timer) {
     return timer->accumulator >= timer->update_tick_length;
 }
 
-double zest_TimerLerp(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+double zest_TimerLerp(zest_timer_t *timer) {
     return timer->update_count > 1 ? 1.f : timer->lerp;
 }
 
-void zest_TimerSet(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+void zest_TimerSet(zest_timer_t *timer) {
     timer->lerp = timer->accumulator / timer->update_tick_length;
 }
 
-void zest_TimerSetMaxFrames(zest_timer_handle timer_handle, double frames) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+void zest_TimerSetMaxFrames(zest_timer_t *timer, double frames) {
     timer->max_elapsed_time = timer->update_tick_length * frames;
 }
 
-void zest_TimerSetUpdateFrequency(zest_timer_handle timer_handle, double frequency) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+void zest_TimerSetUpdateFrequency(zest_timer_t *timer, double frequency) {
     timer->update_frequency = frequency;
     timer->update_tick_length = ZEST_MICROSECS_SECOND / timer->update_frequency;
     timer->update_time = 1.f / timer->update_frequency;
     timer->ticker = zest_Microsecs() - timer->update_tick_length;
 }
 
-double zest_TimerUpdateFrequency(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+double zest_TimerUpdateFrequency(zest_timer_t *timer) {
     return timer->update_frequency;
 }
 
-zest_bool zest_TimerUpdateWasRun(zest_timer_handle timer_handle) {
-    zest_timer timer = (zest_timer)zest__get_store_resource_checked(timer_handle.context, timer_handle.value);
+zest_bool zest_TimerUpdateWasRun(zest_timer_t *timer) {
     return timer->update_count > 0;
 }
 //-- End Timer Functions

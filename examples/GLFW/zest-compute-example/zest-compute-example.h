@@ -51,7 +51,7 @@ struct ComputeExample {
 	zest_compute_handle compute;
 	zest_context context;
 
-	zest_timer_handle loop_timer;
+	zest_timer_t loop_timer;
 	RenderCacheInfo cache_info;
 
 	float frame_timer;
