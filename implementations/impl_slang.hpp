@@ -194,10 +194,10 @@ inline zest_shader_handle zest_slang_CreateShader(zest_context context, const ch
     if (!shader_handle.value) {
 		return {};
     }
-	zest_shader shader = (zest_shader)zest__get_store_resource_checked(context, shader_handle.value);
+	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
 
     if (!disable_caching && context->create_info.flags & zest_init_flag_cache_shaders) {
-        zest__cache_shader(shader);
+        zest__cache_shader(context, shader);
     }
 
     return shader_handle;

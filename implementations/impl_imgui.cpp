@@ -19,7 +19,7 @@ zest_imgui_t zest_imgui_Initialise(zest_context context) {
     image_info.flags = zest_image_preset_texture;
     zest_imgui.font_texture = zest_CreateImage(context, &image_info);
     zest_imgui.font_region = zest_CreateAtlasRegion(context);
-    zest_CopyBitmapToImage(font_bitmap, zest_imgui.font_texture, 0, 0, 0, 0, width, height);
+    zest_CopyBitmapToImage(context, font_bitmap, zest_imgui.font_texture, 0, 0, 0, 0, width, height);
     zest_FreeBitmap(font_bitmap);
 
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
@@ -84,7 +84,7 @@ void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_ui
     imgui->font_texture = zest_CreateImage(imgui->context, &image_info);
     zest_FreeAtlasRegion(imgui->font_region);
     imgui->font_region = zest_CreateAtlasRegion(imgui->context);
-    zest_CopyBitmapToImage(font_bitmap, imgui->font_texture, 0, 0, 0, 0, width, height);
+    zest_CopyBitmapToImage(imgui->context, font_bitmap, imgui->font_texture, 0, 0, 0, 0, width, height);
     imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(imgui->context, imgui->font_texture, zest_texture_2d_binding);
 	zest_BindAtlasRegionToImage(imgui->font_region, imgui->font_sampler_binding_index, imgui->font_texture, zest_texture_2d_binding);
     zest_FreeBitmap(font_bitmap);

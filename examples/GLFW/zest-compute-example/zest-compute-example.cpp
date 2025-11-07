@@ -29,12 +29,12 @@ void InitComputeExample(ComputeExample *app) {
 	zest_FreeBitmap(particle_bitmap);
 	zest_FreeBitmap(gradient_bitmap);
 
-	app->particle_image_index = zest_AcquireGlobalSampledImageIndex(app->particle_image, zest_texture_2d_binding);
-	app->gradient_image_index = zest_AcquireGlobalSampledImageIndex(app->gradient_image, zest_texture_2d_binding);
+	app->particle_image_index = zest_AcquireSampledImageIndex(app->context, app->particle_image, zest_texture_2d_binding);
+	app->gradient_image_index = zest_AcquireSampledImageIndex(app->context, app->gradient_image, zest_texture_2d_binding);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
-	app->particle_sampler = zest_CreateSamplerForImage(app->particle_image);
-	app->sampler_index = zest_AcquireGlobalSamplerIndex(app->particle_sampler);
+	app->particle_sampler = zest_CreateSampler(app->context, &sampler_info);
+	app->sampler_index = zest_AcquireSamplerIndex(app->context, app->particle_sampler);
 
 	//Load the particle data with random coordinates
 	std::default_random_engine rndEngine(0);
@@ -63,7 +63,7 @@ void InitComputeExample(ComputeExample *app) {
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
 
-	app->particle_buffer_index = zest_AcquireGlobalStorageBufferIndex(app->particle_buffer);
+	app->particle_buffer_index = zest_AcquireStorageBufferIndex(app->context, app->particle_buffer);
 
 	/*
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
@@ -96,7 +96,7 @@ void InitComputeExample(ComputeExample *app) {
 	//Add the descriptor layout we created earlier, but clear the layouts in the template first as a uniform buffer is added
 	//by default.
 	zest_ClearPipelineDescriptorLayouts(app->particle_pipeline);
-	zest_AddPipelineDescriptorLayout(app->particle_pipeline, zest_GetGlobalBindlessLayout(app->context));
+	zest_AddPipelineDescriptorLayout(app->particle_pipeline, zest_GetBindlessLayout(app->context));
 	//Set the push constant we'll be using
 	zest_SetPipelinePushConstantRange(app->particle_pipeline, sizeof(ParticleFragmentPush), zest_shader_fragment_stage);
 	//Switch off any depth testing
@@ -114,7 +114,7 @@ void InitComputeExample(ComputeExample *app) {
 	zest_compute_builder_t builder = zest_BeginComputeBuilder(app->context);
 	//Declare the bindings we want in the shader
 	zest_AddComputeSetLayout(&builder, zest_GetUniformBufferLayout(app->compute_uniform_buffer));
-	zest_SetComputeBindlessLayout(&builder, zest_GetGlobalBindlessLayout(app->context));
+	zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(app->context));
 	//Set the user data so that we can use it in the callback funcitons
 	zest_SetComputeUserData(&builder, app);
 	//Declare the actual shader to use
@@ -133,7 +133,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	zest_pipeline pipeline = zest_PipelineWithTemplate(app->particle_pipeline, command_list);
 	//You can mix and match descriptor sets but we only need the bindless set there containing the particle texture and gradient
 	zest_descriptor_set sets[] = {
-		zest_GetGlobalBindlessSet(command_list->context)
+		zest_GetBindlessSet(command_list->context)
 	};
 	//Bind the pipeline with the descriptor set
 	zest_cmd_BindPipeline(command_list, pipeline, sets, 1);
@@ -158,7 +158,7 @@ void RecordComputeCommands(zest_command_list command_list, void *user_data) {
 	ComputeExample *app = (ComputeExample *)user_data;
 	//Mix the bindless descriptor set with the uniform buffer descriptor set
 	zest_descriptor_set sets[] = {
-		zest_GetGlobalBindlessSet(command_list->context),
+		zest_GetBindlessSet(command_list->context),
 		zest_GetUniformBufferSet(app->compute_uniform_buffer)
 	};
 	//Bind the compute pipeline
@@ -301,15 +301,14 @@ void MainLoop(ComputeExample *app) {
 // Windows entry point
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main(void) {
-	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-	//zest_create_info_t create_info = zest_CreateInfo();
+	zest_create_info_t create_info = zest_CreateInfo();
 	//Disable vsync so we can see how fast it runs
 	ZEST__UNFLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
 
 	ComputeExample compute_example = { 0 };
 
-	zest_device device = zest_implglfw_CreateDevice(false);
+	zest_device device = zest_implglfw_CreateDevice(true);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");

@@ -20,7 +20,7 @@
     [Pocket_Hasher]                     XXHash code for use in hash map
     [Pocket_hash_map]                   Simple hash map
     [Pocket_text_buffer]                Very simple struct and functions for storing strings
-    [Threading]                         Simple worker queue mainly used for recording secondary command buffers
+    [Threading]                         Some thread helpers, unused as yet.
     [Structs]                           All the structs are defined here.
         [Vectors]
         [frame_graph_types]
@@ -2796,22 +2796,6 @@ ZEST_API void zest__add_report(zest_context context, zest_report_category catego
 // Forward declaration
 struct zest_work_queue_t;
 
-// Callback function type
-typedef void (*zest_work_queue_callback)(struct zest_work_queue_t *queue, void *data);
-
-typedef struct zest_work_queue_entry_t {
-	zest_work_queue_callback call_back;
-	void *data;
-} zest_work_queue_entry_t;
-
-typedef struct zest_work_queue_t {
-	volatile zest_uint entry_completion_goal;
-	volatile zest_uint entry_completion_count;
-	volatile int next_read_entry;
-	volatile int next_write_entry;
-	zest_work_queue_entry_t entries[ZEST_MAX_QUEUE_ENTRIES];
-} zest_work_queue_t;
-
 // Platform-specific synchronization wrapper
 typedef struct zest_sync_t {
 	#ifdef _WIN32
@@ -2824,13 +2808,6 @@ typedef struct zest_sync_t {
 	pthread_cond_t full_condition;
 	#endif
 } zest_sync_t;
-
-typedef struct zest_queue_processor_t {
-	zest_sync_t sync;
-	zest_uint count;
-	volatile zest_bool end_all_threads;
-	zest_work_queue_t *queues[ZEST_MAX_QUEUES];
-} zest_queue_processor_t;
 
 // Platform-specific atomic operations
 ZEST_PRIVATE inline zest_uint zest__atomic_increment(volatile zest_uint *value) {
@@ -2927,102 +2904,6 @@ ZEST_PRIVATE inline void zest__sync_signal_full(zest_sync_t *sync) {
 	pthread_cond_signal(&sync->full_condition);
 	#endif
 }
-
-// Initialize queue processor
-ZEST_PRIVATE inline void zest__initialise_thread_queues(zest_queue_processor_t *queues) {
-	queues->count = 0;
-	memset(queues->queues, 0, ZEST_MAX_QUEUES * sizeof(void *));
-	zest__sync_init(&queues->sync);
-	queues->end_all_threads = false;
-}
-
-ZEST_PRIVATE inline void zest__cleanup_thread_queues(zest_queue_processor_t *queues) {
-	zest__sync_cleanup(&queues->sync);
-}
-
-ZEST_PRIVATE inline zest_work_queue_t *zest__get_queue_with_work(zest_queue_processor_t *thread_processor) {
-	zest__sync_lock(&thread_processor->sync);
-
-	while (thread_processor->count == 0 && !thread_processor->end_all_threads) {
-		zest__sync_wait_full(&thread_processor->sync);
-	}
-
-	zest_work_queue_t *queue = NULL;
-	if (thread_processor->count > 0) {
-		queue = thread_processor->queues[--thread_processor->count];
-		zest__sync_signal_empty(&thread_processor->sync);
-	}
-
-	zest__sync_unlock(&thread_processor->sync);
-	return queue;
-}
-
-ZEST_PRIVATE inline void zest__push_queue_work(zest_queue_processor_t *thread_processor, zest_work_queue_t *queue) {
-	zest__sync_lock(&thread_processor->sync);
-
-	while (thread_processor->count >= ZEST_MAX_QUEUES) {
-		zest__sync_wait_empty(&thread_processor->sync);
-	}
-
-	thread_processor->queues[thread_processor->count++] = queue;
-	zest__sync_signal_full(&thread_processor->sync);
-
-	zest__sync_unlock(&thread_processor->sync);
-}
-
-ZEST_PRIVATE inline zest_bool zest__do_next_work_queue(zest_queue_processor_t *queue_processor) {
-	zest_work_queue_t *queue = zest__get_queue_with_work(queue_processor);
-
-	if (queue) {
-		zest_uint original_read_entry = queue->next_read_entry;
-		zest_uint new_original_read_entry = (original_read_entry + 1) % ZEST_MAX_QUEUE_ENTRIES;
-
-		if (original_read_entry != queue->next_write_entry) {
-			if (zest__atomic_compare_exchange(&queue->next_read_entry, new_original_read_entry, original_read_entry)) {
-				zest_work_queue_entry_t entry = queue->entries[original_read_entry];
-				entry.call_back(queue, entry.data);
-				zest__atomic_increment(&queue->entry_completion_count);
-			}
-		}
-	}
-	return queue_processor->end_all_threads;
-}
-
-ZEST_PRIVATE inline void zest__do_next_work_queue_entry(zest_work_queue_t *queue) {
-	zest_uint original_read_entry = queue->next_read_entry;
-	zest_uint new_original_read_entry = (original_read_entry + 1) % ZEST_MAX_QUEUE_ENTRIES;
-
-	if (original_read_entry != queue->next_write_entry) {
-		if (zest__atomic_compare_exchange(&queue->next_read_entry, new_original_read_entry, original_read_entry)) {
-			zest_work_queue_entry_t entry = queue->entries[original_read_entry];
-			entry.call_back(queue, entry.data);
-			zest__atomic_increment(&queue->entry_completion_count);
-		}
-	}
-}
-
-ZEST_PRIVATE inline void zest__add_work_queue_entry(zest_context context, void *data, zest_work_queue_callback call_back);
-
-ZEST_PRIVATE inline void zest__complete_all_work(zest_work_queue_t *queue) {
-	zest_work_queue_entry_t entry = { 0 };
-	while (queue->entry_completion_goal != queue->entry_completion_count) {
-		zest__do_next_work_queue_entry(queue);
-	}
-	queue->entry_completion_count = 0;
-	queue->entry_completion_goal = 0;
-}
-
-#ifdef _WIN32
-ZEST_PRIVATE unsigned WINAPI zest__thread_worker(void *arg);
-#else
-ZEST_PRIVATE void *zest__thread_worker(void *arg);
-#endif
-
-// Thread creation helper function
-ZEST_PRIVATE bool zest__create_worker_thread(zest_device device, int thread_index);
-
-// Thread cleanup helper function
-ZEST_PRIVATE inline void zest__cleanup_thread(zest_context context, int thread_index);
 
 ZEST_PRIVATE inline unsigned int zest_HardwareConcurrency(void) {
 	#ifdef _WIN32
@@ -3626,23 +3507,15 @@ typedef struct zest_device_t {
 
 	//General Cache Storage
 	zest_map_cached_frame_graphs cached_frame_graphs;
-	zest_map_cached_pipelines cached_pipelines;
 	zest_map_rg_semaphores cached_frame_graph_semaphores;
    
 	//Optional prefix path for loading shaders (remove this and just the user sort this)
 	zest_text_t shader_path_prefix;
 
 	//Resource storage
-	zest_resource_store_t resource_stores[zest_max_context_handle_type];
+	zest_resource_store_t resource_stores[zest_max_device_handle_type];
  
 	//Threading
-	zest_work_queue_t work_queue;
-	zest_queue_processor_t thread_queues;
-	#ifdef _WIN32
-	HANDLE threads[ZEST_MAX_THREADS];
-	#else
-	pthread_t threads[ZEST_MAX_THREADS];
-	#endif
 	zest_uint thread_count;
 
 	//Slang
@@ -4281,8 +4154,6 @@ typedef struct zest_pipeline_template_t {
 	zest_color_blend_attachment_t color_blend_attachment;
 	zest_set_layout *set_layouts;
 	zest_push_constant_range_t push_constant_range;
-
-	zest_key *cached_pipeline_keys;
 } zest_pipeline_template_t;
 
 typedef struct zest_atlas_region_t {
@@ -4632,7 +4503,7 @@ typedef struct zest_platform_t {
 	void                       (*update_bindless_image_descriptor)(zest_context context, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
 	void                       (*update_bindless_buffer_descriptor)(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	//Command buffers/queues
-	void					   (*reset_queue_command_pool)(zest_device device, zest_queue queue);
+	void					   (*reset_queue_command_pool)(zest_context context, zest_queue queue);
 	zest_bool 				   (*begin_single_time_commands)(zest_context context);
 	zest_bool 				   (*end_single_time_commands)(zest_context context);
 	//General Renderer
@@ -4646,7 +4517,7 @@ typedef struct zest_platform_t {
 	void					   (*os_add_platform_extensions)(zest_context context);
 	zest_bool				   (*create_window_surface)(zest_context context);
 	//Shader Compiling
-	zest_bool				   (*validate_shader)(zest_context context, const char *shader_code, zest_shader_type type, const char *name);
+	zest_bool				   (*validate_shader)(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
 	zest_bool				   (*compile_shader)(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, void *options);
 	//Create backends
 	void*                      (*new_frame_graph_semaphores_backend)(zest_context context);
@@ -4719,6 +4590,7 @@ typedef struct zest_context_t {
 
 	//Platform specific data
 	zest_context_backend backend;
+	zest_uint allocation_id;
 	zest_platform_memory_info_t platform_memory_info;
 
 	//The current fence count of the last frame
@@ -4754,6 +4626,9 @@ typedef struct zest_context_t {
 	//Bindless set layout and set
 	zest_set_layout bindless_set_layout;
 	zest_descriptor_set bindless_set;
+
+	//Cached pipelines
+	zest_map_cached_pipelines cached_pipelines;
 
 	//Flags
 	zest_context_flags flags;
@@ -4895,7 +4770,7 @@ ZEST_PRIVATE void zest__cleanup_view_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_view_array_store(zest_device device);
 ZEST_PRIVATE void zest__cleanup_image_collection_store(zest_context context);
 ZEST_PRIVATE void zest__free_handle(void *handle);
-ZEST_PRIVATE void zest__scan_memory_and_free_resources(zest_context context);
+ZEST_PRIVATE void zest__scan_memory_and_free_resources(zloc_allocator *allocator);
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_context context);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
@@ -5563,7 +5438,7 @@ ZEST_API int zest_ImageRawLayout(zest_image_handle image_handle);
 //Begin a new image collection.
 ZEST_API void zest_AddImageCollectionPNG(zest_image_collection_handle image_collection, const char *filename);
 //Copies an area of a zest_bitmap to a zest_image.
-ZEST_API zest_bool zest_CopyBitmapToImage(zest_bitmap src_bitmap, zest_image_handle dst_image_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
+ZEST_API zest_bool zest_CopyBitmapToImage(zest_context context, zest_bitmap src_bitmap, zest_image_handle dst_image_handle, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 
 // --Sampler functions
 //Gets a sampler from the sampler storage in the renderer. If no match is found for the info that you pass into the sampler
@@ -5824,9 +5699,10 @@ ZEST_API zest_bool zest_TimerUpdateWasRun(zest_timer_t *timer);                 
 #define zest_StartTimerLoop(timer) 	zest_TimerAccumulate(&timer); \
 int pending_ticks = zest_TimerPendingTicks(&timer); \
 while (zest_TimerDoUpdate(&timer)) {
-	#define zest_EndTimerLoop(timer) zest_TimerUnAccumulate(&timer); \
+
+#define zest_EndTimerLoop(timer) zest_TimerUnAccumulate(&timer); \
 } \
-zest_TimerSet(timer);
+zest_TimerSet(&timer);
 //--End Timer Functions
 
 //-----------------------------------------------
