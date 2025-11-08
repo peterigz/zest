@@ -14,12 +14,12 @@ void InitExample(render_target_app_t *example) {
 	example->sampler = zest_CreateSampler(example->context, &sampler_info);
 	example->sampler_index = zest_AcquireSamplerIndex(example->context, example->sampler);
 
-	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", zest_compute_shader, 1);
-	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", zest_compute_shader, 1);
-	zest_shader_handle blur_vert = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/blur.vert", "blur_vert.spv", zest_vertex_shader, 1);
-	zest_shader_handle pass_frag = zest_CreateShaderFromFile(example->context, "examples/GLFW/zest-render-targets/shaders/pass.frag", "pass_frag.spv", zest_fragment_shader, 1);
+	zest_shader_handle downsampler_shader = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/downsample.comp", "downsample_comp.spv", zest_compute_shader, 1);
+	zest_shader_handle upsampler_shader = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/upsample.comp", "upsample_comp.spv", zest_compute_shader, 1);
+	zest_shader_handle blur_vert = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/blur.vert", "blur_vert.spv", zest_vertex_shader, 1);
+	zest_shader_handle pass_frag = zest_CreateShaderFromFile(example->device, "examples/GLFW/zest-render-targets/shaders/pass.frag", "pass_frag.spv", zest_fragment_shader, 1);
 
-    example->composite_pipeline = zest_BeginPipelineTemplate(example->context, "pipeline_pass_through");
+    example->composite_pipeline = zest_BeginPipelineTemplate(example->device, "pipeline_pass_through");
 	zest_SetPipelineVertShader(example->composite_pipeline, blur_vert);
 	zest_SetPipelineFragShader(example->composite_pipeline, pass_frag);
     zest_ClearPipelineDescriptorLayouts(example->composite_pipeline);
@@ -367,6 +367,7 @@ int main()
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Minimal Example");
 	//Initialise Zest
 	app.context = zest_CreateContext(device, &window_handles, &create_info);
+	app.device = device;
 
 	InitExample(&app);
 

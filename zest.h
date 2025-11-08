@@ -3339,7 +3339,8 @@ typedef struct zest_device_builder_t {
 	zest_uint bindless_texture_3d_count;
 	zest_uint bindless_storage_buffer_count;
 	zest_uint bindless_storage_image_count;
-	const char* log_path;                               //path to the log to store log and validation messages
+	const char *log_path;                               //path to the log to store log and validation messages
+	const char *cached_shader_path;
 
 	// User-provided list of required instance extensions (e.g., from GLFW)
 	const char** required_instance_extensions;
@@ -3501,8 +3502,8 @@ typedef struct zest_device_t {
 	//GPU buffer allocation
 	zest_map_buffer_allocators buffer_allocators;
   
-	//Optional prefix path for loading shaders (remove this and just the user sort this)
-	zest_text_t shader_path_prefix;
+	//Where to save/load cached shaders
+	zest_text_t cached_shaders_path;
 
 	//Resource storage
 	zest_resource_store_t resource_stores[zest_max_device_handle_type];
@@ -4126,7 +4127,7 @@ typedef struct zest_push_constant_range_t {
 //Pipeline template is used with CreatePipeline to create a graphics pipeline. Use PipelineTemplate() or SetPipelineTemplate with PipelineTemplateCreateInfo to create a PipelineTemplate
 typedef struct zest_pipeline_template_t {
 	int magic;
-	zest_context context;
+	zest_device device;
 	const char *name;                                                            //Name for the pipeline just for labelling it when listing all the renderer objects in debug
 	zest_topology primitive_topology;
 	zest_rasterization_state_t rasterization;
@@ -4692,7 +4693,7 @@ ZEST_API zest_size zest_GetNextPower(zest_size n);
 //Platform_dependent_functions
 //These functions need a different implementation depending on the platform being run on
 //See definitions at the top of zest.c
-ZEST_PRIVATE bool zest__create_folder(zest_context context, const char *path);
+ZEST_PRIVATE bool zest__create_folder(zest_device device, const char *path);
 //-- End Platform dependent functions
 
 //Buffer_and_Memory_Management
@@ -4775,8 +4776,8 @@ ZEST_PRIVATE void zest__scan_memory_and_free_resources(zloc_allocator *allocator
 ZEST_PRIVATE void zest__cleanup_compute(zest_compute compute);
 ZEST_PRIVATE zest_bool zest__recreate_swapchain(zest_context context);
 ZEST_PRIVATE void zest__add_line(zest_text_t *text, char current_char, zest_uint *position, zest_uint tabs);
-ZEST_PRIVATE void zest__compile_builtin_shaders(zest_context context);
-ZEST_PRIVATE void zest__prepare_standard_pipelines(zest_context context);
+ZEST_PRIVATE void zest__compile_builtin_shaders(zest_device device);
+ZEST_PRIVATE void zest__prepare_standard_pipelines(zest_device device);
 ZEST_PRIVATE void zest__cleanup_pipeline(zest_pipeline pipeline);
 ZEST_PRIVATE void zest__cleanup_pipelines(zest_context context);
 ZEST_PRIVATE zest_render_pass zest__create_render_pass(void);
@@ -4843,8 +4844,8 @@ ZEST_PRIVATE void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffe
 // --End Maintenance functions
 
 // --Shader_functions
-ZEST_PRIVATE zest_shader_handle zest__new_shader(zest_context context, zest_shader_type type);
-ZEST_API void zest__cache_shader(zest_context context, zest_shader shader);
+ZEST_PRIVATE zest_shader_handle zest__new_shader(zest_device device, zest_shader_type type);
+ZEST_API void zest__cache_shader(zest_device device, zest_shader shader);
 // --End Shader functions
 
 // --Descriptor_set_functions
@@ -4981,13 +4982,13 @@ ZEST_API zest_viewport_t zest_CreateViewport(float x, float y, float width, floa
 //Create a zest_scissor_rect_t for render clipping
 ZEST_API zest_scissor_rect_t zest_CreateRect2D(zest_uint width, zest_uint height, int offsetX, int offsetY);
 //Validate a shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_bool zest_ValidateShader(zest_context context, const char *shader_code, zest_shader_type type, const char *name);
+ZEST_API zest_bool zest_ValidateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader_handle zest_CreateShader(zest_context context, const char *shader_code, zest_shader_type type, const char *name, zest_bool disable_caching);
+ZEST_API zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_bool disable_caching);
 //Creates a shader from a file containing the shader glsl code
-ZEST_API zest_shader_handle zest_CreateShaderFromFile(zest_context context, const char *file, const char *name, zest_shader_type type, zest_bool disable_caching);
+ZEST_API zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_bool disable_caching);
 //Creates and compiles a new shader from a string and add it to the library of shaders in the renderer
-ZEST_API zest_shader_handle zest_CreateShaderSPVMemory(zest_context context, const unsigned char *shader_code, zest_uint spv_length, const char *name, zest_shader_type type);
+ZEST_API zest_shader_handle zest_CreateShaderSPVMemory(zest_device device, const unsigned char *shader_code, zest_uint spv_length, const char *name, zest_shader_type type);
 //Reload a shader. Use this if you edited a shader file and you want to refresh it/hot reload it
 //The shader must have been created from a file with zest_CreateShaderFromFile. Once the shader is reloaded you can call
 //zest_CompileShader or zest_ValidateShader to recompile it. You'll then have to call zest_SchedulePipelineRecreate to recreate
@@ -4997,17 +4998,19 @@ ZEST_API zest_bool zest_ReloadShader(zest_shader_handle shader);
 ZEST_API zest_bool zest_CompileShader(zest_shader_handle shader);
 //Add a shader straight from an spv file and return a handle to the shader. Note that no prefix is added to the filename here so 
 //pass in the full path to the file relative to the executable being run.
-ZEST_API zest_shader_handle zest_AddShaderFromSPVFile(zest_context context, const char *filename, zest_shader_type type);
+ZEST_API zest_shader_handle zest_AddShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type);
 //Add an spv shader straight from memory and return a handle to the shader. Note that the name should just be the name of the shader, 
 //If a path prefix is set (context->device->shader_path_prefix, set when initialising Zest in the create_info struct, spv is default) then
 //This prefix will be prepending to the name you pass in here.
-ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(zest_context context, const char *name, const void *buffer, zest_uint size, zest_shader_type type);
+ZEST_API zest_shader_handle zest_AddShaderFromSPVMemory(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type);
 //Add a shader to the renderer list of shaders.
 ZEST_API void zest_AddShader(zest_shader_handle shader, const char *name);
 //Free the memory for a shader and remove if from the shader list in the renderer (if it exists there)
 ZEST_API void zest_FreeShader(zest_shader_handle shader);
 //Get the maximum image dimension available on the device
 ZEST_API zest_uint zest_GetMaxImageSize(zest_context context);
+//Get the device/platform associated with a context
+ZEST_API zest_device zest_GetContextDevice(zest_context context);
 // -- End Platform_Helper_Functions
 
 //-----------------------------------------------
@@ -5017,7 +5020,7 @@ ZEST_API zest_uint zest_GetMaxImageSize(zest_context context);
 //        the following functions are utilised, plus look at the exmaples for building your own custom pipeline_templates.
 //-----------------------------------------------
 //Add a new pipeline template to the renderer and return its handle.
-ZEST_API zest_pipeline_template zest_BeginPipelineTemplate(zest_context context, const char *name);
+ZEST_API zest_pipeline_template zest_BeginPipelineTemplate(zest_device device, const char *name);
 //Set the name of the file to use for the vert and frag shader in the zest_pipeline_template_create_info_t
 ZEST_API void zest_SetPipelineVertShader(zest_pipeline_template pipeline_template, zest_shader_handle vert_shader);
 ZEST_API void zest_SetPipelineFragShader(zest_pipeline_template pipeline_template, zest_shader_handle frag_shader);
@@ -5070,7 +5073,7 @@ ZEST_API zest_color_blend_attachment_t zest_ImGuiBlendState(void);
 ZEST_API zest_pipeline zest_PipelineWithTemplate(zest_pipeline_template pipeline_template, const zest_command_list command_list);
 //Copy the zest_pipeline_template_create_info_t from an existing pipeline. This can be useful if you want to create a new pipeline based
 //on an existing pipeline with just a few tweaks like setting a different shader to use.
-ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(zest_context context, const char *name, zest_pipeline_template pipeline_template);
+ZEST_API zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_template);
 //Delete a pipeline including the template and any cached versions of the pipeline
 ZEST_API void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template);
 ZEST_API zest_bool zest_PipelineIsValid(zest_pipeline_template pipeline);

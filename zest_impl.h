@@ -129,10 +129,10 @@ zest_bool zest__file_exists(const char* file_name) {
 	return ZEST_FALSE;
 }
 
-bool zest__create_folder(zest_context context, const char *path) {
+bool zest__create_folder(zest_device device, const char *path) {
     int result = ZEST_CREATE_DIR(path);
     if (result == 0) {
-        ZEST_APPEND_LOG(context->device->log_path.str, "Folder created successfully: %s", path);
+        ZEST_APPEND_LOG(device->log_path.str, "Folder created successfully: %s", path);
         return true;
     } else {
         if (result == -1) {
@@ -140,9 +140,9 @@ bool zest__create_folder(zest_context context, const char *path) {
         } else {
             char buffer[100];
             if (zest_strerror(buffer, sizeof(buffer), result) != 0) {
-				ZEST_APPEND_LOG(context->device->log_path.str, "Error creating folder: %s (Error: Unknown)", path);
+				ZEST_APPEND_LOG(device->log_path.str, "Error creating folder: %s (Error: Unknown)", path);
             } else {
-				ZEST_APPEND_LOG(context->device->log_path.str, "Error creating folder: %s (Error: %s)", path, buffer);
+				ZEST_APPEND_LOG(device->log_path.str, "Error creating folder: %s (Error: %s)", path, buffer);
             }
             return false;
         }
@@ -1126,6 +1126,7 @@ zest_device_builder zest__begin_device_builder() {
 	builder->memory_pool_size = zloc__MEGABYTE(256);
 	builder->thread_count = zest_GetDefaultThreadCount();
 	builder->log_path = "./";
+	builder->cached_shader_path = "./spv/";
 	builder->bindless_sampler_count = 64;
 	builder->bindless_texture_2d_count = 1024;
 	builder->bindless_texture_cube_count = 1024;
@@ -1217,6 +1218,8 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
         zest_SetErrorLogPath(device, builder->log_path);
     }
 
+    zest_SetText(device->allocator, &device->cached_shaders_path, builder->cached_shader_path);
+
 	switch (builder->platform) {
 		case zest_platform_vulkan: {
 			if (!zest__initialise_vulkan_device(device, builder)) {
@@ -1248,6 +1251,12 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_buffer_binding, zest_descriptor_type_storage_buffer, builder->bindless_storage_buffer_count, zest_shader_all_stages ) );
     zest_AddLayoutBuilderBinding(&layout_builder, ZEST_STRUCT_LITERAL( zest_descriptor_binding_desc_t, zest_storage_image_binding, zest_descriptor_type_storage_image, builder->bindless_storage_image_count, zest_shader_compute_stage | zest_shader_fragment_stage ) );
 	device->global_layout_builder = layout_builder;
+
+    ZEST_APPEND_LOG(device->log_path.str, "Compile shaders");
+    zest__compile_builtin_shaders(device);
+
+    ZEST_APPEND_LOG(device->log_path.str, "Create standard pipelines");
+    zest__prepare_standard_pipelines(device);
 
 	ZEST__FREE_POOL(builder->allocator);
 	return device;
@@ -2294,7 +2303,6 @@ void zest_SetDeviceImagePoolSize(zest_device device, const char *name, zest_imag
 // --Renderer and related functions
 zest_bool zest__initialise_context(zest_context context, zest_create_info_t* create_info) {
     context->flags |= (create_info->flags & zest_init_flag_enable_vsync) ? zest_context_flag_vsync_enabled : 0;
-    zest_SetText(context->device->allocator, &context->device->shader_path_prefix, create_info->shader_path_prefix);
     ZEST_APPEND_LOG(context->device->log_path.str, "Create swap chain");
 
 	void *store_memory = ZEST__ALLOCATE(context->device->allocator, create_info->store_allocator_size);
@@ -2320,11 +2328,6 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
     ZEST_APPEND_LOG(context->device->log_path.str, "Create descriptor layouts");
 
     context->device->platform->set_depth_format(context);
-
-    ZEST_APPEND_LOG(context->device->log_path.str, "Compile shaders");
-    zest__compile_builtin_shaders(context);
-    ZEST_APPEND_LOG(context->device->log_path.str, "Create standard pipelines");
-    zest__prepare_standard_pipelines(context);
 
     if (!context->device->platform->initialise_context_backend(context)) {
         return ZEST_FALSE;
@@ -2440,7 +2443,7 @@ void zest__cleanup_device(zest_device device) {
     zest_map_free(device->allocator, device->queue_names);
     zest_map_free(device->allocator, device->pool_sizes);
     zest_FreeText(device->allocator, &device->log_path);
-    zest_FreeText(device->allocator, &device->shader_path_prefix);
+    zest_FreeText(device->allocator, &device->cached_shaders_path);
 }
 
 void zest__free_handle(void *handle) {
@@ -3147,7 +3150,7 @@ zest_vertex_binding_desc_t zest_AddVertexInputBindingDescription(zest_pipeline_t
     input_binding_description.binding = binding;
     input_binding_description.stride = stride;
     input_binding_description.input_rate = input_rate;
-    zest_vec_push(pipeline_template->context->device->allocator, pipeline_template->binding_descriptions, input_binding_description);
+    zest_vec_push(pipeline_template->device->allocator, pipeline_template->binding_descriptions, input_binding_description);
     zest_size size = zest_vec_size(pipeline_template->binding_descriptions);
     return input_binding_description;
 }
@@ -3283,7 +3286,7 @@ zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_co
     pipeline->pipeline_template = pipeline_template;
     zest_bool result = context->device->platform->build_pipeline(pipeline, command_list);
 	if (result == ZEST_TRUE) {
-		zest_map_insert_key(pipeline_template->context->store_allocator, context->cached_pipelines, pipeline_key, pipeline);
+		zest_map_insert_key(pipeline_template->device->allocator, context->cached_pipelines, pipeline_key, pipeline);
 		*out_pipeline = pipeline;
 	} else {
 		ZEST__FLAG(pipeline_template->flags, zest_pipeline_invalid);
@@ -3292,8 +3295,9 @@ zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_co
     return result;
 }
 
-zest_pipeline_template zest_CopyPipelineTemplate(zest_context context, const char *name, zest_pipeline_template pipeline_to_copy) {
-    zest_pipeline_template copy = zest_BeginPipelineTemplate(context, name);
+zest_pipeline_template zest_CopyPipelineTemplate(const char *name, zest_pipeline_template pipeline_to_copy) {
+	zest_device device = pipeline_to_copy->device;
+    zest_pipeline_template copy = zest_BeginPipelineTemplate(device, name);
     copy->no_vertex_input = pipeline_to_copy->no_vertex_input;
     copy->primitive_topology = pipeline_to_copy->primitive_topology;
     copy->rasterization = pipeline_to_copy->rasterization;
@@ -3301,14 +3305,14 @@ zest_pipeline_template zest_CopyPipelineTemplate(zest_context context, const cha
     copy->push_constant_range = pipeline_to_copy->push_constant_range;
     zest_vec_clear(copy->set_layouts);
     zest_vec_foreach(i, pipeline_to_copy->set_layouts) {
-        zest_vec_push(context->device->allocator, copy->set_layouts, pipeline_to_copy->set_layouts[i]);
+        zest_vec_push(device->allocator, copy->set_layouts, pipeline_to_copy->set_layouts[i]);
     }
     if (pipeline_to_copy->binding_descriptions) {
-        zest_vec_resize(context->device->allocator, copy->binding_descriptions, zest_vec_size(pipeline_to_copy->binding_descriptions));
+        zest_vec_resize(device->allocator, copy->binding_descriptions, zest_vec_size(pipeline_to_copy->binding_descriptions));
         memcpy(copy->binding_descriptions, pipeline_to_copy->binding_descriptions, zest_vec_size_in_bytes(pipeline_to_copy->binding_descriptions));
     }
     if (pipeline_to_copy->attribute_descriptions) {
-        zest_vec_resize(context->device->allocator, copy->attribute_descriptions, zest_vec_size(pipeline_to_copy->attribute_descriptions));
+        zest_vec_resize(device->allocator, copy->attribute_descriptions, zest_vec_size(pipeline_to_copy->attribute_descriptions));
         memcpy(copy->attribute_descriptions, pipeline_to_copy->attribute_descriptions, zest_vec_size_in_bytes(pipeline_to_copy->attribute_descriptions));
     }
     copy->vertex_shader = pipeline_to_copy->vertex_shader;
@@ -3318,7 +3322,6 @@ zest_pipeline_template zest_CopyPipelineTemplate(zest_context context, const cha
 
 void zest_FreePipelineTemplate(zest_pipeline_template pipeline_template) {
     ZEST_ASSERT_HANDLE(pipeline_template);   //Not a valid pipeline template handle
-	zest_context context = pipeline_template->context;
     zest__cleanup_pipeline_template(pipeline_template);
 }
 
@@ -3327,14 +3330,14 @@ zest_bool zest_PipelineIsValid(zest_pipeline_template pipeline) {
 }
 
 void zest__cleanup_pipeline_template(zest_pipeline_template pipeline_template) {
-    zest_vec_free(pipeline_template->context->device->allocator, pipeline_template->set_layouts);
-    zest_vec_free(pipeline_template->context->device->allocator, pipeline_template->attribute_descriptions);
-    zest_vec_free(pipeline_template->context->device->allocator, pipeline_template->binding_descriptions);
-    ZEST__FREE(pipeline_template->context->device->allocator, pipeline_template);
+    zest_vec_free(pipeline_template->device->allocator, pipeline_template->set_layouts);
+    zest_vec_free(pipeline_template->device->allocator, pipeline_template->attribute_descriptions);
+    zest_vec_free(pipeline_template->device->allocator, pipeline_template->binding_descriptions);
+    ZEST__FREE(pipeline_template->device->allocator, pipeline_template);
 }
 
-zest_bool zest_ValidateShader(zest_context context, const char *shader_code, zest_shader_type type, const char *name) {
-	if (!context->device->platform->validate_shader(context->device, shader_code, type, name)) {
+zest_bool zest_ValidateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name) {
+	if (!device->platform->validate_shader(device, shader_code, type, name)) {
 		return ZEST_FALSE;
 	}
     return ZEST_TRUE;
@@ -3351,13 +3354,13 @@ zest_bool zest_CompileShader(zest_shader_handle shader_handle) {
     return ZEST_FALSE;
 }
 
-zest_shader_handle zest_CreateShaderFromFile(zest_context context, const char *file, const char *name, zest_shader_type type, zest_bool disable_caching) {
-    char *shader_code = zest_ReadEntireFile(context->device, file, ZEST_TRUE);
+zest_shader_handle zest_CreateShaderFromFile(zest_device device, const char *file, const char *name, zest_shader_type type, zest_bool disable_caching) {
+    char *shader_code = zest_ReadEntireFile(device, file, ZEST_TRUE);
     ZEST_ASSERT(shader_code);   //Unable to load the shader code, check the path is valid
-    zest_shader_handle shader_handle = zest_CreateShader(context, shader_code, type, name, disable_caching);
+    zest_shader_handle shader_handle = zest_CreateShader(device, shader_code, type, name, disable_caching);
 	zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
-    zest_SetText(context->device->allocator, &shader->file_path, file);
-    zest_vec_free(context->device->allocator, shader_code);
+    zest_SetText(device->allocator, &shader->file_path, file);
+    zest_vec_free(device->allocator, shader_code);
     return shader_handle;
 }
 
@@ -3373,80 +3376,80 @@ zest_bool zest_ReloadShader(zest_shader_handle shader_handle) {
     return 1;
 }
 
-zest_shader_handle zest_CreateShader(zest_context context, const char *shader_code, zest_shader_type type, const char *name, zest_bool disable_caching) {
+zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_bool disable_caching) {
     ZEST_ASSERT(name);     //You must give the shader a name
     zest_text_t shader_name = ZEST__ZERO_INIT(zest_text_t);
-    if (zest_TextSize(&context->device->shader_path_prefix)) {
-        zest_SetTextf(context->device->allocator, &shader_name, "%s%s", context->device->shader_path_prefix, name);
+    if (zest_TextSize(&device->cached_shaders_path)) {
+        zest_SetTextf(device->allocator, &shader_name, "%s%s", device->cached_shaders_path, name);
     }
     else {
-        zest_SetTextf(context->device->allocator, &shader_name, "%s", name);
+        zest_SetTextf(device->allocator, &shader_name, "%s", name);
     }
-    zest_shader_handle shader_handle = zest__new_shader(context, type);
+    zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
     shader->name = shader_name;
-    if (!disable_caching && context->create_info.flags & zest_init_flag_cache_shaders) {
-        shader->spv = zest_ReadEntireFile(context->device, shader->name.str, ZEST_FALSE);
+    if (!disable_caching && device->init_flags & zest_init_flag_cache_shaders) {
+        shader->spv = zest_ReadEntireFile(device, shader->name.str, ZEST_FALSE);
         if (shader->spv) {
             shader->spv_size = zest_vec_size(shader->spv);
-			zest_SetText(context->device->allocator, &shader->shader_code, shader_code);
-			ZEST_APPEND_LOG(context->device->log_path.str, "Loaded shader %s from cache.", name);
+			zest_SetText(device->allocator, &shader->shader_code, shader_code);
+			ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s from cache.", name);
             return shader_handle;
         }
     }
 
-	zest_SetText(context->device->allocator, &shader->shader_code, shader_code);
-	if (!context->device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", NULL)) {
+	zest_SetText(device->allocator, &shader->shader_code, shader_code);
+	if (!device->platform->compile_shader(shader, shader->shader_code.str, zest_TextLength(&shader->shader_code), type, name, "main", NULL)) {
         zest_FreeShader(shader_handle);
         ZEST_ASSERT(0); //There's a bug in this shader that needs fixing. You can check the log file for the error message
 	}
 
-    if (!disable_caching && context->create_info.flags & zest_init_flag_cache_shaders) {
-        zest__cache_shader(context, shader);
+    if (!disable_caching && device->init_flags & zest_init_flag_cache_shaders) {
+        zest__cache_shader(device, shader);
     }
     return shader_handle;
 }
 
-void zest__cache_shader(zest_context context, zest_shader shader) {
-    zest__create_folder(context, context->device->shader_path_prefix.str);
+void zest__cache_shader(zest_device device, zest_shader shader) {
+    zest__create_folder(device, device->cached_shaders_path.str);
     FILE *shader_file = zest__open_file(shader->name.str, "wb");
     if (shader_file == NULL) {
-        ZEST_APPEND_LOG(context->device->log_path.str, "Failed to open file for writing: %s", shader->name.str);
+        ZEST_APPEND_LOG(device->log_path.str, "Failed to open file for writing: %s", shader->name.str);
         return;
     }
     size_t written = fwrite(shader->spv, 1, shader->spv_size, shader_file);
     if (written != shader->spv_size) {
-        ZEST_APPEND_LOG(context->device->log_path.str, "Failed to write entire shader to file: %s", shader->name.str);
+        ZEST_APPEND_LOG(device->log_path.str, "Failed to write entire shader to file: %s", shader->name.str);
         fclose(shader_file);
     }
     fclose(shader_file);
 }
 
-zest_shader_handle zest_CreateShaderSPVMemory(zest_context context, const unsigned char *shader_code, zest_uint spv_length, const char *name, zest_shader_type type) {
+zest_shader_handle zest_CreateShaderSPVMemory(zest_device device, const unsigned char *shader_code, zest_uint spv_length, const char *name, zest_shader_type type) {
     ZEST_ASSERT(shader_code);   //No shader code!
     ZEST_ASSERT(name);     //You must give the shader a name
     zest_text_t shader_name = ZEST__ZERO_INIT(zest_text_t);
-    if (zest_TextSize(&context->device->shader_path_prefix)) {
-        zest_SetTextf(context->device->allocator, &shader_name, "%s%s", context->device->shader_path_prefix, name);
+    if (zest_TextSize(&device->cached_shaders_path)) {
+        zest_SetTextf(device->allocator, &shader_name, "%s%s", device->cached_shaders_path, name);
     } else {
-        zest_SetTextf(context->device->allocator, &shader_name, "%s", name);
+        zest_SetTextf(device->allocator, &shader_name, "%s", name);
     }
-    zest_shader_handle shader_handle = zest__new_shader(context, type);
+    zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
-    zest_vec_resize(context->device->allocator, shader->spv, spv_length);
+    zest_vec_resize(device->allocator, shader->spv, spv_length);
     memcpy(shader->spv, shader_code, spv_length);
     shader->spv_size = spv_length;
-    zest_FreeText(context->device->allocator, &shader_name);
+    zest_FreeText(device->allocator, &shader_name);
     return shader_handle;
 }
 
-void zest__compile_builtin_shaders(zest_context context) {
-    context->device->builtin_shaders.swap_vert          = zest_CreateShader(context, zest_shader_swap_vert, zest_vertex_shader, "swap_vert.spv", 1);
-    context->device->builtin_shaders.swap_frag          = zest_CreateShader(context, zest_shader_swap_frag, zest_fragment_shader, "swap_frag.spv", 1);
+void zest__compile_builtin_shaders(zest_device device) {
+    device->builtin_shaders.swap_vert          = zest_CreateShader(device, zest_shader_swap_vert, zest_vertex_shader, "swap_vert.spv", 1);
+    device->builtin_shaders.swap_frag          = zest_CreateShader(device, zest_shader_swap_frag, zest_fragment_shader, "swap_frag.spv", 1);
 }
 
-zest_shader_handle zest__new_shader(zest_context context, zest_shader_type type) {
-	zest_resource_store_t *store = &context->device->resource_stores[zest_handle_type_shaders];
+zest_shader_handle zest__new_shader(zest_device device, zest_shader_type type) {
+	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_shaders];
     zest_shader_handle handle = ZEST_STRUCT_LITERAL(zest_shader_handle, zest__add_store_resource(store), store );
 	handle.store = store;
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(store, handle.value);
@@ -3457,33 +3460,33 @@ zest_shader_handle zest__new_shader(zest_context context, zest_shader_type type)
     return handle;
 }
 
-zest_shader_handle zest_AddShaderFromSPVFile(zest_context context, const char *filename, zest_shader_type type) {
+zest_shader_handle zest_AddShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type) {
     ZEST_ASSERT(filename);     //You must give the shader a name
-    zest_shader_handle shader_handle = zest__new_shader(context, type);
+    zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
-    shader->spv = zest_ReadEntireFile(context->device, filename, ZEST_FALSE);
+    shader->spv = zest_ReadEntireFile(device, filename, ZEST_FALSE);
     ZEST_ASSERT(shader->spv);   //File not found, could not load this shader!
     shader->spv_size = zest_vec_size(shader->spv);
-	zest_SetText(context->device->allocator, &shader->name, filename);
-	ZEST_APPEND_LOG(context->device->log_path.str, "Loaded shader %s and added to renderer shaders.", filename);
+	zest_SetText(device->allocator, &shader->name, filename);
+	ZEST_APPEND_LOG(device->log_path.str, "Loaded shader %s and added to renderer shaders.", filename);
 	return shader_handle;
 }
 
-zest_shader_handle zest_AddShaderFromSPVMemory(zest_context context, const char *name, const void *buffer, zest_uint size, zest_shader_type type) {
+zest_shader_handle zest_AddShaderFromSPVMemory(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type) {
     ZEST_ASSERT(name);     //You must give the shader a name
     ZEST_ASSERT(!strstr(name, "/"));    //name must not contain /, the shader will be prefixed with the cache folder automatically
     if (buffer && size) {
-		zest_shader_handle shader_handle = zest__new_shader(context, type);
+		zest_shader_handle shader_handle = zest__new_shader(device, type);
 		zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
-		if (zest_TextSize(&context->device->shader_path_prefix)) {
-			zest_SetTextf(context->device->allocator, &shader->name, "%s%s", context->device->shader_path_prefix, name);
+		if (zest_TextSize(&device->cached_shaders_path)) {
+			zest_SetTextf(device->allocator, &shader->name, "%s%s", device->cached_shaders_path, name);
 		}
 		else {
-			zest_SetTextf(context->device->allocator, &shader->name, "%s", name);
+			zest_SetTextf(device->allocator, &shader->name, "%s", name);
 		}
-		zest_vec_resize(context->device->allocator, shader->spv, size);
+		zest_vec_resize(device->allocator, shader->spv, size);
 		memcpy(shader->spv, buffer, size);
-        ZEST_APPEND_LOG(context->device->log_path.str, "Read shader %s from memory and added to renderer shaders.", name);
+        ZEST_APPEND_LOG(device->log_path.str, "Read shader %s from memory and added to renderer shaders.", name);
         shader->spv_size = size;
         return shader_handle;
     }
@@ -3495,8 +3498,8 @@ void zest_AddShader(zest_shader_handle shader_handle, const char *name) {
 	zest_device device = (zest_device)shader_handle.store->origin;
     if (name) {
 		ZEST_ASSERT(!strstr(name, "/"));    //name must not contain /, the shader will be prefixed with the cache folder automatically
-        if (zest_TextSize(&device->shader_path_prefix)) {
-            zest_SetTextf(device->allocator, &shader->name, "%s%s", device->shader_path_prefix, name);
+        if (zest_TextSize(&device->cached_shaders_path)) {
+            zest_SetTextf(device->allocator, &shader->name, "%s%s", device->cached_shaders_path, name);
         }
         else {
             zest_SetTextf(device->allocator, &shader->name, "%s", name);
@@ -3524,13 +3527,18 @@ zest_uint zest_GetMaxImageSize(zest_context context) {
 	return context->device->max_image_size;
 }
 
+zest_device zest_GetContextDevice(zest_context context) {
+	ZEST_ASSERT_HANDLE(context);
+	return context->device;
+}
+
 zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer_handle, bool last_frame) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
     return layer->memory_refs[last_frame ? layer->prev_fif : layer->fif].device_vertex_data->array_index;
 }
 
-zest_pipeline_template zest_BeginPipelineTemplate(zest_context context, const char* name) {
-    zest_pipeline_template pipeline_template = (zest_pipeline_template)ZEST__NEW(context->device->allocator, zest_pipeline_template);
+zest_pipeline_template zest_BeginPipelineTemplate(zest_device device, const char* name) {
+    zest_pipeline_template pipeline_template = (zest_pipeline_template)ZEST__NEW(device->allocator, zest_pipeline_template);
     *pipeline_template = ZEST__ZERO_INIT(zest_pipeline_template_t);
     pipeline_template->magic = zest_INIT_MAGIC(zest_struct_type_pipeline_template);
     pipeline_template->name = name;
@@ -3548,7 +3556,7 @@ zest_pipeline_template zest_BeginPipelineTemplate(zest_context context, const ch
     pipeline_template->rasterization.front_face = zest_front_face_clockwise;
     pipeline_template->rasterization.depth_bias_enable = ZEST_FALSE;
 
-	pipeline_template->context = context;
+	pipeline_template->device = device;
 
     return pipeline_template;
 }
@@ -3559,7 +3567,7 @@ void zest_AddVertexAttribute(zest_pipeline_template pipeline_template, zest_uint
     input_attribute_description.binding = binding;
     input_attribute_description.format = format;
     input_attribute_description.offset = offset;
-    zest_vec_push(pipeline_template->context->device->allocator, pipeline_template->attribute_descriptions, input_attribute_description);
+    zest_vec_push(pipeline_template->device->allocator, pipeline_template->attribute_descriptions, input_attribute_description);
 }
 
 zest_key zest_Hash(const void* input, zest_ull length, zest_ull seed) { 
@@ -4090,16 +4098,16 @@ zest_sampler_info_t zest_CreateSamplerInfo() {
     return sampler_info;
 }
 
-void zest__prepare_standard_pipelines(zest_context context) {
+void zest__prepare_standard_pipelines(zest_device device) {
 
     //Final Render Pipelines
-    context->device->pipeline_templates.swap = zest_BeginPipelineTemplate(context, "pipeline_swap_chain");
-    zest_pipeline_template swap = context->device->pipeline_templates.swap;
+    device->pipeline_templates.swap = zest_BeginPipelineTemplate(device, "pipeline_swap_chain");
+    zest_pipeline_template swap = device->pipeline_templates.swap;
     zest_SetPipelinePushConstantRange(swap, sizeof(zest_vec2), zest_shader_vertex_stage);
     zest_SetPipelineBlend(swap, zest_PreMultiplyBlendStateForSwap());
     swap->no_vertex_input = ZEST_TRUE;
-    zest_SetPipelineVertShader(swap, context->device->builtin_shaders.swap_vert);
-    zest_SetPipelineFragShader(swap, context->device->builtin_shaders.swap_frag);
+    zest_SetPipelineVertShader(swap, device->builtin_shaders.swap_vert);
+    zest_SetPipelineFragShader(swap, device->builtin_shaders.swap_frag);
     swap->uniforms = 0;
     swap->flags = zest_pipeline_set_flag_is_render_target_pipeline;
 
@@ -4109,7 +4117,7 @@ void zest__prepare_standard_pipelines(zest_context context) {
 
     swap->color_blend_attachment = zest_PreMultiplyBlendStateForSwap();
 
-    ZEST_APPEND_LOG(context->device->log_path.str, "Final render pipeline");
+    ZEST_APPEND_LOG(device->log_path.str, "Final render pipeline");
 }
 
 // --End Renderer functions
@@ -4176,7 +4184,6 @@ zest_create_info_t zest_CreateInfo() {
 	zest_create_info_t create_info;
 	create_info.title = "Zest Window";
 	create_info.frame_graph_allocator_size = zloc__MEGABYTE(1);
-	create_info.shader_path_prefix = "spv/";
 	create_info.screen_width = 1280;
 	create_info.screen_height = 768;
 	create_info.screen_x = 0;
