@@ -3498,17 +3498,9 @@ typedef struct zest_device_t {
 	//Global descriptor set and layout template.
 	zest_set_layout_builder_t global_layout_builder;
 
-	//Timeline semaphores for creating dependencies between frames
-	//Might not want to keep these
-	zest_execution_timeline *timeline_semaphores;
-
 	//GPU buffer allocation
 	zest_map_buffer_allocators buffer_allocators;
-
-	//General Cache Storage
-	zest_map_cached_frame_graphs cached_frame_graphs;
-	zest_map_rg_semaphores cached_frame_graph_semaphores;
-   
+  
 	//Optional prefix path for loading shaders (remove this and just the user sort this)
 	zest_text_t shader_path_prefix;
 
@@ -4622,6 +4614,11 @@ typedef struct zest_context_t {
 	zloc_allocator *store_allocator;
 	zest_resource_store_t resource_stores[zest_max_context_handle_type];
 	zest_context_destruction_queue_t deferred_resource_freeing_list;
+	zest_uint vector_id;
+
+	//Timeline semaphores for creating dependencies between frames
+	//Might not want to keep these
+	zest_execution_timeline *timeline_semaphores;
 
 	//Bindless set layout and set
 	zest_set_layout bindless_set_layout;
@@ -4630,6 +4627,10 @@ typedef struct zest_context_t {
 	//Cached pipelines
 	zest_map_cached_pipelines cached_pipelines;
 
+	//Frame Graph Cache Storage
+	zest_map_cached_frame_graphs cached_frame_graphs;
+	zest_map_rg_semaphores cached_frame_graph_semaphores;
+ 
 	//Flags
 	zest_context_flags flags;
 
@@ -4712,7 +4713,7 @@ ZEST_PRIVATE inline void zest__add_host_memory_pool(zest_device device, zest_siz
 ZEST_PRIVATE inline void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 	void* allocation = zloc_Allocate(allocator, size);
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-	if (offset_from_allocator == 32732560) {
+	if (offset_from_allocator == 8696) {
 		int d = 0;
 	}
 	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
@@ -5761,8 +5762,8 @@ ZEST_API void zest_OutputMemoryUsage(zest_context context);
 ZEST_API zest_bool zest_SetErrorLogPath(zest_device device, const char *path);
 //Print out any reports that have been collected to the console
 ZEST_API void zest_PrintReports(zest_context context);
-ZEST_PRIVATE void zest__print_block_info(zest_context context, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter);
-ZEST_API void zest_PrintMemoryBlocks(zest_context context, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter);
+ZEST_PRIVATE void zest__print_block_info(zloc_allocator *allocator, void *allocation, zloc_header *current_block, zest_platform_memory_context context_filter, zest_platform_command command_filter);
+ZEST_API void zest_PrintMemoryBlocks(zloc_allocator *allocator, zloc_header *first_block, zest_bool output_all, zest_platform_memory_context context_filter, zest_platform_command command_filter);
 ZEST_API zest_uint zest_GetValidationErrorCount(zest_context context);
 ZEST_API void zest_ResetValidationErrors(zest_context context);
 //--End Debug Helpers

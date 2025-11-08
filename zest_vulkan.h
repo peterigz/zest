@@ -1993,9 +1993,9 @@ zest_bool zest__vk_create_execution_timeline_backend(zest_context context, zest_
     VkSemaphoreCreateInfo semaphore_info = ZEST__ZERO_INIT(VkSemaphoreCreateInfo);
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     semaphore_info.pNext = &timeline_create_info;
-	ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_semaphore);
-    timeline->backend = (zest_execution_timeline_backend)ZEST__NEW(context->device->allocator, zest_execution_timeline_backend);
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateSemaphore(context->device->backend->logical_device, &semaphore_info, &context->device->backend->allocation_callbacks, &timeline->backend->semaphore));
+	ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_semaphore);
+    timeline->backend = (zest_execution_timeline_backend)ZEST__NEW(context->store_allocator, zest_execution_timeline_backend);
+    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateSemaphore(context->device->backend->logical_device, &semaphore_info, &context->backend->allocation_callbacks, &timeline->backend->semaphore));
     return ZEST_TRUE;
 }
 // -- End General_create_functions
@@ -2219,7 +2219,8 @@ void zest__vk_cleanup_swapchain_backend(zest_swapchain swapchain) {
 	zest_context context = swapchain->context;
     zest_vec_foreach(i, swapchain->views) {
         zest__vk_cleanup_swapchain_image_view_backend(context, swapchain->views[i]);
-        ZEST__FREE(swapchain->context->store_allocator, swapchain->images[i].backend);
+        ZEST__FREE(context->store_allocator, swapchain->images[i].backend);
+        ZEST__FREE(context->store_allocator, swapchain->views[i]);
     }
     vkDestroySwapchainKHR(context->device->backend->logical_device, swapchain->backend->vk_swapchain, &context->backend->allocation_callbacks);
 	zest_ForEachFrameInFlight(fif) {
@@ -2338,10 +2339,10 @@ void zest__vk_cleanup_descriptor_backend(zest_set_layout layout, zest_descriptor
 void zest__vk_cleanup_frame_graph_semaphore(zest_context context, zest_frame_graph_semaphores semaphores) {
 	zest_ForEachFrameInFlight(fif) {
 		for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
-			vkDestroySemaphore(context->device->backend->logical_device, semaphores->backend->vk_semaphores[fif][queue_index], &context->device->backend->allocation_callbacks);
+			vkDestroySemaphore(context->device->backend->logical_device, semaphores->backend->vk_semaphores[fif][queue_index], &context->backend->allocation_callbacks);
 		}
 	}
-    ZEST__FREE(context->device->allocator, semaphores->backend);
+    ZEST__FREE(context->store_allocator, semaphores->backend);
 }
 
 void zest__vk_cleanup_device_backend(zest_device device) {
@@ -2370,16 +2371,15 @@ void zest__vk_cleanup_context_backend(zest_context context) {
         }
 		vkDestroyFence(context->device->backend->logical_device, context->backend->intraframe_fence[queue_index], &context->backend->allocation_callbacks);
     }
-
-    zest_vec_foreach(i, context->device->timeline_semaphores) {
-        zest_execution_timeline timeline = context->device->timeline_semaphores[i];
+    zest_vec_foreach(i, context->timeline_semaphores) {
+        zest_execution_timeline timeline = context->timeline_semaphores[i];
         vkDestroySemaphore(context->device->backend->logical_device, timeline->backend->semaphore, &context->backend->allocation_callbacks);
-        ZEST__FREE(context->device->allocator, timeline);
+        ZEST__FREE(context->store_allocator, timeline);
     }
     zest_ForEachFrameInFlight(fif) {
         vkDestroyCommandPool(context->device->backend->logical_device, context->backend->one_time_command_pool[fif], &context->backend->allocation_callbacks);
     }
-    zest_vec_free(context->store_allocator, context->device->timeline_semaphores);
+    zest_vec_free(context->store_allocator, context->timeline_semaphores);
     zest_vec_free(context->store_allocator, context->backend->used_buffers_ready_for_freeing);
     ZEST__FREE(context->store_allocator, context->backend);
 }
@@ -2558,7 +2558,7 @@ void zest__vk_cmd_copy_buffer_one_time(zest_buffer src_buffer, zest_buffer dst_b
 void zest__vk_push_buffer_for_freeing(zest_buffer buffer) {
 	zest_context context = buffer->context;
 	if ((buffer->magic & 0xFFFF) == ZEST_STRUCT_IDENTIFIER && ZEST__NOT_FLAGGED(buffer->memory_pool->flags, zest_memory_pool_flag_single_buffer) && buffer->backend->vk_buffer) {
-		zest_vec_push(context->device->allocator, context->backend->used_buffers_ready_for_freeing, buffer->backend->vk_buffer);
+		zest_vec_push(context->store_allocator, context->backend->used_buffers_ready_for_freeing, buffer->backend->vk_buffer);
 		buffer->backend->vk_buffer = VK_NULL_HANDLE;
 	}
 }
@@ -2807,10 +2807,10 @@ zest_bool zest__vk_initialise_context_backend(zest_context context) {
 	ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_fence);
 	for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
 		zest_ForEachFrameInFlight(i) {
-            ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateFence(context->device->backend->logical_device, &fence_info, &context->device->backend->allocation_callbacks, &context->backend->fif_fence[i][queue_index]));
+            ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateFence(context->device->backend->logical_device, &fence_info, &context->backend->allocation_callbacks, &context->backend->fif_fence[i][queue_index]));
 			context->fence_count[i] = 0;
         }
-		ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateFence(context->device->backend->logical_device, &fence_info, &context->device->backend->allocation_callbacks, &context->backend->intraframe_fence[queue_index]));
+		ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateFence(context->device->backend->logical_device, &fence_info, &context->backend->allocation_callbacks, &context->backend->intraframe_fence[queue_index]));
     }
 
     VkCommandPoolCreateInfo cmd_info_pool = ZEST__ZERO_INIT(VkCommandPoolCreateInfo);
@@ -3804,7 +3804,7 @@ void zest__vk_release_barrier(zest_command_list command_list, zest_execution_det
 }
 
 zest_frame_graph_semaphores zest__vk_get_frame_graph_semaphores(zest_context context, const char *name) {
-    if (!zest_map_valid_name(context->device->cached_frame_graph_semaphores, name)) {
+    if (!zest_map_valid_name(context->cached_frame_graph_semaphores, name)) {
 
         VkSemaphoreCreateInfo semaphore_info = ZEST__ZERO_INIT(VkSemaphoreCreateInfo);
         semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -3814,7 +3814,7 @@ zest_frame_graph_semaphores zest__vk_get_frame_graph_semaphores(zest_context con
         timeline_create_info.initialValue = 0;
         semaphore_info.pNext = &timeline_create_info;
 
-        zest_frame_graph_semaphores semaphores = (zest_frame_graph_semaphores)ZEST__NEW(context->device->allocator, zest_frame_graph_semaphores);
+        zest_frame_graph_semaphores semaphores = (zest_frame_graph_semaphores)ZEST__NEW(context->store_allocator, zest_frame_graph_semaphores);
         *semaphores = ZEST__ZERO_INIT(zest_frame_graph_semaphores_t);
         semaphores->magic = zest_INIT_MAGIC(zest_struct_type_frame_graph_semaphores);
         semaphores->backend = (zest_frame_graph_semaphores_backend)zest__vk_new_frame_graph_semaphores_backend(context);
@@ -3823,15 +3823,15 @@ zest_frame_graph_semaphores zest__vk_get_frame_graph_semaphores(zest_context con
             for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
                 VkSemaphore semaphore;
 				ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_semaphore);
-                vkCreateSemaphore(context->device->backend->logical_device, &semaphore_info, &context->device->backend->allocation_callbacks, &semaphore);
+                vkCreateSemaphore(context->device->backend->logical_device, &semaphore_info, &context->backend->allocation_callbacks, &semaphore);
                 semaphores->backend->vk_semaphores[fif][queue_index] = semaphore;
             }
         }
 
-        zest_map_insert(context->device->allocator, context->device->cached_frame_graph_semaphores, name, semaphores);
+        zest_map_insert(context->store_allocator, context->cached_frame_graph_semaphores, name, semaphores);
         return semaphores;
     }
-	return *zest_map_at(context->device->cached_frame_graph_semaphores, name);
+	return *zest_map_at(context->cached_frame_graph_semaphores, name);
 }
 
 zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_execution_details_t *exe_details) {
