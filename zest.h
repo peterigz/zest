@@ -2322,6 +2322,7 @@ typedef struct zest_frame_graph_builder_t zest_frame_graph_builder_t;
 typedef struct zest_pass_node_t zest_pass_node_t;
 typedef struct zest_resource_node_t zest_resource_node_t;
 typedef struct zest_queue_t zest_queue_t;
+typedef struct zest_context_queue_t zest_context_queue_t;
 typedef struct zest_execution_timeline_t zest_execution_timeline_t;
 typedef struct zest_swapchain_t zest_swapchain_t;
 typedef struct zest_output_group_t zest_output_group_t;
@@ -2335,6 +2336,7 @@ typedef struct zest_device_backend_t zest_device_backend_t;
 typedef struct zest_context_backend_t zest_context_backend_t;
 typedef struct zest_swapchain_backend_t zest_swapchain_backend_t;
 typedef struct zest_queue_backend_t zest_queue_backend_t;
+typedef struct zest_context_queue_backend_t zest_context_queue_backend_t;
 typedef struct zest_command_list_backend_t zest_command_list_backend_t;
 typedef struct zest_device_memory_pool_backend_t zest_device_memory_pool_backend_t;
 typedef struct zest_buffer_backend_t zest_buffer_backend_t;
@@ -2380,6 +2382,7 @@ ZEST__MAKE_HANDLE(zest_buffer)
 ZEST__MAKE_HANDLE(zest_device_memory_pool)
 ZEST__MAKE_HANDLE(zest_shader)
 ZEST__MAKE_HANDLE(zest_queue)
+ZEST__MAKE_HANDLE(zest_context_queue)
 ZEST__MAKE_HANDLE(zest_execution_timeline)
 ZEST__MAKE_HANDLE(zest_frame_graph_semaphores)
 ZEST__MAKE_HANDLE(zest_swapchain)
@@ -2396,6 +2399,7 @@ ZEST__MAKE_HANDLE(zest_device_backend)
 ZEST__MAKE_HANDLE(zest_context_backend)
 ZEST__MAKE_HANDLE(zest_swapchain_backend)
 ZEST__MAKE_HANDLE(zest_queue_backend)
+ZEST__MAKE_HANDLE(zest_context_queue_backend)
 ZEST__MAKE_HANDLE(zest_command_list_backend)
 ZEST__MAKE_HANDLE(zest_frame_graph_semaphores_backend)
 ZEST__MAKE_HANDLE(zest_device_memory_pool_backend)
@@ -3361,7 +3365,7 @@ typedef struct zest_create_info_t {
 	zest_size store_allocator_size;
 } zest_create_info_t;
 
-zest_hash_map(zest_queue) zest_map_queue_value;
+zest_hash_map(zest_context_queue) zest_map_queue_value;
 
 typedef struct zest_platform_memory_info_t {
 	zest_millisecs timestamp;
@@ -3373,6 +3377,11 @@ zest_hash_map(zest_text_t) zest_map_validation_errors;
 
 typedef struct zest_queue_t {
 	zest_uint family_index;
+	zest_device_queue_type type;
+	zest_queue_backend backend;
+} zest_queue_t;
+
+typedef struct zest_context_queue_t {
 	//We decouple the frame in flight on the queue so that the counts don't get out of sync when the swap chain
 	//can't be acquired for whatever reason.
 	zest_uint fif;
@@ -3380,9 +3389,9 @@ typedef struct zest_queue_t {
 	zest_u64 signal_value;
 	zest_bool has_waited;
 	zest_uint next_buffer;
-	zest_device_queue_type type;
-	zest_queue_backend backend;
-} zest_queue_t;
+	zest_queue queue;
+	zest_context_queue_backend backend;
+} zest_context_queue_t;
 
 typedef struct zest_binding_index_for_release_t {
 	zest_set_layout layout;
@@ -3578,7 +3587,7 @@ typedef struct zest_resource_state_t {
 } zest_resource_state_t;
 
 typedef struct zest_pass_queue_info_t {
-	zest_queue queue;
+	zest_context_queue queue;
 	zest_uint queue_family_index;
 	zest_pipeline_stage_flags timeline_wait_stage;
 	zest_device_queue_type queue_type;
@@ -3750,7 +3759,7 @@ typedef struct zest_semaphore_reference_t {
 
 typedef struct zest_submission_batch_t {
 	zest_uint magic;
-	zest_queue queue;
+	zest_context_queue queue;
 	zest_uint queue_family_index;
 	zest_device_queue_type queue_type;
 	zest_uint *pass_indices;
@@ -4436,7 +4445,7 @@ typedef struct zest_platform_t {
 	//Frame Graph Platform Commands
 	zest_bool                  (*begin_command_buffer)(const zest_command_list command_list);
 	void                       (*end_command_buffer)(const zest_command_list command_list);
-	zest_bool                  (*set_next_command_buffer)(const zest_command_list command_list, zest_queue queue);
+	zest_bool                  (*set_next_command_buffer)(const zest_command_list command_list, zest_context_queue queue);
 	void                       (*acquire_barrier)(const zest_command_list command_list, zest_execution_details_t *exe_details);
 	void                       (*release_barrier)(const zest_command_list command_list, zest_execution_details_t *exe_details);
 	void*                      (*new_execution_backend)(zloc_linear_allocator_t *allocator);
@@ -4495,14 +4504,15 @@ typedef struct zest_platform_t {
 	void                       (*update_bindless_image_descriptor)(zest_context context, zest_uint binding_number, zest_uint array_index, zest_descriptor_type type, zest_image image, zest_image_view view, zest_sampler sampler, zest_descriptor_set set);
 	void                       (*update_bindless_buffer_descriptor)(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 	//Command buffers/queues
-	void					   (*reset_queue_command_pool)(zest_context context, zest_queue queue);
+	void					   (*reset_queue_command_pool)(zest_context context, zest_context_queue queue);
 	zest_bool 				   (*begin_single_time_commands)(zest_context context);
 	zest_bool 				   (*end_single_time_commands)(zest_context context);
-	//General Renderer
+	//General Context
 	void                       (*set_depth_format)(zest_device device);
 	zest_bool                  (*initialise_context_backend)(zest_context context);
 	zest_sample_count_flags	   (*get_msaa_sample_count)(zest_context context);
 	zest_bool 				   (*initialise_swapchain)(zest_context context);
+	zest_bool				   (*initialise_context_queue_backend)(zest_context context, zest_context_queue context_queue);
 	//Device/OS
 	void                  	   (*wait_for_idle_device)(zest_context context);
 	zest_bool 				   (*initialise_device)(zest_device device);
@@ -4530,6 +4540,7 @@ typedef struct zest_platform_t {
 	void*					   (*new_set_layout_backend)(zloc_allocator *allocator);
 	void*					   (*new_descriptor_pool_backend)(zest_context context);
 	void*					   (*new_sampler_backend)(zest_context context);
+	void*					   (*new_context_queue_backend)(zest_context context);
 	//Cleanup backends
 	void                       (*cleanup_frame_graph_semaphore)(zest_context context, zest_frame_graph_semaphores semaphores);
 	void                       (*cleanup_image_backend)(zest_image image);
@@ -4546,7 +4557,8 @@ typedef struct zest_platform_t {
 	void 					   (*cleanup_set_layout)(zest_set_layout layout);
 	void 					   (*cleanup_pipeline_backend)(zest_pipeline pipeline);
 	void 					   (*cleanup_sampler_backend)(zest_sampler sampler);
-	void 					   (*cleanup_queue_backend)(zest_device device, zest_queue sampler);
+	void 					   (*cleanup_queue_backend)(zest_device device, zest_queue queue);
+	void 					   (*cleanup_context_queue_backend)(zest_context context, zest_context_queue context_queue);
 	void 					   (*cleanup_set_layout_backend)(zest_set_layout sampler);
 	//Debugging
 	void*                      (*get_final_signal_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
@@ -4587,6 +4599,11 @@ typedef struct zest_context_t {
 
 	//The current fence count of the last frame
 	zest_uint fence_count[ZEST_MAX_FIF];
+
+	//Queues and command buffer pools
+	zest_context_queue queues[ZEST_QUEUE_COUNT];
+	zest_uint active_queue_indexes[ZEST_QUEUE_COUNT];
+	zest_uint active_queue_count;
 
 	//Frame in flight indexes
 	zest_uint previous_fif;
