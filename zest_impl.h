@@ -1258,6 +1258,8 @@ zest_device zest_EndDeviceBuilder(zest_device_builder builder) {
     ZEST_APPEND_LOG(device->log_path.str, "Create standard pipelines");
     zest__prepare_standard_pipelines(device);
 
+    device->platform->set_depth_format(device);
+
 	ZEST__FREE_POOL(builder->allocator);
 	return device;
 }
@@ -2326,8 +2328,6 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
     context->swapchain = zest__create_swapchain(context, create_info->title);
 
     ZEST_APPEND_LOG(context->device->log_path.str, "Create descriptor layouts");
-
-    context->device->platform->set_depth_format(context);
 
     if (!context->device->platform->initialise_context_backend(context)) {
         return ZEST_FALSE;

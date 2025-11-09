@@ -3348,7 +3348,6 @@ typedef struct zest_device_builder_t {
 
 typedef struct zest_create_info_t {
 	const char *title;                                  //Title that shows in the window
-	const char *shader_path_prefix;                     //Prefix prepending to the shader path when loading default shaders
 	zest_size frame_graph_allocator_size;               //The size of the linear allocator used by render graphs to store temporary data
 	int screen_width, screen_height;                    //Default width and height of the window that you open
 	int screen_x, screen_y;                             //Default position of the window
@@ -4500,7 +4499,7 @@ typedef struct zest_platform_t {
 	zest_bool 				   (*begin_single_time_commands)(zest_context context);
 	zest_bool 				   (*end_single_time_commands)(zest_context context);
 	//General Renderer
-	void                       (*set_depth_format)(zest_context context);
+	void                       (*set_depth_format)(zest_device device);
 	zest_bool                  (*initialise_context_backend)(zest_context context);
 	zest_sample_count_flags	   (*get_msaa_sample_count)(zest_context context);
 	zest_bool 				   (*initialise_swapchain)(zest_context context);

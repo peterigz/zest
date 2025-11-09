@@ -143,7 +143,7 @@ ZEST_PRIVATE void zest__vk_update_bindless_image_descriptor(zest_context context
 ZEST_PRIVATE void zest__vk_update_bindless_buffer_descriptor(zest_uint binding_number, zest_uint array_index, zest_buffer buffer, zest_descriptor_set set);
 
 //General renderer
-ZEST_PRIVATE void zest__vk_set_depth_format(zest_context context);
+ZEST_PRIVATE void zest__vk_set_depth_format(zest_device device);
 ZEST_PRIVATE zest_bool zest__vk_initialise_context_backend(zest_context context);
 ZEST_PRIVATE void zest__vk_wait_for_idle_device(zest_context context);
 ZEST_PRIVATE zest_sample_count_flags zest__vk_get_msaa_sample_count(zest_context context);
@@ -869,10 +869,10 @@ ZEST_PRIVATE inline zest_uint zest__vk_find_memory_type(zest_context context, ze
     return ZEST_INVALID;
 }
 
-ZEST_PRIVATE inline VkFormat zest__vk_find_supported_format(zest_context context, VkFormat* candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features) {
+ZEST_PRIVATE inline VkFormat zest__vk_find_supported_format(zest_device device, VkFormat* candidates, zest_uint candidates_count, VkImageTiling tiling, VkFormatFeatureFlags features) {
     for (int i = 0; i != candidates_count; ++i) {
         VkFormatProperties props;
-        vkGetPhysicalDeviceFormatProperties(context->device->backend->physical_device, candidates[i], &props);
+        vkGetPhysicalDeviceFormatProperties(device->backend->physical_device, candidates[i], &props);
         if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features) {
             return candidates[i];
         }
@@ -883,9 +883,9 @@ ZEST_PRIVATE inline VkFormat zest__vk_find_supported_format(zest_context context
     return VK_FORMAT_UNDEFINED;
 }
 
-ZEST_PRIVATE inline VkFormat zest__vk_find_depth_format(zest_context context) {
+ZEST_PRIVATE inline VkFormat zest__vk_find_depth_format(zest_device device) {
     VkFormat depth_formats[5] = { VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D16_UNORM, VK_FORMAT_D16_UNORM_S8_UINT };
-    return zest__vk_find_supported_format(context, depth_formats, 5, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+    return zest__vk_find_supported_format(device, depth_formats, 5, VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
 ZEST_PRIVATE inline void zest__vk_insert_image_memory_barrier(VkCommandBuffer cmdbuffer, VkImage image, VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask, VkImageLayout oldImageLayout, VkImageLayout newImageLayout, VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask, VkImageSubresourceRange subresourceRange) {
@@ -1219,14 +1219,14 @@ zest_bool zest__vk_initialise_swapchain(zest_context context) {
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
     zest_ForEachFrameInFlight(i) {
-        ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_semaphore);
+        ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_semaphore);
         ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateSemaphore(context->device->backend->logical_device, &semaphore_info, &context->backend->allocation_callbacks, &swapchain->backend->vk_image_available_semaphore[i]));
     }
 
     zest_vec_resize(context->store_allocator, swapchain->backend->vk_render_finished_semaphore, swapchain->image_count);
 
     zest_vec_foreach(i, swapchain->backend->vk_render_finished_semaphore) {
-        ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_semaphore);
+        ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_semaphore);
         ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateSemaphore(context->device->backend->logical_device, &semaphore_info, &context->backend->allocation_callbacks, &swapchain->backend->vk_render_finished_semaphore[i]));
     }
 
@@ -2173,7 +2173,7 @@ zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute 
         //If you get validation errors here or even a crash then make sure that you're shader has the correct inputs that match the
         //compute builder set up. For example if the shader expects a push constant range then use zest_SetComputePushConstantSize before
         //calling this function.
-        ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_compute_pipeline);
+        ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_compute_pipeline);
         context->device->backend->last_result = vkCreateComputePipelines(context->device->backend->logical_device, VK_NULL_HANDLE, 1, &compute_pipeline_create_info, &context->device->backend->allocation_callbacks, &pipeline);
         vkDestroyShaderModule(context->device->backend->logical_device, shader_module, &context->backend->allocation_callbacks);
         if (context->device->backend->last_result != VK_SUCCESS) {
@@ -2795,16 +2795,16 @@ zest_bool zest__vk_create_uniform_descriptor_set(zest_uniform_buffer buffer, zes
 // -- End Descriptor_sets
 
 // -- General_renderer
-void zest__vk_set_depth_format(zest_context context) {
-    VkFormat depth_format = zest__vk_find_depth_format(context);
-    context->device->depth_format = zest__from_vk_format(depth_format);
+void zest__vk_set_depth_format(zest_device device) {
+    VkFormat depth_format = zest__vk_find_depth_format(device);
+    device->depth_format = zest__from_vk_format(depth_format);
 }
 
 zest_bool zest__vk_initialise_context_backend(zest_context context) {
     VkFenceCreateInfo fence_info = ZEST__ZERO_INIT(VkFenceCreateInfo);
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = 0;
-	ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_fence);
+	ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_fence);
 	for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
 		zest_ForEachFrameInFlight(i) {
             ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateFence(context->device->backend->logical_device, &fence_info, &context->backend->allocation_callbacks, &context->backend->fif_fence[i][queue_index]));
@@ -3578,7 +3578,7 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
     surface_create_info.flags = 0;
     surface_create_info.hinstance = (HINSTANCE)context->window_data.display;
     surface_create_info.hwnd = (HWND)context->window_data.native_handle;
-    ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_surface);
+    ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
     ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, &context->backend->allocation_callbacks, &context->backend->surface));
     return ZEST_TRUE;
 #endif
@@ -3822,7 +3822,7 @@ zest_frame_graph_semaphores zest__vk_get_frame_graph_semaphores(zest_context con
         zest_ForEachFrameInFlight(fif) {
             for (int queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
                 VkSemaphore semaphore;
-				ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_semaphore);
+				ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_semaphore);
                 vkCreateSemaphore(context->device->backend->logical_device, &semaphore_info, &context->backend->allocation_callbacks, &semaphore);
                 semaphores->backend->vk_semaphores[fif][queue_index] = semaphore;
             }
