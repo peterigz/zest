@@ -4628,7 +4628,7 @@ typedef struct zest_context_t {
 	zloc_linear_allocator_t *frame_graph_allocator[ZEST_MAX_FIF];
 
 	//Resource storage
-	zloc_allocator *store_allocator;
+	zloc_allocator *allocator;
 	zest_resource_store_t resource_stores[zest_max_context_handle_type];
 	zest_context_destruction_queue_t deferred_resource_freeing_list;
 	zest_uint vector_id;
