@@ -2396,7 +2396,8 @@ void zest__vk_cleanup_context_backend(zest_context context) {
 }
 
 void zest__vk_destroy_context_surface(zest_context context) {
-	vkDestroySurfaceKHR(context->device->backend->instance, context->backend->surface, &context->backend->allocation_callbacks);
+	zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(context->allocator)));
+	vkDestroySurfaceKHR(context->device->backend->instance, context->backend->surface, &context->device->backend->allocation_callbacks);
 }
 // -- End Backend_cleanup_functions
 
@@ -3590,7 +3591,7 @@ zest_bool zest__vk_create_window_surface(zest_context context) {
     surface_create_info.hinstance = (HINSTANCE)context->window_data.display;
     surface_create_info.hwnd = (HWND)context->window_data.native_handle;
     ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_surface);
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, &context->backend->allocation_callbacks, &context->backend->surface));
+    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateWin32SurfaceKHR(context->device->backend->instance, &surface_create_info, &context->device->backend->allocation_callbacks, &context->backend->surface));
     return ZEST_TRUE;
 #endif
 }

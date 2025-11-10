@@ -210,6 +210,13 @@ typedef struct zloc_header {
 	struct zloc_header *next_free_block;
 } zloc_header;
 
+typedef struct zloc_allocation_stats_t {
+	zloc_size capacity;
+	zloc_size free;
+	int blocks_in_use;
+	int free_blocks;
+} zloc_allocation_stats_t;
+
 typedef struct zloc_allocator {
 	/*	This is basically a terminator block that free blocks can point to if they're at the end
 		of a free list. */
@@ -228,6 +235,7 @@ typedef struct zloc_allocator {
 	zloc_size block_extension_size;
 	void *user_data;
 	zloc_size minimum_allocation_size;
+	zloc_size allocated_size;
 	/*	Here we store all of the free block data. first_level_bitmap is either a 32bit int
 	or 64bit depending on whether zloc__64BIT is set. Second_level_bitmaps are an array of 32bit
 	ints. segregated_lists is a two level array pointing to free blocks or null_block if the list
@@ -235,6 +243,7 @@ typedef struct zloc_allocator {
 	zloc_fl_bitmap first_level_bitmap;
 	zloc_sl_bitmap second_level_bitmaps[zloc__FIRST_LEVEL_INDEX_COUNT];
 	zloc_header *segregated_lists[zloc__FIRST_LEVEL_INDEX_COUNT][zloc__SECOND_LEVEL_INDEX_COUNT];
+	zloc_allocation_stats_t stats;
 } zloc_allocator;
 
 /*
@@ -590,6 +599,12 @@ static inline void zloc__push_block(zloc_allocator *allocator, zloc_header *bloc
 		ZLOC_ASSERT(allocator->second_level_bitmaps[fli] > 0);
 	}
 	zloc__mark_block_as_free(block);
+	allocator->stats.free += zloc__block_size(block);
+	if (!allocator->remote_user_data) {
+		zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(allocator)));
+		ZLOC_ASSERT(stats.free_size == allocator->stats.free);
+	}
+	allocator->stats.free_blocks++;
 	#ifdef ZLOC_EXTRA_DEBUGGING
 	zloc__verify_lists(allocator);
 	#endif
@@ -625,6 +640,12 @@ static inline zloc_header *zloc__pop_block(zloc_allocator *allocator, zloc_index
 		ZLOC_ASSERT(allocator->second_level_bitmaps[fli] > 0);
 	}
 	zloc__mark_block_as_used(block);
+	allocator->stats.free -= zloc__block_size(block);
+	if (!allocator->remote_user_data) {
+		zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(allocator)));
+		ZLOC_ASSERT(stats.free_size == allocator->stats.free);
+	}
+	allocator->stats.free_blocks--;
 	#ifdef ZLOC_EXTRA_DEBUGGING
 	zloc__verify_lists(allocator);
 	#endif
@@ -658,6 +679,12 @@ static inline void zloc__remove_block_from_segregated_list(zloc_allocator *alloc
 		ZLOC_ASSERT(allocator->second_level_bitmaps[fli] > 0);
 	}
 	zloc__mark_block_as_used(block);
+	allocator->stats.free -= zloc__block_size(block);
+	if (!allocator->remote_user_data) {
+		zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(allocator)));
+		ZLOC_ASSERT(stats.free_size == allocator->stats.free);
+	}
+	allocator->stats.free_blocks--;
 	#ifdef ZLOC_EXTRA_DEBUGGING
 	zloc__verify_lists(allocator);
 	#endif
@@ -5979,6 +6006,7 @@ zloc_allocator *zloc_InitialiseAllocatorWithPool(void *memory, zloc_size size) {
 	if (!allocator) {
 		return 0;
 	}
+
 	zloc_AddPool(allocator, zloc_GetPool(allocator), size - zloc_AllocatorSize());
 	return allocator;
 }
@@ -6018,6 +6046,7 @@ zloc_pool *zloc_AddPool(zloc_allocator *allocator, void *memory, zloc_size size)
 	last_block->size = 0;
 	zloc__block_set_used(last_block);
 
+	allocator->stats.capacity += zloc__block_size(block);
 	last_block->prev_physical_block = block;
 	zloc__push_block(allocator, block);
 
@@ -6070,7 +6099,7 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 
 	if (!ptr) {
 		zloc__unlock_thread_access;
-		return zloc_Allocate(allocator, size);
+		return zloc__allocate(allocator, size, 0);
 	}
 
 	zloc_header *block = zloc__block_from_allocation(ptr);
@@ -6080,11 +6109,10 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 	zloc_size adjusted_size = zloc__adjust_size(size, allocator->minimum_allocation_size, zloc__MEMORY_ALIGNMENT);
 	zloc_size combined_size = current_size + zloc__block_size(next_block);
 	if ((!zloc__next_block_is_free(block) || adjusted_size > combined_size) && adjusted_size > current_size) {
-		zloc_header *block = zloc__find_free_block(allocator, adjusted_size, 0);
-		if (block) {
-			allocation = zloc__block_user_ptr(block);
+		zloc_header *new_block = zloc__find_free_block(allocator, adjusted_size, 0);
+		if (new_block) {
+			allocation = zloc__block_user_ptr(new_block);
 		}
-		
 		if (allocation) {
 			zloc_size smallest_size = zloc__Min(current_size, size);
 			memcpy(allocation, ptr, smallest_size);
@@ -6093,11 +6121,9 @@ void *zloc_Reallocate(zloc_allocator *allocator, void *ptr, zloc_size size) {
 			zloc_Free(allocator, ptr);
 			zloc__lock_thread_access;
 		}
-	}
-	else {
+	} else {
 		//Reallocation is possible
-		if (adjusted_size > current_size)
-		{
+		if (adjusted_size > current_size) {
 			zloc__merge_with_next_block(allocator, block);
 			zloc__mark_block_as_used(block);
 		}
@@ -6373,9 +6399,9 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 	zloc_size combined_size = current_size + zloc__block_size(next_block);
 	zloc_size combined_remote_size = current_remote_size + zloc__do_size_class_callback(next_block);
 	if ((!zloc__next_block_is_free(block) || adjusted_size > combined_size || remote_size > combined_remote_size) && (remote_size > current_remote_size)) {
-		zloc_header *block = zloc__find_free_block(allocator, size, remote_size);
-		if (block) {
-			allocation = zloc__block_user_ptr(block);
+		zloc_header *new_block = zloc__find_free_block(allocator, size, remote_size);
+		if (new_block) {
+			allocation = zloc__block_user_ptr(new_block);
 		}
 
 		if (allocation) {
