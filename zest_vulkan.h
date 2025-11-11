@@ -3341,7 +3341,7 @@ zest_image_view_t *zest__vk_create_image_view(zest_context context, zest_image i
     VkImageViewCreateInfo viewInfo = ZEST__ZERO_INIT(VkImageViewCreateInfo);
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image->backend->vk_image;
-    viewInfo.viewType = (VkImageViewType) zest_image_view_type_2d_array;
+    viewInfo.viewType = (VkImageViewType)view_type;
     viewInfo.format = image->backend->vk_format;
     viewInfo.subresourceRange.aspectMask = image->backend->vk_aspect;
     viewInfo.subresourceRange.baseMipLevel = base_mip;
