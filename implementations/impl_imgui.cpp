@@ -31,14 +31,14 @@ zest_imgui_t zest_imgui_Initialise(zest_context context) {
     //zest_imgui.vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
     //zest_imgui.fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
 
-	zest_imgui.vertex_shader = zest_CreateShader(context, zest_shader_imgui_vert, zest_vertex_shader, "imgui_vert", ZEST_TRUE);
-	zest_imgui.fragment_shader = zest_CreateShader(context, zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", ZEST_TRUE);
+	zest_imgui.vertex_shader = zest_CreateShader(zest_GetContextDevice(zest_imgui.context), zest_shader_imgui_vert, zest_vertex_shader, "imgui_vert", ZEST_TRUE);
+	zest_imgui.fragment_shader = zest_CreateShader(zest_GetContextDevice(zest_imgui.context), zest_shader_imgui_frag, zest_fragment_shader, "imgui_frag", ZEST_TRUE);
 
     zest_imgui.font_resources = zest_CreateShaderResources(context);
     zest_AddGlobalBindlessSetToResources(zest_imgui.font_resources);
 
     //ImGuiPipeline
-    zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate(context, "pipeline_imgui");
+    zest_pipeline_template imgui_pipeline = zest_BeginPipelineTemplate(zest_GetContextDevice(zest_imgui.context), "pipeline_imgui");
     zest_SetPipelinePushConstantRange(imgui_pipeline, sizeof(zest_imgui_push_t), zest_shader_render_stages);
     zest_AddVertexInputBindingDescription(imgui_pipeline, 0, sizeof(zest_ImDrawVert_t), zest_input_rate_vertex);
     zest_AddVertexAttribute(imgui_pipeline, 0, 0, zest_format_r32g32_sfloat, offsetof(zest_ImDrawVert_t, pos));    // Location 0: Position

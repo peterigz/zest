@@ -75,6 +75,7 @@
 #define ZLOC_THREAD_SAFE
 #define ZLOC_EXTRA_DEBUGGING
 #define ZLOC_OUTPUT_ERROR_MESSAGES
+#define ZLOC_SAFEGUARDS
 
 //Zloc_header
 #define zloc__Min(a, b) (((a) < (b)) ? (a) : (b))
@@ -165,9 +166,14 @@ enum zloc__constants {
 	zloc__SECOND_LEVEL_INDEX_LOG2 = 5,
 	zloc__FIRST_LEVEL_INDEX_COUNT = ZLOC_MAX_SIZE_INDEX,
 	zloc__SECOND_LEVEL_INDEX_COUNT = 1 << zloc__SECOND_LEVEL_INDEX_LOG2,
+	#ifdef ZLOC_SAFEGUARDS
+	zloc__BLOCK_POINTER_OFFSET = sizeof(void*) * 2 + sizeof(zloc_size) * 2,
+	zloc__BLOCK_SIZE_OVERHEAD = sizeof(zloc_size) * 2 + sizeof(void*),
+	#else
 	zloc__BLOCK_POINTER_OFFSET = sizeof(void*) + sizeof(zloc_size),
-	zloc__MINIMUM_BLOCK_SIZE = 16,
 	zloc__BLOCK_SIZE_OVERHEAD = sizeof(zloc_size),
+	#endif
+	zloc__MINIMUM_BLOCK_SIZE = 16,
 	zloc__POINTER_SIZE = sizeof(void*),
 	zloc__SMALLEST_CATEGORY = (1 << (zloc__SECOND_LEVEL_INDEX_LOG2 + MEMORY_ALIGNMENT_LOG2))
 };
@@ -202,6 +208,10 @@ typedef struct zloc_header {
 		whether this or the previous block is free) can be stored in the first 2 least
 		significant bits	*/
 	zloc_size size;
+	#ifdef ZLOC_SAFEGUARDS
+	struct zloc_allocator *allocator;
+	zloc_size magic;
+	#endif
 	/*
 	User allocation will start here when the block is used. When the block is free prev and next
 	are pointers in a linked list of free blocks within the same class size of blocks
@@ -600,11 +610,8 @@ static inline void zloc__push_block(zloc_allocator *allocator, zloc_header *bloc
 	}
 	zloc__mark_block_as_free(block);
 	allocator->stats.free += zloc__block_size(block);
-	if (!allocator->remote_user_data) {
-		zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(allocator)));
-		ZLOC_ASSERT(stats.free_size == allocator->stats.free);
-	}
 	allocator->stats.free_blocks++;
+	allocator->stats.blocks_in_use--;
 	#ifdef ZLOC_EXTRA_DEBUGGING
 	zloc__verify_lists(allocator);
 	#endif
@@ -640,12 +647,12 @@ static inline zloc_header *zloc__pop_block(zloc_allocator *allocator, zloc_index
 		ZLOC_ASSERT(allocator->second_level_bitmaps[fli] > 0);
 	}
 	zloc__mark_block_as_used(block);
+	#ifdef ZLOC_SAFEGUARDS
+	block->allocator = allocator;
+	#endif
 	allocator->stats.free -= zloc__block_size(block);
-	if (!allocator->remote_user_data) {
-		zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(allocator)));
-		ZLOC_ASSERT(stats.free_size == allocator->stats.free);
-	}
 	allocator->stats.free_blocks--;
+	allocator->stats.blocks_in_use++;
 	#ifdef ZLOC_EXTRA_DEBUGGING
 	zloc__verify_lists(allocator);
 	#endif
@@ -680,11 +687,8 @@ static inline void zloc__remove_block_from_segregated_list(zloc_allocator *alloc
 	}
 	zloc__mark_block_as_used(block);
 	allocator->stats.free -= zloc__block_size(block);
-	if (!allocator->remote_user_data) {
-		zloc_pool_stats_t stats = zloc_CreateMemorySnapshot(zloc__first_block_in_pool(zloc_GetPool(allocator)));
-		ZLOC_ASSERT(stats.free_size == allocator->stats.free);
-	}
 	allocator->stats.free_blocks--;
+	allocator->stats.blocks_in_use++;
 	#ifdef ZLOC_EXTRA_DEBUGGING
 	zloc__verify_lists(allocator);
 	#endif
@@ -729,6 +733,9 @@ static inline zloc_header *zloc__split_aligned_block(zloc_allocator *allocator, 
 	zloc__set_prev_physical_block(trimmed, block);
 	zloc__set_block_size(block, size_minus_overhead);
 	zloc__push_block(allocator, block);
+#ifdef ZLOC_SAFEGUARDS
+	trimmed->allocator = allocator;
+#endif
 	return trimmed;
 }
 
@@ -6048,6 +6055,7 @@ zloc_pool *zloc_AddPool(zloc_allocator *allocator, void *memory, zloc_size size)
 
 	allocator->stats.capacity += zloc__block_size(block);
 	last_block->prev_physical_block = block;
+	allocator->stats.blocks_in_use++;
 	zloc__push_block(allocator, block);
 
 	zloc__unlock_thread_access;
@@ -6181,6 +6189,7 @@ int zloc_Free(zloc_allocator *allocator, void* allocation) {
 	if (!allocation) return 0;
 	zloc__lock_thread_access;
 	zloc_header *block = zloc__block_from_allocation(allocation);
+	ZLOC_ASSERT(block->allocator == allocator);
 	if (zloc__prev_is_free_block(block)) {
 		ZLOC_ASSERT(block->prev_physical_block);		//Must be a valid previous physical block
 		block = zloc__merge_with_prev_block(allocator, block);
