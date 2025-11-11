@@ -566,7 +566,7 @@ zest_image_collection_handle zest__load_ktx(zest_context context, const char *fi
 	zest_uint mip_count = TinyKtx_NumberOfMipmaps(ctx);
 	zest_image_collection_flags flags = TinyKtx_IsCubemap(ctx) ? zest_image_collection_flag_is_cube_map : 0;
 	zest_image_collection_handle image_collection_handle = zest_CreateImageCollection(context, format, mip_count, flags);
-	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(context, image_collection_handle.value);
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.store, image_collection_handle.value);
 
 	//First pass to set the bitmap array
 	size_t offset = 0;
@@ -595,11 +595,11 @@ zest_image_collection_handle zest__load_ktx(zest_context context, const char *fi
 zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name) {
     zest_image_collection_handle image_collection_handle = zest__load_ktx(context, file_name);
 
-    if (!image_collection_handle.context) {
+    if (!image_collection_handle.value) {
         return ZEST__ZERO_INIT(zest_image_handle);
     }
 
-	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(context, image_collection_handle.value);
+	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.store, image_collection_handle.value);
 
 	zest_bitmap_array_t *bitmap_array = &image_collection->bitmap_array;
     zest_vec_foreach(mip_index, bitmap_array->meta) {
@@ -635,7 +635,7 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
     create_info.layer_count = 6;
     create_info.flags = zest_image_preset_texture | zest_image_flag_cubemap | zest_image_flag_transfer_src;
     zest_image_handle image_handle = zest_CreateImage(context, &create_info);
-    zest_image image = (zest_image)zest__get_store_resource(image_handle.context, image_handle.value);
+    zest_image image = (zest_image)zest__get_store_resource(image_handle.store, image_handle.value);
 
     context->device->platform->begin_single_time_commands(context);
     ZEST_CLEANUP_ON_FALSE(zest__transition_image_layout(image, zest_image_layout_transfer_dst_optimal, 0, mip_levels, 0, 6));

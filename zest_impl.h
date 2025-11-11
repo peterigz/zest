@@ -1103,7 +1103,6 @@ zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_d
 	context->device = device;
 
 	context->create_info = *info;
-    context->backend = (zest_context_backend)device->platform->new_context_backend(context);
     context->fence_wait_timeout_ns = info->fence_wait_timeout_ms * 1000 * 1000;
 	context->window_data = *window_data;
 	zest_bool result = zest__initialise_context(context, info);
@@ -2311,6 +2310,7 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
 	void *store_memory = ZEST__ALLOCATE(context->device->allocator, create_info->store_allocator_size);
 	context->allocator = zloc_InitialiseAllocatorWithPool(store_memory, create_info->store_allocator_size);
     context->allocator->user_data = context;
+    context->backend = (zest_context_backend)context->device->platform->new_context_backend(context);
 
 	for (int i = 0; i != zest_max_context_handle_type; ++i) {
 		switch ((zest_context_handle_type)i) {
@@ -2436,6 +2436,7 @@ void zest__cleanup_device(zest_device device) {
 
 	zest__free_all_device_resource_stores(device);
 	zest__scan_memory_and_free_resources(device->allocator);
+	zest_vec_free(device->allocator, device->global_layout_builder.bindings);
 
     zest_map_foreach(i, device->reports) {
         zest_report_t *report = &device->reports.data[i];
@@ -2662,7 +2663,7 @@ void zest__cleanup_context(zest_context context) {
     zest_map_foreach(i, context->cached_frame_graph_semaphores) {
         zest_frame_graph_semaphores semaphores = context->cached_frame_graph_semaphores.data[i];
         context->device->platform->cleanup_frame_graph_semaphore(context, semaphores);
-        ZEST__FREE(context->device->allocator, semaphores);
+        ZEST__FREE(context->allocator, semaphores);
     }
 	
     for(int i = 0; i != context->active_queue_count; ++i) {
@@ -2699,7 +2700,7 @@ void zest__cleanup_context(zest_context context) {
 
     zest_map_foreach(i, context->cached_frame_graphs) {
         zest_cached_frame_graph_t *cached_graph = &context->cached_frame_graphs.data[i];
-        ZEST__FREE(context->allocator, cached_graph->memory);
+        ZEST__FREE(context->device->allocator, cached_graph->memory);
     }
 
     zest_ForEachFrameInFlight(fif) {
@@ -2954,7 +2955,6 @@ void zest__cleanup_set_layout(zest_set_layout layout) {
 	zest_vec_free(context->allocator, layout->descriptor_indexes);
     context->device->platform->cleanup_set_layout_backend(layout);
     ZEST__FREE(context->allocator, layout->pool);
-    zest_vec_free(context->allocator, layout->bindings);
 	ZEST__FREE(context->allocator, layout);
 }
 
@@ -3322,7 +3322,7 @@ zest_bool zest__cache_pipeline(zest_pipeline_template pipeline_template, zest_co
     pipeline->pipeline_template = pipeline_template;
     zest_bool result = context->device->platform->build_pipeline(pipeline, command_list);
 	if (result == ZEST_TRUE) {
-		zest_map_insert_key(pipeline_template->device->allocator, context->cached_pipelines, pipeline_key, pipeline);
+		zest_map_insert_key(context->allocator, context->cached_pipelines, pipeline_key, pipeline);
 		*out_pipeline = pipeline;
 	} else {
 		ZEST__FLAG(pipeline_template->flags, zest_pipeline_invalid);
@@ -4322,6 +4322,10 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
 	zest_context context = zest__frame_graph_builder->context;
     if (!frame_graph->cache_key) return;    //Only cache if there's a key
     if (frame_graph->error_status) return;  //Don't cache a frame graph that had errors
+	zest_size offset = context->frame_graph_allocator[context->current_fif]->current_offset;
+	zest_size capacity = context->frame_graph_allocator[context->current_fif]->buffer_size;
+	float used = (float)offset / (float)capacity * 100.f;
+	ZEST_PRINT("Cached frame graph used %zu bytes, %%%.2f of capacity", offset, used);
     zest_cached_frame_graph_t new_cached_graph = {
         zloc_PromoteLinearBlock(context->device->allocator, context->frame_graph_allocator[context->current_fif], context->frame_graph_allocator[context->current_fif]->current_offset),
         frame_graph
@@ -6327,7 +6331,7 @@ zest_uint zest_AcquireSamplerIndex(zest_context context, zest_sampler_handle sam
 }
 
 zest_uint *zest_AcquireImageMipIndexes(zest_context context, zest_image_handle image_handle, zest_image_view_array_handle view_array_handle, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type) {
-	ZEST_ASSERT(image_handle.store == view_array_handle.store);	//image and view arrays must have the same context!
+	ZEST_ASSERT(image_handle.store->allocator == view_array_handle.store->allocator);	//image and view arrays must have the same context!
     zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.store, image_handle.value);
     ZEST_ASSERT(image->info.mip_levels > 1);         //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
 

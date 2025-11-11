@@ -2024,7 +2024,7 @@ void *zest__vk_new_submission_batch_backend(zest_context context) {
 }
 
 void *zest__vk_new_context_backend(zest_context context) {
-    zest_context_backend backend = (zest_context_backend)ZEST__NEW(context->device->allocator, zest_context_backend);
+    zest_context_backend backend = (zest_context_backend)ZEST__NEW(context->allocator, zest_context_backend);
     *backend = ZEST__ZERO_INIT(zest_context_backend_t);
     backend->allocation_callbacks.pUserData = context;
     backend->allocation_callbacks.pfnAllocation = zest__vk_context_allocate_callback;
@@ -2119,7 +2119,7 @@ void *zest__vk_new_context_queue_backend(zest_context context) {
 }
 
 void *zest__vk_new_frame_graph_semaphores_backend(zest_context context) {
-    zest_frame_graph_semaphores_backend backend = (zest_frame_graph_semaphores_backend)ZEST__NEW(context->device->allocator, zest_frame_graph_semaphores_backend);
+    zest_frame_graph_semaphores_backend backend = (zest_frame_graph_semaphores_backend)ZEST__NEW(context->allocator, zest_frame_graph_semaphores_backend);
     *backend = ZEST__ZERO_INIT(zest_frame_graph_semaphores_backend_t);
     return backend;
 }
@@ -2819,10 +2819,10 @@ zest_bool zest__vk_initialise_context_backend(zest_context context) {
 	ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_fence);
 	for (zest_uint queue_index = 0; queue_index != ZEST_QUEUE_COUNT; ++queue_index) {
 		zest_ForEachFrameInFlight(i) {
-            ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateFence(context->device->backend->logical_device, &fence_info, &context->backend->allocation_callbacks, &context->backend->fif_fence[i][queue_index]));
+            ZEST_RETURN_FALSE_ON_FAIL(context, vkCreateFence(context->device->backend->logical_device, &fence_info, &context->backend->allocation_callbacks, &context->backend->fif_fence[i][queue_index]));
 			context->fence_count[i] = 0;
         }
-		ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateFence(context->device->backend->logical_device, &fence_info, &context->backend->allocation_callbacks, &context->backend->intraframe_fence[queue_index]));
+		ZEST_RETURN_FALSE_ON_FAIL(context, vkCreateFence(context->device->backend->logical_device, &fence_info, &context->backend->allocation_callbacks, &context->backend->intraframe_fence[queue_index]));
     }
 
     VkCommandPoolCreateInfo cmd_info_pool = ZEST__ZERO_INIT(VkCommandPoolCreateInfo);
@@ -2831,7 +2831,7 @@ zest_bool zest__vk_initialise_context_backend(zest_context context) {
     cmd_info_pool.flags = 0;    //Maybe needs transient bit?
 	ZEST_SET_MEMORY_CONTEXT(context, zest_platform_device, zest_command_command_pool);
     zest_ForEachFrameInFlight(fif) {
-        ZEST_RETURN_FALSE_ON_FAIL(context->device, vkCreateCommandPool(context->device->backend->logical_device, &cmd_info_pool, &context->backend->allocation_callbacks, &context->backend->one_time_command_pool[fif]));
+        ZEST_RETURN_FALSE_ON_FAIL(context, vkCreateCommandPool(context->device->backend->logical_device, &cmd_info_pool, &context->backend->allocation_callbacks, &context->backend->one_time_command_pool[fif]));
     }
 
     VkCommandBufferAllocateInfo alloc_info = ZEST__ZERO_INIT(VkCommandBufferAllocateInfo);
@@ -2841,7 +2841,7 @@ zest_bool zest__vk_initialise_context_backend(zest_context context) {
 	ZEST_SET_MEMORY_CONTEXT(context, zest_platform_context, zest_command_command_buffer);
     zest_ForEachFrameInFlight(fif) {
 		alloc_info.commandPool = context->backend->one_time_command_pool[fif];
-        ZEST_RETURN_FALSE_ON_FAIL(context->device, vkAllocateCommandBuffers(context->device->backend->logical_device, &alloc_info, &context->backend->utility_command_buffer[fif]));
+        ZEST_RETURN_FALSE_ON_FAIL(context, vkAllocateCommandBuffers(context->device->backend->logical_device, &alloc_info, &context->backend->utility_command_buffer[fif]));
     }
 
     return ZEST_TRUE;
@@ -3446,7 +3446,7 @@ zest_bool zest__vk_create_sampler(zest_sampler sampler) {
     info.flags            = 0;
     info.magFilter        = (VkFilter)sampler->create_info.mag_filter;
     info.minFilter        = (VkFilter)sampler->create_info.min_filter;
-    info.maxAnisotropy    = sampler->create_info.max_lod;
+    info.maxAnisotropy    = sampler->create_info.max_anisotropy;
     info.maxLod           = sampler->create_info.max_lod;
     info.mipLodBias       = sampler->create_info.mip_lod_bias;
     info.mipmapMode       = (VkSamplerMipmapMode)sampler->create_info.mipmap_mode;
