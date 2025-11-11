@@ -19,6 +19,7 @@ struct UniformLights {
 	float exposure;
 	float gamma;
 	zest_uint texture_index;
+	zest_uint sampler_index;
 };
 
 typedef struct uniform_buffer_data_t {
