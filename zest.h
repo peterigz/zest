@@ -2279,10 +2279,6 @@ typedef enum zest_binding_number_type {
 	zest_storage_buffer_binding,
 	zest_storage_image_binding,
 	zest_uniform_buffer_binding,
-	zest_combined_2d_binding,
-	zest_combined_cube_binding,
-	zest_combined_array_binding,
-	zest_combined_3d_binding,
 	zest_max_global_binding_number
 } zest_binding_number_type;
 
