@@ -129,7 +129,7 @@ void zest_DispatchIrradianceSetup(const zest_command_list command_list, void *us
 
 void SetupIrradianceCube(SimplePBRExample *app) {
 	zest_image_info_t image_info = zest_CreateImageInfo(64, 64);
-	image_info.format = zest_format_r16g16b16a16_sfloat;
+	image_info.format = zest_format_r32g32b32a32_sfloat;
 	image_info.flags = zest_image_preset_storage_cubemap;
 	image_info.layer_count = 6;
 	app->irr_texture = zest_CreateImage(app->context, &image_info);
@@ -191,7 +191,7 @@ void zest_DispatchPrefilteredSetup(const zest_command_list command_list, void *u
 
 void SetupPrefilteredCube(SimplePBRExample *app) {
 	zest_image_info_t image_info = zest_CreateImageInfo(512, 512);
-	image_info.format = zest_format_r16g16b16a16_sfloat;
+	image_info.format = zest_format_r16g16_sfloat;
 	image_info.flags = zest_image_preset_storage_mipped_cubemap;
 	image_info.layer_count = 6;
 	app->prefiltered_texture = zest_CreateImage(app->context, &image_info);
@@ -365,7 +365,8 @@ void UpdateLights(SimplePBRExample *app, float timer) {
 	buffer_data->lights[1].y = sinf(zest_Radians(timer * 90.f)) * 20.0f;
 
 	buffer_data->texture_index = app->skybox_bindless_texture_index;
-	buffer_data->sampler_index = app->sampler_2d_index;
+	//buffer_data->sampler_index = app->sampler_2d_index;
+	buffer_data->sampler_index = 0;
 	buffer_data->exposure = 4.5f;
 	buffer_data->gamma = 2.2f;
 
