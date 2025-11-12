@@ -613,7 +613,7 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
         buffer_copy_region.image_extent.depth = 1;
         buffer_copy_region.buffer_offset = bitmap_array->meta[mip_index].offset;
 
-        zest_vec_push(context->device->allocator, image_collection->buffer_copy_regions, buffer_copy_region);
+        zest_vec_push(context->allocator, image_collection->buffer_copy_regions, buffer_copy_region);
     }
     zest_size image_size = bitmap_array->total_mem_size;
 

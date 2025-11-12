@@ -2658,6 +2658,7 @@ void zest__cleanup_context(zest_context context) {
     zest__cleanup_image_collection_store(context);
 	zest__cleanup_swapchain(context->swapchain);
     zest__cleanup_pipelines(context);
+	zest__release_all_context_texture_indexes(context);
 	zest__cleanup_set_layout(context->bindless_set_layout);
 
     zest_map_foreach(i, context->cached_frame_graph_semaphores) {
@@ -2672,6 +2673,21 @@ void zest__cleanup_context(zest_context context) {
 		context->device->platform->cleanup_context_queue_backend(context, queue);
 		ZEST__FREE(context->allocator, queue);
     }
+
+	zest_map_foreach(i, context->mip_indexes) {
+		zest_mip_index_collection *collection = &context->mip_indexes.data[i];
+		zest_uint active_bindings = collection->binding_numbers;
+		zest_uint current_binding = zloc__scan_reverse(active_bindings);
+		while (current_binding >= 0) {
+			zest_vec_foreach(i, collection->mip_indexes[current_binding]) {
+				zest_uint index = collection->mip_indexes[current_binding][i];
+				zest_ReleaseBindlessIndex(context, index, (zest_binding_number_type)current_binding);
+			}
+			zest_vec_free(context->allocator, collection->mip_indexes[current_binding]);
+			active_bindings &= ~(1 << current_binding);
+			current_binding = zloc__scan_reverse(active_bindings);
+		}
+	}
 
     zest_FlushUsedBuffers(context);
     zest__cleanup_buffers_in_allocators(context);
@@ -3760,7 +3776,7 @@ void* zest__vec_reserve(zloc_allocator *allocator, void* T, zest_uint unit_size,
         } else if (ZEST_STRUCT_TYPE(allocator->user_data) == zest_struct_type_context) {
 			zest_context context = (zest_context)allocator->user_data;
 			header->id = context->vector_id++;
-			if (header->id == 167) {
+			if (header->id == 45) {
 				int d = 0;
 			}
         }
@@ -5918,10 +5934,9 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 		zest_resource_node resource = frame_graph->deferred_image_destruction[i];
 		zest__deferr_image_destruction(context, &resource->image);
 		if (resource->view_array) zest__deferr_view_array_destruction(context, resource->view_array);
-		resource->image.mip_indexes = ZEST__ZERO_INIT(zest_map_mip_indexes);
 		resource->view_array = 0;
 		resource->view = 0;
-		resource->mip_level_bindless_indexes = 0;
+		memset(resource->mip_level_bindless_indexes, 0, sizeof(zest_uint*) * zest_max_global_binding_number);
 	}
 	frame_graph->deferred_image_destruction = 0;
 
@@ -6335,25 +6350,29 @@ zest_uint *zest_AcquireImageMipIndexes(zest_context context, zest_image_handle i
     zest_image image = (zest_image)zest__get_store_resource_checked(image_handle.store, image_handle.value);
     ZEST_ASSERT(image->info.mip_levels > 1);         //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
 
-    if (zest_map_valid_key(image->mip_indexes, (zest_key)binding_number)) {
-        zest_mip_index_collection *mip_collection = zest_map_at_key(image->mip_indexes, (zest_key)binding_number);
-        return mip_collection->mip_indexes;
-    }
+	zest_key image_key = zest_Hash(&image_handle, sizeof(zest_image_handle), ZEST_HASH_SEED);
+    if (zest_map_valid_key(context->mip_indexes, image_key)) {
+        zest_mip_index_collection *mip_collection = zest_map_at_key(context->mip_indexes, image_key);
+		if (mip_collection->binding_numbers & (1 << binding_number)) {
+			return mip_collection->mip_indexes[binding_number];
+		}
+	} else {
+		zest_mip_index_collection mip_collection = ZEST__ZERO_INIT(zest_mip_index_collection);
+		zest_map_insert_key(context->allocator, context->mip_indexes, image_key, mip_collection);
+	}
+
+	zest_mip_index_collection *mip_collection = zest_map_at_key(context->mip_indexes, image_key);
 
     zest_image_view_array view_array = *(zest_image_view_array*)zest__get_store_resource_checked(view_array_handle.store, view_array_handle.value);
-    zest_mip_index_collection mip_collection = ZEST__ZERO_INIT(zest_mip_index_collection);
-    mip_collection.binding_number = binding_number;
+    mip_collection->binding_numbers |= (1 << binding_number);
     zest_set_layout global_layout = context->bindless_set_layout;
 	zest_sampler sampler = 0;
     for (int mip_index = 0; mip_index != view_array->count; ++mip_index) {
         zest_uint bindless_index = zest__acquire_bindless_index(global_layout, binding_number);
         context->device->platform->update_bindless_image_descriptor(context, binding_number, bindless_index, descriptor_type, image, &view_array->views[mip_index], sampler, context->bindless_set);
-        zest_vec_push(context->allocator, mip_collection.mip_indexes, bindless_index);
+		zest_vec_push(context->allocator, mip_collection->mip_indexes[binding_number], bindless_index);
     }
-	//Todo: mip_indexes cannot be stored in the image, must be based in the context somehow
-    zest_map_insert_key(context->allocator, image->mip_indexes, (zest_key)binding_number, mip_collection);
-    zest_uint size = zest_map_size(image->mip_indexes);
-    return mip_collection.mip_indexes;
+	return mip_collection->mip_indexes[binding_number];
 }
 
 zest_uint zest_AcquireStorageBufferIndex(zest_context context, zest_buffer buffer) {
@@ -6837,32 +6856,28 @@ zest_uint *zest_GetTransientSampledMipBindlessIndexes(const zest_command_list co
     ZEST_ASSERT(resource->type & zest_resource_type_is_image);  //Must be an image resource type
     ZEST_ASSERT(resource->image.info.mip_levels > 1);   //The resource does not have any mip levels. Make sure to set the number of mip levels when creating the resource in the frame graph
     ZEST_ASSERT(resource->current_state_index < zest_vec_size(resource->journey));
+	if (zest_vec_size(resource->mip_level_bindless_indexes[binding_number])) {
+		return resource->mip_level_bindless_indexes[binding_number];
+	}
     zest_frame_graph frame_graph = command_list->frame_graph;
 	zest_context context = zest__frame_graph_builder->context;
 
-    if (zest_map_valid_key(resource->image.mip_indexes, (zest_key)binding_number)) {
-        zest_mip_index_collection *mip_collection = zest_map_at_key(resource->image.mip_indexes, (zest_key)binding_number);
-        return mip_collection->mip_indexes;
-    }
     zloc_linear_allocator_t *allocator = context->frame_graph_allocator[context->current_fif];
     if (!resource->view_array) {
         resource->view_array = context->device->platform->create_image_views_per_mip(context, &resource->image, zest_image_view_type_2d, 0, resource->image.info.layer_count, allocator);
 		resource->view_array->handle.store = &context->device->resource_stores[zest_handle_type_view_arrays];
     }
 	zest_descriptor_type descriptor_type = binding_number == zest_storage_image_binding ? zest_descriptor_type_storage_image : zest_descriptor_type_sampled_image;
-    zest_mip_index_collection mip_collection = ZEST__ZERO_INIT(zest_mip_index_collection);
 	for (int mip_index = 0; mip_index != resource->view_array->count; ++mip_index) {
 		zest_uint bindless_index = zest__acquire_bindless_index(bindless_layout, binding_number);
-		zest_vec_linear_push(allocator, resource->mip_level_bindless_indexes, bindless_index);
+		zest_vec_linear_push(allocator, resource->mip_level_bindless_indexes[binding_number], bindless_index);
 
         context->device->platform->update_bindless_image_descriptor(context, binding_number, bindless_index, descriptor_type, &resource->image, &resource->view_array->views[mip_index], 0, frame_graph->bindless_set);
 
 		zest_binding_index_for_release_t mip_binding_index = { frame_graph->bindless_layout, bindless_index, (zest_uint)binding_number };
 		zest_vec_push(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[context->current_fif], mip_binding_index);
-		zest_vec_linear_push(allocator, mip_collection.mip_indexes, bindless_index );
 	}
-    zest_map_insert_linear_key(allocator, resource->image.mip_indexes, (zest_key)binding_number, mip_collection);
-    return mip_collection.mip_indexes;
+	return resource->mip_level_bindless_indexes[binding_number];
 }
 
 zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list command_list, zest_resource_node resource) {
@@ -7669,13 +7684,46 @@ void zest__release_all_global_texture_indexes(zest_context context, zest_image i
             image->bindless_index[i] = ZEST_INVALID;
         }
     }
-    zest_map_foreach(i, image->mip_indexes) {
-        zest_mip_index_collection *mip_collection = &image->mip_indexes.data[i];
-        zest_vec_foreach(j, mip_collection->mip_indexes) {
-            zest_uint index = mip_collection->mip_indexes[j];
-            zest_ReleaseBindlessIndex(context, index, mip_collection->binding_number);
-        }
+
+	zest_key hashed_key = zest_Hash(&image->handle, sizeof(zest_image_handle), ZEST_HASH_SEED);
+	if (zest_map_valid_key(context->mip_indexes, hashed_key)) {
+		zest_mip_index_collection *collection = zest_map_at_key(context->mip_indexes, hashed_key);
+		zest_uint active_bindings = collection->binding_numbers;
+		zest_uint current_binding = zloc__scan_reverse(active_bindings);
+		while (current_binding >= 0) {
+			zest_vec_foreach(i, collection->mip_indexes[current_binding]) {
+				zest_uint index = collection->mip_indexes[current_binding][i];
+				zest_ReleaseBindlessIndex(context, index, (zest_binding_number_type)current_binding);
+			}
+			zest_vec_free(context->allocator, collection->mip_indexes[current_binding]);
+			active_bindings &= ~(1 << current_binding);
+			current_binding = zloc__scan_reverse(active_bindings);
+		}
+		collection->binding_numbers = 0;
+	}
+}
+
+void zest__release_all_context_texture_indexes(zest_context context) {
+    if (!context->bindless_set_layout) {
+        return;
     }
+
+	zest_map_foreach (i, context->mip_indexes) {
+		zest_mip_index_collection *collection = &context->mip_indexes.data[i];
+		zest_uint active_bindings = collection->binding_numbers;
+		int current_binding = zloc__scan_reverse(active_bindings);
+		while (current_binding >= 0) {
+			zest_vec_foreach(j, collection->mip_indexes[current_binding]) {
+				zest_uint index = collection->mip_indexes[current_binding][j];
+				zest_ReleaseBindlessIndex(context, index, (zest_binding_number_type)current_binding);
+			}
+			zest_vec_free(context->allocator, collection->mip_indexes[current_binding]);
+			active_bindings &= ~(1 << current_binding);
+			current_binding = zloc__scan_reverse(active_bindings);
+		}
+		collection->binding_numbers = 0;
+	}
+	zest_map_free(context->allocator, context->mip_indexes);
 }
 
 zest_imgui_image_t zest_NewImGuiImage(void) {
@@ -8056,11 +8104,6 @@ zest_bitmap zest_GetImageFromArray(zest_bitmap_array_t* bitmap_array, zest_index
 void zest__cleanup_image(zest_image image) {
 	zest_device device = (zest_device)image->handle.store->origin;
     device->platform->cleanup_image_backend(image);
-    zest_map_foreach(i, image->mip_indexes) {
-        zest_mip_index_collection *collection = &image->mip_indexes.data[i];
-		zest_vec_free(device->allocator, collection->mip_indexes);
-    }
-    zest_map_free(device->allocator, image->mip_indexes);
     zest__remove_store_resource(image->handle.store, image->handle.value);
     if (image->default_view) {
         device->platform->cleanup_image_view_backend(image->default_view);
@@ -8085,6 +8128,7 @@ void zest__cleanup_uniform_buffer(zest_uniform_buffer uniform_buffer) {
 		ZEST__FREE(context->device->allocator, uniform_buffer->descriptor_set[fif]->backend);
         ZEST__FREE(context->device->allocator, uniform_buffer->descriptor_set[fif]);
     }
+	zest_vec_free(context->allocator, uniform_buffer->set_layout->bindings);
 	zest__cleanup_set_layout(uniform_buffer->set_layout);
     context->device->platform->cleanup_uniform_buffer_backend(uniform_buffer);
     zest__remove_store_resource(uniform_buffer->handle.store, uniform_buffer->handle.value);
@@ -8173,8 +8217,7 @@ void zest__get_format_pixel_data(zest_format format, int *channels, int *bytes_p
 }
 
 zest_image_collection_handle zest_CreateImageCollection(zest_context context, zest_format format, zest_uint image_count, zest_image_collection_flags flags) {
-	zest_device device = context->device;
-	zest_resource_store_t *store = &device->resource_stores[zest_handle_type_image_collection];
+	zest_resource_store_t *store = &context->resource_stores[zest_handle_type_image_collection];
 	zest_image_collection_handle image_collection_handle = ZEST_STRUCT_LITERAL(zest_image_collection_handle, zest__add_store_resource(store), store);
 	image_collection_handle.store = store;
 	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(store, image_collection_handle.value);
@@ -8264,7 +8307,8 @@ void zest_SetImageCollectionPackedBorderSize(zest_image_collection_handle image_
 
 zest_bool zest_AllocateImageCollectionBitmapArray(zest_image_collection_handle image_collection_handle) {
 	zest_image_collection image_collection = (zest_image_collection)zest__get_store_resource_checked(image_collection_handle.store, image_collection_handle.value);
-	zest_device device = (zest_device)image_collection_handle.store->origin;
+	zest_context context = (zest_context)image_collection_handle.store->origin;
+	zest_device device = context->device;
 	if (zest_vec_size(image_collection->bitmap_array.meta) == 0) {
 		ZEST_PRINT("Nothing to allocate in the image collection."); 
 		return ZEST_FALSE;

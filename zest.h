@@ -3188,8 +3188,8 @@ typedef struct zest_uniform_buffer_t {
 } zest_uniform_buffer_t;
 
 typedef struct zest_mip_index_collection {
-	zest_binding_number_type binding_number;
-	zest_uint *mip_indexes;
+	zest_uint binding_numbers;
+	zest_uint *mip_indexes[zest_max_global_binding_number];
 } zest_mip_index_collection;
 
 zest_hash_map(zest_mip_index_collection) zest_map_mip_indexes;
@@ -3253,7 +3253,6 @@ typedef struct zest_image_t {
 	zest_image_handle handle;
 	zest_image_backend backend;
 	zest_buffer buffer;
-	zest_map_mip_indexes mip_indexes;
 	zest_uint bindless_index[zest_max_global_binding_number];
 	zest_image_info_t info;
 	zest_image_view default_view;
@@ -3745,8 +3744,8 @@ typedef struct zest_resource_node_t {
 	zest_image_view view;
 	zest_image_view_array view_array;
 	zest_buffer storage_buffer;
-	zest_uint bindless_index[zest_max_global_binding_number];   //The index to use in the shader
-	zest_uint *mip_level_bindless_indexes;                      //The mip indexes to use in the shader
+	zest_uint bindless_index[zest_max_global_binding_number];   		   //The index to use in the shader
+	zest_uint *mip_level_bindless_indexes[zest_max_global_binding_number]; //The mip indexes to use in the shader
 
 	zest_uint reference_count;
 
@@ -4671,6 +4670,9 @@ typedef struct zest_context_t {
 	zest_set_layout bindless_set_layout;
 	zest_descriptor_set bindless_set;
 
+	//Mip indexes for images
+	zest_map_mip_indexes mip_indexes;
+
 	//Cached pipelines
 	zest_map_cached_pipelines cached_pipelines;
 
@@ -4847,6 +4849,7 @@ ZEST_PRIVATE void zest__set_layer_push_constants(zest_layer layer);
 // --Image_internal_functions
 ZEST_PRIVATE zest_image_handle zest__new_image(zest_context device);
 ZEST_PRIVATE void zest__release_all_global_texture_indexes(zest_context context, zest_image image);
+ZEST_PRIVATE void zest__release_all_context_texture_indexes(zest_context context);
 ZEST_PRIVATE void zest__cleanup_image_collection(zest_image_collection image_collection);
 ZEST_PRIVATE int zest__decode_png(zest_context context, zest_bitmap out_bitmap, const zest_byte *in_png, zest_uint in_size, int convert_to_rgba32);
 ZEST_PRIVATE void zest__update_image_vertices(zest_atlas_region image);
