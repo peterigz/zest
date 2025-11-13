@@ -29,6 +29,13 @@ msdf.h				Create msdf bitmaps for font rendering - From https://github.com/exezi
 #define ZEST_IMAGE_WRITE_IMPLEMENTATION
 #endif
 
+#if !defined(ZEST_UTILITIES_MALLOC) && !defined(ZEST_UTILITIES_REALLOC) && !defined(ZEST_UTILITIES_FREE)
+#include <stdlib.h>
+#define ZEST_UTILITIES_MALLOC(sz) malloc(sz)
+#define ZEST_UTILITIES_REALLOC(ptr, sz) realloc(ptr, sz)
+#define ZEST_UTILITIES_FREE(ptr) free(ptr)
+#endif
+
 // --- GLFW_Utilities --------------------------------------------------------
 // To use this implementation, include <GLFW/glfw3.h> before this file
 
@@ -333,13 +340,11 @@ void zest__tinyktxCallbackError(void *user, char const *msg) {
 }
 
 void *zest__tinyktxCallbackAlloc(void *user, size_t size) {
-	zest_ktx_user_context_t *user_context = (zest_ktx_user_context_t*)user;
-	return ZEST__ALLOCATE(user_context->context->device->allocator, size);
+	return ZEST_UTILITIES_MALLOC(size);
 }
 
 void zest__tinyktxCallbackFree(void *user, void *data) {
-	zest_ktx_user_context_t *user_context = (zest_ktx_user_context_t*)user;
-	ZEST__FREE(user_context->context->device->allocator, data);
+	ZEST_UTILITIES_FREE(data);
 }
 
 size_t zest__tinyktxCallbackRead(void *user, void *data, size_t size) {
@@ -679,13 +684,11 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
 #include "msdf.h"
 
 void* zest__msdf_allocation(size_t size, void* ctx) {
-	zest_context context = (zest_context)ctx;
-    return zest_AllocateMemory(context, size);
+    return ZEST_UTILITIES_MALLOC(size);
 }
 
 void zest__msdf_free(void* ptr, void* ctx) {
-	zest_context context = (zest_context)ctx;
-    zest_FreeMemory(context, ptr);
+    ZEST_UTILITIES_FREE(ptr);
 }
 
 zest_font_resources_t zest_CreateFontResources(zest_context context, const char *vert_shader, const char *frag_shader) {
@@ -843,7 +846,7 @@ void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename) {
 	memcpy(&file.font_details, font, sizeof(zest_msdf_font_t));
 	
 	zest_stbi_mem_context_t mem_context = ZEST__ZERO_INIT(zest_stbi_mem_context_t);
-	mem_context.context = malloc(zloc__MEGABYTE(4));
+	mem_context.context = ZEST_UTILITIES_MALLOC(zloc__MEGABYTE(4));
 	stbi_write_png_to_func(zest__stbi_write_mem, &mem_context, atlas_meta.width, atlas_meta.height, atlas_meta.channels, atlas_bitmap, atlas_meta.stride);
     FILE *font_file = zest__open_file(filename, "wb");
 	file.png_size = mem_context.file_size;
@@ -854,7 +857,7 @@ void zest_SaveMSDF(zest_msdf_font_t *font, const char *filename) {
 	if (written != 3 + mem_context.file_size) {
 		ZEST_PRINT("Failed to save the font to disk!");
 	}
-	free(mem_context.context);
+	ZEST_UTILITIES_FREE(mem_context.context);
 	fclose(font_file);
 }
 
@@ -867,13 +870,14 @@ zest_msdf_font_t zest_LoadMSDF(zest_context context, const char *filename, zest_
 	if (ZEST_VALID_HANDLE(&file)) {
 		fread(&file.font_details, sizeof(zest_msdf_font_t), 1, font_file);
 		fread(&file.png_size, sizeof(zest_uint), 1, font_file);
-		png_buffer = (unsigned char*)malloc(file.png_size);
+		png_buffer = (unsigned char*)ZEST_UTILITIES_MALLOC(file.png_size);
 		size_t read = fread(png_buffer, sizeof(char), file.png_size, font_file);
 	} else {
 		ZEST_PRINT("Unable to read font file");
 		return ZEST__ZERO_INIT(zest_msdf_font_t);
 	}
 	zest_bitmap font_bitmap = zest_LoadPNGMemory(context, png_buffer, file.png_size);
+	ZEST_UTILITIES_FREE(png_buffer);
 	zest_msdf_font_t font = file.font_details;
 	fclose(font_file);
 
