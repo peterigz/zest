@@ -16,7 +16,7 @@ struct RenderCacheInfo {
 };
 
 typedef struct zest_fonts_example {
-	zest_timer_handle timer;
+	zest_timer_t timer;
 	zest_imgui_t imgui;
 	zest_context context;
 	RenderCacheInfo cache_info;
@@ -50,7 +50,7 @@ void InitExample(zest_fonts_example *app) {
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data_imgui);
 
 	//We can use a timer to only update imgui 60 times per second
-	app->timer = zest_CreateTimer(app->context, 60);
+	app->timer = zest_CreateTimer(60);
 	
 	if (!zest__file_exists("examples/assets/Lato-Regular.msdf")) {
 		app->font = zest_CreateMSDF(app->context, "examples/assets/Lato-Regular.ttf", app->imgui.font_sampler_binding_index, 64.f, 4.f);

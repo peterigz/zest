@@ -39,7 +39,7 @@ typedef struct zest_imgui_t {
     zest_uint fif;
     zest_uint dirty[ZEST_MAX_FIF];
     zest_imgui_push_t push_constants;
-	zest_atlas_region font_region;
+	zest_atlas_region_t font_region;
 	zest_uint font_texture_binding_index;
 	zest_uint font_sampler_binding_index;
 	zest_shader_resources_handle font_resources;
@@ -51,10 +51,10 @@ void zest_imgui_RecordLayer(const zest_command_list context, zest_imgui_t *imgui
 zest_resource_node zest_imgui_ImportVertexResources(zest_imgui_t *imgui, const char *name);
 zest_resource_node zest_imgui_ImportIndexResources(zest_imgui_t *imgui, const char *name);
 void zest_imgui_UpdateBuffers(zest_imgui_t *imgui);
-void zest_imgui_DrawImage(zest_atlas_region image, float width, float height, ImDrawCallback callback, void *user_data);
-void zest_imgui_DrawImage2(zest_atlas_region image, float width, float height);
-void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
-bool zest_imgui_DrawButton(zest_atlas_region image, const char* user_texture_id, float width, float height, int frame_padding);
+void zest_imgui_DrawImage(zest_atlas_region_t *image, float width, float height, ImDrawCallback callback, void *user_data);
+void zest_imgui_DrawImage2(zest_atlas_region_t *image, float width, float height);
+void zest_imgui_DrawTexturedRect(zest_atlas_region_t *image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y);
+bool zest_imgui_DrawButton(zest_atlas_region_t *image, const char* user_texture_id, float width, float height, int frame_padding);
 void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels);
 zest_pass_node zest_imgui_BeginPass(zest_imgui_t *imgui);
 zest_buffer zest_imgui_VertexBufferProvider(zest_resource_node resource);

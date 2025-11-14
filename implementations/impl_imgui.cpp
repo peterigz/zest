@@ -14,19 +14,17 @@ zest_imgui_t zest_imgui_Initialise(zest_context context) {
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
     int upload_size = width * height * 4 * sizeof(char);
 
-    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer(context, "font_bitmap", pixels, upload_size, width, height, zest_format_r8g8b8a8_unorm);
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     zest_imgui.font_texture = zest_CreateImage(context, &image_info);
-    zest_imgui.font_region = zest_CreateAtlasRegion(context);
-    zest_CopyBitmapToImage(context, font_bitmap, zest_imgui.font_texture, 0, 0, 0, 0, width, height);
-    zest_FreeBitmap(font_bitmap);
+	zest_imgui.font_region = {};
+    zest_CopyBitmapToImage(context, pixels, upload_size, zest_imgui.font_texture, width, height);
 
     zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
     zest_imgui.font_sampler = zest_CreateSampler(context, &sampler_info);
     zest_imgui.font_texture_binding_index = zest_AcquireSampledImageIndex(context, zest_imgui.font_texture, zest_texture_2d_binding);
     zest_imgui.font_sampler_binding_index = zest_AcquireSamplerIndex(context, zest_imgui.font_sampler);
-	zest_BindAtlasRegionToImage(zest_imgui.font_region, zest_imgui.font_sampler_binding_index, zest_imgui.font_texture, zest_texture_2d_binding);
+	zest_BindAtlasRegionToImage(&zest_imgui.font_region, zest_imgui.font_sampler_binding_index, zest_imgui.font_texture, zest_texture_2d_binding);
 
     //zest_imgui.vertex_shader = zest_CreateShaderSPVMemory(zest_imgui_vert_spv, zest_imgui_vert_spv_len, "imgui_vert.spv", shaderc_vertex_shader);
     //zest_imgui.fragment_shader = zest_CreateShaderSPVMemory(zest_imgui_frag_spv, zest_imgui_frag_spv_len, "imgui_frag.spv", shaderc_fragment_shader);
@@ -54,7 +52,7 @@ zest_imgui_t zest_imgui_Initialise(zest_context context) {
     zest_SetPipelineDepthTest(imgui_pipeline, ZEST_FALSE, ZEST_FALSE);
     ZEST_APPEND_LOG(context->device->log_path.str, "ImGui pipeline");
 
-    io.Fonts->SetTexID((ImTextureID)zest_imgui.font_region);
+    io.Fonts->SetTexID((ImTextureID)&zest_imgui.font_region);
 
     zest_imgui.pipeline = imgui_pipeline;
 
@@ -77,20 +75,17 @@ zest_imgui_t zest_imgui_Initialise(zest_context context) {
 void zest_imgui_RebuildFontTexture(zest_imgui_t *imgui, zest_uint width, zest_uint height, unsigned char *pixels) {
     zest_WaitForIdleDevice(imgui->context);
     int upload_size = width * height * 4 * sizeof(char);
-    zest_bitmap font_bitmap = zest_CreateBitmapFromRawBuffer(imgui->context, "font_bitmap", pixels, upload_size, width, height, zest_format_r8g8b8a8_unorm);
     zest_FreeImage(imgui->font_texture);
 	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
     image_info.flags = zest_image_preset_texture;
     imgui->font_texture = zest_CreateImage(imgui->context, &image_info);
-    zest_FreeAtlasRegion(imgui->font_region);
-    imgui->font_region = zest_CreateAtlasRegion(imgui->context);
-    zest_CopyBitmapToImage(imgui->context, font_bitmap, imgui->font_texture, 0, 0, 0, 0, width, height);
+	imgui->font_region = {};
+    zest_CopyBitmapToImage(imgui->context, pixels, upload_size, imgui->font_texture, width, height);
     imgui->font_texture_binding_index = zest_AcquireSampledImageIndex(imgui->context, imgui->font_texture, zest_texture_2d_binding);
-	zest_BindAtlasRegionToImage(imgui->font_region, imgui->font_sampler_binding_index, imgui->font_texture, zest_texture_2d_binding);
-    zest_FreeBitmap(font_bitmap);
+	zest_BindAtlasRegionToImage(&imgui->font_region, imgui->font_sampler_binding_index, imgui->font_texture, zest_texture_2d_binding);
     
     ImGuiIO &io = ImGui::GetIO();
-    io.Fonts->SetTexID((ImTextureID)imgui->font_region);
+    io.Fonts->SetTexID((ImTextureID)&imgui->font_region);
 }
 
 bool zest_imgui_HasGuiToDraw() {
@@ -193,7 +188,7 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_imgui_t *
             {
                 ImDrawCmd *pcmd = &cmd_list->CmdBuffer[j];
 
-                zest_atlas_region current_image = (zest_atlas_region)pcmd->TextureId;
+                zest_atlas_region_t *current_image = (zest_atlas_region_t*)pcmd->TextureId;
                 if (!current_image) {
                     //This means we're trying to draw a render target
                     assert(pcmd->UserCallbackData);
@@ -215,7 +210,7 @@ void zest_imgui_RecordLayer(const zest_command_list command_list, zest_imgui_t *
 					continue;
 				}
 
-				if (current_image == imgui->font_region) {
+				if (current_image == &imgui->font_region) {
 					zest_pipeline pipeline = zest_PipelineWithTemplate(imgui->pipeline, command_list);
 					if (render_state.pipeline != pipeline) {
 						render_state.resources = imgui->font_resources;
@@ -339,9 +334,9 @@ void zest_imgui_UpdateBuffers(zest_imgui_t *imgui) {
     }
 }
 
-void zest_imgui_DrawImage(zest_atlas_region image, float width, float height, ImDrawCallback callback, void *user_data) {
+void zest_imgui_DrawImage(zest_atlas_region_t *region, float width, float height, ImDrawCallback callback, void *user_data) {
     using namespace ImGui;
-    zest_extent2d_t image_extent = zest_RegionDimensions(image);
+    zest_extent2d_t image_extent = zest_RegionDimensions(region);
     ImVec2 image_size((float)image_extent.width, (float)image_extent.height);
     float ratio = image_size.x / image_size.y;
     image_size.x = ratio > 1 ? width : width * ratio;
@@ -353,19 +348,19 @@ void zest_imgui_DrawImage(zest_atlas_region image, float width, float height, Im
 	}
     const ImRect image_bb(window->DC.CursorPos + image_offset, window->DC.CursorPos + image_offset + image_size);
     ImVec4 tint_col(1.f, 1.f, 1.f, 1.f);
-    zest_vec4 uv = zest_ImageUV(image);
-    window->DrawList->AddImage((ImTextureID)image, image_bb.Min, image_bb.Max, ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w), GetColorU32(tint_col));
+    zest_vec4 uv = zest_RegionUV(region);
+    window->DrawList->AddImage((ImTextureID)region, image_bb.Min, image_bb.Max, ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w), GetColorU32(tint_col));
 }
 
-void zest_imgui_DrawImage2(zest_atlas_region image, float width, float height) {
-    zest_vec4 uv = zest_ImageUV(image);
-    ImGui::Image((ImTextureID)image, ImVec2(width, height), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
+void zest_imgui_DrawImage2(zest_atlas_region_t *region, float width, float height) {
+    zest_vec4 uv = zest_RegionUV(region);
+    ImGui::Image((ImTextureID)region, ImVec2(width, height), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
 }
 
-void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y) {
+void zest_imgui_DrawTexturedRect(zest_atlas_region_t *region, float width, float height, bool tile, float scale_x, float scale_y, float offset_x, float offset_y) {
     /*
     zest_texture_handle texture_handle = zest_ImageTextureHandle(image);
-    zest_vec4 uv = zest_ImageUV(image);
+    zest_vec4 uv = zest_RegionUV(image);
     zest_extent2d_t image_size = zest_RegionDimensions(image);
     ImVec2 zw(uv.z, uv.w);
     if (zest_TextureCanTile(texture_handle)) {
@@ -389,11 +384,11 @@ void zest_imgui_DrawTexturedRect(zest_atlas_region image, float width, float hei
     */
 }
 
-bool zest_imgui_DrawButton(zest_atlas_region image, const char *user_texture_id, float width, float height, int frame_padding) {
+bool zest_imgui_DrawButton(zest_atlas_region_t *region, const char *user_texture_id, float width, float height, int frame_padding) {
     using namespace ImGui;
 
-    zest_vec4 uv = zest_ImageUV(image);
-    zest_extent2d_t image_dimensions = zest_RegionDimensions(image);
+    zest_vec4 uv = zest_RegionUV(region);
+    zest_extent2d_t image_dimensions = zest_RegionDimensions(region);
 
     ImVec2 size(width, height);
     ImVec2 image_size((float)image_dimensions.width, (float)image_dimensions.height);
@@ -435,7 +430,7 @@ bool zest_imgui_DrawButton(zest_atlas_region image, const char *user_texture_id,
     RenderFrame(bb.Min, bb.Max, col, true, ImClamp((float)ImMin(padding.x, padding.y), 0.0f, style.FrameRounding));
     if (bg_col.w > 0.0f)
         window->DrawList->AddRectFilled(image_bb.Min, image_bb.Max, GetColorU32(bg_col));
-    window->DrawList->AddImage((ImTextureID)image, image_bb.Min, image_bb.Max, uv0, uv1, GetColorU32(tint_col));
+    window->DrawList->AddImage((ImTextureID)region, image_bb.Min, image_bb.Max, uv0, uv1, GetColorU32(tint_col));
 
     return pressed;
 }
@@ -548,6 +543,5 @@ void zest_imgui_Destroy(zest_imgui_t *imgui) {
 	}
 	zest_FreeImage(imgui->font_texture);
 	zest_FreePipelineTemplate(imgui->pipeline);
-    zest_FreeAtlasRegion(imgui->font_region);
 }
 //--End Dear ImGui helper functions
