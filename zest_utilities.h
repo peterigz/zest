@@ -1642,7 +1642,7 @@ zest_bitmap_array_t zest_CreateBitmapArray(int width, int height, zest_format fo
 	int channels, bytes_per_pixel;
 	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel);
 	ZEST_ASSERT(channels, "Not a supported bitmap format.");
-    size_t image_size = width * height * channels * bytes_per_pixel;
+    size_t image_size = width * height * bytes_per_pixel;
 	int stride = bytes_per_pixel * width;
     for(int i = 0; i != size_of_array; ++i) {
         bitmap_array.meta[i] = ZEST_STRUCT_LITERAL(zest_bitmap_meta_t,
