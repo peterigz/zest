@@ -4873,7 +4873,7 @@ ZEST_API void zest_UpdateDevice(zest_device device);
 //Shutdown zest and unload/free everything. Call this after zest_Start.
 ZEST_API void zest_DestroyContext(zest_context context);
 //Free all memory used in the renderer and reset it back to an initial state.
-ZEST_API void zest_ResetRenderer(zest_context context, zest_window_data_t *window_data);
+ZEST_API void zest_ResetContext(zest_context context, zest_window_data_t *window_data);
 //Set the create info for the renderer, to be used optionally before a call to zest_ResetRenderer to change the configuration
 //of the renderer
 ZEST_API void zest_SetCreateInfo(zest_context context, zest_create_info_t *info);

@@ -153,7 +153,7 @@ void MainLoop(ImGuiApp *app) {
 			zest_imgui_Destroy(&app->imgui);
 			zest_implglfw_DestroyWindow(app->context);
 			zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
-			zest_ResetRenderer(app->context, &window_handles);
+			zest_ResetContext(app->context, &window_handles);
 			InitImGuiApp(app);
 		}
 

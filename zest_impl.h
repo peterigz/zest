@@ -1380,16 +1380,26 @@ void zest_SetContextUserData(zest_context context, void *user_data) {
 	context->user_data = user_data;
 }
 
-void zest_ResetRenderer(zest_context context, zest_window_data_t *window_data) {
+void zest_ResetContext(zest_context context, zest_window_data_t *window_data) {
 
     zest_WaitForIdleDevice(context);
 
     zest__cleanup_context(context);
 
+	zest_create_info_t create_info = context->create_info;
+	zest_device device = context->device;
+	zest_window_data_t win_dat = context->window_data;
+    *context = ZEST__ZERO_INIT(zest_context_t);
+	context->magic = zest_INIT_MAGIC(zest_struct_type_context);
+	context->device = device;
+	context->create_info = create_info;
+
+    context->fence_wait_timeout_ns = create_info.fence_wait_timeout_ms * 1000 * 1000;
+	context->window_data = win_dat;
+
 	if (window_data) {
 		context->window_data = *window_data;
 	}
-    context->backend = (zest_context_backend)context->device->platform->new_context_backend(context);
     zest__initialise_context(context, &context->create_info);
 }
 
@@ -1913,16 +1923,16 @@ void zest_FlushUsedBuffers(zest_context context) {
 	context->device->platform->flush_used_buffers(context);
 }
 
-void zest__cleanup_buffers_in_allocators(zest_context context) {
-    zest_map_foreach(i, context->device->buffer_allocators) {
-        zest_buffer_allocator allocator = context->device->buffer_allocators.data[i];
+void zest__cleanup_buffers_in_allocators(zest_device device) {
+    zest_map_foreach(i, device->buffer_allocators) {
+        zest_buffer_allocator allocator = device->buffer_allocators.data[i];
         zest_vec_foreach(j, allocator->range_pools) {
             zest_pool_range pool = allocator->range_pools[j];
             zloc_header *current_block = (zloc_header*)zloc__first_block_in_pool((zloc_pool*)pool);
             while (!zloc__is_last_block_in_pool(current_block)) {
                 zest_buffer remote_block = (zest_buffer)zloc_BlockUserExtensionPtr(current_block);
                 if (ZEST_IS_INTITIALISED(remote_block->magic)) {
-                    context->device->platform->cleanup_buffer_backend(remote_block);
+                    device->platform->cleanup_buffer_backend(remote_block);
                 }
                 zloc_header *last_block = current_block;
                 current_block = zloc__next_physical_block(current_block);
@@ -2359,6 +2369,7 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
     context->bindless_set_layout = zest_FinishDescriptorSetLayoutForBindless(context, &context->device->global_layout_builder, 1, "Zest Descriptor Layout");
     context->bindless_set = zest_CreateBindlessSet(context->bindless_set_layout);
 
+	context->active_queue_count = 0;
 	zest_vec_foreach(i, context->device->queues) {
 		zest_queue queue = context->device->queues[i];
 		zest_context_queue context_queue = (zest_context_queue)ZEST__NEW(context->allocator, zest_context_queue);
@@ -2457,6 +2468,7 @@ void zest__cleanup_device(zest_device device) {
 	}
 
 	zest__free_all_device_resource_stores(device);
+    zest__cleanup_buffers_in_allocators(device);
 	zest__scan_memory_and_free_resources(device->allocator);
 	zest_vec_free(device->allocator, device->global_layout_builder.bindings);
 
@@ -2699,7 +2711,6 @@ void zest__cleanup_context(zest_context context) {
 	}
 
     zest_FlushUsedBuffers(context);
-    zest__cleanup_buffers_in_allocators(context);
 
     zest_ForEachFrameInFlight(fif) {
         if (zest_vec_size(context->deferred_resource_freeing_list.transient_images[fif])) {

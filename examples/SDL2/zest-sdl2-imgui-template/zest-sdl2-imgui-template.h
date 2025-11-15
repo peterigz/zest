@@ -21,6 +21,7 @@ struct ImGuiApp {
 	zest_pipeline_template imgui_sprite_pipeline;
 	zest_shader_handle imgui_sprite_shader;
 	zest_context context;
+	zest_device device;
 	zest_atlas_region wabbit_sprite;
 	zest_imgui_t imgui;
 	RenderCacheInfo cache_info;
