@@ -3449,6 +3449,7 @@ zest_bool zest_ReloadShader(zest_shader_handle shader_handle) {
 }
 
 zest_shader_handle zest_CreateShader(zest_device device, const char *shader_code, zest_shader_type type, const char *name, zest_bool disable_caching) {
+	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(name);     //You must give the shader a name
     zest_text_t shader_name = ZEST__ZERO_INIT(zest_text_t);
     if (zest_TextSize(&device->cached_shaders_path)) {
@@ -3498,6 +3499,7 @@ void zest__cache_shader(zest_device device, zest_shader shader) {
 }
 
 zest_shader_handle zest_CreateShaderSPVMemory(zest_device device, const unsigned char *shader_code, zest_uint spv_length, const char *name, zest_shader_type type) {
+	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(shader_code);   //No shader code!
     ZEST_ASSERT(name);     //You must give the shader a name
     zest_text_t shader_name = ZEST__ZERO_INIT(zest_text_t);
@@ -3533,6 +3535,7 @@ zest_shader_handle zest__new_shader(zest_device device, zest_shader_type type) {
 }
 
 zest_shader_handle zest_AddShaderFromSPVFile(zest_device device, const char *filename, zest_shader_type type) {
+	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(filename);     //You must give the shader a name
     zest_shader_handle shader_handle = zest__new_shader(device, type);
     zest_shader shader = (zest_shader)zest__get_store_resource_checked(shader_handle.store, shader_handle.value);
@@ -3545,6 +3548,7 @@ zest_shader_handle zest_AddShaderFromSPVFile(zest_device device, const char *fil
 }
 
 zest_shader_handle zest_AddShaderFromSPVMemory(zest_device device, const char *name, const void *buffer, zest_uint size, zest_shader_type type) {
+	ZEST_ASSERT_HANDLE(device);		//Not a valid device handle
     ZEST_ASSERT(name);     //You must give the shader a name
     ZEST_ASSERT(!strstr(name, "/"));    //name must not contain /, the shader will be prefixed with the cache folder automatically
     if (buffer && size) {
