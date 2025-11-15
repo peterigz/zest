@@ -1122,7 +1122,7 @@ zest_device_builder zest__begin_device_builder() {
 	builder->magic = zest_INIT_MAGIC(zest_struct_type_device_builder);
 	builder->platform = zest_platform_vulkan;
 	builder->allocator = allocator;
-	builder->memory_pool_size = zloc__MEGABYTE(256);
+	builder->memory_pool_size = zloc__MEGABYTE(64);
 	builder->thread_count = zest_GetDefaultThreadCount();
 	builder->log_path = "./";
 	builder->cached_shader_path = "./spv/";
@@ -2330,8 +2330,8 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
     context->flags |= (create_info->flags & zest_init_flag_enable_vsync) ? zest_context_flag_vsync_enabled : 0;
     ZEST_APPEND_LOG(context->device->log_path.str, "Create swap chain");
 
-	void *store_memory = ZEST__ALLOCATE(context->device->allocator, create_info->store_allocator_size);
-	context->allocator = zloc_InitialiseAllocatorWithPool(store_memory, create_info->store_allocator_size);
+	void *context_memory = ZEST__ALLOCATE(context->device->allocator, create_info->allocator_capacity);
+	context->allocator = zloc_InitialiseAllocatorWithPool(context_memory, create_info->allocator_capacity);
     context->allocator->user_data = context;
     context->backend = (zest_context_backend)context->device->platform->new_context_backend(context);
 
@@ -2388,8 +2388,8 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
 	if (!context->queues[ZEST_TRANSFER_QUEUE_INDEX]) context->queues[ZEST_TRANSFER_QUEUE_INDEX] = context->queues[ZEST_GRAPHICS_QUEUE_INDEX];
 
     zest_ForEachFrameInFlight(fif) {
-		void *frame_graph_linear_memory = ZEST__ALLOCATE(context->device->allocator, zloc__MEGABYTE(1));
-        context->frame_graph_allocator[fif] = zloc_InitialiseLinearAllocator(frame_graph_linear_memory, zloc__MEGABYTE(1));
+		void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
+        context->frame_graph_allocator[fif] = zloc_InitialiseLinearAllocator(frame_graph_linear_memory, context->create_info.frame_graph_allocator_size);
 		ZEST_ASSERT(context->frame_graph_allocator[fif]);    //Unabable to allocate the frame graph allocator, 
     }
 
@@ -2725,11 +2725,11 @@ void zest__cleanup_context(zest_context context) {
 
     zest_map_foreach(i, context->cached_frame_graphs) {
         zest_cached_frame_graph_t *cached_graph = &context->cached_frame_graphs.data[i];
-        ZEST__FREE(context->device->allocator, cached_graph->memory);
+        ZEST__FREE(context->allocator, cached_graph->memory);
     }
 
     zest_ForEachFrameInFlight(fif) {
-        ZEST__FREE(context->device->allocator, context->frame_graph_allocator[fif]);
+        ZEST__FREE(context->allocator, context->frame_graph_allocator[fif]);
         zest_vec_free(context->allocator, context->deferred_resource_freeing_list.transient_images[fif]);
         zest_vec_free(context->allocator, context->deferred_resource_freeing_list.transient_binding_indexes[fif]);
         zest_vec_free(context->allocator, context->deferred_resource_freeing_list.transient_view_arrays[fif]);
@@ -3762,6 +3762,16 @@ float zest_LinearToSRGB(float value) {
     return powf(value, 2.2f);
 }
 
+zloc_allocation_stats_t zest_GetDeviceMemoryStats(zest_device device) {
+	ZEST_ASSERT_HANDLE(device); 	//Not a valid device handle
+	return device->allocator->stats;
+}
+
+zloc_allocation_stats_t zest_GetContextMemoryStats(zest_context context) {
+	ZEST_ASSERT_HANDLE(context); 	//Not a valid context handle
+	return context->allocator->stats;
+}
+
 zest_uint zest__grow_capacity(void* T, zest_uint size) {
     zest_uint new_capacity = T ? (size + size / 2) : 8;
     return new_capacity > size ? new_capacity : size;
@@ -4244,7 +4254,7 @@ zest_index zest__next_fif(zest_context context) {
 zest_create_info_t zest_CreateInfo() {
 	zest_create_info_t create_info;
 	create_info.title = "Zest Window";
-	create_info.frame_graph_allocator_size = zloc__MEGABYTE(1);
+	create_info.frame_graph_allocator_size = zloc__KILOBYTE(256);
 	create_info.screen_width = 1280;
 	create_info.screen_height = 768;
 	create_info.screen_x = 0;
@@ -4257,7 +4267,7 @@ zest_create_info_t zest_CreateInfo() {
 	create_info.flags = zest_init_flag_enable_vsync | zest_init_flag_cache_shaders;
 	create_info.platform = zest_platform_vulkan;
 	create_info.maximum_textures = 1024;
-	create_info.store_allocator_size = zloc__MEGABYTE(4);
+	create_info.allocator_capacity = zloc__MEGABYTE(8);
     return create_info;
 }
 
@@ -4352,12 +4362,12 @@ void zest__cache_frame_graph(zest_frame_graph frame_graph) {
 	float used = (float)offset / (float)capacity * 100.f;
 	ZEST_PRINT("Cached frame graph used %zu bytes, %%%.2f of capacity", offset, used);
     zest_cached_frame_graph_t new_cached_graph = {
-        zloc_PromoteLinearBlock(context->device->allocator, context->frame_graph_allocator[context->current_fif], context->frame_graph_allocator[context->current_fif]->current_offset),
+        zloc_PromoteLinearBlock(context->allocator, context->frame_graph_allocator[context->current_fif], context->frame_graph_allocator[context->current_fif]->current_offset),
         frame_graph
     };
     ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_cached);
-	void *frame_graph_linear_memory = ZEST__ALLOCATE(context->device->allocator, zloc__MEGABYTE(1));
-	context->frame_graph_allocator[context->current_fif] = zloc_InitialiseLinearAllocator(frame_graph_linear_memory, zloc__MEGABYTE(1));
+	void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
+	context->frame_graph_allocator[context->current_fif] = zloc_InitialiseLinearAllocator(frame_graph_linear_memory, context->create_info.frame_graph_allocator_size);
     if (zest_map_valid_key(context->cached_frame_graphs, frame_graph->cache_key)) {
         zest_cached_frame_graph_t *cached_graph = zest_map_at_key(context->cached_frame_graphs, frame_graph->cache_key);
         ZEST__FREE(context->allocator, cached_graph->memory);

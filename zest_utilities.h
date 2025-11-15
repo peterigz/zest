@@ -28,7 +28,7 @@ Bitmap and image collection functions
 #ifdef ZEST_ALL_UTILITIES_IMPLEMENTATION
 #define ZEST_MSDF_IMPLEMENTATION
 #define ZEST_KTX_IMPLEMENTATION
-#define ZEST_IMAGES_IMPLEMENTION
+#define ZEST_IMAGES_IMPLEMENTATION
 #define ZEST_IMAGE_WRITE_IMPLEMENTATION
 #endif
 
@@ -250,6 +250,7 @@ ZEST_API zest_image_collection_t zest_CreateImageAtlasCollection(zest_format for
 ZEST_API zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collection_t *atlas_handle, zest_uint layer_width, zest_uint layer_height, zest_image_flags flags);
 ZEST_API void zest_FreeImageCollection(zest_image_collection_t *image_collection);
 ZEST_API void zest_AddImageAtlasBitmap(zest_image_collection_t *image_collection, zest_bitmap_t *bitmap);
+ZEST_API void zest_AddImageAtlasPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, zest_uint width, zest_uint height, zest_format format);
 ZEST_API zest_bool zest_GetBestFit(zest_context context, zest_image_collection_t *image_collection, zest_uint *width, zest_uint *height);
 ZEST_API zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection_t *image_collection, zest_uint bitmap_index);
 ZEST_API zest_bool zest_AllocateImageCollectionCopyRegions(zest_image_collection_t *image_collection);
@@ -828,10 +829,13 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
 #include <stdarg.h>
 #include <stdio.h>
 
-#if defined(ZEST_MSDF_IMPLEMENTATION) || defined(ZEST_IMAGES_IMPLEMENTION)
+#if defined(ZEST_MSDF_IMPLEMENTATION) || defined(ZEST_IMAGES_IMPLEMENTATION)
 
 #define STB_RECT_PACK_IMPLEMENTATION
 #include "stb_rect_pack.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 #endif
 
@@ -842,9 +846,6 @@ zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
 
 #define MSDF_IMPLEMENTATION
 #include "msdf.h"
@@ -1508,7 +1509,7 @@ void zest_FreeAtlasRegion(zest_atlas_region region) {
 */
 #endif 
 
-#if defined(ZEST_MSDF_IMPLEMENTATION) || defined(ZEST_IMAGES_IMPLEMENTION)
+#if defined(ZEST_MSDF_IMPLEMENTATION) || defined(ZEST_IMAGES_IMPLEMENTATION)
 
 zest_bitmap_t zest_CreateBitmapFromRawBuffer(void* pixels, int size, int width, int height, zest_format format) {
     zest_bitmap_t bitmap = ZEST__ZERO_INIT(zest_bitmap_t);
@@ -1762,6 +1763,31 @@ void zest_AddImageAtlasBitmap(zest_image_collection_t *image_collection, zest_bi
 		image_collection->image_bitmaps[image_collection->image_count] = *bitmap;
 		image_collection->image_count++;
 	}
+}
+
+zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, zest_format format) {
+	ZEST_ASSERT(image_collection->image_count < image_collection->max_images, "No more room for new images in the image collection");
+	int channels, bytes_per_pixel;
+	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel);
+	ZEST_ASSERT(size == width * height * bytes_per_pixel, "The pixel data size does not match the expected size based on the width, height and format of the image. Make sure you're passing in the correct parameters to the function.");
+	zest_bitmap_t bitmap = ZEST__ZERO_INIT(zest_bitmap_t);
+	bitmap.data = (zest_byte*)ZEST_UTILITIES_MALLOC(size);
+	memcpy(bitmap.data, pixels, size);
+	bitmap.meta.width = width;
+	bitmap.meta.height = height;
+	bitmap.meta.channels = channels;
+	bitmap.meta.bytes_per_pixel = bytes_per_pixel;
+	bitmap.meta.stride = width * bytes_per_pixel;
+	bitmap.meta.size = size;
+	bitmap.meta.format = format;
+	if (format != image_collection->format) {
+		zest_ConvertBitmap(&bitmap, image_collection->format, 255);
+	}
+	bitmap.atlas_region = ZEST__ZERO_INIT(zest_atlas_region_t);
+	bitmap.atlas_region.width = bitmap.meta.width;
+	bitmap.atlas_region.height = bitmap.meta.height;
+	image_collection->image_bitmaps[image_collection->image_count] = bitmap;
+	return &image_collection->image_bitmaps[image_collection->image_count++].atlas_region;
 }
 
 void zest_FreeBitmapData(zest_bitmap_t *image) {

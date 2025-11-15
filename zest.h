@@ -3380,7 +3380,7 @@ typedef struct zest_create_info_t {
 	zest_init_flags flags;                              //Set flags to apply different initialisation options
 	zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
 	zest_platform_type platform;
-	zest_size store_allocator_size;
+	zest_size allocator_capacity;
 } zest_create_info_t;
 
 zest_hash_map(zest_context_queue) zest_map_queue_value;
@@ -5628,8 +5628,9 @@ ZEST_API void zest_SetFrameInFlight(zest_context context, zest_uint fif);
 ZEST_API void zest_RestoreFrameInFlight(zest_context context);
 //Convert a linear color value to an srgb color space value
 ZEST_API float zest_LinearToSRGB(float value);
-//Check for valid handles:
-ZEST_API zest_bool zest_IsResourceHandle(zest_image_handle image_handle);
+//Get memory stats for device and contexts
+ZEST_API zloc_allocation_stats_t zest_GetDeviceMemoryStats(zest_device device);
+ZEST_API zloc_allocation_stats_t zest_GetContextMemoryStats(zest_context context);
 //--End General Helper functions
 
 //-----------------------------------------------
@@ -5984,6 +5985,7 @@ ZLOC_API void* zloc_PromoteLinearBlock(zloc_allocator *allocator, void* linear_a
 	zloc__lock_thread_access;
 
 	zloc_header *block = zloc__block_from_allocation(linear_alloc_mem);
+	ZLOC_ASSERT(allocator == block->allocator);	//allocator MUST match the block allocator
 
 	// Ensure the block is valid and currently in use.
 	if (zloc__is_free_block(block)) {
