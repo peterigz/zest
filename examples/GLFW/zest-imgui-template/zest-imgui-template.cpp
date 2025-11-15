@@ -1,8 +1,9 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
-#include <zest.h>
+#define ZEST_IMAGES_IMPLEMENTATION
+#define ZEST_KTX_IMPLEMENTATION
 #include "zest-imgui-template.h"
-#include "zest_utilities.h"
+#include "zest.h"
 #include "imgui_internal.h"
 
 void InitImGuiApp(ImGuiApp *app) {
@@ -28,12 +29,16 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Rebuild the Zest font texture
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data);
 
-	zest_image_collection_handle atlas = zest_CreateImageAtlasCollection(app->context, zest_format_r8g8_unorm);
-	app->wabbit_sprite = zest_AddImageAtlasPNG(atlas, "examples/assets/wabbit_alpha.png", "wabbit_alpha");
-	zest_image_handle image_atlas = zest_CreateImageAtlas(atlas, 1024, 1024, 0);
-    zest_sampler_handle sampler = zest_CreateSamplerForImage(image_atlas);
-	app->atlas_binding_index = zest_AcquireGlobalSampledImageIndex(image_atlas, zest_texture_2d_binding);
-	app->atlas_sampler_binding_index = zest_AcquireGlobalSamplerIndex(sampler);
+	zest_image_collection_t atlas = zest_CreateImageAtlasCollection(zest_format_r8g8_unorm, 8);
+	int width, height, channels;
+	stbi_uc *pixels = stbi_load("examples/assets/wabbit_alpha.png", &width, &height, &channels, 0);
+	int size = width * height * channels;
+	app->wabbit_sprite = zest_AddImageAtlasPixels(&atlas, pixels, size, width, height, zest_format_r8g8_unorm);
+	zest_image_handle image_atlas = zest_CreateImageAtlas(app->context, &atlas, 1024, 1024, 0);
+	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
+    zest_sampler_handle sampler = zest_CreateSampler(app->context, &sampler_info);
+	app->atlas_binding_index = zest_AcquireSampledImageIndex(app->context, image_atlas, zest_texture_2d_binding);
+	app->atlas_sampler_binding_index = zest_AcquireSamplerIndex(app->context, sampler);
 	zest_BindAtlasRegionToImage(app->wabbit_sprite, app->atlas_sampler_binding_index, image_atlas, zest_texture_2d_binding);
 	//free(pixels);
 	//Create a texture to load in a test image to show drawing that image in an imgui window
@@ -43,15 +48,13 @@ void InitImGuiApp(ImGuiApp *app) {
 	//Process the texture so that its ready to be used
 	//zest_ProcessTextureImages(app->test_texture);
 
-	shaderc_compiler_t compiler = shaderc_compiler_initialize();
-	app->imgui_sprite_shader = zest_CreateShader(app->context, zest_shader_imgui_r8g8_frag, shaderc_fragment_shader, "imgui_sprite_frag", ZEST_TRUE, compiler, 0);
-	shaderc_compiler_release(compiler);
+	app->imgui_sprite_shader = zest_CreateShader(zest_GetContextDevice(app->context), zest_shader_imgui_r8g8_frag, zest_fragment_shader, "imgui_sprite_frag", ZEST_TRUE);
 
-	app->imgui_sprite_pipeline = zest_CopyPipelineTemplate(app->context, "ImGui Sprite Pipeline", app->imgui.pipeline);
+	app->imgui_sprite_pipeline = zest_CopyPipelineTemplate("ImGui Sprite Pipeline", app->imgui.pipeline);
 	zest_SetPipelineFragShader(app->imgui_sprite_pipeline, app->imgui_sprite_shader);
 
 	//We can use a timer to only update imgui 60 times per second
-	app->timer = zest_CreateTimer(app->context, 60);
+	app->timer = zest_CreateTimer(60);
 	app->request_graph_print = true;
 	app->reset = false;
 }
@@ -87,6 +90,10 @@ void MainLoop(ImGuiApp *app) {
 					app->sync_refresh = true;
 				}
 			}
+			zloc_allocation_stats_t device_stats = zest_GetDeviceMemoryStats(app->device);
+			zloc_allocation_stats_t context_stats = zest_GetContextMemoryStats(app->context);
+			ImGui::Text("Device Memory: Free: %zukb, Used: %zukb", device_stats.free / 1024, (device_stats.capacity - device_stats.free) / 1024);
+			ImGui::Text("Context Memory: Free: %zukb, Used: %zukb", context_stats.free / 1024, (context_stats.capacity - context_stats.free) / 1024);
 			if (ImGui::Button("Print Render Graph")) {
 				app->request_graph_print = true;
 				zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
@@ -130,7 +137,7 @@ void MainLoop(ImGuiApp *app) {
 			ImGui::Text("Free Memory: %zu(bytes) %zu(kb) %zu(mb), Used Memory: %zu(bytes) %zu(kb) %zu(mb)", stats.free_size, stats.free_size / 1024, stats.free_size / 1024 / 1024, stats.used_size, stats.used_size / 1024, stats.used_size / 1024 / 1024);
 		}
 		*/
-			zest_vec4 uv = zest_ImageUV(app->wabbit_sprite);
+			zest_vec4 uv = zest_RegionUV(app->wabbit_sprite);
 			//ImGui::Image((ImTextureID)app->wabbit_sprite, ImVec2(50.f, 50.f), ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w));
 			zest_imgui_DrawImage(app->wabbit_sprite, 50.f, 50.f, ImGuiSpriteDrawCallback, app);
 			ImGui::End();
@@ -167,7 +174,8 @@ void MainLoop(ImGuiApp *app) {
 					//Import our test texture with the Bunny sprite
 					//zest_resource_node test_texture = zest_ImportImageResource("test texture", app->test_texture, 0);
 					//------------------------ ImGui Pass ----------------------------------------------------------------
-					//If there's imgui to draw then draw it
+					//If there's imgui to draw then zest__imgui_BeginPass with return a pass, otherwise you can 
+					//do something else like draw a blank screen.
 					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui);
 					if (imgui_pass) {
 						//zest_ConnectInput(test_texture, 0);
@@ -188,7 +196,7 @@ void MainLoop(ImGuiApp *app) {
 			}
 			if (app->request_graph_print) {
 				//You can print out the render graph for debugging purposes
-				zest_PrintCompiledRenderGraph(frame_graph);
+				zest_PrintCompiledFrameGraph(frame_graph);
 				app->request_graph_print = false;
 			}
 			zest_EndFrame(app->context);
@@ -216,14 +224,14 @@ int main(void) {
 	//Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	zest_AddDeviceBuilderValidation(device_builder);
-	zest_DeviceBuilderLogToConsole(device_builder);
-	zest_device device = zest_EndDeviceBuilder(device_builder);
+	//zest_AddDeviceBuilderValidation(device_builder);
+	//zest_DeviceBuilderLogToConsole(device_builder);
+	imgui_app.device = zest_EndDeviceBuilder(device_builder);
 
 	//Create a window using GLFW
-	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "Dear ImGui Example");
 	//Initialise Zest
-	imgui_app.context = zest_CreateContext(device, &window_handles, &create_info);
+	imgui_app.context = zest_CreateContext(imgui_app.device, &window_handles, &create_info);
 
 	//Set the Zest use data
 	zest_SetContextUserData(imgui_app.context, &imgui_app);
