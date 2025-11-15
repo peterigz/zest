@@ -1,5 +1,6 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#define ZEST_IMAGES_IMPLEMENTION
 #define ZEST_KTX_IMPLEMENTATION
 #include "zest-pbr.h"
 #include "zest.h"

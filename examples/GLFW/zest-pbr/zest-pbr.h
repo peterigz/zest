@@ -131,7 +131,7 @@ struct SimplePBRExample {
 	double mouse_x, mouse_y;
 	double mouse_delta_x, mouse_delta_y;
 
-	zest_atlas_region light;
+	zest_atlas_region_t light;
 	float ellapsed_time;
 	bool sync_refresh;
 	bool request_graph_print;
