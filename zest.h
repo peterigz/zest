@@ -4612,7 +4612,7 @@ typedef struct zest_generic_handle {
 	zest_resource_store_t *store;
 }zest_generic_handle;
 
-ZEST_API inline zest_bool zest__IsValidHandle(void *handle) {
+ZEST_API inline zest_bool zest_IsValidHandle(void *handle) {
 	zest_generic_handle *generic_handle = (zest_generic_handle *)handle;
 	if (!generic_handle && ZEST_VALID_HANDLE(generic_handle->store)) {
 		return ZEST_FALSE;
@@ -4620,7 +4620,10 @@ ZEST_API inline zest_bool zest__IsValidHandle(void *handle) {
 	zest_uint index = ZEST_HANDLE_INDEX(generic_handle->value);
 	zest_uint generation = ZEST_HANDLE_GENERATION(generic_handle->value);
 	if (generation > 0) {
-		return index < generic_handle->store->current_size;
+		if (index < generic_handle->store->current_size) {
+			char *resource = (char*)generic_handle->store->data + generic_handle->store->struct_size * index;
+			return ZEST_VALID_HANDLE(resource);
+		}
 	}
 	return ZEST_FALSE;
 }
