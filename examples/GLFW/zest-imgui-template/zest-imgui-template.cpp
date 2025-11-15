@@ -1,7 +1,6 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
 #define ZEST_IMAGES_IMPLEMENTATION
-#define ZEST_KTX_IMPLEMENTATION
 #include "zest-imgui-template.h"
 #include "zest.h"
 #include "imgui_internal.h"
@@ -40,7 +39,7 @@ void InitImGuiApp(ImGuiApp *app) {
 	app->atlas_binding_index = zest_AcquireSampledImageIndex(app->context, image_atlas, zest_texture_2d_binding);
 	app->atlas_sampler_binding_index = zest_AcquireSamplerIndex(app->context, sampler);
 	zest_BindAtlasRegionToImage(app->wabbit_sprite, app->atlas_sampler_binding_index, image_atlas, zest_texture_2d_binding);
-	//free(pixels);
+	STBI_FREE(pixels);
 	//Create a texture to load in a test image to show drawing that image in an imgui window
 	//app->test_texture = zest_CreateTexture("Bunny", zest_texture_storage_type_sprite_sheet, zest_image_flag_use_filtering, zest_format_r8g8b8a8_unorm, 10);
 	//Load in the image and add it to the texture

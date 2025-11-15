@@ -16,7 +16,6 @@ struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
 	zest_image_handle imgui_font_texture;
 	zest_image_handle test_texture;
-	zest_atlas_region_t test_image;
 	zest_timer_t timer;
 	zest_pipeline_template imgui_sprite_pipeline;
 	zest_shader_handle imgui_sprite_shader;
