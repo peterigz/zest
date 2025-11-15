@@ -432,12 +432,27 @@ void UpdateMouse(SimplePBRExample *app) {
 }
 
 void MainLoop(SimplePBRExample *app) {
+	zest_microsecs running_time = zest_Microsecs();
+	zest_microsecs frame_time = 0;
+	zest_uint frame_count = 0;
+	zest_uint fps = 0;
+
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
+		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
+		running_time = zest_Microsecs();
+		frame_time += current_frame_time;
+		frame_count += 1;
+		if (frame_time >= ZEST_MICROSECS_SECOND) {
+			frame_time -= ZEST_MICROSECS_SECOND;
+			fps = frame_count;
+			frame_count = 0;
+		}
+
 		glfwPollEvents();
 
 		UpdateMouse(app);
 
-		float elapsed = 0;
+		float elapsed = (float)current_frame_time;
 
 		UpdateUniform3d(app);
 
@@ -536,7 +551,7 @@ void MainLoop(SimplePBRExample *app) {
 			zest_imgui_Destroy(&app->imgui);
 			zest_implglfw_DestroyWindow(app->context);
 			zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
-			zest_ResetRenderer(app->context, &window_handles);
+			zest_ResetContext(app->context, &window_handles);
 			InitSimplePBRExample(app);
 		}
 
