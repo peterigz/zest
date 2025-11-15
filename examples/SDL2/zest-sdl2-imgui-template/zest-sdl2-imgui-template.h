@@ -1,7 +1,7 @@
 #pragma once
 
-#include <zest.h>
 #include <SDL.h>
+#include <zest.h>
 #include "implementations/impl_imgui.h"
 #include "imgui/imgui.h"
 #include <imgui/misc/freetype/imgui_freetype.h>
@@ -16,13 +16,12 @@ struct ImGuiApp {
 	zest_index imgui_draw_routine_index;
 	zest_image_handle imgui_font_texture;
 	zest_image_handle test_texture;
-	zest_atlas_region test_image;
-	zest_timer_handle timer;
+	zest_timer_t timer;
 	zest_pipeline_template imgui_sprite_pipeline;
 	zest_shader_handle imgui_sprite_shader;
 	zest_context context;
 	zest_device device;
-	zest_atlas_region wabbit_sprite;
+	zest_atlas_region_t *wabbit_sprite;
 	zest_imgui_t imgui;
 	RenderCacheInfo cache_info;
 	zest_uint atlas_binding_index;
