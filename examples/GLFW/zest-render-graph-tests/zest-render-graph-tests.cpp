@@ -191,7 +191,7 @@ int test__transient_image(ZestTests *tests, Test *test) {
 //Input/Output Test: A pass that takes a pre-existing resource (e.g., a user-created buffer) as input and writes to a 
 //final output resource (e.g., the swapchain).
 int test__import_image(ZestTests *tests, Test *test) {
-	if (!zest_IsValidImageHandle(tests->texture)) {
+	if (!zest_IsValidHandle((void*)&tests->texture)) {
 		zest_image_info_t image_info = zest_CreateImageInfo(256, 256);
 		image_info.flags = zest_image_preset_storage;
 		tests->texture = zest_CreateImage(tests->context, &image_info);
@@ -290,7 +290,7 @@ void zest_WriteBufferCompute(const zest_command_list command_list, void *user_da
 	const zest_uint local_size_y = 8;
 
 	zest_descriptor_set sets[] = {
-		zest_GetGlobalBindlessSet(tests->context)
+		zest_GetBindlessSet(tests->context)
 	};
 
 	// Bind the pipeline once before the loop
@@ -321,7 +321,7 @@ void zest_VerifyBufferCompute(const zest_command_list command_list, void *user_d
 	const zest_uint local_size_y = 8;
 
 	zest_descriptor_set sets[] = {
-		zest_GetGlobalBindlessSet(tests->context)
+		zest_GetBindlessSet(tests->context)
 	};
 
 	// Bind the pipeline once before the loop
@@ -350,29 +350,29 @@ void zest_VerifyBufferCompute(const zest_command_list command_list, void *user_d
 * Also tests executing and waiting to finish
 */
 int test__buffer_read_write(ZestTests *tests, Test *test) {
-	if (!zest_IsValidComputeHandle(tests->compute_write)) {
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
+	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-render-graph-tests/shaders/buffer_write.comp", "buffer_write.spv", zest_compute_shader, 1);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetGlobalBindlessLayout(tests->context));
+		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->context));
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
-		if (!zest_IsValidComputeHandle(tests->compute_write)) {
+		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = -1;
 			return test->result;
 		}
 	}
-	if (!zest_IsValidComputeHandle(tests->compute_verify)) {
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/buffer_verify.comp", "buffer_verify.spv", zest_compute_shader, 1);
+	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-render-graph-tests/shaders/buffer_verify.comp", "buffer_verify.spv", zest_compute_shader, 1);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetGlobalBindlessLayout(tests->context));
+		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->context));
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_verify = zest_FinishCompute(&builder, "Buffer Verify");
-		if (!zest_IsValidComputeHandle(tests->compute_verify)) {
+		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
 			test->result = -1;
 			return test->result;
@@ -381,7 +381,7 @@ int test__buffer_read_write(ZestTests *tests, Test *test) {
 	if (!tests->cpu_buffer) {
 		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
 		tests->cpu_buffer = zest_CreateBuffer(tests->context, sizeof(TestResults), &storage_buffer_info);
-		tests->cpu_buffer_index = zest_AcquireGlobalStorageBufferIndex(tests->cpu_buffer);
+		tests->cpu_buffer_index = zest_AcquireStorageBufferIndex(tests->context, tests->cpu_buffer);
 			
 	}
 	zest_buffer_resource_info_t info = {};
@@ -478,7 +478,7 @@ void zest_VerifyImageCompute(const zest_command_list command_list, void *user_da
 	const zest_uint local_size_y = 8;
 
 	zest_descriptor_set sets[] = {
-		zest_GetGlobalBindlessSet(tests->context)
+		zest_GetBindlessSet(tests->context)
 	};
 
 	// Bind the pipeline once before the loop
@@ -488,7 +488,7 @@ void zest_VerifyImageCompute(const zest_command_list command_list, void *user_da
 
 	if (!tests->sampler.value) {
 		tests->sampler = zest_CreateSampler(tests->context, &tests->sampler_info);
-		tests->sampler_index = zest_AcquireGlobalSamplerIndex(tests->sampler);
+		tests->sampler_index = zest_AcquireSamplerIndex(tests->context, tests->sampler);
 	}
 
 	// Update push constants for the current dispatch
@@ -515,15 +515,15 @@ Image Write / Read(Clear Color) :
 * Pass B(Compute) : Reads the image pixels and verifies they match the clear color.
 */
 int test__image_read_write(ZestTests *tests, Test *test) {
-	if (!zest_IsValidComputeHandle(tests->compute_verify)) {
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/image_verify.comp", "image_verify.spv", zest_compute_shader, 1);
+	if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-render-graph-tests/shaders/image_verify.comp", "image_verify.spv", zest_compute_shader, 1);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetGlobalBindlessLayout(tests->context));
+		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->context));
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_verify = zest_FinishCompute(&builder, "Image Verify");
-		if (!zest_IsValidComputeHandle(tests->compute_verify)) {
+		if (!zest_IsValidHandle((void*)&tests->compute_verify)) {
 			test->frame_count++;
 			test->result = 1;
 			return test->result;
@@ -532,7 +532,7 @@ int test__image_read_write(ZestTests *tests, Test *test) {
 	if (!tests->cpu_buffer) {
 		zest_buffer_info_t storage_buffer_info = zest_CreateBufferInfo(zest_buffer_type_storage, zest_memory_usage_gpu_to_cpu);
 		tests->cpu_buffer = zest_CreateBuffer(tests->context, sizeof(TestResults), &storage_buffer_info);
-		tests->cpu_buffer_index = zest_AcquireGlobalStorageBufferIndex(tests->cpu_buffer);
+		tests->cpu_buffer_index = zest_AcquireStorageBufferIndex(tests->context, tests->cpu_buffer);
 			
 	}
 	zest_image_resource_info_t image_info = {zest_format_r8g8b8a8_unorm};
@@ -619,7 +619,7 @@ void zest_WriteImageCompute(const zest_command_list command_list, void *user_dat
 	const zest_uint local_size_y = 8;
 
 	zest_descriptor_set sets[] = {
-		zest_GetGlobalBindlessSet(tests->context)
+		zest_GetBindlessSet(tests->context)
 	};
 
 	// Bind the pipeline once before the loop
@@ -629,7 +629,7 @@ void zest_WriteImageCompute(const zest_command_list command_list, void *user_dat
 
 	if (!tests->sampler.value) {
 		tests->sampler = zest_CreateSampler(tests->context, &tests->sampler_info);
-		tests->sampler_index = zest_AcquireGlobalSamplerIndex(tests->sampler);
+		tests->sampler_index = zest_AcquireSamplerIndex(tests->context, tests->sampler);
 	}
 
 	// Update push constants for the current dispatch
@@ -654,15 +654,15 @@ Multi-Queue Synchronization:
 * The graph must handle the queue ownership transfer and synchronization (semaphores).
 */
 int test__multi_queue_sync(ZestTests *tests, Test *test) {
-	if (!zest_IsValidComputeHandle(tests->compute_write)) {
-		zest_shader_handle shader = zest_CreateShaderFromFile(tests->context, "examples/GLFW/zest-render-graph-tests/shaders/image_write2.comp", "image_write.spv", zest_compute_shader, 1);
+	if (!zest_IsValidHandle((void*)&tests->compute_write)) {
+		zest_shader_handle shader = zest_CreateShaderFromFile(tests->device, "examples/GLFW/zest-render-graph-tests/shaders/image_write2.comp", "image_write.spv", zest_compute_shader, 1);
 		zest_compute_builder_t builder = zest_BeginComputeBuilder(tests->context);
-		zest_SetComputeBindlessLayout(&builder, zest_GetGlobalBindlessLayout(tests->context));
+		zest_SetComputeBindlessLayout(&builder, zest_GetBindlessLayout(tests->context));
 		zest_SetComputeUserData(&builder, tests);
 		zest_AddComputeShader(&builder, shader);
 		zest_SetComputePushConstantSize(&builder, sizeof(TestPushConstants));
 		tests->compute_write = zest_FinishCompute(&builder, "Buffer Write");
-		if (!zest_IsValidComputeHandle(tests->compute_write)) {
+		if (!zest_IsValidHandle((void*)&tests->compute_write)) {
 			test->frame_count++;
 			test->result = 1;
 			return test->result;
@@ -850,7 +850,7 @@ void RunTests(ZestTests *tests) {
 			if (tests->current_test < TEST_COUNT - 1) {
 				tests->current_test++;
 				zest_SetCreateInfo(tests->context, &tests->tests[tests->current_test].create_info);
-				zest_ResetRenderer(tests->context, 0);
+				zest_ResetContext(tests->context, 0);
 				zest_ResetValidationErrors(tests->context);
 				ResetTests(tests);
 			} else {
@@ -889,12 +889,12 @@ int main(void) {
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
 	zest_AddDeviceBuilderValidation(device_builder);
 	zest_DeviceBuilderLogToConsole(device_builder);
-	zest_device device = zest_EndDeviceBuilder(device_builder);
+	tests.device = zest_EndDeviceBuilder(device_builder);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	tests.context = zest_CreateContext(device, &window_handles, &create_info);
+	tests.context = zest_CreateContext(tests.device, &window_handles, &create_info);
 
 	InitialiseTests(&tests);
 

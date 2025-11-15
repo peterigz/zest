@@ -41,6 +41,7 @@ struct Test {
 };
 
 struct ZestTests {
+	zest_device device;
 	zest_context context;
 	Test tests[TEST_COUNT];
 	int current_test;
