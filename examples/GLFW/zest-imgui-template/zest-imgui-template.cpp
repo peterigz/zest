@@ -223,8 +223,8 @@ int main(void) {
 	//Create the device that serves all vulkan based contexts
 	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
 	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
-	//zest_AddDeviceBuilderValidation(device_builder);
-	//zest_DeviceBuilderLogToConsole(device_builder);
+	zest_AddDeviceBuilderValidation(device_builder);
+	zest_DeviceBuilderLogToConsole(device_builder);
 	imgui_app.device = zest_EndDeviceBuilder(device_builder);
 
 	//Create a window using GLFW

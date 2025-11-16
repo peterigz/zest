@@ -8199,6 +8199,22 @@ zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer_handle layer_handle) {
     return layer->memory_refs[layer->fif].staging_index_data;
 }
 
+zest_buffer zest_GetLayerVertexBuffer(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+    return layer->memory_refs[layer->fif].device_vertex_data;
+}
+
+zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+	if (layer->instruction_index < zest_vec_size(layer->draw_instructions)) {
+		zest_layer_instruction_t *instruction = &layer->draw_instructions[layer->fif][layer->instruction_index];
+		layer->instruction_index++;
+		return instruction;
+	}
+	layer->instruction_index = 0;
+	return NULL;
+}
+
 void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data) {
     zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);

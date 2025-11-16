@@ -3219,6 +3219,7 @@ typedef struct zest_atlas_region_t {
 	zest_index layer_index;      //the layer index of the image when it's packed into an image/texture array
 	zest_uint frames;            //Will be one if this is a single image or more if it's part of an animation
 	zest_binding_number_type binding_number;
+	zest_uint atlas_index;		 //The index with an image collection where the region might be stored
 	zest_uint image_index;       //Index of the image to lookup in the shader
 	zest_uint sampler_index;     //Index of the sampler to lookup in the shader
 	zest_vec2 handle;
@@ -4360,6 +4361,7 @@ typedef struct zest_layer_t {
 	zest_viewport_t viewport;
 
 	zest_layer_instruction_t *draw_instructions[ZEST_MAX_FIF];
+	zest_uint instruction_index;
 	zest_draw_mode last_draw_mode;
 
 	zest_resource_node vertex_buffer_node;
@@ -5405,10 +5407,12 @@ ZEST_API void zest_SetLayerUserData(zest_layer_handle layer, void *data);
 #define zest_GetLayerUserData(type, layer) ((type *)layer->user_data)
 ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer, bool last_frame);
 ZEST_API zest_buffer zest_GetLayerResourceBuffer(zest_layer_handle layer);
+ZEST_API zest_buffer zest_GetLayerVertexBuffer(zest_layer_handle layer);
 ZEST_API zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer_handle layer);
 ZEST_API zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer_handle layer);
 ZEST_API void zest_UploadLayerStagingData(zest_layer_handle layer, const zest_command_list command_list);
 ZEST_API void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data);
+ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer_handle layer_handle);
 //-- End Draw Layers
 
 
