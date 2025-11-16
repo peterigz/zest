@@ -90,7 +90,6 @@ typedef struct zest_bitmap_meta_t {
 
 typedef struct zest_bitmap_t {
 	zest_bitmap_meta_t meta;
-	zest_atlas_region_t atlas_region;
 	zest_byte *data;
 	zest_bool is_imported;
 } zest_bitmap_t;
@@ -237,20 +236,23 @@ ZEST_API void zest_UpdateFontUniformBuffer(zest_uniform_buffer_handle handle);
 
 ZEST_API zest_bitmap_t zest_CreateBitmapFromRawBuffer(void *pixels, int size, int width, int height, zest_format format);
 ZEST_API void zest_ConvertBitmap(zest_bitmap_t *src, zest_format format, zest_byte alpha_level);
+ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap_t *image);
 ZEST_API zest_byte *zest_BitmapArrayLookUp(zest_bitmap_array_t *bitmap_array, zest_index index);
 ZEST_API zest_bitmap_array_t zest_CreateBitmapArray(int width, int height, zest_format format, zest_uint size_of_array);
 ZEST_API void zest_FreeBitmap(zest_bitmap_t *image);
 ZEST_API void zest_FreeBitmapArray(zest_bitmap_array_t *images);
 ZEST_API void zest_FreeBitmapData(zest_bitmap_t *image);
 ZEST_API zest_bool zest_AllocateBitmap(zest_bitmap_t *bitmap, int width, int height, zest_format format);
+ZEST_API void zest_AllocateBitmapMemory(zest_bitmap_t *bitmap, zest_size size_in_bytes);
 ZEST_API void zest_CopyBitmap(zest_bitmap_t *src, int from_x, int from_y, int width, int height, zest_bitmap_t *dst, int to_x, int to_y);
 
 ZEST_API zest_image_collection_t zest_CreateImageCollection(zest_context context, zest_format format, zest_uint max_images, zest_uint array_count, zest_image_collection_flags flags);
 ZEST_API zest_image_collection_t zest_CreateImageAtlasCollection(zest_format format, int max_images);
 ZEST_API zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collection_t *atlas_handle, zest_uint layer_width, zest_uint layer_height, zest_image_flags flags);
 ZEST_API void zest_FreeImageCollection(zest_image_collection_t *image_collection);
-ZEST_API void zest_AddImageAtlasBitmap(zest_image_collection_t *image_collection, zest_bitmap_t *bitmap);
-ZEST_API void zest_AddImageAtlasPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, zest_uint width, zest_uint height, zest_format format);
+ZEST_API zest_atlas_region_t *zest_AddImageAtlasBitmap(zest_image_collection_t *image_collection, zest_bitmap_t *bitmap);
+ZEST_API zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, zest_uint width, zest_uint height, zest_format format);
+ZEST_API zest_atlas_region_t *zest_AddImageAtlasAnimationPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, int frame_width, int frame_height, int frames, zest_format format);
 ZEST_API zest_bool zest_GetBestFit(zest_context context, zest_image_collection_t *image_collection, zest_uint *width, zest_uint *height);
 ZEST_API zest_byte *zest_GetImageCollectionRawBitmap(zest_image_collection_t *image_collection, zest_uint bitmap_index);
 ZEST_API zest_bool zest_AllocateImageCollectionCopyRegions(zest_image_collection_t *image_collection);
@@ -279,7 +281,6 @@ ZEST_API zest_bitmap_t zest_NewBitmap();
 //and the number of color channels
 //Allocate the memory for a bitmap based on the width, height and number of color channels. You can also specify the fill color
 //Allocate the memory for a bitmap based the number of bytes required
-ZEST_API void zest_AllocateBitmapMemory(zest_bitmap_t *bitmap, zest_size size_in_bytes);
 //Copy all of a source bitmap to a destination bitmap
 ZEST_API void zest_CopyWholeBitmap(zest_bitmap_t *src, zest_bitmap_t *dst);
 //Copy an area of a source bitmap to another bitmap
@@ -294,7 +295,6 @@ ZEST_API void zest_ConvertBitmapToRGBA(zest_bitmap_t *src, zest_byte alpha_level
 //Convert a BGRA bitmap to RGBA format
 ZEST_API void zest_ConvertBGRAToRGBA(zest_bitmap_t *src);
 //Convert a bitmap to a single alpha channel
-ZEST_API void zest_ConvertBitmapToAlpha(zest_bitmap_t *image);
 //Sample the color of a pixel in a bitmap with the given x/y coordinates
 ZEST_API zest_color_t zest_SampleBitmap(zest_bitmap_t *image, int x, int y);
 //Get a pointer to the first pixel in a bitmap within the bitmap array. Index must be less than the number of bitmaps in the array
@@ -978,7 +978,7 @@ zest_msdf_font_t zest_CreateMSDF(zest_context context, const char *filename, zes
 	zest_uint bitmap_index = 0;
 	for (int i = 32; i < 127; ++i) {
 		if (ZEST__NOT_FLAGGED(font.characters[i].flags, zest_character_flag_whitespace)) {
-			font.characters[i].region = font.font_atlas.image_bitmaps[bitmap_index++].atlas_region;
+			font.characters[i].region = font.font_atlas.regions[bitmap_index++];
 			char c[2] = { (char)i, '\0' };
 		}
 	}
@@ -1241,40 +1241,6 @@ zest_bitmap_t zest_NewBitmap() {
     zest_bitmap_t bitmap = (zest_bitmap)ZEST__NEW(allocator, zest_bitmap);
     *bitmap = ZEST__ZERO_INIT(zest_bitmap_t);
     return bitmap;
-}
-
-void zest_ConvertBitmapToAlpha(zest_bitmap_t *image) {
-
-    zest_size pos = 0;
-
-    if (image->meta.channels == 4) {
-        while (pos < image->meta.size) {
-            zest_byte c = (zest_byte)ZEST__MIN(((float)*(image->data + pos) * 0.3f) + ((float)*(image->data + pos + 1) * .59f) + ((float)*(image->data + pos + 2) * .11f), (float)*(image->data + pos + 3));
-            *(image->data + pos) = 255;
-            *(image->data + pos + 1) = 255;
-            *(image->data + pos + 2) = 255;
-            *(image->data + pos + 3) = c;
-            pos += image->meta.channels;
-        }
-    }
-    else if (image->meta.channels == 3) {
-        while (pos < image->meta.size) {
-            zest_byte c = (zest_byte)(((float)*(image->data + pos) * 0.3f) + ((float)*(image->data + pos + 1) * .59f) + ((float)*(image->data + pos + 2) * .11f));
-            *(image->data + pos) = c;
-            *(image->data + pos + 1) = c;
-            *(image->data + pos + 2) = c;
-            pos += image->meta.channels;
-        }
-    }
-    else if (image->meta.channels == 2) {
-        while (pos < image->meta.size) {
-            *(image->data + pos) = 255;
-            pos += image->meta.channels;
-        }
-    }
-    else if (image->meta.channels == 1) {
-        return;
-    }
 }
 
 void zest_ConvertBitmapToBGRA(zest_bitmap_t *src, zest_byte alpha_level) {
@@ -1609,6 +1575,39 @@ void zest_ConvertBitmap(zest_bitmap_t *src, zest_format new_format, zest_byte al
 
 }
 
+void zest_ConvertBitmapToAlpha(zest_bitmap_t *image) {
+
+    zest_size pos = 0;
+
+    if (image->meta.channels == 4) {
+        while (pos < image->meta.size) {
+            zest_byte c = (zest_byte)ZEST__MIN(((float)*(image->data + pos) * 0.3f) + ((float)*(image->data + pos + 1) * .59f) + ((float)*(image->data + pos + 2) * .11f), (float)*(image->data + pos + 3));
+            *(image->data + pos) = 255;
+            *(image->data + pos + 1) = 255;
+            *(image->data + pos + 2) = 255;
+            *(image->data + pos + 3) = c;
+            pos += image->meta.channels;
+        }
+    }
+    else if (image->meta.channels == 3) {
+        while (pos < image->meta.size) {
+            zest_byte c = (zest_byte)(((float)*(image->data + pos) * 0.3f) + ((float)*(image->data + pos + 1) * .59f) + ((float)*(image->data + pos + 2) * .11f));
+            *(image->data + pos) = c;
+            *(image->data + pos + 1) = c;
+            *(image->data + pos + 2) = c;
+            pos += image->meta.channels;
+        }
+    }
+    else if (image->meta.channels == 2) {
+        while (pos < image->meta.size) {
+            *(image->data + pos) = 255;
+            pos += image->meta.channels;
+        }
+    }
+    else if (image->meta.channels == 1) {
+        return;
+    }
+}
 zest_byte* zest_BitmapArrayLookUp(zest_bitmap_array_t* bitmap_array, zest_index index) {
     ZEST_ASSERT((zest_uint)index < bitmap_array->size_of_array);	//index out of bounds
     return bitmap_array->data + bitmap_array->meta[index].offset;
@@ -1686,6 +1685,7 @@ zest_image_collection_t zest_CreateImageCollection(zest_context context, zest_fo
 	image_collection.flags = flags;
 	if (max_images) {
 		image_collection.image_bitmaps = (zest_bitmap_t *)ZEST_UTILITIES_MALLOC(sizeof(zest_bitmap_t) * max_images);
+		image_collection.regions = (zest_atlas_region_t *)ZEST_UTILITIES_MALLOC(sizeof(zest_atlas_region_t) * max_images);
 	}
 	image_collection.max_images = max_images;
 	image_collection.bitmap_array.size_of_array = bitmap_array_count;
@@ -1701,6 +1701,7 @@ zest_image_collection_t zest_CreateImageAtlasCollection(zest_format format, int 
 	image_collection.flags = zest_image_collection_flag_atlas;
 	image_collection.max_images = max_images;
 	image_collection.image_bitmaps = (zest_bitmap_t*)ZEST_UTILITIES_MALLOC(sizeof(zest_bitmap_t) * max_images);
+	image_collection.regions = (zest_atlas_region_t *)ZEST_UTILITIES_MALLOC(sizeof(zest_atlas_region_t) * max_images);
 	return image_collection;
 }
 
@@ -1748,7 +1749,7 @@ zest_bitmap_meta_t zest_ImageCollectionBitmapArrayMeta(zest_image_collection_t *
 	}
 }
 
-void zest_AddImageAtlasBitmap(zest_image_collection_t *image_collection, zest_bitmap_t *bitmap) {
+zest_atlas_region_t *zest_AddImageAtlasBitmap(zest_image_collection_t *image_collection, zest_bitmap_t *bitmap) {
 	ZEST_ASSERT(bitmap->meta.width, "Width has not been set in the bitmap");		//Not a valid bitmap handle
 	ZEST_ASSERT(bitmap->meta.height, "Height has not been set in the bitmap");		//Not a valid bitmap handle
 	ZEST_ASSERT(bitmap->meta.format, "Format has not been set in the bitmap");		//Not a valid bitmap handle
@@ -1757,12 +1758,16 @@ void zest_AddImageAtlasBitmap(zest_image_collection_t *image_collection, zest_bi
 		if (bitmap->meta.format != image_collection->format) {
 			zest_ConvertBitmap(bitmap, image_collection->format, 255);
 		}
-		bitmap->atlas_region = ZEST__ZERO_INIT(zest_atlas_region_t);
-		bitmap->atlas_region.width = bitmap->meta.width;
-		bitmap->atlas_region.height = bitmap->meta.height;
+		zest_atlas_region_t *region = &image_collection->regions[image_collection->image_count];
+		*region = ZEST__ZERO_INIT(zest_atlas_region_t);
+		region->width = bitmap->meta.width;
+		region->height = bitmap->meta.height;
+		region->atlas_index = image_collection->image_count;
 		image_collection->image_bitmaps[image_collection->image_count] = *bitmap;
 		image_collection->image_count++;
+		return region;
 	}
+	return NULL;
 }
 
 zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, zest_format format) {
@@ -1783,11 +1788,54 @@ zest_atlas_region_t *zest_AddImageAtlasPixels(zest_image_collection_t *image_col
 	if (format != image_collection->format) {
 		zest_ConvertBitmap(&bitmap, image_collection->format, 255);
 	}
-	bitmap.atlas_region = ZEST__ZERO_INIT(zest_atlas_region_t);
-	bitmap.atlas_region.width = bitmap.meta.width;
-	bitmap.atlas_region.height = bitmap.meta.height;
+	zest_atlas_region_t *region = &image_collection->regions[image_collection->image_count];
+	*region = ZEST__ZERO_INIT(zest_atlas_region_t);
+	region->width = bitmap.meta.width;
+	region->height = bitmap.meta.height;
+	region->atlas_index = image_collection->image_count;
 	image_collection->image_bitmaps[image_collection->image_count] = bitmap;
-	return &image_collection->image_bitmaps[image_collection->image_count++].atlas_region;
+	return region;
+}
+
+zest_atlas_region_t *zest_AddImageAtlasAnimationPixels(zest_image_collection_t *image_collection, void *pixels, zest_size size, int width, int height, int frame_width, int frame_height, int frames, zest_format format) {
+	ZEST_ASSERT(image_collection->image_count + frames < image_collection->max_images, "No more room for new images in the image collection");
+	int channels, bytes_per_pixel;
+	zest_GetFormatPixelData(format, &channels, &bytes_per_pixel);
+
+	zest_uint rows = height / frame_height;
+	zest_uint cols = width / frame_width;
+
+	int frame_count = 0;
+
+	zest_bitmap_t atlas = ZEST__ZERO_INIT(zest_bitmap_t);
+	atlas.data = (zest_byte*)pixels;
+	atlas.meta.width = width;
+	atlas.meta.height = height;
+	atlas.meta.bytes_per_pixel = bytes_per_pixel;
+	atlas.meta.channels = channels;
+	atlas.meta.stride = width * bytes_per_pixel;
+	zest_atlas_region_t *first_region = &image_collection->regions[image_collection->image_count];
+
+	for (zest_uint r = 0; r != rows; ++r) {
+		for (zest_uint c = 0; c != cols; ++c) {
+			if (frame_count >= frames) {
+				break;
+			}
+			zest_bitmap_t bitmap_frame = ZEST__ZERO_INIT(zest_bitmap_t);
+			zest_atlas_region_t *region = &image_collection->regions[image_collection->image_count];
+			*region = ZEST__ZERO_INIT(zest_atlas_region_t);
+			zest_AllocateBitmap(&bitmap_frame, frame_width, frame_height, format);
+			zest_CopyBitmap(&atlas, c * width, r * height, width, height, &bitmap_frame, 0, 0);
+			region->width = bitmap_frame.meta.width;
+			region->height = bitmap_frame.meta.height;
+			region->frames = frames;
+			region->atlas_index = image_collection->image_count;
+			image_collection->image_bitmaps[image_collection->image_count] = bitmap_frame;
+			image_collection->image_count++;
+			frame_count++;
+		}
+	}
+	return first_region;
 }
 
 void zest_FreeBitmapData(zest_bitmap_t *image) {
@@ -1993,7 +2041,7 @@ void zest__pack_images(zest_image_collection_t *atlas, zest_uint layer_width, ze
             stbrp_rect* rect = &current_rects[i];
 
             if (rect->was_packed) {
-                zest_atlas_region_t *region = &atlas->image_bitmaps[rect->id].atlas_region;
+                zest_atlas_region_t *region = &atlas->regions[rect->id];
 
                 float rect_x = (float)rect->x + atlas->packed_border_size;
                 float rect_y = (float)rect->y + atlas->packed_border_size;
@@ -2023,8 +2071,6 @@ void zest__pack_images(zest_image_collection_t *atlas, zest_uint layer_width, ze
     }
 
     size_t offset = 0;
-
-    zest_vec_clear(atlas->buffer_copy_regions);
 
 	zest_bitmap_array_t *bitmap_array = &atlas->bitmap_array;
     for(zest_uint i = 0; i != bitmap_array->size_of_array; ++i) {
