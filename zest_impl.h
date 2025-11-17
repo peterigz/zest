@@ -18,23 +18,6 @@ typedef struct zest_output_group_t {
     zest_resource_node *resources;
 } zest_output_group_t;
 
-typedef struct zest_timer_t {
-    double start_time;
-    double delta_time;
-    double update_frequency;
-    double update_tick_length;
-    double update_time;
-    double ticker;
-    double accumulator;
-    double accumulator_delta;
-    double current_time;
-    double lerp;
-    double time_passed;
-    double seconds_passed;
-    double max_elapsed_time;
-    int update_count;
-} zest_timer_t;
-
 typedef struct zest_buffer_allocator_t {
     int magic;
 	zest_device device;
@@ -129,7 +112,7 @@ zest_bool zest__file_exists(const char* file_name) {
 	return ZEST_FALSE;
 }
 
-bool zest__create_folder(zest_device device, const char *path) {
+zest_bool zest__create_folder(zest_device device, const char *path) {
     int result = ZEST_CREATE_DIR(path);
     if (result == 0) {
         ZEST_APPEND_LOG(device->log_path.str, "Folder created successfully: %s", path);
@@ -2834,7 +2817,7 @@ zest_set_layout_builder_t zest_BeginSetLayoutBuilder(zloc_allocator *allocator) 
     return builder;
 }
 
-bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding) {
+zest_bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding) {
     zest_vec_foreach(i, builder->bindings) {
         if (builder->bindings[i].binding == binding) {
             return true;
@@ -2844,7 +2827,7 @@ bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, 
 }
 
 void zest_AddLayoutBuilderBinding(zest_set_layout_builder_t *builder, zest_descriptor_binding_desc_t description) {
-    bool binding_exists = zest__binding_exists_in_layout_builder(builder, description.binding);
+    zest_bool binding_exists = zest__binding_exists_in_layout_builder(builder, description.binding);
     ZEST_ASSERT(!binding_exists);       //That binding number already exists in the layout builder
     zest_vec_push(builder->allocator, builder->bindings, description);
 }
@@ -3184,7 +3167,7 @@ void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, zest_color_
     pipeline_template->color_blend_attachment = blend_attachment;
 }
 
-void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, bool enable_test, bool write_enable) {
+void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, zest_bool enable_test, zest_bool write_enable) {
     ZEST_ASSERT_HANDLE(pipeline_template);  //Not a valid pipeline template handle
 	pipeline_template->depth_stencil.depth_test_enable = enable_test;
 	pipeline_template->depth_stencil.depth_write_enable = write_enable;
@@ -3608,7 +3591,7 @@ zest_device zest_GetContextDevice(zest_context context) {
 	return context->device;
 }
 
-zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer_handle, bool last_frame) {
+zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer_handle, zest_bool last_frame) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
     return layer->memory_refs[last_frame ? layer->prev_fif : layer->fif].device_vertex_data->array_index;
 }
@@ -5994,7 +5977,7 @@ zest_key zest_GetPassOutputKey(zest_pass_node pass) {
     return pass->output_key;
 }
 
-bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph) {
+zest_bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph) {
     return ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_is_executed);
 }
 
@@ -6097,14 +6080,15 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 
     zest_bucket_array_foreach(resource_index, frame_graph->resources) {
 		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
+		void *resource_ptr = context->device->platform->get_resource_ptr(resource);
         if (resource->type & zest_resource_type_buffer) {
-			ZEST_PRINT("Buffer: %s - Size: %zu", resource->name, resource->buffer_desc.size);
+			ZEST_PRINT("Buffer: %s (%p) - Size: %zu", resource->name, resource_ptr, resource->buffer_desc.size);
         } else if (resource->type & zest_resource_type_image) {
-            ZEST_PRINT("Image: %s - Size: %u x %u", 
-                resource->name, resource->image.info.extent.width, resource->image.info.extent.height);
+            ZEST_PRINT("Image: %s (%p) - Size: %u x %u", 
+                resource->name, resource_ptr, resource->image.info.extent.width, resource->image.info.extent.height);
         } else if (resource->type == zest_resource_type_swap_chain_image) {
-            ZEST_PRINT("Swapchain Image: %s", 
-                resource->name);
+            ZEST_PRINT("Swapchain Image: %s (%p)", 
+                resource->name, resource_ptr);
         }
     }
 
@@ -6565,6 +6549,7 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
     zest_size layer_size = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
+	ZEST__UNFLAG(layer->flags, zest_layer_flag_use_prev_fif);
     ZEST__MAYBE_FLAG(layer->flags, zest_layer_flag_use_prev_fif, prev_fif);
     zest_resource_node resource = 0;
 	zest_context context = zest__frame_graph_builder->context;
@@ -6705,7 +6690,7 @@ void zest_SetPassInstanceLayerUpload(zest_layer_handle layer_handle) {
     }
     zest_pass_execution_callback_t callback_data;
     callback_data.callback = zest_UploadInstanceLayerData;
-    callback_data.user_data = (void*)(uintptr_t)layer_handle.value;
+    callback_data.user_data = &layer_handle;
     pass->execution_callback = callback_data;
 }
 
@@ -8206,7 +8191,7 @@ zest_buffer zest_GetLayerVertexBuffer(zest_layer_handle layer_handle) {
 
 zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer_handle layer_handle) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
-	if (layer->instruction_index < zest_vec_size(layer->draw_instructions)) {
+	if (layer->instruction_index < zest_vec_size(layer->draw_instructions[layer->fif])) {
 		zest_layer_instruction_t *instruction = &layer->draw_instructions[layer->fif][layer->instruction_index];
 		layer->instruction_index++;
 		return instruction;
@@ -8269,7 +8254,7 @@ zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char* 
     zest_layer_handle layer_handle = zest_FinishInstanceLayer(name, &builder);
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
     zest_ForEachFrameInFlight(fif) {
-		zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
+		zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
 		buffer_info.unique_id = id;
 		buffer_info.frame_in_flight = fif;
         layer->memory_refs[fif].device_vertex_data = zest_CreateBuffer(context, layer->memory_refs[fif].staging_instance_data->size, &buffer_info);
