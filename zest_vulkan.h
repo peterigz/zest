@@ -247,6 +247,7 @@ ZEST_PRIVATE void *zest__vk_new_execution_barriers_backend(zloc_linear_allocator
 ZEST_PRIVATE void zest__vk_cleanup_frame_graph_semaphore(zest_context context, zest_frame_graph_semaphores semaphores);
 ZEST_PRIVATE void *zest__vk_get_final_signal_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
 ZEST_PRIVATE void *zest__vk_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
+ZEST_PRIVATE void *zest__vk_get_resource_ptr(zest_resource_node resource);
 
 //Command recording functions for frame graph pass callbacks
 zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
@@ -561,6 +562,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
 	//Debugging
     platform->get_final_signal_ptr                          = zest__vk_get_final_signal_ptr;
     platform->get_final_wait_ptr                            = zest__vk_get_final_wait_ptr;
+    platform->get_resource_ptr                         		= zest__vk_get_resource_ptr;
 
 	//Command buffer recording
 	platform->upload_buffer                                 = zest__vk_upload_buffer;
@@ -2147,11 +2149,11 @@ zest_bool zest__vk_finish_compute(zest_compute_builder_t *builder, zest_compute 
     pipeline_layout_create_info.setLayoutCount = zest_vec_size(set_layouts);
     pipeline_layout_create_info.pSetLayouts = set_layouts;
 
+    VkComputePipelineCreateInfo compute_pipeline_create_info = ZEST__ZERO_INIT(VkComputePipelineCreateInfo);
     ZEST_SET_MEMORY_CONTEXT(context->device, zest_platform_context, zest_command_pipeline_layout);
     ZEST_CLEANUP_ON_FAIL(context->device, vkCreatePipelineLayout(context->device->backend->logical_device, &pipeline_layout_create_info, &context->device->backend->allocation_callbacks, &compute->backend->pipeline_layout));
 
     // Create compute shader pipeline_templates
-    VkComputePipelineCreateInfo compute_pipeline_create_info = ZEST__ZERO_INIT(VkComputePipelineCreateInfo);
     compute_pipeline_create_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     compute_pipeline_create_info.layout = compute->backend->pipeline_layout;
     compute_pipeline_create_info.flags = 0;
@@ -2904,6 +2906,19 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
         return ZEST_FALSE;
     }
 
+    VkPipelineInputAssemblyStateCreateInfo input_assembly = ZEST__ZERO_INIT(VkPipelineInputAssemblyStateCreateInfo);
+    VkPipelineViewportStateCreateInfo viewport_state = ZEST__ZERO_INIT(VkPipelineViewportStateCreateInfo);
+    VkDynamicState *dynamic_states = 0;
+    VkPipelineDynamicStateCreateInfo dynamic_state = ZEST__ZERO_INIT(VkPipelineDynamicStateCreateInfo);
+    VkPipelineMultisampleStateCreateInfo multisampling = ZEST__ZERO_INIT(VkPipelineMultisampleStateCreateInfo);
+    VkPipelineRasterizationStateCreateInfo rasterizer = ZEST__ZERO_INIT(VkPipelineRasterizationStateCreateInfo);
+    VkPipelineDepthStencilStateCreateInfo depth_stencil = ZEST__ZERO_INIT(VkPipelineDepthStencilStateCreateInfo);
+    VkPipelineColorBlendAttachmentState color_attachment = ZEST__ZERO_INIT(VkPipelineColorBlendAttachmentState);
+    VkPipelineColorBlendStateCreateInfo color_blending = ZEST__ZERO_INIT(VkPipelineColorBlendStateCreateInfo);
+	VkPipelineRenderingCreateInfo vk_rendering_info = ZEST__ZERO_INIT(VkPipelineRenderingCreateInfo);
+    VkGraphicsPipelineCreateInfo pipeline_info = ZEST__ZERO_INIT(VkGraphicsPipelineCreateInfo);
+    VkPipelineVertexInputStateCreateInfo vertex_input_info = ZEST__ZERO_INIT(VkPipelineVertexInputStateCreateInfo);
+
     VkShaderModule vert_shader_module = ZEST__ZERO_INIT(VkShaderModule);
     VkShaderModule frag_shader_module = ZEST__ZERO_INIT(VkShaderModule);
     zest_shader vert_shader = (zest_shader)zest__get_store_resource_checked(pipeline_template->vertex_shader.store, pipeline_template->vertex_shader.value);
@@ -2945,7 +2960,6 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 
     VkPipelineShaderStageCreateInfo shaderStages[2] = { vert_shader_stage_info, frag_shader_stage_info };
 
-    VkPipelineVertexInputStateCreateInfo vertex_input_info = ZEST__ZERO_INIT(VkPipelineVertexInputStateCreateInfo);
     vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     VkVertexInputBindingDescription *binding_descriptions = 0;
     VkVertexInputAttributeDescription *attribute_descriptions = 0;
@@ -2976,34 +2990,28 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
         vertex_input_info.pVertexAttributeDescriptions = attribute_descriptions;
     }
 
-    VkPipelineInputAssemblyStateCreateInfo input_assembly = ZEST__ZERO_INIT(VkPipelineInputAssemblyStateCreateInfo);
     input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     input_assembly.primitiveRestartEnable = VK_FALSE;
     input_assembly.topology = (VkPrimitiveTopology)pipeline_template->primitive_topology;
     input_assembly.flags = 0;
 
-    VkPipelineViewportStateCreateInfo viewport_state = ZEST__ZERO_INIT(VkPipelineViewportStateCreateInfo);
     viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     viewport_state.viewportCount = 1;
     viewport_state.pViewports = NULL;
     viewport_state.scissorCount = 1;
     viewport_state.pScissors = NULL;
 
-    VkDynamicState *dynamic_states = 0;
     zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_VIEWPORT);
     zest_vec_linear_push(scratch, dynamic_states, VK_DYNAMIC_STATE_SCISSOR);
 
-    VkPipelineDynamicStateCreateInfo dynamic_state = ZEST__ZERO_INIT(VkPipelineDynamicStateCreateInfo);
     dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamic_state.dynamicStateCount = (zest_uint)(zest_vec_size(dynamic_states));
     dynamic_state.pDynamicStates = dynamic_states;
 
-    VkPipelineMultisampleStateCreateInfo multisampling = ZEST__ZERO_INIT(VkPipelineMultisampleStateCreateInfo);
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.sampleShadingEnable = VK_FALSE;
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-    VkPipelineRasterizationStateCreateInfo rasterizer = ZEST__ZERO_INIT(VkPipelineRasterizationStateCreateInfo);
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizer.cullMode = (VkCullModeFlags)pipeline_template->rasterization.cull_mode;
     rasterizer.polygonMode = (VkPolygonMode)pipeline_template->rasterization.polygon_mode;
@@ -3016,7 +3024,6 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     rasterizer.depthBiasConstantFactor = pipeline_template->rasterization.depth_bias_constant_factor;
     rasterizer.depthBiasSlopeFactor = pipeline_template->rasterization.depth_bias_slope_factor;
 
-    VkPipelineDepthStencilStateCreateInfo depth_stencil = ZEST__ZERO_INIT(VkPipelineDepthStencilStateCreateInfo);
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depth_stencil.depthBoundsTestEnable = pipeline_template->depth_stencil.depth_bounds_test_enable;
     depth_stencil.depthWriteEnable = pipeline_template->depth_stencil.depth_write_enable;
@@ -3024,7 +3031,6 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     depth_stencil.stencilTestEnable = pipeline_template->depth_stencil.stencil_test_enable;
     depth_stencil.depthCompareOp = (VkCompareOp)pipeline_template->depth_stencil.depth_compare_op;
 
-    VkPipelineColorBlendAttachmentState color_attachment = ZEST__ZERO_INIT(VkPipelineColorBlendAttachmentState);
     color_attachment.blendEnable = pipeline_template->color_blend_attachment.blend_enable;
     color_attachment.srcColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.src_color_blend_factor;
     color_attachment.dstColorBlendFactor = (VkBlendFactor)pipeline_template->color_blend_attachment.dst_color_blend_factor;
@@ -3034,7 +3040,6 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     color_attachment.alphaBlendOp = (VkBlendOp)pipeline_template->color_blend_attachment.alpha_blend_op;
     color_attachment.colorWriteMask = (VkColorComponentFlags)pipeline_template->color_blend_attachment.color_write_mask;
 
-    VkPipelineColorBlendStateCreateInfo color_blending = ZEST__ZERO_INIT(VkPipelineColorBlendStateCreateInfo);
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     color_blending.logicOpEnable = VK_FALSE;
     color_blending.logicOp = VK_LOGIC_OP_COPY;
@@ -3045,7 +3050,6 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
     color_blending.blendConstants[2] = 0.0f;
     color_blending.blendConstants[3] = 0.0f;
 
-	VkPipelineRenderingCreateInfo vk_rendering_info = ZEST__ZERO_INIT(VkPipelineRenderingCreateInfo);
 	vk_rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 	vk_rendering_info.colorAttachmentCount = command_list->rendering_info.color_attachment_count;
 	vk_rendering_info.depthAttachmentFormat = zest__to_vk_format(command_list->rendering_info.depth_attachment_format);
@@ -3056,7 +3060,6 @@ zest_bool zest__vk_build_pipeline(zest_pipeline pipeline, zest_command_list comm
 	}
 	vk_rendering_info.pColorAttachmentFormats = color_formats;
     
-    VkGraphicsPipelineCreateInfo pipeline_info = ZEST__ZERO_INIT(VkGraphicsPipelineCreateInfo);
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_info.stageCount = 2;
     pipeline_info.pStages = shaderStages;
@@ -3546,6 +3549,7 @@ zest_bool zest__vk_generate_mipmaps(zest_context context, zest_image image) {
 
     // Update the image's current layout
     image->backend->vk_current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	image->info.layout = zest_image_layout_shader_read_only_optimal;
 
     return ZEST_TRUE;
 }
@@ -4774,6 +4778,14 @@ void *zest__vk_get_final_signal_ptr(zest_submission_batch_t *batch, zest_uint se
 void *zest__vk_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index) {
 	ZEST_ASSERT(semaphore_index < zest_vec_size(batch->backend->final_wait_semaphores)); //Out of bounds index
 	return (void*)batch->backend->final_wait_semaphores[semaphore_index];
+}
+
+void *zest__vk_get_resource_ptr(zest_resource_node resource) {
+	if (ZEST__FLAGGED(resource->type, zest_resource_type_is_image)) {
+		return (void*)resource->image.backend->vk_image;
+	} else {
+		return (void*)resource->storage_buffer->backend->vk_buffer;
+	}
 }
 
 
