@@ -4383,20 +4383,30 @@ zest_buffer zest__instance_layer_resource_provider(zest_context context, zest_re
     zest_layer layer = (zest_layer)resource->user_data;
     layer->vertex_buffer_node = resource;
     zest__end_instance_instructions(layer); //Make sure the staging buffer memory in use is up to date
-    if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
-		zest_size layer_size = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
-        if (layer_size == 0) return NULL;
-        layer->fif = context->current_fif;
-        layer->dirty[context->current_fif] = 1;
-        zest_buffer_resource_info_t buffer_desc = ZEST__ZERO_INIT(zest_buffer_resource_info_t);
-        buffer_desc.size = layer_size;
-        buffer_desc.usage_hints = zest_resource_usage_hint_vertex_buffer;
-    } else {
-        zest_uint fif = ZEST__FLAGGED(layer->flags, zest_layer_flag_use_prev_fif) ? layer->prev_fif : layer->fif;
-        resource->bindless_index[0] = layer->memory_refs[fif].device_vertex_data->array_index;
-        return layer->memory_refs[fif].device_vertex_data;
-    }
+	zest_size layer_size = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
+	if (layer_size == 0) return NULL;
+	layer->fif = context->current_fif;
+	layer->dirty[context->current_fif] = 1;
+	zest_buffer_resource_info_t buffer_desc = ZEST__ZERO_INIT(zest_buffer_resource_info_t);
+	buffer_desc.size = layer_size;
+	buffer_desc.usage_hints = zest_resource_usage_hint_vertex_buffer;
     return NULL;
+}
+
+zest_buffer zest__instance_layer_resource_provider_prev_fif(zest_context context, zest_resource_node resource) {
+    zest_layer layer = (zest_layer)resource->user_data;
+    layer->vertex_buffer_node = resource;
+    zest__end_instance_instructions(layer); //Make sure the staging buffer memory in use is up to date
+	resource->bindless_index[0] = layer->memory_refs[layer->prev_fif].device_vertex_data->array_index;
+	return layer->memory_refs[layer->prev_fif].device_vertex_data;
+}
+
+zest_buffer zest__instance_layer_resource_provider_current_fif(zest_context context, zest_resource_node resource) {
+    zest_layer layer = (zest_layer)resource->user_data;
+    layer->vertex_buffer_node = resource;
+    zest__end_instance_instructions(layer); //Make sure the staging buffer memory in use is up to date
+	resource->bindless_index[0] = layer->memory_refs[layer->fif].device_vertex_data->array_index;
+	return layer->memory_refs[layer->fif].device_vertex_data;
 }
 
 zest_frame_graph zest_GetCachedFrameGraph(zest_context context, zest_frame_graph_cache_key_t *cache_key) {
@@ -6549,8 +6559,6 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
     zest_size layer_size = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
-	ZEST__UNFLAG(layer->flags, zest_layer_flag_use_prev_fif);
-    ZEST__MAYBE_FLAG(layer->flags, zest_layer_flag_use_prev_fif, prev_fif);
     zest_resource_node resource = 0;
 	zest_context context = zest__frame_graph_builder->context;
     if (ZEST__NOT_FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
@@ -6558,6 +6566,7 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
         buffer_desc.size = layer_size;
         buffer_desc.usage_hints = zest_resource_usage_hint_vertex_buffer;
         resource = zest_AddTransientBufferResource(name, &buffer_desc);
+		resource->buffer_provider = zest__instance_layer_resource_provider;
     } else {
         zest_uint fif = prev_fif ? layer->prev_fif : layer->fif;
         zest_buffer buffer = layer->memory_refs[fif].device_vertex_data;
@@ -6565,9 +6574,13 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
 		resource = zest__add_frame_graph_resource(&node);
 		resource->access_mask = context->device->platform->get_buffer_last_access_mask(buffer);
         resource->bindless_index[0] = layer->memory_refs[fif].device_vertex_data->array_index;
+		if (prev_fif) {
+			resource->buffer_provider = zest__instance_layer_resource_provider_prev_fif;
+		} else {
+			resource->buffer_provider = zest__instance_layer_resource_provider_current_fif;
+		}
     }
     resource->user_data = layer;
-    resource->buffer_provider = zest__instance_layer_resource_provider;
     layer->vertex_buffer_node = resource;
     return resource;
 }

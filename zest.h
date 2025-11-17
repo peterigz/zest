@@ -2045,7 +2045,6 @@ typedef enum zest_layer_flag_bits {
 	zest_layer_flag_device_local_direct = 1 << 1,    // Upload directly to device buffer (has issues so is disabled by default for now)
 	zest_layer_flag_manual_fif = 1 << 2,    // Manually set the frame in flight for the layer
 	zest_layer_flag_using_global_bindless_layout = 1 << 3,    // Flagged if the layer is automatically setting the descriptor array index for the device buffers
-	zest_layer_flag_use_prev_fif = 1 << 4,    // Make the layer reference the last fif rather then the current one.
 } zest_layer_flag_bits;
 
 typedef enum zest_draw_buffer_result {
@@ -3942,6 +3941,8 @@ ZEST_PRIVATE zest_key zest__hash_frame_graph_cache_key(zest_frame_graph_cache_ke
 // --- Dynamic resource callbacks ---
 ZEST_PRIVATE zest_image_view zest__swapchain_resource_provider(zest_context context, zest_resource_node resource);
 ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider(zest_context context, zest_resource_node resource);
+ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_prev_fif(zest_context context, zest_resource_node resource);
+ZEST_PRIVATE zest_buffer zest__instance_layer_resource_provider_current_fif(zest_context context, zest_resource_node resource);
 
 // --- Utility callbacks ---
 ZEST_API void zest_EmptyRenderPass(const zest_command_list command_list, void *user_data);
