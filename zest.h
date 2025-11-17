@@ -2830,7 +2830,7 @@ ZEST_PRIVATE inline zest_uint zest__atomic_increment(volatile zest_uint *value) 
 	#endif
 }
 
-ZEST_PRIVATE inline bool zest__atomic_compare_exchange(volatile int *dest, int exchange, int comparand) {
+ZEST_PRIVATE inline int zest__atomic_compare_exchange(volatile int *dest, int exchange, int comparand) {
 	#ifdef _WIN32
 	return InterlockedCompareExchange((LONG *)dest, exchange, comparand) == comparand;
 	#else
@@ -3059,6 +3059,23 @@ typedef struct zest_memory_stats_t {
 	zest_uint renderer_allocations;
 	zest_uint filter_count;
 } zest_memory_stats_t;
+
+typedef struct zest_timer_t {
+    double start_time;
+    double delta_time;
+    double update_frequency;
+    double update_tick_length;
+    double update_time;
+    double ticker;
+    double accumulator;
+    double accumulator_delta;
+    double current_time;
+    double lerp;
+    double time_passed;
+    double seconds_passed;
+    double max_elapsed_time;
+    int update_count;
+} zest_timer_t;
 
 typedef struct zest_camera_t {
 	zest_vec3 position;
@@ -3545,7 +3562,7 @@ typedef struct zest_device_t {
 	void(*add_platform_extensions_callback)(ZEST_PROTOTYPE);
 } zest_device_t;
 
-typedef bool (*zest_wait_timeout_callback)(zest_millisecs total_wait_time_ms, zest_uint retry_count, void *user_data);
+typedef int (*zest_wait_timeout_callback)(zest_millisecs total_wait_time_ms, zest_uint retry_count, void *user_data);
 
 typedef struct zest_mip_push_constants_t {
 	zest_vec4 settings;
@@ -3602,7 +3619,7 @@ typedef struct zest_resource_state_t {
 	zest_resource_usage_t usage;
 	zest_uint queue_family_index;
 	zest_uint submission_id;
-	bool was_released;
+	zest_bool was_released;
 } zest_resource_state_t;
 
 typedef struct zest_pass_queue_info_t {
@@ -3692,7 +3709,7 @@ typedef struct zest_execution_details_t {
 
 	zest_rendering_info_t rendering_info;
 	zest_execution_barriers_t barriers;
-	bool requires_dynamic_render_pass;
+	zest_bool requires_dynamic_render_pass;
 } zest_execution_details_t;
 
 typedef struct zest_pass_node_t {
@@ -3999,7 +4016,7 @@ ZEST_API void zest_WaitOnTimeline(zest_execution_timeline timeline);
 ZEST_API void zest_SignalTimeline(zest_execution_timeline timeline);
 
 // --- State check functions
-ZEST_API bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph);
+ZEST_API zest_bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph);
 
 // --- Syncronization Helpers ---
 ZEST_API zest_execution_timeline zest_CreateExecutionTimeline(zest_context context);
@@ -4510,6 +4527,7 @@ typedef struct zest_platform_t {
 	//Debugging
 	void*                      (*get_final_signal_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_final_wait_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
+	void*                      (*get_resource_ptr)(zest_resource_node resource);
 	//Command recording
 	void					   (*blit_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
 	void                       (*copy_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_supported_pipeline_stages pipeline_stage);
@@ -4662,7 +4680,7 @@ ZEST_API zest_size zest_GetNextPower(zest_size n);
 //Platform_dependent_functions
 //These functions need a different implementation depending on the platform being run on
 //See definitions at the top of zest.c
-ZEST_PRIVATE bool zest__create_folder(zest_device device, const char *path);
+ZEST_PRIVATE zest_bool zest__create_folder(zest_device device, const char *path);
 //-- End Platform dependent functions
 
 //Buffer_and_Memory_Management
@@ -4815,7 +4833,7 @@ ZEST_API void zest__cache_shader(zest_device device, zest_shader shader);
 // --Descriptor_set_functions
 ZEST_PRIVATE zest_set_layout zest__new_descriptor_set_layout(zest_context context, const char *name);
 ZEST_PRIVATE zest_descriptor_pool zest__create_descriptor_pool(zest_context context, zest_uint max_sets);
-ZEST_PRIVATE bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding);
+ZEST_PRIVATE zest_bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding);
 ZEST_PRIVATE zest_uint zest__acquire_bindless_index(zest_set_layout layout, zest_uint binding_number);
 ZEST_PRIVATE void zest__release_bindless_index(zest_set_layout layout, zest_uint binding_number, zest_uint index_to_release);
 ZEST_PRIVATE void zest__cleanup_set_layout(zest_set_layout layout);
@@ -5016,7 +5034,7 @@ ZEST_API void zest_SetPipelinePushConstantRange(zest_pipeline_template create_in
 //push constants that you use in the shader. The point you use must be stable! Or update it if it changes for any reason.
 ZEST_API void zest_SetPipelinePushConstants(zest_pipeline_template pipeline_template, void *push_constants);
 ZEST_API void zest_SetPipelineBlend(zest_pipeline_template pipeline_template, zest_color_blend_attachment_t blend_attachment);
-ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, bool enable_test, bool write_enable);
+ZEST_API void zest_SetPipelineDepthTest(zest_pipeline_template pipeline_template, zest_bool enable_test, zest_bool write_enable);
 ZEST_API void zest_SetPipelineEnableVertexInput(zest_pipeline_template pipeline_template);
 ZEST_API void zest_SetPipelineDisableVertexInput(zest_pipeline_template pipeline_template);
 //Add a descriptor layout to the pipeline template. Use this function only when setting up the pipeline before you call zest__build_pipeline
@@ -5405,7 +5423,7 @@ ZEST_API zest_bool zest_LayerHasChanged(zest_layer_handle layer);
 ZEST_API void zest_SetLayerUserData(zest_layer_handle layer, void *data);
 //Get the user data from the layer
 #define zest_GetLayerUserData(type, layer) ((type *)layer->user_data)
-ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer, bool last_frame);
+ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer, zest_bool last_frame);
 ZEST_API zest_buffer zest_GetLayerResourceBuffer(zest_layer_handle layer);
 ZEST_API zest_buffer zest_GetLayerVertexBuffer(zest_layer_handle layer);
 ZEST_API zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer_handle layer);
@@ -6282,9 +6300,10 @@ void zloc_ResetToMarker(zloc_linear_allocator_t *allocator, zloc_size marker) {
 }
 
 #include "zest_impl.h"
-#include "zest_utilities.h"
 
 #endif
+
+#include "zest_utilities.h"
 
 #ifdef ZEST_VULKAN_IMPLEMENTATION
 #include "zest_vulkan.h"
