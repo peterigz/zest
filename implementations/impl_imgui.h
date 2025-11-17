@@ -46,7 +46,7 @@ typedef struct zest_imgui_t {
 	zest_sampler_handle font_sampler;
 } zest_imgui_t;
 
-zest_imgui_t zest_imgui_Initialise(zest_context context);
+void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui);
 void zest_imgui_RecordLayer(const zest_command_list context, zest_imgui_t *imgui, zest_buffer vertex_buffer, zest_buffer index_buffer);
 zest_resource_node zest_imgui_ImportVertexResources(zest_imgui_t *imgui, const char *name);
 zest_resource_node zest_imgui_ImportIndexResources(zest_imgui_t *imgui, const char *name);

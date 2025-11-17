@@ -1,9 +1,12 @@
+#define ZEST_IMPLEMENTATION
+#define ZEST_VULKAN_IMPLEMENTATION
+#define ZEST_IMAGES_IMPLEMENTATION
+#include <GLFW/glfw3.h>
 #include <zest.h>
 #include "imgui.h"
 #include "impl_imgui.h"
-#include "impl_glfw.h"
-#include "impl_imgui_glfw.h"
 #include "impl_timelinefx.h"
+#include <imgui/backends/imgui_impl_glfw.h>
 
 typedef unsigned int u32;
 
@@ -15,7 +18,8 @@ struct RenderCacheInfo {
 };
 
 struct TimelineFXExample {
-	zest_texture imgui_font_texture;
+	zest_context context;
+	zest_device device;
 	tfx_render_resources_t tfx_rendering;
 
 	tfx_library library;
@@ -30,27 +34,31 @@ struct TimelineFXExample {
 	bool request_graph_print;
 	bool sync_refresh;
 
+	double mouse_x, mouse_y;
+	double mouse_delta_x, mouse_delta_y;
+
+	zest_imgui_t imgui;
+
 	void Init();
 };
 
 //Allows us to cast a ray into the screen from the mouse position to place an effect where we click
-tfx_vec3_t ScreenRay(float x, float y, float depth_offset, zest_vec3 &camera_position, zest_uniform_buffer buffer) {
+tfx_vec3_t ScreenRay(zest_context context, float x, float y, float depth_offset, zest_vec3 &camera_position, zest_uniform_buffer_handle buffer) {
 	tfx_uniform_buffer_data_t *uniform_buffer = (tfx_uniform_buffer_data_t*)zest_GetUniformBufferData(buffer);
-	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(), zest_ScreenHeightf(), &uniform_buffer->proj, &uniform_buffer->view);
+	zest_vec3 camera_last_ray = zest_ScreenRay(x, y, zest_ScreenWidthf(context), zest_ScreenHeightf(context), &uniform_buffer->proj, &uniform_buffer->view);
 	zest_vec3 pos = zest_AddVec3(zest_ScaleVec3(camera_last_ray, depth_offset), camera_position);
 	return { pos.x, pos.y, pos.z };
 }
 
 void TimelineFXExample::Init() {
-	zest_tfx_InitTimelineFXRenderResources(&tfx_rendering, "examples/assets/vaders/vadereffects.tfx");
-	float max_radius = 0;
+	zest_tfx_InitTimelineFXRenderResources(device, context, &tfx_rendering, "examples/assets/vaders/vadereffects.tfx");
 
 	//Load the effects library and pass the shape loader function pointer that you created earlier. Also pass this pointer to point to this object to give the shapeloader access to the texture we're loading the particle images into
 	library = tfx_LoadEffectLibrary("examples/assets/vaders/vadereffects.tfx", zest_tfx_ShapeLoader, zest_tfx_GetUV, &tfx_rendering);
 	//Renderer specific
 	//Process the texture with all the particle shapes that we just added to
-	zest_ProcessTextureImages(tfx_rendering.particle_texture);
-	zest_AcquireGlobalCombinedImageSampler(tfx_rendering.particle_texture);
+	tfx_rendering.particle_texture = zest_CreateImageAtlas(context, &tfx_rendering.particle_images, 1024, 1024, 0);
+	tfx_rendering.particle_texture_index = zest_AcquireSampledImageIndex(context, tfx_rendering.particle_texture, zest_texture_array_binding);
 
 	/*
 	Prepare a tfx_effect_template_t that you can use to customise effects in the library in various ways before adding them into a particle manager for updating and rendering. Using a template like this
@@ -68,22 +76,21 @@ void TimelineFXExample::Init() {
 	//Add the color ramps from the library to the color ramps texture. Color ramps in the library are stored in rgba format and can be
 	//simply copied to a bitmap for uploading to the texture
 	tfxU32 bitmap_count = tfx_GetColorRampBitmapCount(library);
+	tfx_rendering.color_ramps_collection = zest_CreateImageAtlasCollection(zest_format_r8g8b8a8_unorm, bitmap_count);
 	for (int i = 0; i != bitmap_count; ++i) {
 		tfx_bitmap_t *bitmap = tfx_GetColorRampBitmap(library, i);
-		zest_bitmap temp_bitmap = zest_CreateBitmapFromRawBuffer("", bitmap->data, (int)bitmap->size, bitmap->width, bitmap->height, bitmap->channels);
-		zest_AddTextureImageBitmap(tfx_rendering.color_ramps_texture, temp_bitmap);
-		zest_FreeBitmap(temp_bitmap);
+		zest_AddImageAtlasPixels(&tfx_rendering.color_ramps_collection, bitmap->data, bitmap->size, bitmap->width, bitmap->height, zest_format_r8g8b8a8_unorm);
 	}
 	//Process the color ramp texture to upload it all to the gpu
-	zest_ProcessTextureImages(tfx_rendering.color_ramps_texture);
-	zest_AcquireGlobalCombinedImageSampler(tfx_rendering.color_ramps_texture);
+	tfx_rendering.color_ramps_texture = zest_CreateImageAtlas(context, &tfx_rendering.color_ramps_collection, 256, 256, zest_image_preset_texture);
+	tfx_rendering.color_ramps_index = zest_AcquireSampledImageIndex(context, tfx_rendering.color_ramps_texture, zest_texture_array_binding);
 	//Now that the particle shapes have been setup in the renderer, we can call this function to update the shape data in the library
 	//with the correct uv texture coords ready to upload to gpu. This buffer will be accessed in the vertex shader when rendering.
 	tfx_UpdateLibraryGPUImageData(library);
 
 	//Now upload the image data to the GPU and set up the shader resources ready for rendering
-	zest_tfx_UpdateTimelineFXImageData(&tfx_rendering, library);
-	zest_tfx_CreateTimelineFXShaderResources(&tfx_rendering);
+	zest_tfx_UpdateTimelineFXImageData(context, &tfx_rendering, library);
+	zest_tfx_CreateTimelineFXShaderResources(context, &tfx_rendering);
 
 	/*
 	Initialise a particle manager. This manages effects, emitters and the particles that they spawn. First call tfx_CreateParticleManagerInfo and pass in a setup mode to create an info object with the config we need.
@@ -94,15 +101,16 @@ void TimelineFXExample::Init() {
 	tfx_effect_manager_info_t pm_info = tfx_CreateEffectManagerInfo(tfxEffectManagerSetup_group_sprites_by_effect);
 	pm = tfx_CreateEffectManager(pm_info);
 
-	zest_imgui_Initialise();
+	zest_imgui_Initialise(context, &imgui);
+    ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(context), true);
 }
 
 //Draw a Dear ImGui window to output some basic stats
 void BuildUI(TimelineFXExample *game) {
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();
+
 	ImGui::Begin("Effects");
-	ImGui::Text("FPS: %i", zest_FPS());
 	ImGui::Text("Particles: %i", tfx_ParticleCount(game->pm));
 	ImGui::Text("Effects: %i", tfx_EffectCount(game->pm));
 	ImGui::Text("Emitters: %i", tfx_EmitterCount(game->pm));
@@ -112,133 +120,176 @@ void BuildUI(TimelineFXExample *game) {
 	}
 	if (ImGui::Button("Toggle Refresh Rate Sync")) {
 		if (game->sync_refresh) {
-			zest_DisableVSync();
+			zest_DisableVSync(game->context);
 			game->sync_refresh = false;
 		} else {
-			zest_EnableVSync();
+			zest_EnableVSync(game->context);
 			game->sync_refresh = true;
 		}
 	}
 	ImGui::End();
 
 	ImGui::Render();
-	zest_imgui_UpdateBuffers();
+	zest_imgui_UpdateBuffers(&game->imgui);
+}
+
+void UpdateMouse(TimelineFXExample *game) {
+	double mouse_x, mouse_y;
+	GLFWwindow *handle = (GLFWwindow *)zest_Window(game->context);
+	glfwGetCursorPos(handle, &mouse_x, &mouse_y);
+	double last_mouse_x = game->mouse_x;
+	double last_mouse_y = game->mouse_y;
+	game->mouse_x = mouse_x;
+	game->mouse_y = mouse_y;
+	game->mouse_delta_x = last_mouse_x - game->mouse_x;
+	game->mouse_delta_y = last_mouse_y - game->mouse_y;
 }
 
 //Application specific, this just sets the function to call each render update
-void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
-	TimelineFXExample *game = static_cast<TimelineFXExample*>(data);
+void MainLoop(TimelineFXExample *game) {
+	zest_microsecs running_time = zest_Microsecs();
+	zest_microsecs frame_time = 0;
+	zest_uint frame_count = 0;
+	zest_uint fps = 0;
 
-	zest_StartTimerLoop(game->tfx_rendering.timer) {
-		BuildUI(game);
+	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(game->context))) {
+		zest_microsecs current_frame_time = zest_Microsecs() - running_time;
+		running_time = zest_Microsecs();
+		frame_time += current_frame_time;
+		frame_count += 1;
+		if (frame_time >= ZEST_MICROSECS_SECOND) {
+			frame_time -= ZEST_MICROSECS_SECOND;
+			fps = frame_count;
+			frame_count = 0;
+		}
 
-		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-			//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-			tfxEffectID effect_id;
-			//Add the effect template to the particle manager
-			if (tfx_AddEffectTemplateToEffectManager(game->pm, game->effect_template1, &effect_id)) {
-				//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-				tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
-				//Set the effect position
-				tfx_SetEffectPositionVec3(game->pm, effect_id, position);
-				tfx_SetEffectOveralScale(game->pm, effect_id, 2.5f);
+		glfwPollEvents();
+
+		UpdateMouse(game);
+
+		zest_StartTimerLoop(game->tfx_rendering.timer) {
+			BuildUI(game);
+
+			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+				//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
+				tfxEffectID effect_id;
+				//Add the effect template to the particle manager
+				if (tfx_AddEffectTemplateToEffectManager(game->pm, game->effect_template1, &effect_id)) {
+					//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
+					tfx_vec3_t position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+					//Set the effect position
+					tfx_SetEffectPositionVec3(game->pm, effect_id, position);
+					tfx_SetEffectOveralScale(game->pm, effect_id, 2.5f);
+				}
+			}
+
+			if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+				//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
+				tfxEffectID effect_id;
+				//Add the effect template to the particle manager
+				if (tfx_AddEffectTemplateToEffectManager(game->pm, game->effect_template2, &effect_id)) {
+					//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
+					tfx_vec3_t position = ScreenRay(game->context, (float)game->mouse_x, (float)game->mouse_y, 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
+					//Set the effect position
+					tfx_SetEffectPositionVec3(game->pm, effect_id, position);
+					tfx_SetEffectOveralScale(game->pm, effect_id, 2.5f);
+				}
+			}
+
+			//Update the particle manager but only if pending ticks is > 0. This means that if we're trying to catch up this frame
+			//then rather then run the update particle manager multiple times, simply run it once but multiply the frame length
+			//instead. This is important in order to keep the billboard buffer on the gpu in sync for interpolating the particles
+			//with the previous frame. It's also just more efficient to do this.
+			if (pending_ticks > 0) {
+				tfx_UpdateEffectManager(game->pm, FrameLength * pending_ticks);
+				pending_ticks = 0;
+			}
+
+		} zest_EndTimerLoop(game->tfx_rendering.timer);
+
+		zest_tfx_UpdateUniformBuffer(game->context, &game->tfx_rendering);
+
+		//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
+		//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
+		//have to upload the latest billboards to the gpu.
+		if (zest_TimerUpdateWasRun(&game->tfx_rendering.timer)) {
+			zest_ResetInstanceLayer(game->tfx_rendering.layer);
+			zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
+		}
+
+		game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
+		game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(game->tfx_rendering.layer) > 0;
+		zest_frame_graph_cache_key_t cache_key = {};
+		cache_key = zest_InitialiseCacheKey(game->context, &game->cache_info, sizeof(RenderCacheInfo));
+
+		//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
+		//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
+		//if the window is resized for example.
+		if (zest_BeginFrame(game->context)) {
+			zest_SetSwapchainClearColor(game->context, 0.f, .1f, .2f, 1.f);
+			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(game->context, &cache_key);
+			if (!frame_graph) {
+				if (zest_BeginFrameGraph(game->context, "TimelineFX Render Graphs", &cache_key)) {
+					zest_WaitOnTimeline(game->tfx_rendering.timeline);
+					//If there was no imgui data to render then zest_imgui_BeginPass will return false
+					//Import our test texture with the Bunny sprite
+					zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture, 0);
+					zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture, 0);
+					zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write particle buffer", game->tfx_rendering.layer, false);
+					zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read particle buffer", game->tfx_rendering.layer, true);
+					zest_resource_node tfx_image_data = zest_ImportBufferResource("Image Data", game->tfx_rendering.image_data, 0);
+					zest_ImportSwapchainResource();
+
+					//Connect buffers and textures
+
+					//-------------------------TimelineFX Transfer Pass-------------------------------------------------
+					zest_BeginTransferPass("Upload TFX Pass"); {
+						//Outputs
+						//Note, the only reason the prev frame particle data is put as an output here is to make sure that it's
+						//propertly transitioned to the graphics queue (who releases it after each frame)
+						zest_ConnectOutput(tfx_write_layer);
+						zest_ConnectOutput(tfx_read_layer);
+						//Tasks
+						zest_SetPassTask(zest_UploadInstanceLayerData, &game->tfx_rendering.layer);
+						zest_EndPass();
+					}
+					//--------------------------------------------------------------------------------------------------
+
+					//------------------------ Graphics Pass -----------------------------------------------------------
+					zest_BeginRenderPass("Graphics Pass"); {
+						//Inputs
+						zest_ConnectInput(particle_texture);
+						zest_ConnectInput(color_ramps_texture);
+						zest_ConnectInput(tfx_write_layer);
+						zest_ConnectInput(tfx_read_layer);
+						//Outputs
+						zest_ConnectSwapChainOutput();
+						//Tasks
+						zest_SetPassTask(zest_tfx_DrawParticleLayer, &game->tfx_rendering);
+						zest_EndPass();
+					}
+					//If there's imgui to draw then draw it
+					zest_pass_node imgui_pass = zest_imgui_BeginPass(&game->imgui); {
+						if (imgui_pass) {
+							zest_ConnectSwapChainOutput();
+						}
+						zest_EndPass();
+					}
+					//--------------------------------------------------------------------------------------------------
+
+					zest_SignalTimeline(game->tfx_rendering.timeline);
+					//Compile and execute the render graph. 
+					frame_graph = zest_EndFrameGraph();
+				}
+			}
+			zest_QueueFrameGraphForExecution(game->context, frame_graph);
+			zest_EndFrame(game->context);
+			if (game->request_graph_print) {
+				//You can print out the render graph for debugging purposes
+				zest_PrintCompiledFrameGraph(frame_graph);
+				game->request_graph_print = false;
 			}
 		}
-
-		if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-			//Each time you add an effect to the particle manager it generates an ID which you can use to modify the effect whilst it's being updated
-			tfxEffectID effect_id;
-			//Add the effect template to the particle manager
-			if (tfx_AddEffectTemplateToEffectManager(game->pm, game->effect_template2, &effect_id)) {
-				//Calculate a position in 3d by casting a ray into the screen using the mouse coordinates
-				tfx_vec3_t position = ScreenRay(zest_MouseXf(), zest_MouseYf(), 10.f, game->tfx_rendering.camera.position, game->tfx_rendering.uniform_buffer);
-				//Set the effect position
-				tfx_SetEffectPositionVec3(game->pm, effect_id, position);
-				tfx_SetEffectOveralScale(game->pm, effect_id, 2.5f);
-			}
-		}
-
-		//Update the particle manager but only if pending ticks is > 0. This means that if we're trying to catch up this frame
-		//then rather then run the update particle manager multiple times, simply run it once but multiply the frame length
-		//instead. This is important in order to keep the billboard buffer on the gpu in sync for interpolating the particles
-		//with the previous frame. It's also just more efficient to do this.
-		if (pending_ticks > 0) {
-			tfx_UpdateEffectManager(game->pm, FrameLength * pending_ticks);
-			pending_ticks = 0;
-		}
-
-	} zest_EndTimerLoop(game->tfx_rendering.timer);
-
-	zest_tfx_UpdateUniformBuffer(&game->tfx_rendering);
-
-	//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
-	//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
-	//have to upload the latest billboards to the gpu.
-	if (zest_TimerUpdateWasRun(game->tfx_rendering.timer)) {
-		zest_ResetInstanceLayer(game->tfx_rendering.layer);
-		zest_tfx_RenderParticles(game->pm, &game->tfx_rendering);
-	}
-
-	zest_swapchain swapchain = zest_GetMainWindowSwapchain();
-	game->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
-	game->cache_info.draw_timeline_fx = zest_GetLayerInstanceSize(game->tfx_rendering.layer) > 0;
-	zest_frame_graph_cache_key_t cache_key = {};
-	cache_key = zest_InitialiseCacheKey(swapchain, &game->cache_info, sizeof(RenderCacheInfo));
-
-	zest_SetSwapchainClearColor(swapchain, 0.f, .1f, .2f, 1.f);
-	//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
-	//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
-	//if the window is resized for example.
-	if (zest_BeginFrameGraphSwapchain(swapchain, "TimelineFX Render Graphs", &cache_key)) {
-		//zest_ForceFrameGraphOnGraphicsQueue();
-		zest_WaitOnTimeline(game->tfx_rendering.timeline);
-		zest_pass_node graphics_pass = zest_BeginRenderPass("Graphics Pass");
-		//If there was no imgui data to render then zest_imgui_BeginPass will return false
-		//Import our test texture with the Bunny sprite
-		zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture, 0);
-		zest_resource_node color_ramps_texture = zest_ImportImageResource("Color Ramps Texture", game->tfx_rendering.color_ramps_texture, 0);
-		zest_resource_node tfx_write_layer = zest_AddTransientLayerResource("Write particle buffer", game->tfx_rendering.layer, false);
-		zest_resource_node tfx_read_layer = zest_AddTransientLayerResource("Read particle buffer", game->tfx_rendering.layer, true);
-		zest_resource_node tfx_image_data = zest_ImportBufferResource("Image Data", game->tfx_rendering.image_data, 0);
-
-		//Connect buffers and textures
-
-		//-------------------------TimelineFX Transfer Pass-------------------------------------------------
-		zest_pass_node upload_tfx_data = zest_BeginTransferPass("Upload TFX Pass");
-		//Outputs
-		//Note, the only reason the prev frame particle data is put as an output here is to make sure that it's
-		//propertly transitioned to the graphics queue (who releases it after each frame)
-		zest_ConnectOutput(upload_tfx_data, tfx_write_layer);
-		zest_ConnectOutput(upload_tfx_data, tfx_read_layer);
-		//Tasks
-		zest_SetPassInstanceLayerUpload(upload_tfx_data, game->tfx_rendering.layer);
-		//--------------------------------------------------------------------------------------------------
-
-		//------------------------ Graphics Pass -----------------------------------------------------------
-		//Inputs
-		zest_ConnectInput(graphics_pass, particle_texture, 0);
-		zest_ConnectInput(graphics_pass, color_ramps_texture, 0);
-		zest_ConnectInput(graphics_pass, tfx_write_layer, 0);
-		zest_ConnectInput(graphics_pass, tfx_read_layer, 0);
-		//Outputs
-		zest_ConnectSwapChainOutput(graphics_pass);
-		//Tasks
-		zest_tfx_AddPassTask(graphics_pass, &game->tfx_rendering);
-		//If there's imgui to draw then draw it
-		zest_pass_node imgui_pass = zest_imgui_BeginPass();
-		if (imgui_pass) {
-			zest_ConnectSwapChainOutput(imgui_pass);
-		}
-		//--------------------------------------------------------------------------------------------------
-
-		zest_SignalTimeline(game->tfx_rendering.timeline);
-		//Compile and execute the render graph. 
-		zest_frame_graph render_graph = zest_EndFrameGraph();
-		if (game->request_graph_print) {
-			//You can print out the render graph for debugging purposes
-			zest_PrintCompiledRenderGraph(render_graph);
-			game->request_graph_print = false;
-		}		
 	}
 }
 
@@ -247,23 +298,38 @@ void UpdateTfxExample(zest_microsecs ellapsed, void *data) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow) {
 int main() {
 	zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
-    create_info.log_path = ".";
 	ZEST__FLAG(create_info.flags, zest_init_flag_enable_vsync);
 	ZEST__FLAG(create_info.flags, zest_init_flag_log_validation_errors_to_console);
-	zest_implglfw_SetCallbacks(&create_info);
 
 	TimelineFXExample game = {0};
 	//Initialise TimelineFX with however many threads you want. Each emitter is updated in it's own thread.
 	tfx_InitialiseTimelineFX(tfx_GetDefaultThreadCount(), tfxMegabyte(128));
 
-	zest_CreateContext(&create_info);
-	zest_SetUserData(&game);
-	zest_SetUserUpdateCallback(UpdateTfxExample);
+	if (!glfwInit()) {
+		return 0;
+	}
+
+	zest_uint count;
+	const char **glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
+
+	//Create the device that serves all vulkan based contexts
+	zest_device_builder device_builder = zest_BeginVulkanDeviceBuilder();
+	zest_AddDeviceBuilderExtensions(device_builder, glfw_extensions, count);
+	zest_AddDeviceBuilderValidation(device_builder);
+	zest_DeviceBuilderLogToConsole(device_builder);
+	game.device = zest_EndDeviceBuilder(device_builder);
+
+	//Create a window using GLFW
+	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+	//Initialise Zest
+	game.context = zest_CreateContext(game.device, &window_handles, &create_info);
+
 	game.Init();
 
-	zest_Start();
-	zest_DestroyContext();
-
+	MainLoop(&game);
+	ImGui_ImplGlfw_Shutdown();
+	zest_imgui_Destroy(&game.imgui);
+	zest_DestroyContext(game.context);
 	tfx_EndTimelineFX();
 
 	return 0;

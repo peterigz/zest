@@ -34,6 +34,7 @@ void InitExample(zest_fonts_example *app) {
 	//Implement a dark style
 	zest_imgui_DarkStyle();
 	
+	/*
 	//This is an exmaple of how to change the font that ImGui uses
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -48,6 +49,7 @@ void InitExample(zest_fonts_example *app) {
 
 	//Rebuild the Zest font texture
 	zest_imgui_RebuildFontTexture(&app->imgui, tex_width, tex_height, font_data_imgui);
+	*/
 
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(60);

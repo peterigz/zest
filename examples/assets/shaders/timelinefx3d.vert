@@ -48,11 +48,11 @@ layout(set = 0, binding = 0) uniform UboView
     float update_time;
 } ub;
 
-layout (std430, set = 1, binding = 1) readonly buffer InBillboardInstances {
+layout (std430, set = 1, binding = 5) readonly buffer InBillboardInstances {
 	BillboardInstance data[];
 } in_prev_billboards[];
 
-layout (std430, set = 1, binding = 1) readonly buffer InImageData {
+layout (std430, set = 1, binding = 5) readonly buffer InImageData {
 	ImageData data[];
 } in_image_data[];
 
@@ -61,6 +61,7 @@ layout (push_constant) uniform quad_index
     uint particle_texture_index;
     uint color_ramp_texture_index;
     uint image_data_index;
+	uint sampler_index;
     uint prev_billboards_index;
     uint index_offset;
 } pc;
@@ -121,7 +122,12 @@ void main() {
 	vec3 lerped_rotation = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.timer_lerp);
     #endif
 
+	lerped_position = position.xyz; 
+	lerped_rotation = rotations;
+	lerped_size = size;
+
     vec3 motion = position.xyz - in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz;
+	motion = vec3(0.f);
     motion.z += 0.000001;
     float travel_distance = length(motion); // Calculate the actual distance traveled
 	bool has_alignment = dot(alignment, alignment) > 0;
