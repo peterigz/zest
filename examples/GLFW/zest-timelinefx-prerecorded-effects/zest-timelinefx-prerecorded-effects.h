@@ -19,7 +19,7 @@ struct tfx_render_resources_t {
 	zest_texture particle_texture;
 	zest_texture color_ramps_texture;
 	zest_draw_routine draw_routine;
-	zest_layer layer;
+	zest_layer_handle layer;
 	zest_descriptor_buffer uniform_buffer_3d;
 	zest_descriptor_set uniform_buffer_descriptor_set;
 	zest_descriptor_buffer image_data;
