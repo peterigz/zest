@@ -122,12 +122,7 @@ void main() {
 	vec3 lerped_rotation = mix(in_prev_billboards[pc.prev_billboards_index].data[prev_index].rotations, rotations, ub.timer_lerp);
     #endif
 
-	lerped_position = position.xyz; 
-	lerped_rotation = rotations;
-	lerped_size = size;
-
     vec3 motion = position.xyz - in_prev_billboards[pc.prev_billboards_index].data[prev_index].position.xyz;
-	motion = vec3(0.f);
     motion.z += 0.000001;
     float travel_distance = length(motion); // Calculate the actual distance traveled
 	bool has_alignment = dot(alignment, alignment) > 0;

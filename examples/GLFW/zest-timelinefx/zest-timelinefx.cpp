@@ -162,6 +162,7 @@ void MainLoop(TimelineFXExample *game) {
 			fps = frame_count;
 			frame_count = 0;
 		}
+		zest_UpdateDevice(game->device);
 
 		glfwPollEvents();
 

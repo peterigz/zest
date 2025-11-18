@@ -70,6 +70,7 @@
 #define ZEST_DEBUGGING
 #define ZLOC_THREAD_SAFE
 #define ZLOC_EXTRA_DEBUGGING
+#define ZEST_OUTPUT_WARNING_MESSAGES
 #define ZLOC_OUTPUT_ERROR_MESSAGES
 #define ZLOC_SAFEGUARDS
 
@@ -3290,6 +3291,7 @@ typedef struct zest_sampler_t {
 
 typedef struct zest_execution_timeline_t {
 	int magic;
+	zest_context context;
 	zest_execution_timeline_backend backend;
 	zest_u64 current_value;
 } zest_execution_timeline_t;
@@ -4021,6 +4023,7 @@ ZEST_API zest_bool zest_RenderGraphWasExecuted(zest_frame_graph frame_graph);
 
 // --- Syncronization Helpers ---
 ZEST_API zest_execution_timeline zest_CreateExecutionTimeline(zest_context context);
+ZEST_API void zest_FreeExecutionTimeline(zest_execution_timeline timeline);
 
 // -- General pass and resource getters/setters
 ZEST_API zest_key zest_GetPassOutputKey(zest_pass_node pass);
@@ -4422,6 +4425,7 @@ typedef struct zest_platform_t {
 	void                       (*carry_over_semaphores)(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
 	zest_bool                  (*frame_graph_fence_wait)(zest_context context, zest_execution_backend backend);
 	zest_bool                  (*create_execution_timeline_backend)(zest_context context, zest_execution_timeline timeline);
+	void  		               (*cleanup_execution_timeline_backend)(zest_execution_timeline timeline);
 	void                       (*add_frame_graph_buffer_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers,
 		zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access,
 		zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage,
@@ -4440,7 +4444,7 @@ typedef struct zest_platform_t {
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 	void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
 	void					   (*set_buffer_backend_details)(zest_buffer buffer);
-	void					   (*flush_used_buffers)(zest_context context);
+	void					   (*flush_used_buffers)(zest_context context, zest_uint fif);
 	void					   (*cmd_copy_buffer_one_time)(zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 	void					   (*push_buffer_for_freeing)(zest_buffer buffer);
 	zest_access_flags   	   (*get_buffer_last_access_mask)(zest_buffer buffer);
@@ -4514,6 +4518,7 @@ typedef struct zest_platform_t {
 	void                       (*cleanup_memory_pool_backend)(zest_device_memory_pool memory_allocation);
 	void                       (*cleanup_device_backend)(zest_device device);
 	void                       (*cleanup_buffer_backend)(zest_buffer buffer);
+	void                       (*destroy_buffer_backend)(zest_buffer buffer);
 	void                       (*cleanup_context_backend)(zest_context context);
 	void                       (*destroy_context_surface)(zest_context context);
 	void 					   (*cleanup_swapchain_backend)(zest_swapchain swapchain);
@@ -4572,7 +4577,7 @@ typedef struct zest_context_t {
 	zest_uint active_queue_count;
 
 	//Frame in flight indexes
-	zest_uint previous_fif;
+	zest_uint frame_counter;
 	zest_uint current_fif;
 	zest_uint saved_fif;
 
@@ -4598,10 +4603,6 @@ typedef struct zest_context_t {
 	zest_resource_store_t resource_stores[zest_max_context_handle_type];
 	zest_context_destruction_queue_t deferred_resource_freeing_list;
 	zest_uint vector_id;
-
-	//Timeline semaphores for creating dependencies between frames
-	//Might not want to keep these
-	zest_execution_timeline *timeline_semaphores;
 
 	//Bindless set layout and set
 	zest_set_layout bindless_set_layout;
@@ -4702,7 +4703,7 @@ ZEST_PRIVATE inline void zest__add_host_memory_pool(zest_device device, zest_siz
 ZEST_PRIVATE inline void *zest__allocate(zloc_allocator *allocator, zest_size size) {
 	void* allocation = zloc_Allocate(allocator, size);
 	ptrdiff_t offset_from_allocator = (ptrdiff_t)allocation - (ptrdiff_t)allocator;
-	if (offset_from_allocator == 8696) {
+	if (offset_from_allocator == 1824080) {
 		int d = 0;
 	}
 	// If there's something that isn't being freed on zest shutdown and it's of an unknown type then 
@@ -5136,7 +5137,7 @@ ZEST_API void *zest_AllocateMemory(zest_context context, zest_size size);
 ZEST_API void zest_FreeMemory(zest_context context, void *allocation);
 //When you free buffers the platform buffer is added to a list that is either freed at the end of the program
 //or you can call this to free them whenever you want.
-ZEST_API void zest_FlushUsedBuffers(zest_context context);
+ZEST_API void zest_FlushUsedBuffers(zest_context context, zest_uint fif);
 //Get the mapped data of a buffer. For CPU visible buffers only
 ZEST_API void *zest_BufferData(zest_buffer buffer);
 //Get the capacity of a buffer
