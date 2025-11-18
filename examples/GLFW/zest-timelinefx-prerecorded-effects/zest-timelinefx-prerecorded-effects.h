@@ -15,23 +15,6 @@ struct AnimationComputeConstants {
 	tfxU32 flags;
 };
 
-struct tfx_render_resources_t {
-	zest_texture particle_texture;
-	zest_texture color_ramps_texture;
-	zest_draw_routine draw_routine;
-	zest_layer_handle layer;
-	zest_descriptor_buffer uniform_buffer_3d;
-	zest_descriptor_set uniform_buffer_descriptor_set;
-	zest_descriptor_buffer image_data;
-	zest_descriptor_set particle_descriptor;
-	zest_pipeline pipeline;
-	zest_shader_resources shader_resource;
-	zest_set_layout descriptor_layout;
-	zest_descriptor_set_t descriptor_set;
-	zest_shader fragment_shader;
-	zest_shader vertex_shader;
-};
-
 struct ComputeExample {
 	zest_compute compute;
 	zest_compute bounding_box_compute;

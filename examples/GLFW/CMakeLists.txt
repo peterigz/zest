@@ -20,6 +20,7 @@ function(buildExample EXAMPLE_NAME)
 
 	file(GLOB SOURCE 
 		*.cpp 
+		*.c
 		*.h 
 		${EXAMPLE_FOLDER}/zest_imconfig.h
 	)
@@ -27,7 +28,11 @@ function(buildExample EXAMPLE_NAME)
 		SET(MAIN_HEADER ${EXAMPLE_FOLDER}/${EXAMPLE_NAME}.h)
 	ENDIF()
 
-	SET(MAIN_CPP ${EXAMPLE_FOLDER}/${EXAMPLE_NAME}.cpp)
+	if(${EXAMPLE_NAME} STREQUAL "zest-timelinefx-c")
+		SET(MAIN_CPP ${EXAMPLE_FOLDER}/${EXAMPLE_NAME}.c)
+	else()
+		SET(MAIN_CPP ${EXAMPLE_FOLDER}/${EXAMPLE_NAME}.cpp)
+	endif()
 
 	set(SHADER_DIR "${EXAMPLE_NAME}/shaders")
 	include_directories(${GLFW3_INCLUDE_DIR})
@@ -93,6 +98,15 @@ function(buildExample EXAMPLE_NAME)
 			${IMPLEMENTATIONS}impl_imgui.cpp
 		)
 		source_group("ImGui" FILES ${IMGUI_SOURCE})
+	elseif(${EXAMPLE_NAME} STREQUAL "zest-timelinefx-c")
+		file(GLOB TIMELINEFX_SOURCE 
+			${TIMELINEFX}timelinefx.h
+			${TIMELINEFX}timelinefx.cpp
+		)
+		file(GLOB IMPLEMENTATIONS_SOURCE
+			${IMPLEMENTATIONS}impl_timelinefx.c
+		)
+		SET(IMGUI_SOURCE "")
 	else()
 		SET(IMPLEMENTATIONS_SOURCE "")
 		SET(IMGUI_SOURCE "")
@@ -117,6 +131,17 @@ function(buildExample EXAMPLE_NAME)
 		target_link_libraries(${EXAMPLE_NAME} zest-interface ${GLFW3_LIBRARY})
 	endif(WIN32)
 
+    if(${EXAMPLE_NAME} STREQUAL "zest-timelinefx-c")
+        set_target_properties(${EXAMPLE_NAME} PROPERTIES
+            C_STANDARD 11  # or whatever C standard you want to use
+            C_STANDARD_REQUIRED ON
+            LINKER_LANGUAGE C
+        )
+        # Disable C++ features for this target
+        target_compile_features(${EXAMPLE_NAME} PRIVATE c_std_11)
+		target_include_directories(${EXAMPLE_NAME} PUBLIC ${TIMELINEFX})
+	endif()
+
 	target_link_libraries(${EXAMPLE_NAME} freetype)
 	target_include_directories(${EXAMPLE_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/submodules/freetype/include) 
 
@@ -137,6 +162,7 @@ set(EXAMPLES
 	zest-render-graph-tests
 	zest-vaders
 	zest-timelinefx
+	zest-timelinefx-c
 	zest-timelinefx-instanced-effects
 	zest-timelinefx-prerecorded-effects
 	zest-ribbons

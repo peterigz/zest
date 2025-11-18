@@ -97,7 +97,6 @@ set(EXAMPLES
 	zest-instance-layers
 	zest-remove-images
 	zest-lines
-	zest-timelinefx-c
 	zest-slang
 	zest-zloc
 )
