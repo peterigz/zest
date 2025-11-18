@@ -4735,7 +4735,7 @@ ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation
 ZEST_PRIVATE zest_bool zest__create_memory_pool(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__set_buffer_details(zest_context context, zest_buffer_allocator buffer_allocator, zest_buffer buffer, zest_bool is_host_visible);
-ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_context context);
+ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 //End Buffer Management
 
 //Renderer_functions
@@ -4784,7 +4784,7 @@ ZEST_PRIVATE void zest__initialise_instance_layer(zest_context context, zest_lay
 ZEST_PRIVATE void zest__end_instance_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__start_instance_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__reset_instance_layer_drawing(zest_layer layer);
-ZEST_PRIVATE void zest__set_layer_push_constants(zest_layer layer);
+ZEST_PRIVATE void zest__set_layer_push_constants(zest_layer layer, void *push_constants, zest_size size);
 
 // --Image_internal_functions
 ZEST_PRIVATE zest_image_handle zest__new_image(zest_context device);

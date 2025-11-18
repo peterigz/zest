@@ -116,10 +116,10 @@ zest_bool zest__create_folder(zest_device device, const char *path) {
     int result = ZEST_CREATE_DIR(path);
     if (result == 0) {
         ZEST_APPEND_LOG(device->log_path.str, "Folder created successfully: %s", path);
-        return true;
+        return ZEST_TRUE;
     } else {
         if (result == -1) {
-            return true;
+            return ZEST_TRUE;
         } else {
             char buffer[100];
             if (zest_strerror(buffer, sizeof(buffer), result) != 0) {
@@ -127,7 +127,7 @@ zest_bool zest__create_folder(zest_device device, const char *path) {
             } else {
 				ZEST_APPEND_LOG(device->log_path.str, "Error creating folder: %s (Error: %s)", path, buffer);
             }
-            return false;
+            return ZEST_FALSE;
         }
     }
 }
@@ -1297,7 +1297,7 @@ zest_bool zest_BeginFrame(zest_context context) {
 		zest__recreate_swapchain(context);
 		ZEST__UNFLAG(context->flags, zest_context_flag_building_frame_graph);
 		ZEST_PRINT("Unable to acquire the swap chain!");
-		return false;
+		return ZEST_FALSE;
 	}
 	ZEST__FLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 	ZEST__UNFLAG(context->swapchain->flags, zest_swapchain_flag_was_recreated);
@@ -1455,10 +1455,6 @@ void zest__set_default_pool_sizes(zest_device device) {
 /*
 End of Device creation functions
 */
-
-void zest__end_thread(zest_work_queue_t *queue, void *data) {
-    return;
-}
 
 void zest__destroy(zest_context context) {
     zest_PrintReports(context);
@@ -2796,10 +2792,10 @@ zest_set_layout_builder_t zest_BeginSetLayoutBuilder(zloc_allocator *allocator) 
 zest_bool zest__binding_exists_in_layout_builder(zest_set_layout_builder_t *builder, zest_uint binding) {
     zest_vec_foreach(i, builder->bindings) {
         if (builder->bindings[i].binding == binding) {
-            return true;
+            return ZEST_TRUE;
         }
     }
-    return false;
+    return ZEST_FALSE;
 }
 
 void zest_AddLayoutBuilderBinding(zest_set_layout_builder_t *builder, zest_descriptor_binding_desc_t description) {
@@ -4456,7 +4452,7 @@ zest_bool zest__is_stage_compatible_with_qfi(zest_pipeline_stage_flags stages_to
         // Remove this bit for the next iteration
         current_stages_to_evaluate &= ~single_stage_bit;
 
-        bool stage_is_compatible = ZEST_FALSE;
+        zest_bool stage_is_compatible = ZEST_FALSE;
         switch (single_stage_bit) {
             // Stages allowed on ANY queue type that supports any command submission
         case zest_pipeline_stage_top_of_pipe_bit:
@@ -4574,10 +4570,10 @@ void zest__add_image_barrier(zest_resource_node resource, zest_execution_barrier
 void zest__add_buffer_barrier(zest_resource_node resource, zest_execution_barriers_t *barriers, zest_bool acquire, zest_access_flags src_access, zest_access_flags dst_access,
     zest_uint src_family, zest_uint dst_family, zest_pipeline_stage_flags src_stage, zest_pipeline_stage_flags dst_stage) {
 	zest_context context = resource->frame_graph->command_list.context;
-	zest_buffer_barrier_t buffer_barrier {
+	zest_buffer_barrier_t buffer_barrier = ZEST_STRUCT_LITERAL (zest_buffer_barrier_t,
 		src_access, dst_access,
 		src_family, dst_family
-	};
+	);
     if (acquire) {
         zest_vec_linear_push(context->frame_graph_allocator[context->current_fif], barriers->acquire_buffer_barriers, buffer_barrier);
         barriers->overall_src_stage_mask_for_acquire_barriers |= src_stage;
@@ -4605,13 +4601,13 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
             if (resource->image_layout != current_usage_layout ||
                 (resource->access_mask & zest_access_write_bits_general) &&
                 (current_usage->access_mask & zest_access_read_bits_general)) {
-                context->device->platform->add_frame_graph_image_barrier(resource, barriers, true,
+                context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE,
                     resource->access_mask, current_usage->access_mask,
                     resource->image_layout, current_usage_layout,
                     src_queue_family_index, dst_queue_family_index,
                     resource->last_stage_mask, current_usage->stage_mask);
 				#ifdef ZEST_TEST_MODE
-                zest__add_image_barrier(resource, barriers, true,
+                zest__add_image_barrier(resource, barriers, ZEST_TRUE,
                     resource->access_mask, current_usage->access_mask,
                     resource->image_layout, current_usage_layout,
                     src_queue_family_index, dst_queue_family_index,
@@ -4624,13 +4620,13 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
             ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
             dst_queue_family_index = current_state->queue_family_index;
             if (src_queue_family_index != ZEST_QUEUE_FAMILY_IGNORED) {
-                context->device->platform->add_frame_graph_image_barrier(resource, barriers, true,
+                context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE,
                     resource->access_mask, current_usage->access_mask,
                     resource->image_layout, current_usage_layout,
                     src_queue_family_index, dst_queue_family_index,
                     resource->last_stage_mask, current_usage->stage_mask);
 				#ifdef ZEST_TEST_MODE
-                zest__add_image_barrier(resource, barriers, true,
+                zest__add_image_barrier(resource, barriers, ZEST_TRUE,
                     resource->access_mask, current_usage->access_mask,
                     resource->image_layout, current_usage_layout,
                     src_queue_family_index, dst_queue_family_index,
@@ -4638,28 +4634,28 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
 				#endif
             }
         }
-        bool needs_releasing = false;
+        zest_bool needs_releasing = ZEST_FALSE;
     } else {
         //There is a previous state, do we need to acquire the resource from a different queue?
         zest_uint src_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
         zest_uint dst_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
-        bool needs_acquiring = false;
+        zest_bool needs_acquiring = ZEST_FALSE;
         if (prev_state && (prev_state->queue_family_index != current_state->queue_family_index || prev_state->was_released)) {
             //The next state is in a different queue so the resource needs to be released to that queue
             src_queue_family_index = prev_state->queue_family_index;
             dst_queue_family_index = current_state->queue_family_index;
-            needs_acquiring = true;
+            needs_acquiring = ZEST_TRUE;
         }
         if (needs_acquiring) {
             zest_resource_usage_t *prev_usage = &prev_state->usage;
             //Acquire the resource. No transitioning is done here, acquire only if needed
-            context->device->platform->add_frame_graph_image_barrier(resource, barriers, true,
+            context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_TRUE,
                 zest_access_none, current_usage->access_mask,
                 prev_usage->image_layout, current_usage_layout,
                 src_queue_family_index, dst_queue_family_index,
                 zest_pipeline_stage_top_of_pipe_bit, current_usage->stage_mask);
 			#ifdef ZEST_TEST_MODE
-            zest__add_image_barrier(resource, barriers, true,
+            zest__add_image_barrier(resource, barriers, ZEST_TRUE,
                 zest_access_none, current_usage->access_mask,
                 prev_usage->image_layout, current_usage_layout,
                 src_queue_family_index, dst_queue_family_index,
@@ -4678,30 +4674,30 @@ void zest__add_image_barriers(zest_frame_graph frame_graph, zloc_linear_allocato
         zest_uint dst_queue_family_index = next_state->queue_family_index;
         zest_resource_usage_t *next_usage = &next_state->usage;
 		zest_image_layout next_usage_layout = next_usage->image_layout;
-        bool needs_releasing = false;
+        zest_bool needs_releasing = ZEST_FALSE;
         if (next_state && next_state->queue_family_index != current_state->queue_family_index) {
             //The next state is in a different queue so the resource needs to be released to that queue
             src_queue_family_index = current_state->queue_family_index;
             dst_queue_family_index = next_state->queue_family_index;
-            needs_releasing = true;
+            needs_releasing = ZEST_TRUE;
         }
         if ((needs_releasing || current_usage->image_layout != next_usage->image_layout ||
             (current_usage->access_mask & zest_access_write_bits_general) &&
             (next_usage->access_mask & zest_access_read_bits_general))) {
             zest_pipeline_stage_flags dst_stage = zest_pipeline_stage_bottom_of_pipe_bit;
             if (needs_releasing) {
-                current_state->was_released = true;
+                current_state->was_released = ZEST_TRUE;
             } else {
                 dst_stage = next_state->usage.stage_mask;
-                current_state->was_released = false;
+                current_state->was_released = ZEST_FALSE;
             }
-            context->device->platform->add_frame_graph_image_barrier(resource, barriers, false,
+            context->device->platform->add_frame_graph_image_barrier(resource, barriers, ZEST_FALSE,
                 current_usage->access_mask, zest_access_none,
                 current_usage->image_layout, next_usage_layout,
                 src_queue_family_index, dst_queue_family_index,
                 current_usage->stage_mask, dst_stage);
 			#ifdef ZEST_TEST_MODE
-            zest__add_image_barrier(resource, barriers, false,
+            zest__add_image_barrier(resource, barriers, ZEST_FALSE,
                 current_usage->access_mask, zest_access_none,
                 current_usage->image_layout, next_usage_layout,
                 src_queue_family_index, dst_queue_family_index,
@@ -4791,7 +4787,7 @@ zest_frame_graph zest__compile_frame_graph() {
     }
 
     //Check_unused_resources_and_passes and cull them if necessary
-    bool a_pass_was_culled = 0;
+    zest_bool a_pass_was_culled = 0;
     zest_bucket_array_foreach(i, frame_graph->potential_passes) {
         zest_pass_node pass_node = zest_bucket_array_get(&frame_graph->potential_passes, zest_pass_node_t, i);
         if (zest_map_size(pass_node->outputs) == 0 || pass_node->execution_callback.callback == 0) {
@@ -4800,7 +4796,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 pass_node->inputs.data[j].resource_node->reference_count--;
             }
             ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
-            a_pass_was_culled = true;
+            a_pass_was_culled = ZEST_TRUE;
             if (zest_map_size(pass_node->outputs) == 0) {
                 ZEST__REPORT(context, zest_report_pass_culled, zest_message_pass_culled, pass_node->name);
             } else {
@@ -4822,7 +4818,7 @@ zest_frame_graph zest__compile_frame_graph() {
 					pass_node->inputs.data[j].resource_node->reference_count--;
 				}
                 ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
-				a_pass_was_culled = true;
+				a_pass_was_culled = ZEST_TRUE;
 				ZEST__REPORT(context, zest_report_pass_culled, zest_message_pass_culled_not_consumed, pass_node->name);
             }
         }
@@ -4830,20 +4826,20 @@ zest_frame_graph zest__compile_frame_graph() {
 
     //Keep iterating and culling passes whose output resources have 0 reference counts and keep reducing input resource reference counts
     while (a_pass_was_culled) {
-        a_pass_was_culled = false;
+        a_pass_was_culled = ZEST_FALSE;
 		zest_bucket_array_foreach(i, frame_graph->potential_passes) {
 			zest_pass_node pass_node = zest_bucket_array_get(&frame_graph->potential_passes, zest_pass_node_t, i);
             if (ZEST__NOT_FLAGGED(pass_node->flags, zest_pass_flag_culled) && ZEST__NOT_FLAGGED(pass_node->flags, zest_pass_flag_do_not_cull)) {
-                bool all_outputs_non_referenced = true;
+                zest_bool all_outputs_non_referenced = ZEST_TRUE;
                 zest_map_foreach(j, pass_node->outputs) {
                     if (pass_node->outputs.data[j].resource_node->reference_count > 0) {
-                        all_outputs_non_referenced = false;
+                        all_outputs_non_referenced = ZEST_FALSE;
                         break;
                     }
                 }
                 if (all_outputs_non_referenced) {
                     ZEST__FLAG(pass_node->flags, zest_pass_flag_culled);
-                    a_pass_was_culled = true;
+                    a_pass_was_culled = ZEST_TRUE;
                     zest_map_foreach(j, pass_node->inputs) {
 						ZEST__MAYBE_REPORT(context, pass_node->inputs.data[j].resource_node->reference_count == 0, zest_report_invalid_reference_counts, zest_message_pass_culled_not_consumed, frame_graph->name);
                         frame_graph->error_status |= zest_fgs_critical_error;
@@ -4856,7 +4852,7 @@ zest_frame_graph zest__compile_frame_graph() {
         }
     }
 
-    bool has_execution_callback = false;
+    zest_bool has_execution_callback = ZEST_FALSE;
 
     //Now group the potential passes in to final passes by ignoring any culled passes and grouping together passes that
     //have the same output. We need to be careful here though to make sure that even though 2 passes might share the same output
@@ -4896,7 +4892,7 @@ zest_frame_graph zest__compile_frame_graph() {
                     zest_map_insert_linear_key(allocator, pass_group.inputs, pair.key, *usage);
                 }
                 if (pass_node->execution_callback.callback) {
-                    has_execution_callback = true;
+                    has_execution_callback = ZEST_TRUE;
                 }
                 ZEST__FLAG(pass_group.flags, pass_node->flags);
                 zest_vec_linear_push(allocator, pass_group.passes, pass_node);
@@ -4910,7 +4906,7 @@ zest_frame_graph zest__compile_frame_graph() {
 					return frame_graph;
 				}
                 if (pass_node->execution_callback.callback) {
-                    has_execution_callback = true;
+                    has_execution_callback = ZEST_TRUE;
                 }
                 ZEST__FLAG(pass_group->flags, pass_node->flags);
                 zest_vec_linear_push(allocator, pass_group->passes, pass_node);
@@ -5284,7 +5280,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 }
 
                 // Check OUTPUTS of the current pass
-                bool requires_new_batch = false;
+                zest_bool requires_new_batch = ZEST_FALSE;
                 zest_map_foreach(output_idx, current_pass->outputs) {
                     zest_resource_node resource_node = current_pass->outputs.data[output_idx].resource_node;
                     if (resource_node->aliased_resource) resource_node = resource_node->aliased_resource;
@@ -5460,7 +5456,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 zest__add_image_barriers(frame_graph, allocator, resource, barriers, current_state, prev_state, next_state);
                 prev_state = current_state;
                 if (current_state->usage.access_mask & zest_access_render_pass_bits) {
-                    exe_details->requires_dynamic_render_pass = true;
+                    exe_details->requires_dynamic_render_pass = ZEST_TRUE;
                 }
             } else if(resource->type & zest_resource_type_buffer) {
                 if (!prev_state) {
@@ -5472,12 +5468,12 @@ zest_frame_graph zest__compile_frame_graph() {
                     if (src_queue_family_index == ZEST_QUEUE_FAMILY_IGNORED) {
                         if ((resource->access_mask & zest_access_write_bits_general) &&
                             (current_usage->access_mask & zest_access_read_bits_general)) {
-                            context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, true,
+                            context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_TRUE,
                                 resource->access_mask, current_usage->access_mask,
                                 src_queue_family_index, dst_queue_family_index,
                                 resource->last_stage_mask, current_state->usage.stage_mask);
 							#ifdef ZEST_TEST_MODE
-                            zest__add_buffer_barrier(resource, barriers, true,
+                            zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
                                 resource->access_mask, current_usage->access_mask,
                                 src_queue_family_index, dst_queue_family_index,
                                 resource->last_stage_mask, current_state->usage.stage_mask);
@@ -5491,39 +5487,39 @@ zest_frame_graph zest__compile_frame_graph() {
                         ZEST_ASSERT(ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported));
                         dst_queue_family_index = current_state->queue_family_index;
                         if (src_queue_family_index != ZEST_QUEUE_FAMILY_IGNORED) {
-                            context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, true,
+                            context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_TRUE,
                                 resource->access_mask, current_usage->access_mask,
                                 src_queue_family_index, dst_queue_family_index,
                                 resource->last_stage_mask, current_state->usage.stage_mask);
 							#ifdef ZEST_TEST_MODE
-                            zest__add_buffer_barrier(resource, barriers, true,
+                            zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
                                 resource->access_mask, current_usage->access_mask,
                                 src_queue_family_index, dst_queue_family_index,
                                 resource->last_stage_mask, current_state->usage.stage_mask);
 							#endif
                         }
                     }
-                    bool needs_releasing = false;
+                    zest_bool needs_releasing = ZEST_FALSE;
                 } else {
                     //There is a previous state, do we need to acquire the resource from a different queue?
                     zest_uint src_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
                     zest_uint dst_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
-                    bool needs_acquiring = false;
+                    zest_bool needs_acquiring = ZEST_FALSE;
                     if (prev_state && (prev_state->queue_family_index != current_state->queue_family_index || prev_state->was_released)) {
                         //The next state is in a different queue so the resource needs to be released to that queue
                         src_queue_family_index = prev_state->queue_family_index;
                         dst_queue_family_index = current_state->queue_family_index;
-                        needs_acquiring = true;
+                        needs_acquiring = ZEST_TRUE;
                     }
                     if (needs_acquiring) {
                         zest_resource_usage_t *prev_usage = &prev_state->usage;
                         //Acquire the resource. No transitioning is done here, acquire only if needed
-                        context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, true,
+                        context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_TRUE,
                             prev_usage->access_mask, current_usage->access_mask,
                             src_queue_family_index, dst_queue_family_index,
                             prev_state->usage.stage_mask, current_state->usage.stage_mask);
 						#ifdef ZEST_TEST_MODE
-                        zest__add_buffer_barrier(resource, barriers, true,
+                        zest__add_buffer_barrier(resource, barriers, ZEST_TRUE,
                             prev_usage->access_mask, current_usage->access_mask,
                             src_queue_family_index, dst_queue_family_index,
                             prev_state->usage.stage_mask, current_state->usage.stage_mask);
@@ -5538,29 +5534,29 @@ zest_frame_graph zest__compile_frame_graph() {
                     zest_uint src_queue_family_index = current_state->queue_family_index;
                     zest_uint dst_queue_family_index = next_state->queue_family_index;
                     zest_resource_usage_t *next_usage = &next_state->usage;
-                    bool needs_releasing = false;
+                    zest_bool needs_releasing = ZEST_FALSE;
                     if (next_state && next_state->queue_family_index != current_state->queue_family_index) {
                         //The next state is in a different queue so the resource needs to be released to that queue
                         src_queue_family_index = current_state->queue_family_index;
                         dst_queue_family_index = next_state->queue_family_index;
-                        needs_releasing = true;
+                        needs_releasing = ZEST_TRUE;
                     }
                     if (needs_releasing || 
                         (current_usage->access_mask & zest_access_write_bits_general) &&
                         (next_usage->access_mask & zest_access_read_bits_general)) {
                         zest_pipeline_stage_flags dst_stage = zest_pipeline_stage_bottom_of_pipe_bit;
                         if (needs_releasing) {
-                            current_state->was_released = true;
+                            current_state->was_released = ZEST_TRUE;
                         } else {
                             dst_stage = next_state->usage.stage_mask;
-                            current_state->was_released = false;
+                            current_state->was_released = ZEST_FALSE;
                         }
-                        context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, false,
+                        context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_FALSE,
                             current_usage->access_mask, next_state->usage.access_mask,
                             src_queue_family_index, dst_queue_family_index,
                             current_state->usage.stage_mask, dst_stage);
 						#ifdef ZEST_TEST_MODE
-                        zest__add_buffer_barrier(resource, barriers, false,
+                        zest__add_buffer_barrier(resource, barriers, ZEST_FALSE,
                             current_usage->access_mask, next_state->usage.access_mask,
                             src_queue_family_index, dst_queue_family_index,
                             current_state->usage.stage_mask, dst_stage);
@@ -5570,12 +5566,12 @@ zest_frame_graph zest__compile_frame_graph() {
                     && current_state->queue_family_index != context->device->transfer_queue_family_index) {
                     //Release the buffer so that it's ready to be acquired by any other queue in the next frame
                     //Release to the transfer queue by default (if it's not already on the transfer queue).
-					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, false,
+					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_FALSE,
 						current_usage->access_mask, zest_access_none,
                         current_state->queue_family_index, context->device->transfer_queue_family_index,
                         current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
 					#ifdef ZEST_TEST_MODE
-					zest__add_buffer_barrier(resource, barriers, false,
+					zest__add_buffer_barrier(resource, barriers, ZEST_FALSE,
 						current_usage->access_mask, zest_access_none,
                         current_state->queue_family_index, context->device->transfer_queue_family_index,
                         current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
@@ -5853,7 +5849,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 //Batch execute acquire barriers for images and buffers
 				context->device->platform->acquire_barrier(&frame_graph->command_list, exe_details);
 
-                bool has_render_pass = exe_details->requires_dynamic_render_pass;
+                zest_bool has_render_pass = exe_details->requires_dynamic_render_pass;
 
                 //Begin the render pass if the pass has one
                 if (has_render_pass) {
@@ -8203,14 +8199,14 @@ void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_dat
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
 	zest_cmd_BindVertexBuffer(command_list, 0, 1, device_buffer);
 
-    bool has_instruction_view_port = false;
+    zest_bool has_instruction_view_port = ZEST_FALSE;
     zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
         zest_layer_instruction_t* current = &layer->draw_instructions[layer->fif][i];
 
         if (current->draw_mode == zest_draw_mode_viewport) {
 			zest_cmd_ViewPort(command_list, &current->viewport);
 			zest_cmd_Scissor(command_list, &current->scissor);
-            has_instruction_view_port = true;
+            has_instruction_view_port = ZEST_TRUE;
             continue;
         } else if(!has_instruction_view_port) {
 			zest_cmd_ViewPort(command_list, &layer->viewport);
@@ -8476,14 +8472,14 @@ void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
 	zest_cmd_BindVertexBuffer(command_list, 1, 1, device_buffer);
 
-    bool has_instruction_view_port = false;
+    zest_bool has_instruction_view_port = ZEST_FALSE;
     zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
         zest_layer_instruction_t *current = &layer->draw_instructions[layer->fif][i];
 
         if (current->draw_mode == zest_draw_mode_viewport) {
 			zest_cmd_Scissor(command_list, &current->scissor);
             zest_cmd_ViewPort(command_list, &current->viewport);
-            has_instruction_view_port = true;
+            has_instruction_view_port = ZEST_TRUE;
             continue;
         } else if(!has_instruction_view_port) {
 			zest_cmd_Scissor(command_list, &layer->scissor);

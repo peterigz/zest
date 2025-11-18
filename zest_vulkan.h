@@ -1675,9 +1675,9 @@ zest_bool zest__vk_create_instance(zest_device device) {
             return VK_ERROR_INCOMPATIBLE_DRIVER;
         }
     } else {
-        ZEST_PRINT_WARNING("Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requires Vulkan 1.2+.");
-        ZEST_APPEND_LOG(device->log_path.str, "Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requiresVulkan 1.2+.")
-            return VK_ERROR_INCOMPATIBLE_DRIVER;
+        ZEST_PRINT("Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requires Vulkan 1.2+.");
+		ZEST_APPEND_LOG(device->log_path.str, "Vulkan 1.0 detected (vkEnumerateInstanceVersion not found). Zest requiresVulkan 1.2+.");
+		return VK_ERROR_INCOMPATIBLE_DRIVER;
     }
 
     VkApplicationInfo app_info = ZEST__ZERO_INIT(VkApplicationInfo);
@@ -4748,7 +4748,7 @@ zest_bool zest__vk_validate_shader(zest_device device, const char *shader_code, 
 	return ZEST_TRUE;
 }
 
-zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, void *options) {
+zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type shader_type, const char *name, const char *entry_point, void *options) {
 	zest_device device = (zest_device)shader->handle.store->origin;
 	shaderc_compiler_t compiler = device->backend->shaderc_compiler;
 	if (!compiler) {
