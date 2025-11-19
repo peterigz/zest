@@ -1,5 +1,6 @@
 #define ZEST_IMPLEMENTATION
 #define ZEST_VULKAN_IMPLEMENTATION
+#define ZEST_IMAGES_IMPLEMENTATION
 #include "zest-compute-example.h"
 #include <zest.h>
 #include "imgui_internal.h"
@@ -9,7 +10,7 @@
 void InitComputeExample(ComputeExample *app) {
 
 	//Initialise Imgui for zest, this function just sets up some things like display size and font texture
-	app->imgui = zest_imgui_Initialise(app->context);
+	zest_imgui_Initialise(app->context, &app->imgui);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 
 	app->frame_timer = 1.f;
@@ -20,14 +21,21 @@ void InitComputeExample(ComputeExample *app) {
 	//Set up the compute shader example starts here
 	//Prepare a couple of textures:
 	//Particle image for point sprites
-	zest_bitmap particle_bitmap = zest_LoadPNG(app->context, "examples/assets/particle.png");
-	app->particle_image = zest_CreateImageWithBitmap(app->context, particle_bitmap, 0);
+	int width, height, channels;
+	stbi_uc *particle_pixels = stbi_load("examples/assets/particle.png", &width, &height, &channels, 0);
+	int size = width * height * channels;
+	zest_image_info_t image_info = zest_CreateImageInfo(width, height);
+	image_info.flags = zest_image_preset_texture_mipmaps;
+	app->particle_image = zest_CreateImageWithPixels(app->context, particle_pixels, size, &image_info);
 	//A gradient texture to sample the colour from
-	zest_bitmap gradient_bitmap = zest_LoadPNG(app->context, "examples/assets/gradient.png");
-	app->gradient_image = zest_CreateImageWithBitmap(app->context, gradient_bitmap, zest_image_preset_texture);
+	stbi_uc *gradient_pixels = stbi_load("examples/assets/gradient.png", &width, &height, &channels, 0);
+	size = width * height * channels;
+	image_info = zest_CreateImageInfo(width, height);
+	image_info.flags = zest_image_preset_texture;
+	app->gradient_image = zest_CreateImageWithPixels(app->context, gradient_pixels, size, &image_info);
 
-	zest_FreeBitmap(particle_bitmap);
-	zest_FreeBitmap(gradient_bitmap);
+	STBI_FREE(particle_pixels);
+	STBI_FREE(gradient_pixels);
 
 	app->particle_image_index = zest_AcquireSampledImageIndex(app->context, app->particle_image, zest_texture_2d_binding);
 	app->gradient_image_index = zest_AcquireSampledImageIndex(app->context, app->gradient_image, zest_texture_2d_binding);
@@ -72,16 +80,16 @@ void InitComputeExample(ComputeExample *app) {
 	zest_shader comp_shader = zest_CreateShaderFromFile("examples/GLFW/zest-compute-example/shaders/particle.comp", "particle_comp.spv", shaderc_compute_shader, 1, compiler, 0);
 	shaderc_compiler_release(compiler);
 	*/
-	zest_slang_InitialiseSession(app->context);
+	zest_slang_InitialiseSession(app->device);
 	const char *path = "examples/GLFW/zest-compute-example/shaders/particle.slang";
-	zest_shader_handle frag_shader = zest_slang_CreateShader(app->context, path, "particle_frag.spv", "fragmentMain", zest_fragment_shader, false);
-	zest_shader_handle vert_shader = zest_slang_CreateShader(app->context, path, "particle_vert.spv", "vertexMain", zest_vertex_shader, false);
-	zest_shader_handle comp_shader = zest_slang_CreateShader(app->context, path, "particle_comp.spv", "computeMain", zest_compute_shader, false);
+	zest_shader_handle frag_shader = zest_slang_CreateShader(app->device, path, "particle_frag.spv", "fragmentMain", zest_fragment_shader, false);
+	zest_shader_handle vert_shader = zest_slang_CreateShader(app->device, path, "particle_vert.spv", "vertexMain", zest_vertex_shader, false);
+	zest_shader_handle comp_shader = zest_slang_CreateShader(app->device, path, "particle_comp.spv", "computeMain", zest_compute_shader, false);
 
 	assert(frag_shader.value && vert_shader.value && comp_shader.value);
 
 	//Create a new pipeline in the renderer based on an existing default one
-	app->particle_pipeline = zest_BeginPipelineTemplate(app->context, "particles");
+	app->particle_pipeline = zest_BeginPipelineTemplate(app->device, "particles");
 	//Add our own vertex binding description using the Particle struct
 	zest_AddVertexInputBindingDescription(app->particle_pipeline, 0, sizeof(Particle), zest_input_rate_vertex);
 	//Add the descriptions for each type in the Particle struct
@@ -308,19 +316,19 @@ int main(void) {
 
 	ComputeExample compute_example = { 0 };
 
-	zest_device device = zest_implglfw_CreateDevice(true);
+	compute_example.device = zest_implglfw_CreateDevice(true);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
-	compute_example.context = zest_CreateContext(device, &window_handles, &create_info);
+	compute_example.context = zest_CreateContext(compute_example.device, &window_handles, &create_info);
 
 	//Initialise Dear ImGui
 	InitComputeExample(&compute_example);
 
 	//Start the mainloop in Zest
 	MainLoop(&compute_example);
-	zest_slang_Shutdown(compute_example.context);
+	zest_slang_Shutdown(compute_example.device);
 	ImGui_ImplGlfw_Shutdown();
 	zest_imgui_Destroy(&compute_example.imgui);
 	zest_DestroyContext(compute_example.context);

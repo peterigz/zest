@@ -34,6 +34,8 @@ struct RenderCacheInfo {
 };
 
 struct ComputeExample {
+	zest_context context;
+	zest_device device;
 	zest_imgui_t imgui;
 
 	zest_image_handle particle_image;
@@ -49,7 +51,6 @@ struct ComputeExample {
 	zest_pipeline_template particle_pipeline;
 	zest_uniform_buffer_handle compute_uniform_buffer;
 	zest_compute_handle compute;
-	zest_context context;
 
 	zest_timer_t loop_timer;
 	RenderCacheInfo cache_info;
