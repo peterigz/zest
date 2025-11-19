@@ -3370,7 +3370,7 @@ zest_image_view_t *zest__vk_create_image_view(zest_context context, zest_image i
     void *memory = 0;
     zest_size marker = 0;
     if (!linear_allocator) {
-        memory = zest_AllocateMemory(context, total_size);
+        memory = zest__allocate(context->device->allocator, total_size);
     } else {
         marker = zloc_GetMarker(linear_allocator);
         memory = zloc_LinearAllocation(linear_allocator, total_size);
@@ -3415,7 +3415,7 @@ zest_image_view_array zest__vk_create_image_views_per_mip(zest_context context, 
     void *memory = 0;
     zest_image_view_array view_array = 0;
     if (!linear_allocator) {
-        memory = zest_AllocateMemory(context, total_size);
+        memory = zest__allocate(context->device->allocator, total_size);
         view_array = (zest_image_view_array)ZEST__NEW(context->device->allocator, zest_image_view_array);
         *view_array = ZEST__ZERO_INIT(zest_image_view_array_t);
     } else {

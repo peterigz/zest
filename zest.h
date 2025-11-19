@@ -5133,8 +5133,8 @@ ZEST_API zest_descriptor_set zest_GetUniformBufferSet(zest_uniform_buffer_handle
 ZEST_API zest_descriptor_set zest_GetFIFUniformBufferSet(zest_uniform_buffer_handle buffer, zest_uint fif);
 ZEST_API zest_uint zest_GetBufferDescriptorIndex(zest_buffer buffer);
 //Should only be used in zest implementations only
-ZEST_API void *zest_AllocateMemory(zest_context context, zest_size size);
-ZEST_API void zest_FreeMemory(zest_context context, void *allocation);
+ZEST_API void *zest_AllocateMemory(zest_device device, zest_size size);
+ZEST_API void zest_FreeMemory(zest_device device, void *allocation);
 //When you free buffers the platform buffer is added to a list that is either freed at the end of the program
 //or you can call this to free them whenever you want.
 ZEST_API void zest_FlushUsedBuffers(zest_context context, zest_uint fif);
@@ -5326,6 +5326,7 @@ ZEST_API zest_bool zest_IsSphereInFrustum(const zest_vec4 planes[6], const float
 ZEST_API zest_image_info_t zest_CreateImageInfo(zest_uint width, zest_uint height);
 ZEST_API zest_image_view_create_info_t zest_CreateViewImageInfo(zest_image_handle image_handle);
 ZEST_API zest_image_handle zest_CreateImage(zest_context context, zest_image_info_t *create_info);
+ZEST_API zest_image_handle zest_CreateImageWithPixels(zest_context context, void *pixels, zest_size size, zest_image_info_t *create_info);
 ZEST_API void zest_FreeImage(zest_image_handle image_handle);
 ZEST_API zest_image_view_handle zest_CreateImageView(zest_context context, zest_image_handle image_handle, zest_image_view_create_info_t *create_info);
 ZEST_API zest_image_view_array_handle zest_CreateImageViewsPerMip(zest_context context, zest_image_handle image_handle);
@@ -5684,6 +5685,7 @@ ZEST_API void zest_EndImmediateCommandBuffer(zest_context context);
 //Copy a buffer to another buffer. Generally this will be a staging buffer copying to a buffer on the GPU (device_buffer). You must specify
 //the size as well that you want to copy. Must be called inside a zest_BeginOneTimeCommandBuffer.
 ZEST_API zest_bool zest_imm_CopyBuffer(zest_context context, zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
+ZEST_API zest_bool zest_imm_CopyBufferToImage(zest_context context, zest_buffer src_buffer, zest_image_handle dst_image, zest_size size);
 //Copies an area of a zest_texture to another zest_texture
 ZEST_API zest_bool zest_imm_CopyImageToImage(zest_image_handle src_image, zest_image_handle target, int src_x, int src_y, int dst_x, int dst_y, int width, int height);
 ZEST_API zest_bool zest_imm_TransitionImage(zest_context context, zest_image_handle image, zest_image_layout new_layout, zest_uint base_mip_index, zest_uint mip_levels, zest_uint base_array_index, zest_uint layer_count);

@@ -1679,12 +1679,12 @@ unsigned int zest_GetDefaultThreadCount(void) {
 }
 
 // --Buffer & Memory Management
-void *zest_AllocateMemory(zest_context context, zest_size size) {
-    return ZEST__ALLOCATE(context->device->allocator, size);
+void *zest_AllocateMemory(zest_device device, zest_size size) {
+    return ZEST__ALLOCATE(device->allocator, size);
 }
 
-void zest_FreeMemory(zest_context context, void *allocation) {
-    ZEST__FREE(context->device->allocator, allocation);
+void zest_FreeMemory(zest_device device, void *allocation) {
+    ZEST__FREE(device->allocator, allocation);
 }
 
 void* zest__allocate_aligned(zloc_allocator *allocator, zest_size size, zest_size alignment) {
@@ -2071,6 +2071,15 @@ zest_bool zest_imm_CopyBuffer(zest_context context, zest_buffer src_buffer, zest
     ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
     ZEST_ASSERT(size <= dst_buffer->size);
 	context->device->platform->cmd_copy_buffer_one_time(src_buffer, dst_buffer, size);
+    return ZEST_TRUE;
+}
+
+zest_bool zest_imm_CopyBufferToImage(zest_context context, zest_buffer src_buffer, zest_image_handle dst_image, zest_size size) {
+	ZEST_ASSERT_HANDLE(context);		//Not a valid context handle
+    ZEST_ASSERT(size <= src_buffer->size);        //size must be less than or equal to the staging buffer size and the device buffer size
+    zest_image image = (zest_image)zest__get_store_resource_checked(dst_image.store, dst_image.value);
+    ZEST_ASSERT(size <= image->buffer->size);
+	context->device->platform->copy_buffer_to_image(src_buffer, src_buffer->buffer_offset, image, image->info.extent.width, image->info.extent.height);
     return ZEST_TRUE;
 }
 
@@ -7682,6 +7691,23 @@ zest_image_handle zest_CreateImage(zest_context context, zest_image_info_t *crea
 	image->default_view->handle.store = &device->resource_stores[zest_handle_type_views];
     return handle;
 } 
+
+zest_image_handle zest_CreateImageWithPixels(zest_context context, void *pixels, zest_size size, zest_image_info_t *create_info) {
+	ZEST_ASSERT_HANDLE(context);
+    ZEST_ASSERT(create_info->extent.width * create_info->extent.height * create_info->extent.depth > 0); //Image has 0 dimensions!
+    ZEST_ASSERT(create_info->flags, "You must set flags in the image info to specify how the image will be used. "
+                                    "For example you could use zest_image_preset_texture. Lookup the zest_image_flag_bits emum " 
+									"to see all the flags available.");
+	int channels, bytes_per_pixel;
+	zest_GetFormatPixelData(create_info->format, &channels, &bytes_per_pixel);
+	ZEST_ASSERT(size == create_info->extent.width * create_info->extent.height * bytes_per_pixel, "Size of pixels memory does not match the image info passed in to the function. Make sure you choose the correct format and width/height of the image.");
+	zest_image_handle image_handle = zest_CreateImage(context, create_info);
+
+	zest_buffer staging_buffer = zest_CreateStagingBuffer(context, size, pixels);
+	zest_CopyBitmapToImage(context, pixels, size, image_handle, create_info->extent.width, create_info->extent.height);
+
+	return image_handle;
+}
 
 void zest_FreeImage(zest_image_handle handle) {
 	if (!handle.value) return;

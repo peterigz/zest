@@ -2136,13 +2136,11 @@ zest_image_handle zest_CreateImageAtlas(zest_context context, zest_image_collect
 
     zest_size image_size = atlas->bitmap_array.total_mem_size;
 
-    zest_buffer staging_buffer = zest_CreateStagingBuffer(context, image_size, 0);
+    zest_buffer staging_buffer = zest_CreateStagingBuffer(context, image_size, atlas->bitmap_array.data);
 
     if (!staging_buffer) {
         goto cleanup;
     }
-
-	zest_StageData(atlas->bitmap_array.data, staging_buffer, atlas->bitmap_array.total_mem_size);
 
     zest_uint width = atlas->bitmap_array.meta[0].width;
     zest_uint height = atlas->bitmap_array.meta[0].height;
