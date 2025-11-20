@@ -7,7 +7,7 @@
 
 void InitImGuiApp(ImGuiApp *app) {
 	//Initialise Dear ImGui
-	app->imgui = zest_imgui_Initialise(app->context);
+	zest_imgui_Initialise(app->context, &app->imgui);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 
 	//Implement a dark style

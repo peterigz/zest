@@ -407,7 +407,7 @@ static inline void zloc__map(zloc_size size, zloc_index *fli, zloc_index *sli) {
 static inline void zloc__null_merge_callback(void *remote_user_data, zloc_header *block1, zloc_header *block2) { return; }
 void zloc__remote_merge_next_callback(void *remote_user_data, zloc_header *block1, zloc_header *block2);
 void zloc__remote_merge_prev_callback(void *remote_user_data, zloc_header *block1, zloc_header *block2);
-zloc_size zloc__get_remote_size(const zloc_header *block1);
+zloc_size zloc__get_remote_size(const zloc_header *block);
 static inline void zloc__null_split_callback(void *remote_user_data, zloc_header *block, zloc_header *trimmed, zloc_size remote_size) { return; }
 static inline void zloc__null_add_pool_callback(void *remote_user_data, void *block) { return; }
 static inline void zloc__null_unable_to_reallocate_callback(void *remote_user_data, zloc_header *block, zloc_header *new_block) { return; }
@@ -1878,11 +1878,12 @@ typedef enum zest_buffer_upload_flag_bits {
 
 typedef zest_uint zest_buffer_upload_flags;
 
-typedef enum zest_memory_pool_flags {
-	zest_memory_pool_flag_none,
-	zest_memory_pool_flag_single_buffer,
-} zest_memory_pool_flags;
+typedef enum zest_memory_pool_flags_bits{
+	zest_memory_pool_flag_none = 0,
+	zest_memory_pool_flag_single_buffer = 1 << 0,
+} zest_memory_pool_flag_bits;
 
+typedef zest_uint zest_memory_pool_flags;
 typedef zest_uint zest_buffer_flags;
 
 typedef enum zest_command_buffer_flag_bits {
@@ -2351,6 +2352,7 @@ typedef struct zest_swapchain_backend_t zest_swapchain_backend_t;
 typedef struct zest_queue_backend_t zest_queue_backend_t;
 typedef struct zest_context_queue_backend_t zest_context_queue_backend_t;
 typedef struct zest_command_list_backend_t zest_command_list_backend_t;
+typedef struct zest_buffer_allocator_backend_t zest_buffer_allocator_backend_t;
 typedef struct zest_device_memory_pool_backend_t zest_device_memory_pool_backend_t;
 typedef struct zest_buffer_backend_t zest_buffer_backend_t;
 typedef struct zest_uniform_buffer_backend_t zest_uniform_buffer_backend_t;
@@ -2412,6 +2414,7 @@ ZEST__MAKE_HANDLE(zest_queue_backend)
 ZEST__MAKE_HANDLE(zest_context_queue_backend)
 ZEST__MAKE_HANDLE(zest_command_list_backend)
 ZEST__MAKE_HANDLE(zest_frame_graph_semaphores_backend)
+ZEST__MAKE_HANDLE(zest_buffer_allocator_backend)
 ZEST__MAKE_HANDLE(zest_device_memory_pool_backend)
 ZEST__MAKE_HANDLE(zest_buffer_backend)
 ZEST__MAKE_HANDLE(zest_uniform_buffer_backend)
@@ -3100,14 +3103,12 @@ typedef struct zest_debug_t {
 typedef struct zest_device_memory_pool_t {
 	int magic;
 	zest_context context;
-	zest_memory_pool_flags flags;
 	zest_device_memory_pool_backend backend;
 	zest_size size;
 	zest_size minimum_allocation_size;
 	zest_size alignment;
 	zest_uint memory_type_index;
 	void* mapped;
-	const char *name;
 } zest_device_memory_pool_t;
 
 typedef struct zest_buffer_info_t {
@@ -3139,9 +3140,8 @@ typedef struct zest_buffer_pool_size_t {
 } zest_buffer_pool_size_t;
 
 typedef struct zest_buffer_usage_t {
-	zest_buffer_usage_flags buffer_usage_flags;
 	zest_memory_property_flags property_flags;
-	zest_image_usage_flags image_flags;
+	zest_uint memory_type_index;
 } zest_buffer_usage_t;
 
 zest_hash_map(zest_buffer_pool_size_t) zest_map_buffer_pool_sizes;
@@ -3156,6 +3156,11 @@ typedef struct zest_buffer_details_t {
 	zest_size memory_in_use;
 } zest_buffer_details_t;
 
+typedef struct zest_memory_requirements_t {
+	zest_size alignment;
+	zest_size size;
+} zest_memory_requirements_t;
+
 typedef struct zest_buffer_t {
 	zest_size size;
 	zest_size memory_offset;
@@ -3166,6 +3171,7 @@ typedef struct zest_buffer_t {
 	zest_device_memory_pool memory_pool;
 	zest_buffer_allocator buffer_allocator;
 	zest_size memory_in_use;
+	zest_size alignment;
 	zest_uint array_index;
 	void *data;
 	void *end;
@@ -4439,11 +4445,14 @@ typedef struct zest_platform_t {
 	zest_bool                  (*acquire_swapchain_image)(zest_swapchain swapchain);
 	void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
 	//Buffer and memory
-	zest_bool                  (*create_buffer_memory_pool)(zest_context context, zest_size size, zest_buffer_info_t *buffer_info, zest_device_memory_pool memory_pool, const char *name);
+	void*                      (*create_buffer_allocator_backend)(zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
+	zest_bool                  (*add_buffer_memory_pool)(zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
 	zest_bool                  (*create_image_memory_pool)(zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
 	void 		               (*unmap_memory)(zest_device_memory_pool memory_allocation);
-	void					   (*set_buffer_backend_details)(zest_buffer buffer);
+	void 					   (*bind_buffer_memory)(zest_device device, zest_buffer buffer);
+	zest_memory_requirements_t (*prepare_buffer_backend_details)(zest_context context, zest_buffer_allocator allocator, zest_buffer_info_t *buffer_info, zest_size size, zest_buffer_backend backend);
+	void 					   (*set_buffer_backend_details)(zest_context context, zest_buffer_allocator allocator, zest_size size, zest_buffer buffer);
 	void					   (*flush_used_buffers)(zest_context context, zest_uint fif);
 	void					   (*cmd_copy_buffer_one_time)(zest_buffer src_buffer, zest_buffer dst_buffer, zest_size size);
 	void					   (*push_buffer_for_freeing)(zest_buffer buffer);
@@ -4515,6 +4524,7 @@ typedef struct zest_platform_t {
 	void                       (*cleanup_image_backend)(zest_image image);
 	void                       (*cleanup_image_view_backend)(zest_image_view image_view);
 	void                       (*cleanup_image_view_array_backend)(zest_image_view_array image_view);
+	void                       (*cleanup_buffer_allocator_backend)(zest_buffer_allocator buffer_allocator);
 	void                       (*cleanup_memory_pool_backend)(zest_device_memory_pool memory_allocation);
 	void                       (*cleanup_device_backend)(zest_device device);
 	void                       (*cleanup_buffer_backend)(zest_buffer buffer);
@@ -4732,7 +4742,8 @@ ZEST_PRIVATE inline void *zest__reallocate(zloc_allocator *allocator, void *memo
 	return allocation;
 }
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
-ZEST_PRIVATE zest_bool zest__create_memory_pool(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
+ZEST_PRIVATE zest_bool zest__create_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
+ZEST_PRIVATE zest_bool zest__add_memory_pool(zest_context context, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__set_buffer_details(zest_context context, zest_buffer_allocator buffer_allocator, zest_buffer buffer, zest_bool is_host_visible);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
@@ -5106,18 +5117,13 @@ ZEST_API void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer 
 
 //Get the default pool size that is set for a specific pool hash.
 //Todo: is this needed?
-ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_context context, zest_key hash);
+ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSizeKey(zest_context context, zest_key hash);
 //Get the default pool size that is set for a specific combination of usage, property and image flags
-ZEST_API zest_buffer_pool_size_t zest_GetDeviceBufferPoolSize(zest_context context, zest_buffer_usage_flags buffer_usage_flags, zest_memory_property_flags property_flags, zest_image_usage_flags image_flags);
-//Get the default pool size for an image pool.
-ZEST_API zest_buffer_pool_size_t zest_GetDeviceImagePoolSize(zest_context context, const char *name);
+ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_context context, zest_memory_property_flags property_flags);
 //Set the default pool size for a specific type of buffer set by the usage and property flags. You must call this before you call zest_Initialise
 //otherwise it might not take effect on any buffers that are created during initialisation.
 //Note that minimum allocation size may get overridden if it is smaller than the alignment reported by vkGetBufferMemoryRequirements at pool creation
-ZEST_API void zest_SetDeviceBufferPoolSize(zest_device device, const char *name, zest_buffer_usage_flags buffer_usage_flags, zest_memory_property_flags property_flags, zest_size minimum_allocation, zest_size pool_size);
-//Set the default pool size for images. based on image usage and property flags.
-//Note that minimum allocation size may get overridden if it is smaller than the alignment reported by vkGetImageMemoryRequirements at pool creation
-ZEST_API void zest_SetDeviceImagePoolSize(zest_device device, const char *name, zest_image_usage_flags image_flags, zest_memory_property_flags property_flags, zest_size minimum_allocation, zest_size pool_size);
+ZEST_API void zest_SetDevicePoolSize(zest_device device, const char *name, zest_memory_property_flags property_flags, zest_size minimum_allocation, zest_size pool_size);
 //Create a buffer specifically for use as a uniform buffer. This will also create a descriptor set for the uniform
 //buffers as well so it's ready for use in shaders.
 ZEST_API zest_uniform_buffer_handle zest_CreateUniformBuffer(zest_context context, const char *name, zest_size uniform_struct_size);

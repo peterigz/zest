@@ -9,6 +9,7 @@ typedef struct minimal_app_t {
 
 void MainLoop(minimal_app_t *app) {
 	// Begin Render Graph Definition
+	zest_buffer buffer = zest_CreateStagingBuffer(app->context, 64000, 0);
 	while (!glfwWindowShouldClose((GLFWwindow*)zest_Window(app->context))) {
 		glfwPollEvents();
 		zest_frame_graph_cache_key_t cache_key = zest_InitialiseCacheKey(app->context, 0, 0);
@@ -30,6 +31,7 @@ void MainLoop(minimal_app_t *app) {
 			zest_EndFrame(app->context);
 		}
 	}
+	zest_FreeBuffer(buffer);
 }
 
 #if defined(_WIN32)
