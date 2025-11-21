@@ -1721,8 +1721,11 @@ void zest__on_split_block(void* user_data, zloc_header* block, zloc_header* trim
     zest_buffer_allocator_t* buffer_allocator = (zest_buffer_allocator_t*)user_data;
     zest_buffer buffer = (zest_buffer)zloc_BlockUserExtensionPtr(block);
     zest_buffer trimmed_buffer = (zest_buffer)zloc_BlockUserExtensionPtr(trimmed_block);
+	zest_size offset_diff = 0;
 	if (zest__current_remote_alignment > 0) {
+		offset_diff = buffer->memory_offset;
 		buffer->memory_offset = (buffer->memory_offset + zest__current_remote_alignment - 1) & ~(zest__current_remote_alignment - 1);
+		offset_diff = buffer->memory_offset - offset_diff;
 	}
     trimmed_buffer->size = buffer->size - remote_size;
     buffer->size = remote_size;
@@ -1992,11 +1995,11 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
 	zest__current_remote_alignment = requirements.alignment;
 	//ZEST_PRINT("Allocating from %s. Buffer alignment: %zu.", buffer_allocator->name, requirements.alignment);
     zest_buffer buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, requirements.size, requirements.alignment);
-	if (requirements.alignment > 0) {
-		//Buffer must be aligned
-		ZEST_ASSERT(buffer->memory_offset % requirements.alignment == 0);
-	}
     if (buffer) {
+		if (requirements.alignment > 0) {
+			//Buffer must be aligned
+			ZEST_ASSERT(buffer->memory_offset % requirements.alignment == 0);
+		}
 		buffer->backend = backend;
 		zest__set_buffer_details(context, buffer_allocator, buffer, buffer_info->property_flags & zest_memory_property_host_visible_bit);
     } else {
@@ -2005,12 +2008,15 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
             return 0;
         }
 
-        zest__add_remote_range_pool(buffer_allocator, buffer_pool);
         buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, requirements.size, requirements.alignment);
         if (!buffer) {    //Unable to allocate memory. Out of memory?
             ZEST_APPEND_LOG(context->device->log_path.str, "Unable to allocate %zu of memory.", size);
             return 0;
         }
+		if (requirements.alignment > 0) {
+			//Buffer must be aligned
+			ZEST_ASSERT(buffer->memory_offset % requirements.alignment == 0);
+		}
 		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %zu. ", buffer_allocator->name, (size_t)buffer_pool->size);
 		buffer->backend = backend;
         zest__set_buffer_details(context, buffer_allocator, buffer, buffer_info->property_flags & zest_memory_property_host_visible_bit);
