@@ -374,7 +374,7 @@ ZLOC_API zloc_pool_stats_t zloc_CreateMemorySnapshot(zloc_header *first_block);
 ZLOC_API zloc_allocator *zloc_InitialiseAllocatorForRemote(void *memory);
 ZLOC_API void zloc_SetBlockExtensionSize(zloc_allocator *allocator, zloc_size size);
 ZLOC_API int zloc_FreeRemote(zloc_allocator *allocator, void *allocation);
-ZLOC_API void *zloc_AllocateRemote(zloc_allocator *allocator, zloc_size remote_size);
+ZLOC_API void *zloc_AllocateRemote(zloc_allocator *allocator, zloc_size remote_size, zloc_size remote_alignment);
 ZLOC_API zloc_size zloc_CalculateRemoteBlockPoolSize(zloc_allocator *allocator, zloc_size remote_pool_size);
 ZLOC_API void zloc_AddRemotePool(zloc_allocator *allocator, void *block_memory, zloc_size block_memory_size, zloc_size remote_pool_size);
 ZLOC_API void* zloc_BlockUserExtensionPtr(const zloc_header *block);
@@ -1883,6 +1883,11 @@ typedef enum zest_memory_pool_flags_bits{
 	zest_memory_pool_flag_single_buffer = 1 << 0,
 } zest_memory_pool_flag_bits;
 
+typedef enum zest_memory_type {
+	zest_memory_type_buffer,
+	zest_memory_type_image,
+} zest_memory_type;
+
 typedef zest_uint zest_memory_pool_flags;
 typedef zest_uint zest_buffer_flags;
 
@@ -3141,6 +3146,7 @@ typedef struct zest_buffer_pool_size_t {
 
 typedef struct zest_buffer_usage_t {
 	zest_memory_property_flags property_flags;
+	zest_memory_type memory_type;
 	zest_uint memory_type_index;
 } zest_buffer_usage_t;
 
@@ -4870,6 +4876,8 @@ ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait(zest_context context);
 
 // Enum_to_string_functions - Helper functions to convert enums to strings 
 ZEST_PRIVATE const char *zest__image_layout_to_string(zest_image_layout layout);
+ZEST_PRIVATE const char *zest__memory_property_to_string(zest_memory_property_flags property_flags);
+ZEST_PRIVATE const char *zest__memory_type_to_string(zest_memory_type memory_type);
 ZEST_PRIVATE zest_text_t zest__access_flags_to_string(zest_context context, zest_access_flags flags);
 ZEST_PRIVATE zest_text_t zest__pipeline_stage_flags_to_string(zest_context context, zest_pipeline_stage_flags flags);
 // -- end Enum_to_string_functions
@@ -5123,7 +5131,7 @@ ZEST_API zest_buffer_pool_size_t zest_GetDevicePoolSize(zest_context context, ze
 //Set the default pool size for a specific type of buffer set by the usage and property flags. You must call this before you call zest_Initialise
 //otherwise it might not take effect on any buffers that are created during initialisation.
 //Note that minimum allocation size may get overridden if it is smaller than the alignment reported by vkGetBufferMemoryRequirements at pool creation
-ZEST_API void zest_SetDevicePoolSize(zest_device device, const char *name, zest_memory_property_flags property_flags, zest_size minimum_allocation, zest_size pool_size);
+ZEST_API void zest_SetDevicePoolSize(zest_device device, const char *name, zest_buffer_usage_t property_flags, zest_size minimum_allocation, zest_size pool_size);
 //Create a buffer specifically for use as a uniform buffer. This will also create a descriptor set for the uniform
 //buffers as well so it's ready for use in shaders.
 ZEST_API zest_uniform_buffer_handle zest_CreateUniformBuffer(zest_context context, const char *name, zest_size uniform_struct_size);
@@ -6189,9 +6197,9 @@ zloc_allocator *zloc_InitialiseAllocatorForRemote(void *memory) {
 	return allocator;
 }
 
-void *zloc_AllocateRemote(zloc_allocator *allocator, zloc_size remote_size) {
+void *zloc_AllocateRemote(zloc_allocator *allocator, zloc_size remote_size, zloc_size remote_alignment) {
 	ZLOC_ASSERT(allocator->minimum_allocation_size > 0);
-	remote_size = zloc__adjust_size(remote_size, allocator->minimum_allocation_size, zloc__MEMORY_ALIGNMENT);
+	remote_size = zloc__adjust_size(remote_size + remote_alignment, allocator->minimum_allocation_size, zloc__MEMORY_ALIGNMENT);
 	void* allocation = zloc__allocate(allocator, (remote_size / allocator->minimum_allocation_size) * (allocator->block_extension_size + zloc__BLOCK_POINTER_OFFSET), remote_size);
 	return allocation ? (char*)allocation + zloc__MINIMUM_BLOCK_SIZE : 0;
 }

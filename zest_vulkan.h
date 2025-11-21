@@ -4863,11 +4863,12 @@ void *zest__vk_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint sema
 }
 
 void *zest__vk_get_resource_ptr(zest_resource_node resource) {
-	if (ZEST__FLAGGED(resource->type, zest_resource_type_is_image)) {
+	if (ZEST__FLAGGED(resource->type, zest_resource_type_is_image) && resource->image.backend) {
 		return (void*)resource->image.backend->vk_image;
-	} else {
+	} else if(resource->storage_buffer && resource->storage_buffer->backend){
 		return (void*)resource->storage_buffer->backend->vk_buffer;
 	}
+    return NULL;
 }
 
 

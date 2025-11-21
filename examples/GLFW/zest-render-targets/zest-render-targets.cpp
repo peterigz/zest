@@ -331,11 +331,9 @@ void Mainloop(render_target_app_t *example) {
 
 					//End and execute the render graph
 					frame_graph = zest_EndFrameGraph();
-					zest_QueueFrameGraphForExecution(example->context, frame_graph);
 				}
-			} else {
-				zest_QueueFrameGraphForExecution(example->context, frame_graph);
 			}
+			zest_QueueFrameGraphForExecution(example->context, frame_graph);
 			zest_EndFrame(example->context);
 			static bool printed = false;
 			if (!printed) {
