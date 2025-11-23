@@ -1441,7 +1441,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
         ZEST_PRINT("Validation Layer: %s / %i", pCallbackData->pMessage, pCallbackData->messageIdNumber);
         ZEST_PRINT("-------------------------------------------------------");
     }
-    if (pCallbackData->messageIdNumber == 1219306694) {
+    if (pCallbackData->messageIdNumber == 747400829) {
         int d = 0;
     }
     if (ZEST__FLAGGED(device->init_flags, zest_init_flag_log_validation_errors_to_memory)) {
@@ -4474,7 +4474,7 @@ void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource
         src_current_layout,
         src->image.info.aspect_flags,
         mip_to_copy, 1);
-	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_dst_barrier);
+	zest__vk_pipeline_barrier2(command_list->context->device, command_list->backend->command_buffer, 0, 0, 0, 0, 0, 1, &blit_src_barrier);
 
     blit_dst_barrier = zest__vk_create_image_memory_barrier(dst_image,
         VK_ACCESS_2_TRANSFER_WRITE_BIT,
