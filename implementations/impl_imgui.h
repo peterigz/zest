@@ -36,6 +36,8 @@ typedef struct zest_imgui_t {
     zest_buffer index_staging_buffer[ZEST_MAX_FIF];
     zest_buffer vertex_device_buffer[ZEST_MAX_FIF];
     zest_buffer index_device_buffer[ZEST_MAX_FIF];
+	zest_size vertex_memory_in_use;
+	zest_size index_memory_in_use;
     zest_uint fif;
     zest_uint dirty[ZEST_MAX_FIF];
     zest_imgui_push_t push_constants;

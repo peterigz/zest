@@ -162,7 +162,7 @@ void zest_UpsampleCompute(zest_command_list command_list, void *user_data) {
 	zest_uint mip_levels = zest_GetResourceMipLevels(upsampler_target);
 	zest_uint mip_to_blit = mip_levels - 1;
 
-	zest_cmd_CopyImageMip(command_list, downsampler_target, upsampler_target, mip_to_blit, zest_pipeline_compute_stage);
+	zest_cmd_CopyImageMip(command_list, downsampler_target, upsampler_target, mip_to_blit, zest_pipeline_stage_compute_shader_bit);
 
 	// Bind the pipeline once before the loop
 	zest_cmd_BindComputePipeline(command_list, example->upsampler_compute, sets, 1);
@@ -354,6 +354,7 @@ void Mainloop(render_target_app_t *example) {
 //int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR pCmdLine, int nCmdShow)
 int main()
 {
+	ZEST_PRINT("%zu", sizeof(zest_buffer_t));
 	//Make a config struct where you can configure zest with some options
 	//zest_create_info_t create_info = zest_CreateInfoWithValidationLayers(zest_validation_flag_enable_sync);
 	zest_create_info_t create_info = zest_CreateInfo();

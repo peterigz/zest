@@ -132,6 +132,7 @@ void InitComputeExample(ComputeExample *app) {
 
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);
+	app->request_graph_print = true;
 }
 
 void RecordComputeSprites(zest_command_list command_list, void *user_data) {
@@ -180,7 +181,7 @@ void UpdateComputeUniformBuffers(ComputeExample *app) {
 	ComputeUniformBuffer *uniform = (ComputeUniformBuffer*)zest_GetUniformBufferData(app->compute_uniform_buffer);
 	uniform->deltaT = app->frame_timer * 2.5f;
 	uniform->particleCount = PARTICLE_COUNT;
-	uniform->particle_buffer_index = app->particle_buffer->array_index;
+	uniform->particle_buffer_index = app->particle_buffer_index;
 	if (!app->attach_to_cursor) {
 		uniform->dest_x = sinf(Radians(app->timer * 360.0f)) * 0.75f;
 		uniform->dest_y = 0.0f;
@@ -280,6 +281,7 @@ void MainLoop(ComputeExample *app) {
 					}
 					//--------------------------------------------------------------------------------------------------
 
+					/*
 					//------------------------ ImGui Pass ----------------------------------------------------------------
 					//If there's imgui to draw then draw it
 					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui); {
@@ -289,6 +291,7 @@ void MainLoop(ComputeExample *app) {
 						}
 					}
 					//----------------------------------------------------------------------------------------------------
+					*/
 
 					frame_graph = zest_EndFrameGraph();
 					zest_QueueFrameGraphForExecution(app->context, frame_graph);
@@ -296,6 +299,7 @@ void MainLoop(ComputeExample *app) {
 			} else {
 				zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			}
+
 			if (app->request_graph_print) {
 				zest_PrintCompiledFrameGraph(frame_graph);
 				app->request_graph_print = false;

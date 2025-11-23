@@ -188,16 +188,15 @@ void MainLoop(ImGuiApp *app) {
 					zest_EndPass();
 					//----------------------------------------------------------------------------------------------------
 					//End the render graph and execute it. This will submit it to the GPU.
-					zest_frame_graph render_graph = zest_EndFrameGraph();
+					frame_graph = zest_EndFrameGraph();
 				}
-			} else {
-				zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			}
 			if (app->request_graph_print) {
 				//You can print out the render graph for debugging purposes
 				zest_PrintCompiledFrameGraph(frame_graph);
 				app->request_graph_print = false;
 			}
+			zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			zest_EndFrame(app->context);
 		}
 	}

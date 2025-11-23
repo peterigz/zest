@@ -58,8 +58,6 @@ void zest_imgui_Initialise(zest_context context, zest_imgui_t *imgui) {
 
 	zest_buffer_info_t vertex_info = zest_CreateBufferInfo(zest_buffer_type_vertex, zest_memory_usage_gpu_only);
 	zest_buffer_info_t index_info = zest_CreateBufferInfo(zest_buffer_type_index, zest_memory_usage_gpu_only);
-	vertex_info.unique_id = 0xDEA41;
-	index_info.unique_id = 0xDEA41;
 
     zest_ForEachFrameInFlight(fif) {
 		vertex_info.frame_in_flight = fif;
@@ -145,9 +143,9 @@ void zest_imgui_UploadImGuiPass(const zest_command_list command_list, void *user
     zest_buffer_uploader_t index_upload = { 0, staging_index, index_buffer, 0 };
     zest_buffer_uploader_t vertex_upload = { 0, staging_vertex, vertex_buffer, 0 };
 
-    if (zest_BufferMemoryInUse(staging_vertex) && zest_BufferMemoryInUse(staging_index)) {
-        zest_AddCopyCommand(&vertex_upload, staging_vertex, vertex_buffer, 0);
-        zest_AddCopyCommand(&index_upload, staging_index, index_buffer, 0);
+    if (imgui->vertex_memory_in_use && imgui->index_memory_in_use) {
+        zest_AddCopyCommand(&vertex_upload, staging_vertex, vertex_buffer, imgui->vertex_memory_in_use);
+        zest_AddCopyCommand(&index_upload, staging_index, index_buffer, imgui->index_memory_in_use);
     }
 
     zest_uint vertex_size = zest_vec_size(vertex_upload.buffer_copies);
@@ -288,9 +286,6 @@ void zest_imgui_UpdateBuffers(zest_imgui_t *imgui) {
 
 	imgui->fif = (imgui->fif + 1) % ZEST_MAX_FIF;
 	zest_FreeBuffer(imgui->vertex_staging_buffer[imgui->fif]);
-	if (imgui->index_staging_buffer[imgui->fif]) {
-		ZEST_ASSERT(imgui->index_staging_buffer[imgui->fif]->magic);
-	}
 	zest_FreeBuffer(imgui->index_staging_buffer[imgui->fif]);
 
 	zest_context context = imgui->context;
@@ -303,8 +298,8 @@ void zest_imgui_UpdateBuffers(zest_imgui_t *imgui) {
 		imgui->index_staging_buffer[imgui->fif] = zest_CreateStagingBuffer(context, index_memory_in_use, 0);
 		zest_buffer staging_vertex_buffer = imgui->vertex_staging_buffer[imgui->fif];
 		zest_buffer staging_index_buffer = imgui->index_staging_buffer[imgui->fif];
-        zest_SetBufferMemoryInUse(staging_vertex_buffer, vertex_memory_in_use);
-        zest_SetBufferMemoryInUse(staging_index_buffer, index_memory_in_use);
+		imgui->vertex_memory_in_use = vertex_memory_in_use;
+		imgui->index_memory_in_use = index_memory_in_use;
 		zest_buffer device_vertex_buffer = imgui->vertex_device_buffer[imgui->fif];
 		zest_buffer device_index_buffer = imgui->index_device_buffer[imgui->fif];
         ZEST_ASSERT(staging_vertex_buffer); //Make sure you call zest_imgui_Initialise first!
@@ -313,12 +308,12 @@ void zest_imgui_UpdateBuffers(zest_imgui_t *imgui) {
 		imgui->push_constants.transform = zest_Vec4Set(2.0f / zest_ScreenWidthf(context), 2.0f / zest_ScreenHeightf(context), -1.f, -1.f);
 
         if (index_memory_in_use > zest_BufferSize(device_index_buffer)) {
-            if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), zest_BufferMemoryInUse(staging_index_buffer))) {
+            if (zest_GrowBuffer(&device_index_buffer, sizeof(ImDrawIdx), index_memory_in_use)) {
 				imgui->index_device_buffer[imgui->fif] = device_index_buffer;
             }
         }
         if (vertex_memory_in_use > zest_BufferSize(device_vertex_buffer)) {
-            if (zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawVert), zest_BufferMemoryInUse(staging_vertex_buffer))) {
+            if (zest_GrowBuffer(&device_vertex_buffer, sizeof(ImDrawVert), vertex_memory_in_use)) {
 				imgui->vertex_device_buffer[imgui->fif] = device_vertex_buffer;
             }
         }
