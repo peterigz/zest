@@ -359,6 +359,7 @@ typedef struct zest_device_backend_t {
     PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugUtilsObjectNameEXT;
     PFN_vkCmdBeginRenderingKHR pfn_vkCmdBeginRendering;
     PFN_vkCmdEndRenderingKHR pfn_vkCmdEndRendering;
+    PFN_vkQueueSubmit2KHR pfn_vkQueueSubmit2;
     PFN_vkCmdPipelineBarrier2KHR pfn_vkCmdPipelineBarrier2;
     VkFormat color_format;
     VkResult last_result;
@@ -1361,9 +1362,10 @@ zest_bool zest__vk_present_frame(zest_context context) {
     presentInfo.waitSemaphoreCount = 1;
     presentInfo.pWaitSemaphores = &swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
     VkSwapchainKHR swapChains[] = { swapchain->backend->vk_swapchain };
+	zest_uint image_index[] = { swapchain->current_image_frame };
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = swapChains;
-    presentInfo.pImageIndices = &swapchain->current_image_frame;
+    presentInfo.pImageIndices = image_index;
     presentInfo.pResults = ZEST_NULL;
 
     VkResult result = vkQueuePresentKHR(context->device->graphics_queue.backend->vk_queue, &presentInfo);
@@ -1441,7 +1443,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL zest__vk_debug_callback(VkDebugUtilsMessag
         ZEST_PRINT("Validation Layer: %s / %i", pCallbackData->pMessage, pCallbackData->messageIdNumber);
         ZEST_PRINT("-------------------------------------------------------");
     }
-    if (pCallbackData->messageIdNumber == 747400829) {
+    if (pCallbackData->messageIdNumber == 1219306694) {
         int d = 0;
     }
     if (ZEST__FLAGGED(device->init_flags, zest_init_flag_log_validation_errors_to_memory)) {
@@ -1973,6 +1975,7 @@ zest_bool zest__vk_create_logical_device(zest_device device) {
     device->backend->pfn_vkCmdBeginRendering = (PFN_vkCmdBeginRenderingKHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdBeginRenderingKHR");
     device->backend->pfn_vkCmdEndRendering = (PFN_vkCmdEndRenderingKHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdEndRenderingKHR");
     device->backend->pfn_vkCmdPipelineBarrier2 = (PFN_vkCmdPipelineBarrier2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkCmdPipelineBarrier2KHR");
+    device->backend->pfn_vkQueueSubmit2 = (PFN_vkQueueSubmit2KHR)vkGetDeviceProcAddr(device->backend->logical_device, "vkQueueSubmit2KHR");
 
     device->graphics_queue.backend = (zest_queue_backend)zest__vk_new_queue_backend(device);
     device->compute_queue.backend = (zest_queue_backend)zest__vk_new_queue_backend(device);
@@ -3992,7 +3995,14 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 
     VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
     submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer; // Use the CB we just recorded
+	submit_info.pCommandBuffers = &command_buffer; // Use the CB we just recorded
+
+	VkCommandBufferSubmitInfo command_buffer_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+	command_buffer_info.commandBuffer = command_buffer;
+
+	VkSubmitInfo2 submit_info2 = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+	submit_info2.commandBufferInfoCount = 1;
+	submit_info2.pCommandBufferInfos = &command_buffer_info;
 
     // Set signal semaphores for this batch
     zest_context_queue queue = batch->queue;
@@ -4074,11 +4084,24 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     timeline_info.waitSemaphoreValueCount = zest_vec_size(wait_values);
     timeline_info.pWaitSemaphoreValues = wait_values;
 
+	VkSemaphoreSubmitInfo *wait_semaphore_infos = 0;
+	VkSemaphoreSubmitInfo *signal_semaphore_infos = 0;
+
     // Set wait semaphores for this batch
     if (wait_semaphores) {
         submit_info.waitSemaphoreCount = zest_vec_size(wait_semaphores);
         submit_info.pWaitSemaphores = wait_semaphores;
-        submit_info.pWaitDstStageMask = wait_stages; // Needs to be correctly set
+		submit_info.pWaitDstStageMask = wait_stages; // Needs to be correctly set
+
+		zest_vec_foreach(i, wait_semaphores) {
+			VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+			wait_info.semaphore = wait_semaphores[i];
+			wait_info.stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+			wait_info.value = wait_values[i];
+			zest_vec_linear_push(allocator, wait_semaphore_infos, wait_info);
+		}
+        submit_info2.waitSemaphoreInfoCount = zest_vec_size(wait_semaphore_infos);
+        submit_info2.pWaitSemaphoreInfos = wait_semaphore_infos;
     }
 
     //push any additional binary semaphores in the batch
@@ -4118,7 +4141,19 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     submit_info.pSignalSemaphores = signal_semaphores;
     submit_info.pNext = &timeline_info;
 
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkQueueSubmit(batch->queue->queue->backend->vk_queue, 1, &submit_info, submit_fence));
+	zest_vec_foreach(i, signal_semaphores) {
+		VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+		signal_info.semaphore = signal_semaphores[i];
+		signal_info.value = signal_values[i];
+		signal_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		zest_vec_linear_push(allocator, signal_semaphore_infos, signal_info);
+	}
+
+	submit_info2.signalSemaphoreInfoCount = zest_vec_size(signal_semaphore_infos);
+	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
+
+	context->device->backend->pfn_vkQueueSubmit2(batch->queue->queue->backend->vk_queue, 1, &submit_info2, submit_fence);
+    //ZEST_RETURN_FALSE_ON_FAIL(context->device, vkQueueSubmit(batch->queue->queue->backend->vk_queue, 1, &submit_info, submit_fence));
     ZEST__FLAG(context->flags, zest_context_flag_work_was_submitted);
 
     batch->backend->final_wait_semaphores = wait_semaphores;

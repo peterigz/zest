@@ -113,7 +113,7 @@ void zest_tfx_InitTimelineFXRenderResources(zest_device device, zest_context con
 	//This means that we are able to only change the current frame in flight if we actually updated the particle manager in the current
 	//frame allowing us to dictate when to upload the instance buffer to the gpu as there's no need to do it every frame, only when 
 	//the particle manager is actually updated.
-	resources->layer = zest_CreateFIFInstanceLayer(context, "TimelineFX Layer", sizeof(tfx_instance_t), ZEST_FIXED_LOOP_BUFFER);
+	resources->layer = zest_CreateFIFInstanceLayer(context, "TimelineFX Layer", sizeof(tfx_instance_t));
 	zest_AcquireInstanceLayerBufferIndex(context, resources->layer);
 
 	zest_sampler_info_t sampler_info = zest_CreateSamplerInfo();
@@ -168,7 +168,7 @@ void zest_tfx_DrawParticleLayer(const zest_command_list command_list, void *user
 		push_constants->color_ramp_texture_index = tfx_resources->color_ramps_index;
 		push_constants->particle_texture_index = tfx_resources->particle_texture_index;
 		push_constants->sampler_index = tfx_resources->sampler_index;
-		push_constants->image_data_index = zest_GetBufferDescriptorIndex(tfx_resources->image_data);
+		push_constants->image_data_index = tfx_resources->image_data_index;
 		push_constants->prev_billboards_index = zest_GetLayerVertexDescriptorIndex(tfx_resources->layer, true);
 
 		zest_cmd_SendPushConstants(command_list, pipeline, push_constants);

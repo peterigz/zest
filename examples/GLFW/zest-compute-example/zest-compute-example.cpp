@@ -258,13 +258,13 @@ void MainLoop(ComputeExample *app) {
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(app->context, "Compute Particles", &cache_key)) {
+				if (zest_BeginFrameGraph(app->context, "Compute Particles", 0)) {
 					//Resources
 					zest_resource_node particle_buffer = zest_ImportBufferResource("particle buffer", app->particle_buffer, 0);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
 
 					//---------------------------------Compute Pass-----------------------------------------------------
-					zest_pass_node compute_pass = zest_BeginComputePass(app->compute, "Compute Particles"); {
+					zest_BeginComputePass(app->compute, "Compute Particles"); {
 						zest_ConnectInput(particle_buffer);
 						zest_ConnectOutput(particle_buffer);
 						zest_SetPassTask(RecordComputeCommands, app);
@@ -273,7 +273,7 @@ void MainLoop(ComputeExample *app) {
 					//--------------------------------------------------------------------------------------------------
 
 					//---------------------------------Render Pass------------------------------------------------------
-					zest_pass_node render_pass = zest_BeginRenderPass("Graphics Pass"); {
+					zest_BeginRenderPass("Graphics Pass"); {
 						zest_ConnectInput(particle_buffer);
 						zest_ConnectSwapChainOutput();
 						zest_SetPassTask(RecordComputeSprites, app);
@@ -291,6 +291,12 @@ void MainLoop(ComputeExample *app) {
 						}
 					}
 					//----------------------------------------------------------------------------------------------------
+
+					zest_BeginGraphicBlankScreen("Draw Nothing"); {
+						zest_ConnectInput(particle_buffer);
+						zest_ConnectSwapChainOutput();
+						zest_EndPass();
+					}
 					*/
 
 					frame_graph = zest_EndFrameGraph();
@@ -300,10 +306,10 @@ void MainLoop(ComputeExample *app) {
 				zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			}
 
-			if (app->request_graph_print) {
+			//if (app->request_graph_print) {
 				zest_PrintCompiledFrameGraph(frame_graph);
 				app->request_graph_print = false;
-			}
+			//}
 			zest_EndFrame(app->context);
 		}
 	}

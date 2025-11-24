@@ -28,6 +28,7 @@ void MainLoop(minimal_app_t *app) {
 			} else {
 				zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			}
+			//zest_PrintCompiledFrameGraph(frame_graph);
 			zest_EndFrame(app->context);
 		}
 	}

@@ -4720,7 +4720,7 @@ ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation
 ZEST_PRIVATE zest_bool zest__create_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE zest_bool zest__add_memory_pool(zest_context context, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
-ZEST_PRIVATE void zest__set_buffer_details(zest_context context, zest_buffer_allocator buffer_allocator, zest_buffer buffer, zest_bool is_host_visible);
+ZEST_PRIVATE void zest__set_buffer_details(zest_context context, zest_buffer_allocator buffer_allocator, zest_buffer buffer);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
 //End Buffer Management
 
@@ -6164,10 +6164,10 @@ zloc_allocator *zloc_InitialiseAllocatorForRemote(void *memory) {
 	return allocator;
 }
 
-void *zloc_AllocateRemote(zloc_allocator *allocator, zloc_size remote_size, zloc_size remote_alignment) {
+void *zloc_AllocateRemote(zloc_allocator *allocator, zloc_size remote_size) {
 	ZLOC_ASSERT(allocator->minimum_allocation_size > 0);
-	zest_size adjusted_remote_size = zloc__adjust_size(remote_size + remote_alignment, remote_alignment, zloc__MEMORY_ALIGNMENT);
-	void* allocation = zloc__allocate(allocator, (adjusted_remote_size / allocator->minimum_allocation_size) * (allocator->block_extension_size + zloc__BLOCK_POINTER_OFFSET), remote_size);
+	remote_size = zloc__Max(remote_size, allocator->minimum_allocation_size);
+	void* allocation = zloc__allocate(allocator, (remote_size / allocator->minimum_allocation_size) * (allocator->block_extension_size + zloc__BLOCK_POINTER_OFFSET), remote_size);
 	return allocation ? (char*)allocation + zloc__MINIMUM_BLOCK_SIZE : 0;
 }
 
@@ -6223,6 +6223,7 @@ void *zloc__reallocate_remote(zloc_allocator *allocator, void *ptr, zloc_size si
 
 void *zloc_ReallocateRemote(zloc_allocator *allocator, void *block_extension, zloc_size remote_size) {
 	ZLOC_ASSERT(allocator->minimum_allocation_size > 0);
+	remote_size = zloc__Max(remote_size, allocator->minimum_allocation_size);
 	void* allocation = zloc__reallocate_remote(allocator, block_extension ? zloc_AllocationFromExtensionPtr(block_extension) : block_extension, (remote_size / allocator->minimum_allocation_size) * (allocator->block_extension_size + zloc__BLOCK_POINTER_OFFSET), remote_size);
 	return allocation ? (char*)allocation + zloc__MINIMUM_BLOCK_SIZE : 0;
 }
