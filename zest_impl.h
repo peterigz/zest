@@ -1426,7 +1426,7 @@ void zest__set_default_pool_sizes(zest_device device) {
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit;
 	usage.memory_pool_type = zest_memory_pool_type_buffers;
-    zest_SetDevicePoolSize(device, "Host buffers", usage, zloc__KILOBYTE(128), zloc__MEGABYTE(32));
+    zest_SetDevicePoolSize(device, "Host buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(32));
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_cached_bit;
 	usage.memory_pool_type = zest_memory_pool_type_buffers;
@@ -5487,12 +5487,12 @@ zest_frame_graph zest__compile_frame_graph() {
                     //Release to the transfer queue by default (if it's not already on the transfer queue).
 					context->device->platform->add_frame_graph_buffer_barrier(resource, barriers, ZEST_FALSE,
 						current_usage->access_mask, zest_access_none,
-                        current_state->queue_family_index, context->device->transfer_queue_family_index,
+                        current_state->queue_family_index, ZEST_GRAPHICS_QUEUE_INDEX,
                         current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
 					#ifdef ZEST_TEST_MODE
 					zest__add_buffer_barrier(resource, barriers, ZEST_FALSE,
 						current_usage->access_mask, zest_access_none,
-                        current_state->queue_family_index, context->device->transfer_queue_family_index,
+						current_state->queue_family_index, ZEST_QUEUE_FAMILY_IGNORED,
                         current_state->usage.stage_mask, zest_pipeline_stage_bottom_of_pipe_bit);
 					#endif
                 }
@@ -5997,7 +5997,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 		zest_resource_node resource = zest_bucket_array_get(&frame_graph->resources, zest_resource_node_t, resource_index);
 		void *resource_ptr = context->device->platform->get_resource_ptr(resource);
         if (resource->type & zest_resource_type_buffer) {
-			ZEST_PRINT("Buffer: %s (%p) - Size: %zu", resource->name, resource_ptr, resource->buffer_desc.size);
+			ZEST_PRINT("Buffer: %s (%p) - Size: %zu, Offset: %zu", resource->name, resource_ptr, resource->buffer_desc.size, ZEST__FLAGGED(resource->flags, zest_resource_node_flag_imported) ? resource->storage_buffer->memory_offset : 0);
         } else if (resource->type & zest_resource_type_image) {
             ZEST_PRINT("Image: %s (%p) - Size: %u x %u", 
                 resource->name, resource_ptr, resource->image.info.extent.width, resource->image.info.extent.height);
@@ -6070,7 +6070,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
                     zest_vec_size(exe_details->barriers.acquire_image_barriers) > 0) {
 
 					if (zest_vec_size(exe_details->barriers.acquire_image_barriers)) {
-						ZEST_PRINT("        Images:");
+						ZEST_PRINT("        Acquire Images:");
 						zest_vec_foreach(barrier_index, exe_details->barriers.acquire_image_barriers) {
 							zest_image_barrier_t *imb = &exe_details->barriers.acquire_image_barriers[barrier_index];
 							zest_resource_node image_resource = exe_details->barriers.acquire_image_barrier_nodes[barrier_index];
@@ -6079,7 +6079,10 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							zest_text_t src_pipeline_stage = zest__pipeline_stage_flags_to_string(context, imb->src_stage);
 							zest_text_t dst_pipeline_stage = zest__pipeline_stage_flags_to_string(context, imb->dst_stage);
 							void *resource_ptr = context->device->platform->get_resource_ptr(image_resource);
-							ZEST_PRINT("            %s (%p), Layout: %s -> %s, Access: %s -> %s, Pipeline Stage: %s -> %s, QFI: %u -> %u",
+							ZEST_PRINT("            %s (%p), Layout: %s -> %s, \n"
+									   "            Access: %s -> %s, \n"
+									   "            Pipeline Stage: %s -> %s, \n"
+									   "            QFI: %u -> %u",
 									   image_resource->name, resource_ptr,
 									   zest__image_layout_to_string(imb->old_layout), zest__image_layout_to_string(imb->new_layout),
 									   src_access_mask.str, dst_access_mask.str,
@@ -6093,7 +6096,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 					}
 
 					if (zest_vec_size(exe_details->barriers.acquire_buffer_barriers)) {
-						ZEST_PRINT("        Buffers:");
+						ZEST_PRINT("        Acquire Buffers:");
 						zest_vec_foreach(barrier_index, exe_details->barriers.acquire_buffer_barriers) {
 							zest_buffer_barrier_t *bmb = &exe_details->barriers.acquire_buffer_barriers[barrier_index];
 							zest_resource_node buffer_resource = exe_details->barriers.acquire_buffer_barrier_nodes[barrier_index];
@@ -6103,7 +6106,10 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							zest_text_t src_pipeline_stage = zest__pipeline_stage_flags_to_string(context, bmb->src_stage);
 							zest_text_t dst_pipeline_stage = zest__pipeline_stage_flags_to_string(context, bmb->dst_stage);
 							void *resource_ptr = context->device->platform->get_resource_ptr(buffer_resource);
-							ZEST_PRINT("            %s (%p) | Access: %s -> %s, Pipeline Stage: %s -> %s, QFI: %u -> %u, Size: %zu",
+							ZEST_PRINT("            %s (%p) | \n"
+									   "            Access: %s -> %s, \n"
+									   "            Pipeline Stage: %s -> %s, \n"
+									   "            QFI: %u -> %u, Size: %zu",
 									   buffer_resource->name, resource_ptr,
 									   src_access_mask.str, dst_access_mask.str,
 									   src_pipeline_stage.str, dst_pipeline_stage.str,
@@ -6132,7 +6138,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
                     zest_vec_size(exe_details->barriers.release_image_barriers) > 0) {
 
 					if (zest_vec_size(exe_details->barriers.release_image_barriers)) {
-						ZEST_PRINT("        Images:");
+						ZEST_PRINT("        Release Images:");
 						zest_vec_foreach(barrier_index, exe_details->barriers.release_image_barriers) {
 							zest_image_barrier_t *imb = &exe_details->barriers.release_image_barriers[barrier_index];
 							zest_resource_node image_resource = exe_details->barriers.release_image_barrier_nodes[barrier_index];
@@ -6140,8 +6146,12 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							zest_text_t dst_access_mask = zest__access_flags_to_string(context, imb->dst_access_mask);
 							zest_text_t src_pipeline_stage = zest__pipeline_stage_flags_to_string(context, imb->src_stage);
 							zest_text_t dst_pipeline_stage = zest__pipeline_stage_flags_to_string(context, imb->dst_stage);
-							ZEST_PRINT("            %s, Layout: %s -> %s, Access: %s -> %s, Pipeline Stage: %s -> %s, QFI: %u -> %u",
-									   image_resource->name,
+							void *resource_ptr = context->device->platform->get_resource_ptr(image_resource);
+							ZEST_PRINT("            %s (%p), Layout: %s -> %s, \n"
+									   "            Access: %s -> %s, \n"
+									   "            Pipeline Stage: %s -> %s, \n"
+									   "            QFI: %u -> %u",
+									   image_resource->name, resource_ptr,
 									   zest__image_layout_to_string(imb->old_layout), zest__image_layout_to_string(imb->new_layout),
 									   src_access_mask.str, dst_access_mask.str,
 									   src_pipeline_stage.str, dst_pipeline_stage.str,
@@ -6154,7 +6164,7 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 					}
 
 					if (zest_vec_size(exe_details->barriers.release_buffer_barriers)) {
-						ZEST_PRINT("        Buffers:");
+						ZEST_PRINT("        Release Buffers:");
 						zest_vec_foreach(barrier_index, exe_details->barriers.release_buffer_barriers) {
 							zest_buffer_barrier_t *bmb = &exe_details->barriers.release_buffer_barriers[barrier_index];
 							zest_resource_node buffer_resource = exe_details->barriers.release_buffer_barrier_nodes[barrier_index];
@@ -6163,8 +6173,12 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 							zest_text_t dst_access_mask = zest__access_flags_to_string(context, bmb->dst_access_mask);
 							zest_text_t src_pipeline_stage = zest__pipeline_stage_flags_to_string(context, bmb->src_stage);
 							zest_text_t dst_pipeline_stage = zest__pipeline_stage_flags_to_string(context, bmb->dst_stage);
-							ZEST_PRINT("            %s, Access: %s -> %s, Pipeline Stage: %s -> %s, QFI: %u -> %u, Size: %zu",
-									   buffer_resource->name,
+							void *resource_ptr = context->device->platform->get_resource_ptr(buffer_resource);
+							ZEST_PRINT("            %s (%p) | \n"
+									   "            Access: %s -> %s, \n"
+									   "            Pipeline Stage: %s -> %s, \n"
+									   "            QFI: %u -> %u, Size: %zu",
+									   buffer_resource->name, resource_ptr,
 									   src_access_mask.str, dst_access_mask.str,
 									   src_pipeline_stage.str, dst_pipeline_stage.str,
 									   bmb->src_queue_family_index, bmb->dst_queue_family_index,

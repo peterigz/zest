@@ -2074,7 +2074,7 @@ void *zest__vk_new_uniform_buffer_backend(zest_context context) {
 void zest__vk_set_uniform_buffer_backend(zest_uniform_buffer uniform_buffer) {
     zest_ForEachFrameInFlight(fif) {
         uniform_buffer->backend->descriptor_info[fif].buffer = *zest__vk_get_device_buffer(uniform_buffer->buffer[fif]);
-        uniform_buffer->backend->descriptor_info[fif].offset = 0;
+		uniform_buffer->backend->descriptor_info[fif].offset = uniform_buffer->buffer[fif]->memory_offset;
         uniform_buffer->backend->descriptor_info[fif].range = uniform_buffer->buffer[fif]->size;
     }
 }

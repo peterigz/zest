@@ -3149,6 +3149,7 @@ typedef struct zest_buffer_t {
 	zest_size size;							//Size of the buffer on the GPU
 	zest_size memory_offset;				//Offset from the start of the memory pool on the GPU
 	zest_device_memory_pool memory_pool;	//Pointer to the memory pool where this allocation belongs
+	zest_u64 flags;
 } zest_buffer_t;
 
 typedef struct zest_uniform_buffer_t {
