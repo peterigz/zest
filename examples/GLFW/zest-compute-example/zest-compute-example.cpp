@@ -63,15 +63,16 @@ void InitComputeExample(ComputeExample *app) {
 	//Create buffer as a single buffer, no need to have a buffer for each frame in flight as we won't be writing to it while it
 	//might be used in the GPU, it's purely for updating by the compute shader only
 	zest_buffer_info_t particle_vertex_buffer_info = zest_CreateBufferInfo(zest_buffer_type_vertex_storage, zest_memory_usage_gpu_only);
-	app->particle_buffer = zest_CreateBuffer(app->context, storage_buffer_size, &particle_vertex_buffer_info);
-	//Copy the staging buffer to the desciptor buffer
-	zest_BeginImmediateCommandBuffer(app->context);
-	zest_imm_CopyBuffer(app->context, staging_buffer, app->particle_buffer, storage_buffer_size);
-	zest_EndImmediateCommandBuffer(app->context);
+	for (int i = 0; i != ZEST_MAX_FIF; i++) {
+		app->particle_buffer[i] = zest_CreateBuffer(app->context, storage_buffer_size, &particle_vertex_buffer_info);
+		app->particle_buffer_index[i] = zest_AcquireStorageBufferIndex(app->context, app->particle_buffer[i]);
+		//Copy the staging buffer to the desciptor buffer
+		zest_BeginImmediateCommandBuffer(app->context);
+		zest_imm_CopyBuffer(app->context, staging_buffer, app->particle_buffer[i], storage_buffer_size);
+		zest_EndImmediateCommandBuffer(app->context);
+	}
 	//Free the staging buffer as we don't need it anymore
 	zest_FreeBuffer(staging_buffer);
-
-	app->particle_buffer_index = zest_AcquireStorageBufferIndex(app->context, app->particle_buffer);
 
 	/*
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
@@ -159,7 +160,7 @@ void RecordComputeSprites(zest_command_list command_list, void *user_data) {
 	//Set the viewport with this helper function
 	zest_cmd_SetScreenSizedViewport(command_list, 0.f, 1.f);
 	//Bind the vertex buffer with the particle buffer containing the location of all the point sprite particles
-	zest_cmd_BindVertexBuffer(command_list, 0, 1, app->particle_buffer);
+	zest_cmd_BindVertexBuffer(command_list, 0, 1, app->particle_buffer[zest_CurrentFIF(command_list->context)]);
 	//Draw the point sprites
 	zest_cmd_Draw(command_list, PARTICLE_COUNT, 1, 0, 0);
 }
@@ -183,7 +184,10 @@ void UpdateComputeUniformBuffers(ComputeExample *app) {
 	ComputeUniformBuffer *uniform = (ComputeUniformBuffer*)zest_GetUniformBufferData(app->compute_uniform_buffer);
 	uniform->deltaT = app->frame_timer * 2.5f;
 	uniform->particleCount = PARTICLE_COUNT;
-	uniform->particle_buffer_index = app->particle_buffer_index;
+	zest_uint fif = zest_CurrentFIF(app->context);
+	zest_uint prev_fif = (fif - 1) % ZEST_MAX_FIF;
+	uniform->read_particle_buffer_index = app->particle_buffer_index[prev_fif];
+	uniform->write_particle_buffer_index = app->particle_buffer_index[fif];
 	if (!app->attach_to_cursor) {
 		uniform->dest_x = sinf(Radians(app->timer * 360.0f)) * 0.75f;
 		uniform->dest_y = 0.0f;
@@ -217,8 +221,6 @@ void MainLoop(ComputeExample *app) {
 		}
 
 		glfwPollEvents();
-		//Don't forget to update the uniform buffer!
-		UpdateComputeUniformBuffers(app);
 
 		//Set timing variables that are used to update the uniform buffer
 		app->frame_timer = (float)elapsed / ZEST_MICROSECS_SECOND;
@@ -256,20 +258,28 @@ void MainLoop(ComputeExample *app) {
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
+		zest_uint fif = zest_CurrentFIF(app->context);
+		zest_uint prev_fif = (fif - 1) % ZEST_MAX_FIF;
+
 		if (zest_BeginFrame(app->context)) {
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
 
+			//Don't forget to update the uniform buffer! And also update it after BeginFrame so you have the
+			//correct frame in flight index if relying on that.
+			UpdateComputeUniformBuffers(app);
+
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(app->context, "Compute Particles", 0)) {
-					zest_WaitOnTimeline(app->timeline);
+					//zest_WaitOnTimeline(app->timeline);
 					//Resources
-					zest_resource_node particle_buffer = zest_ImportBufferResource("particle buffer", app->particle_buffer, 0);
+					zest_resource_node read_particle_buffer = zest_ImportBufferResource("read particle buffer", app->particle_buffer[prev_fif], 0);
+					zest_resource_node write_particle_buffer = zest_ImportBufferResource("write particle buffer", app->particle_buffer[fif], 0);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
 
 					//---------------------------------Compute Pass-----------------------------------------------------
 					zest_BeginComputePass(app->compute, "Compute Particles"); {
-						zest_ConnectInput(particle_buffer);
-						zest_ConnectOutput(particle_buffer);
+						zest_ConnectInput(read_particle_buffer);
+						zest_ConnectOutput(write_particle_buffer);
 						zest_SetPassTask(RecordComputeCommands, app);
 						zest_EndPass();
 					}
@@ -277,14 +287,13 @@ void MainLoop(ComputeExample *app) {
 
 					//---------------------------------Render Pass------------------------------------------------------
 					zest_BeginRenderPass("Graphics Pass"); {
-						zest_ConnectInput(particle_buffer);
+						zest_ConnectInput(write_particle_buffer);
 						zest_ConnectSwapChainOutput();
 						zest_SetPassTask(RecordComputeSprites, app);
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
 
-					/*
 					//------------------------ ImGui Pass ----------------------------------------------------------------
 					//If there's imgui to draw then draw it
 					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui); {
@@ -295,14 +304,7 @@ void MainLoop(ComputeExample *app) {
 					}
 					//----------------------------------------------------------------------------------------------------
 
-					zest_BeginGraphicBlankScreen("Draw Nothing"); {
-						zest_ConnectInput(particle_buffer);
-						zest_ConnectSwapChainOutput();
-						zest_EndPass();
-					}
-					*/
-
-					zest_SignalTimeline(app->timeline);
+					//zest_SignalTimeline(app->timeline);
 					frame_graph = zest_EndFrameGraph();
 					zest_QueueFrameGraphForExecution(app->context, frame_graph);
 				}
@@ -312,10 +314,10 @@ void MainLoop(ComputeExample *app) {
 
 			zest_EndFrame(app->context);
 
-			//if (app->request_graph_print) {
-				//zest_PrintCompiledFrameGraph(frame_graph);
-				//app->request_graph_print = false;
-			//}
+			if (app->request_graph_print) {
+				zest_PrintCompiledFrameGraph(frame_graph);
+				app->request_graph_print = false;
+			}
 		}
 	}
 }

@@ -20,7 +20,8 @@ struct ComputeUniformBuffer {					// Compute shader uniform block object
 	float dest_x;								//		x position of the attractor
 	float dest_y;								//		y position of the attractor
 	int32_t particleCount = PARTICLE_COUNT;
-	int32_t particle_buffer_index = 0;
+	int32_t read_particle_buffer_index = 0;
+	int32_t write_particle_buffer_index = 0;
 } ubo;
 
 struct ParticleFragmentPush {
@@ -46,8 +47,8 @@ struct ComputeExample {
 	zest_sampler_handle particle_sampler;
 	zest_uint sampler_index;
 
-	zest_buffer particle_buffer;
-	zest_uint particle_buffer_index;
+	zest_buffer particle_buffer[ZEST_MAX_FIF];
+	zest_uint particle_buffer_index[ZEST_MAX_FIF];
 	zest_pipeline_template particle_pipeline;
 	zest_uniform_buffer_handle compute_uniform_buffer;
 	zest_compute_handle compute;
