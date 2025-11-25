@@ -1324,7 +1324,6 @@ void zest_EndFrame(zest_context context) {
 				flags |= frame_graph->flags & zest_frame_graph_present_after_execute;
 			}
             zest__frame_graph_builder = NULL;
-			zest_PrintCompiledFrameGraph(frame_graph);
         }
     } else {
         ZEST__REPORT(context, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. Make sure that you call zest_QueueFrameGraphForExecution after building or fetching a cached frame graph.");
@@ -1855,11 +1854,6 @@ void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_de
     zloc_AddRemotePool(buffer_allocator->allocator, range_pool, range_pool_size, buffer_pool->size);
 }
 
-void zest__set_buffer_details(zest_context context, zest_buffer_allocator buffer_allocator, zest_buffer buffer) {
-    buffer->backend = (zest_buffer_backend)context->device->platform->new_buffer_backend(context->device);
-	context->device->platform->set_buffer_backend_details(context, buffer_allocator, buffer->size, buffer);
-}
-
 void zest_FlushUsedBuffers(zest_context context, zest_uint fif) {
 	context->device->platform->flush_used_buffers(context, fif);
 }
@@ -1978,13 +1972,9 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
     }
 
     zest_buffer_allocator buffer_allocator = *zest_map_at_key(context->device->buffer_allocators, key);
-	//zest_memory_requirements_t requirements = context->device->platform->prepare_buffer_backend_details(context, buffer_allocator, buffer_info, size, backend);
 	zest__current_remote_alignment = buffer_allocator->memory_pools[0]->alignment;
-	//ZEST_PRINT("Allocating from %s. Buffer alignment: %zu.", buffer_allocator->name, requirements.alignment);
     zest_buffer buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, size);
-    if (buffer) {
-		zest__set_buffer_details(context, buffer_allocator, buffer);
-    } else {
+    if (!buffer) {
         zest_device_memory_pool buffer_pool = 0;
         if(zest__add_memory_pool(context, buffer_allocator, size, &buffer_pool) != ZEST_TRUE) {
             return 0;
@@ -1996,7 +1986,6 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
             return 0;
         }
 		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %zu. ", buffer_allocator->name, (size_t)buffer_pool->size);
-        zest__set_buffer_details(context, buffer_allocator, buffer);
     }
 
     return buffer;
@@ -2084,9 +2073,7 @@ zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size mi
     zest_buffer new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
 	//Preserve the bindless array index
     if (new_buffer) {
-		context->device->platform->cleanup_buffer_backend(*buffer);
         *buffer = new_buffer;
-        zest__set_buffer_details(context, buffer_allocator, *buffer);
     }
     else {
         //Create a new memory pool and try again
@@ -2097,9 +2084,7 @@ zest_bool zest_GrowBuffer(zest_buffer* buffer, zest_size unit_size, zest_size mi
             zest__add_remote_range_pool(buffer_allocator, buffer_pool);
             new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
             ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
-			context->device->platform->cleanup_buffer_backend(*buffer);
             *buffer = new_buffer;
-            zest__set_buffer_details(context, buffer_allocator, *buffer);
         }
     }
     return new_buffer ? ZEST_TRUE : ZEST_FALSE;
@@ -2114,9 +2099,7 @@ zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
     zest_buffer_allocator_t* buffer_allocator = (*buffer)->memory_pool->allocator;
     zest_buffer new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
     if (new_buffer) {
-		context->device->platform->cleanup_buffer_backend(*buffer);
         *buffer = new_buffer;
-        zest__set_buffer_details(context, buffer_allocator, *buffer);
     }
     else {
         //Create a new memory pool and try again
@@ -2127,9 +2110,7 @@ zest_bool zest_ResizeBuffer(zest_buffer *buffer, zest_size new_size) {
             zest__add_remote_range_pool(buffer_allocator, buffer_pool);
             new_buffer = (zest_buffer)zloc_ReallocateRemote(buffer_allocator->allocator, *buffer, new_size);
             ZEST_ASSERT(new_buffer);    //Unable to allocate memory. Out of memory?
-			context->device->platform->cleanup_buffer_backend(*buffer);
             *buffer = new_buffer;
-            zest__set_buffer_details(context, buffer_allocator, *buffer);
         }
     }
     return new_buffer ? ZEST_TRUE : ZEST_FALSE;
@@ -2171,7 +2152,6 @@ void zest_FreeBuffer(zest_buffer buffer) {
 	if (buffer->size == 0) return;	//Buffer was already freed;
     zloc_FreeRemote(buffer->memory_pool->allocator->allocator, buffer);
 	zest_context context = buffer->memory_pool->context;
-    context->device->platform->cleanup_buffer_backend(buffer);
 }
 
 void zest_AddCopyCommand(zest_buffer_uploader_t *uploader, zest_buffer source_buffer, zest_buffer target_buffer, zest_size size) {
@@ -2443,11 +2423,6 @@ void zest__free_handle(zloc_allocator *allocator, void *handle) {
 		case zest_struct_type_execution_timeline: {
 			zest_execution_timeline timeline = (zest_execution_timeline)handle;
 			zest_FreeExecutionTimeline(timeline);
-			break;
-		}
-		case zest_struct_type_buffer_backend: {
-			zest_buffer_backend backend = (zest_buffer_backend)handle;
-			ZEST__FREE(allocator, backend);
 			break;
 		}
     }
@@ -6508,7 +6483,6 @@ zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_l
         zest_buffer buffer = layer->memory_refs[fif].device_vertex_data;
 		zest_resource_node_t node = zest__create_import_buffer_resource_node(name, buffer);
 		resource = zest__add_frame_graph_resource(&node);
-		resource->access_mask = context->device->platform->get_buffer_last_access_mask(buffer);
         resource->bindless_index[0] = layer->memory_refs[fif].descriptor_array_index;
 		if (prev_fif) {
 			resource->buffer_provider = zest__instance_layer_resource_provider_prev_fif;
@@ -6584,7 +6558,6 @@ zest_resource_node zest_ImportBufferResource(const char *name, zest_buffer buffe
     zest_resource_node_t resource = zest__create_import_buffer_resource_node(name, buffer);
     resource.buffer_provider = provider;
     zest_resource_node node = zest__add_frame_graph_resource(&resource);
-    node->access_mask = context->device->platform->get_buffer_last_access_mask(buffer);
     return node;
 }
 
