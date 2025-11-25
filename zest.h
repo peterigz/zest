@@ -3786,12 +3786,14 @@ typedef struct zest_submission_batch_t {
 	zest_semaphore_reference_t *signal_semaphores;
 	zest_pipeline_stage_flags timeline_wait_stage;
 	zest_pipeline_stage_flags queue_wait_stages;
-	zest_pipeline_stage_flags *wait_stages;
 	zest_pipeline_stage_flags *wait_dst_stage_masks;
+	zest_pipeline_stage_flags *signal_dst_stage_masks;
 
 	//References for printing the render graph only
 	zest_u64 *wait_values;
 	zest_u64 *signal_values;
+	zest_pipeline_stage_flags *wait_stages;
+	zest_pipeline_stage_flags *signal_stages;
 	zest_bool need_timeline_wait;
 	zest_bool need_timeline_signal;
 
@@ -4519,6 +4521,8 @@ typedef struct zest_platform_t {
 	void*                      (*get_final_signal_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_final_wait_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_resource_ptr)(zest_resource_node resource);
+	void*	      			   (*get_swapchain_wait_semaphore)(zest_swapchain swapchain, zest_uint index);
+	void*	      			   (*get_swapchain_signal_semaphore)(zest_swapchain swapchain, zest_uint index);
 	//Command recording
 	void					   (*blit_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
 	void                       (*copy_image_mip)(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);

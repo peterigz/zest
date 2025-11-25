@@ -133,6 +133,8 @@ void InitComputeExample(ComputeExample *app) {
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);
 	app->request_graph_print = true;
+
+	app->timeline = zest_CreateExecutionTimeline(app->context);
 }
 
 void RecordComputeSprites(zest_command_list command_list, void *user_data) {
@@ -259,6 +261,7 @@ void MainLoop(ComputeExample *app) {
 
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(app->context, "Compute Particles", 0)) {
+					zest_WaitOnTimeline(app->timeline);
 					//Resources
 					zest_resource_node particle_buffer = zest_ImportBufferResource("particle buffer", app->particle_buffer, 0);
 					zest_resource_node swapchain_node = zest_ImportSwapchainResource();
@@ -299,6 +302,7 @@ void MainLoop(ComputeExample *app) {
 					}
 					*/
 
+					zest_SignalTimeline(app->timeline);
 					frame_graph = zest_EndFrameGraph();
 					zest_QueueFrameGraphForExecution(app->context, frame_graph);
 				}
@@ -306,11 +310,12 @@ void MainLoop(ComputeExample *app) {
 				zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			}
 
-			//if (app->request_graph_print) {
-				zest_PrintCompiledFrameGraph(frame_graph);
-				app->request_graph_print = false;
-			//}
 			zest_EndFrame(app->context);
+
+			//if (app->request_graph_print) {
+				//zest_PrintCompiledFrameGraph(frame_graph);
+				//app->request_graph_print = false;
+			//}
 		}
 	}
 }

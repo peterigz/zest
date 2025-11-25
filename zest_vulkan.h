@@ -254,6 +254,8 @@ ZEST_PRIVATE void zest__vk_cleanup_frame_graph_semaphore(zest_context context, z
 ZEST_PRIVATE void *zest__vk_get_final_signal_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
 ZEST_PRIVATE void *zest__vk_get_final_wait_ptr(zest_submission_batch_t *batch, zest_uint semaphore_index);
 ZEST_PRIVATE void *zest__vk_get_resource_ptr(zest_resource_node resource);
+ZEST_PRIVATE void *zest__vk_get_swapchain_wait_semaphore(zest_swapchain swapchain, zest_uint index);
+ZEST_PRIVATE void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapchain, zest_uint index);
 
 //Command recording functions for frame graph pass callbacks
 zest_bool zest__vk_upload_buffer(const zest_command_list command_list, zest_buffer_uploader_t *uploader);
@@ -572,6 +574,8 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->get_final_signal_ptr                          = zest__vk_get_final_signal_ptr;
     platform->get_final_wait_ptr                            = zest__vk_get_final_wait_ptr;
     platform->get_resource_ptr                         		= zest__vk_get_resource_ptr;
+    platform->get_swapchain_wait_semaphore            		= zest__vk_get_swapchain_wait_semaphore;
+    platform->get_swapchain_signal_semaphore          		= zest__vk_get_swapchain_signal_semaphore;
 
 	//Command buffer recording
 	platform->upload_buffer                                 = zest__vk_upload_buffer;
@@ -4036,12 +4040,14 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     //even if they're not used (they're set to 0)
     VkSemaphore *wait_semaphores = 0;
     VkPipelineStageFlags *wait_stages = 0;
+    VkPipelineStageFlags *signal_stages = 0;
     VkSemaphore *signal_semaphores = 0;
     zest_u64 *wait_values = 0;
     zest_u64 *signal_values = 0;
 
     zest_vec_linear_push(allocator, signal_semaphores, timeline_semaphore_for_this_fif);
     zest_vec_linear_push(allocator, signal_values, signal_value);
+    zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
 
     VkTimelineSemaphoreSubmitInfo timeline_info = ZEST__ZERO_INIT(VkTimelineSemaphoreSubmitInfo);
     timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
@@ -4096,7 +4102,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 		zest_vec_foreach(i, wait_semaphores) {
 			VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 			wait_info.semaphore = wait_semaphores[i];
-			wait_info.stageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+			wait_info.stageMask = wait_stages[i];
 			wait_info.value = wait_values[i];
 			zest_vec_linear_push(allocator, wait_semaphore_infos, wait_info);
 		}
@@ -4109,6 +4115,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
         VkSemaphore dynamic_semaphore = zest__vk_get_semaphore_reference(frame_graph, &batch->signal_semaphores[semaphore_index]);
         zest_vec_linear_push(allocator, signal_semaphores, dynamic_semaphore);
         zest_vec_linear_push(allocator, signal_values, 0);
+		zest_vec_linear_push(allocator, signal_stages, batch->signal_dst_stage_masks[semaphore_index]);
     }
 
     //If this is the last batch then add the fence that tells the cpu to wait each frame
@@ -4161,6 +4168,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     batch->wait_stages = wait_stages;
     batch->wait_values = wait_values;
     batch->signal_values = signal_values;
+    batch->signal_stages = signal_stages;
 
     return ZEST_TRUE;
 }
@@ -4860,6 +4868,13 @@ void *zest__vk_get_resource_ptr(zest_resource_node resource) {
     return NULL;
 }
 
+void *zest__vk_get_swapchain_wait_semaphore(zest_swapchain swapchain, zest_uint index) {
+	return (void*)swapchain->backend->vk_image_available_semaphore[index];
+}
+
+void *zest__vk_get_swapchain_signal_semaphore(zest_swapchain swapchain, zest_uint index) {
+	return (void*)swapchain->backend->vk_render_finished_semaphore[index];
+}
 
 #endif
 // -- End Debug_functions

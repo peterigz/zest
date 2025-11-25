@@ -1324,10 +1324,12 @@ void zest_EndFrame(zest_context context) {
 				flags |= frame_graph->flags & zest_frame_graph_present_after_execute;
 			}
             zest__frame_graph_builder = NULL;
+			zest_PrintCompiledFrameGraph(frame_graph);
         }
     } else {
         ZEST__REPORT(context, zest_report_no_frame_graphs_to_execute, "WARNING: There were no frame graphs to execute this frame. Make sure that you call zest_QueueFrameGraphForExecution after building or fetching a cached frame graph.");
     }
+	
 
 	if (ZEST_VALID_HANDLE(context->swapchain) && ZEST__FLAGGED(flags, zest_frame_graph_present_after_execute)) {
 		zest_bool presented = context->device->platform->present_frame(context);
@@ -5276,7 +5278,7 @@ zest_frame_graph zest__compile_frame_graph() {
                 }
                 if (uses_swapchain) {
                     first_batch_to_wait = &wave_submission->batches[queue_index];
-                    wait_stage_for_acquire_semaphore = first_swapchain_usage_stage_in_this_batch;
+                    //wait_stage_for_acquire_semaphore = first_swapchain_usage_stage_in_this_batch;
                     // Ensure this stage is compatible with the batch's queue
                     if (!zest__is_stage_compatible_with_qfi(wait_stage_for_acquire_semaphore, context->device->queues[queue_index]->type)) {
                         ZEST_PRINT("Swapchain usage stage %i is not compatible with queue family %u for wave submission %i",
@@ -5338,6 +5340,7 @@ zest_frame_graph zest__compile_frame_graph() {
             if (!last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores) {
 				zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_render_finished_semaphore, 0 };
                 zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores, semaphore_reference);
+                zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_dst_stage_masks, zest_pipeline_stage_all_commands_bit);
             } else {
                 // This case needs `p_signal_semaphores` to be a list in your batch struct.
                 // You would then add context->renderer->frame_sync[context->current_fif].render_finished_semaphore to that list.
@@ -5990,6 +5993,22 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
     }
 
 	zest_context context = frame_graph->command_list.context;
+
+	ZEST_PRINT("Swapchain Info");
+	ZEST_PRINT("Wait Semaphores:");
+	zest_ForEachFrameInFlight(fif) {
+		void *wait_semaphore = context->device->platform->get_swapchain_wait_semaphore(context->swapchain, fif);
+		ZEST_PRINT("%p %s", wait_semaphore, fif == context->current_fif ? "*" : "");
+	}
+	ZEST_PRINT("");
+	ZEST_PRINT("Signal Semaphores:");
+	for (int i = 0; i != context->swapchain->image_count; i++) {
+		void *signal_semaphore = context->device->platform->get_swapchain_signal_semaphore(context->swapchain, i);
+		ZEST_PRINT("%p %s", signal_semaphore, i == context->swapchain->current_image_frame ? "*" : "");
+	}
+
+	ZEST_PRINT("");
+
     ZEST_PRINT("--- Frame graph Execution Plan, Current FIF: %i ---", context->current_fif);
 
     if (ZEST__NOT_FLAGGED(frame_graph->flags, zest_frame_graph_is_compiled)) {
@@ -6050,9 +6069,9 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
                 zest_vec_foreach(semaphore_index, batch->wait_values) {
                     zest_text_t pipeline_stages = zest__pipeline_stage_flags_to_string(context, batch->wait_stages[semaphore_index]);
                     if (zest_vec_size(batch->wait_values) && batch->wait_values[semaphore_index] > 0) {
-                        ZEST_PRINT("     Timeline Semaphore: %p, Value: %zu at Stage: %s", context->device->platform->get_final_wait_ptr(batch, semaphore_index), batch->wait_values[semaphore_index], pipeline_stages.str);
+                        ZEST_PRINT("     Timeline Semaphore: %p, Value: %zu, Stages: %s", context->device->platform->get_final_wait_ptr(batch, semaphore_index), batch->wait_values[semaphore_index], pipeline_stages.str);
                     } else {
-                        ZEST_PRINT("     Binary Semaphore:   %p at Stage: %s", context->device->platform->get_final_wait_ptr(batch, semaphore_index), pipeline_stages.str);
+                        ZEST_PRINT("     Binary Semaphore:   %p, Stages: %s", context->device->platform->get_final_wait_ptr(batch, semaphore_index), pipeline_stages.str);
                     }
                     zest_FreeText(context->device->allocator, &pipeline_stages);
                 }
@@ -6136,9 +6155,6 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 
                 if (zest_vec_size(exe_details->barriers.release_buffer_barriers) > 0 ||
                     zest_vec_size(exe_details->barriers.release_image_barriers) > 0) {
-                    ZEST_PRINT("      Release Barriers (Overall Pipeline Src Stages: %s, Dst Stages: %s):",
-                        "To Do",
-                        "To Do");
 
 					if (zest_vec_size(exe_details->barriers.release_image_barriers)) {
 						ZEST_PRINT("        Images:");
@@ -6191,11 +6207,13 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
             if (batch->signal_values != 0) {
                 ZEST_PRINT("  Signal Semaphores:");
                 zest_vec_foreach(signal_index, batch->signal_values) {
+					zest_text_t pipeline_stages = zest__pipeline_stage_flags_to_string(context, batch->signal_stages[signal_index]);
                     if (batch->signal_values[signal_index] > 0) {
-                        ZEST_PRINT("  Timeline Semaphore: %p, Value: %zu", context->device->platform->get_final_signal_ptr(batch, signal_index), batch->signal_values[signal_index]);
+                        ZEST_PRINT("  Timeline Semaphore: %p, Stage: %s, Value: %zu", context->device->platform->get_final_signal_ptr(batch, signal_index), pipeline_stages.str, batch->signal_values[signal_index]);
                     } else {
-                        ZEST_PRINT("  Binary Semaphore: %p", context->device->platform->get_final_signal_ptr(batch, signal_index));
+                        ZEST_PRINT("  Binary Semaphore: %p Stage: %s,", context->device->platform->get_final_signal_ptr(batch, signal_index), pipeline_stages.str);
                     }
+					zest_FreeText(context->device->allocator, &pipeline_stages);
                 }
             }
             ZEST_PRINT(""); // End of batch
