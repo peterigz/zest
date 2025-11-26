@@ -5226,9 +5226,8 @@ zest_frame_graph zest__compile_frame_graph() {
 	//[Create_semaphores]
     //Potentially connect the first submission that uses the swap chain image
     if (zest_vec_size(frame_graph->submissions) > 0) {
-        // --- Handle imageAvailableSemaphore ---
-        if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage)) {
-
+		// --- Handle imageAvailableSemaphore ---
+		if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage)) {
             zest_submission_batch_t *first_batch_to_wait = NULL;
             zest_pipeline_stage_flags wait_stage_for_acquire_semaphore = zest_pipeline_stage_top_of_pipe_bit; // Safe default
 
@@ -5970,13 +5969,13 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
 	zest_context context = frame_graph->command_list.context;
 
 	ZEST_PRINT("Swapchain Info");
-	ZEST_PRINT("Wait Semaphores:");
+	ZEST_PRINT("Image Available Wait Semaphores:");
 	zest_ForEachFrameInFlight(fif) {
 		void *wait_semaphore = context->device->platform->get_swapchain_wait_semaphore(context->swapchain, fif);
 		ZEST_PRINT("%p %s", wait_semaphore, fif == context->current_fif ? "*" : "");
 	}
 	ZEST_PRINT("");
-	ZEST_PRINT("Signal Semaphores:");
+	ZEST_PRINT("Render Finished Signal Semaphores:");
 	for (int i = 0; i != context->swapchain->image_count; i++) {
 		void *signal_semaphore = context->device->platform->get_swapchain_signal_semaphore(context->swapchain, i);
 		ZEST_PRINT("%p %s", signal_semaphore, i == context->swapchain->current_image_frame ? "*" : "");
@@ -6196,6 +6195,8 @@ void zest_PrintCompiledFrameGraph(zest_frame_graph frame_graph) {
             if (batch->signal_values != 0) {
                 ZEST_PRINT("  Signal Semaphores:");
                 zest_vec_foreach(signal_index, batch->signal_values) {
+                    zest_size stage_size = zest_vec_size(batch->signal_stages);
+                    ZEST_ASSERT(signal_index < stage_size);
 					zest_text_t pipeline_stages = zest__pipeline_stage_flags_to_string(context, batch->signal_stages[signal_index]);
                     if (batch->signal_values[signal_index] > 0) {
                         ZEST_PRINT("  Timeline Semaphore: %p, Stage: %s, Value: %zu", context->device->platform->get_final_signal_ptr(batch, signal_index), pipeline_stages.str, batch->signal_values[signal_index]);
