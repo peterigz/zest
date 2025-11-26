@@ -3126,6 +3126,7 @@ typedef struct zest_buffer_usage_t {
 	zest_memory_property_flags property_flags;
 	zest_memory_pool_type memory_pool_type;
 	zest_uint memory_type_index;
+	zest_uint frame_in_flight;
 } zest_buffer_usage_t;
 
 zest_hash_map(zest_buffer_pool_size_t) zest_map_buffer_pool_sizes;
@@ -3149,7 +3150,6 @@ typedef struct zest_buffer_t {
 	zest_size size;							//Size of the buffer on the GPU
 	zest_size memory_offset;				//Offset from the start of the memory pool on the GPU
 	zest_device_memory_pool memory_pool;	//Pointer to the memory pool where this allocation belongs
-	zest_u64 stamp;							//Used to keep track of interframe usages
 } zest_buffer_t;
 
 typedef struct zest_uniform_buffer_t {
@@ -3403,7 +3403,6 @@ typedef struct zest_context_queue_t {
 	zest_uint fif;
 	zest_u64 current_count[ZEST_MAX_FIF];
 	zest_u64 signal_value;
-	zest_bool has_waited;
 	zest_uint next_buffer;
 	zest_queue queue;
 	zest_context_queue_backend backend;
@@ -3864,8 +3863,8 @@ typedef struct zest_frame_graph_t {
 
 	zest_resource_node *deferred_image_destruction;
 
-	zest_execution_timeline *wait_on_timelines;
-	zest_execution_timeline *signal_timelines;
+	zest_execution_timeline wait_on_timeline;
+	zest_execution_timeline signal_timeline;
 	zest_frame_graph_semaphores semaphores;
 
 	zest_execution_wave_t *execution_waves;         // Execution order after compilation
@@ -4446,7 +4445,6 @@ typedef struct zest_platform_t {
 	zest_bool				   (*finish_compute)(zest_compute_builder_t *builder, zest_compute compute);
 	//Fences
 	zest_fence_status          (*wait_for_renderer_fences)(zest_context context);
-	zest_bool                  (*reset_renderer_fences)(zest_context context);
 	//Set layouts
 	zest_bool                  (*create_set_layout)(zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
 	zest_bool                  (*create_set_pool)(zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
@@ -4549,9 +4547,6 @@ typedef struct zest_context_t {
 	zest_uint allocation_id;
 	zest_platform_memory_info_t platform_memory_info;
 
-	//The current fence count of the last frame
-	zest_uint fence_count[ZEST_MAX_FIF];
-
 	//Queues and command buffer pools
 	zest_context_queue queues[ZEST_QUEUE_COUNT];
 	zest_uint active_queue_indexes[ZEST_QUEUE_COUNT];
@@ -4565,6 +4560,8 @@ typedef struct zest_context_t {
 	//The timeout for the fence that waits for gpu work to finish for the frame
 	zest_u64 fence_wait_timeout_ns;
 	zest_wait_timeout_callback fence_wait_timeout_callback;
+	zest_execution_timeline frame_timeline[ZEST_MAX_FIF];
+	zest_execution_timeline frame_sync_timeline[ZEST_MAX_FIF];
 
 	//Window data
 	zest_extent2d_t window_extent;

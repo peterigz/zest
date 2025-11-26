@@ -135,7 +135,9 @@ void InitComputeExample(ComputeExample *app) {
 	app->loop_timer = zest_CreateTimer(60.0);
 	app->request_graph_print = true;
 
-	app->timeline = zest_CreateExecutionTimeline(app->context);
+	zest_ForEachFrameInFlight(fif) {
+		app->timeline[fif] = zest_CreateExecutionTimeline(app->context);
+	}
 }
 
 void RecordComputeSprites(zest_command_list command_list, void *user_data) {
@@ -270,7 +272,7 @@ void MainLoop(ComputeExample *app) {
 
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(app->context, "Compute Particles", 0)) {
-					//zest_WaitOnTimeline(app->timeline);
+					//zest_WaitOnTimeline(app->timeline[fif]);
 					//Resources
 					zest_resource_node read_particle_buffer = zest_ImportBufferResource("read particle buffer", app->particle_buffer[prev_fif], 0);
 					zest_resource_node write_particle_buffer = zest_ImportBufferResource("write particle buffer", app->particle_buffer[fif], 0);
@@ -304,7 +306,7 @@ void MainLoop(ComputeExample *app) {
 					}
 					//---------------------------------------------------------------------------------------------------
 
-					//zest_SignalTimeline(app->timeline);
+					//zest_SignalTimeline(app->timeline[fif]);
 					frame_graph = zest_EndFrameGraph();
 					zest_QueueFrameGraphForExecution(app->context, frame_graph);
 				}
@@ -333,7 +335,7 @@ int main(void) {
 
 	ComputeExample compute_example = { 0 };
 
-	compute_example.device = zest_implglfw_CreateDevice(false);
+	compute_example.device = zest_implglfw_CreateDevice(true);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");

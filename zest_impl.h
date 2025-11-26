@@ -1422,10 +1422,14 @@ void zest__set_default_pool_sizes(zest_device device) {
 	//Buffers
     usage.property_flags = zest_memory_property_device_local_bit;
 	usage.memory_pool_type = zest_memory_pool_type_buffers;
-    zest_SetDevicePoolSize(device, "Device Buffers", usage, zloc__KILOBYTE(256), zloc__MEGABYTE(64));
+	zest_ForEachFrameInFlight(fif) {
+		usage.frame_in_flight = fif;
+		zest_SetDevicePoolSize(device, "Device Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(32));
+	}
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit;
 	usage.memory_pool_type = zest_memory_pool_type_buffers;
+	usage.frame_in_flight = 0;
     zest_SetDevicePoolSize(device, "Host buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(32));
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_cached_bit;
@@ -1520,7 +1524,7 @@ void zest__do_context_scheduled_tasks(zest_context context) {
 zest_fence_status zest__main_loop_fence_wait(zest_context context) {
 	context->frame_counter++;
 	context->current_fif = context->frame_counter % ZEST_MAX_FIF;
-	if (context->fence_count[context->current_fif]) {
+	if (context->frame_sync_timeline[context->current_fif]) {
 		zest_millisecs start_time = zest_Millisecs();
 		zest_uint retry_count = 0;
 		while(1) {
@@ -1544,9 +1548,8 @@ zest_fence_status zest__main_loop_fence_wait(zest_context context) {
                 return result;
 			}
 		}
-		context->device->platform->reset_renderer_fences(context);
-		context->fence_count[context->current_fif] = 0;
 	}
+	context->frame_sync_timeline[context->current_fif] = 0;
 	return zest_fence_status_success;
 }
 
@@ -1956,6 +1959,7 @@ zest_uint zloc_CountBlocks(zloc_header* first_block) {
 zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_info_t* buffer_info) {
 	zest_buffer_usage_t usage = ZEST_STRUCT_LITERAL(zest_buffer_usage_t, buffer_info->property_flags);
 	usage.memory_pool_type = buffer_info->image_usage_flags ? zest_memory_pool_type_images : zest_memory_pool_type_buffers;
+    usage.frame_in_flight = buffer_info->frame_in_flight;
     zest_key key = zest_map_hash_ptr(context->device->buffer_allocators, &usage, sizeof(zest_buffer_usage_t));
     if (!zest_map_valid_key(context->device->buffer_allocators, key)) {
         //If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
@@ -1993,7 +1997,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
 
 zest_buffer zest_CreateStagingBuffer(zest_context context, zest_size size, void* data) {
     zest_buffer_info_t buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
-	buffer_info.frame_in_flight = context->current_fif;
+	//buffer_info.frame_in_flight = context->current_fif;
     zest_buffer buffer = zest_CreateBuffer(context, size, &buffer_info);
     if (data) {
         memcpy(zest_BufferData(buffer), data, size);
@@ -2289,6 +2293,7 @@ zest_bool zest__initialise_context(zest_context context, zest_create_info_t* cre
 		void *frame_graph_linear_memory = ZEST__ALLOCATE(context->allocator, context->create_info.frame_graph_allocator_size);
         context->frame_graph_allocator[fif] = zloc_InitialiseLinearAllocator(frame_graph_linear_memory, context->create_info.frame_graph_allocator_size);
 		ZEST_ASSERT(context->frame_graph_allocator[fif]);    //Unabable to allocate the frame graph allocator, 
+		context->frame_timeline[fif] = zest_CreateExecutionTimeline(context);
     }
 
     ZEST_APPEND_LOG(context->device->log_path.str, "Finished zest initialisation");
@@ -4689,7 +4694,11 @@ zest_frame_graph zest__compile_frame_graph() {
 
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
 	zest_context context = zest__frame_graph_builder->context;
-    ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+	ZEST_ASSERT_HANDLE(frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
+
+	if (ZEST__FLAGGED(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage) && !frame_graph->signal_timeline) {
+		zest_SignalTimeline(context->frame_timeline[context->current_fif]);
+	}
 
     zloc_linear_allocator_t *allocator = context->frame_graph_allocator[context->current_fif];
 
@@ -5703,7 +5712,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 
     zest_execution_backend backend = (zest_execution_backend)context->device->platform->new_execution_backend(allocator);
 
-    context->device->platform->set_execution_fence(context, backend, is_intraframe);
+    //context->device->platform->set_execution_fence(context, backend, is_intraframe);
 
 	zest_vec_foreach(resource_index, frame_graph->resources_to_update) {
 		zest_resource_node resource = frame_graph->resources_to_update[resource_index];
@@ -6605,6 +6614,9 @@ zest_resource_node zest_ImportSwapchainResource() {
     frame_graph->swapchain_resource->image_layout = zest_image_layout_undefined;
     frame_graph->swapchain_resource->last_stage_mask = zest_pipeline_stage_top_of_pipe_bit;
 	ZEST__FLAG(frame_graph->flags, zest_frame_graph_expecting_swap_chain_usage);
+	if (!frame_graph->wait_on_timeline) {
+		zest_WaitOnTimeline(context->frame_timeline[context->current_fif]);
+	}
     return frame_graph->swapchain_resource;
 }
 
@@ -7318,7 +7330,7 @@ void zest_WaitOnTimeline(zest_execution_timeline timeline) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  //This function must be called withing a Being/EndRenderGraph block
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
 	zest_context context = zest__frame_graph_builder->context;
-    zest_vec_linear_push(context->frame_graph_allocator[context->current_fif], frame_graph->wait_on_timelines, timeline);
+    frame_graph->wait_on_timeline = timeline;
 }
 
 void zest_SignalTimeline(zest_execution_timeline timeline) {
@@ -7326,7 +7338,7 @@ void zest_SignalTimeline(zest_execution_timeline timeline) {
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);  //This function must be called withing a Being/EndRenderGraph block
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
 	zest_context context = zest__frame_graph_builder->context;
-    zest_vec_linear_push(context->frame_graph_allocator[context->current_fif], frame_graph->signal_timelines, timeline);
+    frame_graph->signal_timeline = timeline;
 }
 
 zest_execution_timeline zest_CreateExecutionTimeline(zest_context context) {
@@ -8242,7 +8254,6 @@ void zest__initialise_instance_layer(zest_context context, zest_layer layer, zes
 
     zest_buffer_info_t staging_buffer_info = zest_CreateBufferInfo(zest_buffer_type_staging, zest_memory_usage_cpu_to_gpu);
     zest_ForEachFrameInFlight(fif) {
-        staging_buffer_info.frame_in_flight = fif;
 		layer->memory_refs[fif].staging_instance_data = zest_CreateBuffer(context, type_size * instance_pool_size, &staging_buffer_info);
 		layer->memory_refs[fif].instance_ptr = zest_BufferData(layer->memory_refs[fif].staging_instance_data);
 		layer->memory_refs[fif].staging_instance_data = layer->memory_refs[fif].staging_instance_data;

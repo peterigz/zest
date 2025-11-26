@@ -208,8 +208,6 @@ void MainLoop(TimelineFXExample *game) {
 
 		} zest_EndTimerLoop(game->tfx_rendering.timer);
 
-		zest_tfx_UpdateUniformBuffer(game->context, &game->tfx_rendering);
-
 		//Render the particles with our custom render function if they were updated this frame. If not then the render pipeline
 		//will continue to interpolate the particle positions with the last frame update. This minimises the amount of times we
 		//have to upload the latest billboards to the gpu.
@@ -227,11 +225,12 @@ void MainLoop(TimelineFXExample *game) {
 		//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 		//if the window is resized for example.
 		if (zest_BeginFrame(game->context)) {
+			zest_tfx_UpdateUniformBuffer(game->context, &game->tfx_rendering);
 			zest_SetSwapchainClearColor(game->context, 0.f, .1f, .2f, 1.f);
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(game->context, &cache_key);
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(game->context, "TimelineFX Render Graphs", &cache_key)) {
-					zest_WaitOnTimeline(game->tfx_rendering.timeline);
+					//zest_WaitOnTimeline(game->tfx_rendering.timeline);
 					//If there was no imgui data to render then zest_imgui_BeginPass will return false
 					//Import our test texture with the Bunny sprite
 					zest_resource_node particle_texture = zest_ImportImageResource("Particle Texture", game->tfx_rendering.particle_texture, 0);
@@ -278,7 +277,7 @@ void MainLoop(TimelineFXExample *game) {
 					}
 					//--------------------------------------------------------------------------------------------------
 
-					zest_SignalTimeline(game->tfx_rendering.timeline);
+					//zest_SignalTimeline(game->tfx_rendering.timeline);
 					//Compile and execute the render graph. 
 					frame_graph = zest_EndFrameGraph();
 				}
