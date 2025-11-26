@@ -1375,6 +1375,7 @@ zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain) {
 	zest_context context = swapchain->context;
 
     VkResult result = vkAcquireNextImageKHR(context->device->backend->logical_device, swapchain->backend->vk_swapchain, UINT64_MAX, swapchain->backend->vk_image_available_semaphore[context->current_fif], ZEST_NULL, &swapchain->current_image_frame);
+	
     context->device->backend->last_result = result;
     //Has the window been resized? if so rebuild the swap chain.
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
@@ -3971,7 +3972,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     } else {
         //Interframe timeline semaphore required. Has to connect to the semaphore value in the previous frame that this
         //queue was ran.
-        wait_index = (queue_fif + 1) % ZEST_MAX_FIF;
+        wait_index = (queue_fif + ZEST_MAX_FIF - 1) % ZEST_MAX_FIF;
         wait_value = queue->current_count[wait_index];
     }
 
@@ -4079,6 +4080,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
                 timeline->current_value += 1;
                 zest_vec_linear_push(allocator, signal_semaphores, timeline->backend->semaphore);
                 zest_vec_linear_push(allocator, signal_values, timeline->current_value);
+                zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
             }
         }
     } else {
@@ -4087,6 +4089,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
         (*batch_value)++;
         zest_vec_linear_push(allocator, signal_semaphores, batch_semaphore);
         zest_vec_linear_push(allocator, signal_values, *batch_value);
+        zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
     }
 
     //Finish the rest of the queue submit info and submit the queue
