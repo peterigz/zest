@@ -251,18 +251,18 @@ void MainLoop(ComputeExample *app) {
 			}
 			ImGui::End();
 			ImGui::Render();
-			zest_imgui_UpdateBuffers(&app->imgui);
 		} zest_EndTimerLoop(app->loop_timer)
+		zest_imgui_UpdateBuffers(&app->imgui);
 
 		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
 		zest_frame_graph_cache_key_t cache_key = {};
 		cache_key = zest_InitialiseCacheKey(app->context, &app->cache_info, sizeof(RenderCacheInfo));
 
-		zest_uint fif = zest_CurrentFIF(app->context);
-		zest_uint prev_fif = (fif - 1) % ZEST_MAX_FIF;
-
 		if (zest_BeginFrame(app->context)) {
 			zest_frame_graph frame_graph = zest_GetCachedFrameGraph(app->context, &cache_key);
+
+			zest_uint fif = zest_CurrentFIF(app->context);
+			zest_uint prev_fif = (fif - 1) % ZEST_MAX_FIF;
 
 			//Don't forget to update the uniform buffer! And also update it after BeginFrame so you have the
 			//correct frame in flight index if relying on that.
@@ -294,7 +294,7 @@ void MainLoop(ComputeExample *app) {
 					}
 					//--------------------------------------------------------------------------------------------------
 
-					//------------------------ ImGui Pass ----------------------------------------------------------------
+					//------------------------ ImGui Pass --------------------------------------------------------------
 					//If there's imgui to draw then draw it
 					zest_pass_node imgui_pass = zest_imgui_BeginPass(&app->imgui); {
 						if (imgui_pass) {
@@ -302,7 +302,7 @@ void MainLoop(ComputeExample *app) {
 							zest_EndPass();
 						}
 					}
-					//----------------------------------------------------------------------------------------------------
+					//---------------------------------------------------------------------------------------------------
 
 					//zest_SignalTimeline(app->timeline);
 					frame_graph = zest_EndFrameGraph();
@@ -333,7 +333,7 @@ int main(void) {
 
 	ComputeExample compute_example = { 0 };
 
-	compute_example.device = zest_implglfw_CreateDevice(true);
+	compute_example.device = zest_implglfw_CreateDevice(false);
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
