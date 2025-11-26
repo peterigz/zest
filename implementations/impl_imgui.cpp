@@ -284,7 +284,8 @@ zest_resource_node zest_imgui_ImportIndexResources(zest_imgui_t *imgui, const ch
 void zest_imgui_UpdateBuffers(zest_imgui_t *imgui) {
     ImDrawData *imgui_draw_data = ImGui::GetDrawData();
 
-	imgui->fif = (imgui->fif + 1) % ZEST_MAX_FIF;
+	//imgui->fif = (imgui->fif + 1) % ZEST_MAX_FIF;
+	imgui->fif = imgui->context->current_fif;
 	zest_FreeBuffer(imgui->vertex_staging_buffer[imgui->fif]);
 	zest_FreeBuffer(imgui->index_staging_buffer[imgui->fif]);
 
