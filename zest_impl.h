@@ -1277,7 +1277,7 @@ zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder
 
 zest_bool zest_BeginFrame(zest_context context) {
 	ZEST_ASSERT(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired), "You have called zest_BeginFrame but a swap chain image has already been acquired. Make sure that you call zest_EndFrame before you loop around to zest_BeginFrame again.");
-	zest_fence_status fence_wait_result = zest__main_loop_fence_wait(context);
+	zest_fence_status fence_wait_result = zest__main_loop_semaphore_wait(context);
 	if (fence_wait_result == zest_fence_status_success) {
 	} else if (fence_wait_result == zest_fence_status_timeout) {
 		ZEST_PRINT("Fence wait timed out.");
@@ -1521,14 +1521,14 @@ void zest__do_context_scheduled_tasks(zest_context context) {
 	zest_FlushUsedBuffers(context, context->current_fif);
 }
 
-zest_fence_status zest__main_loop_fence_wait(zest_context context) {
+zest_fence_status zest__main_loop_semaphore_wait(zest_context context) {
 	context->frame_counter++;
 	context->current_fif = context->frame_counter % ZEST_MAX_FIF;
 	if (context->frame_sync_timeline[context->current_fif]) {
 		zest_millisecs start_time = zest_Millisecs();
 		zest_uint retry_count = 0;
 		while(1) {
-			zest_fence_status result = context->device->platform->wait_for_renderer_fences(context);
+			zest_fence_status result = context->device->platform->wait_for_renderer_semaphore(context);
             if (result == zest_fence_status_success) {
                 break;
             } else if (result == zest_fence_status_timeout) {

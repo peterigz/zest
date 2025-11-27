@@ -4444,7 +4444,7 @@ typedef struct zest_platform_t {
 	zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_command_list command_list);
 	zest_bool				   (*finish_compute)(zest_compute_builder_t *builder, zest_compute compute);
 	//Fences
-	zest_fence_status          (*wait_for_renderer_fences)(zest_context context);
+	zest_fence_status          (*wait_for_renderer_semaphore)(zest_context context);
 	//Set layouts
 	zest_bool                  (*create_set_layout)(zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
 	zest_bool                  (*create_set_pool)(zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
@@ -4832,7 +4832,7 @@ ZEST_PRIVATE inline zest_bool zest__is_vulkan_device(zest_device device) { retur
 ZEST_API zest_device_builder zest__begin_device_builder();
 ZEST_PRIVATE void zest__do_context_scheduled_tasks(zest_context context);
 ZEST_PRIVATE void zest__destroy(zest_context context);
-ZEST_PRIVATE zest_fence_status zest__main_loop_fence_wait(zest_context context);
+ZEST_PRIVATE zest_fence_status zest__main_loop_semaphore_wait(zest_context context);
 //-- end of internal functions
 
 // Enum_to_string_functions - Helper functions to convert enums to strings 

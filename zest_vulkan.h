@@ -166,7 +166,7 @@ ZEST_PRIVATE zest_bool zest__vk_validate_shader(zest_device device, const char *
 ZEST_PRIVATE zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, void *options);
 
 //Fences
-ZEST_PRIVATE zest_fence_status zest__vk_wait_for_renderer_fences(zest_context context);
+ZEST_PRIVATE zest_fence_status zest__vk_wait_for_renderer_semaphore(zest_context context);
 
 //Command buffers/queues
 ZEST_PRIVATE void zest__vk_reset_queue_command_pool(zest_context context, zest_context_queue queue);
@@ -485,7 +485,7 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->build_pipeline                                = zest__vk_build_pipeline;
     platform->finish_compute                                = zest__vk_finish_compute;
 
-	platform->wait_for_renderer_fences 					    = zest__vk_wait_for_renderer_fences;
+	platform->wait_for_renderer_semaphore				    = zest__vk_wait_for_renderer_semaphore;
 
     platform->create_set_layout                             = zest__vk_create_set_layout;
     platform->create_set_pool                               = zest__vk_create_set_pool;
@@ -1284,7 +1284,8 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 
     VkCommandBufferBeginInfo beginInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkBeginCommandBuffer(context->backend->utility_command_buffer[context->current_fif], &beginInfo));
+	VkCommandBuffer command_buffer = context->backend->utility_command_buffer[context->current_fif];
+	ZEST_RETURN_FALSE_ON_FAIL(context->device, vkBeginCommandBuffer(command_buffer, &beginInfo));
 
     VkImageMemoryBarrier image_barrier = ZEST__ZERO_INIT(VkImageMemoryBarrier);
     image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1312,24 +1313,47 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
         1, &image_barrier                    
     );
 
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkEndCommandBuffer(context->backend->utility_command_buffer[context->current_fif]));
+    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkEndCommandBuffer(command_buffer));
 
-    VkPipelineStageFlags wait_stage_array[] = { VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT }; 
-    VkSubmitInfo submit_info = ZEST__ZERO_INIT(VkSubmitInfo);
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	VkCommandBufferSubmitInfo command_buffer_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+	command_buffer_info.commandBuffer = command_buffer;
 
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &context->swapchain->backend->vk_image_available_semaphore[context->current_fif];
-    submit_info.pWaitDstStageMask = wait_stage_array;
+	VkSubmitInfo2 submit_info2 = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+	submit_info2.commandBufferInfoCount = 1;
+	submit_info2.pCommandBufferInfos = &command_buffer_info;
 
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &context->swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
+	zloc_linear_allocator_t *allocator = context->device->scratch_arena;
 
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &context->backend->utility_command_buffer[context->current_fif];
+	VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+	wait_info.semaphore = context->swapchain->backend->vk_image_available_semaphore[context->current_fif];
+	wait_info.stageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+	wait_info.value = 0;
+
+	VkSemaphoreSubmitInfo *signal_semaphore_infos = 0;
+	VkSemaphoreSubmitInfo render_signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+	render_signal_info.semaphore = context->swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
+	render_signal_info.value = 0;
+	render_signal_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+	zest_execution_timeline timeline = context->frame_timeline[context->current_fif];
+	timeline->current_value += 1;
+	context->frame_sync_timeline[context->current_fif] = timeline;
+
+	VkSemaphoreSubmitInfo frame_signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+	frame_signal_info.semaphore = timeline->backend->semaphore;
+	frame_signal_info.value = timeline->current_value;
+	frame_signal_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+	zest_vec_linear_push(allocator, signal_semaphore_infos, render_signal_info);
+	zest_vec_linear_push(allocator, signal_semaphore_infos, frame_signal_info);
+
+	submit_info2.waitSemaphoreInfoCount = 1;
+	submit_info2.pWaitSemaphoreInfos = &wait_info;
+	submit_info2.signalSemaphoreInfoCount = 2;
+	submit_info2.pSignalSemaphoreInfos = signal_semaphore_infos;
 
     VkFence fence = VK_NULL_HANDLE;
-    ZEST_RETURN_FALSE_ON_FAIL(context->device, vkQueueSubmit(context->device->graphics_queue.backend->vk_queue, 1, &submit_info, fence));
+	context->device->backend->pfn_vkQueueSubmit2(context->device->graphics_queue.backend->vk_queue, 1, &submit_info2, VK_NULL_HANDLE);
 
     return ZEST_TRUE;
 }
@@ -2391,7 +2415,7 @@ void zest__vk_destroy_context_surface(zest_context context) {
 // -- End Backend_cleanup_functions
 
 // -- Fences
-ZEST_PRIVATE zest_fence_status zest__vk_wait_for_renderer_fences(zest_context context) {
+ZEST_PRIVATE zest_fence_status zest__vk_wait_for_renderer_semaphore(zest_context context) {
 	VkSemaphoreWaitInfo info = ZEST__ZERO_INIT(VkSemaphoreWaitInfo);
 	info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
 	info.semaphoreCount = 1;
