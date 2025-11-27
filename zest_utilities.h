@@ -123,6 +123,8 @@ typedef struct zest_imgui_image_t {
 
 //Tiny ktx Header
 
+#include <stdbool.h>
+
 typedef struct zest_ktx_user_context_t {
 	zest_context context;
 	FILE *file;
@@ -132,7 +134,7 @@ ZEST_PRIVATE void zest__tinyktxCallbackError(void *user, char const *msg);
 ZEST_PRIVATE void *zest__tinyktxCallbackAlloc(void *user, size_t size);
 ZEST_PRIVATE void zest__tinyktxCallbackFree(void *user, void *data);
 ZEST_PRIVATE size_t zest__tinyktxCallbackRead(void *user, void *data, size_t size);
-ZEST_PRIVATE zest_bool zest__tinyktxCallbackSeek(void *user, int64_t offset);
+ZEST_PRIVATE bool zest__tinyktxCallbackSeek(void *user, int64_t offset);
 ZEST_PRIVATE int64_t zest__tinyktxCallbackTell(void *user);
 ZEST_API zest_image_collection_t zest__load_ktx(zest_context context, const char *file_path);
 ZEST_API zest_image_handle zest_LoadCubemap(zest_context context, const char *name, const char *file_name);
@@ -516,7 +518,7 @@ size_t zest__tinyktxCallbackRead(void *user, void *data, size_t size) {
 	return fread(data, 1, size, handle);
 }
 
-zest_bool zest__tinyktxCallbackSeek(void *user, int64_t offset) {
+bool zest__tinyktxCallbackSeek(void *user, int64_t offset) {
 	zest_ktx_user_context_t *user_context = (zest_ktx_user_context_t*)user;
 	FILE* handle = user_context->file;
 	return fseek(handle, (long)offset, SEEK_SET) == 0;
