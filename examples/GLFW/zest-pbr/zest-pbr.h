@@ -70,6 +70,7 @@ struct SimplePBRExample {
 	zest_index imgui_draw_routine_index;
 	zest_timer_t timer;
 	zest_camera_t camera;
+	zest_execution_timeline timeline;
 
 	zest_layer_handle cube_layer;
 	zest_layer_handle skybox_layer;
@@ -134,7 +135,7 @@ struct SimplePBRExample {
 	zest_atlas_region_t light;
 	float ellapsed_time;
 	bool sync_refresh;
-	bool request_graph_print;
+	int request_graph_print;
 	bool reset;
 };
 

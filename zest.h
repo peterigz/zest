@@ -1751,7 +1751,8 @@ typedef enum zest_struct_type {
 	zest_struct_type_context = 45 << 16,
 	zest_struct_type_device_builder = 46 << 16,
 	zest_struct_type_file = 47 << 16,
-	zest_struct_type_resource_store = 48 << 16
+	zest_struct_type_resource_store = 48 << 16,
+	zest_struct_type_buffer_linear_allocator = 49 << 16,
 } zest_struct_type;
 
 typedef enum zest_platform_memory_context {
@@ -1881,11 +1882,14 @@ typedef zest_uint zest_buffer_upload_flags;
 typedef enum zest_memory_pool_flags_bits{
 	zest_memory_pool_flag_none = 0,
 	zest_memory_pool_flag_single_buffer = 1 << 0,
+	zest_memory_pool_flag_transient = 2 << 0,
 } zest_memory_pool_flag_bits;
 
 typedef enum zest_memory_pool_type {
 	zest_memory_pool_type_buffers,
 	zest_memory_pool_type_images,
+	zest_memory_pool_type_transient_buffers,
+	zest_memory_pool_type_transient_images,
 } zest_memory_pool_type;
 
 typedef zest_uint zest_memory_pool_flags;
@@ -2323,6 +2327,7 @@ typedef struct zest_descriptor_pool_t zest_descriptor_pool_t;
 typedef struct zest_shader_resources_t zest_shader_resources_t;
 typedef struct zest_uniform_buffer_t zest_uniform_buffer_t;
 typedef struct zest_buffer_allocator_t zest_buffer_allocator_t;
+typedef struct zest_buffer_linear_allocator_t zest_buffer_linear_allocator_t;
 typedef struct zest_compute_t zest_compute_t;
 typedef struct zest_buffer_t zest_buffer_t;
 typedef struct zest_device_memory_pool_t zest_device_memory_pool_t;
@@ -2351,6 +2356,7 @@ typedef struct zest_queue_backend_t zest_queue_backend_t;
 typedef struct zest_context_queue_backend_t zest_context_queue_backend_t;
 typedef struct zest_command_list_backend_t zest_command_list_backend_t;
 typedef struct zest_buffer_allocator_backend_t zest_buffer_allocator_backend_t;
+typedef struct zest_buffer_linear_allocator_backend_t zest_buffer_linear_allocator_backend_t;
 typedef struct zest_device_memory_pool_backend_t zest_device_memory_pool_backend_t;
 typedef struct zest_uniform_buffer_backend_t zest_uniform_buffer_backend_t;
 typedef struct zest_descriptor_pool_backend_t zest_descriptor_pool_backend_t;
@@ -2385,6 +2391,7 @@ ZEST__MAKE_HANDLE(zest_descriptor_set)
 ZEST__MAKE_HANDLE(zest_shader_resources)
 ZEST__MAKE_HANDLE(zest_uniform_buffer)
 ZEST__MAKE_HANDLE(zest_buffer_allocator)
+ZEST__MAKE_HANDLE(zest_buffer_linear_allocator)
 ZEST__MAKE_HANDLE(zest_descriptor_pool)
 ZEST__MAKE_HANDLE(zest_compute)
 ZEST__MAKE_HANDLE(zest_buffer)
@@ -2412,6 +2419,7 @@ ZEST__MAKE_HANDLE(zest_context_queue_backend)
 ZEST__MAKE_HANDLE(zest_command_list_backend)
 ZEST__MAKE_HANDLE(zest_frame_graph_semaphores_backend)
 ZEST__MAKE_HANDLE(zest_buffer_allocator_backend)
+ZEST__MAKE_HANDLE(zest_buffer_linear_allocator_backend)
 ZEST__MAKE_HANDLE(zest_device_memory_pool_backend)
 ZEST__MAKE_HANDLE(zest_uniform_buffer_backend)
 ZEST__MAKE_HANDLE(zest_descriptor_pool_backend)
@@ -3953,6 +3961,7 @@ ZEST_API zest_bool zest_BeginFrameGraph(zest_context context, const char *name, 
 ZEST_API zest_frame_graph_cache_key_t zest_InitialiseCacheKey(zest_context context, const void *user_state, zest_size user_state_size);
 ZEST_API zest_frame_graph zest_EndFrameGraph();
 ZEST_API zest_frame_graph zest_EndFrameGraphAndWait();
+ZEST_API zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout);
 
 // --- Add pass nodes that execute user commands ---
 ZEST_API zest_pass_node zest_BeginGraphicBlankScreen(const char *name);
@@ -4422,6 +4431,7 @@ typedef struct zest_platform_t {
 	void*                  	   (*new_frame_graph_image_backend)(zloc_linear_allocator_t *allocator, zest_image image, zest_image imported_image);
 	//Buffer and memory
 	void*                      (*create_buffer_allocator_backend)(zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
+	void*                      (*create_buffer_linear_allocator_backend)(zest_context context, zest_size size, zest_buffer_info_t *buffer_info);
 	zest_bool                  (*add_buffer_memory_pool)(zest_context context, zest_size size, zest_buffer_allocator buffer_allocator, zest_device_memory_pool memory_pool);
 	zest_bool                  (*create_image_memory_pool)(zest_context context, zest_size size_in_bytes, zest_buffer_info_t *buffer_info, zest_device_memory_pool buffer);
 	zest_bool                  (*map_memory)(zest_device_memory_pool memory_allocation, zest_size size, zest_size offset);
@@ -4443,8 +4453,9 @@ typedef struct zest_platform_t {
 	//Pipelines
 	zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_command_list command_list);
 	zest_bool				   (*finish_compute)(zest_compute_builder_t *builder, zest_compute compute);
-	//Fences
+	//Semaphores
 	zest_semaphore_status      (*wait_for_renderer_semaphore)(zest_context context);
+	zest_semaphore_status      (*wait_for_timeline)(zest_execution_timeline timeline, zest_microsecs timeout);
 	//Set layouts
 	zest_bool                  (*create_set_layout)(zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
 	zest_bool                  (*create_set_pool)(zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
@@ -4511,6 +4522,7 @@ typedef struct zest_platform_t {
 	void*                      (*get_final_signal_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_final_wait_ptr)(zest_submission_batch_t *batch, zest_uint semaphore_index);
 	void*                      (*get_resource_ptr)(zest_resource_node resource);
+	void*                      (*get_buffer_ptr)(zest_buffer buffer);
 	void*	      			   (*get_swapchain_wait_semaphore)(zest_swapchain swapchain, zest_uint index);
 	void*	      			   (*get_swapchain_signal_semaphore)(zest_swapchain swapchain, zest_uint index);
 	//Command recording
@@ -4710,10 +4722,11 @@ ZEST_PRIVATE inline void *zest__reallocate(zloc_allocator *allocator, void *memo
 	return allocation;
 }
 ZEST_PRIVATE void zest__destroy_memory(zest_device_memory_pool memory_allocation);
-ZEST_PRIVATE zest_bool zest__create_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
+ZEST_PRIVATE zest_buffer_allocator zest__create_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_key key, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE zest_bool zest__add_memory_pool(zest_context context, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool);
 ZEST_PRIVATE void zest__add_remote_range_pool(zest_buffer_allocator buffer_allocator, zest_device_memory_pool buffer_pool);
 ZEST_PRIVATE void zest__cleanup_buffers_in_allocators(zest_device device);
+ZEST_PRIVATE zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_size size);
 //End Buffer Management
 
 //Renderer_functions

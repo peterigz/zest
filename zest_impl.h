@@ -31,6 +31,14 @@ typedef struct zest_buffer_allocator_t {
 	zest_buffer_pool_size_t pre_defined_pool_size;
 } zest_buffer_allocator_t;
 
+typedef struct zest_buffer_linear_allocator_t {
+    int magic;
+	zest_buffer_linear_allocator_backend backend;
+	zest_context context;
+	zest_size buffer_size;
+	zest_size current_offset;
+} zest_buffer_linear_allocator_t;
+
 // -- End Struct Definions
 
 #ifdef _WIN32
@@ -1405,11 +1413,11 @@ void zest__set_default_pool_sizes(zest_device device) {
 	//Large Image type buffers
     usage.property_flags = zest_memory_property_device_local_bit;
 	usage.memory_pool_type = zest_memory_pool_type_images;
-    zest_SetDevicePoolSize(device, "Device Image Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(64));
+    zest_SetDevicePoolSize(device, "Device Image Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(64));
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit;
 	usage.memory_pool_type = zest_memory_pool_type_images;
-    zest_SetDevicePoolSize(device, "Host Image Buffers", usage, zloc__KILOBYTE(256), zloc__MEGABYTE(64));
+    zest_SetDevicePoolSize(device, "Host Image Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(64));
 
     usage.property_flags = zest_memory_property_device_local_bit;
 	usage.memory_pool_type = zest_memory_pool_type_images;
@@ -1417,20 +1425,22 @@ void zest__set_default_pool_sizes(zest_device device) {
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit;
 	usage.memory_pool_type = zest_memory_pool_type_images;
-    zest_SetDevicePoolSize(device, "Small Host Image Buffers", usage, zloc__KILOBYTE(256), zloc__MEGABYTE(64));
+    zest_SetDevicePoolSize(device, "Small Host Image Buffers", usage, 256, zloc__MEGABYTE(4));
 
 	//Buffers
     usage.property_flags = zest_memory_property_device_local_bit;
-	usage.memory_pool_type = zest_memory_pool_type_buffers;
 	zest_ForEachFrameInFlight(fif) {
 		usage.frame_in_flight = fif;
-		zest_SetDevicePoolSize(device, "Device Buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(32));
+		usage.memory_pool_type = zest_memory_pool_type_buffers;
+		zest_SetDevicePoolSize(device, "Device Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
+		usage.memory_pool_type = zest_memory_pool_type_transient_buffers;
+		zest_SetDevicePoolSize(device, "Transient Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
 	}
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_coherent_bit;
 	usage.memory_pool_type = zest_memory_pool_type_buffers;
 	usage.frame_in_flight = 0;
-    zest_SetDevicePoolSize(device, "Host buffers", usage, zloc__KILOBYTE(1), zloc__MEGABYTE(32));
+    zest_SetDevicePoolSize(device, "Host buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(32));
 
     usage.property_flags = zest_memory_property_host_visible_bit | zest_memory_property_host_cached_bit;
 	usage.memory_pool_type = zest_memory_pool_type_buffers;
@@ -1597,6 +1607,8 @@ const char *zest__memory_type_to_string(zest_memory_pool_type memory_type) {
 	switch (memory_type) {
 		case zest_memory_pool_type_images: return "Images"; break;
 		case zest_memory_pool_type_buffers: return "Buffers"; break;
+		case zest_memory_pool_type_transient_buffers: return "Temporary frame graph buffers"; break;
+		case zest_memory_pool_type_transient_images: return "Temporary frame graph images"; break;
 		default: return "Unknown";
 	}
 }
@@ -1812,6 +1824,16 @@ zest_buffer_allocator zest__create_buffer_allocator(zest_context context, zest_b
 	return buffer_allocator;
 }
 
+zest_buffer_linear_allocator zest__create_linear_buffer_allocator(zest_context context, zest_buffer_info_t *buffer_info, zest_size size) {
+	zest_buffer_linear_allocator allocator = (zest_buffer_linear_allocator)ZEST__NEW(context->allocator, zest_buffer_linear_allocator);
+	allocator->magic = zest_INIT_MAGIC(zest_struct_type_buffer_linear_allocator);
+	allocator->context = context;
+	allocator->backend = (zest_buffer_linear_allocator_backend)context->device->platform->create_buffer_linear_allocator_backend(context, size, buffer_info);
+	allocator->buffer_size = size;
+	allocator->current_offset = 0;
+	return allocator;
+}
+
 zest_bool zest__add_memory_pool(zest_context context, zest_buffer_allocator allocator, zest_size minimum_size, zest_device_memory_pool *memory_pool) {
     zest_device_memory_pool buffer_pool = (zest_device_memory_pool)ZEST__NEW(context->device->allocator, zest_device_memory_pool);
     *buffer_pool = ZEST__ZERO_INIT(zest_device_memory_pool_t);
@@ -1958,7 +1980,11 @@ zest_uint zloc_CountBlocks(zloc_header* first_block) {
 
 zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_info_t* buffer_info) {
 	zest_buffer_usage_t usage = ZEST_STRUCT_LITERAL(zest_buffer_usage_t, buffer_info->property_flags);
-	usage.memory_pool_type = buffer_info->image_usage_flags ? zest_memory_pool_type_images : zest_memory_pool_type_buffers;
+	if (buffer_info->image_usage_flags) {
+		usage.memory_pool_type = zest_memory_pool_type_images;
+	} else {
+		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_transient_buffers : zest_memory_pool_type_buffers;
+	}
     usage.frame_in_flight = buffer_info->frame_in_flight;
     zest_key key = zest_map_hash_ptr(context->device->buffer_allocators, &usage, sizeof(zest_buffer_usage_t));
     if (!zest_map_valid_key(context->device->buffer_allocators, key)) {
@@ -4111,6 +4137,7 @@ zest_scissor_rect_t zest_CreateRect2D(zest_uint width, zest_uint height, int off
 }
 
 void zest__create_transient_buffer(zest_context context, zest_resource_node node) {
+	node->buffer_desc.buffer_info.frame_in_flight = context->current_fif;
     node->storage_buffer = zest_CreateBuffer(context, node->buffer_desc.size, &node->buffer_desc.buffer_info);
 }
 
@@ -5663,6 +5690,11 @@ zest_frame_graph zest_EndFrameGraph() {
     return frame_graph;
 }
 
+zest_semaphore_status zest_WaitForSignal(zest_execution_timeline timeline, zest_microsecs timeout) {
+	zest_context context = timeline->context;
+	return context->device->platform->wait_for_timeline(timeline, timeout);
+}
+
 zest_frame_graph zest_EndFrameGraphAndWait() {
     zest_frame_graph frame_graph = zest__compile_frame_graph();
 
@@ -6516,7 +6548,7 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
         node.buffer_desc.buffer_info.buffer_usage_flags |= zest_buffer_usage_transfer_src_bit;
     }
     node.frame_graph = frame_graph;
-	node.buffer_desc.buffer_info.flags = zest_memory_pool_flag_single_buffer;
+	node.buffer_desc.buffer_info.flags = zest_memory_pool_flag_single_buffer | zest_memory_pool_flag_transient;
     node.current_queue_family_index = ZEST_QUEUE_FAMILY_IGNORED;
     node.magic = zest_INIT_MAGIC(zest_struct_type_resource_node);
     node.producer_pass_idx = -1;
@@ -8487,6 +8519,8 @@ void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user
 
 	zest_buffer device_buffer = layer->vertex_buffer_node->storage_buffer;
 	zest_cmd_BindVertexBuffer(command_list, 1, 1, device_buffer);
+
+	zest_device device = command_list->context->device;
 
     zest_bool has_instruction_view_port = ZEST_FALSE;
     zest_vec_foreach(i, layer->draw_instructions[layer->fif]) {
