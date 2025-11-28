@@ -1669,10 +1669,10 @@ typedef enum {
 } zest_set_layout_flag_bits;
 
 typedef enum {
-	zest_fence_status_success,
-	zest_fence_status_timeout,
-	zest_fence_status_error
-} zest_fence_status;
+	zest_semaphore_status_success,
+	zest_semaphore_status_timeout,
+	zest_semaphore_status_error
+} zest_semaphore_status;
 
 typedef zest_uint zest_set_layout_builder_flags;
 typedef zest_uint zest_set_layout_flags;
@@ -2167,12 +2167,14 @@ typedef enum zest_pass_flag_bits {
 	zest_pass_flag_culled = 1 << 2,
 	zest_pass_flag_output_resolve = 1 << 3,
 	zest_pass_flag_outputs_to_swapchain = 1 << 4,
+	zest_pass_flag_sync_only = 1 << 5,
 } zest_pass_flag_bits;
 
 typedef enum zest_pass_type {
 	zest_pass_type_graphics = 1,
 	zest_pass_type_compute = 2,
 	zest_pass_type_transfer = 3,
+	zest_pass_type_sync = 4,
 } zest_pass_type;
 
 typedef enum zest_dynamic_resource_type {
@@ -3372,8 +3374,8 @@ typedef struct zest_create_info_t {
 	int screen_width, screen_height;                    //Default width and height of the window that you open
 	int screen_x, screen_y;                             //Default position of the window
 	int virtual_width, virtual_height;                  //The virtial width/height of the viewport
-	zest_millisecs fence_wait_timeout_ms;               //The amount of time the main loop fence should wait before timing out
-	zest_millisecs max_fence_timeout_ms;                //The maximum amount of time to wait before giving up
+	zest_millisecs semaphore_wait_timeout_ms;           //The amount of time the main loop fence should wait before timing out
+	zest_millisecs max_semaphore_timeout_ms;            //The maximum amount of time to wait before giving up
 	zest_format color_format;                   		//The format to use for the swapchain
 	zest_init_flags flags;                              //Set flags to apply different initialisation options
 	zest_uint maximum_textures;                         //The maximum number of textures you can load. 1024 is the default.
@@ -4400,13 +4402,11 @@ typedef struct zest_platform_t {
 	void                       (*acquire_barrier)(const zest_command_list command_list, zest_execution_details_t *exe_details);
 	void                       (*release_barrier)(const zest_command_list command_list, zest_execution_details_t *exe_details);
 	void*                      (*new_execution_backend)(zloc_linear_allocator_t *allocator);
-	void                       (*set_execution_fence)(zest_context context, zest_execution_backend backend, zest_bool is_intraframe);
 	zest_frame_graph_semaphores(*get_frame_graph_semaphores)(zest_context context, const char *name);
 	zest_bool                  (*submit_frame_graph_batch)(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues);
 	zest_bool                  (*begin_render_pass)(const zest_command_list command_list, zest_execution_details_t *exe_details);
 	void                       (*end_render_pass)(const zest_command_list command_list);
 	void                       (*carry_over_semaphores)(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
-	zest_bool                  (*frame_graph_fence_wait)(zest_context context, zest_execution_backend backend);
 	zest_bool                  (*create_execution_timeline_backend)(zest_context context, zest_execution_timeline timeline);
 	void  		               (*cleanup_execution_timeline_backend)(zest_execution_timeline timeline);
 	void                       (*add_frame_graph_buffer_barrier)(zest_resource_node resource, zest_execution_barriers_t *barriers,
@@ -4444,7 +4444,7 @@ typedef struct zest_platform_t {
 	zest_bool                  (*build_pipeline)(zest_pipeline pipeline, zest_command_list command_list);
 	zest_bool				   (*finish_compute)(zest_compute_builder_t *builder, zest_compute compute);
 	//Fences
-	zest_fence_status          (*wait_for_renderer_semaphore)(zest_context context);
+	zest_semaphore_status      (*wait_for_renderer_semaphore)(zest_context context);
 	//Set layouts
 	zest_bool                  (*create_set_layout)(zest_context context, zest_set_layout_builder_t *builder, zest_set_layout layout, zest_bool is_bindless);
 	zest_bool                  (*create_set_pool)(zest_context context, zest_descriptor_pool pool, zest_set_layout layout, zest_uint max_set_count, zest_bool bindles);
@@ -4832,7 +4832,7 @@ ZEST_PRIVATE inline zest_bool zest__is_vulkan_device(zest_device device) { retur
 ZEST_API zest_device_builder zest__begin_device_builder();
 ZEST_PRIVATE void zest__do_context_scheduled_tasks(zest_context context);
 ZEST_PRIVATE void zest__destroy(zest_context context);
-ZEST_PRIVATE zest_fence_status zest__main_loop_semaphore_wait(zest_context context);
+ZEST_PRIVATE zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context);
 //-- end of internal functions
 
 // Enum_to_string_functions - Helper functions to convert enums to strings 

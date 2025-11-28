@@ -102,14 +102,12 @@ ZEST_PRIVATE zest_bool zest__vk_set_next_command_buffer(zest_command_list comman
 ZEST_PRIVATE void zest__vk_acquire_barrier(zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE void zest__vk_release_barrier(zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE void* zest__vk_new_execution_backend(zloc_linear_allocator_t *allocator);
-ZEST_PRIVATE void zest__vk_set_execution_fence(zest_context context, zest_execution_backend backend, zest_bool is_intraframe);
 ZEST_PRIVATE zest_frame_graph_semaphores zest__vk_get_frame_graph_semaphores(zest_context context, const char *name);
 ZEST_PRIVATE zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues);
 ZEST_PRIVATE zest_bool zest__vk_begin_render_pass(const zest_command_list command_list, zest_execution_details_t *exe_details);
 ZEST_PRIVATE void zest__vk_end_render_pass(const zest_command_list command_list);
 ZEST_PRIVATE void zest__vk_end_command_buffer(const zest_command_list command_list);
 ZEST_PRIVATE void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_submission_t *wave_submission, zest_execution_backend backend);
-ZEST_PRIVATE zest_bool zest__vk_frame_graph_fence_wait(zest_context context, zest_execution_backend backend);
 ZEST_PRIVATE zest_bool zest__vk_present_frame(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_dummy_submit_for_present_only(zest_context context);
 ZEST_PRIVATE zest_bool zest__vk_acquire_swapchain_image(zest_swapchain swapchain);
@@ -166,7 +164,7 @@ ZEST_PRIVATE zest_bool zest__vk_validate_shader(zest_device device, const char *
 ZEST_PRIVATE zest_bool zest__vk_compile_shader(zest_shader shader, const char *code, zest_uint code_length, zest_shader_type, const char *name, const char *entry_point, void *options);
 
 //Fences
-ZEST_PRIVATE zest_fence_status zest__vk_wait_for_renderer_semaphore(zest_context context);
+ZEST_PRIVATE zest_semaphore_status zest__vk_wait_for_renderer_semaphore(zest_context context);
 
 //Command buffers/queues
 ZEST_PRIVATE void zest__vk_reset_queue_command_pool(zest_context context, zest_context_queue queue);
@@ -297,8 +295,6 @@ typedef struct zest_execution_backend_t {
     VkSemaphore *wave_wait_semaphores;
     zest_size *wave_wait_values;
     zest_uint intraframe_fence_count;
-    VkFence *fence;
-    zest_uint *fence_count;
     VkFence submit_fence;
     VkSemaphore *wait_semaphores;
     VkPipelineStageFlags *wait_stages;
@@ -443,7 +439,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->begin_command_buffer                          = zest__vk_begin_command_buffer;
     platform->end_command_buffer                            = zest__vk_end_command_buffer;
     platform->set_next_command_buffer                       = zest__vk_set_next_command_buffer;
-    platform->set_execution_fence                           = zest__vk_set_execution_fence;
     platform->acquire_barrier                               = zest__vk_acquire_barrier;
     platform->release_barrier                               = zest__vk_release_barrier;
     platform->get_frame_graph_semaphores                    = zest__vk_get_frame_graph_semaphores;
@@ -451,7 +446,6 @@ void zest__vk_initialise_platform_callbacks(zest_platform_t *platform) {
     platform->begin_render_pass                             = zest__vk_begin_render_pass;
     platform->end_render_pass                               = zest__vk_end_render_pass;
     platform->carry_over_semaphores                         = zest__vk_carry_over_semaphores;
-    platform->frame_graph_fence_wait                        = zest__vk_frame_graph_fence_wait;
     platform->create_execution_timeline_backend             = zest__vk_create_execution_timeline_backend;
     platform->cleanup_execution_timeline_backend            = zest__vk_cleanup_execution_timeline_backend;
     platform->new_execution_barriers_backend                = zest__vk_new_execution_barriers_backend;
@@ -2415,7 +2409,7 @@ void zest__vk_destroy_context_surface(zest_context context) {
 // -- End Backend_cleanup_functions
 
 // -- Fences
-ZEST_PRIVATE zest_fence_status zest__vk_wait_for_renderer_semaphore(zest_context context) {
+ZEST_PRIVATE zest_semaphore_status zest__vk_wait_for_renderer_semaphore(zest_context context) {
 	VkSemaphoreWaitInfo info = ZEST__ZERO_INIT(VkSemaphoreWaitInfo);
 	info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
 	info.semaphoreCount = 1;
@@ -2424,11 +2418,11 @@ ZEST_PRIVATE zest_fence_status zest__vk_wait_for_renderer_semaphore(zest_context
 	VkResult result = vkWaitSemaphores(context->device->backend->logical_device, &info, context->fence_wait_timeout_ns);
 
 	if (result == VK_SUCCESS) {
-		return zest_fence_status_success;
+		return zest_semaphore_status_success;
 	} else if (result == VK_TIMEOUT) {
-		return zest_fence_status_timeout;
+		return zest_semaphore_status_timeout;
 	} 
-	return zest_fence_status_error;
+	return zest_semaphore_status_error;
 }
 // -- End Fences
 
@@ -3733,12 +3727,6 @@ void *zest__vk_new_execution_backend(zloc_linear_allocator_t *allocator) {
     return backend;
 }
 
-void zest__vk_set_execution_fence(zest_context context, zest_execution_backend backend, zest_bool is_intraframe) {
-	ZEST_ASSERT(is_intraframe);
-    backend->fence = context->backend->intraframe_fence;
-    backend->fence_count = &backend->intraframe_fence_count;
-}
-
 void zest__vk_acquire_barrier(zest_command_list command_list, zest_execution_details_t *exe_details) {
 	zest_uint buffer_count = zest_vec_size(exe_details->barriers.backend->acquire_buffer_barriers);
 	zest_uint image_count = zest_vec_size(exe_details->barriers.backend->acquire_image_barriers);
@@ -3920,14 +3908,6 @@ void zest__vk_carry_over_semaphores(zest_frame_graph frame_graph, zest_wave_subm
 	}
 }
 
-zest_bool zest__vk_frame_graph_fence_wait(zest_context context, zest_execution_backend backend) {
-	if (*backend->fence_count > 0) {
-		ZEST_RETURN_FALSE_ON_FAIL(context->device, vkWaitForFences(context->device->backend->logical_device, *backend->fence_count, backend->fence, VK_TRUE, UINT64_MAX));
-		ZEST_RETURN_FALSE_ON_FAIL(context->device, vkResetFences(context->device->backend->logical_device, *backend->fence_count, backend->fence));
-	}
-    return ZEST_TRUE;
-}
-
 zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_execution_backend backend, zest_submission_batch_t *batch, zest_map_queue_value *queues) {
 	zest_context context = frame_graph->command_list.context;
     zest_uint queue_index = frame_graph->command_list.queue_index;
@@ -3938,10 +3918,6 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     zest_size *batch_value = &frame_graph->semaphores->values[context->current_fif][queue_index];
 
     VkCommandBuffer command_buffer = frame_graph->command_list.backend->command_buffer;
-
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submit_info.commandBufferCount = 1;
-	submit_info.pCommandBuffers = &command_buffer; // Use the CB we just recorded
 
 	VkCommandBufferSubmitInfo command_buffer_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
 	command_buffer_info.commandBuffer = command_buffer;
@@ -3986,9 +3962,6 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     zest_u64 *wait_values = 0;
     zest_u64 *signal_values = 0;
 
-    VkTimelineSemaphoreSubmitInfo timeline_info = ZEST__ZERO_INIT(VkTimelineSemaphoreSubmitInfo);
-    timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-
     //Wait on the semaphores from the previous wave
     zest_vec_foreach(semaphore_index, backend->wave_wait_semaphores) {
         zest_vec_linear_push(allocator, wait_semaphores, backend->wave_wait_semaphores[semaphore_index]);
@@ -4013,18 +3986,11 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 		}
     }
 
-    timeline_info.waitSemaphoreValueCount = zest_vec_size(wait_values);
-    timeline_info.pWaitSemaphoreValues = wait_values;
-
 	VkSemaphoreSubmitInfo *wait_semaphore_infos = 0;
 	VkSemaphoreSubmitInfo *signal_semaphore_infos = 0;
 
     // Set wait semaphores for this batch
     if (wait_semaphores) {
-        submit_info.waitSemaphoreCount = zest_vec_size(wait_semaphores);
-        submit_info.pWaitSemaphores = wait_semaphores;
-		submit_info.pWaitDstStageMask = wait_stages; // Needs to be correctly set
-
 		zest_vec_foreach(i, wait_semaphores) {
 			VkSemaphoreSubmitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 			wait_info.semaphore = wait_semaphores[i];
@@ -4065,12 +4031,6 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
     }
 
     //Finish the rest of the queue submit info and submit the queue
-    timeline_info.signalSemaphoreValueCount = zest_vec_size(signal_values);
-    timeline_info.pSignalSemaphoreValues = signal_values;
-    submit_info.signalSemaphoreCount = zest_vec_size(signal_semaphores);
-    submit_info.pSignalSemaphores = signal_semaphores;
-    submit_info.pNext = &timeline_info;
-
 	zest_vec_foreach(i, signal_semaphores) {
 		VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 		signal_info.semaphore = signal_semaphores[i];

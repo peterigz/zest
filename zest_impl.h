@@ -1089,7 +1089,7 @@ zest_context zest_CreateContext(zest_device device, zest_window_data_t *window_d
 	context->device = device;
 
 	context->create_info = *info;
-    context->fence_wait_timeout_ns = info->fence_wait_timeout_ms * 1000 * 1000;
+    context->fence_wait_timeout_ns = info->semaphore_wait_timeout_ms * 1000 * 1000;
 	context->window_data = *window_data;
 	zest_bool result = zest__initialise_context(context, info);
 	if (result != ZEST_TRUE) {
@@ -1277,9 +1277,9 @@ zest_bool zest__initialise_vulkan_device(zest_device device, zest_device_builder
 
 zest_bool zest_BeginFrame(zest_context context) {
 	ZEST_ASSERT(ZEST__NOT_FLAGGED(context->flags, zest_context_flag_swap_chain_was_acquired), "You have called zest_BeginFrame but a swap chain image has already been acquired. Make sure that you call zest_EndFrame before you loop around to zest_BeginFrame again.");
-	zest_fence_status fence_wait_result = zest__main_loop_semaphore_wait(context);
-	if (fence_wait_result == zest_fence_status_success) {
-	} else if (fence_wait_result == zest_fence_status_timeout) {
+	zest_semaphore_status fence_wait_result = zest__main_loop_semaphore_wait(context);
+	if (fence_wait_result == zest_semaphore_status_success) {
+	} else if (fence_wait_result == zest_semaphore_status_timeout) {
 		ZEST_PRINT("Fence wait timed out.");
 		ZEST__FLAG(context->flags, zest_context_flag_critical_error);
 		return ZEST_FALSE;
@@ -1305,7 +1305,7 @@ zest_bool zest_BeginFrame(zest_context context) {
 	ZEST__FLAG(context->flags, zest_context_flag_swap_chain_was_acquired);
 	ZEST__UNFLAG(context->swapchain->flags, zest_swapchain_flag_was_recreated);
 
-	return fence_wait_result == zest_fence_status_success;
+	return fence_wait_result == zest_semaphore_status_success;
 }
 
 void zest_EndFrame(zest_context context) {
@@ -1379,7 +1379,7 @@ void zest_ResetContext(zest_context context, zest_window_data_t *window_data) {
 	context->device = device;
 	context->create_info = create_info;
 
-    context->fence_wait_timeout_ns = create_info.fence_wait_timeout_ms * 1000 * 1000;
+    context->fence_wait_timeout_ns = create_info.semaphore_wait_timeout_ms * 1000 * 1000;
 	context->window_data = win_dat;
 
 	if (window_data) {
@@ -1521,17 +1521,17 @@ void zest__do_context_scheduled_tasks(zest_context context) {
 	zest_FlushUsedBuffers(context, context->current_fif);
 }
 
-zest_fence_status zest__main_loop_semaphore_wait(zest_context context) {
+zest_semaphore_status zest__main_loop_semaphore_wait(zest_context context) {
 	context->frame_counter++;
 	context->current_fif = context->frame_counter % ZEST_MAX_FIF;
 	if (context->frame_sync_timeline[context->current_fif]) {
 		zest_millisecs start_time = zest_Millisecs();
 		zest_uint retry_count = 0;
 		while(1) {
-			zest_fence_status result = context->device->platform->wait_for_renderer_semaphore(context);
-            if (result == zest_fence_status_success) {
+			zest_semaphore_status result = context->device->platform->wait_for_renderer_semaphore(context);
+            if (result == zest_semaphore_status_success) {
                 break;
-            } else if (result == zest_fence_status_timeout) {
+            } else if (result == zest_semaphore_status_timeout) {
 				zest_millisecs total_wait_time = zest_Millisecs() - start_time;
 				if (context->fence_wait_timeout_callback) {
                     if (context->fence_wait_timeout_callback(total_wait_time, retry_count++, context->user_data)) {
@@ -1540,7 +1540,7 @@ zest_fence_status zest__main_loop_semaphore_wait(zest_context context) {
                         return result;
                     }
 				} else {
-					if (total_wait_time > context->create_info.max_fence_timeout_ms) {
+					if (total_wait_time > context->create_info.max_semaphore_timeout_ms) {
                         return result;
 					}
 				}
@@ -1550,7 +1550,7 @@ zest_fence_status zest__main_loop_semaphore_wait(zest_context context) {
 		}
 	}
 	context->frame_sync_timeline[context->current_fif] = 0;
-	return zest_fence_status_success;
+	return zest_semaphore_status_success;
 }
 
 // Enum_to_string_functions - Helper functions to convert enums to strings
@@ -4160,8 +4160,8 @@ zest_create_info_t zest_CreateInfo() {
 	create_info.screen_y = 50;
 	create_info.virtual_width = 1280;
 	create_info.virtual_height = 768;
-	create_info.fence_wait_timeout_ms = 250;
-	create_info.max_fence_timeout_ms = ZEST_SECONDS_IN_MILLISECONDS(10);
+	create_info.semaphore_wait_timeout_ms = 250;
+	create_info.max_semaphore_timeout_ms = ZEST_SECONDS_IN_MILLISECONDS(10);
 	create_info.color_format = zest_format_b8g8r8a8_unorm;
 	create_info.flags = zest_init_flag_enable_vsync | zest_init_flag_cache_shaders;
 	create_info.platform = zest_platform_vulkan;
@@ -4680,6 +4680,7 @@ Main compile phases:
 [Set_adjacency_list]
 [Create_execution_waves]
 [Create_command_batches]
+[Sync_wave]
 [Resource_journeys]
 [Calculate_lifetime_of_resources]
 [Create_semaphores]
@@ -5092,6 +5093,7 @@ zest_frame_graph zest__compile_frame_graph() {
 
     zest_bool interframe_has_waited[ZEST_QUEUE_COUNT] = { 0 };
     zest_bool interframe_has_signalled[ZEST_QUEUE_COUNT] = { 0 };
+	zest_uint last_wave_that_presented = ZEST_INVALID;
 
     zest_vec_foreach(wave_index, frame_graph->execution_waves) {
         zest_execution_wave_t *wave = &frame_graph->execution_waves[wave_index];
@@ -5120,6 +5122,7 @@ zest_frame_graph zest__compile_frame_graph() {
 				current_submission.batches[qi].timeline_wait_stage |= pass->compiled_queue_info.timeline_wait_stage;
 				if (ZEST__FLAGGED(pass->flags, zest_pass_flag_outputs_to_swapchain)) {
 					current_submission.batches[qi].outputs_to_swapchain = ZEST_TRUE;
+					last_wave_that_presented = zest_vec_size(frame_graph->submissions);
 				}
 				interframe_has_waited[qi] = ZEST_TRUE;
 				current_submission.queue_bits |= pass->compiled_queue_info.queue_type;
@@ -5149,6 +5152,7 @@ zest_frame_graph zest__compile_frame_graph() {
 				current_submission.batches[qi].timeline_wait_stage |= pass->compiled_queue_info.timeline_wait_stage;
 				if (ZEST__FLAGGED(pass->flags, zest_pass_flag_outputs_to_swapchain)) {
 					current_submission.batches[qi].outputs_to_swapchain = ZEST_TRUE;
+					last_wave_that_presented = zest_vec_size(frame_graph->submissions);
 				}
 				interframe_has_waited[qi] = ZEST_TRUE;
 				current_submission.queue_bits = pass->compiled_queue_info.queue_type;
@@ -5160,6 +5164,39 @@ zest_frame_graph zest__compile_frame_graph() {
     //Add the last batch that was being processed if it was a sequential one.
     if (current_submission.batches[0].magic || current_submission.batches[1].magic || current_submission.batches[2].magic) {
         zest_vec_linear_push(allocator, frame_graph->submissions, current_submission);
+    }
+
+	//[Sync_wave]
+	//If the last wave has multiple queue batches then create a new wave purely to synchronize into the context frame timeline
+	zest_execution_wave_t *last_execution_wave = &frame_graph->execution_waves[zest_vec_last_index(frame_graph->execution_waves)];
+    if (zloc__count_bits(last_execution_wave->queue_bits) > 1) {
+		zest_pass_group_t sync_pass = ZEST__ZERO_INIT(zest_pass_group_t);
+		sync_pass.compiled_queue_info.queue = context->queues[ZEST_GRAPHICS_QUEUE_INDEX];
+		sync_pass.compiled_queue_info.queue_family_index = context->device->graphics_queue_family_index;
+		sync_pass.compiled_queue_info.queue_type = zest_queue_graphics;
+		sync_pass.compiled_queue_info.timeline_wait_stage = zest_pipeline_stage_bottom_of_pipe_bit;
+		sync_pass.flags = zest_pass_flag_sync_only;
+		zest_pass_node pass_node = zest__add_pass_node("Sync Pass", zest_queue_graphics);
+		pass_node->type = zest_pass_type_sync;
+		pass_node->flags = zest_pass_flag_sync_only;
+		zest_vec_linear_push(allocator, sync_pass.passes, pass_node);
+		zest_map_linear_insert(allocator, frame_graph->final_passes, "Sync Pass", sync_pass);
+		int sync_pass_index = zest_map_last_index(frame_graph->final_passes);
+		zest_wave_submission_t sync_submission = ZEST__ZERO_INIT(zest_wave_submission_t);
+		sync_submission.queue_bits = zest_queue_graphics;
+		sync_submission.batches[0].magic = zest_INIT_MAGIC(zest_struct_type_wave_submission);
+		sync_submission.batches[0].backend = (zest_submission_batch_backend)context->device->platform->new_submission_batch_backend(context);
+		sync_submission.batches[0].queue = sync_pass.compiled_queue_info.queue;
+		sync_submission.batches[0].queue_family_index = sync_pass.compiled_queue_info.queue_family_index;
+		sync_submission.batches[0].queue_type = sync_pass.compiled_queue_info.queue_type;
+		sync_submission.batches[0].timeline_wait_stage |= sync_pass.compiled_queue_info.timeline_wait_stage;
+		zest_execution_wave_t sync_wave = ZEST__ZERO_INIT(zest_execution_wave_t);
+		sync_wave.queue_bits = zest_queue_graphics;
+		sync_wave.level = last_execution_wave->level + 1;
+		zest_vec_linear_push(allocator, sync_wave.pass_indices, sync_pass_index);
+		zest_vec_linear_push(allocator, frame_graph->execution_waves, sync_wave);
+		zest_vec_linear_push(allocator, sync_submission.batches[0].pass_indices, sync_pass_index);
+		zest_vec_linear_push(allocator, frame_graph->submissions, sync_submission);
     }
 
     //[Resource_journeys]
@@ -5316,22 +5353,25 @@ zest_frame_graph zest__compile_frame_graph() {
             }
         }
 
-        // --- Handle renderFinishedSemaphore for the last batch ---
-        zest_wave_submission_t *last_wave = &zest_vec_back(frame_graph->submissions);
-		if (last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].magic && last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].outputs_to_swapchain == ZEST_TRUE) {  //Only if it's a graphics queue and it actually outputs to the swapchain
-            // This assumes the last batch's *primary* signal is renderFinished.
-            if (!last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores) {
-				zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_render_finished_semaphore, 0 };
-                zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores, semaphore_reference);
-                zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_dst_stage_masks, zest_pipeline_stage_all_commands_bit);
-            } else {
-                // This case needs `p_signal_semaphores` to be a list in your batch struct.
-                // You would then add context->renderer->frame_sync[context->current_fif].render_finished_semaphore to that list.
-                ZEST_PRINT("Last batch already has an internal signal_semaphore. Logic to add external renderFinishedSemaphore needs p_signal_semaphores to be a list.");
-                // For now, you might just overwrite if single signal is assumed for external:
-                // last_batch->internal_signal_semaphore = context->renderer->frame_sync[context->current_fif].render_finished_semaphore;
-            }
-        }
+		// --- Handle renderFinishedSemaphore for the last batch ---
+		if (last_wave_that_presented != ZEST_INVALID) {
+			zest_wave_submission_t *last_wave = &frame_graph->submissions[last_wave_that_presented];
+			if (last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].magic &&
+				last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].outputs_to_swapchain == ZEST_TRUE) {  //Only if it's a graphics queue and it actually outputs to the swapchain
+				// This assumes the last batch's *primary* signal is renderFinished.
+				if (!last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores) {
+					zest_semaphore_reference_t semaphore_reference = { zest_dynamic_resource_render_finished_semaphore, 0 };
+					zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_semaphores, semaphore_reference);
+					zest_vec_linear_push(allocator, last_wave->batches[ZEST_GRAPHICS_QUEUE_INDEX].signal_dst_stage_masks, zest_pipeline_stage_all_commands_bit);
+				} else {
+					// This case needs `p_signal_semaphores` to be a list in your batch struct.
+					// You would then add context->renderer->frame_sync[context->current_fif].render_finished_semaphore to that list.
+					ZEST_PRINT("Last batch already has an internal signal_semaphore. Logic to add external renderFinishedSemaphore needs p_signal_semaphores to be a list.");
+					// For now, you might just overwrite if single signal is assumed for external:
+					// last_batch->internal_signal_semaphore = context->renderer->frame_sync[context->current_fif].render_finished_semaphore;
+				}
+			}
+		}
     }
 
     //Plan_transient_buffers
@@ -5762,6 +5802,10 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 frame_graph->command_list.timeline_wait_stage = timeline_wait_stage;
                 frame_graph->command_list.queue_index = queue_index;
 
+				if (grouped_pass->flags & zest_pass_flag_sync_only) {
+					break;
+				}
+
                 //Create any transient resources where they're first used in this grouped_pass
                 zest_vec_foreach(r, grouped_pass->transient_resources_to_create) {
                     zest_resource_node resource = grouped_pass->transient_resources_to_create[r];
@@ -5829,9 +5873,7 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
                 //End pass
             }
 			context->device->platform->end_command_buffer(&frame_graph->command_list);
-
             context->device->platform->submit_frame_graph_batch(frame_graph, backend, batch, &queues);
-
         }   //Batch
 
         //For each batch in the last wave add the queue semaphores that were used so that the next batch submissions can wait on them
@@ -5865,13 +5907,6 @@ zest_bool zest__execute_frame_graph(zest_context context, zest_frame_graph frame
 	frame_graph->deferred_image_destruction = 0;
 
     ZEST__FLAG(frame_graph->flags, zest_frame_graph_is_executed);
-
-    if (is_intraframe) {
-        //Todo: handle this better
-        if (!context->device->platform->frame_graph_fence_wait(context, backend)) {
-            return ZEST_FALSE;
-        }
-    }
 
     return ZEST_TRUE;
 
