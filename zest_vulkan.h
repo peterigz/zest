@@ -1327,7 +1327,7 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 	VkSemaphoreSubmitInfo render_signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 	render_signal_info.semaphore = context->swapchain->backend->vk_render_finished_semaphore[swapchain->current_image_frame];
 	render_signal_info.value = 0;
-	render_signal_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	render_signal_info.stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
 
 	zest_execution_timeline timeline = context->frame_timeline[context->current_fif];
 	timeline->current_value += 1;
@@ -1336,7 +1336,7 @@ zest_bool zest__vk_dummy_submit_for_present_only(zest_context context) {
 	VkSemaphoreSubmitInfo frame_signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 	frame_signal_info.semaphore = timeline->backend->semaphore;
 	frame_signal_info.value = timeline->current_value;
-	frame_signal_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+	frame_signal_info.stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
 
 	zest_vec_linear_push(allocator, signal_semaphore_infos, render_signal_info);
 	zest_vec_linear_push(allocator, signal_semaphore_infos, frame_signal_info);
@@ -4019,7 +4019,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 			context->frame_sync_timeline[context->current_fif] = timeline;
 			zest_vec_linear_push(allocator, signal_semaphores, timeline->backend->semaphore);
 			zest_vec_linear_push(allocator, signal_values, timeline->current_value);
-			zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+			zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
         }
     } else {
         //Make sure the submission includes the queue semaphores to chain together the dependencies
@@ -4027,7 +4027,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
         (*batch_value)++;
         zest_vec_linear_push(allocator, signal_semaphores, batch_semaphore);
         zest_vec_linear_push(allocator, signal_values, *batch_value);
-        zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+        zest_vec_linear_push(allocator, signal_stages, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
     }
 
     //Finish the rest of the queue submit info and submit the queue
@@ -4035,7 +4035,7 @@ zest_bool zest__vk_submit_frame_graph_batch(zest_frame_graph frame_graph, zest_e
 		VkSemaphoreSubmitInfo signal_info = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 		signal_info.semaphore = signal_semaphores[i];
 		signal_info.value = signal_values[i];
-		signal_info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		signal_info.stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
 		zest_vec_linear_push(allocator, signal_semaphore_infos, signal_info);
 	}
 
