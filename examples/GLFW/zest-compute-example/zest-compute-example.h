@@ -61,7 +61,7 @@ struct ComputeExample {
 	float anim_start;
 	float timer;
 	bool attach_to_cursor;
-	bool request_graph_print;
+	int request_graph_print;
 };
 
 static inline float Radians(float degrees) { return degrees * 0.01745329251994329576923690768489f; }

@@ -133,7 +133,7 @@ void InitComputeExample(ComputeExample *app) {
 
 	//Create a timer for a fixed update loop
 	app->loop_timer = zest_CreateTimer(60.0);
-	app->request_graph_print = true;
+	app->request_graph_print = 0;
 
 	zest_ForEachFrameInFlight(fif) {
 		app->timeline[fif] = zest_CreateExecutionTimeline(app->context);
@@ -249,12 +249,12 @@ void MainLoop(ComputeExample *app) {
 			ImGui::Text("Particle Count: %u", PARTICLE_COUNT);
 			ImGui::Checkbox("Repel Mouse", &app->attach_to_cursor);
 			if (ImGui::Button("Print Render Graph")) {
-				app->request_graph_print = true;
+				app->request_graph_print++;
 			}
 			ImGui::End();
 			ImGui::Render();
+			zest_imgui_UpdateBuffers(&app->imgui);
 		} zest_EndTimerLoop(app->loop_timer)
-		zest_imgui_UpdateBuffers(&app->imgui);
 
 		app->cache_info.draw_imgui = zest_imgui_HasGuiToDraw();
 		zest_frame_graph_cache_key_t cache_key = {};
@@ -271,8 +271,7 @@ void MainLoop(ComputeExample *app) {
 			UpdateComputeUniformBuffers(app);
 
 			if (!frame_graph) {
-				if (zest_BeginFrameGraph(app->context, "Compute Particles", 0)) {
-					//zest_WaitOnTimeline(app->timeline[fif]);
+				if (zest_BeginFrameGraph(app->context, "Compute Particles", &cache_key)) {
 					//Resources
 					zest_resource_node read_particle_buffer = zest_ImportBufferResource("read particle buffer", app->particle_buffer[prev_fif], 0);
 					zest_resource_node write_particle_buffer = zest_ImportBufferResource("write particle buffer", app->particle_buffer[fif], 0);
@@ -306,19 +305,16 @@ void MainLoop(ComputeExample *app) {
 					}
 					//---------------------------------------------------------------------------------------------------
 
-					//zest_SignalTimeline(app->timeline[fif]);
 					frame_graph = zest_EndFrameGraph();
-					zest_QueueFrameGraphForExecution(app->context, frame_graph);
 				}
-			} else {
-				zest_QueueFrameGraphForExecution(app->context, frame_graph);
 			}
+			zest_QueueFrameGraphForExecution(app->context, frame_graph);
 
 			zest_EndFrame(app->context);
 
-			if (app->request_graph_print) {
+			if (app->request_graph_print > 0) {
 				zest_PrintCompiledFrameGraph(frame_graph);
-				app->request_graph_print = false;
+				app->request_graph_print--;
 			}
 		}
 	}
@@ -339,6 +335,7 @@ int main(void) {
 
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
+
 	//Initialise Zest
 	compute_example.context = zest_CreateContext(compute_example.device, &window_handles, &create_info);
 
