@@ -95,7 +95,9 @@ void SetupBRDFLUT(SimplePBRExample *app) {
 	zest_SetPassTask(zest_DispatchBRDSetup, app);
 	zest_EndPass();
 
-	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
+	zest_SignalTimeline(app->timeline);
+	zest_EndFrameGraphAndWait();
+	zest_semaphore_status status = zest_WaitForSignal(app->timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
 }
 
 void zest_DispatchIrradianceSetup(const zest_command_list command_list, void *user_data) {
@@ -153,7 +155,9 @@ void SetupIrradianceCube(SimplePBRExample *app) {
 	zest_SetPassTask(zest_DispatchIrradianceSetup, app);
 	zest_EndPass();
 
-	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
+	zest_SignalTimeline(app->timeline);
+	zest_EndFrameGraphAndWait();
+	zest_semaphore_status status = zest_WaitForSignal(app->timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
 }
 
 void zest_DispatchPrefilteredSetup(const zest_command_list command_list, void *user_data) {
@@ -218,12 +222,15 @@ void SetupPrefilteredCube(SimplePBRExample *app) {
 	zest_SetPassTask(zest_DispatchPrefilteredSetup, app);
 	zest_EndPass();
 
-	zest_frame_graph frame_graph = zest_EndFrameGraphAndWait();
+	zest_SignalTimeline(app->timeline);
+	zest_EndFrameGraphAndWait();
+	zest_semaphore_status status = zest_WaitForSignal(app->timeline, ZEST_SECONDS_IN_MICROSECONDS(1));
+	int d = 0;
 }
 
 void InitSimplePBRExample(SimplePBRExample *app) {
 	//Initialise Dear ImGui
-	app->imgui = zest_imgui_Initialise(app->context);
+	zest_imgui_Initialise(app->context, &app->imgui);
     ImGui_ImplGlfw_InitForVulkan((GLFWwindow *)zest_Window(app->context), true);
 	//Implement a dark style
 	zest_imgui_DarkStyle();
@@ -254,7 +261,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 
 	//We can use a timer to only update imgui 60 times per second
 	app->timer = zest_CreateTimer(60);
-	app->request_graph_print = false;
+	app->request_graph_print = 0;
 	app->reset = false;
 
 	app->lights_buffer = zest_CreateUniformBuffer(app->context, "Lights", sizeof(UniformLights));
@@ -267,7 +274,6 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->material_push.color.z = 0.1f;
 
 	SetupBillboards(app);
-
 
 	//Compile the shaders we will use to render the particles
 	zest_shader_handle pbr_irradiance_vert = zest_CreateShaderFromFile(app->device, "examples/GLFW/zest-pbr/shaders/pbr_irradiance.vert", "pbr_irradiance_vert.spv", zest_vertex_shader, true);
@@ -289,6 +295,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	app->sampler_2d_index = zest_AcquireSamplerIndex(app->context, app->sampler_2d);
 	app->cube_sampler_index = zest_AcquireSamplerIndex(app->context, app->cube_sampler);
 
+	app->timeline = zest_CreateExecutionTimeline(app->context);
 	SetupBRDFLUT(app);
 	SetupIrradianceCube(app);
 	SetupPrefilteredCube(app);
@@ -348,6 +355,7 @@ void InitSimplePBRExample(SimplePBRExample *app) {
 	zest_FreeMesh(cone);
 	zest_FreeMesh(cylinder);
 	zest_FreeMesh(sky_box);
+
 }
 
 void UpdateLights(SimplePBRExample *app, float timer) {
@@ -497,7 +505,7 @@ void MainLoop(SimplePBRExample *app) {
 				}
 			}
 			if (ImGui::Button("Print Render Graph")) {
-				app->request_graph_print = true;
+				app->request_graph_print = 1;
 				zloc_VerifyAllRemoteBlocks(app->context, 0, 0);
 			}
 			if (ImGui::Button("Reset Renderer")) {
@@ -507,8 +515,6 @@ void MainLoop(SimplePBRExample *app) {
 			ImGui::Render();
 			//An imgui layer is a manual layer, meaning that you need to let it know that the buffers need updating.
 			//Load the imgui mesh data into the layer staging buffers. When the command queue is recorded, it will then upload that data to the GPU buffers for rendering
-			zest_imgui_UpdateBuffers(&app->imgui);
-
 			UpdateCameraPosition(app);
 
 			//Restore the mouse when right mouse isn't held down
@@ -577,6 +583,7 @@ void MainLoop(SimplePBRExample *app) {
 			//Begin the render graph with the command that acquires a swap chain image (zest_BeginFrameGraphSwapchain)
 			//Use the render graph we created earlier. Will return false if a swap chain image could not be acquired. This will happen
 			//if the window is resized for example.
+			zest_imgui_UpdateBuffers(&app->imgui);
 			if (!frame_graph) {
 				if (zest_BeginFrameGraph(app->context, "ImGui", &cache_key)) {
 					zest_resource_node cube_layer_resource = zest_AddTransientLayerResource("PBR Layer", app->cube_layer, false);
@@ -601,6 +608,8 @@ void MainLoop(SimplePBRExample *app) {
 						zest_EndPass();
 					}
 					//--------------------------------------------------------------------------------------------------
+
+					//Todo, comment out a pass and handle the errors.
 
 					//------------------------ Skybox Layer Pass ------------------------------------------------------------
 					zest_BeginRenderPass("Skybox Pass"); {
@@ -638,19 +647,19 @@ void MainLoop(SimplePBRExample *app) {
 						zest_EndPass();
 					}
 					//----------------------------------------------------------------------------------------------------
+
 					//End the render graph and execute it. This will submit it to the GPU.
 					frame_graph = zest_EndFrameGraph();
 				}
 			}
 
 			zest_QueueFrameGraphForExecution(app->context, frame_graph);
-			if (app->request_graph_print) {
+			zest_EndFrame(app->context);
+			if (app->request_graph_print > 0) {
 				//You can print out the render graph for debugging purposes
 				zest_PrintCompiledFrameGraph(frame_graph);
-				app->request_graph_print = false;
+				app->request_graph_print--;
 			}
-
-			zest_EndFrame(app->context);
 		}
 
 		if (zest_SwapchainWasRecreated(app->context)) {
