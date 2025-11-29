@@ -695,6 +695,8 @@ int main(void) {
 	zest_DeviceBuilderLogToConsole(device_builder);
 	imgui_app.device = zest_EndDeviceBuilder(device_builder);
 
+	zest_SetStagingBufferPoolSize(imgui_app.device, zloc__KILOBYTE(256), zloc__MEGABYTE(128));
+
 	//Create a window using GLFW
 	zest_window_data_t window_handles = zest_implglfw_CreateWindow(50, 50, 1280, 768, 0, "PBR Simple Example");
 	//Initialise Zest
