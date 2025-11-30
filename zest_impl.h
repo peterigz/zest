@@ -1133,6 +1133,7 @@ zest_device_builder zest__begin_device_builder() {
 	builder->bindless_texture_3d_count = 256;
 	builder->bindless_storage_buffer_count = 1024;
 	builder->bindless_storage_image_count = 1024;
+	builder->max_small_buffer_size = 65536;
 	return builder;
 }
 
@@ -1999,17 +2000,18 @@ zest_uint zloc_CountBlocks(zloc_header* first_block) {
 
 zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_info_t* buffer_info) {
 	zest_buffer_usage_t usage = ZEST_STRUCT_LITERAL(zest_buffer_usage_t, buffer_info->property_flags);
+	zest_device device = context->device;
 	if (buffer_info->image_usage_flags) {
 		usage.memory_pool_type = zest_memory_pool_type_transient_images;
 		usage.alignment = buffer_info->alignment;
-	} else if(size > 65536) {
+	} else if(size > device->setup_info.max_small_buffer_size) {
 		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_transient_buffers : zest_memory_pool_type_buffers;
 	} else {
 		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_small_transient_buffers : zest_memory_pool_type_small_buffers;
 	}
     usage.frame_in_flight = buffer_info->frame_in_flight;
-    zest_key key = zest_map_hash_ptr(context->device->buffer_allocators, &usage, sizeof(zest_buffer_usage_t));
-    if (!zest_map_valid_key(context->device->buffer_allocators, key)) {
+    zest_key key = zest_map_hash_ptr(device->buffer_allocators, &usage, sizeof(zest_buffer_usage_t));
+    if (!zest_map_valid_key(device->buffer_allocators, key)) {
         //If an allocator doesn't exist yet for this combination of buffer properties then create one.
 		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(context, buffer_info, key);
 		buffer_allocator->usage = usage;
@@ -2024,7 +2026,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
         }
     }
 
-    zest_buffer_allocator buffer_allocator = *zest_map_at_key(context->device->buffer_allocators, key);
+    zest_buffer_allocator buffer_allocator = *zest_map_at_key(device->buffer_allocators, key);
     zest_buffer buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, size);
     if (!buffer) {
         zest_device_memory_pool buffer_pool = 0;
@@ -2034,7 +2036,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
 
         buffer = (zest_buffer)zloc_AllocateRemote(buffer_allocator->allocator, size);
         if (!buffer) {    //Unable to allocate memory. Out of memory?
-            ZEST_APPEND_LOG(context->device->log_path.str, "Unable to allocate %zu of memory.", size);
+            ZEST_APPEND_LOG(device->log_path.str, "Unable to allocate %zu of memory.", size);
             return 0;
         }
 		ZEST_PRINT(ZEST_NOTICE_COLOR"Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %zu. ", buffer_allocator->name, (size_t)buffer_pool->size);

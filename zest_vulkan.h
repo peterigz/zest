@@ -2611,6 +2611,7 @@ zest_bool zest__vk_add_buffer_memory_pool(zest_context context, zest_size size, 
     memory_pool->minimum_allocation_size = ZEST__MAX(memory_pool->alignment, memory_pool->minimum_allocation_size);
     memory_pool->memory_type_index = alloc_info.memoryTypeIndex;
     memory_pool->backend->buffer_info = create_buffer_info;
+	memory_pool->alignment = memory_requirements.alignment;
 
     if (ZEST__FLAGGED(create_buffer_info.flags, zest_memory_pool_flag_single_buffer)) {
         vkDestroyBuffer(context->device->backend->logical_device, temp_buffer, &context->device->backend->allocation_callbacks);

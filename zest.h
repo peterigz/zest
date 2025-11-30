@@ -3382,6 +3382,7 @@ typedef struct zest_device_builder_t {
 	zest_uint bindless_texture_3d_count;
 	zest_uint bindless_storage_buffer_count;
 	zest_uint bindless_storage_image_count;
+	zest_size max_small_buffer_size;
 	const char *log_path;                               //path to the log to store log and validation messages
 	const char *cached_shader_path;
 
