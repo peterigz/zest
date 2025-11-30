@@ -24,6 +24,7 @@ typedef struct zest_buffer_allocator_t {
 	zest_buffer_allocator_backend backend;
 	zest_device device;
 	zest_buffer_info_t buffer_info;
+	zest_buffer_usage_t usage;
     zloc_allocator *allocator;
     zest_device_memory_pool *memory_pools;
     zest_pool_range *range_pools;
@@ -1415,7 +1416,8 @@ void zest_AddInstanceExtension(zest_device device, char* extension) {
 void zest__set_default_pool_sizes(zest_device device) {
     zest_buffer_usage_t usage = ZEST__ZERO_INIT(zest_buffer_usage_t);
 
-	//Large Image type buffers
+	//Transient Image type buffers
+	//Bear in mind that a pool will be created to cater for each image memory type
     usage.property_flags = zest_memory_property_device_local_bit;
 	usage.memory_pool_type = zest_memory_pool_type_transient_images;
     zest_SetDevicePoolSize(device, "Transient Image Buffers", usage, zloc__KILOBYTE(64), zloc__MEGABYTE(64));
@@ -1605,11 +1607,11 @@ const char *zest__memory_property_to_string(zest_memory_property_flags property_
 const char *zest__memory_type_to_string(zest_memory_pool_type memory_type) {
 	switch (memory_type) {
 		case zest_memory_pool_type_images: return "Images"; break;
-		case zest_memory_pool_type_buffers: return "Buffers"; break;
-		case zest_memory_pool_type_transient_buffers: return "Temporary frame graph buffers"; break;
-		case zest_memory_pool_type_transient_images: return "Temporary frame graph images"; break;
-		case zest_memory_pool_type_small_buffers: return "Temporary small frame graph buffers"; break;
-		case zest_memory_pool_type_small_transient_buffers: return "Temporary small transient frame graph buffers"; break;
+		case zest_memory_pool_type_buffers: return "Large Buffers"; break;
+		case zest_memory_pool_type_transient_buffers: return "Temporary buffers"; break;
+		case zest_memory_pool_type_transient_images: return "Temporary images"; break;
+		case zest_memory_pool_type_small_buffers: return "Small buffers."; break;
+		case zest_memory_pool_type_small_transient_buffers: return "Temporary small buffers"; break;
 		default: return "Unknown";
 	}
 }
@@ -2000,7 +2002,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
 	if (buffer_info->image_usage_flags) {
 		usage.memory_pool_type = zest_memory_pool_type_transient_images;
 		usage.alignment = buffer_info->alignment;
-	} else if(size > 1024) {
+	} else if(size > 65536) {
 		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_transient_buffers : zest_memory_pool_type_buffers;
 	} else {
 		usage.memory_pool_type = ZEST__FLAGGED(buffer_info->flags, zest_memory_pool_flag_transient) ? zest_memory_pool_type_small_transient_buffers : zest_memory_pool_type_small_buffers;
@@ -2008,8 +2010,9 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
     usage.frame_in_flight = buffer_info->frame_in_flight;
     zest_key key = zest_map_hash_ptr(context->device->buffer_allocators, &usage, sizeof(zest_buffer_usage_t));
     if (!zest_map_valid_key(context->device->buffer_allocators, key)) {
-        //If an allocator doesn't exist yet for this combination of usage and buffer properties then create one.
+        //If an allocator doesn't exist yet for this combination of buffer properties then create one.
 		zest_buffer_allocator buffer_allocator = zest__create_buffer_allocator(context, buffer_info, key);
+		buffer_allocator->usage = usage;
 		ZEST_PRINT("Creating %s GPU Allocator. Property flags: %s. Intended use: %s.", 
 			buffer_allocator->name,
 			zest__memory_property_to_string(usage.property_flags),
@@ -2034,7 +2037,7 @@ zest_buffer zest_CreateBuffer(zest_context context, zest_size size, zest_buffer_
             ZEST_APPEND_LOG(context->device->log_path.str, "Unable to allocate %zu of memory.", size);
             return 0;
         }
-		ZEST_PRINT_NOTICE(ZEST_NOTICE_COLOR"Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %zu. ", buffer_allocator->name, (size_t)buffer_pool->size);
+		ZEST_PRINT(ZEST_NOTICE_COLOR"Note: Ran out of space in the Device memory pool (%s) so adding a new one of size %zu. ", buffer_allocator->name, (size_t)buffer_pool->size);
     }
 
     return buffer;
@@ -2415,11 +2418,23 @@ void zest__cleanup_device(zest_device device) {
         zest_FreeText(device->allocator, &report->message);
     }
 
+	ZEST_PRINT("GPU Buffer Allocator and Memory Pools used:");
+
     zest_map_foreach(i, device->buffer_allocators) {
         zest_buffer_allocator buffer_allocator = *zest_map_at_index(device->buffer_allocators, i);
+		ZEST_PRINT("  Allocator %s. ", buffer_allocator->name);
+		ZEST_PRINT("    Property flags: %s. Intended use: %s.", 
+			zest__memory_property_to_string(buffer_allocator->usage.property_flags),
+			zest__memory_type_to_string(buffer_allocator->usage.memory_pool_type)
+		);
         zest_vec_foreach(j, buffer_allocator->memory_pools) {
+			zest_device_memory_pool memory_pool = buffer_allocator->memory_pools[j];
+			ZEST_PRINT("      Pool %i) Size: %llu, Alignment: %llu", j, memory_pool->size, memory_pool->alignment);
             zest__destroy_memory(buffer_allocator->memory_pools[j]);
         }
+		if (zest_vec_size(buffer_allocator->memory_pools) > 1) {
+			ZEST_PRINT_WARNING("      More than 1 pool created, consider increasing the pool size for this memory type");
+		}
         zest_vec_free(device->allocator, buffer_allocator->memory_pools);
         zest_vec_foreach(j, buffer_allocator->range_pools) {
             ZEST__FREE(device->allocator, buffer_allocator->range_pools[j]);

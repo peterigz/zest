@@ -3464,7 +3464,7 @@ typedef struct zest_cached_frame_graph_t {
 zest_hash_map(zest_report_t) zest_map_reports;
 zest_hash_map(zest_buffer_allocator) zest_map_buffer_allocators;
 zest_hash_map(zest_cached_frame_graph_t) zest_map_cached_frame_graphs;
-zest_hash_map(zest_frame_graph_semaphores) zest_map_rg_semaphores;
+zest_hash_map(zest_frame_graph_semaphores) zest_map_frame_graph_semaphores;
 zest_hash_map(zest_pipeline) zest_map_cached_pipelines;
 
 typedef struct zest_builtin_shaders_t {
@@ -4622,7 +4622,7 @@ typedef struct zest_context_t {
 
 	//Frame Graph Cache Storage
 	zest_map_cached_frame_graphs cached_frame_graphs;
-	zest_map_rg_semaphores cached_frame_graph_semaphores;
+	zest_map_frame_graph_semaphores cached_frame_graph_semaphores;
  
 	//Flags
 	zest_context_flags flags;

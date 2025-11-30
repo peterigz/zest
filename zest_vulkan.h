@@ -3259,7 +3259,7 @@ zest_bool zest__vk_create_image(zest_context context, zest_image image, zest_uin
 	VkDeviceMemory vk_memory = VK_NULL_HANDLE;
 	VkDeviceSize offset = 0;
 	if (ZEST__FLAGGED(flags, zest_image_flag_transient)) {
-		//Make sure that the the size is a multiple of alignment to ensuret that the blocks are aligned in the pool
+		//Make sure that the the size is a multiple of alignment to ensure that the blocks are aligned in the pool
 		memory_requirements.size = (memory_requirements.size + memory_requirements.alignment - 1) & ~(memory_requirements.alignment - 1);
 		zest_buffer buffer = zest_CreateBuffer(context, memory_requirements.size, &buffer_info);
 		image->buffer = (void*)buffer;
