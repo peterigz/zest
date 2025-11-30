@@ -47,12 +47,11 @@ struct ComputeExample {
 	zest_sampler_handle particle_sampler;
 	zest_uint sampler_index;
 
-	zest_buffer particle_buffer[ZEST_MAX_FIF];
-	zest_uint particle_buffer_index[ZEST_MAX_FIF];
+	zest_buffer particle_buffer;
+	zest_uint particle_buffer_index;
 	zest_pipeline_template particle_pipeline;
 	zest_uniform_buffer_handle compute_uniform_buffer;
 	zest_compute_handle compute;
-	zest_execution_timeline timeline[ZEST_MAX_FIF];
 
 	zest_timer_t loop_timer;
 	RenderCacheInfo cache_info;
