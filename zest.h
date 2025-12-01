@@ -3991,13 +3991,13 @@ ZEST_API zest_uint zest_GetTransientBufferBindlessIndex(const zest_command_list 
 
 // --- Add callback tasks to passes
 ZEST_API void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data);
-ZEST_API void zest_SetPassInstanceLayerUpload(zest_layer_handle layer);
-ZEST_API void zest_SetPassInstanceLayer(zest_layer_handle layer);
+ZEST_API void zest_SetPassInstanceLayerUpload(zest_layer layer);
+ZEST_API void zest_SetPassInstanceLayer(zest_layer layer);
 
 // --- Add Transient resources ---
 ZEST_API zest_resource_node zest_AddTransientImageResource(const char *name, zest_image_resource_info_t *info);
 ZEST_API zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_buffer_resource_info_t *info);
-ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer_handle layer, zest_bool prev_fif);
+ZEST_API zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif);
 ZEST_API void zest_FlagResourceAsEssential(zest_resource_node resource);
 
 // --- Render target groups ---
@@ -4356,6 +4356,7 @@ typedef struct zest_layer_builder_t {
 typedef struct zest_layer_t {
 	int magic;
 	zest_layer_handle handle;
+	zest_context context;
 
 	const char *name;
 
@@ -4558,8 +4559,8 @@ typedef struct zest_platform_t {
 	void                       (*bind_vertex_buffer)(const zest_command_list command_list, zest_uint first_binding, zest_uint binding_count, zest_buffer buffer);
 	void                       (*bind_index_buffer)(const zest_command_list command_list, zest_buffer buffer);
 	zest_bool                  (*image_clear)(const zest_command_list command_list, zest_image_handle image);
-	void                       (*bind_mesh_vertex_buffer)(const zest_command_list command_list, zest_layer_handle layer);
-	void                       (*bind_mesh_index_buffer)(const zest_command_list command_list, zest_layer_handle layer);
+	void                       (*bind_mesh_vertex_buffer)(const zest_command_list command_list, zest_layer layer);
+	void                       (*bind_mesh_index_buffer)(const zest_command_list command_list, zest_layer layer);
 	void                       (*send_custom_compute_push_constants)(const zest_command_list command_list, zest_compute_handle compute, const void *push_constant);
 	void                       (*dispatch_compute)(const zest_command_list command_list, zest_compute_handle compute, zest_uint group_count_x, zest_uint group_count_y, zest_uint group_count_z);
 	void                       (*send_push_constants)(const zest_command_list command_list, zest_pipeline pipeline, void *data);
@@ -4790,8 +4791,8 @@ ZEST_PRIVATE void zest__reset_mesh_layer_drawing(zest_layer layer);
 ZEST_PRIVATE zest_bool zest__grow_instance_buffer(zest_layer layer, zest_size type_size, zest_size minimum_size);
 ZEST_PRIVATE void zest__cleanup_layer(zest_layer layer);
 ZEST_PRIVATE void zest__initialise_instance_layer(zest_context context, zest_layer layer, zest_size type_size, zest_uint instance_pool_size);
-ZEST_PRIVATE void zest__end_instance_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__start_instance_instructions(zest_layer layer);
+ZEST_PRIVATE void zest__end_instance_instructions(zest_layer layer);
 ZEST_PRIVATE void zest__reset_instance_layer_drawing(zest_layer layer);
 ZEST_PRIVATE void zest__set_layer_push_constants(zest_layer layer, void *push_constants, zest_size size);
 
@@ -4944,7 +4945,7 @@ ZEST_API zest_uint zest_AcquireStorageImageIndex(zest_context context, zest_imag
 ZEST_API zest_uint zest_AcquireSamplerIndex(zest_context context, zest_sampler_handle sampler_handle);
 ZEST_API zest_uint zest_AcquireStorageBufferIndex(zest_context context, zest_buffer buffer);
 ZEST_API zest_uint *zest_AcquireImageMipIndexes(zest_context context, zest_image_handle handle, zest_image_view_array_handle image_views, zest_binding_number_type binding_number, zest_descriptor_type descriptor_type);
-ZEST_API void zest_AcquireInstanceLayerBufferIndex(zest_context context, zest_layer_handle layer);
+ZEST_API void zest_AcquireInstanceLayerBufferIndex(zest_context context, zest_layer layer);
 ZEST_API void zest_ReleaseStorageBufferIndex(zest_context context, zest_uint array_index);
 ZEST_API void zest_ReleaseImageIndex(zest_context context, zest_image_handle image, zest_binding_number_type binding_number);
 ZEST_API void zest_ReleaseAllImageIndexes(zest_context context, zest_image_handle image);
@@ -5376,6 +5377,10 @@ ZEST_API zest_sampler_info_t zest_CreateSamplerInfo();
 //you need to pass in is the size of type used for the instance struct that you'll use with whatever pipeline you setup
 //to use with the layer.
 ZEST_API zest_layer_handle zest_CreateInstanceLayer(zest_context context, const char* name, zest_size type_size);
+//Get an opaque pointer to a layer that you can pass in to all of the layer functions. You can do this once for
+//each frame and then use the pointer for all the proceeding functions. This saves having to look up the resource
+//every function call
+ZEST_API zest_layer zest_GetLayer(zest_layer_handle layer_handle);
 //Creates a layer with buffers for each frame in flight located on the device. This means that you can manually decide
 //When to upload to the buffer on the render graph rather then using transient buffers each frame that will be
 //discarded. In order to avoid syncing issues on the GPU, pass a unique id to generate a unique Buffer. This
@@ -5388,26 +5393,26 @@ ZEST_API zest_layer_builder_t zest_NewInstanceLayerBuilder(zest_context context,
 ZEST_API zest_layer_handle zest_FinishInstanceLayer(const char *name, zest_layer_builder_t *builder);
 //Start a new set of draw instructs for a standard zest_layer. These were internal functions but they've been made api functions for making you're own custom
 //instance layers more easily
-ZEST_API void zest_StartInstanceInstructions(zest_layer_handle layer);
+ZEST_API void zest_StartInstanceInstructions(zest_layer layer);
 //Set the layer frame in flight to the next layer. Use this if you're manually setting the current fif for the layer so
 //that you can avoid uploading the staging buffers every frame and only do so when it's neccessary.
-ZEST_API void zest_ResetLayer(zest_layer_handle layer);
+ZEST_API void zest_ResetLayer(zest_layer layer);
 //Same as ResetLayer but specifically for an instance layer
-ZEST_API void zest_ResetInstanceLayer(zest_layer_handle layer);
+ZEST_API void zest_ResetInstanceLayer(zest_layer layer);
 //End a set of draw instructs for a standard zest_layer
-ZEST_API void zest_EndInstanceInstructions(zest_layer_handle layer);
+ZEST_API void zest_EndInstanceInstructions(zest_layer layer);
 //Callback that can be used to upload layer data to the gpu
 ZEST_API void zest_UploadInstanceLayerData(const zest_command_list command_list, void *user_data);
 //For layers that are manually flipping the frame in flight, we can use this to only end the instructions if the last know fif for the layer
 //is not equal to the current one. Returns true if the instructions were ended false if not. If true then you can assume that the staging
 //buffer for the layer can then be uploaded to the gpu. This should be called in an upload buffer callback in any custom draw routine/layer.
-ZEST_API zest_bool zest_MaybeEndInstanceInstructions(zest_layer_handle layer);
+ZEST_API zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer);
 //Get the current size in bytes of all instances being drawn in the layer
-ZEST_API zest_size zest_GetLayerInstanceSize(zest_layer_handle layer);
+ZEST_API zest_size zest_GetLayerInstanceSize(zest_layer layer);
 //Reset the drawing for an instance layer. This is called after all drawing is done and dispatched to the gpu
-ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer_handle layer);
+ZEST_API void zest_ResetInstanceLayerDrawing(zest_layer layer);
 //Get the current amount of instances being drawn in the layer
-ZEST_API zest_uint zest_GetInstanceLayerCount(zest_layer_handle layer);
+ZEST_API zest_uint zest_GetInstanceLayerCount(zest_layer layer);
 //Get the pointer to the current instance in the layer if it's an instanced based layer (meaning you're drawing instances of sprites, billboards meshes etc.)
 //This will return a void* so you can cast it to whatever struct you're using for the instance data
 #define zest_GetLayerInstance(type, layer, fif) (type *)layer->memory_refs[fif].instance_ptr
@@ -5417,42 +5422,42 @@ ZEST_API void *zest_NextInstance(zest_layer layer);
 ZEST_API void zest_FreeLayer(zest_layer_handle layer);
 //Set the viewport of a layer. This is important to set right as when the layer is drawn it needs to be clipped correctly and in a lot of cases match how the
 //uniform buffer is setup
-ZEST_API void zest_SetLayerViewPort(zest_layer_handle layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
-ZEST_API void zest_SetLayerScissor(zest_layer_handle layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height);
+ZEST_API void zest_SetLayerViewPort(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
+ZEST_API void zest_SetLayerScissor(zest_layer layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height);
 //Update the layer viewport to match the swapchain
-ZEST_API void zest_SetLayerSizeToSwapchain(zest_layer_handle layer);
+ZEST_API void zest_SetLayerSizeToSwapchain(zest_layer layer);
 //Set the size of the layer. Called internally to set it to the window size. Can this be internal?
-ZEST_API void zest_SetLayerSize(zest_layer_handle layer, float width, float height);
+ZEST_API void zest_SetLayerSize(zest_layer layer, float width, float height);
 //Set the layer color. This is used to apply color to the sprite/font/billboard that you're drawing or you can use it in your own draw routines that use zest_layers.
 //Note that the alpha value here is actually a transition between additive and alpha blending. Where 0 is the most additive and 1 is the most alpha blending. Anything
 //imbetween is a combination of the 2.
-ZEST_API void zest_SetLayerColor(zest_layer_handle layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha);
-ZEST_API void zest_SetLayerColorf(zest_layer_handle layer, float red, float green, float blue, float alpha);
+ZEST_API void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha);
+ZEST_API void zest_SetLayerColorf(zest_layer layer, float red, float green, float blue, float alpha);
 //Set the intensity of the layer. This is used to apply an alpha value to the sprite or billboard you're drawing or you can use it in your own draw routines that
 //use zest_layers. Note that intensity levels can exceed 1.f to make your sprites extra bright because of pre-multiplied blending in the sprite.
-ZEST_API void zest_SetLayerIntensity(zest_layer_handle layer, float value);
+ZEST_API void zest_SetLayerIntensity(zest_layer layer, float value);
 //A dirty layer denotes that it's buffers have changed and therefore needs uploading to the GPU again. This is currently used for Dear Imgui layers.
-ZEST_API void zest_SetLayerChanged(zest_layer_handle layer);
+ZEST_API void zest_SetLayerChanged(zest_layer layer);
 //Returns 1 if the layer is marked as changed
-ZEST_API zest_bool zest_LayerHasChanged(zest_layer_handle layer);
+ZEST_API zest_bool zest_LayerHasChanged(zest_layer layer);
 //Set the user data of a layer. You can use this to extend the functionality of the layers for your own needs.
-ZEST_API void zest_SetLayerUserData(zest_layer_handle layer, void *data);
+ZEST_API void zest_SetLayerUserData(zest_layer layer, void *data);
 //Get the user data from the layer
 #define zest_GetLayerUserData(type, layer) ((type *)layer->user_data)
-ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer, zest_bool last_frame);
-ZEST_API zest_buffer zest_GetLayerResourceBuffer(zest_layer_handle layer);
-ZEST_API zest_buffer zest_GetLayerVertexBuffer(zest_layer_handle layer);
-ZEST_API zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer_handle layer);
-ZEST_API zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer_handle layer);
-ZEST_API void zest_UploadLayerStagingData(zest_layer_handle layer, const zest_command_list command_list);
+ZEST_API zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, zest_bool last_frame);
+ZEST_API zest_buffer zest_GetLayerResourceBuffer(zest_layer layer);
+ZEST_API zest_buffer zest_GetLayerVertexBuffer(zest_layer layer);
+ZEST_API zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer layer);
+ZEST_API zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer);
+ZEST_API void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list command_list);
 ZEST_API void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data);
-ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer_handle layer_handle);
+ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer_handle);
 //-- End Draw Layers
 
 
 //-----------------------------------------------
 //        Draw_instance_layers
-//        General purpose functions you can use to either draw built in instances like billboards and sprites or your own custom instances
+//        General purpose functions you can use to either draw built in instances like instanced meshes and billboards
 //-----------------------------------------------
 //Set the texture, descriptor set shader_resources and pipeline for any calls to the same layer that come after it. You must call this function if you want to do any instance drawing for a particular layer, and you
 //must call it again if you wish to switch either the texture, descriptor set or pipeline to do the drawing. Everytime you call this function it creates a new draw instruction
@@ -5461,21 +5466,25 @@ ZEST_API zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer_handle l
 //Pass in the zest_layer, zest_texture, zest_descriptor_set and zest_pipeline. A few things to note:
 //1) The descriptor layout used to create the descriptor sets in the shader_resources must match the layout used in the pipeline.
 //2) You can pass 0 in the descriptor set and it will just use the default descriptor set used in the texture.
-ZEST_API void zest_SetInstanceDrawing(zest_layer_handle layer, zest_shader_resources_handle shader_resources,  zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources_handle shader_resources,  zest_pipeline_template pipeline);
 //Draw all the contents in a buffer. You can use this if you prepare all the instance data elsewhere in your code and then want
 //to just dump it all into the staging buffer of the layer in one go. This will move the instance pointer in the layer to the next point
 //in the buffer as well as bump up the instance count by the amount you pass into the function. The instance buffer will be grown if
 //there is not enough room.
 //Note that the struct size of the data you're copying MUST be the same size as the layer->struct_size.
-ZEST_API zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer_handle layer, void *src, zest_uint amount);
+ZEST_API zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zest_uint amount);
 //In situations where you write directly to a staging buffer you can use this function to simply tell the draw instruction
 //how many instances should be drawn. You will still need to call zest_SetInstanceDrawing
-ZEST_API void zest_DrawInstanceInstruction(zest_layer_handle layer, zest_uint amount);
+ZEST_API void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount);
 //Set the viewport and scissors of the next draw instructions for a layer. Otherwise by default it will use either the screen size
 //of or the viewport size you set with zest_SetLayerViewPort
-ZEST_API void zest_SetLayerDrawingViewport(zest_layer_handle layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
+ZEST_API void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height);
 //Set the current instruction push contants in the layer
-ZEST_API void zest_SetLayerPushConstants(zest_layer_handle layer, void *push_constants, zest_size size);
+ZEST_API void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size);
+//Get the current push constants in the layer for the current instruction
+ZEST_API void *zest_GetLayerPushConstants(zest_layer layer);
+//Get the current push constants in the layer for the current instruction
+ZEST_API int zest_GetLayerFrameInFlight(zest_layer layer);
 #define zest_CastLayerPushConstants(type, layer) (type *)layer->current_instruction.push_constant
 
 
@@ -5484,19 +5493,19 @@ ZEST_API void zest_SetLayerPushConstants(zest_layer_handle layer, void *push_con
 //        Mesh layers let you upload a vertex and index buffer to draw meshes. I set this up primarily for
 //        use with Dear ImGui
 //-----------------------------------------------
-ZEST_API zest_buffer zest_GetVertexWriteBuffer(zest_layer_handle layer);
+ZEST_API zest_buffer zest_GetVertexWriteBuffer(zest_layer layer);
 //Get the index staging buffer. You'll need to get the staging buffers to copy your mesh data to or even just record mesh data directly to the staging buffer
-ZEST_API zest_buffer zest_GetIndexWriteBuffer(zest_layer_handle layer);
+ZEST_API zest_buffer zest_GetIndexWriteBuffer(zest_layer layer);
 //Grow the mesh vertex buffers. You must update the buffer->memory_in_use so that it can decide if a buffer needs growing
-ZEST_API void zest_GrowMeshVertexBuffers(zest_layer_handle layer);
+ZEST_API void zest_GrowMeshVertexBuffers(zest_layer layer);
 //Grow the mesh index buffers. You must update the buffer->memory_in_use so that it can decide if a buffer needs growing
-ZEST_API void zest_GrowMeshIndexBuffers(zest_layer_handle layer);
+ZEST_API void zest_GrowMeshIndexBuffers(zest_layer layer);
 //Set the mesh drawing specifying any texture, descriptor set and pipeline that you want to use for the drawing
-ZEST_API void zest_SetMeshDrawing(zest_layer_handle layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
+ZEST_API void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
 //Helper funciton Push a vertex to the vertex staging buffer. It will automatically grow the buffers if needed
-ZEST_API void zest_PushVertex(zest_layer_handle layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color_t color, zest_uint parameters);
+ZEST_API void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color_t color, zest_uint parameters);
 //Helper funciton Push an index to the index staging buffer. It will automatically grow the buffers if needed
-ZEST_API void zest_PushIndex(zest_layer_handle layer, zest_uint offset);
+ZEST_API void zest_PushIndex(zest_layer layer, zest_uint offset);
 //Callback for the frame graph
 ZEST_API void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user_data);
 
@@ -5507,7 +5516,7 @@ ZEST_API void zest_DrawInstanceMeshLayer(const zest_command_list command_list, v
 //        Very basic stuff currently, I'm just using them to create 3d widgets I can use in TimelineFX
 //        but this can all be expanded on for general 3d models in the future.
 //-----------------------------------------------
-ZEST_API void zest_SetInstanceMeshDrawing(zest_layer_handle layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
+ZEST_API void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources_handle shader_resources, zest_pipeline_template pipeline);
 //Push a zest_vertex_t to a mesh. Use this and PushMeshTriangle to build a mesh ready to be added to an instance mesh layer
 ZEST_API void zest_PushMeshVertex(zest_mesh mesh, float pos_x, float pos_y, float pos_z, zest_color_t color);
 //Push an index to a mesh to build triangles
@@ -5535,14 +5544,14 @@ ZEST_API void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh);
 //Set the group id for every vertex in the mesh. This can be used in the shader to identify different parts of the mesh and do different shader stuff with them.
 ZEST_API void zest_SetMeshGroupID(zest_mesh mesh, zest_uint group_id);
 //Add a mesh to an instanced mesh layer. Existing vertex data in the layer will be deleted.
-ZEST_API void zest_AddMeshToLayer(zest_layer_handle layer, zest_mesh src_mesh);
+ZEST_API void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh);
 //Get the size in bytes for the vertex data in a mesh
 ZEST_API zest_size zest_MeshVertexDataSize(zest_mesh mesh);
 //Get the size in bytes for the index data in a mesh
 ZEST_API zest_size zest_MeshIndexDataSize(zest_mesh mesh);
 //Draw an instance of a mesh with an instanced mesh layer. Pass in the position, rotations and scale to transform the instance.
 //You must call zest_SetInstanceDrawing before calling this function as many times as you need.
-ZEST_API void zest_DrawInstancedMesh(zest_layer_handle mesh_layer, float pos[3], float rot[3], float scale[3]);
+ZEST_API void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]);
 //Create a cylinder mesh of given number of sides, radius and height. Set cap to 1 to cap the cylinder.
 ZEST_API zest_mesh zest_CreateCylinder(zest_context context, int sides, float radius, float height, zest_color_t color, zest_bool cap);
 //Create a cone mesh of given number of sides, radius and height.
@@ -5745,8 +5754,8 @@ ZEST_API void zest_cmd_BindVertexBuffer(const zest_command_list command_list, ze
 ZEST_API void zest_cmd_BindIndexBuffer(const zest_command_list command_list, zest_buffer buffer);
 //Clear an image within a frame graph
 ZEST_API zest_bool zest_cmd_ImageClear(const zest_command_list command_list, zest_image_handle image);
-ZEST_API void zest_cmd_BindMeshVertexBuffer(const zest_command_list command_list, zest_layer_handle layer);
-ZEST_API void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_layer_handle layer);
+ZEST_API void zest_cmd_BindMeshVertexBuffer(const zest_command_list command_list, zest_layer layer);
+ZEST_API void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_layer layer);
 //Send custom push constants. Use inside a compute update command buffer callback function. The push constatns you pass in to the 
 //function must be the same size that you set when creating the compute shader
 ZEST_API void zest_cmd_SendCustomComputePushConstants(const zest_command_list command_list, zest_compute_handle compute, const void *push_constant);

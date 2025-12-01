@@ -3576,8 +3576,8 @@ zest_device zest_GetContextDevice(zest_context context) {
 	return context->device;
 }
 
-zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer_handle layer_handle, zest_bool last_frame) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_uint zest_GetLayerVertexDescriptorIndex(zest_layer layer, zest_bool last_frame) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->memory_refs[last_frame ? layer->prev_fif : layer->fif].descriptor_array_index;
 }
 
@@ -6515,8 +6515,8 @@ zest_uint zest_AcquireStorageBufferIndex(zest_context context, zest_buffer buffe
     return zest__acquire_bindless_storage_buffer_index(buffer, context->bindless_set_layout, context->bindless_set, zest_storage_buffer_binding);
 }
 
-void zest_AcquireInstanceLayerBufferIndex(zest_context context, zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_AcquireInstanceLayerBufferIndex(zest_context context, zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT(ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif));   //Layer must have been created with a persistant vertex buffer
     zest_ForEachFrameInFlight(fif) {
 		layer->memory_refs[fif].descriptor_array_index = zest_AcquireStorageBufferIndex(context, layer->memory_refs[fif].device_vertex_data);
@@ -6659,8 +6659,8 @@ zest_resource_node zest_AddTransientBufferResource(const char *name, const zest_
     return zest__add_frame_graph_resource(&node);
 }
 
-zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer_handle layer_handle, zest_bool prev_fif) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_resource_node zest_AddTransientLayerResource(const char *name, const zest_layer layer, zest_bool prev_fif) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest_size layer_size = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->frame_graph);        //Not a valid frame graph! Make sure you called BeginRenderGraph or BeginRenderToScreen
     zest_frame_graph frame_graph = zest__frame_graph_builder->frame_graph;
@@ -6800,27 +6800,28 @@ void zest_SetPassTask(zest_rg_execution_callback callback, void *user_data) {
     pass->execution_callback = callback_data;
 }
 
-void zest_SetPassInstanceLayerUpload(zest_layer_handle layer_handle) {
+void zest_SetPassInstanceLayerUpload(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass);        //No current pass found, make sure you call zest_BeginPass
     zest_pass_node pass = zest__frame_graph_builder->current_pass;
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif) && layer->dirty[layer->fif] == 0) {
         return;
     }
     zest_pass_execution_callback_t callback_data;
     callback_data.callback = zest_UploadInstanceLayerData;
-    callback_data.user_data = &layer_handle;
+    callback_data.user_data = layer;
     pass->execution_callback = callback_data;
 }
 
-void zest_SetPassInstanceLayer(zest_layer_handle layer_handle) {
+void zest_SetPassInstanceLayer(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	zest_context context = zest__frame_graph_builder->context;
     ZEST_ASSERT_HANDLE(zest__frame_graph_builder->current_pass);        //No current pass found, make sure you call zest_BeginPass
     zest_pass_node pass = zest__frame_graph_builder->current_pass;
     zest_pass_execution_callback_t callback_data;
     callback_data.callback = zest_DrawInstanceLayer;
-    callback_data.user_data = (void*)(uintptr_t)layer_handle.value;
+    callback_data.user_data = layer;
     pass->execution_callback = callback_data;
 }
 
@@ -7922,8 +7923,7 @@ void zest_BindAtlasRegionToImage(zest_atlas_region_t *region, zest_uint sampler_
 //-- End Texture and Image Functions
 
 void zest_UploadInstanceLayerData(const zest_command_list command_list, void *user_data) {
-	zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+	zest_layer layer = (zest_layer)user_data;
 
     ZEST__MAYBE_REPORT(command_list->context, !ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadInstanceLayerData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", zest__frame_graph_builder->frame_graph->name);
 
@@ -7969,8 +7969,8 @@ void zest__reset_instance_layer_drawing(zest_layer layer) {
     layer->memory_refs[layer->fif].vertex_memory_in_use = 0;
 }
 
-void zest_ResetInstanceLayerDrawing(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_ResetInstanceLayerDrawing(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest_vec_clear(layer->draw_instructions[layer->fif]);
     layer->current_instruction = zest__layer_instruction();
     layer->memory_refs[layer->fif].instance_count = 0;
@@ -7978,8 +7978,8 @@ void zest_ResetInstanceLayerDrawing(zest_layer_handle layer_handle) {
     layer->memory_refs[layer->fif].vertex_memory_in_use = 0;
 }
 
-zest_uint zest_GetInstanceLayerCount(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_uint zest_GetInstanceLayerCount(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->memory_refs[layer->fif].instance_count;
 }
 
@@ -8033,18 +8033,18 @@ void zest__set_layer_push_constants(zest_layer layer, void *push_constants, zest
     memcpy(layer->current_instruction.push_constant, push_constants, size);
 }
 
-void zest_StartInstanceInstructions(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_StartInstanceInstructions(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->current_instruction.start_index = layer->memory_refs[layer->fif].instance_count ? layer->memory_refs[layer->fif].instance_count : 0;
 }
 
-void zest_ResetLayer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_ResetLayer(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->fif = (layer->fif + 1) % ZEST_MAX_FIF;
 }
 
-void zest_ResetInstanceLayer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_ResetInstanceLayer(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT(ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif));   //You must have created the layer with zest_CreateFIFInstanceLayer
                                                                             //if you want to manually reset the layer
     layer->prev_fif = layer->fif;
@@ -8075,14 +8075,14 @@ void zest__end_instance_instructions(zest_layer layer) {
     layer->memory_refs[layer->fif].vertex_memory_in_use = layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
 }
 
-void zest_EndInstanceInstructions(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
-    zest__end_instance_instructions(layer);
+void zest_EndInstanceInstructions(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	zest__end_instance_instructions(layer);
 }
 
-zest_bool zest_MaybeEndInstanceInstructions(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
-	zest_context context = (zest_context)layer_handle.store->origin;
+zest_bool zest_MaybeEndInstanceInstructions(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	zest_context context = layer->context;
     if (layer->current_instruction.total_instances) {
         layer->last_draw_mode = zest_draw_mode_none;
         zest_vec_push(context->device->allocator, layer->draw_instructions[layer->fif], layer->current_instruction);
@@ -8096,8 +8096,8 @@ zest_bool zest_MaybeEndInstanceInstructions(zest_layer_handle layer_handle) {
     return 1;
 }
 
-zest_size zest_GetLayerInstanceSize(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_size zest_GetLayerInstanceSize(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	return layer->memory_refs[layer->fif].instance_count * layer->instance_struct_size;
 }
 
@@ -8131,6 +8131,7 @@ void zest__update_instance_layer_resolution(zest_layer layer) {
 
 //Start general instance layer functionality -----
 void *zest_NextInstance(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest_byte* instance_ptr = (zest_byte*)layer->memory_refs[layer->fif].instance_ptr + layer->instance_struct_size;
     //Make sure we're not trying to write outside of the buffer range
     ZEST_ASSERT(instance_ptr >= (zest_byte*)zest_BufferData(layer->memory_refs[layer->fif].staging_instance_data) && instance_ptr <= (zest_byte*)zest_BufferDataEnd(layer->memory_refs[layer->fif].staging_instance_data));
@@ -8153,9 +8154,9 @@ void *zest_NextInstance(zest_layer layer) {
 	return (zest_byte *)instance_ptr - layer->instance_struct_size;
 }
 
-zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer_handle layer_handle, void *src, zest_uint amount) {
-	zest_context context = (zest_context)layer_handle.store->origin;
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer layer, void *src, zest_uint amount) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	zest_context context = layer->context;
     if (!amount) return zest_draw_buffer_result_ok;
     zest_draw_buffer_result result = zest_draw_buffer_result_ok;
     zest_size size_in_bytes_to_copy = amount * layer->instance_struct_size;
@@ -8181,8 +8182,8 @@ zest_draw_buffer_result zest_DrawInstanceBuffer(zest_layer_handle layer_handle, 
     return result;
 }
 
-void zest_DrawInstanceInstruction(zest_layer_handle layer_handle, zest_uint amount) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_DrawInstanceInstruction(zest_layer layer, zest_uint amount) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->memory_refs[layer->fif].instance_count += amount;
     layer->current_instruction.total_instances += amount;
     zest_size size_in_bytes_to_draw = amount * layer->instance_struct_size;
@@ -8202,30 +8203,31 @@ zest_layer_handle zest__new_layer(zest_context context, zest_layer *out_layer) {
     *layer = ZEST__ZERO_INIT(zest_layer_t);
     layer->magic = zest_INIT_MAGIC(zest_struct_type_layer);
     layer->handle = handle;
+	layer->context = context;
     *out_layer = layer;
     return handle;
 }
 
 void zest_FreeLayer(zest_layer_handle layer_handle) {
     zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
-	zest_context context = (zest_context)layer_handle.store->origin;
+	zest_context context = layer->context;
     zest_vec_push(context->device->allocator, context->device->deferred_resource_freeing_list.resources[context->current_fif], layer);
 }
 
-void zest_SetLayerViewPort(zest_layer_handle layer_handle, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerViewPort(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
     layer->viewport = zest_CreateViewport((float)x, (float)y, viewport_width, viewport_height, 0.f, 1.f);
 }
 
-void zest_SetLayerScissor(zest_layer_handle layer_handle, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerScissor(zest_layer layer, int offset_x, int offset_y, zest_uint scissor_width, zest_uint scissor_height) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->scissor = zest_CreateRect2D(scissor_width, scissor_height, offset_x, offset_y);
 }
 
-void zest_SetLayerSizeToSwapchain(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
-	zest_context context = (zest_context)layer_handle.store->origin;
+void zest_SetLayerSizeToSwapchain(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	zest_context context = layer->context;
 	zest_swapchain swapchain = context->swapchain;
     ZEST_ASSERT_HANDLE(swapchain);	//Not a valid swapchain handle!
     layer->scissor = zest_CreateRect2D((zest_uint)swapchain->size.width, (zest_uint)swapchain->size.height, 0, 0);
@@ -8233,47 +8235,46 @@ void zest_SetLayerSizeToSwapchain(zest_layer_handle layer_handle) {
 
 }
 
-void zest_SetLayerSize(zest_layer_handle layer_handle, float width, float height) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerSize(zest_layer layer, float width, float height) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->layer_size.x = width;
     layer->layer_size.y = height;
 }
 
-void zest_SetLayerColor(zest_layer_handle layer_handle, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerColor(zest_layer layer, zest_byte red, zest_byte green, zest_byte blue, zest_byte alpha) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->current_color = zest_ColorSet(red, green, blue, alpha);
 }
 
-void zest_SetLayerColorf(zest_layer_handle layer_handle, float red, float green, float blue, float alpha) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerColorf(zest_layer layer, float red, float green, float blue, float alpha) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->current_color = zest_ColorSet((zest_byte)(red * 255.f), (zest_byte)(green * 255.f), (zest_byte)(blue * 255.f), (zest_byte)(alpha * 255.f));
 }
 
-void zest_SetLayerIntensity(zest_layer_handle layer_handle, float value) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerIntensity(zest_layer layer, float value) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->intensity = value;
 }
 
-void zest_SetLayerChanged(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerChanged(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest_ForEachFrameInFlight(i) {
         layer->dirty[i] = 1;
     }
 }
 
-zest_bool zest_LayerHasChanged(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_bool zest_LayerHasChanged(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->dirty[layer->fif];
 }
 
-void zest_SetLayerUserData(zest_layer_handle layer_handle, void *data) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerUserData(zest_layer layer, void *data) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     layer->user_data = data;
 }
 
-void zest_UploadLayerStagingData(zest_layer_handle layer_handle, const zest_command_list command_list) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
-	zest_context context = (zest_context)layer_handle.store->origin;
+void zest_UploadLayerStagingData(zest_layer layer, const zest_command_list command_list) {
+	zest_context context = layer->context;
 
     ZEST__MAYBE_REPORT(context, !ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_UploadLayerStagingData was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", zest__frame_graph_builder->frame_graph->name);
 
@@ -8302,9 +8303,9 @@ void zest_UploadLayerStagingData(zest_layer_handle layer_handle, const zest_comm
     }
 }
 
-zest_buffer zest_GetLayerResourceBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
-	zest_context context = (zest_context)layer_handle.store->origin;
+zest_buffer zest_GetLayerResourceBuffer(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	zest_context context = layer->context;
     if (ZEST__FLAGGED(layer->flags, zest_layer_flag_manual_fif)) {
         return layer->memory_refs[layer->fif].device_vertex_data;
     } else if(ZEST_VALID_HANDLE(layer->vertex_buffer_node)) {
@@ -8318,23 +8319,23 @@ zest_buffer zest_GetLayerResourceBuffer(zest_layer_handle layer_handle) {
     return NULL;
 }
 
-zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_buffer zest_GetLayerStagingVertexBuffer(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->memory_refs[layer->fif].staging_instance_data;
 }
 
-zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_buffer zest_GetLayerStagingIndexBuffer(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->memory_refs[layer->fif].staging_index_data;
 }
 
-zest_buffer zest_GetLayerVertexBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_buffer zest_GetLayerVertexBuffer(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->memory_refs[layer->fif].device_vertex_data;
 }
 
-zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	if (layer->instruction_index < zest_vec_size(layer->draw_instructions[layer->fif])) {
 		zest_layer_instruction_t *instruction = &layer->draw_instructions[layer->fif][layer->instruction_index];
 		layer->instruction_index++;
@@ -8345,8 +8346,9 @@ zest_layer_instruction_t *zest_NextLayerInstruction(zest_layer_handle layer_hand
 }
 
 void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_data) {
-    zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+    zest_layer layer = (zest_layer)user_data;
+
+    ZEST__MAYBE_REPORT(command_list->context, !ZEST_VALID_HANDLE(layer), zest_report_invalid_layer, "Error in [%s] The zest_DrawInstanceLayer was called with invalid layer data. Pass in a valid layer or array of layers to the zest_SetPassTask function in the frame graph.", zest__frame_graph_builder->frame_graph->name);
 
     if (!layer->vertex_buffer_node) return; //It could be that the frame graph culled the pass because it was unreferenced or disabled
     if (!layer->vertex_buffer_node->storage_buffer) return;
@@ -8390,6 +8392,11 @@ void zest_DrawInstanceLayer(const zest_command_list command_list, void *user_dat
 zest_layer_handle zest_CreateInstanceLayer(zest_context context, const char* name, zest_size type_size) {
     zest_layer_builder_t builder = zest_NewInstanceLayerBuilder(context, type_size);
     return zest_FinishInstanceLayer(name, &builder);
+}
+
+ZEST_API zest_layer zest_GetLayer(zest_layer_handle layer_handle) {
+    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+	return layer;
 }
 
 zest_layer_handle zest_CreateFIFInstanceLayer(zest_context context, const char* name, zest_size type_size) {
@@ -8445,11 +8452,11 @@ void zest__initialise_instance_layer(zest_context context, zest_layer layer, zes
 }
 
 //-- Start Instance Drawing API
-void zest_SetInstanceDrawing(zest_layer_handle layer_handle, zest_shader_resources_handle handle, zest_pipeline_template pipeline) {
-	ZEST_ASSERT(layer_handle.store->origin == handle.store->origin);	//Layer and shader resource context must match
-	zest_context context = (zest_context)layer_handle.store->origin;
+void zest_SetInstanceDrawing(zest_layer layer, zest_shader_resources_handle handle, zest_pipeline_template pipeline) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	ZEST_ASSERT(layer->handle.store->origin == handle.store->origin);	//Layer and shader resource context must match
+	zest_context context = layer->context;
     zest_shader_resources shader_resources = (zest_shader_resources)zest__get_store_resource_checked(handle.store, handle.value);
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.pipeline_template = pipeline;
@@ -8461,9 +8468,8 @@ void zest_SetInstanceDrawing(zest_layer_handle layer_handle, zest_shader_resourc
     layer->last_draw_mode = zest_draw_mode_instance;
 }
 
-void zest_SetLayerDrawingViewport(zest_layer_handle layer_handle, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
-	zest_context context = (zest_context)layer_handle.store->origin;
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerDrawingViewport(zest_layer layer, int x, int y, zest_uint scissor_width, zest_uint scissor_height, float viewport_width, float viewport_height) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
     layer->current_instruction.scissor = zest_CreateRect2D(scissor_width, scissor_height, x, y);
@@ -8471,10 +8477,18 @@ void zest_SetLayerDrawingViewport(zest_layer_handle layer_handle, int x, int y, 
     layer->current_instruction.draw_mode = zest_draw_mode_viewport;
 }
 
-void zest_SetLayerPushConstants(zest_layer_handle layer_handle, void *push_constants, zest_size size) {
-	zest_context context = (zest_context)layer_handle.store->origin;
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_SetLayerPushConstants(zest_layer layer, void *push_constants, zest_size size) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	zest__set_layer_push_constants(layer, push_constants, size);
+}
+
+void *zest_GetLayerPushConstants(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	return (void*)layer->current_instruction.push_constant;
+}
+
+int zest_GetLayerFrameInFlight(zest_layer layer) {
+	return (int)layer->fif;
 }
 
 //-- Start Mesh Drawing API
@@ -8516,30 +8530,30 @@ void zest__initialise_mesh_layer(zest_context context, zest_layer mesh_layer, ze
     }
 }
 
-zest_buffer zest_GetVertexWriteBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_buffer zest_GetVertexWriteBuffer(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->memory_refs[layer->fif].staging_vertex_data;
 }
 
-zest_buffer zest_GetIndexWriteBuffer(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+zest_buffer zest_GetIndexWriteBuffer(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     return layer->memory_refs[layer->fif].staging_index_data;
 }
 
-void zest_GrowMeshVertexBuffers(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_GrowMeshVertexBuffers(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	zest_size memory_in_use = layer->memory_refs[layer->fif].vertex_memory_in_use;
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_vertex_data, layer->vertex_struct_size, memory_in_use);
 }
 
-void zest_GrowMeshIndexBuffers(zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_GrowMeshIndexBuffers(zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
 	zest_size memory_in_use = layer->memory_refs[layer->fif].vertex_memory_in_use;
     zest_GrowBuffer(&layer->memory_refs[layer->fif].staging_index_data, sizeof(zest_uint), memory_in_use);
 }
 
-void zest_PushVertex(zest_layer_handle layer_handle, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color_t color, zest_uint parameters) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_PushVertex(zest_layer layer, float pos_x, float pos_y, float pos_z, float intensity, float uv_x, float uv_y, zest_color_t color, zest_uint parameters) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest_textured_vertex_t vertex = ZEST__ZERO_INIT(zest_textured_vertex_t);
     vertex.pos = zest_Vec3Set(pos_x, pos_y, pos_z);
     vertex.intensity = intensity;
@@ -8569,8 +8583,8 @@ void zest_PushVertex(zest_layer_handle layer_handle, float pos_x, float pos_y, f
     layer->memory_refs[layer->fif].vertex_ptr = vertex_ptr;
 }
 
-void zest_PushIndex(zest_layer_handle layer_handle, zest_uint offset) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_PushIndex(zest_layer layer, zest_uint offset) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest_uint index = layer->memory_refs[layer->fif].vertex_count + offset;
     zest_uint* index_ptr = (zest_uint*)layer->memory_refs[layer->fif].index_ptr;
     *index_ptr = index;
@@ -8597,11 +8611,10 @@ void zest_PushIndex(zest_layer_handle layer_handle, zest_uint offset) {
     layer->memory_refs[layer->fif].index_ptr = index_ptr;
 }
 
-void zest_SetMeshDrawing(zest_layer_handle layer_handle, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
-	ZEST_ASSERT(layer_handle.store->origin == resource_handle.store->origin);	//Layer and shader resource context must match
+void zest_SetMeshDrawing(zest_layer layer, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource_checked(resource_handle.store, resource_handle.value);
     ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
     zest__end_mesh_instructions(layer);
     zest__start_mesh_instructions(layer);
@@ -8612,12 +8625,11 @@ void zest_SetMeshDrawing(zest_layer_handle layer_handle, zest_shader_resources_h
 }
 
 void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user_data) {
-    zest_layer_handle layer_handle = *(zest_layer_handle*)user_data;
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+    zest_layer layer = (zest_layer)user_data;
 
     if (layer->vertex_data && layer->index_data) {
-        zest_cmd_BindMeshVertexBuffer(command_list, layer_handle);
-        zest_cmd_BindMeshIndexBuffer(command_list, layer_handle);
+        zest_cmd_BindMeshVertexBuffer(command_list, layer);
+        zest_cmd_BindMeshIndexBuffer(command_list, layer);
     } else {
         ZEST_PRINT("No Vertex/Index data found in mesh layer [%s]!", layer->name);
         return;
@@ -8662,10 +8674,10 @@ void zest_DrawInstanceMeshLayer(const zest_command_list command_list, void *user
 //-- End Mesh Drawing API
 
 //-- Instanced_mesh_drawing
-void zest_SetInstanceMeshDrawing(zest_layer_handle layer_handle, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
+void zest_SetInstanceMeshDrawing(zest_layer layer, zest_shader_resources_handle resource_handle, zest_pipeline_template pipeline) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     zest_shader_resources resources = (zest_shader_resources)zest__get_store_resource_checked(resource_handle.store, resource_handle.value);
     ZEST_ASSERT_HANDLE(resources);   //Not a valid shader resource handle
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
     ZEST_ASSERT_HANDLE(pipeline);	//Not a valid handle!
     zest__end_instance_instructions(layer);
     zest__start_instance_instructions(layer);
@@ -8831,9 +8843,9 @@ void zest_AddMeshToMesh(zest_mesh dst_mesh, zest_mesh src_mesh) {
     }
 }
 
-void zest_AddMeshToLayer(zest_layer_handle layer_handle, zest_mesh src_mesh) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
-	zest_context context = (zest_context)layer_handle.store->origin;
+void zest_AddMeshToLayer(zest_layer layer, zest_mesh src_mesh) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
+	zest_context context = layer->context;
     zest_buffer vertex_staging_buffer = zest_CreateStagingBuffer(context, zest_MeshVertexDataSize(src_mesh), src_mesh->vertices);
     zest_buffer index_staging_buffer = zest_CreateStagingBuffer(context, zest_MeshIndexDataSize(src_mesh), src_mesh->indexes);
     layer->index_count = zest_vec_size(src_mesh->indexes);
@@ -8851,8 +8863,8 @@ void zest_AddMeshToLayer(zest_layer_handle layer_handle, zest_mesh src_mesh) {
     zest_FreeBuffer(index_staging_buffer);
 }
 
-void zest_DrawInstancedMesh(zest_layer_handle layer_handle, float pos[3], float rot[3], float scale[3]) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest_DrawInstancedMesh(zest_layer layer, float pos[3], float rot[3], float scale[3]) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT(layer->current_instruction.draw_mode == zest_draw_mode_instance);        //Call zest_StartSpriteDrawing before calling this function
 
     zest_mesh_instance_t* instance = (zest_mesh_instance_t*)zest_NextInstance(layer);
@@ -9741,14 +9753,16 @@ zest_bool zest_cmd_ImageClear(const zest_command_list command_list, zest_image_h
 	return command_list->context->device->platform->image_clear(command_list, handle);
 }
 
-void zest_cmd_BindMeshVertexBuffer(const zest_command_list command_list, zest_layer_handle layer_handle) {
+void zest_cmd_BindMeshVertexBuffer(const zest_command_list command_list, zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
-	command_list->context->device->platform->bind_mesh_vertex_buffer(command_list, layer_handle);
+	command_list->context->device->platform->bind_mesh_vertex_buffer(command_list, layer);
 }
 
-void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_layer_handle layer_handle) {
+void zest_cmd_BindMeshIndexBuffer(const zest_command_list command_list, zest_layer layer) {
+	ZEST_ASSERT_HANDLE(layer); //ERROR: Not a valid layer pointer
     ZEST_ASSERT_HANDLE(command_list);        //Not valid command_list, this command must be called within a frame graph execution callback
-	command_list->context->device->platform->bind_mesh_index_buffer(command_list, layer_handle);
+	command_list->context->device->platform->bind_mesh_index_buffer(command_list, layer);
 }
 //-- End Command_buffer_functions
 

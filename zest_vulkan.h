@@ -275,8 +275,8 @@ void zest__vk_view_port(const zest_command_list command_list, zest_viewport_t *v
 void zest__vk_blit_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_blit, zest_pipeline_stage_flags pipeline_stage);
 void zest__vk_copy_image_mip(const zest_command_list command_list, zest_resource_node src, zest_resource_node dst, zest_uint mip_to_copy, zest_pipeline_stage_flags pipeline_stage);
 void zest__vk_clip(const zest_command_list command_list, float x, float y, float width, float height, float minDepth, float maxDepth);
-void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer_handle layer_handle);
-void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer_handle layer_handle);
+void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer);
+void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer);
 void zest__vk_insert_compute_image_barrier(const zest_command_list command_list, zest_resource_node resource, zest_uint base_mip);
 zest_bool zest__vk_image_clear(const zest_command_list command_list, zest_image_handle handle);
 
@@ -4554,16 +4554,14 @@ void zest__vk_clip(const zest_command_list command_list, float x, float y, float
 	vkCmdSetScissor(command_list->backend->command_buffer, 0, 1, &scissor);
 }
 
-void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest__vk_bind_mesh_vertex_buffer(const zest_command_list command_list, zest_layer layer) {
     ZEST_ASSERT(layer->vertex_data);    //There's no vertex data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->vertex_data;
     VkDeviceSize offsets[] = { buffer->memory_offset };
     vkCmdBindVertexBuffers(command_list->backend->command_buffer, 0, 1, zest__vk_get_device_buffer(buffer), offsets);
 }
 
-void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer_handle layer_handle) {
-    zest_layer layer = (zest_layer)zest__get_store_resource_checked(layer_handle.store, layer_handle.value);
+void zest__vk_bind_mesh_index_buffer(const zest_command_list command_list, zest_layer layer) {
     ZEST_ASSERT(layer->index_data);    //There's no index data in the buffer. Did you call zest_AddMeshToLayer?
     zest_buffer_t *buffer = layer->index_data;
     vkCmdBindIndexBuffer(command_list->backend->command_buffer, *zest__vk_get_device_buffer(buffer), buffer->memory_offset, VK_INDEX_TYPE_UINT32);
