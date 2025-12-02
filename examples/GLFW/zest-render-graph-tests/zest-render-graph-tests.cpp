@@ -836,16 +836,19 @@ void ResetTests(ZestTests *tests) {
 }
 
 void RunTests(ZestTests *tests) {
+	int completed_tests = 0;
 
 	while (1) {
+		zest_UpdateDevice(tests->device);
 		Test *current_test = &tests->tests[tests->current_test];
 		int result = current_test->the_test(tests, current_test);
 
 		if (current_test->frame_count == ZEST_MAX_FIF) {
 			if (current_test->result != current_test->expected_result) {
-				ZEST_PRINT("%s test failed", current_test->name);
+				ZEST_PRINT("\033[31m%s test failed\033[0m", current_test->name);
 			} else {
-				ZEST_PRINT("%s test passed", current_test->name);
+				ZEST_PRINT("\033[32m%s test passed\033[0m", current_test->name);
+				completed_tests++;
 			}
 			if (tests->current_test < TEST_COUNT - 1) {
 				tests->current_test++;
@@ -858,6 +861,7 @@ void RunTests(ZestTests *tests) {
 			}
 		}
 	}
+	ZEST_PRINT("%sTests completed: %i / %i\033[0m", completed_tests == TEST_COUNT == 0 ? "\033[31m" : "\033[32m", completed_tests, TEST_COUNT);
 }
 
 #if defined(_WIN32)
