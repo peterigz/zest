@@ -2728,8 +2728,6 @@ void zest__cleanup_context(zest_context context) {
     if (stats.used_blocks > 0) {
         ZEST_PRINT("There are still used memory blocks in a zest context, this indicates a memory leak and a possible bug in the Zest Renderer. There should be no used blocks after a zest context has shutdown. Check the type of allocation in the list below and check to make sure you're freeing those objects.");
         zest_PrintMemoryBlocks(context->allocator, zloc__first_block_in_pool(zloc_GetPool(context->allocator)), 1, zest_platform_none, zest_command_none);
-    } else {
-		ZEST_PRINT("Successful shutdown of Zest Context.");
     }
 	ZEST__FREE(context->device->allocator, context->allocator);
 }
